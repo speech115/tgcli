@@ -25,7 +25,7 @@ tgcli/
 │   ├── config.py              [planned] ~/.config/tgcli/config.toml, accounts registry, alias resolution
 │   ├── session.py             [planned] session paths, per-account file lock, TelegramClient factory
 │   ├── safety.py              [planned] --readonly / TGCLI_NO_SEND / write-audit checks (phase 4)
-│   ├── commands/
+│   └── commands/
 │   │   ├── accounts.py        [planned] tg accounts list|add|import   (phase 1 / import in 6)
 │   │   ├── dialogs.py         [planned] tg dialogs                    (phase 1)
 │   │   ├── read.py            [planned] tg read <chat>                (phase 1)
@@ -34,8 +34,6 @@ tgcli/
 │   │   ├── send.py            [planned] tg send --preview/--commit    (phase 4)
 │   │   ├── api.py             [planned] tg api raw TL passthrough     (phase 2 read / 4 write, ADR-0008)
 │   │   └── export.py          [planned] tg export messages|subscribers (phase 5, takeout)
-│   └── backends/
-│       └── tdlib.py           [planned] optional media fallback for private channels (phase 3)
 ├── tests/                     [planned] unit tests, mocked Telethon client
 │   └── live/                  [planned] gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
@@ -50,7 +48,6 @@ tgcli/
 - `commands/*` never print — they return data structures; `cli.py` passes
   them to `output.emit()`. This is what keeps the stdout contract testable.
 - `errors.py` is the only place exit codes live.
-- `backends/` are optional heavy paths; core must work without them.
 
 ## ADR Index
 
@@ -61,6 +58,7 @@ tgcli/
 | [0003](decisions/ADR-0003-output-contract.md) | stdout=data, stderr=human, fixed exit codes |
 | [0004](decisions/ADR-0004-accounts-and-sessions.md) | SQLiteSession per account + file lock; import from old stack |
 | [0005](decisions/ADR-0005-safety-model.md) | Reads free; writes preview→commit + audit; runtime flags not baked profiles |
-| [0006](decisions/ADR-0006-media-tdlib-fallback.md) | Telethon media first, TDLib as optional fallback backend |
+| [0006](decisions/ADR-0006-media-tdlib-fallback.md) | ~~TDLib as optional fallback backend~~ superseded by 0009 |
 | [0007](decisions/ADR-0007-docs-discipline.md) | MAP + ADR + DEVLOG as mandatory agent workflow |
 | [0008](decisions/ADR-0008-raw-api-passthrough.md) | `tg api` raw TL passthrough; fail-closed verb allowlist, write gate, denylist |
+| [0009](decisions/ADR-0009-tdlib-deferred.md) | TDLib deferred: no backend in v1; phase 3 Telethon-only; evidence-gated PoC re-entry |

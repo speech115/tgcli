@@ -23,9 +23,11 @@ not rewritten.
   `flood_sleep_threshold` auto-sleeps short FloodWaits; `client.takeout()`
   gives lower flood limits for bulk export (phase 5).
 - **Old stack lessons**: 120s MCP cap killed long downloads (direct Telethon
-  path in `tg download` already proved the fix); TDLib is the reliable
-  backend for private-channel media; confirmed-send preview replay is worth
-  keeping; everything else daemon-related is the disease, not the cure.
+  path in `tg download` already proved the fix); confirmed-send preview
+  replay is worth keeping; everything else daemon-related is the disease,
+  not the cure. ~~TDLib is the reliable backend for private-channel media~~ —
+  re-audit 2026-07-06 disproved this: the claim was never benchmarked and the
+  incident was operational (ADR-0009).
 
 ## Non-Goals (v1)
 
@@ -64,13 +66,17 @@ side-by-side smoke on 3 real dialogs gives matching counts;
 `tg api users.getFullUser --params '{"id": "@self"}' --json` works live;
 `tg api messages.sendMessage --write ...` exits 2.
 
-### Phase 3 — Media
+### Phase 3 — Media (Telethon-only; TDLib deferred — ADR-0009)
 `tg media download <t.me/link|chat msg_id>` via Telethon streaming
-(no artificial timeout); TDLib fallback backend behind `--backend tdlib`
-for private-channel cases Telethon fails on (import logic from
-`tools/telegram/experiments/tdlib-media-poc`).
+(no artificial timeout, progress on stderr, resume via offset on retry).
+Private `t.me/c/<id>/<msg>` links must resolve without a warm entity cache
+(dialogs scan → `channels.getChannels` → exit 4 naming the account that
+lacks access); `SessionRevokedError` surfaces as "needs reauth" (exit 3).
 Acceptance: downloads a >100 MB video from a private channel to
-`~/Downloads` with progress on stderr.
+`~/Downloads`; an interrupted download resumes on re-run; the 2026-07
+incident case (`t.me/c/3817664407/878`) succeeds or fails diagnosably —
+a reproducible Telethon failure there is the only trigger that re-opens
+TDLib, as a measured PoC (ADR-0009).
 
 ### Phase 4 — Write path
 `tg send --preview` → stores preview in `~/.local/state/tgcli/previews/`,
@@ -112,7 +118,7 @@ Acceptance: script exits 0; every TL namespace is `wrapped`, `api`,
 |------|-----------|
 | Per-invocation connect latency (1–3 s MTProto handshake) | acceptable for CLI; entity cache in session keeps it at the low end; if it ever hurts, add an opt-in local socket cache — with an ADR, not by default |
 | Session file lock contention (parallel agent calls) | fail fast exit 3 + retry hint; agents serialize per account naturally |
-| Telethon can't fetch some private-channel media | TDLib fallback backend (phase 3), already proven in old stack |
+| Private-channel media failures (2026-07 incident) | root causes were operational — revoked session, cold entity cache, Telethon 1.44 parse bug; phase 3 fixes each in-code; reproducible Telethon failure re-opens TDLib via gated PoC (ADR-0009) |
 | FloodWait on bulk reads | `flood_sleep_threshold` for short waits, exit 5 + `retry_after` for long ones; takeout for exports |
 | Scope creep back to 200k LOC | AGENTS.md: new abstraction requires ADR; YAGNI rule; MAP review each phase |
 | TL layer drift (Telegram adds methods/namespaces) | Telethon version-pinned; pin bumps re-run check-coverage against FEATURES.md (phase 7) |

@@ -15,6 +15,25 @@ Template:
 
 ---
 
+## 2026-07-06 — TDLib re-audit: fallback backend cut from plan (Claude Fable 5)
+**Did:** re-audited the TDLib claim behind ADR-0006 against the old stack's
+own records: its ADR (2026-06-21) had already ruled TDLib out as a runtime;
+the benchmark PoC never produced RESULTS.md; the 2026-07-06 incident's root
+causes were a revoked `vermassov` session, cold entity cache on `t.me/c/`
+links + Telethon 1.44 parse bug, and a TDLib backend that wasn't even
+installed. Wrote ADR-0009 (supersedes 0006), rewrote phase 3 as
+Telethon-only with in-code fixes, updated MAP (backends/ removed), risks,
+research-base line.
+**Decided:** no TDLib in v1 (ADR-0009). Re-entry only via reproducible
+Telethon failure on the incident case → measured, isolated PoC. Kept assets:
+authorized TDLib sessions `~/.telegram-mcp-tdlib/{main,vermassov}` + PoC harness.
+**Learned:** "TDLib is the reliable backend" was folklore from one manual
+rescue download, promoted into our ADR without a benchmark behind it.
+Re-audits of inherited claims pay off. Also: `vermassov` is missing from the
+ADR-0004 import list but held the only access in the incident — revisit at
+phase 6 cutover.
+**Next:** execute phase-1 plan (still unchanged).
+
 ## 2026-07-06 — Scope grill: "all functions" resolved via raw passthrough (Claude Fable 5)
 **Did:** grilled the "new version with ALL Telegram functions" request;
 competitor survey (iyear/tdl 7.7k★ media-only; b1rd33/tg-cli — closest analog,

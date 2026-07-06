@@ -1,6 +1,8 @@
 # ADR-0006: Telethon media first, TDLib as optional fallback backend
 
-Status: accepted (2026-07-06)
+Status: superseded by ADR-0009 (2026-07-06) — re-audit of the old stack's
+records showed the "TDLib proved reliable" claim was never benchmarked; the
+incident root causes were operational. See ADR-0009 for the corrected story.
 
 ## Context
 The old stack proved (2026-06, private-channel download work) that some
