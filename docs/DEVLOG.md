@@ -33,6 +33,12 @@ Re-audits of inherited claims pay off. Also: `vermassov` is missing from the
 ADR-0004 import list but held the only access in the incident — revisit at
 phase 6 cutover.
 **Next:** execute phase-1 plan (still unchanged).
+**Follow-up (same day):** user ratified cutting TDLib after a from-scratch
+re-analysis (key datum: iyear/tdl, the fastest private-channel downloader,
+uses gotd/td MTProto, not TDLib). Phase 3 now explicitly lists the tdl
+techniques: parallel chunks (FastTelethon-style), offset resume with state
+in `~/.local/state/tgcli/downloads/`, takeout for bulk (phase 5); acceptance
+adds "parallel beats single-stream" check.
 
 ## 2026-07-06 — Scope grill: "all functions" resolved via raw passthrough (Claude Fable 5)
 **Did:** grilled the "new version with ALL Telegram functions" request;

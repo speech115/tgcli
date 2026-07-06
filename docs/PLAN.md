@@ -68,13 +68,17 @@ side-by-side smoke on 3 real dialogs gives matching counts;
 
 ### Phase 3 — Media (Telethon-only; TDLib deferred — ADR-0009)
 `tg media download <t.me/link|chat msg_id>` via Telethon streaming
-(no artificial timeout, progress on stderr, resume via offset on retry).
+(no artificial timeout, progress on stderr). Download engine borrows the
+three techniques that make iyear/tdl fast — none require TDLib:
+parallel chunk download (FastTelethon-style `upload.getFile` with offsets
+over several connections), offset-based resume on retry (progress state in
+`~/.local/state/tgcli/downloads/`), takeout sessions for bulk (phase 5).
 Private `t.me/c/<id>/<msg>` links must resolve without a warm entity cache
 (dialogs scan → `channels.getChannels` → exit 4 naming the account that
 lacks access); `SessionRevokedError` surfaces as "needs reauth" (exit 3).
 Acceptance: downloads a >100 MB video from a private channel to
-`~/Downloads`; an interrupted download resumes on re-run; the 2026-07
-incident case (`t.me/c/3817664407/878`) succeeds or fails diagnosably —
+`~/Downloads`; parallel chunks measurably beat single-stream on that file;
+an interrupted download resumes on re-run; the 2026-07 incident case (`t.me/c/3817664407/878`) succeeds or fails diagnosably —
 a reproducible Telethon failure there is the only trigger that re-opens
 TDLib, as a measured PoC (ADR-0009).
 
