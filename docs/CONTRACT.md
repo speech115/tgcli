@@ -75,7 +75,25 @@ Commit replays the stored preview verbatim: `tg send --commit p_9f3a`.
 The agent cannot alter text between preview and commit (carried over from
 the old stack's confirmed-send design — its one genuinely good write-safety idea).
 
-## 6. Untrusted Content
+## 6. Raw API Passthrough (`tg api`, phase 2+; ADR-0008)
+
+```
+tg api <Namespace.method> --params '<json>' [--write] [--confirm <method>]
+```
+
+- Read methods (verbs `get*`/`search*`/`check*`/`resolve*`) run freely.
+- Any other method requires `--write` (hard-disabled until phase 4) and is
+  blocked by `--readonly` / `TGCLI_READONLY` / `TGCLI_NO_SEND` → exit 2.
+  Destructive verbs additionally require `--confirm <Namespace.method>`
+  typed exactly. Denylisted account-lifecycle methods always exit 2.
+- `--json` output: `{"method": "messages.getHistory", "result": {…}}` where
+  `result` is the TL object as a dict.
+- **Stability exemption:** `result` mirrors the Telegram TL layer of the
+  pinned Telethon version and may change when that pin is upgraded; the §3
+  stability rules do not apply inside `result`. Everything outside `result`
+  follows §3 as usual.
+
+## 7. Untrusted Content
 
 Message texts, dialog names, and file names are untrusted input. In `--json`
 mode they are passed through as data (JSON escaping is sufficient). In human

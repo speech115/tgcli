@@ -15,6 +15,26 @@ Template:
 
 ---
 
+## 2026-07-06 — Scope grill: "all functions" resolved via raw passthrough (Claude Fable 5)
+**Did:** grilled the "new version with ALL Telegram functions" request;
+competitor survey (iyear/tdl 7.7k★ media-only; b1rd33/tg-cli — closest analog,
+62 commands, MIT, bus-factor 1; ~10 telegram-mcp servers). Ran a loophole
+cycle on the strategy until it converged (3 iterations, 6 major holes fixed).
+Added ADR-0008, docs/FEATURES.md, CONTRACT §6 (tg api), PLAN updates
+(non-goals, phases 2/4, new phase 7, risks, research addendum), MAP rows.
+**Decided:** "all functions" = wrapped commands for daily use + `tg api`
+raw TL passthrough for the long tail + FEATURES.md coverage matrix with
+explicit exclusions (ADR-0008). Source of truth = pinned Telethon TL schema.
+Do not fork b1rd33/tg-cli; borrow typed `--confirm` + single-use previews.
+**Learned:** loopholes found by the cycle: raw passthrough would have
+bypassed preview→commit (fixed: read-only until phase 4, `--write` gate);
+`export*` methods look like reads but mutate (fixed: strict verb allowlist);
+`auth.logOut` via passthrough would kill the managed session (fixed: hard
+denylist); TL output can't obey our JSON stability rules (fixed: CONTRACT §6
+exemption); secret chats/calls are impossible in Telethon (fixed: explicit
+exclusions, otherwise "all functions" acceptance is unfalsifiable).
+**Next:** execute phase-1 plan (unchanged by this session).
+
 ## 2026-07-06 — Phase 0: project born (Claude Fable 5)
 **Did:** researched gogcli internals (deepwiki) and Telethon session/flood
 semantics (context7); created docs-first scaffold: README, AGENTS, CLAUDE,

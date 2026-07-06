@@ -14,6 +14,7 @@ tgcli/
 │   ├── PLAN.md                [done]    master plan, phases 0–6
 │   ├── CONTRACT.md            [done]    CLI automation contract (stdout/exit codes/JSON)
 │   ├── DEVLOG.md              [done]    session-by-session agent log
+│   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0008; trued up in phase 7)
 │   ├── decisions/             [done]    ADR-0001…0007 (see index below)
 │   └── superpowers/plans/     [done]    per-phase TDD implementation plans
 ├── src/tgcli/
@@ -31,13 +32,15 @@ tgcli/
 │   │   ├── search.py          [planned] tg search / count / latest / info / message (phase 2)
 │   │   ├── media.py           [planned] tg media download             (phase 3)
 │   │   ├── send.py            [planned] tg send --preview/--commit    (phase 4)
+│   │   ├── api.py             [planned] tg api raw TL passthrough     (phase 2 read / 4 write, ADR-0008)
 │   │   └── export.py          [planned] tg export messages|subscribers (phase 5, takeout)
 │   └── backends/
 │       └── tdlib.py           [planned] optional media fallback for private channels (phase 3)
 ├── tests/                     [planned] unit tests, mocked Telethon client
 │   └── live/                  [planned] gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
-    └── install-link.sh        [planned] symlink tg → PATH (phase 6 cutover)
+    ├── install-link.sh        [planned] symlink tg → PATH (phase 6 cutover)
+    └── check-coverage.py      [planned] TL namespaces vs FEATURES.md (phase 7 gate)
 ```
 
 ## Module Ownership Rules
@@ -60,3 +63,4 @@ tgcli/
 | [0005](decisions/ADR-0005-safety-model.md) | Reads free; writes preview→commit + audit; runtime flags not baked profiles |
 | [0006](decisions/ADR-0006-media-tdlib-fallback.md) | Telethon media first, TDLib as optional fallback backend |
 | [0007](decisions/ADR-0007-docs-discipline.md) | MAP + ADR + DEVLOG as mandatory agent workflow |
+| [0008](decisions/ADR-0008-raw-api-passthrough.md) | `tg api` raw TL passthrough; fail-closed verb allowlist, write gate, denylist |

@@ -33,6 +33,9 @@ not rewritten.
 - Mirror/archive (stays in old stack; `tg` links to it via docs, phase 6+ decision).
 - Multi-user distribution / packaging for strangers.
 - Bot API (this is a user-account MTProto tool).
+- Secret chats (Telethon does not implement them), voice/video calls
+  (separate WebRTC media stack), account signup (ToS/ban risk) —
+  see docs/FEATURES.md exclusions.
 
 ## Phases
 
@@ -52,10 +55,14 @@ account `main`; a second concurrent `tg` invocation on the same account
 fails fast with exit 3 and a clear lock message, not a corrupted session.
 Plan: [superpowers/plans/2026-07-06-phase-1-core-and-read.md](superpowers/plans/2026-07-06-phase-1-core-and-read.md)
 
-### Phase 2 — Read parity with old `tg`
-`tg search`, `tg count`, `tg latest`, `tg info`, `tg message`.
+### Phase 2 — Read parity with old `tg` + raw passthrough (read-only)
+`tg search`, `tg count`, `tg latest`, `tg info`, `tg message`;
+`tg api <Namespace.method>` restricted to the read allowlist (ADR-0008) —
+`--write` exits 2 with a "phase 4" message until safety.py exists.
 Acceptance: every read workflow from the old `tg` CLI has an equivalent;
-side-by-side smoke on 3 real dialogs gives matching counts.
+side-by-side smoke on 3 real dialogs gives matching counts;
+`tg api users.getFullUser --params '{"id": "@self"}' --json` works live;
+`tg api messages.sendMessage --write ...` exits 2.
 
 ### Phase 3 — Media
 `tg media download <t.me/link|chat msg_id>` via Telethon streaming
@@ -69,9 +76,13 @@ Acceptance: downloads a >100 MB video from a private channel to
 `tg send --preview` → stores preview in `~/.local/state/tgcli/previews/`,
 `tg send --commit <preview_id>` replays it verbatim; JSONL audit log
 `~/.local/state/tgcli/audit.jsonl`; `--readonly`/`TGCLI_NO_SEND` enforced
-in `safety.py` before any mutating call.
+in `safety.py` before any mutating call. Previews are single-use: a second
+`--commit` of the same id fails (idempotency, borrowed from b1rd33/tg-cli).
+Unlock `tg api --write` (+ typed `--confirm` for destructive verbs, hard
+denylist for account-lifecycle methods — ADR-0008), audited like sends.
 Acceptance: commit-without-preview fails (exit 2); audit line written for
-every send; `TGCLI_NO_SEND=1 tg send --commit ...` exits 2.
+every send and every `tg api --write`; `TGCLI_NO_SEND=1 tg send --commit ...`
+exits 2; `tg api auth.logOut --write --confirm auth.logOut` exits 2 (denylist).
 
 ### Phase 5 — Export
 `tg export messages <chat>` (takeout, JSONL out), `tg export subscribers
@@ -86,6 +97,14 @@ pattern); update `~/.claude/CLAUDE.md` Telegram routing; old daemons keep
 running until 2 weeks of parallel use show no regressions, then LaunchAgents
 are unloaded.
 Acceptance: one normal working week where no task needed the old stack.
+SKILL.md must direct agents to wrapped commands first, `tg api` last resort.
+
+### Phase 7 — Coverage closure
+`docs/FEATURES.md` matrix trued up against the pinned Telethon layer;
+`scripts/check-coverage.py` compares `telethon.tl.functions` namespaces to
+the matrix and fails on anything unlisted. Re-run on every Telethon pin bump.
+Acceptance: script exits 0; every TL namespace is `wrapped`, `api`,
+`planned:<phase>`, or `excluded` with a reason.
 
 ## Risks
 
@@ -96,3 +115,17 @@ Acceptance: one normal working week where no task needed the old stack.
 | Telethon can't fetch some private-channel media | TDLib fallback backend (phase 3), already proven in old stack |
 | FloodWait on bulk reads | `flood_sleep_threshold` for short waits, exit 5 + `retry_after` for long ones; takeout for exports |
 | Scope creep back to 200k LOC | AGENTS.md: new abstraction requires ADR; YAGNI rule; MAP review each phase |
+| TL layer drift (Telegram adds methods/namespaces) | Telethon version-pinned; pin bumps re-run check-coverage against FEATURES.md (phase 7) |
+| `tg api` as safety bypass | fail-closed verb allowlist, `--write` gate wired to same env kill-switches, typed `--confirm`, hard denylist (ADR-0008) |
+
+## Research Addendum (2026-07-06, competitor survey)
+
+- **iyear/tdl** (Go, 7.7k★, AGPL): best-in-class media download/upload/forward
+  + export; no dialog reading, no text send, no admin. Reference for phases 3/5.
+- **b1rd33/tg-cli** (Python/Telethon, MIT, 1★): closest existing analog —
+  62 commands, JSON envelope, exit codes, `--allow-write`, typed `--confirm`,
+  idempotency keys, audit, multi-account. Decision: do not fork (bus factor 1,
+  different safety model); borrow typed-confirm + single-use-preview ideas and
+  use its command list as a FEATURES.md checklist.
+- **telegram-mcp crowd** (chigwell, jgalea ~40 tools, dryeab, etc.): MCP niche
+  is crowded; validates ADR-0002 CLI-first as the differentiator.
