@@ -8,7 +8,7 @@ tgcli/
 ├── README.md                  [done]    vision + principles
 ├── AGENTS.md                  [done]    agent contract, doc discipline
 ├── CLAUDE.md                  [done]    Claude adapter → AGENTS.md
-├── pyproject.toml             [planned] uv-managed; deps: telethon; dev: pytest
+├── pyproject.toml             [done]    uv-managed; deps: telethon; dev: pytest
 ├── docs/
 │   ├── MAP.md                 [done]    this file
 │   ├── PLAN.md                [done]    master plan, phases 0–6
@@ -18,24 +18,24 @@ tgcli/
 │   ├── decisions/             [done]    ADR-0001…0007 (see index below)
 │   └── superpowers/plans/     [done]    per-phase TDD implementation plans
 ├── src/tgcli/
-│   ├── __init__.py            [planned] version string only
-│   ├── cli.py                 [planned] argparse tree, global flags, dispatch, exit-code mapping
-│   ├── output.py              [planned] emit(data) → stdout as JSON/plain; note()/warn() → stderr
-│   ├── errors.py              [planned] TgcliError hierarchy ↔ exit codes (CONTRACT.md §4)
-│   ├── config.py              [planned] ~/.config/tgcli/config.toml, accounts registry, alias resolution
-│   ├── session.py             [planned] session paths, per-account file lock, TelegramClient factory
+│   ├── __init__.py            [done]    version string only
+│   ├── cli.py                 [done]    argparse tree, global flags, dispatch, exit-code mapping
+│   ├── output.py              [done]    emit(data) → stdout as JSON/plain; note()/warn() → stderr
+│   ├── errors.py              [done]    TgcliError hierarchy ↔ exit codes (CONTRACT.md §4)
+│   ├── config.py              [done]    ~/.config/tgcli/config.toml, accounts registry, alias resolution
+│   ├── session.py             [done]    session paths, per-account file lock, TelegramClient factory
 │   ├── safety.py              [planned] --readonly / TGCLI_NO_SEND / write-audit checks (phase 4)
 │   └── commands/
-│   │   ├── accounts.py        [planned] tg accounts list|add|import   (phase 1 / import in 6)
-│   │   ├── dialogs.py         [planned] tg dialogs                    (phase 1)
-│   │   ├── read.py            [planned] tg read <chat>                (phase 1)
+│   │   ├── accounts.py        [wip]     tg accounts list|add|import   (list in phase 1; import in 6)
+│   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
+│   │   ├── read.py            [done]    tg read <chat>                (phase 1)
 │   │   ├── search.py          [planned] tg search / count / latest / info / message (phase 2)
 │   │   ├── media.py           [planned] tg media download             (phase 3)
 │   │   ├── send.py            [planned] tg send --preview/--commit    (phase 4)
 │   │   ├── api.py             [planned] tg api raw TL passthrough     (phase 2 read / 4 write, ADR-0008)
 │   │   └── export.py          [planned] tg export messages|subscribers (phase 5, takeout)
-├── tests/                     [planned] unit tests, mocked Telethon client
-│   └── live/                  [planned] gated live smoke (TGCLI_LIVE_SMOKE=1)
+├── tests/                     [wip]     unit tests, mocked Telethon client
+│   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
     ├── install-link.sh        [planned] symlink tg → PATH (phase 6 cutover)
     └── check-coverage.py      [planned] TL namespaces vs FEATURES.md (phase 7 gate)

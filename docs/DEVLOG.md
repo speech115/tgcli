@@ -15,6 +15,21 @@ Template:
 
 ---
 
+## 2026-07-09 — Phase 1 implementation complete; live gate blocked by missing config (Codex)
+**Did:** implemented the remaining Phase 1 modules in commits `b227247`,
+`ab33686`, `1dccd09`, `c3916b5`, and `267f258`: per-account session locking,
+CLI dispatch and account listing, `dialogs`, `read`, FloodWait mapping, and a
+gated live smoke suite. Added contract tests for global flags and output modes.
+Final local validation: `26 passed, 2 skipped`; `tg --version` prints `0.1.0`.
+**Decided:** corrected the Phase 1 CLI implementation where the plan omitted
+CONTRACT.md requirements: global `--readonly`/`-v`, distinct human and TSV
+output, and controlled parser-error return handling. CONTRACT.md remains law.
+**Learned:** the attempted read-only live `tg dialogs --json --limit 1` smoke
+exits 3 because the default tgcli config is not present; no Telegram account or
+session was touched.
+**Next:** provision or point `TGCLI_CONFIG` at an authorized `main` account,
+then run the Phase 1 live dialog and concurrent-lock acceptance checks.
+
 ## 2026-07-06 — TDLib re-audit: fallback backend cut from plan (Claude Fable 5)
 **Did:** re-audited the TDLib claim behind ADR-0006 against the old stack's
 own records: its ADR (2026-06-21) had already ruled TDLib out as a runtime;
