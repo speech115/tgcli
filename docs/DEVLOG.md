@@ -15,6 +15,19 @@ Template:
 
 ---
 
+## 2026-07-09 — Phase 2 split into read parity and raw API plans (Codex)
+**Did:** reviewed the completed Phase 1 CLI, the old stack's command surface,
+CONTRACT.md, FEATURES.md, and ADR-0008. Wrote two TDD execution plans:
+read parity first, then the independent raw API security surface.
+**Decided:** do not delay daily read workflows on the 300–500 LOC raw API
+resolver. Raw API remains Phase 2 but is a separate reviewable plan with an
+explicit fail-closed policy gate before request construction or a network call.
+**Learned:** the old CLI's daily read set maps cleanly to `search`, `count`,
+`latest`, `info`, and `message`; Phase 1 already supplies the session and
+FloodWait plumbing they need.
+**Next:** execute `2026-07-09-phase-2-read-parity.md`, then execute the raw
+API plan and run the combined Phase 2 acceptance checks.
+
 ## 2026-07-09 — Phase 1 acceptance gates passed (Codex)
 **Did:** created the local `main` tgcli configuration from the existing private
 Telegram runtime variables and copied its SQLite session with SQLite's backup
