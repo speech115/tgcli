@@ -2,11 +2,14 @@ import argparse
 import asyncio
 import sys
 
+from telethon import errors as telethon_errors
+
 from tgcli import __version__, output, session
 from tgcli.commands import accounts as accounts_cmd
 from tgcli.commands import dialogs as dialogs_cmd
+from tgcli.commands import read as read_cmd
 from tgcli.config import load_config, resolve_account
-from tgcli.errors import TgcliError
+from tgcli.errors import RateLimitError, TgcliError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,15 +40,27 @@ def build_parser() -> argparse.ArgumentParser:
     p_dialogs = sub.add_parser("dialogs", help="List dialogs", parents=[global_flags])
     p_dialogs.add_argument("--limit", type=int, default=50)
 
+    p_read = sub.add_parser("read", help="Read recent messages from a dialog", parents=[global_flags])
+    p_read.add_argument("chat", help="@username, t.me link, or dialog id")
+    p_read.add_argument("--limit", type=int, default=20)
+
     return parser
 
 
 async def _run_network(args, account) -> tuple[dict, list[tuple]]:
-    async with session.client(account) as tg:
-        if args.command == "dialogs":
-            data = await dialogs_cmd.fetch_dialogs(tg, limit=args.limit)
-            return data, dialogs_cmd.to_rows(data)
-        raise AssertionError(f"unhandled network command: {args.command}")
+    try:
+        async with session.client(account) as tg:
+            if args.command == "dialogs":
+                data = await dialogs_cmd.fetch_dialogs(tg, limit=args.limit)
+                return data, dialogs_cmd.to_rows(data)
+            if args.command == "read":
+                data = await read_cmd.fetch_messages(tg, args.chat, limit=args.limit)
+                return data, read_cmd.to_rows(data)
+            raise AssertionError(f"unhandled network command: {args.command}")
+    except telethon_errors.FloodWaitError as exc:
+        raise RateLimitError(
+            f"rate limited for {exc.seconds}s", retry_after=exc.seconds
+        ) from exc
 
 
 def main(argv: list[str] | None = None) -> int:
