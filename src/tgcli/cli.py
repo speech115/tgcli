@@ -9,17 +9,29 @@ from tgcli.errors import TgcliError
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="tg", description="Stateless Telegram CLI")
+    global_flags = argparse.ArgumentParser(
+        add_help=False, argument_default=argparse.SUPPRESS
+    )
+    global_flags.add_argument("--account", help="account alias from config")
+    global_flags.add_argument("--json", action="store_true", help="JSON to stdout")
+    global_flags.add_argument("--plain", action="store_true", help="TSV to stdout")
+    global_flags.add_argument("--readonly", action="store_true")
+    global_flags.add_argument("--timeout", type=float)
+    global_flags.add_argument("-v", "--verbose", action="store_true")
+
+    parser = argparse.ArgumentParser(
+        prog="tg", description="Stateless Telegram CLI", parents=[global_flags]
+    )
     parser.add_argument("--version", action="version", version=__version__)
-    parser.add_argument("--account", help="account alias from config")
-    parser.add_argument("--json", action="store_true", help="JSON to stdout")
-    parser.add_argument("--plain", action="store_true", help="TSV to stdout")
-    parser.add_argument("--timeout", type=float, default=60.0)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_accounts = sub.add_parser("accounts", help="Manage accounts")
+    p_accounts = sub.add_parser(
+        "accounts", help="Manage accounts", parents=[global_flags]
+    )
     accounts_sub = p_accounts.add_subparsers(dest="subcommand", required=True)
-    accounts_sub.add_parser("list", help="List configured accounts")
+    accounts_sub.add_parser(
+        "list", help="List configured accounts", parents=[global_flags]
+    )
 
     return parser
 
@@ -29,7 +41,20 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    try:
+        args = build_parser().parse_args(argv)
+    except SystemExit as err:
+        return 0 if err.code == 0 else 1
+    for name, default in {
+        "account": None,
+        "json": False,
+        "plain": False,
+        "readonly": False,
+        "timeout": 60.0,
+        "verbose": False,
+    }.items():
+        if not hasattr(args, name):
+            setattr(args, name, default)
     try:
         config = load_config()
         if args.command == "accounts":
@@ -45,8 +70,12 @@ def main(argv: list[str] | None = None) -> int:
         return err.exit_code
     if args.json:
         output.emit_json(data)
-    else:
+    elif args.plain:
         output.emit_plain(rows)
+    else:
+        output.emit_plain(
+            [(" | ".join("" if cell is None else str(cell) for cell in row),) for row in rows]
+        )
     return 0
 
 
