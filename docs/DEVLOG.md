@@ -15,6 +15,19 @@ Template:
 
 ---
 
+## 2026-07-09 — Phase 1 acceptance gates passed (Codex)
+**Did:** created the local `main` tgcli configuration from the existing private
+Telegram runtime variables and copied its SQLite session with SQLite's backup
+API, then checked the backup integrity. Verified `26 passed, 2 skipped`, a
+read-only `tg --json dialogs --limit 1` smoke (one dialog returned), and a
+second invocation under an intentionally held `main.lock` (exit 3 with the
+machine-readable busy error).
+**Decided:** Phase 1 is accepted. The migration is deliberately minimal:
+one existing account and no replacement for Phase 6 `tg accounts import`.
+**Learned:** the session lock contract is observable end-to-end without making
+any Telegram mutation.
+**Next:** write the Phase 2 TDD plan for read parity and read-only `tg api`.
+
 ## 2026-07-09 — Phase 1 implementation complete; live gate blocked by missing config (Codex)
 **Did:** implemented the remaining Phase 1 modules in commits `b227247`,
 `ab33686`, `1dccd09`, `c3916b5`, and `267f258`: per-account session locking,

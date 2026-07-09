@@ -49,7 +49,7 @@ DEVLOG + MAP are updated.
 Docs-first skeleton: README, AGENTS, MAP, CONTRACT, ADR-0001…0007, DEVLOG,
 phase-1 plan. Acceptance: this repo, committed.
 
-### Phase 1 — Core + first reads
+### Phase 1 — Core + first reads  ✅ 2026-07-09
 `output.py`, `errors.py`, `config.py`, `session.py`, `cli.py`,
 `tg accounts list`, `tg dialogs`, `tg read`.
 Acceptance: `pytest -q` green; `tg dialogs --json | jq .` works live on
