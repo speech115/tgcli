@@ -2,8 +2,9 @@ import argparse
 import asyncio
 import sys
 
-from tgcli import __version__, output
+from tgcli import __version__, output, session
 from tgcli.commands import accounts as accounts_cmd
+from tgcli.commands import dialogs as dialogs_cmd
 from tgcli.config import load_config, resolve_account
 from tgcli.errors import TgcliError
 
@@ -33,11 +34,18 @@ def build_parser() -> argparse.ArgumentParser:
         "list", help="List configured accounts", parents=[global_flags]
     )
 
+    p_dialogs = sub.add_parser("dialogs", help="List dialogs", parents=[global_flags])
+    p_dialogs.add_argument("--limit", type=int, default=50)
+
     return parser
 
 
 async def _run_network(args, account) -> tuple[dict, list[tuple]]:
-    raise AssertionError(f"unhandled network command: {args.command}")
+    async with session.client(account) as tg:
+        if args.command == "dialogs":
+            data = await dialogs_cmd.fetch_dialogs(tg, limit=args.limit)
+            return data, dialogs_cmd.to_rows(data)
+        raise AssertionError(f"unhandled network command: {args.command}")
 
 
 def main(argv: list[str] | None = None) -> int:
