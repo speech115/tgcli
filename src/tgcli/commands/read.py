@@ -19,6 +19,33 @@ def _dialog_name(entity, fallback: str) -> str:
     )
 
 
+def message_to_dict(message) -> dict:
+    return {
+        "id": message.id,
+        "date": message.date.isoformat() if message.date else None,
+        "from": {"id": message.sender_id, "name": _sender_name(message)},
+        "text": message.text or "",
+        "media": type(message.media).__name__ if message.media else None,
+        "reply_to": message.reply_to_msg_id,
+    }
+
+
+async def fetch_message(tg, chat: str, message_id: int) -> dict:
+    try:
+        entity = await tg.get_entity(chat)
+    except ValueError:
+        raise NotFoundError(f"dialog not found: {chat!r}") from None
+
+    message = await tg.get_messages(entity, ids=message_id)
+    if message is None:
+        raise NotFoundError(f"message not found: {message_id}")
+
+    return {
+        "dialog": {"id": entity.id, "name": _dialog_name(entity, chat)},
+        "message": message_to_dict(message),
+    }
+
+
 async def fetch_messages(tg, chat: str, limit: int = 20) -> dict:
     try:
         entity = await tg.get_entity(chat)
@@ -27,16 +54,7 @@ async def fetch_messages(tg, chat: str, limit: int = 20) -> dict:
 
     messages = []
     async for message in tg.iter_messages(entity, limit=limit):
-        messages.append(
-            {
-                "id": message.id,
-                "date": message.date.isoformat() if message.date else None,
-                "from": {"id": message.sender_id, "name": _sender_name(message)},
-                "text": message.text or "",
-                "media": type(message.media).__name__ if message.media else None,
-                "reply_to": message.reply_to_msg_id,
-            }
-        )
+        messages.append(message_to_dict(message))
 
     return {
         "dialog": {"id": entity.id, "name": _dialog_name(entity, chat)},
