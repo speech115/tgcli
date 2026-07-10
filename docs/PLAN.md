@@ -121,12 +121,14 @@ smokes for every account in migration scope pass. A parallel-use window is not
 required (user decision, 2026-07-10).
 SKILL.md must direct agents to wrapped commands first, `tg api` last resort.
 
-### Phase 7 — Coverage closure
+### Phase 7 — Coverage closure ✅ 2026-07-10
 `docs/FEATURES.md` matrix trued up against the pinned Telethon layer;
 `scripts/check-coverage.py` compares `telethon.tl.functions` namespaces to
 the matrix and fails on anything unlisted. Re-run on every Telethon pin bump.
-Acceptance: script exits 0; every TL namespace is `wrapped`, `api`,
-`planned:<phase>`, or `excluded` with a reason.
+Acceptance evidence: `scripts/check-coverage.py` reports `coverage OK: 23
+namespaces` against Telethon 1.44. Every TL namespace is `wrapped`, `api`,
+`planned:<phase>`, or `excluded` with a reason; unknown, missing, duplicate,
+and malformed classifications fail the checker.
 
 ## Risks
 
