@@ -43,6 +43,16 @@ def test_write_api_method_is_blocked_before_network(config_env, monkeypatch, cap
     assert "phase 4" in capsys.readouterr().err
 
 
+def test_write_read_api_method_without_params_is_blocked_by_policy(config_env, capsys):
+    assert main(["api", "users.getFullUser", "--write"]) == 2
+    assert "phase 4" in capsys.readouterr().err
+
+
+def test_read_api_method_without_params_remains_parser_error(config_env, capsys):
+    assert main(["api", "users.getFullUser"]) == 1
+    assert "the following arguments are required: --params" in capsys.readouterr().err
+
+
 def test_non_read_api_method_is_blocked_before_network(config_env, monkeypatch):
     from tgcli import cli
 

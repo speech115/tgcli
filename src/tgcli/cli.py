@@ -67,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_api = sub.add_parser("api", help="Call an allowlisted raw TL method", parents=[global_flags])
     p_api.add_argument("method", metavar="METHOD")
-    p_api.add_argument("--params", required=True, metavar="JSON")
+    p_api.add_argument("--params", metavar="JSON")
     p_api.add_argument("--write", action="store_true")
     p_api.add_argument("--confirm", metavar="METHOD")
 
@@ -108,8 +108,9 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
     try:
-        args = build_parser().parse_args(argv)
+        args = parser.parse_args(argv)
     except SystemExit as err:
         return 0 if err.code == 0 else 1
     for name, default in {
@@ -127,6 +128,11 @@ def main(argv: list[str] | None = None) -> int:
             raise PolicyError("tg api --write is unavailable until phase 4")
         if args.command == "api" and not api_cmd.is_read_method(args.method):
             raise PolicyError("raw API method is not allowlisted for read-only use")
+        if args.command == "api" and args.params is None:
+            try:
+                parser.error("the following arguments are required: --params")
+            except SystemExit:
+                return 1
         config = load_config()
         if args.command == "accounts":
             data = accounts_cmd.list_accounts(config)
