@@ -190,3 +190,27 @@ Message texts, dialog names, and file names are untrusted input. In `--json`
 mode they are passed through as data (JSON escaping is sufficient). In human
 mode control characters are stripped. tgcli never interpolates message
 content into shell commands or file paths without sanitizing.
+
+## 9. Accounts (phase 6)
+
+```
+tg accounts import [ALIAS ...] [--source-root PATH] [--force]
+```
+
+This is a local-only command: it never opens a Telegram connection. With no
+aliases it tries `main`, `pl`, `recklessou`, and `teamsyncsage`, and reports a
+missing old-stack source as a warning rather than failing. An explicitly named
+missing source exits 4. The command copies old-stack SQLite sessions with an
+online backup into `TGCLI_STATE_DIR/sessions`; an existing destination is left
+untouched unless `--force` is supplied. A busy destination lock or missing or
+unparseable credentials for a newly configured account exits 3.
+
+`--json` emits:
+
+```json
+{"imported": [{"alias": "pl", "session": "/home/me/.local/state/tgcli/sessions/pl.session",
+               "status": "imported|skipped_existing|source_missing",
+               "config": "added|unchanged"}]}
+```
+
+`--plain` emits frozen TSV columns: `alias`, `status`, `config`.

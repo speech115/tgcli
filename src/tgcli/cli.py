@@ -43,6 +43,12 @@ def build_parser() -> argparse.ArgumentParser:
     accounts_sub.add_parser(
         "list", help="List configured accounts", parents=[global_flags]
     )
+    p_import = accounts_sub.add_parser(
+        "import", help="Copy authorized sessions from the old stack", parents=[global_flags]
+    )
+    p_import.add_argument("aliases", nargs="*", metavar="ALIAS")
+    p_import.add_argument("--source-root", type=Path, default=Path("~"))
+    p_import.add_argument("--force", action="store_true")
 
     p_dialogs = sub.add_parser("dialogs", help="List dialogs", parents=[global_flags])
     p_dialogs.add_argument("--limit", type=int, default=50)
@@ -226,21 +232,27 @@ def main(argv: list[str] | None = None) -> int:
                 parser.error("the following arguments are required: --params")
             except SystemExit:
                 return 1
-        config = load_config()
-        if args.command == "accounts":
-            data = accounts_cmd.list_accounts(config)
-            rows = accounts_cmd.to_rows(data)
+        if args.command == "accounts" and args.subcommand == "import":
+            data = accounts_cmd.import_accounts(
+                args.aliases or None, args.source_root.expanduser(), force=args.force
+            )
+            rows = accounts_cmd.import_rows(data)
         else:
-            account = resolve_account(config, args.account)
-            if args.command == "send" and args.commit:
-                safety.append_audit("send", account.alias, {"preview_id": args.commit})
-            if args.command == "api" and args.write:
-                safety.append_audit("api", account.alias, {"method": args.method})
-            network = _run_network(args, account)
-            if args.command == "media" and not timeout_supplied:
-                data, rows = asyncio.run(network)
+            config = load_config()
+            if args.command == "accounts":
+                data = accounts_cmd.list_accounts(config)
+                rows = accounts_cmd.to_rows(data)
             else:
-                data, rows = asyncio.run(asyncio.wait_for(network, timeout=args.timeout))
+                account = resolve_account(config, args.account)
+                if args.command == "send" and args.commit:
+                    safety.append_audit("send", account.alias, {"preview_id": args.commit})
+                if args.command == "api" and args.write:
+                    safety.append_audit("api", account.alias, {"method": args.method})
+                network = _run_network(args, account)
+                if args.command == "media" and not timeout_supplied:
+                    data, rows = asyncio.run(network)
+                else:
+                    data, rows = asyncio.run(asyncio.wait_for(network, timeout=args.timeout))
     except TgcliError as err:
         output.emit_error(err, as_json=args.json)
         return err.exit_code
