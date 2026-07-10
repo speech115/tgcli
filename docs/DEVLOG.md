@@ -15,6 +15,17 @@ Template:
 
 ---
 
+## 2026-07-10 — Phase 2A TSV contract hardened (Codex)
+**Did:** sanitized sender names as well as message text in every four-column
+message TSV path (`read`, `search`, `latest`, and `message`) and added
+regression tests. Final local suite: `43 passed, 7 skipped`.
+**Decided:** control characters in all untrusted human-visible fields become
+spaces before TSV or default human output; JSON retains source data.
+**Learned:** frozen TSV requires sanitizing every cell, not only the message
+body.
+**Next:** merge or hand off Phase 2A, then execute the separate read-only raw
+API plan.
+
 ## 2026-07-10 — Phase 2 live smoke harness corrected (Codex)
 **Did:** changed the opt-in live harness to run the installed `tg` console
 script beside the active virtualenv Python, then ran the focused harness check,
