@@ -1,16 +1,21 @@
 """Media download command helpers (Phase 3; Telethon-only)."""
 
 from dataclasses import dataclass
+import hashlib
+import json
+import os
 from pathlib import Path
 import re
 
 from telethon import functions
 
 from tgcli.errors import NotFoundError, PolicyError
+from tgcli.session import state_dir
 
 
 PRIVATE_LINK = re.compile(r"(?:https?://)?t\.me/c/(\d+)/(\d+)/?$")
 PUBLIC_LINK = re.compile(r"(?:https?://)?t\.me/([A-Za-z0-9_]+)/([1-9]\d*)/?$")
+CHUNK_SIZE = 512 * 1024
 
 
 @dataclass(frozen=True)
@@ -86,3 +91,103 @@ async def resolve_message(tg, source: MediaSource, account_alias: str):
     if message is None or not getattr(message, "media", None):
         raise NotFoundError(f"downloadable media not found: {source.message_id}")
     return entity, message
+
+
+def _source_label(source: MediaSource) -> str:
+    chat = f"private:{source.private_channel_id}" if source.private_channel_id else source.chat
+    return f"{chat}:{source.message_id}"
+
+
+def _state_paths(source: MediaSource) -> tuple[Path, Path]:
+    key = hashlib.sha256(_source_label(source).encode()).hexdigest()
+    directory = state_dir() / "downloads"
+    return directory / f"{key}.json", directory / f"{key}.part"
+
+
+def _message_filename(message, message_id: int) -> str:
+    file = getattr(message, "file", None)
+    return safe_filename(getattr(file, "name", None), message_id)
+
+
+def _message_size(message) -> int | None:
+    file = getattr(message, "file", None)
+    return getattr(file, "size", None)
+
+
+def _write_state(
+    path: Path, source: MediaSource, destination: Path, offset: int
+) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "source": _source_label(source),
+                "destination": str(destination),
+                "offset": offset,
+            }
+        )
+    )
+
+
+def _resume_offset(state_path: Path, part_path: Path, source: MediaSource, destination: Path) -> int:
+    if not state_path.exists():
+        if part_path.exists():
+            raise PolicyError(f"partial media download has no state: {part_path}")
+        return 0
+    try:
+        state = json.loads(state_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PolicyError(f"media download state is invalid: {state_path}") from exc
+    if (
+        state.get("source") != _source_label(source)
+        or state.get("destination") != str(destination)
+        or state.get("offset") != part_path.stat().st_size
+    ):
+        raise PolicyError(f"media download state does not match requested output: {state_path}")
+    if not part_path.exists():
+        raise PolicyError(f"media download state has no partial file: {part_path}")
+    return part_path.stat().st_size
+
+
+async def download_media(
+    tg,
+    source: MediaSource,
+    account_alias: str,
+    *,
+    output: str | None = None,
+    parallel: int = 1,
+    progress=None,
+) -> dict:
+    if parallel != 1:
+        raise PolicyError("parallel media downloads are not available yet")
+
+    _, message = await resolve_message(tg, source, account_alias)
+    destination = destination_for(_message_filename(message, source.message_id), output)
+    state_path, part_path = _state_paths(source)
+    offset = _resume_offset(state_path, part_path, source, destination)
+    resumed = offset > 0
+
+    part_path.parent.mkdir(parents=True, exist_ok=True)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if not resumed:
+        _write_state(state_path, source, destination, offset)
+
+    with part_path.open("ab" if resumed else "xb") as handle:
+        async for chunk in tg.iter_download(
+            message.media, offset=offset, request_size=CHUNK_SIZE
+        ):
+            handle.write(bytes(chunk))
+            handle.flush()
+            current = handle.tell()
+            _write_state(state_path, source, destination, current)
+            if progress:
+                progress(current, _message_size(message))
+
+    os.replace(part_path, destination)
+    state_path.unlink(missing_ok=True)
+    return {
+        "source": _source_label(source),
+        "path": str(destination),
+        "bytes": destination.stat().st_size,
+        "resumed": resumed,
+        "parallel": 1,
+    }

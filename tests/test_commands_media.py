@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -6,6 +7,7 @@ from tgcli.commands.media import (
     MediaSource,
     destination_for,
     parse_source,
+    download_media,
     resolve_message,
     safe_filename,
 )
@@ -55,6 +57,78 @@ def test_destination_defaults_to_downloads(monkeypatch, tmp_path):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
     assert destination_for("file.bin", None) == tmp_path / "Downloads" / "file.bin"
+
+
+class FakeDownloadTelegram:
+    def __init__(self, chunks, *, fail_after_first=False):
+        self.entity = type("Entity", (), {"id": 12})()
+        self.message = type(
+            "Message",
+            (),
+            {
+                "id": 42,
+                "media": object(),
+                "file": type("File", (), {"name": "clip.bin", "size": 6})(),
+            },
+        )()
+        self.chunks = chunks
+        self.fail_after_first = fail_after_first
+        self.iter_download_calls = []
+
+    async def get_entity(self, chat):
+        return self.entity
+
+    async def get_messages(self, requested_entity, ids):
+        return self.message
+
+    async def iter_download(self, media, *, offset=0, request_size=None, **kwargs):
+        self.iter_download_calls.append(
+            {"media": media, "offset": offset, "request_size": request_size, **kwargs}
+        )
+        for index, chunk in enumerate(self.chunks):
+            yield chunk
+            if index == 0 and self.fail_after_first:
+                raise RuntimeError("network dropped")
+
+
+async def test_download_resumes_from_existing_partial_transfer(tmp_path):
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "out.bin"
+    interrupted = FakeDownloadTelegram([b"old"], fail_after_first=True)
+
+    with pytest.raises(RuntimeError, match="network dropped"):
+        await download_media(interrupted, source, "main", output=str(target))
+
+    [state_path] = (tmp_path / "state" / "downloads").glob("*.json")
+    assert json.loads(state_path.read_text())["offset"] == 3
+
+    resumed = FakeDownloadTelegram([b"new"])
+    result = await download_media(resumed, source, "main", output=str(target))
+
+    assert resumed.iter_download_calls == [
+        {"media": resumed.message.media, "offset": 3, "request_size": 512 * 1024}
+    ]
+    assert target.read_bytes() == b"oldnew"
+    assert result == {
+        "source": "@channel:42",
+        "path": str(target),
+        "bytes": 6,
+        "resumed": True,
+        "parallel": 1,
+    }
+
+
+async def test_download_refuses_existing_final_path(tmp_path):
+    target = tmp_path / "out.bin"
+    target.write_bytes(b"done")
+    fake = FakeDownloadTelegram([b"ignored"])
+
+    with pytest.raises(PolicyError, match="already exists"):
+        await download_media(
+            fake, MediaSource("@channel", 42, None), "main", output=str(target)
+        )
+
+    assert fake.iter_download_calls == []
 
 
 async def test_resolve_message_uses_public_chat_reference():
