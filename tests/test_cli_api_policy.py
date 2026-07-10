@@ -127,6 +127,49 @@ def test_denied_or_unconfirmed_api_write_stops_before_config_or_session(argv, me
     assert message in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("method", ["auth.LogOut", "account.DeleteAccount"])
+def test_case_variant_denylisted_api_write_is_blocked_before_network(
+    method, monkeypatch, capsys
+):
+    from tgcli import cli
+
+    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
+    monkeypatch.setattr(cli.session, "client", lambda account: pytest.fail("session opened"))
+    monkeypatch.setattr(cli, "_run_network", lambda args, account: pytest.fail("network dispatched"))
+
+    assert main(["api", method, "--params", "{}", "--write"]) == 2
+    assert "permanently denied" in capsys.readouterr().err
+
+
+def test_case_variant_confirm_method_still_requires_confirm(monkeypatch, capsys):
+    from tgcli import cli
+
+    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
+    monkeypatch.setattr(cli.session, "client", lambda account: pytest.fail("session opened"))
+    monkeypatch.setattr(cli, "_run_network", lambda args, account: pytest.fail("network dispatched"))
+
+    assert main(["api", "messages.DeleteMessages", "--params", "{}", "--write"]) == 2
+    assert "requires exact --confirm" in capsys.readouterr().err
+
+
+def test_case_variant_confirm_matches_canonical_and_dispatches(config_env, monkeypatch):
+    from tgcli import cli
+
+    calls = []
+
+    async def fake_run_network(args, account):
+        calls.append((args.method, args.params, account.alias))
+        return {"method": args.method, "result": {}}, []
+
+    monkeypatch.setattr(cli, "_run_network", fake_run_network)
+
+    assert main([
+        "api", "messages.DeleteMessages", "--params", "{}", "--write",
+        "--confirm", "messages.deleteMessages", "--json",
+    ]) == 0
+    assert calls == [("messages.deleteMessages", "{}", "main")]
+
+
 @pytest.mark.parametrize("environment", [{"TGCLI_READONLY": "1"}, {"TGCLI_NO_SEND": "1"}])
 def test_api_write_kill_switch_stops_before_config_or_session(environment, monkeypatch, capsys):
     from tgcli import cli

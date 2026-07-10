@@ -70,6 +70,16 @@ def test_send_commit_replays_stored_payload_once(config_env, monkeypatch, capsys
     assert main(["send", "--commit", preview["preview_id"]]) == 2
 
 
+def test_send_commit_with_extra_args_returns_usage_error(capsys):
+    assert main(["send", "--commit", "p_x", "@alice"]) == 1
+    assert "send --commit accepts only a preview id" in capsys.readouterr().err
+
+
+def test_send_without_required_args_returns_usage_error(capsys):
+    assert main(["send", "@alice"]) == 1
+    assert "send requires CHAT TEXT --preview or --commit PREVIEW_ID" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("flag, value", [("--readonly", None), ("TGCLI_READONLY", "1"), ("TGCLI_NO_SEND", "1")])
 def test_send_commit_is_blocked_before_config_or_session(monkeypatch, flag, value):
     from tgcli import cli

@@ -144,20 +144,30 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "send":
             if args.commit:
                 if args.preview or args.chat is not None or args.text is not None:
-                    parser.error("send --commit accepts only a preview id")
+                    try:
+                        parser.error("send --commit accepts only a preview id")
+                    except SystemExit:
+                        return 1
                 safety.enforce_mutation_allowed(args.readonly)
                 args.preview_payload = safety.consume_preview(args.commit)
             elif not (args.preview and args.chat is not None and args.text is not None):
-                parser.error("send requires CHAT TEXT --preview or --commit PREVIEW_ID")
+                try:
+                    parser.error("send requires CHAT TEXT --preview or --commit PREVIEW_ID")
+                except SystemExit:
+                    return 1
         if args.command == "api" and args.write:
             safety.enforce_mutation_allowed(args.readonly)
+            args.method = api_cmd.canonical_method(args.method)
             if api_cmd.is_hard_denied(args.method):
                 raise PolicyError("raw API method is permanently denied")
-            if api_cmd.requires_confirmation(args.method) and args.confirm != args.method:
+            confirm = api_cmd.try_canonical_method(args.confirm) if args.confirm else args.confirm
+            if api_cmd.requires_confirmation(args.method) and confirm != args.method:
                 raise PolicyError("raw API destructive write requires exact --confirm METHOD")
-            api_cmd._resolve_method(args.method)
-        if args.command == "api" and not args.write and not api_cmd.is_read_method(args.method):
-            raise PolicyError("raw API method is not allowlisted for read-only use")
+        if args.command == "api" and not args.write:
+            canonical = api_cmd.try_canonical_method(args.method)
+            if canonical is None or not api_cmd.is_read_method(canonical):
+                raise PolicyError("raw API method is not allowlisted for read-only use")
+            args.method = canonical
         if args.command == "api" and args.params is None:
             try:
                 parser.error("the following arguments are required: --params")
