@@ -24,7 +24,7 @@ tgcli/
 │   ├── errors.py              [done]    TgcliError hierarchy ↔ exit codes (CONTRACT.md §4)
 │   ├── config.py              [done]    ~/.config/tgcli/config.toml, accounts registry, alias resolution
 │   ├── session.py             [done]    session paths, per-account file lock, TelegramClient factory
-│   ├── safety.py              [planned] --readonly / TGCLI_NO_SEND / write-audit checks (phase 4)
+│   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   └── commands/
 │   │   ├── accounts.py        [wip]     tg accounts list|add|import   (list in phase 1; import in 6)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
@@ -32,8 +32,8 @@ tgcli/
 │   │   ├── search.py          [done]    tg search / latest / message (phase 2)
 │   │   ├── info.py            [done]    tg info / count (phase 2)
 │   │   ├── media.py           [planned] tg media download             (phase 3)
-│   │   ├── send.py            [planned] tg send --preview/--commit    (phase 4)
-│   │   ├── api.py             [wip]     tg api raw TL passthrough     (phase 2 explicit read allowlist; phase 4 write, ADR-0010)
+│   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
+│   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes)
 │   │   └── export.py          [planned] tg export messages|subscribers (phase 5, takeout)
 ├── tests/                     [wip]     unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)

@@ -15,6 +15,25 @@ Template:
 
 ---
 
+## 2026-07-10 — Phase 4 safe write path (Codex)
+**Did:** added `safety.py` for pre-network `--readonly`, `TGCLI_READONLY=1`,
+and `TGCLI_NO_SEND=1` gates; five-minute single-use JSON previews; and JSONL
+audit records under `TGCLI_STATE_DIR`. Added `tg send CHAT TEXT --preview` and
+`tg send --commit PREVIEW_ID`; commits replay only stored target/text. Enabled
+raw `tg api --write` behind the same gate, exact destructive confirmation, the
+ADR-0008 permanent denylist, and pre-dispatch audit. Added unit/CLI regressions
+for all gates, preview replay/expiry, audit, confirmation, denylist, and
+unknown write methods. Final command: `uv run pytest -q` → `126 passed,
+8 skipped in 0.33s`; no Telegram mutation was performed.
+**Decided:** previews are consumed before network dispatch, so a failed send
+cannot be retried with the same id; this preserves the single-use safety
+contract and leaves a local audit record for every authorised attempt.
+**Learned:** raw API policy must resolve an allowed write method before config
+or session acquisition; otherwise a typo can create an unnecessary Telegram
+connection despite being invalid.
+**Next:** review the Phase 4 diff and commit it on `codex/phase-4-write` when
+the user requests a commit.
+
 ## 2026-07-10 — Raw API read allowlist expanded to 35 methods (Claude Fable 5 + subagents)
 **Did:** expanded `READ_METHOD_ALLOWLIST` in `src/tgcli/commands/api.py` from
 `users.getFullUser` to the 35 batch-reviewed read methods across messages

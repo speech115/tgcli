@@ -60,11 +60,29 @@ SENSITIVE_KEY_TOKENS = (
     "securerandom",
     "tmppassword",
 )
+HARD_DENYLIST = frozenset({
+    "account.deleteAccount",
+    "auth.logOut",
+    "auth.resetAuthorizations",
+    "account.resetAuthorization",
+})
 
 
 def is_read_method(name: str) -> bool:
     """Return whether a reviewed raw API method is safe in phase 2."""
     return name in READ_METHOD_ALLOWLIST
+
+
+def is_hard_denied(name: str) -> bool:
+    return name in HARD_DENYLIST
+
+
+def requires_confirmation(name: str) -> bool:
+    method = name.rsplit(".", 1)[-1].casefold()
+    return (
+        method.startswith(("delete", "reset", "leave", "block"))
+        or (method.startswith("edit") and ("admin" in method or "banned" in method))
+    )
 
 
 def _resolve_method(name: str):
