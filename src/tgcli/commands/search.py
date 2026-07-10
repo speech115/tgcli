@@ -1,5 +1,7 @@
-from tgcli.commands.read import _dialog_name, message_to_dict
+from tgcli.commands.read import _dialog_name, message_to_dict, sanitize_plain_text
 from tgcli.errors import NotFoundError
+
+_sanitize_text = sanitize_plain_text
 
 
 async def _entity(tg, chat: str):
@@ -37,12 +39,8 @@ def to_rows(data: dict) -> list[tuple]:
         (
             message["id"],
             message["date"],
-            message["from"]["name"],
-            _sanitize_text(message["text"]),
+            sanitize_plain_text(message["from"]["name"]),
+            sanitize_plain_text(message["text"]),
         )
         for message in messages
     ]
-
-
-def _sanitize_text(text: str) -> str:
-    return "".join(char if char.isprintable() else " " for char in text)

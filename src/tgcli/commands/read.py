@@ -64,6 +64,17 @@ async def fetch_messages(tg, chat: str, limit: int = 20) -> dict:
 
 def to_rows(data: dict) -> list[tuple]:
     return [
-        (message["id"], message["date"], message["from"]["name"], message["text"].replace("\n", " "))
+        (
+            message["id"],
+            message["date"],
+            sanitize_plain_text(message["from"]["name"]),
+            sanitize_plain_text(message["text"]),
+        )
         for message in data["messages"]
     ]
+
+
+def sanitize_plain_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return "".join(char if char.isprintable() else " " for char in value)

@@ -80,3 +80,17 @@ def test_floodwait_maps_to_exit_5(config_env, monkeypatch, capsys):
     err = json.loads(capsys.readouterr().err)["error"]
     assert err["code"] == "FLOOD_WAIT"
     assert err["retry_after"] == 42
+
+
+def test_read_plain_sanitizes_sender_controls(config_env, monkeypatch, capsys):
+    fake = make_fake()
+    fake._messages[0].sender.first_name = "A\tlice\r\n"
+    make_session_fake(monkeypatch, fake)
+
+    code = main(["read", "@chan", "--plain"])
+
+    assert code == 0
+    output = capsys.readouterr().out
+    assert output.count("\n") == 1
+    assert "\r" not in output
+    assert len(output.rstrip("\n").split("\t")) == 4

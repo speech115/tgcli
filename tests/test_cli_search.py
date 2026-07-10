@@ -108,3 +108,37 @@ def test_search_and_latest_plain_sanitize_message_controls(
 
     assert code == 0
     assert capsys.readouterr().out == "42\t2026-07-06T10:00:00+00:00\tAlice\ta b  c\n"
+
+
+@pytest.mark.parametrize(
+    ("command", "fake"),
+    [
+        (
+            ["search", "@chan", "needle", "--plain"],
+            lambda entity, message: FakeClient(
+                search_messages={"needle": [message]}, entities={"@chan": entity}
+            ),
+        ),
+        (
+            ["latest", "@chan", "--plain"],
+            lambda entity, message: FakeClient(
+                messages=[message], entities={"@chan": entity}
+            ),
+        ),
+    ],
+)
+def test_search_and_latest_plain_sanitize_sender_controls(
+    config_env, monkeypatch, capsys, command, fake
+):
+    entity = ns(id=-1001234, title="Channel")
+    message = make_message(42, "hello")
+    message.sender.first_name = "A\tlice\r\n"
+    make_session_fake(monkeypatch, fake(entity, message))
+
+    code = main(command)
+
+    assert code == 0
+    output = capsys.readouterr().out
+    assert output.count("\n") == 1
+    assert "\r" not in output
+    assert len(output.rstrip("\n").split("\t")) == 4

@@ -64,3 +64,17 @@ def test_message_plain_sanitizes_message_controls(config_env, monkeypatch, capsy
 
     assert code == 0
     assert capsys.readouterr().out == "42\t2026-07-06T10:00:00+00:00\tAlice\ta b  c\n"
+
+
+def test_message_plain_sanitizes_sender_controls(config_env, monkeypatch, capsys):
+    fake = make_fake()
+    fake._messages[0].sender.first_name = "A\tlice\r\n"
+    make_session_fake(monkeypatch, fake)
+
+    code = main(["message", "@chan", "42", "--plain"])
+
+    assert code == 0
+    output = capsys.readouterr().out
+    assert output.count("\n") == 1
+    assert "\r" not in output
+    assert len(output.rstrip("\n").split("\t")) == 4
