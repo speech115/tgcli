@@ -8,6 +8,7 @@ tgcli/
 ├── README.md                  [done]    vision + principles
 ├── AGENTS.md                  [done]    agent contract, doc discipline
 ├── CLAUDE.md                  [done]    Claude adapter → AGENTS.md
+├── SKILL.md                   [done]    agent command routing and safety contract (phase 6)
 ├── pyproject.toml             [done]    uv-managed; deps: telethon; dev: pytest
 ├── docs/
 │   ├── MAP.md                 [done]    this file
@@ -26,7 +27,7 @@ tgcli/
 │   ├── session.py             [done]    session paths, per-account file lock, TelegramClient factory
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   └── commands/
-│   │   ├── accounts.py        [wip]     tg accounts list|add|import   (list in phase 1; import in 6)
+│   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
 │   │   ├── read.py            [done]    tg read <chat>                (phase 1)
 │   │   ├── search.py          [done]    tg search / latest / message (phase 2)
@@ -38,7 +39,7 @@ tgcli/
 ├── tests/                     [wip]     unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
-    ├── install-link.sh        [planned] symlink tg → PATH (phase 6 cutover)
+    ├── install-link.sh        [done]    symlink tg → PATH (phase 6 cutover)
     └── check-coverage.py      [planned] TL namespaces vs FEATURES.md (phase 7 gate)
 ```
 

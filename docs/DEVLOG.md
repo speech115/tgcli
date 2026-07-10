@@ -15,6 +15,24 @@ Template:
 
 ---
 
+## 2026-07-10 — Phase 6 local migration and cutover implementation (Codex)
+**Did:** added pure-local `tg accounts import`: it backs up old Telethon
+SQLite sessions under the same per-account lock as normal tgcli work, protects
+existing warmed sessions unless `--force`, appends only missing account blocks,
+and never opens Telegram. Added `scripts/install-link.sh`, then verified its
+temporary-repo symlink behavior. Added root `SKILL.md`, and parser-checked all
+14 documented command examples. Recorded the phase-6 TDD plan, updated MAP
+and CONTRACT. Local test suite: `173 passed, 8 skipped`.
+**Decided:** migration is additive and reversible at the old-stack side: it
+copies sessions and credentials but does not alter daemon state or unload any
+LaunchAgent. `vermassov` remains excluded because ADR-0009 records it as
+revoked.
+**Learned:** the phase-6 linked worktree needs its own `uv sync --locked`
+environment; the root checkout's ignored `.venv` is not shared.
+**Next:** run the authorized local import, read-only `pl` smoke, PATH cutover,
+and update the machine-level Claude routing note; begin the parallel-use
+window only if those checks pass.
+
 ## 2026-07-10 — Phases 3–5 reviewed, fixed, merged to main (Claude Fable 5 + subagents)
 **Did:** orchestrated parallel Sonnet review of `codex/phase-3-media`,
 `codex/phase-4-write`, `codex/phase-5-export` against PLAN.md acceptance.
