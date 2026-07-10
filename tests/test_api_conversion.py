@@ -2,7 +2,7 @@ import pytest
 
 from tgcli.commands.api import build_request, call
 from tgcli.errors import ConfigError, NotFoundError
-from telethon.tl import types
+from telethon.tl import functions, types
 
 
 class FakeClient:
@@ -95,6 +95,21 @@ async def test_build_request_rejects_unknown_or_malformed_method():
 
 
 @pytest.mark.asyncio
+async def test_build_request_rejects_non_request_function_attribute(monkeypatch):
+    monkeypatch.setattr(functions.users, "GetMetadataRequest", object(), raising=False)
+
+    with pytest.raises(NotFoundError):
+        await build_request(FakeClient(), "users.getMetadata", "{}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("params", [None, 42, "[]"])
+async def test_build_request_rejects_non_object_params(params):
+    with pytest.raises(ConfigError, match="JSON object"):
+        await build_request(FakeClient(), "users.getFullUser", params)
+
+
+@pytest.mark.asyncio
 async def test_build_request_decodes_explicit_base64_bytes_marker():
     request = await build_request(
         FakeClient(),
@@ -116,13 +131,21 @@ async def test_build_request_rejects_unapproved_constructor_names():
 
 
 @pytest.mark.asyncio
-async def test_call_never_returns_access_hashes_or_secrets():
+async def test_call_never_returns_sensitive_account_password_values():
     class Result:
         def to_dict(self):
             return {
                 "id": 1,
                 "access_hash": 2,
-                "nested": {"auth_key": "secret", "ok": True},
+                "current_algo": {"salt1": "public", "SRP_B": "secret"},
+                "password": "secret",
+                "hint": "public",
+                "new_secure_random": "secret",
+                "nested": {
+                    "auth_key": "secret",
+                    "tmp_password": "secret",
+                    "ok": True,
+                },
             }
 
     class Client(FakeClient):
@@ -131,4 +154,9 @@ async def test_call_never_returns_access_hashes_or_secrets():
 
     data = await call(Client(), "users.getFullUser", '{"id": {"_": "InputUserSelf"}}')
 
-    assert data["result"] == {"id": 1, "nested": {"ok": True}}
+    assert data["result"] == {
+        "id": 1,
+        "current_algo": {"salt1": "public"},
+        "hint": "public",
+        "nested": {"ok": True},
+    }

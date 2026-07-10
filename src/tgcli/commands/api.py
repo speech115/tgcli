@@ -4,15 +4,26 @@ import base64
 import binascii
 import json
 from inspect import isclass
+from types import ModuleType
 
 from telethon import utils
 from telethon.tl import functions, types
-from telethon.tl.tlobject import TLObject
+from telethon.tl.tlobject import TLObject, TLRequest
 
 from tgcli.errors import ConfigError, NotFoundError
 
 
 READ_VERBS = ("get", "search", "check", "resolve")
+SENSITIVE_KEY_TOKENS = (
+    "access_hash",
+    "api_hash",
+    "auth_key",
+    "password",
+    "secret",
+    "srp_b",
+    "secure_random",
+    "tmp_password",
+)
 
 
 def is_read_method(name: str) -> bool:
@@ -28,7 +39,11 @@ def _resolve_method(name: str):
     namespace, method = parts
     module = getattr(functions, namespace, None)
     request_type = getattr(module, f"{method[:1].upper()}{method[1:]}Request", None)
-    if request_type is None:
+    if (
+        not isinstance(module, ModuleType)
+        or not isclass(request_type)
+        or not issubclass(request_type, TLRequest)
+    ):
         raise NotFoundError(f"raw API method not found: {name!r}")
     return request_type
 
@@ -40,6 +55,8 @@ async def build_request(client, name: str, params_json: str):
         params = json.loads(params_json)
     except json.JSONDecodeError as exc:
         raise ConfigError("raw API params must be valid JSON") from exc
+    except TypeError as exc:
+        raise ConfigError("raw API params must be a JSON object") from exc
     if not isinstance(params, dict):
         raise ConfigError("raw API params must be a JSON object")
     try:
@@ -66,9 +83,15 @@ def _sanitize_result(value):
         return {
             key: _sanitize_result(item)
             for key, item in value.items()
-            if key not in {"access_hash", "api_hash", "auth_key"}
+            if not _is_sensitive_key(key)
         }
     return value
+
+
+def _is_sensitive_key(key) -> bool:
+    return isinstance(key, str) and any(
+        token in key.casefold() for token in SENSITIVE_KEY_TOKENS
+    )
 
 
 def _field_annotation(constructor_type, field: str):
