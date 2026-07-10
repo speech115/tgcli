@@ -5,6 +5,7 @@ import binascii
 import json
 from inspect import isclass
 
+from telethon import utils
 from telethon.tl import functions, types
 from telethon.tl.tlobject import TLObject
 
@@ -84,7 +85,13 @@ def _is_peer_alias(value) -> bool:
 
 async def _convert_value(client, value, annotation=None):
     if _is_peer_field(annotation) and isinstance(value, str) and _is_peer_alias(value):
-        return await client.get_input_entity(value)
+        entity = await client.get_input_entity(value)
+        annotation_text = str(annotation)
+        if "TypeInputUser" in annotation_text:
+            return utils.get_input_user(entity)
+        if "TypeInputChannel" in annotation_text:
+            return utils.get_input_channel(entity)
+        return entity
     if isinstance(value, list):
         return [await _convert_value(client, item, annotation) for item in value]
     if not isinstance(value, dict):

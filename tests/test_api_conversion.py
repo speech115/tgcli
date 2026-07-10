@@ -59,6 +59,17 @@ async def test_build_request_resolves_alias_only_for_peer_typed_field():
 
 
 @pytest.mark.asyncio
+async def test_build_request_coerces_resolved_peer_to_requested_input_type():
+    class Client:
+        async def get_input_entity(self, value):
+            return types.InputPeerSelf()
+
+    request = await build_request(Client(), "users.getFullUser", '{"id": "@self"}')
+
+    assert request.id.__class__.__name__ == "InputUserSelf"
+
+
+@pytest.mark.asyncio
 async def test_build_request_does_not_resolve_alias_in_non_peer_field():
     request = await build_request(
         FakeClient(),
