@@ -126,7 +126,9 @@ replays only the stored target and text, then consumes the preview even if the
 network call fails. Commit JSON is `{"preview_id": "p_9f3a", "message_id": 42}`.
 Every authorised send commit appends one JSON object to
 `~/.local/state/tgcli/audit.jsonl` (or `TGCLI_STATE_DIR/audit.jsonl`) before
-network dispatch. Preview creation itself does not send or audit a mutation.
+network dispatch. If the audit record cannot be written, the mutation is
+blocked with exit 2; tgcli never performs an unaudited authorised write.
+Preview creation itself does not send or audit a mutation.
 
 ## 6. Raw API Passthrough (`tg api`, phase 2+; ADR-0010)
 
@@ -170,7 +172,9 @@ tg export subscribers <channel> --output <path> [--limit <n>]
   with `id`, `date`, `from`, `text`, `media`, and `reply_to` fields.
 - `subscribers` writes UTF-8 CSV with the frozen header
   `id,username,first_name,last_name,phone,is_bot`; standard CSV quoting is
-  used for field values.
+  used for field values. Username and name cells beginning with `=`, `+`, `-`,
+  or `@` are prefixed with a single quote so spreadsheet programs do not
+  interpret them as formulas.
 - Success on `--json` is one completion document:
   `{"export":{"kind":"messages|subscribers","format":"jsonl|csv",
   "path":"<path>","count":42,"dialog":{"id":-1001234,"name":"Channel"}}}`.

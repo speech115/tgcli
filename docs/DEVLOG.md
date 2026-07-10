@@ -15,6 +15,20 @@ Template:
 
 ---
 
+## 2026-07-10 — Close minor Phase 3–5 review findings (Codex)
+**Did:** added TDD regressions and fixed cancellation cleanup for atomic
+exports, CSV formula injection in subscriber names, structured audit-write
+failures, and media filename/checkpoint/progress throttling. A resume now
+truncates bytes written after its last persisted checkpoint before continuing.
+Updated CONTRACT, MAP, and ADR-0011. Verification: `uv run pytest -q` →
+`183 passed, 8 skipped`; `git diff --check` passes.
+**Decided:** audit persistence is fail-closed: an audit-path `OSError` is a
+structured exit-2 policy block, so tgcli never makes an authorised unaudited
+mutation (ADR-0011).
+**Learned:** checkpoint throttling needs a matching resume rule; otherwise a
+crash can leave a partial file longer than its persisted offset.
+**Next:** commit these reviewed hardening fixes when requested.
+
 ## 2026-07-10 — Roadmap completion doc pass (Codex)
 **Did:** reconciled the master-plan status with completed acceptance evidence:
 Phase 4 safe writes and Phase 6 migration/cutover are now marked complete.

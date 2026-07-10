@@ -1,12 +1,14 @@
 import csv
 import datetime as dt
 import json
+import asyncio
 
 import pytest
 from telethon import errors as telethon_errors
 
 from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli.cli import main
+from tgcli.commands.export import _atomic_text_destination
 
 
 SAMPLE = """
@@ -138,6 +140,17 @@ def test_export_messages_preserves_existing_destination_when_iteration_fails(
     assert destination.read_text() == "previous\n"
 
 
+def test_atomic_export_cleans_up_temporary_file_on_cancellation(tmp_path):
+    destination = tmp_path / "messages.jsonl"
+
+    with pytest.raises(asyncio.CancelledError):
+        with _atomic_text_destination(destination) as handle:
+            handle.write("partial\n")
+            raise asyncio.CancelledError
+
+    assert list(tmp_path.glob(".messages.jsonl.*.tmp")) == []
+
+
 def test_export_subscribers_writes_header_and_quoted_rows(
     config_env, monkeypatch, tmp_path, capsys
 ):
@@ -157,6 +170,21 @@ def test_export_subscribers_writes_header_and_quoted_rows(
         "last_name": "", "phone": "", "is_bot": "False",
     }]
     assert fake.iter_participants_calls == [(fake._entities["@chan"], None)]
+
+
+def test_export_subscribers_neutralizes_formula_cells(config_env, monkeypatch, tmp_path):
+    fake = make_export_fake(participants=[
+        ns(id=7, username="=SUM(1,1)", first_name="+cmd", last_name="@value", phone=None, bot=False)
+    ])
+    make_session_fake(monkeypatch, fake)
+    destination = tmp_path / "subscribers.csv"
+
+    assert main(["export", "subscribers", "@chan", "--output", str(destination)]) == 0
+
+    assert list(csv.DictReader(destination.open())) == [{
+        "id": "7", "username": "'=SUM(1,1)", "first_name": "'+cmd",
+        "last_name": "'@value", "phone": "", "is_bot": "False",
+    }]
 
 
 def test_export_subscribers_empty_channel_keeps_only_header(
