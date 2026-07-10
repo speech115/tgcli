@@ -15,14 +15,14 @@ from tgcli.errors import ConfigError, NotFoundError
 
 READ_VERBS = ("get", "search", "check", "resolve")
 SENSITIVE_KEY_TOKENS = (
-    "access_hash",
-    "api_hash",
-    "auth_key",
+    "accesshash",
+    "apihash",
+    "authkey",
     "password",
     "secret",
-    "srp_b",
-    "secure_random",
-    "tmp_password",
+    "srpb",
+    "securerandom",
+    "tmppassword",
 )
 
 
@@ -89,9 +89,10 @@ def _sanitize_result(value):
 
 
 def _is_sensitive_key(key) -> bool:
-    return isinstance(key, str) and any(
-        token in key.casefold() for token in SENSITIVE_KEY_TOKENS
-    )
+    normalized = ""
+    if isinstance(key, str):
+        normalized = "".join(char for char in key.casefold() if char.isalnum())
+    return any(token in normalized for token in SENSITIVE_KEY_TOKENS)
 
 
 def _field_annotation(constructor_type, field: str):

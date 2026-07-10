@@ -137,7 +137,11 @@ async def test_call_never_returns_sensitive_account_password_values():
             return {
                 "id": 1,
                 "access_hash": 2,
+                "accessHash": 3,
+                "apiHash": "secret",
+                "authKey": "secret",
                 "current_algo": {"salt1": "public", "SRP_B": "secret"},
+                "srpB": "secret",
                 "password": "secret",
                 "hint": "public",
                 "new_secure_random": "secret",
