@@ -1,6 +1,9 @@
 # ADR-0008: Raw TL passthrough (`tg api`) with fail-closed safety
 
-Status: accepted (2026-07-06)
+Status: superseded in part by [ADR-0010](ADR-0010-raw-api-read-allowlist.md) (2026-07-10)
+
+ADR-0010 supersedes this ADR's phase-2 read-classification rule. The raw
+passthrough rationale and future write-path requirements remain in force.
 
 ## Context
 

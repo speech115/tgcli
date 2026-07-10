@@ -59,3 +59,17 @@ def test_non_read_api_method_is_blocked_before_network(config_env, monkeypatch):
     monkeypatch.setattr(cli.session, "client", lambda account: pytest.fail("session opened"))
 
     assert main(["api", "messages.sendMessage", "--params", "{}"]) == 2
+
+
+@pytest.mark.parametrize("method", ["auth.checkPassword", "account.getTmpPassword"])
+def test_sensitive_verb_prefixed_api_method_is_blocked_before_config_or_session(
+    method, monkeypatch, capsys
+):
+    from tgcli import cli
+
+    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
+    monkeypatch.setattr(cli.session, "client", lambda account: pytest.fail("session opened"))
+    monkeypatch.setattr(cli, "_run_network", lambda args, account: pytest.fail("network dispatched"))
+
+    assert main(["api", method, "--params", "{}"]) == 2
+    assert "raw API method is not allowlisted for read-only use" in capsys.readouterr().err

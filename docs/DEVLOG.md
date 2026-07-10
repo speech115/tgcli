@@ -15,6 +15,23 @@ Template:
 
 ---
 
+## 2026-07-10 — Default-deny raw API read policy (Codex)
+**Did:** replaced the raw method-name prefix heuristic with the reviewed,
+explicit Phase-2 allowlist `users.getFullUser`; added regression coverage that
+`auth.checkPassword` and `account.getTmpPassword` exit 2 before config loading
+or session acquisition; and recorded the policy in ADR-0010, CONTRACT, and
+MAP. TDD red run: `.venv/bin/pytest tests/test_cli_api_policy.py -q` reported
+`2 failed, 5 passed` because both methods tried to load config. Green focused
+run reported `7 passed in 0.14s`; full suite reported `67 passed, 8 skipped in
+0.25s`; `TGCLI_LIVE_SMOKE=1 .venv/bin/pytest tests/live -q` reported `8 passed
+in 6.99s`.
+**Decided:** no raw TL method is classified as read-only by its name. Phase 2
+permits only ADR-0010's explicit allowlist; all other methods fail closed.
+**Learned:** TL names such as `checkPassword` and `getTmpPassword` can hide
+credential-sensitive operations, so verb prefixes are not a safety boundary.
+**Next:** add further raw methods only through a reviewed ADR-0010 allowlist
+update with dispatcher and no-session policy regressions.
+
 ## 2026-07-10 — Read-only raw API CLI passthrough (Codex)
 **Did:** wired allowlisted `tg api` calls through the normal session context,
 added CLI envelope/FloodWait tests, a gated live

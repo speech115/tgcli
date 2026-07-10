@@ -14,8 +14,8 @@ tgcli/
 │   ├── PLAN.md                [done]    master plan, phases 0–6
 │   ├── CONTRACT.md            [done]    CLI automation contract (stdout/exit codes/JSON)
 │   ├── DEVLOG.md              [done]    session-by-session agent log
-│   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0008; trued up in phase 7)
-│   ├── decisions/             [done]    ADR-0001…0009 (see index below)
+│   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
+│   ├── decisions/             [done]    ADR-0001…0010 (see index below)
 │   └── superpowers/plans/     [done]    per-phase TDD implementation plans
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -33,7 +33,7 @@ tgcli/
 │   │   ├── info.py            [done]    tg info / count (phase 2)
 │   │   ├── media.py           [planned] tg media download             (phase 3)
 │   │   ├── send.py            [planned] tg send --preview/--commit    (phase 4)
-│   │   ├── api.py             [wip]     tg api raw TL passthrough     (phase 2 read-only; phase 4 write, ADR-0008)
+│   │   ├── api.py             [wip]     tg api raw TL passthrough     (phase 2 explicit read allowlist; phase 4 write, ADR-0010)
 │   │   └── export.py          [planned] tg export messages|subscribers (phase 5, takeout)
 ├── tests/                     [wip]     unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
@@ -61,5 +61,6 @@ tgcli/
 | [0005](decisions/ADR-0005-safety-model.md) | Reads free; writes preview→commit + audit; runtime flags not baked profiles |
 | [0006](decisions/ADR-0006-media-tdlib-fallback.md) | ~~TDLib as optional fallback backend~~ superseded by 0009 |
 | [0007](decisions/ADR-0007-docs-discipline.md) | MAP + ADR + DEVLOG as mandatory agent workflow |
-| [0008](decisions/ADR-0008-raw-api-passthrough.md) | `tg api` raw TL passthrough; fail-closed verb allowlist, write gate, denylist |
+| [0008](decisions/ADR-0008-raw-api-passthrough.md) | `tg api` raw TL passthrough and write-path safety; read policy superseded by ADR-0010 |
 | [0009](decisions/ADR-0009-tdlib-deferred.md) | TDLib deferred: no backend in v1; phase 3 Telethon-only; evidence-gated PoC re-entry |
+| [0010](decisions/ADR-0010-raw-api-read-allowlist.md) | `tg api` phase-2 explicit default-deny read allowlist |

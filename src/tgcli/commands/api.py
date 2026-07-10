@@ -13,7 +13,7 @@ from telethon.tl.tlobject import TLObject, TLRequest
 from tgcli.errors import ConfigError, NotFoundError
 
 
-READ_VERBS = ("get", "search", "check", "resolve")
+READ_METHOD_ALLOWLIST = frozenset({"users.getFullUser"})
 SENSITIVE_KEY_TOKENS = (
     "accesshash",
     "apihash",
@@ -27,9 +27,8 @@ SENSITIVE_KEY_TOKENS = (
 
 
 def is_read_method(name: str) -> bool:
-    """Return whether a TL method's final segment has an allowlisted read verb."""
-    method = name.rsplit(".", maxsplit=1)[-1]
-    return method.startswith(READ_VERBS)
+    """Return whether a reviewed raw API method is safe in phase 2."""
+    return name in READ_METHOD_ALLOWLIST
 
 
 def _resolve_method(name: str):

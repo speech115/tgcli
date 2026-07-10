@@ -110,21 +110,22 @@ Commit replays the stored preview verbatim: `tg send --commit p_9f3a`.
 The agent cannot alter text between preview and commit (carried over from
 the old stack's confirmed-send design — its one genuinely good write-safety idea).
 
-## 6. Raw API Passthrough (`tg api`, phase 2+; ADR-0008)
+## 6. Raw API Passthrough (`tg api`, phase 2+; ADR-0010)
 
 ```
 tg api <Namespace.method> --params '<json>' [--write] [--confirm <method>]
 ```
 
-- `--params` is required and must be a JSON object. Read methods (verbs
-  `get*`/`search*`/`check*`/`resolve*`) run through the configured session.
-- Every other method is blocked before session acquisition with exit 2. In
-  phase 2, `--write` is also blocked before session acquisition with exit 2
-  and the message `tg api --write is unavailable until phase 4`.
+- `--params` is required and must be a JSON object. In phase 2, only the
+  reviewed explicit allowlist in ADR-0010 may run through the configured
+  session: `users.getFullUser`.
+- Every other method is blocked before config loading or session acquisition
+  with exit 2. In phase 2, `--write` is also blocked before session acquisition
+  with exit 2 and the message `tg api --write is unavailable until phase 4`.
 - Phase 4 will add the `--readonly` / `TGCLI_READONLY` / `TGCLI_NO_SEND`
   checks, typed destructive `--confirm <Namespace.method>`, and the permanent
   account-lifecycle denylist from ADR-0008 before enabling writes.
-- `--json` output: `{"method": "messages.getHistory", "result": {…}}` where
+- `--json` output: `{"method": "users.getFullUser", "result": {…}}` where
   `result` is the TL object as a dict.
 - **Stability exemption:** `result` mirrors the Telegram TL layer of the
   pinned Telethon version and may change when that pin is upgraded; the §3
