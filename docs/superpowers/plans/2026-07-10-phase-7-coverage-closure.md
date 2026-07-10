@@ -30,7 +30,7 @@
 - Consumes: `telethon.tl.functions` namespace list from the pinned environment.
 - Produces: one Markdown table with columns `TL namespace`, `Status`, `Notes` and exactly these namespace keys: `account`, `aicompose`, `auth`, `bots`, `channels`, `chatlists`, `contacts`, `folders`, `fragment`, `help`, `langpack`, `messages`, `payments`, `phone`, `photos`, `premium`, `smsjobs`, `stats`, `stickers`, `stories`, `updates`, `upload`, `users`.
 
-- [ ] **Step 1: Write a failing matrix test**
+- [x] **Step 1: Write a failing matrix test**
 
 ```python
 def test_current_features_matrix_covers_the_installed_layer():
@@ -38,16 +38,16 @@ def test_current_features_matrix_covers_the_installed_layer():
     assert set(matrix) == module.discover_namespaces()
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `.venv/bin/pytest tests/test_check_coverage.py::test_current_features_matrix_covers_the_installed_layer -q`
 Expected: FAIL because the checker module does not exist.
 
-- [ ] **Step 3: Replace the provisional table**
+- [x] **Step 3: Replace the provisional table**
 
 Use one row per namespace. Classify daily command namespaces as `wrapped`, general raw-TL namespaces as `api`, and `auth`, `phone`, `updates`, and `upload` as `excluded` with their policy reasons. Move secret chats, Bot API, and signup beneath `## Non-TL exclusions`; do not put them in the namespace table.
 
-- [ ] **Step 4: Keep the matrix test red until Task 2 supplies the parser**
+- [x] **Step 4: Keep the matrix test red until Task 2 supplies the parser**
 
 The documentation edit intentionally does not make a missing checker test green.
 
@@ -61,7 +61,7 @@ The documentation edit intentionally does not make a missing checker test green.
 - Consumes: `discover_namespaces() -> set[str]`, `parse_matrix(path: Path) -> dict[str, tuple[str, str]]`.
 - Produces: `validate(features_path: Path, namespaces: set[str] | None = None) -> list[str]`, where an empty list means valid; `main(argv: list[str] | None = None) -> int` with optional `--features PATH`.
 
-- [ ] **Step 1: Extend failing tests**
+- [x] **Step 1: Extend failing tests**
 
 ```python
 def test_validate_reports_missing_unknown_duplicate_and_bad_status(tmp_path):
@@ -83,12 +83,12 @@ def test_validate_reports_missing_unknown_duplicate_and_bad_status(tmp_path):
 Also add one fixture with `| auth | excluded | |` and assert the validation
 contains `excluded namespace auth needs a reason`.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `.venv/bin/pytest tests/test_check_coverage.py -q`
 Expected: FAIL because `scripts/check-coverage.py` is absent.
 
-- [ ] **Step 3: Implement minimal checker**
+- [x] **Step 3: Implement minimal checker**
 
 ```python
 VALID_STATUSES = {"wrapped", "api", "excluded"}
@@ -107,12 +107,12 @@ enough for `validate` to report them. Print `coverage OK: <count> namespaces`
 and return 0 when validation returns no errors; otherwise print each error to
 stderr and return 1.
 
-- [ ] **Step 4: Run GREEN and full suite**
+- [x] **Step 4: Run GREEN and full suite**
 
 Run: `.venv/bin/pytest tests/test_check_coverage.py -q && .venv/bin/python scripts/check-coverage.py && .venv/bin/pytest -q`
 Expected: all checker tests pass, the script reports `coverage OK: 23 namespaces`, and the full suite passes.
 
-- [ ] **Step 5: Commit checker and matrix**
+- [x] **Step 5: Commit checker and matrix**
 
 ```bash
 safe-commit "Add Telethon coverage closure gate" docs/FEATURES.md scripts/check-coverage.py tests/test_check_coverage.py
@@ -129,15 +129,15 @@ safe-commit "Add Telethon coverage closure gate" docs/FEATURES.md scripts/check-
 - Consumes: a successful `scripts/check-coverage.py` run against the pinned layer.
 - Produces: Phase 7 marked accepted in PLAN, script marked `[done]` in MAP, and a DEVLOG entry that records the exact checked namespace count and test output.
 
-- [ ] **Step 1: Update phase status and map**
+- [x] **Step 1: Update phase status and map**
 
 Mark Phase 7 complete only after the checker exits 0. Replace the MAP script row with `[done]` and describe the exact namespace-matrix gate.
 
-- [ ] **Step 2: Record the verification**
+- [x] **Step 2: Record the verification**
 
 Add a newest-first DEVLOG entry with `coverage OK: 23 namespaces` and the full test command result.
 
-- [ ] **Step 3: Verify and commit**
+- [x] **Step 3: Verify and commit**
 
 Run: `.venv/bin/python scripts/check-coverage.py && .venv/bin/pytest -q && git diff --check`
 Expected: checker exit 0, all tests pass, no whitespace errors.
