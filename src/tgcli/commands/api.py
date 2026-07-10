@@ -109,6 +109,8 @@ def _is_peer_alias(value) -> bool:
 
 async def _convert_value(client, value, annotation=None):
     if _is_peer_field(annotation) and isinstance(value, str) and _is_peer_alias(value):
+        if "TypeInputUser" in str(annotation) and value == "@self":
+            return types.InputUserSelf()
         entity = await client.get_input_entity(value)
         annotation_text = str(annotation)
         if "TypeInputUser" in annotation_text:

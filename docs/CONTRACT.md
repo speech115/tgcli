@@ -116,11 +116,14 @@ the old stack's confirmed-send design — its one genuinely good write-safety id
 tg api <Namespace.method> --params '<json>' [--write] [--confirm <method>]
 ```
 
-- Read methods (verbs `get*`/`search*`/`check*`/`resolve*`) run freely.
-- Any other method requires `--write` (hard-disabled until phase 4) and is
-  blocked by `--readonly` / `TGCLI_READONLY` / `TGCLI_NO_SEND` → exit 2.
-  Destructive verbs additionally require `--confirm <Namespace.method>`
-  typed exactly. Denylisted account-lifecycle methods always exit 2.
+- `--params` is required and must be a JSON object. Read methods (verbs
+  `get*`/`search*`/`check*`/`resolve*`) run through the configured session.
+- Every other method is blocked before session acquisition with exit 2. In
+  phase 2, `--write` is also blocked before session acquisition with exit 2
+  and the message `tg api --write is unavailable until phase 4`.
+- Phase 4 will add the `--readonly` / `TGCLI_READONLY` / `TGCLI_NO_SEND`
+  checks, typed destructive `--confirm <Namespace.method>`, and the permanent
+  account-lifecycle denylist from ADR-0008 before enabling writes.
 - `--json` output: `{"method": "messages.getHistory", "result": {…}}` where
   `result` is the TL object as a dict.
 - **Stability exemption:** `result` mirrors the Telegram TL layer of the

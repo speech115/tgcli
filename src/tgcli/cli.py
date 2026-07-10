@@ -100,6 +100,8 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
             if args.command == "count":
                 data = await info_cmd.fetch_count(tg, args.chat)
                 return data, info_cmd.to_rows(data)
+            if args.command == "api":
+                return await api_cmd.call(tg, args.method, args.params), []
             raise AssertionError(f"unhandled network command: {args.command}")
     except telethon_errors.FloodWaitError as exc:
         raise RateLimitError(

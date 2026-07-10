@@ -15,7 +15,7 @@ tgcli/
 │   ├── CONTRACT.md            [done]    CLI automation contract (stdout/exit codes/JSON)
 │   ├── DEVLOG.md              [done]    session-by-session agent log
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0008; trued up in phase 7)
-│   ├── decisions/             [done]    ADR-0001…0007 (see index below)
+│   ├── decisions/             [done]    ADR-0001…0009 (see index below)
 │   └── superpowers/plans/     [done]    per-phase TDD implementation plans
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -33,7 +33,7 @@ tgcli/
 │   │   ├── info.py            [done]    tg info / count (phase 2)
 │   │   ├── media.py           [planned] tg media download             (phase 3)
 │   │   ├── send.py            [planned] tg send --preview/--commit    (phase 4)
-│   │   ├── api.py             [planned] tg api raw TL passthrough     (phase 2 read / 4 write, ADR-0008)
+│   │   ├── api.py             [wip]     tg api raw TL passthrough     (phase 2 read-only; phase 4 write, ADR-0008)
 │   │   └── export.py          [planned] tg export messages|subscribers (phase 5, takeout)
 ├── tests/                     [wip]     unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)

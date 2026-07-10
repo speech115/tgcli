@@ -15,6 +15,26 @@ Template:
 
 ---
 
+## 2026-07-10 — Read-only raw API CLI passthrough (Codex)
+**Did:** wired allowlisted `tg api` calls through the normal session context,
+added CLI envelope/FloodWait tests, a gated live
+`users.getFullUser --params '{"id":"@self"}'` check, and a no-session
+`messages.sendMessage --write` policy regression. The live check exposed a
+stale entity-cache edge case for `@self`; it now maps directly to
+`InputUserSelf` for an input-user field. Final local checks:
+`.venv/bin/pytest tests/test_api_conversion.py tests/test_cli_api.py -q`
+reported `17 passed in 0.14s`; `.venv/bin/pytest -q` reported
+`65 passed, 8 skipped in 0.23s`; and
+`TGCLI_LIVE_SMOKE=1 .venv/bin/pytest tests/live -q` reported
+`8 passed in 7.80s`.
+**Decided:** raw API writes remain unavailable in phase 2: any non-allowlisted
+method and any `--write` request exits 2 before session acquisition; phase 4
+owns enabling audited writes under ADR-0008.
+**Learned:** `get_input_entity("@self")` may use a cached non-user peer, so a
+known self-user input must not rely on generic entity-cache coercion.
+**Next:** complete the remaining Phase 2 acceptance review or proceed to Phase
+3 media work.
+
 ## 2026-07-10 — Phase 2A TSV contract hardened (Codex)
 **Did:** sanitized sender names as well as message text in every four-column
 message TSV path (`read`, `search`, `latest`, and `message`) and added
