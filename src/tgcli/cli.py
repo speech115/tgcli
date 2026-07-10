@@ -6,12 +6,13 @@ from telethon import errors as telethon_errors
 
 from tgcli import __version__, output, session
 from tgcli.commands import accounts as accounts_cmd
+from tgcli.commands import api as api_cmd
 from tgcli.commands import dialogs as dialogs_cmd
 from tgcli.commands import info as info_cmd
 from tgcli.commands import read as read_cmd
 from tgcli.commands import search as search_cmd
 from tgcli.config import load_config, resolve_account
-from tgcli.errors import RateLimitError, TgcliError
+from tgcli.errors import PolicyError, RateLimitError, TgcliError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -63,6 +64,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_count = sub.add_parser("count", help="Count dialog messages", parents=[global_flags])
     p_count.add_argument("chat", help="@username, t.me link, or dialog id")
+
+    p_api = sub.add_parser("api", help="Call an allowlisted raw TL method", parents=[global_flags])
+    p_api.add_argument("method", metavar="METHOD")
+    p_api.add_argument("--params", required=True, metavar="JSON")
+    p_api.add_argument("--write", action="store_true")
+    p_api.add_argument("--confirm", metavar="METHOD")
 
     return parser
 
@@ -116,6 +123,10 @@ def main(argv: list[str] | None = None) -> int:
         if not hasattr(args, name):
             setattr(args, name, default)
     try:
+        if args.command == "api" and args.write:
+            raise PolicyError("tg api --write is unavailable until phase 4")
+        if args.command == "api" and not api_cmd.is_read_method(args.method):
+            raise PolicyError("raw API method is not allowlisted for read-only use")
         config = load_config()
         if args.command == "accounts":
             data = accounts_cmd.list_accounts(config)
