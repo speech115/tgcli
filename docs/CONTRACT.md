@@ -66,6 +66,41 @@ Flag beats env, env beats config.
                "text": "hello", "media": null, "reply_to": null}]}
 ```
 
+`tg search <chat> <query> --json` uses the same `dialog` and message shapes as
+`read`, adding the submitted query:
+```json
+{"dialog": {"id": -1001234, "name": "Channel"}, "query": "hello",
+ "messages": [{"id": 42, "date": "2026-07-06T10:00:00+00:00",
+               "from": {"id": 111, "name": "Alice"}, "text": "hello",
+               "media": null, "reply_to": null}]}
+```
+
+`tg latest <chat> --json` and `tg message <chat> <message_id> --json` return
+one message in that same shape:
+```json
+{"dialog": {"id": -1001234, "name": "Channel"},
+ "message": {"id": 42, "date": "2026-07-06T10:00:00+00:00",
+             "from": {"id": 111, "name": "Alice"}, "text": "hello",
+             "media": null, "reply_to": null}}
+```
+
+`tg info <chat> --json`:
+```json
+{"id": -1001234, "name": "Channel", "kind": "channel", "username": "chan"}
+```
+
+`tg count <chat> --json`:
+```json
+{"dialog": {"id": -1001234, "name": "Channel"}, "count": 73}
+```
+
+### TSV Shapes
+
+`dialogs` retains its phase-1 columns. `read` and `search` output one row per
+message as `id`, `date`, `from_name`, `text`; `latest` and `message` use the
+same single-row shape. `info` outputs `id`, `kind`, `username`, `name`.
+`count` outputs one `count` value.
+
 `tg send --preview --json` (phase 4):
 ```json
 {"preview_id": "p_9f3a", "to": {"id": 111, "name": "Alice"},

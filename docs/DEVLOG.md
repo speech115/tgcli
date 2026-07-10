@@ -15,6 +15,23 @@ Template:
 
 ---
 
+## 2026-07-10 — Phase 2 read parity contract and live smoke (Codex)
+**Did:** added opt-in (`TGCLI_LIVE_SMOKE=1`) JSON-shape checks against the
+explicit `main` account for `info me`, `latest me`, `count me`, and bounded
+`search me tgcli-live-smoke --limit 1`; corrected the pre-existing test harness
+to invoke the CLI entrypoint rather than import the module without running it.
+Documented Phase 2 JSON and TSV shapes, and marked `search.py` and `info.py`
+done in MAP. `.venv/bin/pytest -q` reported `39 passed, 6 skipped in 0.26s`.
+**Decided:** live smoke asserts response structure and the search bound only;
+it never depends on a message count or a particular Saved Message.
+**Learned:** `TGCLI_LIVE_SMOKE=1 .venv/bin/pytest tests/live -q` reached the
+CLI but all six checks failed because the configured `main` session is not
+authorized (exit 3, `session 'main' is not authorized`). No configuration or
+session was changed; successful live validation requires an authorized `main`
+session.
+**Next:** authorize or provide an authorized `main` tgcli session, then rerun
+the gated live suite.
+
 ## 2026-07-10 — Phase 2 read parity started (Codex)
 **Did:** added one canonical message projection and exact read-by-ID support;
 unit suite after the change reports `28 passed, 2 skipped`.
