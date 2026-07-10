@@ -6,6 +6,8 @@ from telethon import errors as telethon_errors
 
 from tgcli.commands.media import (
     MediaSource,
+    _resume_offset,
+    _source_label,
     destination_for,
     parse_source,
     download_media,
@@ -167,6 +169,25 @@ async def test_parallel_download_refuses_resuming_partial_transfer(tmp_path):
 
     with pytest.raises(PolicyError, match="cannot resume"):
         await download_media(FakeParallelTelegram(), source, "main", output=str(target), parallel=2)
+
+
+def test_resume_offset_raises_policy_error_when_part_file_missing(tmp_path):
+    source = MediaSource("@channel", 42, None)
+    destination = tmp_path / "out.bin"
+    state_path = tmp_path / "state.json"
+    part_path = tmp_path / "missing.part"
+    state_path.write_text(
+        json.dumps(
+            {
+                "source": _source_label(source),
+                "destination": str(destination),
+                "offset": 0,
+            }
+        )
+    )
+
+    with pytest.raises(PolicyError, match="no partial file"):
+        _resume_offset(state_path, part_path, source, destination)
 
 
 async def test_resolve_message_uses_public_chat_reference():
