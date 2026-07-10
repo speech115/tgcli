@@ -15,6 +15,16 @@ Template:
 
 ---
 
+## 2026-07-10 — Legacy Telegram MCP daemons decommissioned (Codex)
+**Did:** unloaded the four `com.sereja.telegram-mcp-http*` LaunchAgents and
+their four logrotate jobs from `gui/501`. Verified each service is absent from
+launchd and no listener remains on ports 8799–8802. Preserved the matching
+plist files, old-stack sessions, and unrelated `telegram-mirror-prime-set`.
+**Decided:** tgcli is the sole live Telegram CLI route. Restoring a legacy MCP
+daemon is a deliberate rollback operation, not a fallback agents may take.
+**Next:** no roadmap work remains; maintain tgcli through normal scoped
+changes and rerun the coverage gate on Telethon pin updates.
+
 ## 2026-07-10 — Roadmap completion doc pass (Codex)
 **Did:** reconciled the master-plan status with completed acceptance evidence:
 Phase 4 safe writes and Phase 6 migration/cutover are now marked complete.
