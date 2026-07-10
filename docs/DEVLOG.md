@@ -29,9 +29,14 @@ LaunchAgent. `vermassov` remains excluded because ADR-0009 records it as
 revoked.
 **Learned:** the phase-6 linked worktree needs its own `uv sync --locked`
 environment; the root checkout's ignored `.venv` is not shared.
-**Next:** run the authorized local import, read-only `pl` smoke, PATH cutover,
-and update the machine-level Claude routing note; begin the parallel-use
-window only if those checks pass.
+**Live validation:** import returned `main: skipped_existing` and imported
+`pl`, `recklessou`, and `teamsyncsage`. Read-only dialog smoke succeeded for
+`main`, `recklessou`, and `teamsyncsage`; `pl` exits 3 because its old session
+is not authorized. `scripts/install-link.sh` now resolves `tg` through
+`~/.local/bin/tg`, and `tg --version` is `0.1.0`. Updated
+`~/.claude/CLAUDE.md` so tgcli is first route and MCP is explicit fallback.
+**Next:** reauthorize `pl` in the old stack and force-import it, or deliberately
+retire that alias; begin the parallel-use window only after that decision.
 
 ## 2026-07-10 — Phases 3–5 reviewed, fixed, merged to main (Claude Fable 5 + subagents)
 **Did:** orchestrated parallel Sonnet review of `codex/phase-3-media`,
