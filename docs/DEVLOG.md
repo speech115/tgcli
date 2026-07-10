@@ -15,6 +15,22 @@ Template:
 
 ---
 
+## 2026-07-10 — Phase 2 live smoke harness corrected (Codex)
+**Did:** changed the opt-in live harness to run the installed `tg` console
+script beside the active virtualenv Python, then ran the focused harness check,
+one live `info me` check, the full gated live suite, and the full suite. Final
+results: `TGCLI_LIVE_SMOKE=1 .venv/bin/pytest tests/live -q` reported
+`7 passed in 5.84s`; `.venv/bin/pytest -q` reported
+`39 passed, 7 skipped in 0.17s`.
+**Decided:** the live subprocess must use the real console script and its real
+tgcli state, while preserving the suite's opt-in gate.
+**Learned:** the earlier exit-3 result was not an unauthorized `main` account:
+the autouse test fixture set `TGCLI_STATE_DIR` to a temporary directory and
+the subprocess inherited it, so it opened an empty temporary session. Removing
+only that test-only environment variable lets the subprocess use the authorized
+`main` session.
+**Next:** proceed with the remaining Phase 2 acceptance work.
+
 ## 2026-07-10 — Phase 2 read parity contract and live smoke (Codex)
 **Did:** added opt-in (`TGCLI_LIVE_SMOKE=1`) JSON-shape checks against the
 explicit `main` account for `info me`, `latest me`, `count me`, and bounded
