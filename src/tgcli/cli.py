@@ -9,6 +9,7 @@ from tgcli.commands import accounts as accounts_cmd
 from tgcli.commands import api as api_cmd
 from tgcli.commands import dialogs as dialogs_cmd
 from tgcli.commands import info as info_cmd
+from tgcli.commands import media as media_cmd
 from tgcli.commands import read as read_cmd
 from tgcli.commands import search as search_cmd
 from tgcli.config import load_config, resolve_account
@@ -65,6 +66,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_count = sub.add_parser("count", help="Count dialog messages", parents=[global_flags])
     p_count.add_argument("chat", help="@username, t.me link, or dialog id")
 
+    p_media = sub.add_parser("media", help="Download message media", parents=[global_flags])
+    media_sub = p_media.add_subparsers(dest="media_command", required=True)
+    p_download = media_sub.add_parser("download", parents=[global_flags])
+    p_download.add_argument("source", help="t.me link or chat reference")
+    p_download.add_argument("message_id", nargs="?", type=int)
+    p_download.add_argument("--output", help="final output path")
+    p_download.add_argument("--parallel", type=int, default=1)
+
     p_api = sub.add_parser("api", help="Call an allowlisted raw TL method", parents=[global_flags])
     p_api.add_argument("method", metavar="METHOD")
     p_api.add_argument("--params", metavar="JSON")
@@ -100,6 +109,21 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
             if args.command == "count":
                 data = await info_cmd.fetch_count(tg, args.chat)
                 return data, info_cmd.to_rows(data)
+            if args.command == "media" and args.media_command == "download":
+                source = media_cmd.parse_source(args.source, args.message_id)
+
+                def progress(current: int, total: int | None) -> None:
+                    output.note(f"downloaded {current}/{total if total is not None else '?'} bytes")
+
+                data = await media_cmd.download_media(
+                    tg,
+                    source,
+                    account.alias,
+                    output=args.output,
+                    parallel=args.parallel,
+                    progress=progress,
+                )
+                return data, media_cmd.to_rows(data)
             if args.command == "api":
                 return await api_cmd.call(tg, args.method, args.params), []
             raise AssertionError(f"unhandled network command: {args.command}")
@@ -115,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
         args = parser.parse_args(argv)
     except SystemExit as err:
         return 0 if err.code == 0 else 1
+    timeout_supplied = hasattr(args, "timeout")
     for name, default in {
         "account": None,
         "json": False,
@@ -141,9 +166,11 @@ def main(argv: list[str] | None = None) -> int:
             rows = accounts_cmd.to_rows(data)
         else:
             account = resolve_account(config, args.account)
-            data, rows = asyncio.run(
-                asyncio.wait_for(_run_network(args, account), timeout=args.timeout)
-            )
+            network = _run_network(args, account)
+            if args.command == "media" and not timeout_supplied:
+                data, rows = asyncio.run(network)
+            else:
+                data, rows = asyncio.run(asyncio.wait_for(network, timeout=args.timeout))
     except TgcliError as err:
         output.emit_error(err, as_json=args.json)
         return err.exit_code

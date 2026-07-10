@@ -1,6 +1,7 @@
 import fcntl
 
 import pytest
+from telethon import errors as telethon_errors
 
 from tgcli import session
 from tgcli.config import Account
@@ -58,3 +59,26 @@ async def test_unauthorized_session_raises_config_error(state, monkeypatch):
         async with session.client(ACCOUNT):
             pass
     assert fake.connected is False
+
+
+async def test_revoked_session_raises_reauthentication_error(state, monkeypatch):
+    class RevokedClient(FakeTelethonClient):
+        async def connect(self):
+            raise telethon_errors.SessionRevokedError(request=None)
+
+    monkeypatch.setattr(session, "_make_client", lambda path, account: RevokedClient())
+
+    with pytest.raises(ConfigError, match="needs reauthentication"):
+        async with session.client(ACCOUNT):
+            pass
+
+
+async def test_revoked_session_during_command_raises_reauthentication_error(
+    state, monkeypatch
+):
+    fake = FakeTelethonClient()
+    monkeypatch.setattr(session, "_make_client", lambda path, account: fake)
+
+    with pytest.raises(ConfigError, match="needs reauthentication"):
+        async with session.client(ACCOUNT):
+            raise telethon_errors.SessionRevokedError(request=None)

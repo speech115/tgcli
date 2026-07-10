@@ -15,6 +15,30 @@ Template:
 
 ---
 
+## 2026-07-10 — Phase 3 media implementation (Codex)
+**Did:** implemented `tg media download` with public/private link parsing,
+private-channel dialog scanning plus `channels.getChannels` validation, safe
+output paths, resumable serial Telethon streaming, opt-in offset/stride
+parallel transfer, stderr progress, and clear revoked-session reauth errors.
+Added 19 media/CLI tests and two session-revocation regressions. Final local
+suite: `129 passed, 8 skipped`; the existing gated live read suite passed
+`8 passed`. The incident link returned the expected exit-4 account-access
+diagnostic for configured account `main`.
+**Decided:** existing completed output files are never overwritten (exit 2).
+Serial transfers resume via state under `~/.local/state/tgcli/downloads/`;
+parallel transfers start fresh and reject a partial serial state.
+**Learned:** Telethon's `iter_download` directly supports the offset and
+stride control required for resume and parallel chunks, so Phase 3 needs no
+TDLib or additional dependency.
+**Acceptance:** downloaded 126,231,815-byte public media to `~/Downloads`;
+serial took 53 seconds and `--parallel 4` took 22 seconds. The serial and
+parallel files had the same SHA-256
+`5ddf8830464e7f02c53bae0f796738464527472fbab432cf94346dab4e6c8506`.
+An interrupted serial transfer resumed successfully. The incident link
+`t.me/c/3817664407/878` returned the specified exit-4 `main`-lacks-access
+diagnostic, not a Telethon media failure.
+**Next:** begin Phase 4 write safety only when requested.
+
 ## 2026-07-10 — Raw API read allowlist expanded to 35 methods (Claude Fable 5 + subagents)
 **Did:** expanded `READ_METHOD_ALLOWLIST` in `src/tgcli/commands/api.py` from
 `users.getFullUser` to the 35 batch-reviewed read methods across messages
@@ -242,3 +266,13 @@ spec; agents drive it purely via CLI + SKILL.md. That validates dropping the
 daemon layer entirely. Telethon's entity cache in the session file is the
 key enabler for cheap short-lived processes.
 **Next:** execute phase-1 plan (docs/superpowers/plans/2026-07-06-phase-1-core-and-read.md).
+## 2026-07-10 — Phase 3 design approved (Codex)
+**Did:** created an isolated `codex/phase-3-media` worktree, restored the
+locked uv environment, and recorded the Telethon-only media-download design.
+Baseline in the isolated worktree: `108 passed, 8 skipped`.
+**Decided:** final media files never overwrite existing paths; interrupted
+downloads resume from state under `~/.local/state/tgcli/downloads/`.
+**Learned:** the source checkout has an unrelated untracked invocation test,
+so all Phase 3 work remains in the separate worktree.
+**Next:** review this design, write the TDD implementation plan, then start
+the first failing media-command test.
