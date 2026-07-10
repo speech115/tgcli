@@ -9,7 +9,7 @@ from tgcli.output import note
 from tgcli.session import state_dir
 
 
-DEFAULT_IMPORT_ALIASES = ("main", "pl", "recklessou", "teamsyncsage")
+DEFAULT_IMPORT_ALIASES = ("main", "recklessou", "teamsyncsage")
 
 
 def list_accounts(config: Config) -> dict:

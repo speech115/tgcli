@@ -19,6 +19,11 @@ pattern: wrapped commands first, `tg api` last resort.
 **Tech Stack:** Python 3.12 stdlib (`sqlite3`, `fcntl`, `tomllib`), bash,
 pytest.
 
+**Scope update (2026-07-10):** `pl` was retired from the default migration
+list after live verification found its old session unauthorized. Default
+imports now cover `main`, `recklessou`, and `teamsyncsage`; `pl` remains
+explicitly importable after a future reauthorization.
+
 ## Recon Facts (2026-07-10, verified on this machine)
 
 - Old-stack Telethon sessions (one dir per account, file `session.session`):

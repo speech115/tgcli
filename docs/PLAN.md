@@ -110,7 +110,8 @@ Acceptance: exports a 10k-message dialog without FloodWait failures.
 
 ### Phase 6 — Migration & cutover
 `tg accounts import` (copies authorized `.session` files from the old stack
-for main/pl/recklessou/teamsyncsage); `scripts/install-link.sh` puts `tg`
+for main/recklessou/teamsyncsage; `pl` was retired from migration scope on
+2026-07-10 after its source session was found unauthorized); `scripts/install-link.sh` puts `tg`
 on PATH ahead of the old wrapper; write `SKILL.md` for agent usage (gogcli
 pattern); update `~/.claude/CLAUDE.md` Telegram routing; old daemons keep
 running until 2 weeks of parallel use show no regressions, then LaunchAgents

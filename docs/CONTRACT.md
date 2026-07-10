@@ -198,7 +198,7 @@ tg accounts import [ALIAS ...] [--source-root PATH] [--force]
 ```
 
 This is a local-only command: it never opens a Telegram connection. With no
-aliases it tries `main`, `pl`, `recklessou`, and `teamsyncsage`, and reports a
+aliases it tries `main`, `recklessou`, and `teamsyncsage`, and reports a
 missing old-stack source as a warning rather than failing. An explicitly named
 missing source exits 4. The command copies old-stack SQLite sessions with an
 online backup into `TGCLI_STATE_DIR/sessions`; an existing destination is left

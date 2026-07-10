@@ -15,6 +15,16 @@ Template:
 
 ---
 
+## 2026-07-10 — Retire unauthorized `pl` from Phase 6 migration (Codex)
+**Did:** removed `pl` from the default import aliases, updated the CLI contract,
+agent skill, phase plan, master plan, and ADR-0004, and added a regression that
+proves default import ignores an existing old-stack `pl` directory.
+**Decided:** `pl` is not a migration account until it is explicitly
+reauthorized. Its old-stack source remains untouched; the tgcli config block
+and copied state session are removed at the user's direction.
+**Next:** push and merge the Phase 6 branch, then start the parallel-use window
+with `main`, `recklessou`, and `teamsyncsage`.
+
 ## 2026-07-10 — Phase 6 local migration and cutover implementation (Codex)
 **Did:** added pure-local `tg accounts import`: it backs up old Telethon
 SQLite sessions under the same per-account lock as normal tgcli work, protects

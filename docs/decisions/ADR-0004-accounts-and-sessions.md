@@ -7,7 +7,11 @@ Telethon SQLiteSession files store the auth key AND the entity cache
 (access_hashes) — that cache is what makes short-lived processes fast.
 SQLite session files must not be opened by two clients concurrently.
 The old stack solved this with one daemon per account (4 ports).
-We have authorized sessions for: main, pl, recklessou, teamsyncsage.
+At acceptance, the migration scope contains authorized sessions for: main,
+recklessou, teamsyncsage. `pl` was retired from the default migration list on
+2026-07-10 after live verification showed its old session was unauthorized;
+the old source is preserved and can be explicitly reauthorized and imported
+later if needed.
 
 ## Decision
 - Sessions live in `~/.local/state/tgcli/sessions/<name>.session`.

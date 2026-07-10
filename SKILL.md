@@ -65,7 +65,7 @@ intentionally changed.
 ## Account selection
 
 Selection order is `--account` > `TGCLI_ACCOUNT` > the config default.
-Available migration aliases are `main`, `pl`, `recklessou`, and `teamsyncsage`.
+Available migration aliases are `main`, `recklessou`, and `teamsyncsage`.
 
 ## Migration note
 

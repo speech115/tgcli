@@ -6,7 +6,12 @@ import pytest
 from tgcli.cli import main
 
 
-def make_old_stack(root, aliases=("main", "pl"), api_id=12345, api_hash="hash-abc"):
+def make_old_stack(
+    root,
+    aliases=("main", "pl", "recklessou", "teamsyncsage"),
+    api_id=12345,
+    api_hash="hash-abc",
+):
     for alias in aliases:
         directory = root / (
             ".telegram-mcp" if alias == "main" else f".telegram-mcp-{alias}"
@@ -43,11 +48,11 @@ def test_import_copies_sessions_and_appends_config(import_env, capsys):
 
     assert code == 0
     report = {entry["alias"]: entry for entry in json.loads(capsys.readouterr().out)["imported"]}
-    assert report["pl"]["status"] == "imported"
-    assert report["pl"]["config"] == "added"
-    copied = sqlite3.connect(tmp_path / "state" / "sessions" / "pl.session")
-    assert copied.execute("SELECT auth_key FROM sessions").fetchone() == (b"pl",)
-    assert "[accounts.pl]" in config.read_text()
+    assert report["recklessou"]["status"] == "imported"
+    assert report["recklessou"]["config"] == "added"
+    copied = sqlite3.connect(tmp_path / "state" / "sessions" / "recklessou.session")
+    assert copied.execute("SELECT auth_key FROM sessions").fetchone() == (b"recklessou",)
+    assert "[accounts.recklessou]" in config.read_text()
     assert 'api_hash = "existing"' in config.read_text()
 
 
@@ -67,6 +72,7 @@ def test_import_skips_existing_session_without_force(import_env, capsys):
 
 def test_import_default_tolerates_missing_sources(import_env, capsys):
     _, old_root, _ = import_env
+    (old_root / ".telegram-mcp-recklessou" / "session.session").unlink()
 
     code = main(["--json", "accounts", "import", "--source-root", str(old_root)])
 
@@ -75,6 +81,18 @@ def test_import_default_tolerates_missing_sources(import_env, capsys):
     report = {entry["alias"]: entry for entry in json.loads(captured.out)["imported"]}
     assert report["recklessou"]["status"] == "source_missing"
     assert "recklessou" in captured.err
+
+
+def test_import_default_excludes_retired_pl_alias(import_env, capsys):
+    tmp_path, old_root, config = import_env
+
+    code = main(["--json", "accounts", "import", "--source-root", str(old_root)])
+
+    assert code == 0
+    report = {entry["alias"] for entry in json.loads(capsys.readouterr().out)["imported"]}
+    assert "pl" not in report
+    assert not (tmp_path / "state" / "sessions" / "pl.session").exists()
+    assert "[accounts.pl]" not in config.read_text()
 
 
 def test_import_explicit_missing_alias_exits_4(import_env):
@@ -87,8 +105,10 @@ def test_import_explicit_missing_alias_exits_4(import_env):
 
 def test_import_missing_credentials_for_new_alias_exits_3(import_env):
     _, old_root, _ = import_env
-    (old_root / ".telegram-mcp-pl" / "launchd.env").unlink()
+    (old_root / ".telegram-mcp-teamsyncsage" / "launchd.env").unlink()
 
-    code = main(["--json", "accounts", "import", "pl", "--source-root", str(old_root)])
+    code = main(
+        ["--json", "accounts", "import", "teamsyncsage", "--source-root", str(old_root)]
+    )
 
     assert code == 3
