@@ -1,6 +1,54 @@
 import pytest
 
+from telethon.tl.tlobject import TLRequest
+
 from tgcli.cli import main
+from tgcli.commands import api as api_cmd
+
+
+REVIEWED_READ_METHODS = [
+    # channels (7)
+    "channels.getAdminLog",
+    "channels.getAdminedPublicChannels",
+    "channels.getChannels",
+    "channels.getFullChannel",
+    "channels.getMessages",
+    "channels.getParticipant",
+    "channels.getParticipants",
+    # contacts (3)
+    "contacts.getContacts",
+    "contacts.resolveUsername",
+    "contacts.search",
+    # messages (18)
+    "messages.getCommonChats",
+    "messages.getDialogs",
+    "messages.getDiscussionMessage",
+    "messages.getForumTopics",
+    "messages.getFullChat",
+    "messages.getHistory",
+    "messages.getMessageReactionsList",
+    "messages.getMessages",
+    "messages.getMessagesReactions",
+    "messages.getPeerDialogs",
+    "messages.getReplies",
+    "messages.getSavedDialogs",
+    "messages.getSavedHistory",
+    "messages.getSearchCounters",
+    "messages.getUnreadMentions",
+    "messages.getUnreadReactions",
+    "messages.search",
+    "messages.searchGlobal",
+    # photos (1)
+    "photos.getUserPhotos",
+    # stats (4)
+    "stats.getBroadcastStats",
+    "stats.getMegagroupStats",
+    "stats.getMessagePublicForwards",
+    "stats.getMessageStats",
+    # users (2)
+    "users.getFullUser",
+    "users.getUsers",
+]
 
 
 SAMPLE = """
@@ -63,6 +111,40 @@ def test_non_read_api_method_is_blocked_before_network(config_env, monkeypatch):
 
 @pytest.mark.parametrize("method", ["auth.checkPassword", "account.getTmpPassword"])
 def test_sensitive_verb_prefixed_api_method_is_blocked_before_config_or_session(
+    method, monkeypatch, capsys
+):
+    from tgcli import cli
+
+    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
+    monkeypatch.setattr(cli.session, "client", lambda account: pytest.fail("session opened"))
+    monkeypatch.setattr(cli, "_run_network", lambda args, account: pytest.fail("network dispatched"))
+
+    assert main(["api", method, "--params", "{}"]) == 2
+    assert "raw API method is not allowlisted for read-only use" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("method", REVIEWED_READ_METHODS)
+def test_reviewed_read_method_is_allowlisted_and_resolves(method):
+    assert api_cmd.is_read_method(method)
+    request_type = api_cmd._resolve_method(method)
+    assert issubclass(request_type, TLRequest)
+
+
+def test_allowlist_contains_exactly_the_reviewed_methods():
+    assert api_cmd.READ_METHOD_ALLOWLIST == frozenset(REVIEWED_READ_METHODS)
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        "messages.getMessagesViews",
+        "contacts.getLocated",
+        "contacts.resolvePhone",
+        "messages.getExportedChatInvites",
+        "messages.getBotCallbackAnswer",
+    ],
+)
+def test_rejected_read_looking_api_method_is_blocked_before_config_or_session(
     method, monkeypatch, capsys
 ):
     from tgcli import cli
