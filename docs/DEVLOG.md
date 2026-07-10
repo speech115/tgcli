@@ -15,6 +15,15 @@ Template:
 
 ---
 
+## 2026-07-10 — Phase 2 read parity started (Codex)
+**Did:** added one canonical message projection and exact read-by-ID support;
+unit suite after the change reports `28 passed, 2 skipped`.
+**Decided:** preserve the Phase 1 message JSON shape and reuse it instead of
+creating a second formatter for `tg message`.
+**Learned:** exact message lookup is a small read-only addition with the same
+not-found contract as dialog lookup (exit 4).
+**Next:** add `search`, `latest`, and CLI `message` on top of this projection.
+
 ## 2026-07-09 — Phase 2 split into read parity and raw API plans (Codex)
 **Did:** reviewed the completed Phase 1 CLI, the old stack's command surface,
 CONTRACT.md, FEATURES.md, and ADR-0008. Wrote two TDD execution plans:
