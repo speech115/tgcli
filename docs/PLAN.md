@@ -66,7 +66,7 @@ side-by-side smoke on 3 real dialogs gives matching counts;
 `tg api users.getFullUser --params '{"id": "@self"}' --json` works live;
 `tg api messages.sendMessage --write ...` exits 2.
 
-### Phase 3 — Media (Telethon-only; TDLib deferred — ADR-0009)
+### Phase 3 — Media (Telethon-only; TDLib deferred — ADR-0009)  ✅ 2026-07-10
 `tg media download <t.me/link|chat msg_id>` via Telethon streaming
 (no artificial timeout, progress on stderr). Download engine borrows the
 three techniques that make iyear/tdl fast — none require TDLib:
@@ -81,6 +81,15 @@ Acceptance: downloads a >100 MB video from a private channel to
 an interrupted download resumes on re-run; the 2026-07 incident case (`t.me/c/3817664407/878`) succeeds or fails diagnosably —
 a reproducible Telethon failure there is the only trigger that re-opens
 TDLib, as a measured PoC (ADR-0009).
+
+Acceptance evidence (2026-07-10): `@disruptors_official` message 3609
+(126,231,815 bytes) downloaded to `~/Downloads`; serial took 53 seconds and
+`--parallel 4` took 22 seconds. Both outputs had SHA-256
+`5ddf8830464e7f02c53bae0f796738464527472fbab432cf94346dab4e6c8506`.
+An interrupted serial transfer resumed from persisted state. The incident
+link returned the required exit-4 account-access diagnostic for configured
+account `main`, which lacks channel access; it did not reproduce a Telethon
+media failure.
 
 ### Phase 4 — Write path
 `tg send --preview` → stores preview in `~/.local/state/tgcli/previews/`,

@@ -30,8 +30,14 @@ parallel transfers start fresh and reject a partial serial state.
 **Learned:** Telethon's `iter_download` directly supports the offset and
 stride control required for resume and parallel chunks, so Phase 3 needs no
 TDLib or additional dependency.
-**Next:** run the credential-gated private-link and >100 MB benchmark
-acceptance checks, then mark Phase 3 accepted in PLAN.md.
+**Acceptance:** downloaded 126,231,815-byte public media to `~/Downloads`;
+serial took 53 seconds and `--parallel 4` took 22 seconds. The serial and
+parallel files had the same SHA-256
+`5ddf8830464e7f02c53bae0f796738464527472fbab432cf94346dab4e6c8506`.
+An interrupted serial transfer resumed successfully. The incident link
+`t.me/c/3817664407/878` returned the specified exit-4 `main`-lacks-access
+diagnostic, not a Telethon media failure.
+**Next:** begin Phase 4 write safety only when requested.
 
 ## 2026-07-10 — Raw API read allowlist expanded to 35 methods (Claude Fable 5 + subagents)
 **Did:** expanded `READ_METHOD_ALLOWLIST` in `src/tgcli/commands/api.py` from
