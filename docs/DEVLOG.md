@@ -15,6 +15,22 @@ Template:
 
 ---
 
+## 2026-07-10 — Phase 2 accepted: side-by-side parity smoke passed (Claude Fable 5 + subagents)
+**Did:** ran the Phase 2 acceptance smoke: old daemon-stack `tg` CLI vs new
+tgcli, side by side on 3 real dialogs. Counts, latest message ids, and message
+text all match 3/3: Saved Messages (count 1374, latest 280484), @karlobrans
+channel (75, 965 — text byte-identical), @totwtop (1249, 280271). Cross-check:
+`message` lookup by id from the new CLI returns identical content in the old
+CLI. Marked Phase 2 done in PLAN.md.
+**Decided:** Phase 2 is accepted; branch is ready to merge to main.
+**Learned:** the acceptance run itself surfaced two old-stack defects: the
+main daemon's read lanes sat in circuit_open for ~25 minutes, and @poremido
+fails all old-stack message lanes with a reproducible Telethon "Could not find
+a matching Constructor ID" error while new tgcli reads the same chat fine
+(count 354, latest 280253). The comparison baseline was flakier than the thing
+under test — which is the reason this project exists.
+**Next:** merge phases 1–2 to main, then execute Phase 3 (media downloads).
+
 ## 2026-07-10 — Default-deny raw API read policy (Codex)
 **Did:** replaced the raw method-name prefix heuristic with the reviewed,
 explicit Phase-2 allowlist `users.getFullUser`; added regression coverage that

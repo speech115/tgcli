@@ -57,7 +57,7 @@ account `main`; a second concurrent `tg` invocation on the same account
 fails fast with exit 3 and a clear lock message, not a corrupted session.
 Plan: [superpowers/plans/2026-07-06-phase-1-core-and-read.md](superpowers/plans/2026-07-06-phase-1-core-and-read.md)
 
-### Phase 2 — Read parity with old `tg` + raw passthrough (read-only)
+### Phase 2 — Read parity with old `tg` + raw passthrough (read-only)  ✅ 2026-07-10
 `tg search`, `tg count`, `tg latest`, `tg info`, `tg message`;
 `tg api <Namespace.method>` restricted to the explicit read allowlist (ADR-0010) —
 `--write` exits 2 with a "phase 4" message until safety.py exists.
