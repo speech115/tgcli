@@ -39,7 +39,7 @@ offset.
   `safe_filename(name: str | None, message_id: int) -> str`;
   `destination_for(name: str, requested: str | None) -> Path`.
 
-- [ ] **Step 1: Write failing tests for accepted sources and unsafe filenames.**
+- [x] **Step 1: Write failing tests for accepted sources and unsafe filenames.**
 
 ```python
 def test_parse_source_accepts_private_link():
@@ -51,12 +51,12 @@ def test_safe_filename_cannot_escape_downloads():
     assert safe_filename("../../a\\tb.mp4", 42) == "a b.mp4"
 ```
 
-- [ ] **Step 2: Run the focused test and verify it fails because the module does not exist.**
+- [x] **Step 2: Run the focused test and verify it fails because the module does not exist.**
 
 Run: `.venv/bin/pytest tests/test_commands_media.py -q`
 Expected: FAIL during collection with `No module named 'tgcli.commands.media'`.
 
-- [ ] **Step 3: Implement link parsing and path validation.**
+- [x] **Step 3: Implement link parsing and path validation.**
 
 ```python
 PRIVATE_LINK = re.compile(r"(?:https?://)?t\.me/c/(\d+)/(\d+)/?$")
@@ -69,12 +69,12 @@ def destination_for(name: str, requested: str | None) -> Path:
     return path
 ```
 
-- [ ] **Step 4: Run the focused test and verify it passes.**
+- [x] **Step 4: Run the focused test and verify it passes.**
 
 Run: `.venv/bin/pytest tests/test_commands_media.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit the isolated parser contract.**
+- [x] **Step 5: Commit the isolated parser contract.**
 
 Run: `safe-commit "Add media source parsing" src/tgcli/commands/media.py tests/test_commands_media.py`
 
@@ -88,7 +88,7 @@ Run: `safe-commit "Add media source parsing" src/tgcli/commands/media.py tests/t
 - Consumes: `MediaSource` from Task 1.
 - Produces: `resolve_message(tg, source, account_alias) -> tuple[entity, message]`.
 
-- [ ] **Step 1: Write failing tests for public lookup, dialog-backed private lookup, and no media.**
+- [x] **Step 1: Write failing tests for public lookup, dialog-backed private lookup, and no media.**
 
 ```python
 async def test_private_link_scans_dialogs_before_missing_access():
@@ -100,12 +100,12 @@ async def test_resolve_message_rejects_message_without_media():
         await resolve_message(fake, MediaSource("@chan", 42, None), "main")
 ```
 
-- [ ] **Step 2: Run the focused resolution tests and verify they fail.**
+- [x] **Step 2: Run the focused resolution tests and verify they fail.**
 
 Run: `.venv/bin/pytest tests/test_commands_media.py -q`
 Expected: FAIL with missing `resolve_message`.
 
-- [ ] **Step 3: Implement source-aware resolution.**
+- [x] **Step 3: Implement source-aware resolution.**
 
 ```python
 async def _resolve_private_entity(tg, channel_id: int, account_alias: str):
@@ -122,12 +122,12 @@ async def resolve_message(tg, source, account_alias):
     return entity, message
 ```
 
-- [ ] **Step 4: Run the focused resolution tests and verify they pass.**
+- [x] **Step 4: Run the focused resolution tests and verify they pass.**
 
 Run: `.venv/bin/pytest tests/test_commands_media.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit resolution behavior.**
+- [x] **Step 5: Commit resolution behavior.**
 
 Run: `safe-commit "Resolve media message links" src/tgcli/commands/media.py tests/test_commands_media.py`
 
@@ -141,7 +141,7 @@ Run: `safe-commit "Resolve media message links" src/tgcli/commands/media.py test
 - Produces: `download_media(tg, source, account_alias, output=None, parallel=1, progress=None) -> dict`.
 - Result shape: `{"source": str, "path": str, "bytes": int, "resumed": bool, "parallel": int}`.
 
-- [ ] **Step 1: Write failing tests for a fresh transfer, state-backed resume, and a collision.**
+- [x] **Step 1: Write failing tests for a fresh transfer, state-backed resume, and a collision.**
 
 ```python
 async def test_download_resumes_from_existing_part(tmp_path, fake):
@@ -157,12 +157,12 @@ async def test_download_refuses_existing_final_path(tmp_path, fake):
         await download_media(fake, source, "main", output=str(target))
 ```
 
-- [ ] **Step 2: Run the focused transfer tests and verify they fail.**
+- [x] **Step 2: Run the focused transfer tests and verify they fail.**
 
 Run: `.venv/bin/pytest tests/test_commands_media.py -q`
 Expected: FAIL with missing `download_media`.
 
-- [ ] **Step 3: Implement state, serial `iter_download`, and atomic finalisation.**
+- [x] **Step 3: Implement state, serial `iter_download`, and atomic finalisation.**
 
 ```python
 async for chunk in tg.iter_download(message.media, offset=offset, request_size=512 * 1024):
@@ -174,12 +174,12 @@ os.replace(part_path, destination)
 state_path.unlink(missing_ok=True)
 ```
 
-- [ ] **Step 4: Run transfer tests and then the full suite.**
+- [x] **Step 4: Run transfer tests and then the full suite.**
 
 Run: `.venv/bin/pytest tests/test_commands_media.py -q && .venv/bin/pytest -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit the resumable serial engine.**
+- [x] **Step 5: Commit the resumable serial engine.**
 
 Run: `safe-commit "Add resumable media downloads" src/tgcli/commands/media.py tests/test_commands_media.py`
 
@@ -196,7 +196,7 @@ Run: `safe-commit "Add resumable media downloads" src/tgcli/commands/media.py te
 - Consumes: `download_media(...)` from Task 3.
 - Produces: `tg media download <source> [message_id] [--output PATH] [--parallel N]`.
 
-- [ ] **Step 1: Write failing CLI tests for JSON output, stderr-only progress, and session revocation.**
+- [x] **Step 1: Write failing CLI tests for JSON output, stderr-only progress, and session revocation.**
 
 ```python
 def test_media_download_json_uses_command_result(config_env, monkeypatch, capsys):
@@ -209,12 +209,12 @@ def test_session_revoked_exits_3(config_env, monkeypatch, capsys):
     assert main(["--json", "media", "download", "@chan", "42"]) == 3
 ```
 
-- [ ] **Step 2: Run the CLI tests and verify they fail because `media` is unknown.**
+- [x] **Step 2: Run the CLI tests and verify they fail because `media` is unknown.**
 
 Run: `.venv/bin/pytest tests/test_cli_media.py -q`
 Expected: FAIL with argparse error or missing media dispatch.
 
-- [ ] **Step 3: Add nested parser and routing, with progress written to stderr.**
+- [x] **Step 3: Add nested parser and routing, with progress written to stderr.**
 
 ```python
 p_media = sub.add_parser("media", parents=[global_flags])
@@ -226,12 +226,12 @@ p_download.add_argument("--output")
 p_download.add_argument("--parallel", type=int, default=1)
 ```
 
-- [ ] **Step 4: Translate `SessionRevokedError` in `session.client` to `ConfigError` and run the CLI tests.**
+- [x] **Step 4: Translate `SessionRevokedError` in `session.client` to `ConfigError` and run the CLI tests.**
 
 Run: `.venv/bin/pytest tests/test_cli_media.py -q`
 Expected: PASS with no progress on stdout.
 
-- [ ] **Step 5: Commit CLI behavior.**
+- [x] **Step 5: Commit CLI behavior.**
 
 Run: `safe-commit "Add media download command" src/tgcli/cli.py src/tgcli/commands/media.py src/tgcli/session.py tests/test_cli_media.py tests/test_session.py`
 
@@ -248,7 +248,7 @@ Run: `safe-commit "Add media download command" src/tgcli/cli.py src/tgcli/comman
 - `--parallel N` accepts positive integers; `N > 1` requires a fresh download
   and writes fixed 512 KiB chunks with bounded worker count.
 
-- [ ] **Step 1: Write a failing test proving `--parallel 2` requests disjoint offsets and rejects resume.**
+- [x] **Step 1: Write a failing test proving `--parallel 2` requests disjoint offsets and rejects resume.**
 
 ```python
 async def test_parallel_download_uses_disjoint_offsets(tmp_path, fake):
@@ -256,12 +256,12 @@ async def test_parallel_download_uses_disjoint_offsets(tmp_path, fake):
     assert {call["offset"] for call in fake.iter_download_calls} == {0, 512 * 1024}
 ```
 
-- [ ] **Step 2: Run the focused test and verify it fails.**
+- [x] **Step 2: Run the focused test and verify it fails.**
 
 Run: `.venv/bin/pytest tests/test_commands_media.py -q`
 Expected: FAIL because parallel transfer is not implemented.
 
-- [ ] **Step 3: Implement bounded offset/stride workers, then update the command contract and project map.**
+- [x] **Step 3: Implement bounded offset/stride workers, then update the command contract and project map.**
 
 ```python
 async def worker(index: int):
@@ -271,11 +271,11 @@ async def worker(index: int):
 await asyncio.gather(*(worker(index) for index in range(parallel)))
 ```
 
-- [ ] **Step 4: Run all unit checks and a CLI smoke.**
+- [x] **Step 4: Run all unit checks and a CLI smoke.**
 
 Run: `.venv/bin/pytest -q && .venv/bin/tg --help`
 Expected: PASS; help lists `media`.
 
-- [ ] **Step 5: Commit the completed phase artifacts.**
+- [x] **Step 5: Commit the completed phase artifacts.**
 
 Run: `safe-commit "Complete Phase 3 media downloads" src/tgcli/commands/media.py tests/test_commands_media.py docs/CONTRACT.md docs/MAP.md docs/DEVLOG.md`

@@ -71,3 +71,14 @@ async def test_revoked_session_raises_reauthentication_error(state, monkeypatch)
     with pytest.raises(ConfigError, match="needs reauthentication"):
         async with session.client(ACCOUNT):
             pass
+
+
+async def test_revoked_session_during_command_raises_reauthentication_error(
+    state, monkeypatch
+):
+    fake = FakeTelethonClient()
+    monkeypatch.setattr(session, "_make_client", lambda path, account: fake)
+
+    with pytest.raises(ConfigError, match="needs reauthentication"):
+        async with session.client(ACCOUNT):
+            raise telethon_errors.SessionRevokedError(request=None)

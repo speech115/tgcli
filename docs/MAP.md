@@ -31,7 +31,7 @@ tgcli/
 │   │   ├── read.py            [done]    tg read <chat>                (phase 1)
 │   │   ├── search.py          [done]    tg search / latest / message (phase 2)
 │   │   ├── info.py            [done]    tg info / count (phase 2)
-│   │   ├── media.py           [planned] tg media download             (phase 3)
+│   │   ├── media.py           [done]    tg media download             (phase 3; Telethon-only)
 │   │   ├── send.py            [planned] tg send --preview/--commit    (phase 4)
 │   │   ├── api.py             [wip]     tg api raw TL passthrough     (phase 2 explicit read allowlist; phase 4 write, ADR-0010)
 │   │   └── export.py          [planned] tg export messages|subscribers (phase 5, takeout)

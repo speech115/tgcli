@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+from telethon import errors as telethon_errors
 
 from tgcli.commands.media import (
     MediaSource,
@@ -131,6 +132,43 @@ async def test_download_refuses_existing_final_path(tmp_path):
     assert fake.iter_download_calls == []
 
 
+class FakeParallelTelegram(FakeDownloadTelegram):
+    def __init__(self):
+        super().__init__([])
+        self.message.file.size = 2 * 512 * 1024
+
+    async def iter_download(self, media, *, offset=0, request_size=None, **kwargs):
+        self.iter_download_calls.append(
+            {"media": media, "offset": offset, "request_size": request_size, **kwargs}
+        )
+        yield bytes([65 + offset // (512 * 1024)]) * (512 * 1024)
+
+
+async def test_parallel_download_uses_disjoint_offsets(tmp_path):
+    fake = FakeParallelTelegram()
+    target = tmp_path / "out.bin"
+
+    result = await download_media(
+        fake, MediaSource("@channel", 42, None), "main", output=str(target), parallel=2
+    )
+
+    assert {call["offset"] for call in fake.iter_download_calls} == {0, 512 * 1024}
+    assert {call["stride"] for call in fake.iter_download_calls} == {2 * 512 * 1024}
+    assert target.read_bytes() == b"A" * (512 * 1024) + b"B" * (512 * 1024)
+    assert result["parallel"] == 2
+
+
+async def test_parallel_download_refuses_resuming_partial_transfer(tmp_path):
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "out.bin"
+    interrupted = FakeDownloadTelegram([b"old"], fail_after_first=True)
+    with pytest.raises(RuntimeError):
+        await download_media(interrupted, source, "main", output=str(target))
+
+    with pytest.raises(PolicyError, match="cannot resume"):
+        await download_media(FakeParallelTelegram(), source, "main", output=str(target), parallel=2)
+
+
 async def test_resolve_message_uses_public_chat_reference():
     entity = type("Entity", (), {"id": 12})()
     message = type("Message", (), {"id": 42, "media": object()})()
@@ -180,6 +218,23 @@ async def test_private_link_without_dialog_names_account():
         async def iter_dialogs(self):
             if False:
                 yield None
+
+    with pytest.raises(NotFoundError, match="account 'main' lacks access"):
+        await resolve_message(FakeTelegram(), MediaSource(None, 8, 7), "main")
+
+
+async def test_private_link_channel_validation_names_account_on_denial():
+    entity = type("Entity", (), {"id": 7})()
+
+    class FakeTelegram:
+        async def iter_dialogs(self):
+            yield type("Dialog", (), {"entity": entity})()
+
+        async def get_input_entity(self, requested_entity):
+            return "input-channel"
+
+        async def __call__(self, request):
+            raise telethon_errors.ChannelPrivateError(request=None)
 
     with pytest.raises(NotFoundError, match="account 'main' lacks access"):
         await resolve_message(FakeTelegram(), MediaSource(None, 8, 7), "main")

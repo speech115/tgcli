@@ -17,7 +17,7 @@ Global flags (available on every command):
 | `--json` | machine output: one JSON document to stdout |
 | `--plain` | stable TSV to stdout (no colors, no alignment) |
 | `--readonly` | hard-block any mutating call in this invocation |
-| `--timeout <sec>` | overall invocation deadline (default 60) |
+| `--timeout <sec>` | overall invocation deadline (default 60; media has no default deadline) |
 | `-v/--verbose` | extra diagnostics on stderr |
 
 Env equivalents: `TGCLI_ACCOUNT`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`.
@@ -49,7 +49,7 @@ Flag beats env, env beats config.
 | 4 | not found | unknown dialog, message id, media |
 | 5 | rate limited | FloodWait longer than threshold; `retry_after` in error JSON |
 
-## 5. Core JSON Shapes (phase 1–2)
+## 5. Core JSON Shapes (phase 1–3)
 
 `tg dialogs --json`:
 ```json
@@ -94,12 +94,27 @@ one message in that same shape:
 {"dialog": {"id": -1001234, "name": "Channel"}, "count": 73}
 ```
 
+`tg media download <t.me/link|chat> [message_id] --json`:
+```json
+{"source": "@channel:42", "path": "/Users/me/Downloads/clip.mp4",
+ "bytes": 104857600, "resumed": false, "parallel": 1}
+```
+
+The command accepts public `t.me/<username>/<message_id>` and private
+`t.me/c/<channel_id>/<message_id>` links, or a chat reference plus message
+ID. Without `--output`, the final file is written to `~/Downloads`; an
+existing final path is refused and never overwritten. Progress is emitted only
+to stderr. Single-stream transfer resumes a matching interrupted partial file
+from `~/.local/state/tgcli/downloads/`; `--parallel N` is opt-in, requires a
+positive `N`, and starts a fresh offset-based transfer.
+
 ### TSV Shapes
 
 `dialogs` retains its phase-1 columns. `read` and `search` output one row per
 message as `id`, `date`, `from_name`, `text`; `latest` and `message` use the
 same single-row shape. `info` outputs `id`, `kind`, `username`, `name`.
 `count` outputs one `count` value.
+`media download` outputs `path`, `bytes`, `resumed`, `parallel`.
 
 `tg send --preview --json` (phase 4):
 ```json

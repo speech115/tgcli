@@ -15,6 +15,24 @@ Template:
 
 ---
 
+## 2026-07-10 — Phase 3 media implementation (Codex)
+**Did:** implemented `tg media download` with public/private link parsing,
+private-channel dialog scanning plus `channels.getChannels` validation, safe
+output paths, resumable serial Telethon streaming, opt-in offset/stride
+parallel transfer, stderr progress, and clear revoked-session reauth errors.
+Added 19 media/CLI tests and two session-revocation regressions. Final local
+suite: `129 passed, 8 skipped`; the existing gated live read suite passed
+`8 passed`. The incident link returned the expected exit-4 account-access
+diagnostic for configured account `main`.
+**Decided:** existing completed output files are never overwritten (exit 2).
+Serial transfers resume via state under `~/.local/state/tgcli/downloads/`;
+parallel transfers start fresh and reject a partial serial state.
+**Learned:** Telethon's `iter_download` directly supports the offset and
+stride control required for resume and parallel chunks, so Phase 3 needs no
+TDLib or additional dependency.
+**Next:** run the credential-gated private-link and >100 MB benchmark
+acceptance checks, then mark Phase 3 accepted in PLAN.md.
+
 ## 2026-07-10 — Raw API read allowlist expanded to 35 methods (Claude Fable 5 + subagents)
 **Did:** expanded `READ_METHOD_ALLOWLIST` in `src/tgcli/commands/api.py` from
 `users.getFullUser` to the 35 batch-reviewed read methods across messages

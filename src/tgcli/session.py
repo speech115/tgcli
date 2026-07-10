@@ -39,18 +39,17 @@ async def client(account: Account):
         ) from None
     tg = _make_client(path, account)
     try:
-        try:
-            await tg.connect()
-        except telethon_errors.SessionRevokedError as exc:
-            raise ConfigError(
-                f"session {account.session!r} needs reauthentication; authorize it again"
-            ) from exc
+        await tg.connect()
         if not await tg.is_user_authorized():
             raise ConfigError(
                 f"session {account.session!r} is not authorized; "
                 "run: tg accounts import (phase 6) or authorize manually"
             )
         yield tg
+    except telethon_errors.SessionRevokedError as exc:
+        raise ConfigError(
+            f"session {account.session!r} needs reauthentication; authorize it again"
+        ) from exc
     finally:
         await tg.disconnect()
         fcntl.flock(lock, fcntl.LOCK_UN)

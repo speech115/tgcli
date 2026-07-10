@@ -1,5 +1,6 @@
 """Media download command helpers (Phase 3; Telethon-only)."""
 
+import asyncio
 from dataclasses import dataclass
 import hashlib
 import json
@@ -8,6 +9,7 @@ from pathlib import Path
 import re
 
 from telethon import functions
+from telethon import errors as telethon_errors
 
 from tgcli.errors import NotFoundError, PolicyError
 from tgcli.session import state_dir
@@ -69,8 +71,17 @@ async def _resolve_private_entity(tg, channel_id: int, account_alias: str):
     async for dialog in tg.iter_dialogs():
         entity = dialog.entity
         if getattr(entity, "id", None) == channel_id:
-            input_entity = await tg.get_input_entity(entity)
-            await tg(functions.channels.GetChannelsRequest([input_entity]))
+            try:
+                input_entity = await tg.get_input_entity(entity)
+                await tg(functions.channels.GetChannelsRequest([input_entity]))
+            except (
+                ValueError,
+                telethon_errors.ChannelInvalidError,
+                telethon_errors.ChannelPrivateError,
+            ):
+                raise NotFoundError(
+                    f"private channel {channel_id} not found; account {account_alias!r} lacks access"
+                ) from None
             return entity
     raise NotFoundError(
         f"private channel {channel_id} not found; account {account_alias!r} lacks access"
@@ -157,8 +168,8 @@ async def download_media(
     parallel: int = 1,
     progress=None,
 ) -> dict:
-    if parallel != 1:
-        raise PolicyError("parallel media downloads are not available yet")
+    if parallel < 1:
+        raise PolicyError("parallel media download count must be positive")
 
     _, message = await resolve_message(tg, source, account_alias)
     destination = destination_for(_message_filename(message, source.message_id), output)
@@ -168,6 +179,19 @@ async def download_media(
 
     part_path.parent.mkdir(parents=True, exist_ok=True)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if parallel > 1:
+        if resumed:
+            raise PolicyError("parallel media download cannot resume an interrupted transfer")
+        return await _download_parallel(
+            tg,
+            message,
+            source,
+            destination,
+            part_path,
+            parallel,
+            progress,
+        )
+
     if not resumed:
         _write_state(state_path, source, destination, offset)
 
@@ -190,6 +214,58 @@ async def download_media(
         "bytes": destination.stat().st_size,
         "resumed": resumed,
         "parallel": 1,
+    }
+
+
+async def _download_parallel(
+    tg,
+    message,
+    source: MediaSource,
+    destination: Path,
+    part_path: Path,
+    parallel: int,
+    progress,
+) -> dict:
+    total = _message_size(message)
+    if not isinstance(total, int) or total <= 0:
+        raise NotFoundError(f"media size is unavailable for parallel download: {source.message_id}")
+
+    with part_path.open("xb") as handle:
+        handle.truncate(total)
+    descriptor = os.open(part_path, os.O_WRONLY)
+    downloaded = 0
+
+    async def worker(index: int) -> None:
+        nonlocal downloaded
+        offset = index * CHUNK_SIZE
+        async for chunk in tg.iter_download(
+            message.media,
+            offset=offset,
+            stride=parallel * CHUNK_SIZE,
+            request_size=CHUNK_SIZE,
+        ):
+            data = bytes(chunk)
+            os.pwrite(descriptor, data, offset)
+            offset += parallel * CHUNK_SIZE
+            downloaded += len(data)
+            if progress:
+                progress(downloaded, total)
+
+    try:
+        await asyncio.gather(*(worker(index) for index in range(parallel)))
+    except BaseException:
+        part_path.unlink(missing_ok=True)
+        raise
+    finally:
+        os.close(descriptor)
+
+    os.replace(part_path, destination)
+    return {
+        "source": _source_label(source),
+        "path": str(destination),
+        "bytes": destination.stat().st_size,
+        "resumed": False,
+        "parallel": parallel,
     }
 
 
