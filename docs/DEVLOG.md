@@ -15,6 +15,30 @@ Template:
 
 ---
 
+## 2026-07-10 — Phases 3–5 reviewed, fixed, merged to main (Claude Fable 5 + subagents)
+**Did:** orchestrated parallel Sonnet review of `codex/phase-3-media`,
+`codex/phase-4-write`, `codex/phase-5-export` against PLAN.md acceptance.
+Found and fixed pre-merge: Phase 3 major — uncaught `FileNotFoundError` in
+`_resume_offset` when `state.json` exists without its `.part` file (4b73560);
+Phase 4 blocker — case-variant denylist bypass (`auth.LogOut` resolved to
+`LogOutRequest` but missed the exact-string denylist and confirm gate; fixed
+by canonicalizing method names from the resolved Telethon class before all
+policy checks, fail-closed, 9378459) plus uncaught `SystemExit` from `send`
+usage validation. Merged all three branches sequentially with conflict
+resolution in `cli.py`/docs; full suite after final merge: `165 passed,
+8 skipped`. Live CLI re-check on merged main: `auth.LogOut --write` → exit 2,
+`auth.logOut --write --confirm` → exit 2, `TGCLI_NO_SEND=1 send --commit` →
+exit 2.
+**Decided:** policy identity for `tg api` is the canonical name derived from
+the resolved TLRequest class, never the raw user string.
+**Learned:** uncommitted WIP (invocation journal: `invocations.py`,
+`cli.py` edits, 2 test files) was sitting on main and blocked the merge;
+preserved on branch `wip/invocation-journal` (df54c0a), not merged — it
+references a design that was never reviewed.
+**Next:** decide the fate of `wip/invocation-journal`; Phase 6 migration
+only when requested. Minor review findings tracked in review notes
+(CSV formula-escaping in export, audit-write try/except, progress throttling).
+
 ## 2026-07-10 — Phase 4 safe write path (Codex)
 **Did:** added `safety.py` for pre-network `--readonly`, `TGCLI_READONLY=1`,
 and `TGCLI_NO_SEND=1` gates; five-minute single-use JSON previews; and JSONL
