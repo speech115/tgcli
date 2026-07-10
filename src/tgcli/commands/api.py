@@ -60,11 +60,29 @@ SENSITIVE_KEY_TOKENS = (
     "securerandom",
     "tmppassword",
 )
+HARD_DENYLIST = frozenset({
+    "account.deleteAccount",
+    "auth.logOut",
+    "auth.resetAuthorizations",
+    "account.resetAuthorization",
+})
 
 
 def is_read_method(name: str) -> bool:
     """Return whether a reviewed raw API method is safe in phase 2."""
     return name in READ_METHOD_ALLOWLIST
+
+
+def is_hard_denied(name: str) -> bool:
+    return name in HARD_DENYLIST
+
+
+def requires_confirmation(name: str) -> bool:
+    method = name.rsplit(".", 1)[-1].casefold()
+    return (
+        method.startswith(("delete", "reset", "leave", "block"))
+        or (method.startswith("edit") and ("admin" in method or "banned" in method))
+    )
 
 
 def _resolve_method(name: str):
@@ -81,6 +99,27 @@ def _resolve_method(name: str):
     ):
         raise NotFoundError(f"raw API method not found: {name!r}")
     return request_type
+
+
+def canonical_method(name: str) -> str:
+    """Return the dispatched request's canonical `Namespace.method` identity.
+
+    Policy checks key on this form so no case variant can resolve to the same
+    Telethon request yet reach a different denylist/confirm branch. Fail-closed:
+    unresolvable methods raise NotFoundError.
+    """
+    request_type = _resolve_method(name)
+    namespace = name.split(".", 1)[0]
+    stem = request_type.__name__[: -len("Request")]
+    return f"{namespace}.{stem[:1].lower()}{stem[1:]}"
+
+
+def try_canonical_method(name: str) -> str | None:
+    """Canonicalize `name`, or return None when it cannot be resolved."""
+    try:
+        return canonical_method(name)
+    except NotFoundError:
+        return None
 
 
 async def build_request(client, name: str, params_json: str):

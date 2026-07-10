@@ -4,7 +4,7 @@ import sys
 
 from telethon import errors as telethon_errors
 
-from tgcli import __version__, output, session
+from tgcli import __version__, output, safety, session
 from tgcli.commands import accounts as accounts_cmd
 from tgcli.commands import api as api_cmd
 from tgcli.commands import dialogs as dialogs_cmd
@@ -12,6 +12,7 @@ from tgcli.commands import info as info_cmd
 from tgcli.commands import media as media_cmd
 from tgcli.commands import read as read_cmd
 from tgcli.commands import search as search_cmd
+from tgcli.commands import send as send_cmd
 from tgcli.config import load_config, resolve_account
 from tgcli.errors import PolicyError, RateLimitError, TgcliError
 
@@ -74,6 +75,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_download.add_argument("--output", help="final output path")
     p_download.add_argument("--parallel", type=int, default=1)
 
+    p_send = sub.add_parser("send", help="Preview and commit a message", parents=[global_flags])
+    p_send.add_argument("chat", nargs="?", help="target for --preview")
+    p_send.add_argument("text", nargs="?", help="message text for --preview")
+    p_send.add_argument("--preview", action="store_true")
+    p_send.add_argument("--commit", metavar="PREVIEW_ID")
+
     p_api = sub.add_parser("api", help="Call an allowlisted raw TL method", parents=[global_flags])
     p_api.add_argument("method", metavar="METHOD")
     p_api.add_argument("--params", metavar="JSON")
@@ -124,6 +131,14 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                     progress=progress,
                 )
                 return data, media_cmd.to_rows(data)
+            if args.command == "send":
+                if args.preview:
+                    data = await send_cmd.prepare(tg, args.chat, args.text)
+                else:
+                    data = await send_cmd.commit(
+                        tg, args.commit, args.preview_payload
+                    )
+                return data, send_cmd.to_rows(data)
             if args.command == "api":
                 return await api_cmd.call(tg, args.method, args.params), []
             raise AssertionError(f"unhandled network command: {args.command}")
@@ -151,10 +166,33 @@ def main(argv: list[str] | None = None) -> int:
         if not hasattr(args, name):
             setattr(args, name, default)
     try:
+        if args.command == "send":
+            if args.commit:
+                if args.preview or args.chat is not None or args.text is not None:
+                    try:
+                        parser.error("send --commit accepts only a preview id")
+                    except SystemExit:
+                        return 1
+                safety.enforce_mutation_allowed(args.readonly)
+                args.preview_payload = safety.consume_preview(args.commit)
+            elif not (args.preview and args.chat is not None and args.text is not None):
+                try:
+                    parser.error("send requires CHAT TEXT --preview or --commit PREVIEW_ID")
+                except SystemExit:
+                    return 1
         if args.command == "api" and args.write:
-            raise PolicyError("tg api --write is unavailable until phase 4")
-        if args.command == "api" and not api_cmd.is_read_method(args.method):
-            raise PolicyError("raw API method is not allowlisted for read-only use")
+            safety.enforce_mutation_allowed(args.readonly)
+            args.method = api_cmd.canonical_method(args.method)
+            if api_cmd.is_hard_denied(args.method):
+                raise PolicyError("raw API method is permanently denied")
+            confirm = api_cmd.try_canonical_method(args.confirm) if args.confirm else args.confirm
+            if api_cmd.requires_confirmation(args.method) and confirm != args.method:
+                raise PolicyError("raw API destructive write requires exact --confirm METHOD")
+        if args.command == "api" and not args.write:
+            canonical = api_cmd.try_canonical_method(args.method)
+            if canonical is None or not api_cmd.is_read_method(canonical):
+                raise PolicyError("raw API method is not allowlisted for read-only use")
+            args.method = canonical
         if args.command == "api" and args.params is None:
             try:
                 parser.error("the following arguments are required: --params")
@@ -166,6 +204,10 @@ def main(argv: list[str] | None = None) -> int:
             rows = accounts_cmd.to_rows(data)
         else:
             account = resolve_account(config, args.account)
+            if args.command == "send" and args.commit:
+                safety.append_audit("send", account.alias, {"preview_id": args.commit})
+            if args.command == "api" and args.write:
+                safety.append_audit("api", account.alias, {"method": args.method})
             network = _run_network(args, account)
             if args.command == "media" and not timeout_supplied:
                 data, rows = asyncio.run(network)

@@ -116,14 +116,17 @@ same single-row shape. `info` outputs `id`, `kind`, `username`, `name`.
 `count` outputs one `count` value.
 `media download` outputs `path`, `bytes`, `resumed`, `parallel`.
 
-`tg send --preview --json` (phase 4):
+`tg send CHAT TEXT --preview --json`:
 ```json
 {"preview_id": "p_9f3a", "to": {"id": 111, "name": "Alice"},
  "text": "hello", "expires_at": "2026-07-06T12:05:00+00:00"}
 ```
-Commit replays the stored preview verbatim: `tg send --commit p_9f3a`.
-The agent cannot alter text between preview and commit (carried over from
-the old stack's confirmed-send design — its one genuinely good write-safety idea).
+Previews expire after five minutes and are single-use: `tg send --commit p_9f3a`
+replays only the stored target and text, then consumes the preview even if the
+network call fails. Commit JSON is `{"preview_id": "p_9f3a", "message_id": 42}`.
+Every authorised send commit appends one JSON object to
+`~/.local/state/tgcli/audit.jsonl` (or `TGCLI_STATE_DIR/audit.jsonl`) before
+network dispatch. Preview creation itself does not send or audit a mutation.
 
 ## 6. Raw API Passthrough (`tg api`, phase 2+; ADR-0010)
 
@@ -135,12 +138,15 @@ tg api <Namespace.method> --params '<json>' [--write] [--confirm <method>]
   reviewed explicit allowlist in ADR-0010 may run through the configured
   session (35 methods as of 2026-07-10; e.g. `users.getFullUser`,
   `messages.getHistory`, `channels.getParticipants`).
-- Every other method is blocked before config loading or session acquisition
-  with exit 2. In phase 2, `--write` is also blocked before session acquisition
-  with exit 2 and the message `tg api --write is unavailable until phase 4`.
-- Phase 4 will add the `--readonly` / `TGCLI_READONLY` / `TGCLI_NO_SEND`
-  checks, typed destructive `--confirm <Namespace.method>`, and the permanent
-  account-lifecycle denylist from ADR-0008 before enabling writes.
+- Without `--write`, every method outside the ADR-0010 read allowlist is
+  blocked before config loading or session acquisition with exit 2.
+- With `--write`, the same `--readonly`, `TGCLI_READONLY=1`, and
+  `TGCLI_NO_SEND=1` gates run before config/session/network work. Destructive
+  `delete*`, `reset*`, `leave*`, `block*`, `edit*Admin*`, and `edit*Banned*`
+  methods require an exact `--confirm <Namespace.method>`; the permanent
+  denylist `account.deleteAccount`, `auth.logOut`, `auth.resetAuthorizations`,
+  and `account.resetAuthorization` is always exit 2. Authorised raw writes
+  append one JSONL audit object before dispatch.
 - `--json` output: `{"method": "users.getFullUser", "result": {…}}` where
   `result` is the TL object as a dict.
 - **Stability exemption:** `result` mirrors the Telegram TL layer of the

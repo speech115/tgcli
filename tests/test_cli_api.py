@@ -71,12 +71,13 @@ def test_api_floodwait_maps_to_exit_5(config_env, monkeypatch, capsys):
     }
 
 
-def test_api_write_is_blocked_without_opening_a_session(monkeypatch):
+def test_api_write_kill_switch_blocks_without_opening_a_session(monkeypatch):
     from tgcli import cli
 
     monkeypatch.setattr(
         cli.session, "client", lambda account: pytest.fail("session opened")
     )
+    monkeypatch.setenv("TGCLI_NO_SEND", "1")
 
     assert main([
         "api", "messages.sendMessage", "--params", "{}", "--write"
