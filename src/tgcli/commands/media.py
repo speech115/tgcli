@@ -191,3 +191,7 @@ async def download_media(
         "resumed": resumed,
         "parallel": 1,
     }
+
+
+def to_rows(data: dict) -> list[tuple]:
+    return [(data["path"], data["bytes"], data["resumed"], data["parallel"])]

@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from telethon import TelegramClient
+from telethon import errors as telethon_errors
 
 from tgcli.config import Account
 from tgcli.errors import ConfigError
@@ -38,7 +39,12 @@ async def client(account: Account):
         ) from None
     tg = _make_client(path, account)
     try:
-        await tg.connect()
+        try:
+            await tg.connect()
+        except telethon_errors.SessionRevokedError as exc:
+            raise ConfigError(
+                f"session {account.session!r} needs reauthentication; authorize it again"
+            ) from exc
         if not await tg.is_user_authorized():
             raise ConfigError(
                 f"session {account.session!r} is not authorized; "
