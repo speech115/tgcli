@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+"""Validate docs/FEATURES.md against the pinned Telethon TL namespaces."""
+
+import argparse
+import pkgutil
+import re
+import sys
+from pathlib import Path
+
+
+VALID_STATUSES = {"wrapped", "api", "excluded"}
+NAMESPACE_RE = re.compile(r"[a-z][a-z0-9]*")
+PLANNED_STATUS_RE = re.compile(r"planned:[1-9][0-9]*")
+DEFAULT_FEATURES = Path(__file__).resolve().parents[1] / "docs" / "FEATURES.md"
+
+
+def discover_namespaces() -> set[str]:
+    from telethon.tl import functions
+
+    return {module.name for module in pkgutil.iter_modules(functions.__path__)}
+
+
+def parse_matrix(path: Path) -> list[tuple[str, str, str]]:
+    rows = []
+    for line in path.read_text().splitlines():
+        if not line.startswith("|") or not line.endswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.split("|")[1:-1]]
+        if len(cells) != 3 or not NAMESPACE_RE.fullmatch(cells[0]):
+            continue
+        rows.append((cells[0], cells[1], cells[2]))
+    return rows
+
+
+def valid_status(status: str) -> bool:
+    return status in VALID_STATUSES or bool(PLANNED_STATUS_RE.fullmatch(status))
+
+
+def validate(features_path: Path, namespaces: set[str] | None = None) -> list[str]:
+    namespaces = namespaces if namespaces is not None else discover_namespaces()
+    errors = []
+    seen = set()
+    for namespace, status, notes in parse_matrix(features_path):
+        if namespace in seen:
+            errors.append(f"duplicate namespace: {namespace}")
+        seen.add(namespace)
+        if namespace not in namespaces:
+            errors.append(f"unknown namespace: {namespace}")
+        if not valid_status(status):
+            errors.append(f"invalid status for {namespace}: {status}")
+        if status == "excluded" and not notes:
+            errors.append(f"excluded namespace {namespace} needs a reason")
+    for namespace in sorted(namespaces - seen):
+        errors.append(f"missing namespace: {namespace}")
+    return errors
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Validate Telethon namespace coverage")
+    parser.add_argument("--features", type=Path, default=DEFAULT_FEATURES)
+    args = parser.parse_args(argv)
+    errors = validate(args.features)
+    if errors:
+        for error in errors:
+            print(f"coverage error: {error}", file=sys.stderr)
+        return 1
+    print(f"coverage OK: {len(discover_namespaces())} namespaces")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

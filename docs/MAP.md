@@ -40,7 +40,7 @@ tgcli/
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
     ├── install-link.sh        [done]    symlink tg → PATH (phase 6 cutover)
-    └── check-coverage.py      [planned] TL namespaces vs FEATURES.md (phase 7 gate)
+    └── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
 ```
 
 ## Module Ownership Rules

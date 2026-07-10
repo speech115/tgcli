@@ -15,6 +15,29 @@ Template:
 
 ---
 
+## 2026-07-10 — Roadmap completion doc pass (Codex)
+**Did:** reconciled the master-plan status with completed acceptance evidence:
+Phase 4 safe writes and Phase 6 migration/cutover are now marked complete.
+**Decided:** all planned phases 0–7 are complete once Phase 7 PR #1 merges;
+legacy daemon decommission remains outside the roadmap and requires a separate
+explicit decision.
+**Next:** merge PR #1, then treat future work as a new scoped feature rather
+than an unfinished roadmap phase.
+
+## 2026-07-10 — Phase 7 Telethon coverage closure (Codex)
+**Did:** normalized `docs/FEATURES.md` to the 23 namespaces exposed by pinned
+Telethon 1.44 and moved non-TL exclusions into prose. Added the executable
+`scripts/check-coverage.py` gate and regressions for missing, unknown,
+duplicate, malformed, and unexplained excluded classifications.
+**Decided:** coverage is namespace-level: daily workflows are `wrapped`, raw
+TL is `api`, and deliberately unsupported runtime models are `excluded` with
+a reason. The checker is fail-closed and must run on every Telethon pin bump.
+**Verified:** `.venv/bin/python scripts/check-coverage.py` reports
+`coverage OK: 23 namespaces`; `.venv/bin/pytest -q` reports `177 passed,
+8 skipped`.
+**Next:** Phase 7 is complete; future Telethon upgrades must update the matrix
+and pass the gate in the same commit.
+
 ## 2026-07-10 — Accept immediate tgcli cutover (Codex)
 **Did:** removed the phase-6 parallel-window requirement from the master plan,
 agent skill, and migration plan; updated global Claude routing to treat old MCP

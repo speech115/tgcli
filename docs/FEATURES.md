@@ -12,29 +12,35 @@ Status values:
 - `planned:<phase>` — wrapper scheduled
 - `excluded` — deliberately not supported, reason given
 
-Namespace list below is provisional until check-coverage first runs against
-the pinned Telethon layer (phase 7 gate); do not trust it blindly before then.
-
 | TL namespace | Status | Notes |
 |--------------|--------|-------|
-| messages | planned:1-2,4 | read/search/send wrappers; read long tail (18 methods) allowlisted via api (ADR-0010) |
-| channels | planned:2,5 | info/subscribers wrappers; 7 read methods allowlisted via api (ADR-0010); admin ops via api later |
-| account | api | no Phase 2 raw allowlist entries; lifecycle methods remain denylisted (ADR-0010) |
-| auth | excluded | owned by `tg accounts` (login/import); raw auth denylisted |
-| users | planned:2 | `tg info`; getUsers/getFullUser allowlisted via api (ADR-0010) |
-| contacts | api | resolveUsername/search/getContacts allowlisted (ADR-0010); getLocated and resolvePhone rejected; wrapper only on demonstrated need |
-| updates | excluded | pull-based CLI; no update loop (ADR-0002, no daemons) |
-| upload | excluded | raw part-upload impractical over JSON; `tg media`/`tg send --file` own it |
-| photos | api | getUserPhotos allowlisted via api (ADR-0010) |
-| stories | api | |
-| folders / chatlists | api | b1rd33/tg-cli wraps these; we wait for a real use case |
-| stickers | api | |
-| payments | api | read-only in practice; mutations gated like all writes |
-| stats | api | 4 broadcast/megagroup/message stats reads allowlisted via api (ADR-0010) |
-| bots | api | user-account tool; bot management via api if ever needed |
-| help | api | |
-| langpack | api | |
-| phone (calls) | excluded | voice/video needs a WebRTC media stack; out of scope |
-| — secret chats | excluded | not part of the TL API Telethon implements |
-| — Bot API (HTTP) | excluded | non-goal (PLAN.md); this is an MTProto user-account tool |
-| — signup | excluded | account creation is a ToS/ban risk; import sessions instead |
+| account | api | Raw account calls use the audited write gates; lifecycle denylist remains permanent (ADR-0010). |
+| aicompose | api | No dedicated workflow; use raw TL only after task-specific review. |
+| auth | excluded | Session lifecycle is owned by `tg accounts`; raw auth calls are denylisted. |
+| bots | api | User-account tool; bot-management calls are raw TL only. |
+| channels | wrapped | `info`, `count`, media, and subscriber export cover daily work; raw TL covers the long tail. |
+| chatlists | api | No demonstrated daily workflow needs a wrapper. |
+| contacts | api | `resolveUsername`, `search`, and `getContacts` are allowlisted reads; other calls use raw safety gates. |
+| folders | api | No demonstrated daily workflow needs a wrapper. |
+| fragment | api | No dedicated workflow; use raw TL only after task-specific review. |
+| help | api | No dedicated workflow; use raw TL only after task-specific review. |
+| langpack | api | No dedicated workflow; use raw TL only after task-specific review. |
+| messages | wrapped | `read`, `search`, `latest`, `message`, `send`, and export cover daily work; raw TL covers the long tail. |
+| payments | api | No dedicated workflow; mutations remain behind raw write safety gates. |
+| phone | excluded | Voice and video calls need a WebRTC media stack and are out of scope. |
+| photos | api | `getUserPhotos` is an allowlisted read; other calls use raw safety gates. |
+| premium | api | No dedicated workflow; use raw TL only after task-specific review. |
+| smsjobs | api | No dedicated workflow; use raw TL only after task-specific review. |
+| stats | api | Four broadcast, megagroup, and message stats reads are allowlisted (ADR-0010). |
+| stickers | api | No dedicated workflow; use raw TL only after task-specific review. |
+| stories | api | No dedicated workflow; use raw TL only after task-specific review. |
+| updates | excluded | Pull-based CLI has no update loop or daemon (ADR-0002). |
+| upload | excluded | Raw part-upload is impractical over JSON; wrapped media/send paths own it. |
+| users | wrapped | `info` covers daily identity inspection; raw TL covers the long tail. |
+
+## Non-TL exclusions
+
+- **Secret chats** — not part of the TL API Telethon implements.
+- **Bot API (HTTP)** — non-goal; tgcli is an MTProto user-account tool.
+- **Signup** — account creation is a ToS and ban risk; import authorized
+  sessions instead.
