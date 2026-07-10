@@ -59,7 +59,7 @@ Plan: [superpowers/plans/2026-07-06-phase-1-core-and-read.md](superpowers/plans/
 
 ### Phase 2 — Read parity with old `tg` + raw passthrough (read-only)
 `tg search`, `tg count`, `tg latest`, `tg info`, `tg message`;
-`tg api <Namespace.method>` restricted to the read allowlist (ADR-0008) —
+`tg api <Namespace.method>` restricted to the explicit read allowlist (ADR-0010) —
 `--write` exits 2 with a "phase 4" message until safety.py exists.
 Acceptance: every read workflow from the old `tg` CLI has an equivalent;
 side-by-side smoke on 3 real dialogs gives matching counts;
@@ -126,7 +126,7 @@ Acceptance: script exits 0; every TL namespace is `wrapped`, `api`,
 | FloodWait on bulk reads | `flood_sleep_threshold` for short waits, exit 5 + `retry_after` for long ones; takeout for exports |
 | Scope creep back to 200k LOC | AGENTS.md: new abstraction requires ADR; YAGNI rule; MAP review each phase |
 | TL layer drift (Telegram adds methods/namespaces) | Telethon version-pinned; pin bumps re-run check-coverage against FEATURES.md (phase 7) |
-| `tg api` as safety bypass | fail-closed verb allowlist, `--write` gate wired to same env kill-switches, typed `--confirm`, hard denylist (ADR-0008) |
+| `tg api` as safety bypass | explicit default-deny read allowlist, `--write` gate wired to same env kill-switches, typed `--confirm`, hard denylist (ADR-0010) |
 
 ## Research Addendum (2026-07-06, competitor survey)
 

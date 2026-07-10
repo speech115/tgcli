@@ -8,7 +8,7 @@ the script fails if the installed layer has a namespace not listed here.
 
 Status values:
 - `wrapped` — dedicated `tg` command(s) exist
-- `api` — reachable via `tg api` passthrough (ADR-0008), no wrapper needed yet
+- `api` — reachable via `tg api` passthrough only when explicitly allowlisted (ADR-0010), no wrapper needed yet
 - `planned:<phase>` — wrapper scheduled
 - `excluded` — deliberately not supported, reason given
 
@@ -19,7 +19,7 @@ the pinned Telethon layer (phase 7 gate); do not trust it blindly before then.
 |--------------|--------|-------|
 | messages | planned:1-2,4 | read/search/send wrappers; long tail via api |
 | channels | planned:2,5 | info/subscribers wrappers; admin ops via api |
-| account | api | profile/settings; lifecycle methods denylisted (ADR-0008) |
+| account | api | no Phase 2 raw allowlist entries; lifecycle methods remain denylisted (ADR-0010) |
 | auth | excluded | owned by `tg accounts` (login/import); raw auth denylisted |
 | users | planned:2 | `tg info`; rest via api |
 | contacts | api | resolve/search via api; wrapper only on demonstrated need |
