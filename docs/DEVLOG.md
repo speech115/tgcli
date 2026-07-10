@@ -242,3 +242,13 @@ spec; agents drive it purely via CLI + SKILL.md. That validates dropping the
 daemon layer entirely. Telethon's entity cache in the session file is the
 key enabler for cheap short-lived processes.
 **Next:** execute phase-1 plan (docs/superpowers/plans/2026-07-06-phase-1-core-and-read.md).
+## 2026-07-10 — Phase 3 design approved (Codex)
+**Did:** created an isolated `codex/phase-3-media` worktree, restored the
+locked uv environment, and recorded the Telethon-only media-download design.
+Baseline in the isolated worktree: `108 passed, 8 skipped`.
+**Decided:** final media files never overwrite existing paths; interrupted
+downloads resume from state under `~/.local/state/tgcli/downloads/`.
+**Learned:** the source checkout has an unrelated untracked invocation test,
+so all Phase 3 work remains in the separate worktree.
+**Next:** review this design, write the TDD implementation plan, then start
+the first failing media-command test.
