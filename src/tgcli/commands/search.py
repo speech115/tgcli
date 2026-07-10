@@ -34,6 +34,15 @@ async def fetch_latest(tg, chat: str) -> dict:
 def to_rows(data: dict) -> list[tuple]:
     messages = data["messages"] if "messages" in data else [data["message"]]
     return [
-        (message["id"], message["date"], message["from"]["name"], message["text"].replace("\n", " "))
+        (
+            message["id"],
+            message["date"],
+            message["from"]["name"],
+            _sanitize_text(message["text"]),
+        )
         for message in messages
     ]
+
+
+def _sanitize_text(text: str) -> str:
+    return "".join(char if char.isprintable() else " " for char in text)

@@ -77,3 +77,34 @@ def test_latest_json_returns_first_message(config_env, monkeypatch, capsys):
     assert code == 0
     assert fake.iter_messages_calls == [(entity, None, 1)]
     assert json.loads(capsys.readouterr().out)["message"]["id"] == 42
+
+
+@pytest.mark.parametrize(
+    ("command", "fake"),
+    [
+        (
+            ["search", "@chan", "needle", "--plain"],
+            lambda entity: FakeClient(
+                search_messages={"needle": [make_message(42, "a\tb\r\nc")]},
+                entities={"@chan": entity},
+            ),
+        ),
+        (
+            ["latest", "@chan", "--plain"],
+            lambda entity: FakeClient(
+                messages=[make_message(42, "a\tb\r\nc")],
+                entities={"@chan": entity},
+            ),
+        ),
+    ],
+)
+def test_search_and_latest_plain_sanitize_message_controls(
+    config_env, monkeypatch, capsys, command, fake
+):
+    entity = ns(id=-1001234, title="Channel")
+    make_session_fake(monkeypatch, fake(entity))
+
+    code = main(command)
+
+    assert code == 0
+    assert capsys.readouterr().out == "42\t2026-07-06T10:00:00+00:00\tAlice\ta b  c\n"

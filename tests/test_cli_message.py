@@ -53,3 +53,14 @@ def test_message_missing_id_exits_4(config_env, monkeypatch, capsys):
 
     assert code == 4
     assert json.loads(capsys.readouterr().err)["error"]["code"] == "NOT_FOUND"
+
+
+def test_message_plain_sanitizes_message_controls(config_env, monkeypatch, capsys):
+    fake = make_fake()
+    fake._messages[0].text = "a\tb\r\nc"
+    make_session_fake(monkeypatch, fake)
+
+    code = main(["message", "@chan", "42", "--plain"])
+
+    assert code == 0
+    assert capsys.readouterr().out == "42\t2026-07-06T10:00:00+00:00\tAlice\ta b  c\n"
