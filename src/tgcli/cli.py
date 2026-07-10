@@ -8,6 +8,7 @@ from tgcli import __version__, output, session
 from tgcli.commands import accounts as accounts_cmd
 from tgcli.commands import dialogs as dialogs_cmd
 from tgcli.commands import read as read_cmd
+from tgcli.commands import search as search_cmd
 from tgcli.config import load_config, resolve_account
 from tgcli.errors import RateLimitError, TgcliError
 
@@ -44,6 +45,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_read.add_argument("chat", help="@username, t.me link, or dialog id")
     p_read.add_argument("--limit", type=int, default=20)
 
+    p_search = sub.add_parser("search", help="Search messages in a dialog", parents=[global_flags])
+    p_search.add_argument("chat", help="@username, t.me link, or dialog id")
+    p_search.add_argument("query")
+    p_search.add_argument("--limit", type=int, default=20)
+
+    p_latest = sub.add_parser("latest", help="Read the latest dialog message", parents=[global_flags])
+    p_latest.add_argument("chat", help="@username, t.me link, or dialog id")
+
+    p_message = sub.add_parser("message", help="Read one message by id", parents=[global_flags])
+    p_message.add_argument("chat", help="@username, t.me link, or dialog id")
+    p_message.add_argument("message_id", type=int)
+
     return parser
 
 
@@ -56,6 +69,17 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
             if args.command == "read":
                 data = await read_cmd.fetch_messages(tg, args.chat, limit=args.limit)
                 return data, read_cmd.to_rows(data)
+            if args.command == "search":
+                data = await search_cmd.fetch_search(
+                    tg, args.chat, args.query, limit=args.limit
+                )
+                return data, search_cmd.to_rows(data)
+            if args.command == "latest":
+                data = await search_cmd.fetch_latest(tg, args.chat)
+                return data, search_cmd.to_rows(data)
+            if args.command == "message":
+                data = await read_cmd.fetch_message(tg, args.chat, args.message_id)
+                return data, search_cmd.to_rows(data)
             raise AssertionError(f"unhandled network command: {args.command}")
     except telethon_errors.FloodWaitError as exc:
         raise RateLimitError(
