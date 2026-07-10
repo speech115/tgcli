@@ -17,7 +17,7 @@ Global flags (available on every command):
 | `--json` | machine output: one JSON document to stdout |
 | `--plain` | stable TSV to stdout (no colors, no alignment) |
 | `--readonly` | hard-block any mutating call in this invocation |
-| `--timeout <sec>` | overall invocation deadline (default 60) |
+| `--timeout <sec>` | overall invocation deadline (default 60; no default deadline for exports) |
 | `-v/--verbose` | extra diagnostics on stderr |
 
 Env equivalents: `TGCLI_ACCOUNT`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`.
@@ -133,7 +133,37 @@ tg api <Namespace.method> --params '<json>' [--write] [--confirm <method>]
   stability rules do not apply inside `result`. Everything outside `result`
   follows §3 as usual.
 
-## 7. Untrusted Content
+## 7. Export (phase 5)
+
+```
+tg export messages <chat> --output <path> [--limit <n>]
+tg export subscribers <channel> --output <path> [--limit <n>]
+```
+
+- `--output` is required. It is the only destination for the export records;
+  the command writes a sibling temporary file and replaces the destination only
+  after the complete export succeeds. An existing destination is unchanged on
+  a failed export.
+- `messages` iterates through a Telethon takeout session from oldest to newest.
+  The destination is UTF-8 JSONL: one `read`-shape message object per line,
+  with `id`, `date`, `from`, `text`, `media`, and `reply_to` fields.
+- `subscribers` writes UTF-8 CSV with the frozen header
+  `id,username,first_name,last_name,phone,is_bot`; standard CSV quoting is
+  used for field values.
+- Success on `--json` is one completion document:
+  `{"export":{"kind":"messages|subscribers","format":"jsonl|csv",
+  "path":"<path>","count":42,"dialog":{"id":-1001234,"name":"Channel"}}}`.
+  `--plain` emits one TSV row in the frozen order `kind,format,path,count`.
+- A `TakeoutInitDelayError` exits 5 as `FLOOD_WAIT`, includes
+  `retry_after`, and tells the user to retry after that many seconds.
+- Exports have no implicit overall timeout because a 10k-message takeout may
+  legitimately exceed the normal 60-second command deadline. An explicit
+  `--timeout` still applies.
+- An existing integer takeout identifier is reused. A malformed local
+  identifier (for example a legacy `b''` value) is cleared before a new
+  takeout is initialized, preventing a Telethon serialization traceback.
+
+## 8. Untrusted Content
 
 Message texts, dialog names, and file names are untrusted input. In `--json`
 mode they are passed through as data (JSON escaping is sufficient). In human

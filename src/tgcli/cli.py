@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import sys
+from pathlib import Path
 
 from telethon import errors as telethon_errors
 
@@ -8,6 +9,7 @@ from tgcli import __version__, output, session
 from tgcli.commands import accounts as accounts_cmd
 from tgcli.commands import api as api_cmd
 from tgcli.commands import dialogs as dialogs_cmd
+from tgcli.commands import export as export_cmd
 from tgcli.commands import info as info_cmd
 from tgcli.commands import read as read_cmd
 from tgcli.commands import search as search_cmd
@@ -71,6 +73,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_api.add_argument("--write", action="store_true")
     p_api.add_argument("--confirm", metavar="METHOD")
 
+    p_export = sub.add_parser("export", help="Export Telegram data", parents=[global_flags])
+    export_sub = p_export.add_subparsers(dest="export_kind", required=True)
+    p_export_messages = export_sub.add_parser("messages", parents=[global_flags])
+    p_export_messages.add_argument("chat", help="@username, t.me link, or dialog id")
+    p_export_messages.add_argument("--output", required=True, type=Path)
+    p_export_messages.add_argument("--limit", type=int)
+    p_export_subscribers = export_sub.add_parser("subscribers", parents=[global_flags])
+    p_export_subscribers.add_argument("channel", help="@username, t.me link, or dialog id")
+    p_export_subscribers.add_argument("--output", required=True, type=Path)
+    p_export_subscribers.add_argument("--limit", type=int)
+
     return parser
 
 
@@ -102,7 +115,22 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                 return data, info_cmd.to_rows(data)
             if args.command == "api":
                 return await api_cmd.call(tg, args.method, args.params), []
+            if args.command == "export":
+                if args.export_kind == "messages":
+                    data = await export_cmd.export_messages(
+                        tg, args.chat, args.output, limit=args.limit
+                    )
+                else:
+                    data = await export_cmd.export_subscribers(
+                        tg, args.channel, args.output, limit=args.limit
+                    )
+                return data, export_cmd.to_rows(data)
             raise AssertionError(f"unhandled network command: {args.command}")
+    except telethon_errors.TakeoutInitDelayError as exc:
+        raise RateLimitError(
+            f"takeout is unavailable for {exc.seconds}s; retry after {exc.seconds}s",
+            retry_after=exc.seconds,
+        ) from exc
     except telethon_errors.FloodWaitError as exc:
         raise RateLimitError(
             f"rate limited for {exc.seconds}s", retry_after=exc.seconds
@@ -120,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         "json": False,
         "plain": False,
         "readonly": False,
-        "timeout": 60.0,
+        "timeout": None if args.command == "export" else 60.0,
         "verbose": False,
     }.items():
         if not hasattr(args, name):

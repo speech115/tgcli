@@ -12,7 +12,7 @@ tg read @channel --limit 20 --json
 tg search @chat "invoice" --json
 tg send @user --preview "text"   # two-step: preview → commit
 tg media download <t.me/link>
-tg export subscribers @channel
+tg export subscribers @channel --output subscribers.csv
 ```
 
 ## Principles (non-negotiable)
@@ -33,6 +33,7 @@ tg export subscribers @channel
 
 ## Status
 
-Phase 0 (scaffold + plan) — done. Implementation not started.
+Phases 0–2 and 5 — done. Phase 5 exported 14,296 messages from a public
+channel through a live Telethon takeout session without FloodWait failures.
 Master plan: [docs/PLAN.md](docs/PLAN.md).
 Phase 1 implementation plan: [docs/superpowers/plans/2026-07-06-phase-1-core-and-read.md](docs/superpowers/plans/2026-07-06-phase-1-core-and-read.md).

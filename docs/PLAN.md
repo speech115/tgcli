@@ -94,7 +94,7 @@ Acceptance: commit-without-preview fails (exit 2); audit line written for
 every send and every `tg api --write`; `TGCLI_NO_SEND=1 tg send --commit ...`
 exits 2; `tg api auth.logOut --write --confirm auth.logOut` exits 2 (denylist).
 
-### Phase 5 — Export
+### Phase 5 — Export ✅ 2026-07-10
 `tg export messages <chat>` (takeout, JSONL out), `tg export subscribers
 <channel>` (CSV). Handle `TakeoutInitDelayError` with a clear retry message.
 Acceptance: exports a 10k-message dialog without FloodWait failures.
