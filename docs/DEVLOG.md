@@ -15,6 +15,15 @@ Template:
 
 ---
 
+## 2026-07-10 — Roadmap completion doc pass (Codex)
+**Did:** reconciled the master-plan status with completed acceptance evidence:
+Phase 4 safe writes and Phase 6 migration/cutover are now marked complete.
+**Decided:** all planned phases 0–7 are complete once Phase 7 PR #1 merges;
+legacy daemon decommission remains outside the roadmap and requires a separate
+explicit decision.
+**Next:** merge PR #1, then treat future work as a new scoped feature rather
+than an unfinished roadmap phase.
+
 ## 2026-07-10 — Phase 7 Telethon coverage closure (Codex)
 **Did:** normalized `docs/FEATURES.md` to the 23 namespaces exposed by pinned
 Telethon 1.44 and moved non-TL exclusions into prose. Added the executable

@@ -91,7 +91,7 @@ link returned the required exit-4 account-access diagnostic for configured
 account `main`, which lacks channel access; it did not reproduce a Telethon
 media failure.
 
-### Phase 4 — Write path
+### Phase 4 — Write path ✅ 2026-07-10
 `tg send --preview` → stores preview in `~/.local/state/tgcli/previews/`,
 `tg send --commit <preview_id>` replays it verbatim; JSONL audit log
 `~/.local/state/tgcli/audit.jsonl`; `--readonly`/`TGCLI_NO_SEND` enforced
@@ -99,16 +99,17 @@ in `safety.py` before any mutating call. Previews are single-use: a second
 `--commit` of the same id fails (idempotency, borrowed from b1rd33/tg-cli).
 Unlock `tg api --write` (+ typed `--confirm` for destructive verbs, hard
 denylist for account-lifecycle methods — ADR-0008), audited like sends.
-Acceptance: commit-without-preview fails (exit 2); audit line written for
-every send and every `tg api --write`; `TGCLI_NO_SEND=1 tg send --commit ...`
-exits 2; `tg api auth.logOut --write --confirm auth.logOut` exits 2 (denylist).
+Acceptance evidence: commit-without-preview fails (exit 2); audit lines are
+written for every send and `tg api --write`; `TGCLI_NO_SEND=1 tg send --commit
+...` exits 2; `tg api auth.logOut --write --confirm auth.logOut` exits 2
+(denylist).
 
 ### Phase 5 — Export ✅ 2026-07-10
 `tg export messages <chat>` (takeout, JSONL out), `tg export subscribers
 <channel>` (CSV). Handle `TakeoutInitDelayError` with a clear retry message.
 Acceptance: exports a 10k-message dialog without FloodWait failures.
 
-### Phase 6 — Migration & cutover
+### Phase 6 — Migration & cutover ✅ 2026-07-10
 `tg accounts import` (copies authorized `.session` files from the old stack
 for main/recklessou/teamsyncsage; `pl` was retired from migration scope on
 2026-07-10 after its source session was found unauthorized); `scripts/install-link.sh` puts `tg`
@@ -116,9 +117,9 @@ on PATH ahead of the old wrapper; write `SKILL.md` for agent usage (gogcli
 pattern); update `~/.claude/CLAUDE.md` Telegram routing; make tgcli the
 operational default. The old daemons remain installed as legacy infrastructure
 until an explicitly approved decommission.
-Acceptance: local migration, PATH cutover, agent routing, and read-only live
-smokes for every account in migration scope pass. A parallel-use window is not
-required (user decision, 2026-07-10).
+Acceptance evidence: local migration, PATH cutover, agent routing, and
+read-only live smokes pass for `main`, `recklessou`, and `teamsyncsage`. A
+parallel-use window is not required (user decision, 2026-07-10).
 SKILL.md must direct agents to wrapped commands first, `tg api` last resort.
 
 ### Phase 7 — Coverage closure ✅ 2026-07-10
