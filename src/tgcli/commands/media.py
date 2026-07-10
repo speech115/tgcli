@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 
+from telethon import functions
+
 from tgcli.errors import NotFoundError, PolicyError
 
 
@@ -56,3 +58,31 @@ def destination_for(name: str, requested: str | None) -> Path:
     if path.exists():
         raise PolicyError(f"output path already exists: {path}")
     return path
+
+
+async def _resolve_private_entity(tg, channel_id: int, account_alias: str):
+    async for dialog in tg.iter_dialogs():
+        entity = dialog.entity
+        if getattr(entity, "id", None) == channel_id:
+            input_entity = await tg.get_input_entity(entity)
+            await tg(functions.channels.GetChannelsRequest([input_entity]))
+            return entity
+    raise NotFoundError(
+        f"private channel {channel_id} not found; account {account_alias!r} lacks access"
+    )
+
+
+async def resolve_message(tg, source: MediaSource, account_alias: str):
+    try:
+        entity = (
+            await _resolve_private_entity(tg, source.private_channel_id, account_alias)
+            if source.private_channel_id is not None
+            else await tg.get_entity(source.chat)
+        )
+    except ValueError:
+        raise NotFoundError(f"dialog not found: {source.chat!r}") from None
+
+    message = await tg.get_messages(entity, ids=source.message_id)
+    if message is None or not getattr(message, "media", None):
+        raise NotFoundError(f"downloadable media not found: {source.message_id}")
+    return entity, message
