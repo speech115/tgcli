@@ -27,10 +27,11 @@ def config_env(tmp_path, monkeypatch):
 class ApiClient:
     async def get_input_entity(self, value):
         assert value == "@self"
-        return types.InputPeerSelf()
+        return types.InputPeerChannel(channel_id=1, access_hash=2)
 
     async def __call__(self, request):
         assert request.__class__.__name__ == "GetFullUserRequest"
+        assert isinstance(request.id, types.InputUserSelf)
 
         class Result:
             def to_dict(self):
