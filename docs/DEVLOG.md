@@ -58,6 +58,56 @@ An interrupted serial transfer resumed successfully. The incident link
 diagnostic, not a Telethon media failure.
 **Next:** begin Phase 4 write safety only when requested.
 
+## 2026-07-10 — Phase 5 live acceptance passed (Codex)
+**Did:** selected public `@msk7days` after `tg count` returned `14,296`, then
+exported it through account `main` to
+`/Users/sereja/Downloads/tgcli-phase5-msk7days-2026-07-10.jsonl`. The atomic
+destination contains `14,296` valid JSONL records, ordered from id `1` to
+`16058`; no FloodWait occurred. The live run exposed a legacy malformed
+SQLite `takeout_id` value (`b''`), so export now reuses valid integer takeout
+ids and clears malformed values before initializing a new takeout. Added two
+regressions for both behaviours.
+**Decided:** Phase 5 is accepted. The malformed-ID repair is local session
+compatibility handling, not a new architecture, so no ADR is required.
+**Learned:** a copied Telegram session can carry a non-integer stale takeout
+identifier that passes connection/auth checks but fails only while Telethon
+serializes `InvokeWithTakeoutRequest`.
+**Next:** proceed to the next explicitly requested phase.
+
+## 2026-07-10 — Phase 5 completion audit strengthened (Codex)
+**Did:** added the 10k-message local takeout regression, asserting all 10,000
+JSONL records are written oldest-first and the completion summary reports the
+same count. Focused export tests report `9 passed in 0.19s`; the full local
+suite reports `117 passed, 8 skipped in 0.37s`.
+**Decided:** the simulation proves the full streaming command path at the
+acceptance cardinality, but does not replace the required real Telegram
+takeout evidence.
+**Learned:** the remaining live gate cannot be inferred from unit tests: it
+requires a deliberately supplied non-sensitive 10k+ dialog and authorized
+account, because selecting one automatically could export private content.
+**Next:** run the designated live export, record its count and FloodWait result,
+then mark Phase 5 accepted only if it succeeds.
+
+## 2026-07-10 — Phase 5 export implementation (Codex)
+**Did:** added `tg export messages <chat> --output PATH` (streaming Telethon
+takeout JSONL, oldest first) and `tg export subscribers <channel> --output
+PATH` (streaming quoted CSV). Both commands use an atomic sibling temporary
+file, return a normal completion summary, and leave an existing destination
+unchanged when the export fails. Added eight focused export tests covering
+takeout, JSONL order, CSV headers/quoting, empty exports, not-found, atomic
+failure, `TakeoutInitDelayError`, and the no-default-timeout contract;
+`uv run pytest -q` reported `116 passed, 8 skipped`.
+**Decided:** record files require explicit `--output`, while stdout retains
+the one-document JSON/TSV contract as a completion summary. No ADR was needed:
+this adds a phase-planned command without changing the architecture.
+**Learned:** the source checkout's existing `.venv` is installed editable for
+that checkout, so the isolated worktree must use its own `uv run` environment
+to test its changed `src/` tree. The normal 60-second deadline would invalidate
+the 10k-message acceptance criterion, so exports intentionally have no default
+overall timeout while an explicit `--timeout` remains available.
+**Next:** run the 10k-message live export only after a safe designated dialog
+and authorized account are supplied; do not select a private dialog by guess.
+
 ## 2026-07-10 — Raw API read allowlist expanded to 35 methods (Claude Fable 5 + subagents)
 **Did:** expanded `READ_METHOD_ALLOWLIST` in `src/tgcli/commands/api.py` from
 `users.getFullUser` to the 35 batch-reviewed read methods across messages

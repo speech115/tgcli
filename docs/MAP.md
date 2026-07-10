@@ -34,7 +34,7 @@ tgcli/
 │   │   ├── media.py           [done]    tg media download             (phase 3; Telethon-only)
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
-│   │   └── export.py          [planned] tg export messages|subscribers (phase 5, takeout)
+│   │   └── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
 ├── tests/                     [wip]     unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/

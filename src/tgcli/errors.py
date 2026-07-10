@@ -28,3 +28,7 @@ class NotFoundError(TgcliError):
 class RateLimitError(TgcliError):
     exit_code = 5
     code = "FLOOD_WAIT"
+
+
+class ExportError(TgcliError):
+    code = "RUNTIME"
