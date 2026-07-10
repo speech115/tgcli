@@ -7,6 +7,7 @@ from telethon import errors as telethon_errors
 from tgcli import __version__, output, session
 from tgcli.commands import accounts as accounts_cmd
 from tgcli.commands import dialogs as dialogs_cmd
+from tgcli.commands import info as info_cmd
 from tgcli.commands import read as read_cmd
 from tgcli.commands import search as search_cmd
 from tgcli.config import load_config, resolve_account
@@ -57,6 +58,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_message.add_argument("chat", help="@username, t.me link, or dialog id")
     p_message.add_argument("message_id", type=int)
 
+    p_info = sub.add_parser("info", help="Show dialog metadata", parents=[global_flags])
+    p_info.add_argument("chat", help="@username, t.me link, or dialog id")
+
+    p_count = sub.add_parser("count", help="Count dialog messages", parents=[global_flags])
+    p_count.add_argument("chat", help="@username, t.me link, or dialog id")
+
     return parser
 
 
@@ -80,6 +87,12 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
             if args.command == "message":
                 data = await read_cmd.fetch_message(tg, args.chat, args.message_id)
                 return data, search_cmd.to_rows(data)
+            if args.command == "info":
+                data = await info_cmd.fetch_info(tg, args.chat)
+                return data, info_cmd.to_rows(data)
+            if args.command == "count":
+                data = await info_cmd.fetch_count(tg, args.chat)
+                return data, info_cmd.to_rows(data)
             raise AssertionError(f"unhandled network command: {args.command}")
     except telethon_errors.FloodWaitError as exc:
         raise RateLimitError(

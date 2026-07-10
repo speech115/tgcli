@@ -7,12 +7,16 @@ import pytest
 class FakeClient:
     """Duck-typed stand-in for TelegramClient used by command tests."""
 
-    def __init__(self, dialogs=(), messages=(), entities=None, search_messages=None):
+    def __init__(
+        self, dialogs=(), messages=(), entities=None, search_messages=None, message_total=None
+    ):
         self._dialogs = list(dialogs)
         self._messages = list(messages)
         self._entities = entities or {}
         self._search_messages = search_messages or {}
+        self._message_total = message_total
         self.iter_messages_calls = []
+        self.get_messages_calls = []
 
     async def iter_dialogs(self, limit=None):
         for dialog in self._dialogs[:limit]:
@@ -29,7 +33,10 @@ class FakeClient:
             raise ValueError(f"no entity {key!r}")
         return self._entities[key]
 
-    async def get_messages(self, entity, ids):
+    async def get_messages(self, entity, ids=None, limit=None):
+        self.get_messages_calls.append((entity, ids, limit))
+        if limit == 0:
+            return ns(total=self._message_total)
         return next((message for message in self._messages if message.id == ids), None)
 
 
