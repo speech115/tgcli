@@ -118,7 +118,8 @@ tg api <Namespace.method> --params '<json>' [--write] [--confirm <method>]
 
 - `--params` is required and must be a JSON object. In phase 2, only the
   reviewed explicit allowlist in ADR-0010 may run through the configured
-  session: `users.getFullUser`.
+  session (35 methods as of 2026-07-10; e.g. `users.getFullUser`,
+  `messages.getHistory`, `channels.getParticipants`).
 - Every other method is blocked before config loading or session acquisition
   with exit 2. In phase 2, `--write` is also blocked before session acquisition
   with exit 2 and the message `tg api --write is unavailable until phase 4`.

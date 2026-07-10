@@ -15,6 +15,27 @@ Template:
 
 ---
 
+## 2026-07-10 — Raw API read allowlist expanded to 35 methods (Claude Fable 5 + subagents)
+**Did:** expanded `READ_METHOD_ALLOWLIST` in `src/tgcli/commands/api.py` from
+`users.getFullUser` to the 35 batch-reviewed read methods across messages
+(18), channels (7), users (2), contacts (3), photos (1), and stats (4). TDD:
+red run of the new parametrized coverage reported `35 failed, 13 passed`;
+after the one-constant change the full suite reported `108 passed, 8 skipped`.
+Every allowlisted name is asserted to resolve to a real TLRequest of pinned
+Telethon 1.44 (catches typos), and five rejected read-looking methods
+(`messages.getMessagesViews`, `contacts.getLocated`, `contacts.resolvePhone`,
+`messages.getExportedChatInvites`, `messages.getBotCallbackAnswer`) are
+regression-tested to exit 2 before config loading. Updated ADR-0010 (full
+list + "Reviewed and rejected" table), CONTRACT §6, and FEATURES rows.
+**Decided:** the 2026-07-10 batch review is the second ADR-0010 allowlist
+revision; default-deny stands, and "new method = ADR update + regression
+test" remains the only path in. auth.* and account.* stay excluded wholesale.
+**Learned:** the resolve-to-TLRequest test is the cheap safety net for batch
+allowlist edits — a misspelled method would otherwise pass policy tests and
+only fail at dispatch time.
+**Next:** live-check comment counting via `messages.getReplies`/discussion
+methods, then merge the branch.
+
 ## 2026-07-10 — Phase 2 accepted: side-by-side parity smoke passed (Claude Fable 5 + subagents)
 **Did:** ran the Phase 2 acceptance smoke: old daemon-stack `tg` CLI vs new
 tgcli, side by side on 3 real dialogs. Counts, latest message ids, and message

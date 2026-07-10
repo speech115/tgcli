@@ -17,20 +17,20 @@ the pinned Telethon layer (phase 7 gate); do not trust it blindly before then.
 
 | TL namespace | Status | Notes |
 |--------------|--------|-------|
-| messages | planned:1-2,4 | read/search/send wrappers; long tail via api |
-| channels | planned:2,5 | info/subscribers wrappers; admin ops via api |
+| messages | planned:1-2,4 | read/search/send wrappers; read long tail (18 methods) allowlisted via api (ADR-0010) |
+| channels | planned:2,5 | info/subscribers wrappers; 7 read methods allowlisted via api (ADR-0010); admin ops via api later |
 | account | api | no Phase 2 raw allowlist entries; lifecycle methods remain denylisted (ADR-0010) |
 | auth | excluded | owned by `tg accounts` (login/import); raw auth denylisted |
-| users | planned:2 | `tg info`; rest via api |
-| contacts | api | resolve/search via api; wrapper only on demonstrated need |
+| users | planned:2 | `tg info`; getUsers/getFullUser allowlisted via api (ADR-0010) |
+| contacts | api | resolveUsername/search/getContacts allowlisted (ADR-0010); getLocated and resolvePhone rejected; wrapper only on demonstrated need |
 | updates | excluded | pull-based CLI; no update loop (ADR-0002, no daemons) |
 | upload | excluded | raw part-upload impractical over JSON; `tg media`/`tg send --file` own it |
-| photos | api | |
+| photos | api | getUserPhotos allowlisted via api (ADR-0010) |
 | stories | api | |
 | folders / chatlists | api | b1rd33/tg-cli wraps these; we wait for a real use case |
 | stickers | api | |
 | payments | api | read-only in practice; mutations gated like all writes |
-| stats | api | |
+| stats | api | 4 broadcast/megagroup/message stats reads allowlisted via api (ADR-0010) |
 | bots | api | user-account tool; bot management via api if ever needed |
 | help | api | |
 | langpack | api | |
