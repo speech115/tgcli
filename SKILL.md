@@ -69,5 +69,6 @@ Available migration aliases are `main`, `recklessou`, and `teamsyncsage`.
 
 ## Migration note
 
-The old `tools/telegram` MCP daemons remain available during the parallel-use
-period. Report a tgcli regression rather than silently falling back to them.
+The old `tools/telegram` MCP daemons are legacy infrastructure, not a normal
+fallback. Report a tgcli regression rather than silently using them; their
+decommission is a separate explicit operation.

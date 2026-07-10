@@ -15,6 +15,16 @@ Template:
 
 ---
 
+## 2026-07-10 — Accept immediate tgcli cutover (Codex)
+**Did:** removed the phase-6 parallel-window requirement from the master plan,
+agent skill, and migration plan; updated global Claude routing to treat old MCP
+daemons as legacy infrastructure rather than an ordinary fallback.
+**Decided:** tgcli is the operational base after the completed local migration,
+PATH cutover, and three-account read-only smoke. Legacy daemon decommission is
+not implicit and still requires its own explicit authorization.
+**Next:** push the verified local `main` to `origin/main`, then execute Phase 7
+coverage closure when requested.
+
 ## 2026-07-10 — Retire unauthorized `pl` from Phase 6 migration (Codex)
 **Did:** removed `pl` from the default import aliases, updated the CLI contract,
 agent skill, phase plan, master plan, and ADR-0004, and added a regression that

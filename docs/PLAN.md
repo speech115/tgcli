@@ -113,10 +113,12 @@ Acceptance: exports a 10k-message dialog without FloodWait failures.
 for main/recklessou/teamsyncsage; `pl` was retired from migration scope on
 2026-07-10 after its source session was found unauthorized); `scripts/install-link.sh` puts `tg`
 on PATH ahead of the old wrapper; write `SKILL.md` for agent usage (gogcli
-pattern); update `~/.claude/CLAUDE.md` Telegram routing; old daemons keep
-running until 2 weeks of parallel use show no regressions, then LaunchAgents
-are unloaded.
-Acceptance: one normal working week where no task needed the old stack.
+pattern); update `~/.claude/CLAUDE.md` Telegram routing; make tgcli the
+operational default. The old daemons remain installed as legacy infrastructure
+until an explicitly approved decommission.
+Acceptance: local migration, PATH cutover, agent routing, and read-only live
+smokes for every account in migration scope pass. A parallel-use window is not
+required (user decision, 2026-07-10).
 SKILL.md must direct agents to wrapped commands first, `tg api` last resort.
 
 ### Phase 7 — Coverage closure

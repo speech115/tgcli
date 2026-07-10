@@ -24,6 +24,11 @@ list after live verification found its old session unauthorized. Default
 imports now cover `main`, `recklessou`, and `teamsyncsage`; `pl` remains
 explicitly importable after a future reauthorization.
 
+**Cutover update (2026-07-10):** the user accepted tgcli as the operational
+base without a parallel-use window. Old MCP daemons remain installed but are
+legacy infrastructure rather than a normal fallback; unloading them is a
+separate explicit operation.
+
 ## Recon Facts (2026-07-10, verified on this machine)
 
 - Old-stack Telethon sessions (one dir per account, file `session.session`):
