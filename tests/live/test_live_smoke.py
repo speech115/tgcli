@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -21,19 +22,37 @@ pytestmark = pytest.mark.skipif(
 
 
 def run_tg(*argv):
+    environment = os.environ.copy()
+    environment.pop("TGCLI_STATE_DIR", None)
     return subprocess.run(
         [
-            sys.executable,
-            "-c",
-            "from tgcli.cli import entrypoint; entrypoint()",
+            Path(sys.executable).with_name("tg"),
             "--account",
             "main",
             *argv,
         ],
         capture_output=True,
+        env=environment,
         text=True,
         timeout=120,
     )
+
+
+def test_live_harness_uses_console_script(monkeypatch):
+    command = None
+    environment = None
+
+    def capture_run(argv, **kwargs):
+        nonlocal command, environment
+        command = argv
+        environment = kwargs.get("env", os.environ)
+
+    monkeypatch.setattr(subprocess, "run", capture_run)
+
+    run_tg("--json", "info", "me")
+
+    assert command[0] == Path(sys.executable).with_name("tg")
+    assert "TGCLI_STATE_DIR" not in environment
 
 
 def test_live_dialogs():
