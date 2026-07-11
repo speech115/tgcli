@@ -15,6 +15,28 @@ Template:
 
 ---
 
+## 2026-07-11 — v1 closeout: PRs merged, CI, live bench, numeric-id fix (Claude Fable 5)
+**Did:** reviewed and merged PR #2 (hardening + invocation diagnostics) and
+PR #3 (legacy MCP decommission record, DEVLOG conflict resolved); deleted all
+stale branches and worktrees (only `main` remains); added GitHub Actions CI
+(`pytest` + coverage gate, green in 16 s); set repo description/topics; docs
+truth-up (MAP phases 0–7 + ADR index 0011–0012, README v1-complete status,
+DEVLOG chronology repaired). Built `scripts/bench.py`: live 13-step benchmark
+of every command on one account (~20 s), JSON on stdout, table on stderr,
+takeout delays SKIP. First run failed `export subscribers <numeric id>` —
+every wrapped command passed digit strings straight to `get_entity()`, which
+treats them as phone numbers. Fixed via `chatref.parse()` in all seven
+resolution sites (TDD: unit + CLI regressions). Final: 198 unit tests pass,
+live bench 13/13 PASS.
+**Decided:** branch protection stays off — GitHub free plan rejects it on
+private repos (403); revisit if the repo goes public or plan upgrades. Bench
+defaults subscribers export to `mirror: dr34m.txt` (-1003890108644) because
+the main account is not a member of the public dr34m.txt channel.
+**Learned:** the live bench paid for itself on the first run: unit tests with
+fakes could not catch Telethon's phone-number interpretation of digit strings.
+**Next:** run `scripts/bench.py` after any Telethon pin bump alongside
+`check-coverage.py`.
+
 ## 2026-07-11 — Preserve cancellation cleanup regression (Codex)
 **Did:** recovered the one unique untracked regression from an obsolete Claude
 worktree: cancellation during an atomic export removes its temporary file.
@@ -369,6 +391,17 @@ creating a second formatter for `tg message`.
 not-found contract as dialog lookup (exit 4).
 **Next:** add `search`, `latest`, and CLI `message` on top of this projection.
 
+## 2026-07-10 — Phase 3 design approved (Codex)
+**Did:** created an isolated `codex/phase-3-media` worktree, restored the
+locked uv environment, and recorded the Telethon-only media-download design.
+Baseline in the isolated worktree: `108 passed, 8 skipped`.
+**Decided:** final media files never overwrite existing paths; interrupted
+downloads resume from state under `~/.local/state/tgcli/downloads/`.
+**Learned:** the source checkout has an unrelated untracked invocation test,
+so all Phase 3 work remains in the separate worktree.
+**Next:** review this design, write the TDD implementation plan, then start
+the first failing media-command test.
+
 ## 2026-07-09 — Phase 2 split into read parity and raw API plans (Codex)
 **Did:** reviewed the completed Phase 1 CLI, the old stack's command surface,
 CONTRACT.md, FEATURES.md, and ADR-0008. Wrote two TDD execution plans:
@@ -469,13 +502,3 @@ spec; agents drive it purely via CLI + SKILL.md. That validates dropping the
 daemon layer entirely. Telethon's entity cache in the session file is the
 key enabler for cheap short-lived processes.
 **Next:** execute phase-1 plan (docs/superpowers/plans/2026-07-06-phase-1-core-and-read.md).
-## 2026-07-10 — Phase 3 design approved (Codex)
-**Did:** created an isolated `codex/phase-3-media` worktree, restored the
-locked uv environment, and recorded the Telethon-only media-download design.
-Baseline in the isolated worktree: `108 passed, 8 skipped`.
-**Decided:** final media files never overwrite existing paths; interrupted
-downloads resume from state under `~/.local/state/tgcli/downloads/`.
-**Learned:** the source checkout has an unrelated untracked invocation test,
-so all Phase 3 work remains in the separate worktree.
-**Next:** review this design, write the TDD implementation plan, then start
-the first failing media-command test.

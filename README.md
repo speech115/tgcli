@@ -33,9 +33,13 @@ tg export subscribers @channel --output subscribers.csv
 
 ## Status
 
-Phases 0–7 — done. Phase 5 exported 14,296 messages from a public channel
-through a live Telethon takeout session without FloodWait failures; Phase 7
-adds a fail-closed coverage gate for all 23 namespaces in the pinned Telethon
-layer.
+v1 complete — all phases 0–7 done, project in maintenance mode. Phase 5
+exported 14,296 messages from a public channel through a live Telethon
+takeout session without FloodWait failures; Phase 7 adds a fail-closed
+coverage gate for all 23 namespaces in the pinned Telethon layer.
 Master plan: [docs/PLAN.md](docs/PLAN.md).
-Phase 1 implementation plan: [docs/superpowers/plans/2026-07-06-phase-1-core-and-read.md](docs/superpowers/plans/2026-07-06-phase-1-core-and-read.md).
+
+CI runs `pytest` and the coverage gate on every push and PR
+([.github/workflows/ci.yml](.github/workflows/ci.yml)).
+`scripts/bench.py` benchmarks every command against a live account
+(13 steps, ~20 s; latest run: 13/13 PASS).

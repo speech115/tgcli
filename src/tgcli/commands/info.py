@@ -1,10 +1,11 @@
+from tgcli import chatref
 from tgcli.commands.search import _sanitize_text
 from tgcli.errors import NotFoundError
 
 
 async def _entity(tg, chat: str):
     try:
-        return await tg.get_entity(chat)
+        return await tg.get_entity(chatref.parse(chat))
     except ValueError:
         raise NotFoundError(f"dialog not found: {chat!r}") from None
 

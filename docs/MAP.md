@@ -6,23 +6,25 @@ This file must always match the real tree (AGENTS.md rule).
 ```
 tgcli/
 ├── README.md                  [done]    vision + principles
+├── .github/workflows/ci.yml   [done]    CI: pytest + coverage gate on push/PR
 ├── AGENTS.md                  [done]    agent contract, doc discipline
 ├── CLAUDE.md                  [done]    Claude adapter → AGENTS.md
 ├── SKILL.md                   [done]    agent command routing and safety contract (phase 6)
 ├── pyproject.toml             [done]    uv-managed; deps: telethon; dev: pytest
 ├── docs/
 │   ├── MAP.md                 [done]    this file
-│   ├── PLAN.md                [done]    master plan, phases 0–6
+│   ├── PLAN.md                [done]    master plan, phases 0–7 (all complete)
 │   ├── CONTRACT.md            [done]    CLI automation contract (stdout/exit codes/JSON)
 │   ├── DEVLOG.md              [done]    session-by-session agent log
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── decisions/             [done]    ADR-0001…0010 (see index below)
+│   ├── decisions/             [done]    ADR-0001…0012 (see index below)
 │   └── superpowers/plans/     [done]    per-phase TDD implementation plans
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
 │   ├── cli.py                 [done]    argparse tree, global flags, dispatch, exit-code mapping
 │   ├── output.py              [done]    emit(data) → stdout as JSON/plain; note()/warn() → stderr
 │   ├── errors.py              [done]    TgcliError hierarchy ↔ exit codes (CONTRACT.md §4)
+│   ├── chatref.py             [done]    chat reference normalization (numeric dialog id → int)
 │   ├── config.py              [done]    ~/.config/tgcli/config.toml, accounts registry, alias resolution
 │   ├── session.py             [done]    session paths, per-account file lock, TelegramClient factory
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
@@ -37,11 +39,12 @@ tgcli/
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   └── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
-├── tests/                     [wip]     unit tests, mocked Telethon client
+├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
     ├── install-link.sh        [done]    symlink tg → PATH (phase 6 cutover)
-    └── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
+    ├── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
+    └── bench.py               [done]    live benchmark: every command against a real account
 ```
 
 ## Module Ownership Rules

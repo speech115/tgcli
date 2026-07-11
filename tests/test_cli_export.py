@@ -187,6 +187,23 @@ def test_export_subscribers_neutralizes_formula_cells(config_env, monkeypatch, t
     }]
 
 
+def test_export_subscribers_accepts_numeric_dialog_id(config_env, monkeypatch, tmp_path):
+    entity = ns(id=-1003890108644, title="mirror")
+    fake = FakeClient(
+        participants=[ns(id=7, username="alice", first_name=None, last_name=None,
+                         phone=None, bot=False)],
+        entities={-1003890108644: entity},
+    )
+    make_session_fake(monkeypatch, fake)
+    destination = tmp_path / "subscribers.csv"
+
+    assert main([
+        "export", "subscribers", "-1003890108644", "--output", str(destination)
+    ]) == 0
+
+    assert len(list(csv.DictReader(destination.open()))) == 1
+
+
 def test_export_subscribers_empty_channel_keeps_only_header(
     config_env, monkeypatch, tmp_path
 ):

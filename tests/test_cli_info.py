@@ -43,6 +43,16 @@ def test_info_json_projects_channel_without_access_hash(config_env, monkeypatch,
     }
 
 
+def test_info_accepts_numeric_dialog_id(config_env, monkeypatch, capsys):
+    entity = ns(id=-1001234, title="Channel", username=None, broadcast=True)
+    make_session_fake(monkeypatch, FakeClient(entities={-1001234: entity}))
+
+    code = main(["info", "-1001234", "--json"])
+
+    assert code == 0
+    assert json.loads(capsys.readouterr().out)["id"] == -1001234
+
+
 def test_info_json_projects_user_without_access_hash(config_env, monkeypatch, capsys):
     entity = ns(
         id=1234,

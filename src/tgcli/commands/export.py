@@ -5,6 +5,7 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
+from tgcli import chatref
 from tgcli.commands.read import _dialog_name, message_to_dict
 from tgcli.errors import ExportError, NotFoundError
 
@@ -38,7 +39,7 @@ def _atomic_text_destination(destination: Path):
 
 async def _resolve_entity(tg, chat: str):
     try:
-        return await tg.get_entity(chat)
+        return await tg.get_entity(chatref.parse(chat))
     except ValueError:
         raise NotFoundError(f"dialog not found: {chat!r}") from None
 

@@ -11,6 +11,7 @@ import re
 from telethon import functions
 from telethon import errors as telethon_errors
 
+from tgcli import chatref
 from tgcli.errors import NotFoundError, PolicyError
 from tgcli.session import state_dir
 
@@ -97,7 +98,7 @@ async def resolve_message(tg, source: MediaSource, account_alias: str):
         entity = (
             await _resolve_private_entity(tg, source.private_channel_id, account_alias)
             if source.private_channel_id is not None
-            else await tg.get_entity(source.chat)
+            else await tg.get_entity(chatref.parse(source.chat))
         )
     except ValueError:
         raise NotFoundError(f"dialog not found: {source.chat!r}") from None

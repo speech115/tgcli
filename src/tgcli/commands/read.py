@@ -1,3 +1,4 @@
+from tgcli import chatref
 from tgcli.errors import NotFoundError
 
 
@@ -32,7 +33,7 @@ def message_to_dict(message) -> dict:
 
 async def fetch_message(tg, chat: str, message_id: int) -> dict:
     try:
-        entity = await tg.get_entity(chat)
+        entity = await tg.get_entity(chatref.parse(chat))
     except ValueError:
         raise NotFoundError(f"dialog not found: {chat!r}") from None
 
@@ -48,7 +49,7 @@ async def fetch_message(tg, chat: str, message_id: int) -> dict:
 
 async def fetch_messages(tg, chat: str, limit: int = 20) -> dict:
     try:
-        entity = await tg.get_entity(chat)
+        entity = await tg.get_entity(chatref.parse(chat))
     except ValueError:
         raise NotFoundError(f"dialog not found: {chat!r}") from None
 

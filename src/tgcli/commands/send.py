@@ -1,6 +1,6 @@
 """Preview and replay the small, intentional Telegram send surface."""
 
-from tgcli import safety
+from tgcli import chatref, safety
 
 
 def _target_to_dict(entity) -> dict:
@@ -14,7 +14,7 @@ def _target_to_dict(entity) -> dict:
 
 
 async def prepare(tg, chat: str, text: str) -> dict:
-    entity = await tg.get_entity(chat)
+    entity = await tg.get_entity(chatref.parse(chat))
     stored = safety.create_preview(
         {"chat": chat, "text": text, "to": _target_to_dict(entity)}
     )
@@ -27,7 +27,7 @@ async def prepare(tg, chat: str, text: str) -> dict:
 
 
 async def commit(tg, preview_id: str, payload: dict) -> dict:
-    message = await tg.send_message(payload["chat"], payload["text"])
+    message = await tg.send_message(chatref.parse(payload["chat"]), payload["text"])
     return {"preview_id": preview_id, "message_id": message.id}
 
 
