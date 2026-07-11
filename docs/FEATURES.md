@@ -34,8 +34,8 @@ Status values:
 | stats | api | Four broadcast, megagroup, and message stats reads are allowlisted (ADR-0010). |
 | stickers | api | No dedicated workflow; use raw TL only after task-specific review. |
 | stories | api | No dedicated workflow; use raw TL only after task-specific review. |
-| updates | excluded | Pull-based CLI has no update loop or daemon (ADR-0002). |
-| upload | excluded | Raw part-upload is impractical over JSON; wrapped media/send paths own it. |
+| updates | excluded | Current CLI has no update loop; proposed ADR-0013 would add an explicit foreground watcher and this row changes only when that code exists. |
+| upload | excluded | Raw part-upload remains impractical over JSON; wrapped media/send paths own it and the planned mirror outbox will use audited raw TL sends internally. |
 | users | wrapped | `info` covers daily identity inspection; raw TL covers the long tail. |
 
 ## Non-TL exclusions

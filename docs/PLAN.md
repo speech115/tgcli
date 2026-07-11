@@ -38,7 +38,11 @@ not rewritten.
 ## Non-Goals (v1)
 
 - MCP server (agents call `tg ... --json` via shell; revisit only with evidence).
-- Mirror/archive (stays in old stack; `tg` links to it via docs, phase 6+ decision).
+- General mirror/archive remains outside completed v1. A constrained,
+  crash-safe broadcast-channel mirror re-entered proposed scope on 2026-07-11
+  through [ADR-0013](decisions/ADR-0013-channel-mirror.md) and the independent
+  [M0-M4 plan](superpowers/plans/2026-07-11-phase-mirror.md); it does not reopen
+  or rewrite completed phases 0-7.
 - Multi-user distribution / packaging for strangers.
 - Bot API (this is a user-account MTProto tool).
 - Secret chats (Telethon does not implement them), voice/video calls

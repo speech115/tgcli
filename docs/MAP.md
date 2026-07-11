@@ -17,8 +17,8 @@ tgcli/
 │   ├── CONTRACT.md            [done]    CLI automation contract (stdout/exit codes/JSON)
 │   ├── DEVLOG.md              [done]    session-by-session agent log
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── decisions/             [done]    ADR-0001…0012 (see index below)
-│   └── superpowers/plans/     [done]    per-phase TDD implementation plans
+│   ├── decisions/             [done]    ADR-0001…0012 accepted; ADR-0013 proposed
+│   └── superpowers/plans/     [done]    completed v1 plans + planned mirror M0-M4
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
 │   ├── cli.py                 [done]    argparse tree, global flags, dispatch, exit-code mapping
@@ -29,6 +29,7 @@ tgcli/
 │   ├── session.py             [done]    session paths, per-account file lock, TelegramClient factory
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
+│   ├── mirror/                [planned] crash-safe mirror ledger, outbox, renderer, service, watcher (ADR-0013)
 │   └── commands/
 │   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
@@ -38,7 +39,8 @@ tgcli/
 │   │   ├── media.py           [done]    tg media download             (phase 3; Telethon-only)
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
-│   │   └── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
+│   │   ├── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
+│   │   └── mirror.py          [planned] tg mirror facade (ADR-0013; M0-M4 plan)
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
@@ -71,3 +73,4 @@ tgcli/
 | [0010](decisions/ADR-0010-raw-api-read-allowlist.md) | `tg api` phase-2 explicit default-deny read allowlist |
 | [0011](decisions/ADR-0011-audit-write-failure-policy.md) | Audit persistence fails closed before any mutation |
 | [0012](decisions/ADR-0012-invocation-journal-and-verbose-diagnostics.md) | Local invocation journal and opt-in stderr diagnostics |
+| [0013](decisions/ADR-0013-channel-mirror.md) | Proposed crash-safe channel mirror with dedicated foreground watcher session |

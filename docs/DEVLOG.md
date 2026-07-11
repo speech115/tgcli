@@ -15,6 +15,64 @@ Template:
 
 ---
 
+## 2026-07-11 — Telegram message-type probe inventory expanded (Codex GPT-5)
+**Did:** compared the current official Telegram Message/MessageMedia schema with
+the pinned Telethon 1.44 constructors. No mirror plan or production code changed.
+**Decided:** use a tiered probe matrix: P0 core content and structure, P1
+interactive media, P2 transactional/service/edge cases. Test all document
+subtypes separately even though TL represents them under MessageMediaDocument.
+**Learned:** the pinned layer exposes 18 MessageMedia constructors and 58
+MessageAction constructors; the current Telegram schema additionally lists
+MessageMediaVideoStream, so new-layer/unsupported behavior needs an explicit
+probe result instead of silent omission.
+**Next:** freeze paid-media policy, then approve the complete read-only probe
+design before writing or running it.
+
+## 2026-07-11 — Native Telegram mirror simplification identified (Codex GPT-5)
+**Did:** checked the proposed mirror architecture against the pinned Telethon
+1.44 client/source and current official Telegram MTProto documentation. No plan
+or production code was changed.
+**Decided:** test a native-first path before executing the current M0-M4 plan:
+raw `messages.forwardMessages(drop_author=True)` with persisted batch random ids,
+plus Telethon `catch_up=True` for watcher gap recovery. Keep download/reupload out
+of the primary path unless a protected-content fallback is explicitly chosen.
+**Learned:** native server-side copy can remove most media rendering and temp-file
+state for unprotected public/private channels. Official content protection
+explicitly rejects forwarding/copying with `CHAT_FORWARDS_RESTRICTED`, so a
+simple official design cannot promise protected-channel copying.
+**Next:** run a disposable source/destination matrix probe before revising
+ADR-0013 and the M0-M4 plan again.
+
+## 2026-07-11 — Mirror ADR and plan made crash-safe (Codex GPT-5)
+**Did:** rewrote proposed ADR-0013 and the M0-M4 implementation plan to address
+the blocking review findings. Added a dedicated watcher-session topology,
+peer-scoped ledger keys, durable random-id outbox transitions, resumable channel
+creation, race-free watch startup, targeted deletion confirmation, and an
+executable protected-content probe. Synchronized MAP, FEATURES, and historical
+PLAN pointers; no production mirror code or Telegram state was changed.
+**Decided:** M0 now has two hard gates: concurrent primary/watcher session proof
+and a protected-content capability matrix. Implementation cannot begin until
+both are green. Ambiguous sends must recover through the persisted random id;
+ledger membership alone is not accepted as idempotency.
+**Learned:** Telethon's high-level send helpers do not expose a caller-supplied
+random id, while raw SendMessage/SendMedia/SendMultiMedia requests do; the plan
+therefore freezes raw durable dispatch after upload.
+**Next:** review/accept ADR-0013, then execute M0 only; stop before destination
+creation unless both live evidence gates pass.
+
+## 2026-07-11 — Mirror ADR and implementation plan reviewed (Codex GPT-5)
+**Did:** reviewed untracked ADR-0013 and the M0-M4 plan against MAP, PLAN,
+CONTRACT, FEATURES, ADR-0002/0005/0009, and the current session/safety/media/
+export implementations. No mirror source code or proposed document was changed.
+**Decided:** implementation is blocked pending a crash-consistency protocol,
+race-free watcher startup, peer-scoped ledger keys, deletion-confirmation rules,
+and an explicit answer for the exclusive session lock held by `watch`.
+**Learned:** the current plan would make every other command for the watched
+account fail busy; `tg api upload.getFile` is not available through the current
+raw contract; audit state also contradicts the plan's `mirrors/`-only rule.
+**Next:** revise ADR-0013 and the plan around session topology and a durable
+`pending -> dispatched -> confirmed` operation state before starting M0/M1.
+
 ## 2026-07-11 — Bench default retargeted; PLAN.md marked historical (Claude Fable 5)
 **Did:** the dr34m.txt channel was renamed to "MIR Сергея Иванова"
 (@mir_ivanova) and is now reachable from the main account, so
