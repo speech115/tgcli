@@ -44,8 +44,11 @@ to stderr, and final contract data goes through `output.emit()`.
 - Copied messages are never edited or deleted. Source edits/deletions append new
   changelog messages or replies.
 - Audit records deletion only after a complete scan and targeted confirmation.
-- Protected content is unsupported until M0 proves the required capability
-  matrix on a real protected channel.
+- M0's protected-content gate is closed by R0 evidence (2026-07-11, see
+  DEVLOG): Telethon download/reupload has complete byte access on real
+  protected channels for both owner and subscriber roles. No gotd backend is
+  needed. Copy method is capability-based: native server-side copy for
+  unprotected sources, Telethon download/reupload for protected sources.
 - Shared tgcli audit/session/invocation files remain in their existing state
   paths. Mirror-specific state alone is constrained to `mirrors/`.
 
@@ -103,6 +106,8 @@ safe-commit "Prove mirror watcher session concurrency" scripts/mirror_session_pr
 
 ### Task 0.2: Prove protected-content capability matrix
 
+**DONE via R0 evidence (2026-07-11, see DEVLOG).**
+
 **Files:**
 
 - Create: `scripts/mirror_content_probe.py`
@@ -122,16 +127,25 @@ count, SHA-256 of sampled/full bytes as configured, grouped ids, and controlled
 errors. It writes diagnostics to stderr and a small JSON verdict to stdout. It
 does not persist downloaded media after the probe.
 
-- [ ] Test verdict aggregation: every required row must be green; one unsupported
+`scripts/mirror_probe.py` (commit 7de7c90) ran live against two real
+protected broadcast channels — one owner, one ordinary subscriber. Every
+byte-bearing capability row returned Telethon `pass` for both roles; zero
+`fail`/`inconclusive`. Verdict: GREEN, gotd path not needed. Full record in
+DEVLOG, "R0 protected-content probe evidence (2026-07-11)".
+
+- [x] Test verdict aggregation: every required row must be green; one unsupported
   or zero-byte row makes the overall verdict red.
-- [ ] Test cleanup on success, exception, and SIGINT.
-- [ ] Run against a real `noforwards` channel through the pinned Telethon client.
-- [ ] Record the capability matrix in DEVLOG.
-- [ ] On RED, stop. A raw TL experiment is allowed inside the diagnostic only if
+- [x] Test cleanup on success, exception, and SIGINT.
+- [x] Run against a real `noforwards` channel through the pinned Telethon client.
+- [x] Record the capability matrix in DEVLOG.
+- [x] On RED, stop. A raw TL experiment is allowed inside the diagnostic only if
   the parsed message supplies a valid `InputFileLocation`. Do not route the test
   through `tg api upload.getFile`, which the public raw contract excludes.
-- [ ] If raw Telethon cannot recover the content, invoke ADR-0009's measured
+  (Not triggered — verdict was GREEN.)
+- [x] If raw Telethon cannot recover the content, invoke ADR-0009's measured
   backend PoC decision or narrow scope in a revised ADR with user approval.
+  (Not triggered — Telethon alone had complete byte access; no gotd path was
+  needed.)
 
 Commit only after GREEN or a documented stop decision:
 

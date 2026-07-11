@@ -1,6 +1,8 @@
 # Mirror Capability Router Design
 
-**Status:** approved in conversation on 2026-07-11
+**Status:** SUPERSEDED by ADR-0013 (amended 2026-07-11) after R0 evidence.
+Retained for history. The four-tier router (native/Telethon/gotd/unsupported)
+is reduced to two live transports; gotd is dropped.
 
 ## Goal
 

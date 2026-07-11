@@ -1,6 +1,8 @@
 # ADR-0013: Crash-safe channel mirror with an explicit foreground watcher
 
 Status: proposed (2026-07-11).
+Amended 2026-07-11 after R0 evidence (see DEVLOG): gotd backend removed; copy
+method is capability-based.
 
 Amends PLAN.md by bringing a constrained channel mirror back into scope. It
 narrows ADR-0002's no-daemon rule without allowing self-installing background
@@ -36,9 +38,16 @@ both problems before implementation.
   group when present. General groups and 1:1 dialogs remain out of scope.
 - Destination: a real private broadcast channel owned by the same Telegram user.
   A linked private megagroup may be created for copied comments.
-- Copy method: download and reupload, never forward. Reupload makes the backup
-  independent and avoids exposing the source, subject to the protected-content
-  M0 gate.
+- Copy method: capability-based, not one fixed transport. Unprotected source
+  channels use native server-side copy via
+  `messages.forwardMessages(drop_author=True)` with persisted random ids —
+  cheap and requires no temp files. Protected (`noforwards`) source channels
+  use Telethon download and reupload; R0 proved complete byte access to every
+  byte-bearing media kind for both owner and ordinary-subscriber roles (see
+  DEVLOG, "R0 protected-content probe evidence"). A native forward attempt
+  against a protected source is expected to return
+  `CHAT_FORWARDS_RESTRICTED`; the router treats this as an ordinary `blocked`
+  capability and falls through to download/reupload rather than crashing.
 - Fidelity target: title, about, avatar, chronological content, albums, replies,
   supported media attributes, pins, and threaded comments. Views, reactions,
   original server dates, original senders, paid media, and unsupported service
@@ -208,23 +217,51 @@ succeeded.
 
 ### 9. Protected-content feasibility gate
 
-M0 is a direct diagnostic using the configured Telethon client, not `tg api`.
-The current raw JSON passthrough excludes `upload.getFile`, and a raw file request
-requires an `InputFileLocation`; the plan must not promise an unavailable CLI
-fallback.
+**RESOLVED (2026-07-11).** M0 ran as a direct diagnostic using the configured
+Telethon client, not `tg api` (the raw JSON passthrough excludes
+`upload.getFile`, and a raw file request requires an `InputFileLocation`, so
+the plan never depended on an unavailable CLI fallback).
 
-The probe covers a small capability matrix from a real protected channel:
-non-empty text, photo, document or video, album membership, and at least one
-large download read beyond its first chunk. It records message/media types,
-expected and received byte counts, hashes, and errors without storing media in
-the repo.
+The probe covered a small capability matrix from two real protected
+(`noforwards`) broadcast channels — one owner, one ordinary subscriber: every
+byte-bearing media kind present in the source history, including a ~1 GB
+video read as an ordinary subscriber. It recorded message/media types,
+expected and received byte counts, SHA-256 hashes, and errors without storing
+media in the repo. See DEVLOG, "R0 protected-content probe evidence
+(2026-07-11)" for the full run record.
 
-- Green: all required capability rows succeed; proceed.
-- Red due to a reproducible Telethon parse/download failure: ADR-0009's re-entry
-  gate opens. A raw TL diagnostic may be written inside the probe only when a
-  valid file location can be obtained. Otherwise stop for a measured gotd/TDLib
-  PoC decision or explicitly reduce the supported capability matrix in a new
-  ADR revision. Never silently degrade a protected mirror.
+- Result: **Green.** Every discovered byte-bearing capability row returned
+  Telethon `pass` for both account roles. Telethon alone provides complete
+  byte access; no gotd/TDLib backend PoC was needed. ADR-0009's re-entry gate
+  was not opened.
+- The stop-for-gotd/TDLib-PoC path described below was the pre-R0 fallback if
+  the probe had come back red. It did not trigger and is retained here only
+  as historical context, not as an active decision path:
+  a reproducible Telethon parse/download failure would have opened ADR-0009's
+  re-entry gate, allowed a raw TL diagnostic inside the probe only when a
+  valid file location could be obtained, and otherwise required stopping for
+  a measured gotd/TDLib PoC decision or an explicitly reduced capability
+  matrix in a new ADR revision.
+
+### 10. Transport selection
+
+The router uses a fixed, non-looping order and never silently changes
+strategy after a runtime failure:
+
+```text
+native copy -> Telethon reconstruction -> unsupported
+```
+
+- **Native copy**: `messages.forwardMessages(drop_author=True)` with
+  persisted random ids, for unprotected sources. Cheapest path; no temp
+  files.
+- **Telethon reconstruction**: download and reupload, for protected sources
+  or when native copy returns `CHAT_FORWARDS_RESTRICTED`. R0 proved this path
+  has complete byte access for both owner and subscriber roles.
+- **Unsupported**: an explicit, recorded result — never a silent drop.
+
+There is no gotd tier and no unbounded retry across backends. A capability
+that is not provably `pass` never authorizes automatic mirroring.
 
 ## Consequences
 
