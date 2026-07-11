@@ -115,8 +115,9 @@ for main/recklessou/teamsyncsage; `pl` was retired from migration scope on
 2026-07-10 after its source session was found unauthorized); `scripts/install-link.sh` puts `tg`
 on PATH ahead of the old wrapper; write `SKILL.md` for agent usage (gogcli
 pattern); update `~/.claude/CLAUDE.md` Telegram routing; make tgcli the
-operational default. The old daemons remain installed as legacy infrastructure
-until an explicitly approved decommission.
+operational default. The old daemons were decommissioned by explicit user
+authorization on 2026-07-10; their plist files and sessions remain available
+only for a deliberate rollback.
 Acceptance evidence: local migration, PATH cutover, agent routing, and
 read-only live smokes pass for `main`, `recklessou`, and `teamsyncsage`. A
 parallel-use window is not required (user decision, 2026-07-10).
