@@ -1,10 +1,17 @@
 import hashlib
+import json
 from types import SimpleNamespace as NS
 
 import pytest
 from telethon.tl import types
 
-from tgcli.mirror_probe import classify_message, empty_capability, probe_message
+from tgcli.mirror_probe import (
+    classify_message,
+    empty_capability,
+    probe_chat,
+    probe_message,
+    write_report,
+)
 
 
 def message(media=None, *, text="", grouped_id=None, reply_to=None, noforwards=True):
@@ -68,6 +75,20 @@ class DownloadFake:
             raise self.error
 
 
+class ChatFake(DownloadFake):
+    def __init__(self, messages, entity, chunks=None):
+        super().__init__([b"photo"] if chunks is None else chunks)
+        self.messages = messages
+        self.entity = entity
+
+    async def get_entity(self, chat):
+        return self.entity
+
+    async def iter_messages(self, entity, limit=None):
+        for item in self.messages[:limit]:
+            yield item
+
+
 @pytest.mark.asyncio
 async def test_probe_message_hashes_the_complete_stream():
     payload = [b"abc", b"def"]
@@ -100,3 +121,102 @@ async def test_probe_message_marks_interruption_inconclusive():
     assert result["bytes"] == 7
     assert result["sha256"] is None
     assert result["error"] == "ConnectionError"
+
+
+@pytest.mark.asyncio
+async def test_probe_chat_aggregates_samples_per_kind_and_redacts_identity():
+    source = ChatFake(
+        [
+            message(text="secret"),
+            message(types.MessageMediaPhoto(photo=NS(id=1))),
+            message(types.MessageMediaPhoto(photo=NS(id=2))),
+        ],
+        NS(id=999, title="Private title", username="private_name", noforwards=True),
+    )
+    report = await probe_chat(
+        source,
+        "Private title",
+        123,
+        role="owned",
+        limit=100,
+        samples_per_kind=3,
+    )
+    encoded = json.dumps(report)
+    assert report["source"]["protected"] is True
+    assert report["source"]["role"] == "owned"
+    assert len(report["source"]["fingerprint"]) == 16
+    assert {item["kind"] for item in report["capabilities"]} == {"text", "photo"}
+    photo = next(item for item in report["capabilities"] if item["kind"] == "photo")
+    assert photo["sample_count"] == 2
+    assert photo["coverage"] == "limited"
+    assert photo["telethon_bytes"] == "pass"
+    assert "Private title" not in encoded
+    assert "private_name" not in encoded
+    assert "secret" not in encoded
+    assert "999" not in encoded
+
+
+@pytest.mark.asyncio
+async def test_probe_chat_caps_samples_and_marks_mixed_states_inconclusive():
+    source = ChatFake(
+        [message(types.MessageMediaPhoto(photo=NS(id=index))) for index in range(5)],
+        NS(id=888, noforwards=False),
+        chunks=[],
+    )
+    report = await probe_chat(
+        source, "chat", 123, role="lab", limit=100, samples_per_kind=3
+    )
+    photo = report["capabilities"][0]
+    assert report["source"]["scanned"] == 5
+    assert photo["sample_count"] == 3
+    assert photo["coverage"] == "complete"
+
+    photo["samples"][0]["telethon_bytes"] = "pass"
+    from tgcli.mirror_probe import _aggregate_kind
+
+    mixed = _aggregate_kind("photo", photo["samples"], 3)
+    assert mixed["telethon_bytes"] == "inconclusive"
+
+
+@pytest.mark.asyncio
+async def test_probe_chat_rejects_invalid_role_and_sample_limit():
+    source = ChatFake([], NS(id=1, noforwards=False))
+    with pytest.raises(ValueError, match="invalid probe role"):
+        await probe_chat(source, "chat", 123, role="admin", limit=10)
+    with pytest.raises(ValueError, match="samples_per_kind"):
+        await probe_chat(
+            source, "chat", 123, role="lab", limit=10, samples_per_kind=4
+        )
+
+
+@pytest.mark.asyncio
+async def test_probe_report_does_not_leak_private_payload_fields():
+    sentinel = "DO_NOT_LEAK_7f4d2a"
+    document = NS(
+        mime_type="application/octet-stream",
+        attributes=[types.DocumentAttributeFilename(file_name=f"{sentinel}.bin")],
+    )
+    private_message = message(
+        types.MessageMediaDocument(document=document), text=sentinel
+    )
+    private_message.sender = NS(first_name=sentinel, last_name=sentinel)
+    source = ChatFake(
+        [private_message],
+        NS(id=999, title=sentinel, username=sentinel, phone=sentinel, noforwards=True),
+    )
+    report = await probe_chat(
+        source,
+        sentinel,
+        123,
+        role="subscriber",
+        limit=100,
+        samples_per_kind=3,
+    )
+    assert sentinel not in json.dumps(report, ensure_ascii=False)
+
+
+def test_write_report_is_atomic(tmp_path):
+    destination = tmp_path / "probe.json"
+    write_report(destination, {"probe_version": 1})
+    assert json.loads(destination.read_text()) == {"probe_version": 1}
+    assert not list(tmp_path.glob("*.tmp"))

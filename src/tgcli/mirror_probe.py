@@ -130,3 +130,82 @@ def runtime_metadata() -> dict:
         "telegram_layer": alltlobjects.LAYER,
         "probed_at": datetime.now(UTC).isoformat(),
     }
+
+
+def _source_fingerprint(account_user_id: int, peer_id: int) -> str:
+    value = f"{account_user_id}:{peer_id}".encode()
+    return hashlib.sha256(value).hexdigest()[:16]
+
+
+def _aggregate_kind(kind: str, rows: list[dict], target: int) -> dict:
+    states = {row["telethon_bytes"] for row in rows}
+    telethon_bytes = next(iter(states)) if len(states) == 1 else "inconclusive"
+    return {
+        "kind": kind,
+        "sample_count": len(rows),
+        "coverage": "complete" if len(rows) >= target else "limited",
+        "telethon_bytes": telethon_bytes,
+        "samples": rows,
+    }
+
+
+async def probe_chat(
+    tg,
+    chat: str,
+    account_user_id: int,
+    *,
+    role: str,
+    limit: int,
+    samples_per_kind: int = 3,
+) -> dict:
+    if role not in {"owned", "subscriber", "lab"}:
+        raise ValueError(f"invalid probe role: {role}")
+    if not 1 <= samples_per_kind <= 3:
+        raise ValueError("samples_per_kind must be between 1 and 3")
+
+    entity = await tg.get_entity(chat)
+    samples: dict[str, list[dict]] = {}
+    protected = bool(getattr(entity, "noforwards", False))
+    scanned = 0
+    async for message in tg.iter_messages(entity, limit=limit):
+        scanned += 1
+        protected = protected or bool(getattr(message, "noforwards", False))
+        kind = classify_message(message)
+        rows = samples.setdefault(kind, [])
+        if len(rows) < samples_per_kind:
+            rows.append(await probe_message(tg, message))
+
+    return {
+        "probe_version": 1,
+        "runtime": runtime_metadata(),
+        "source": {
+            "fingerprint": _source_fingerprint(account_user_id, entity.id),
+            "protected": protected,
+            "role": role,
+            "scanned": scanned,
+        },
+        "capabilities": [
+            _aggregate_kind(kind, samples[kind], samples_per_kind)
+            for kind in sorted(samples)
+        ],
+    }
+
+
+def write_report(path: Path, report: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        text=True,
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(report, handle, ensure_ascii=False, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
