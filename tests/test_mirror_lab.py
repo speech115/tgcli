@@ -171,3 +171,98 @@ def test_pending_kinds_shrink_as_seeds_are_recorded():
     record_seed(manifest, "open_source", "photo", [11])
     assert "photo" not in pending_kinds(manifest, "open_source")
     assert "photo" in pending_kinds(manifest, "protected_source")
+
+
+# --- Task 3: verdict and transport-fidelity comparison ---
+
+from tgcli.mirror_lab import compare_transport, lab_verdict  # noqa: E402
+
+
+def capability(kind, *, shas=(), bytes_state="pass", decode="pass"):
+    return {
+        "kind": kind,
+        "sample_count": max(len(shas), 1),
+        "coverage": "complete",
+        "telethon_bytes": bytes_state,
+        "samples": [
+            {"kind": kind, "decode": decode, "telethon_bytes": bytes_state,
+             "sha256": sha, "bytes": 1 if sha else None, "error": None}
+            for sha in (shas or (None,))
+        ],
+    }
+
+
+def report(*capabilities):
+    return {"capabilities": list(capabilities)}
+
+
+def seeded_manifest():
+    manifest = new_manifest(7)
+    record_seed(manifest, "protected_source", "photo", [1])
+    record_seed(manifest, "protected_source", "poll", [2])
+    record_seed(manifest, "protected_source", "album", [3, 4])
+    return manifest
+
+
+def test_lab_verdict_green_when_all_seeded_kinds_pass():
+    result = lab_verdict(
+        report(
+            capability("photo", shas=("a",)),
+            capability("poll", bytes_state="not_applicable"),
+        ),
+        seeded_manifest(),
+        "protected_source",
+    )
+    assert result["verdict"] == "green"
+    assert result["missing"] == [] and result["failing"] == []
+    assert "giveaway" in result["excluded"]
+
+
+def test_lab_verdict_red_on_missing_or_failing_kind():
+    missing = lab_verdict(
+        report(capability("photo", shas=("a",))),
+        seeded_manifest(),
+        "protected_source",
+    )
+    assert missing["verdict"] == "red" and missing["missing"] == ["poll"]
+
+    failing = lab_verdict(
+        report(
+            capability("photo", shas=(), bytes_state="fail"),
+            capability("poll", bytes_state="not_applicable"),
+        ),
+        seeded_manifest(),
+        "protected_source",
+    )
+    assert failing["verdict"] == "red" and failing["failing"] == ["photo"]
+
+
+def test_compare_transport_native_requires_exact_hashes():
+    source = report(capability("video", shas=("v1",)), capability("photo", shas=("p1",)))
+    dest_ok = report(capability("video", shas=("v1",)), capability("photo", shas=("p1",)))
+    dest_bad = report(capability("video", shas=("zz",)), capability("photo", shas=("p1",)))
+
+    ok = compare_transport(source, dest_ok, transport="native")
+    assert ok["verdict"] == "green"
+    assert {row["result"] for row in ok["rows"]} == {"pass"}
+
+    bad = compare_transport(source, dest_bad, transport="native")
+    assert bad["verdict"] == "red"
+    video_row = next(r for r in bad["rows"] if r["kind"] == "video")
+    assert video_row["result"] == "fail" and video_row["expectation"] == "exact"
+
+
+def test_compare_transport_reupload_allows_photo_reencode():
+    source = report(capability("photo", shas=("p1",)), capability("video", shas=("v1",)))
+    dest = report(capability("photo", shas=("different",)), capability("video", shas=("v1",)))
+    result = compare_transport(source, dest, transport="reupload")
+    assert result["verdict"] == "green"
+    photo_row = next(r for r in result["rows"] if r["kind"] == "photo")
+    assert photo_row["expectation"] == "reencoded" and photo_row["result"] == "pass"
+
+
+def test_compare_transport_flags_missing_dest_kind():
+    source = report(capability("video", shas=("v1",)))
+    result = compare_transport(source, report(), transport="native")
+    assert result["verdict"] == "red"
+    assert result["rows"][0]["result"] == "missing"

@@ -290,3 +290,81 @@ def planned_kinds() -> list[str]:
 def pending_kinds(manifest: dict, role: str) -> list[str]:
     done = set(manifest["seeded"].get(role, {}))
     return [kind for kind in planned_kinds() if kind not in done]
+
+
+# --- Task 3: verdict and transport-fidelity comparison ---
+
+from tgcli.mirror_probe import NON_BYTE_KINDS
+
+
+def lab_verdict(report: dict, manifest: dict, role: str) -> dict:
+    seeded = manifest["seeded"].get(role, {})
+    expected = {kind for kind in seeded if kind != "album"}
+    observed = {row["kind"]: row for row in report["capabilities"]}
+    missing = sorted(expected - set(observed))
+    failing = sorted(
+        kind
+        for kind, row in observed.items()
+        if kind in expected
+        and not (
+            row["telethon_bytes"] == "pass"
+            or (
+                kind in NON_BYTE_KINDS
+                and all(sample["decode"] == "pass" for sample in row["samples"])
+            )
+        )
+    )
+    green = not missing and not failing
+    return {
+        "verdict": "green" if green else "red",
+        "missing": missing,
+        "failing": failing,
+        "excluded": dict(EXCLUDED_KINDS),
+        "covered_by_r0": sorted(COVERED_BY_R0),
+    }
+
+
+def _kind_shas(report: dict) -> dict[str, list[str]]:
+    return {
+        row["kind"]: sorted(
+            sample["sha256"] for sample in row["samples"] if sample["sha256"]
+        )
+        for row in report["capabilities"]
+    }
+
+
+def compare_transport(source_report: dict, dest_report: dict, *, transport: str) -> dict:
+    if transport not in {"native", "reupload"}:
+        raise ValueError(f"unknown transport: {transport}")
+    source = {row["kind"]: row for row in source_report["capabilities"]}
+    dest = {row["kind"]: row for row in dest_report["capabilities"]}
+    source_shas = _kind_shas(source_report)
+    dest_shas = _kind_shas(dest_report)
+
+    rows = []
+    for kind in sorted(set(source) & set(BYTE_FIXTURES)):
+        expectation = "exact"
+        if transport == "reupload":
+            expectation = BYTE_FIXTURES[kind].reupload_fidelity
+        if kind not in dest:
+            rows.append({"kind": kind, "expectation": expectation, "result": "missing"})
+            continue
+        if expectation == "exact":
+            matched = bool(source_shas[kind]) and source_shas[kind] == dest_shas.get(kind)
+        else:
+            matched = dest[kind]["telethon_bytes"] == "pass" and len(
+                dest_shas.get(kind, [])
+            ) == len(source_shas[kind])
+        rows.append(
+            {
+                "kind": kind,
+                "expectation": expectation,
+                "result": "pass" if matched else "fail",
+            }
+        )
+    green = rows and all(row["result"] == "pass" for row in rows)
+    return {
+        "transport": transport,
+        "verdict": "green" if green else "red",
+        "rows": rows,
+    }
