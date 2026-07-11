@@ -594,3 +594,24 @@ async def copy_reupload(tg, manifest, workdir: Path, account_alias, note) -> dic
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
     return {"transport": "reupload", "results": results}
+
+
+# --- Task 6: teardown ---
+
+async def teardown_lab(tg, manifest, account_alias, note) -> dict:
+    entities = {}
+    for role, channel in manifest["channels"].items():
+        entity = await tg.get_entity(types.PeerChannel(channel["peer_id"]))
+        if not getattr(entity, "title", "").startswith(LAB_MARKER):
+            raise PolicyError(
+                f"{role}: live title lost lab marker; refusing to delete"
+            )
+        entities[role] = entity
+    removed = []
+    for role, entity in entities.items():
+        enforce_mutation_allowed(readonly=False)
+        append_audit("mirror-lab-teardown", account_alias, {"role": role})
+        await tg(functions.channels.DeleteChannelRequest(channel=entity))
+        removed.append(role)
+        note(f"{role}: deleted lab channel")
+    return {"removed": removed}

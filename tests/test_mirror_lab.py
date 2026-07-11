@@ -505,3 +505,49 @@ async def test_copy_phases_respect_kill_switch(tmp_path, monkeypatch):
         await copy_native(tg, manifest, "labacct", quiet)
     with pytest.raises(PolicyError):
         await copy_reupload(tg, manifest, tmp_path, "labacct", quiet)
+
+
+# --- Task 6: teardown ---
+
+from tgcli.mirror_lab import teardown_lab  # noqa: E402
+
+
+class TeardownTG(TransportTG):
+    def __init__(self, titles):
+        super().__init__()
+        self._titles = titles
+        self.deleted = []
+
+    async def get_entity(self, ref):
+        peer_id = getattr(ref, "channel_id", ref)
+        return NS(id=peer_id, title=self._titles.get(peer_id, ""))
+
+    async def __call__(self, request):
+        if isinstance(request, functions.channels.DeleteChannelRequest):
+            self.deleted.append(request.channel)
+            return NS(updates=[])
+        return await super().__call__(request)
+
+
+@pytest.mark.asyncio
+async def test_teardown_deletes_only_marked_lab_channels(tmp_path):
+    manifest = new_manifest(7)
+    record_channel(manifest, "open_source", 100, f"{LAB_MARKER} open_source x")
+    record_channel(manifest, "dest_native", 200, f"{LAB_MARKER} dest_native x")
+    tg = TeardownTG({
+        100: f"{LAB_MARKER} open_source x",
+        200: f"{LAB_MARKER} dest_native x",
+    })
+    result = await teardown_lab(tg, manifest, "labacct", quiet)
+    assert sorted(result["removed"]) == ["dest_native", "open_source"]
+    assert len(tg.deleted) == 2
+
+
+@pytest.mark.asyncio
+async def test_teardown_refuses_channel_without_live_marker(tmp_path):
+    manifest = new_manifest(7)
+    record_channel(manifest, "open_source", 100, f"{LAB_MARKER} open_source x")
+    tg = TeardownTG({100: "renamed innocent channel"})
+    with pytest.raises(PolicyError):
+        await teardown_lab(tg, manifest, "labacct", quiet)
+    assert tg.deleted == []
