@@ -10,6 +10,8 @@ from pathlib import Path
 import telethon
 from telethon.tl import alltlobjects, types
 
+from tgcli import chatref
+
 
 NON_BYTE_KINDS = {
     "text", "webpage", "poll", "todo", "contact", "geo", "geo_live",
@@ -163,7 +165,7 @@ async def probe_chat(
     if not 1 <= samples_per_kind <= 3:
         raise ValueError("samples_per_kind must be between 1 and 3")
 
-    entity = await tg.get_entity(chat)
+    entity = await tg.get_entity(chatref.parse(chat))
     samples: dict[str, list[dict]] = {}
     protected = bool(getattr(entity, "noforwards", False))
     scanned = 0

@@ -80,8 +80,10 @@ class ChatFake(DownloadFake):
         super().__init__([b"photo"] if chunks is None else chunks)
         self.messages = messages
         self.entity = entity
+        self.requested_chat = None
 
     async def get_entity(self, chat):
+        self.requested_chat = chat
         return self.entity
 
     async def iter_messages(self, entity, limit=None):
@@ -163,6 +165,14 @@ async def test_probe_chat_aggregates_samples_per_kind_and_redacts_identity():
     assert "private_name" not in encoded
     assert "secret" not in encoded
     assert "999" not in encoded
+
+
+@pytest.mark.asyncio
+async def test_probe_chat_parses_numeric_chat_reference_before_resolution():
+    source = ChatFake([], NS(id=999, noforwards=False))
+    await probe_chat(source, "-1001234567890", 123, role="lab", limit=1)
+    assert source.requested_chat == -1001234567890
+    assert isinstance(source.requested_chat, int)
 
 
 @pytest.mark.asyncio
