@@ -15,6 +15,15 @@ Template:
 
 ---
 
+## 2026-07-11 — Preserve cancellation cleanup regression (Codex)
+**Did:** recovered the one unique untracked regression from an obsolete Claude
+worktree: cancellation during an atomic export removes its temporary file.
+The production cleanup behavior was already present in the hardening branch.
+**Decided:** retain the test in the active PR rather than duplicate its older
+source changes or publish the stale worktree.
+**Next:** run the full suite, update the PR, then remove only verified stale
+Git residues.
+
 ## 2026-07-10 — Add invocation journal and verbose diagnostics (Codex)
 **Did:** added metadata-only `invocations.jsonl` for successfully parsed CLI
 commands and made `-v/--verbose` configure Python/Telethon debug output on
