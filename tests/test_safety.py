@@ -65,3 +65,10 @@ def test_audit_appends_one_json_object_per_line():
             "timestamp": ANY,
         },
     ]
+
+
+def test_audit_write_error_is_a_policy_block(monkeypatch, tmp_path):
+    monkeypatch.setattr(safety, "audit_path", lambda: tmp_path)
+
+    with pytest.raises(PolicyError, match="cannot write audit record"):
+        safety.append_audit("send", "main", {"preview_id": "p_test"})

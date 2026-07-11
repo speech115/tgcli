@@ -18,7 +18,7 @@ Global flags (available on every command):
 | `--plain` | stable TSV to stdout (no colors, no alignment) |
 | `--readonly` | hard-block any mutating call in this invocation |
 | `--timeout <sec>` | overall invocation deadline (default 60; no default deadline for media and exports) |
-| `-v/--verbose` | extra diagnostics on stderr |
+| `-v/--verbose` | Python and Telethon debug diagnostics on stderr for this invocation |
 
 Env equivalents: `TGCLI_ACCOUNT`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`.
 Flag beats env, env beats config.
@@ -126,7 +126,9 @@ replays only the stored target and text, then consumes the preview even if the
 network call fails. Commit JSON is `{"preview_id": "p_9f3a", "message_id": 42}`.
 Every authorised send commit appends one JSON object to
 `~/.local/state/tgcli/audit.jsonl` (or `TGCLI_STATE_DIR/audit.jsonl`) before
-network dispatch. Preview creation itself does not send or audit a mutation.
+network dispatch. If the audit record cannot be written, the mutation is
+blocked with exit 2; tgcli never performs an unaudited authorised write.
+Preview creation itself does not send or audit a mutation.
 
 ## 6. Raw API Passthrough (`tg api`, phase 2+; ADR-0010)
 
@@ -170,7 +172,9 @@ tg export subscribers <channel> --output <path> [--limit <n>]
   with `id`, `date`, `from`, `text`, `media`, and `reply_to` fields.
 - `subscribers` writes UTF-8 CSV with the frozen header
   `id,username,first_name,last_name,phone,is_bot`; standard CSV quoting is
-  used for field values.
+  used for field values. Username and name cells beginning with `=`, `+`, `-`,
+  or `@` are prefixed with a single quote so spreadsheet programs do not
+  interpret them as formulas.
 - Success on `--json` is one completion document:
   `{"export":{"kind":"messages|subscribers","format":"jsonl|csv",
   "path":"<path>","count":42,"dialog":{"id":-1001234,"name":"Channel"}}}`.
@@ -191,7 +195,20 @@ mode they are passed through as data (JSON escaping is sufficient). In human
 mode control characters are stripped. tgcli never interpolates message
 content into shell commands or file paths without sanitizing.
 
-## 9. Accounts (phase 6)
+## 9. Invocation Journal and Diagnostics
+
+Every successfully parsed command appends one JSON object to
+`~/.local/state/tgcli/invocations.jsonl` (or `TGCLI_STATE_DIR/invocations.jsonl`):
+`timestamp`, `command`, resolved `account` when applicable, `exit_code`,
+structured `error` code when applicable, and `duration_ms`. The journal never
+contains message/search text, chat references, raw API parameters, or command
+output. A journal-write failure emits a warning to stderr but does not change
+the command result.
+
+`-v` / `--verbose` enables Python and Telethon debug logs on stderr for the
+current process. Stdout remains contract data in all output modes.
+
+## 10. Accounts (phase 6)
 
 ```
 tg accounts import [ALIAS ...] [--source-root PATH] [--force]

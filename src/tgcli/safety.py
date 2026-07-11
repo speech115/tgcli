@@ -64,6 +64,9 @@ def append_audit(action: str, account: str, details: dict) -> None:
         **details,
     }
     path = audit_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as handle:
-        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        raise PolicyError(f"cannot write audit record: {exc}") from exc

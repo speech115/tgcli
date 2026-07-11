@@ -18,6 +18,9 @@ from tgcli.session import state_dir
 PRIVATE_LINK = re.compile(r"(?:https?://)?t\.me/c/(\d+)/(\d+)/?$")
 PUBLIC_LINK = re.compile(r"(?:https?://)?t\.me/([A-Za-z0-9_]+)/([1-9]\d*)/?$")
 CHUNK_SIZE = 512 * 1024
+CHECKPOINT_EVERY_CHUNKS = 16
+PROGRESS_EVERY_CHUNKS = 16
+MAX_FILENAME_BYTES = 200
 
 
 @dataclass(frozen=True)
@@ -57,6 +60,7 @@ def safe_filename(name: str | None, message_id: int) -> str:
     candidate = Path((name or "").replace("\\", "/")).name
     candidate = "".join(char if char.isprintable() else " " for char in candidate)
     candidate = candidate.strip(" .")
+    candidate = candidate.encode()[:MAX_FILENAME_BYTES].decode(errors="ignore")
     return candidate if candidate else f"media-{message_id}.bin"
 
 
@@ -150,13 +154,20 @@ def _resume_offset(state_path: Path, part_path: Path, source: MediaSource, desti
         raise PolicyError(f"media download state is invalid: {state_path}") from exc
     if not part_path.exists():
         raise PolicyError(f"media download state has no partial file: {part_path}")
+    offset = state.get("offset")
+    part_size = part_path.stat().st_size
     if (
         state.get("source") != _source_label(source)
         or state.get("destination") != str(destination)
-        or state.get("offset") != part_path.stat().st_size
+        or not isinstance(offset, int)
+        or offset < 0
+        or offset > part_size
     ):
         raise PolicyError(f"media download state does not match requested output: {state_path}")
-    return part_path.stat().st_size
+    if offset < part_size:
+        with part_path.open("r+b") as handle:
+            handle.truncate(offset)
+    return offset
 
 
 async def download_media(
@@ -196,15 +207,34 @@ async def download_media(
         _write_state(state_path, source, destination, offset)
 
     with part_path.open("ab" if resumed else "xb") as handle:
-        async for chunk in tg.iter_download(
-            message.media, offset=offset, request_size=CHUNK_SIZE
-        ):
-            handle.write(bytes(chunk))
+        current = offset
+        chunks_since_checkpoint = 0
+        chunks_since_progress = 0
+        try:
+            async for chunk in tg.iter_download(
+                message.media, offset=offset, request_size=CHUNK_SIZE
+            ):
+                handle.write(bytes(chunk))
+                current = handle.tell()
+                chunks_since_checkpoint += 1
+                chunks_since_progress += 1
+                if chunks_since_checkpoint >= CHECKPOINT_EVERY_CHUNKS:
+                    handle.flush()
+                    _write_state(state_path, source, destination, current)
+                    chunks_since_checkpoint = 0
+                if progress and chunks_since_progress >= PROGRESS_EVERY_CHUNKS:
+                    progress(current, _message_size(message))
+                    chunks_since_progress = 0
+        except BaseException:
+            if chunks_since_checkpoint:
+                handle.flush()
+                _write_state(state_path, source, destination, current)
+            raise
+        if chunks_since_checkpoint:
             handle.flush()
-            current = handle.tell()
             _write_state(state_path, source, destination, current)
-            if progress:
-                progress(current, _message_size(message))
+        if progress and chunks_since_progress:
+            progress(current, _message_size(message))
 
     os.replace(part_path, destination)
     state_path.unlink(missing_ok=True)
@@ -234,9 +264,10 @@ async def _download_parallel(
         handle.truncate(total)
     descriptor = os.open(part_path, os.O_WRONLY)
     downloaded = 0
+    chunks_since_progress = 0
 
     async def worker(index: int) -> None:
-        nonlocal downloaded
+        nonlocal downloaded, chunks_since_progress
         offset = index * CHUNK_SIZE
         async for chunk in tg.iter_download(
             message.media,
@@ -248,8 +279,10 @@ async def _download_parallel(
             os.pwrite(descriptor, data, offset)
             offset += parallel * CHUNK_SIZE
             downloaded += len(data)
-            if progress:
+            chunks_since_progress += 1
+            if progress and chunks_since_progress >= PROGRESS_EVERY_CHUNKS:
                 progress(downloaded, total)
+                chunks_since_progress = 0
 
     try:
         await asyncio.gather(*(worker(index) for index in range(parallel)))
@@ -258,6 +291,9 @@ async def _download_parallel(
         raise
     finally:
         os.close(descriptor)
+
+    if progress and chunks_since_progress:
+        progress(downloaded, total)
 
     os.replace(part_path, destination)
     return {
