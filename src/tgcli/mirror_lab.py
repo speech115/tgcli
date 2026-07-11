@@ -475,3 +475,122 @@ async def seed_sources(tg, manifest, manifest_path, account_alias, note) -> dict
             results[role][kind] = "seeded"
             note(f"{role}: seeded {kind}")
     return results
+
+
+# --- Task 5: copy transports ---
+
+import shutil
+from pathlib import Path
+
+from telethon.errors import ChatForwardsRestrictedError
+
+
+async def copy_native(tg, manifest, account_alias, note) -> dict:
+    open_entity = await _lab_entity(tg, manifest, "open_source")
+    dest_entity = await _lab_entity(tg, manifest, "dest_native")
+    protected_entity = await _lab_entity(tg, manifest, "protected_source")
+
+    protected_seeds = seeded_ids(manifest, "protected_source")
+    restricted_check = "skipped:no_protected_seed"
+    if protected_seeds:
+        first_ids = next(iter(protected_seeds.values()))
+        enforce_mutation_allowed(readonly=False)
+        append_audit(
+            "mirror-lab-forward-restricted-check",
+            account_alias,
+            {"ids": len(first_ids)},
+        )
+        try:
+            await tg(
+                functions.messages.ForwardMessagesRequest(
+                    from_peer=protected_entity,
+                    id=list(first_ids),
+                    random_id=[_random_id() for _ in first_ids],
+                    to_peer=dest_entity,
+                    drop_author=True,
+                )
+            )
+            restricted_check = "unexpected_success"
+        except ChatForwardsRestrictedError:
+            restricted_check = "confirmed"
+        note(f"protected forward check: {restricted_check}")
+
+    results: dict[str, str] = {}
+    for kind, ids in seeded_ids(manifest, "open_source").items():
+        enforce_mutation_allowed(readonly=False)
+        append_audit(
+            "mirror-lab-copy-native", account_alias, {"kind": kind, "ids": len(ids)}
+        )
+        try:
+            await tg(
+                functions.messages.ForwardMessagesRequest(
+                    from_peer=open_entity,
+                    id=list(ids),
+                    random_id=[_random_id() for _ in ids],
+                    to_peer=dest_entity,
+                    drop_author=True,
+                )
+            )
+        except Exception as exc:
+            results[kind] = f"blocked:{type(exc).__name__}"
+            note(f"native {kind}: blocked by {type(exc).__name__}")
+            continue
+        results[kind] = "forwarded"
+        note(f"native {kind}: forwarded")
+    return {
+        "transport": "native",
+        "restricted_check": restricted_check,
+        "results": results,
+    }
+
+
+async def copy_reupload(tg, manifest, workdir: Path, account_alias, note) -> dict:
+    source_entity = await _lab_entity(tg, manifest, "protected_source")
+    dest_entity = await _lab_entity(tg, manifest, "dest_reupload")
+    enforce_mutation_allowed(readonly=False)
+
+    results: dict[str, str] = {}
+    run_dir = Path(workdir) / "reupload"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        for kind, ids in seeded_ids(manifest, "protected_source").items():
+            if kind not in BYTE_FIXTURES and kind != "album":
+                results[kind] = "not_applicable"
+                continue
+            enforce_mutation_allowed(readonly=False)
+            append_audit(
+                "mirror-lab-copy-reupload",
+                account_alias,
+                {"kind": kind, "ids": len(ids)},
+            )
+            try:
+                messages = await tg.get_messages(source_entity, ids=list(ids))
+                paths = []
+                attributes = None
+                force_document = False
+                for message in messages:
+                    target = run_dir / f"{kind}-{message.id}"
+                    paths.append(Path(await tg.download_media(message, file=target)))
+                if kind in BYTE_FIXTURES:
+                    document = getattr(messages[0], "document", None)
+                    if document is not None:
+                        attributes = list(document.attributes)
+                        force_document = BYTE_FIXTURES[kind].force_document
+                if kind == "album":
+                    await tg.send_file(dest_entity, [str(p) for p in paths])
+                else:
+                    await tg.send_file(
+                        dest_entity,
+                        str(paths[0]),
+                        attributes=attributes,
+                        force_document=force_document,
+                    )
+            except Exception as exc:
+                results[kind] = f"blocked:{type(exc).__name__}"
+                note(f"reupload {kind}: blocked by {type(exc).__name__}")
+                continue
+            results[kind] = "copied"
+            note(f"reupload {kind}: copied")
+    finally:
+        shutil.rmtree(run_dir, ignore_errors=True)
+    return {"transport": "reupload", "results": results}

@@ -397,3 +397,111 @@ async def test_mutations_respect_kill_switch(tmp_path, monkeypatch):
     with pytest.raises(PolicyError):
         await create_lab_channels(tg, manifest, tmp_path / "lab.json", "labacct", quiet)
     assert tg.raw_requests == []
+
+
+# --- Task 5: copy transports ---
+
+from pathlib import Path  # noqa: E402
+
+from telethon.errors import ChatForwardsRestrictedError  # noqa: E402
+
+from tgcli.mirror_lab import copy_native, copy_reupload  # noqa: E402
+
+
+class TransportTG(FakeTG):
+    def __init__(self):
+        super().__init__()
+        self.forwards = []
+        self.downloads = []
+
+    async def __call__(self, request):
+        if isinstance(request, functions.messages.ForwardMessagesRequest):
+            from_protected = getattr(self, "protected_peer_id", None) == getattr(
+                request.from_peer, "id", request.from_peer
+            )
+            if from_protected:
+                raise ChatForwardsRestrictedError(request=request)
+            self.forwards.append(request)
+            return NS(updates=[])
+        return await super().__call__(request)
+
+    async def get_messages(self, entity, ids):
+        return [
+            NS(id=i, document=NS(attributes=[]), media=object()) for i in ids
+        ]
+
+    async def download_media(self, message, file):
+        path = Path(f"{file}.bin")
+        path.write_bytes(b"payload-%d" % message.id)
+        self.downloads.append(path)
+        return str(path)
+
+
+async def seeded_lab(tg, tmp_path):
+    manifest = new_manifest(7)
+    path = tmp_path / "lab.json"
+    await create_lab_channels(tg, manifest, path, "labacct", quiet)
+    await seed_sources(tg, manifest, path, "labacct", quiet)
+    tg.protected_peer_id = manifest["channels"]["protected_source"]["peer_id"]
+    return manifest
+
+
+@pytest.mark.asyncio
+async def test_copy_native_confirms_restriction_and_forwards_per_kind(tmp_path):
+    tg = TransportTG()
+    manifest = await seeded_lab(tg, tmp_path)
+    result = await copy_native(tg, manifest, "labacct", quiet)
+
+    assert result["transport"] == "native"
+    assert result["restricted_check"] == "confirmed"
+    assert set(result["results"]) == set(planned_kinds())
+    assert all(v == "forwarded" for v in result["results"].values())
+    for request in tg.forwards:
+        assert request.drop_author is True
+        assert len(request.random_id) == len(request.id)
+
+
+@pytest.mark.asyncio
+async def test_copy_native_records_per_kind_blocks(tmp_path):
+    class GeoLiveBlockingTG(TransportTG):
+        async def __call__(self, request):
+            if isinstance(request, functions.messages.ForwardMessagesRequest):
+                if getattr(self, "geo_live_ids", None) and set(request.id) & self.geo_live_ids:
+                    raise RuntimeError("MEDIA_INVALID")
+            return await super().__call__(request)
+
+    tg = GeoLiveBlockingTG()
+    manifest = await seeded_lab(tg, tmp_path)
+    tg.geo_live_ids = set(seeded_ids(manifest, "open_source")["geo_live"])
+    result = await copy_native(tg, manifest, "labacct", quiet)
+    assert result["results"]["geo_live"] == "blocked:RuntimeError"
+    assert result["results"]["photo"] == "forwarded"
+
+
+@pytest.mark.asyncio
+async def test_copy_reupload_downloads_and_resends_byte_kinds(tmp_path):
+    tg = TransportTG()
+    manifest = await seeded_lab(tg, tmp_path)
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    result = await copy_reupload(tg, manifest, workdir, "labacct", quiet)
+
+    assert result["transport"] == "reupload"
+    for kind in BYTE_FIXTURES:
+        assert result["results"][kind] == "copied"
+    assert result["results"]["album"] == "copied"
+    for kind in ("text", *NON_BYTE_LAB_KINDS):
+        assert result["results"][kind] == "not_applicable"
+    assert tg.downloads  # media actually went through the download path
+    assert not list(workdir.iterdir())  # workdir cleaned after the phase
+
+
+@pytest.mark.asyncio
+async def test_copy_phases_respect_kill_switch(tmp_path, monkeypatch):
+    tg = TransportTG()
+    manifest = await seeded_lab(tg, tmp_path)
+    monkeypatch.setenv("TGCLI_NO_SEND", "1")
+    with pytest.raises(PolicyError):
+        await copy_native(tg, manifest, "labacct", quiet)
+    with pytest.raises(PolicyError):
+        await copy_reupload(tg, manifest, tmp_path, "labacct", quiet)
