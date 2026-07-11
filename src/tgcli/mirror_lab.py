@@ -368,3 +368,110 @@ def compare_transport(source_report: dict, dest_report: dict, *, transport: str)
         "verdict": "green" if green else "red",
         "rows": rows,
     }
+
+
+# --- Task 4: channel provisioning and seeding engines ---
+
+import os
+
+from telethon.tl import functions
+
+from tgcli.safety import append_audit, enforce_mutation_allowed
+
+
+def _random_id() -> int:
+    return int.from_bytes(os.urandom(8), "little", signed=True)
+
+
+def _sent_message_id(update) -> int:
+    for item in getattr(update, "updates", ()):
+        message = getattr(item, "message", None)
+        if message is not None and hasattr(message, "id"):
+            return message.id
+    for item in getattr(update, "updates", ()):
+        if type(item).__name__ == "UpdateMessageID":
+            return item.id
+    raise ValueError("could not extract sent message id from update")
+
+
+async def _lab_entity(tg, manifest: dict, role: str):
+    channel = manifest["channels"][role]
+    assert_lab_peer(manifest, channel["peer_id"])
+    return await tg.get_entity(types.PeerChannel(channel["peer_id"]))
+
+
+async def create_lab_channels(tg, manifest, manifest_path, account_alias, note) -> dict:
+    stamp = manifest["created_at"][:19].replace(":", "").replace("-", "")
+    for role in CHANNEL_ROLES:
+        if role in manifest["channels"]:
+            note(f"{role}: already created, skipping")
+            continue
+        enforce_mutation_allowed(readonly=False)
+        title = f"{LAB_MARKER} {role} {stamp}"
+        append_audit("mirror-lab-create", account_alias, {"role": role, "title": title})
+        update = await tg(
+            functions.channels.CreateChannelRequest(
+                title=title,
+                about="tgcli R1 disposable lab channel",
+                broadcast=True,
+                megagroup=False,
+            )
+        )
+        channel = update.chats[0]
+        record_channel(manifest, role, channel.id, title)
+        save_manifest(manifest_path, manifest)
+        if role == "protected_source":
+            await tg(
+                functions.messages.ToggleNoForwardsRequest(peer=channel, enabled=True)
+            )
+        note(f"{role}: created lab channel")
+    return manifest
+
+
+async def _seed_kind(tg, entity, kind: str) -> list[int]:
+    if kind == "text":
+        message = await tg.send_message(entity, "lab text fixture")
+        return [message.id]
+    if kind == "album":
+        files = [build_png(color) for color in ALBUM_COLORS]
+        messages = await tg.send_file(entity, files)
+        return [message.id for message in messages]
+    if kind in BYTE_FIXTURES:
+        fixture = BYTE_FIXTURES[kind]
+        message = await tg.send_file(
+            entity,
+            fixture.payload(),
+            attributes=fixture.attributes(),
+            force_document=fixture.force_document,
+        )
+        return [message.id]
+    media = non_byte_media()[kind]
+    update = await tg(
+        functions.messages.SendMediaRequest(
+            peer=entity, media=media, message="", random_id=_random_id()
+        )
+    )
+    return [_sent_message_id(update)]
+
+
+async def seed_sources(tg, manifest, manifest_path, account_alias, note) -> dict:
+    results: dict[str, dict[str, str]] = {}
+    for role in ("protected_source", "open_source"):
+        entity = await _lab_entity(tg, manifest, role)
+        results[role] = {}
+        for kind in pending_kinds(manifest, role):
+            enforce_mutation_allowed(readonly=False)
+            append_audit(
+                "mirror-lab-seed", account_alias, {"role": role, "kind": kind}
+            )
+            try:
+                ids = await _seed_kind(tg, entity, kind)
+            except Exception as exc:
+                results[role][kind] = f"blocked:{type(exc).__name__}"
+                note(f"{role}: {kind} blocked by {type(exc).__name__}")
+                continue
+            record_seed(manifest, role, kind, ids)
+            save_manifest(manifest_path, manifest)
+            results[role][kind] = "seeded"
+            note(f"{role}: seeded {kind}")
+    return results

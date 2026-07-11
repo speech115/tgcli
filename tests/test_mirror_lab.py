@@ -86,6 +86,7 @@ from tgcli.mirror_lab import (  # noqa: E402
     COVERED_BY_R0,
     EXCLUDED_KINDS,
     NON_BYTE_LAB_KINDS,
+    ALBUM_COLORS,
     build_png,
     deterministic_bytes,
     non_byte_media,
@@ -266,3 +267,133 @@ def test_compare_transport_flags_missing_dest_kind():
     result = compare_transport(source, report(), transport="native")
     assert result["verdict"] == "red"
     assert result["rows"][0]["result"] == "missing"
+
+
+# --- Task 4: provisioning and seeding engines ---
+
+from types import SimpleNamespace as NS  # noqa: E402
+
+import pytest  # noqa: E402
+from telethon.tl import functions  # noqa: E402
+
+from tgcli.mirror_lab import create_lab_channels, seed_sources  # noqa: E402
+
+
+class FakeTG:
+    """Records raw requests and high-level sends; returns canned results."""
+
+    def __init__(self):
+        self.raw_requests = []
+        self.sent_files = []
+        self.sent_messages = []
+        self._next_channel_id = 100
+        self._next_message_id = 1000
+
+    async def __call__(self, request):
+        self.raw_requests.append(request)
+        if isinstance(request, functions.channels.CreateChannelRequest):
+            self._next_channel_id += 1
+            return NS(chats=[NS(id=self._next_channel_id, title=request.title)])
+        if isinstance(request, functions.messages.SendMediaRequest):
+            self._next_message_id += 1
+            return NS(updates=[NS(message=NS(id=self._next_message_id))])
+        return NS(updates=[])
+
+    async def get_entity(self, ref):
+        return NS(id=getattr(ref, "channel_id", ref), title="")
+
+    async def send_message(self, entity, text):
+        self._next_message_id += 1
+        self.sent_messages.append(text)
+        return NS(id=self._next_message_id)
+
+    async def send_file(self, entity, file, **kwargs):
+        self.sent_files.append((entity, kwargs))
+        if isinstance(file, list):
+            out = []
+            for _ in file:
+                self._next_message_id += 1
+                out.append(NS(id=self._next_message_id))
+            return out
+        self._next_message_id += 1
+        return NS(id=self._next_message_id)
+
+
+def quiet(_message):
+    pass
+
+
+@pytest.mark.asyncio
+async def test_create_lab_channels_records_all_roles_and_protects_source(tmp_path):
+    tg = FakeTG()
+    manifest = new_manifest(7)
+    path = tmp_path / "lab.json"
+    await create_lab_channels(tg, manifest, path, "labacct", quiet)
+
+    assert set(manifest["channels"]) == set(CHANNEL_ROLES)
+    for entry in manifest["channels"].values():
+        assert entry["title"].startswith(LAB_MARKER)
+    toggles = [
+        r for r in tg.raw_requests
+        if isinstance(r, functions.messages.ToggleNoForwardsRequest)
+    ]
+    assert len(toggles) == 1 and toggles[0].enabled is True
+    assert load_manifest(path)["channels"] == manifest["channels"]
+
+
+@pytest.mark.asyncio
+async def test_create_lab_channels_is_idempotent(tmp_path):
+    tg = FakeTG()
+    manifest = new_manifest(7)
+    path = tmp_path / "lab.json"
+    await create_lab_channels(tg, manifest, path, "labacct", quiet)
+    created = len(tg.raw_requests)
+    await create_lab_channels(tg, manifest, path, "labacct", quiet)
+    assert len(tg.raw_requests) == created  # no second creation
+
+
+@pytest.mark.asyncio
+async def test_seed_sources_covers_plan_and_is_idempotent(tmp_path):
+    tg = FakeTG()
+    manifest = new_manifest(7)
+    path = tmp_path / "lab.json"
+    await create_lab_channels(tg, manifest, path, "labacct", quiet)
+    results = await seed_sources(tg, manifest, path, "labacct", quiet)
+
+    for role in ("protected_source", "open_source"):
+        assert sorted(seeded_ids(manifest, role)) == sorted(planned_kinds())
+        assert set(results[role].values()) == {"seeded"}
+        assert len(seeded_ids(manifest, role)["album"]) == len(ALBUM_COLORS)
+
+    sent_before = len(tg.sent_files)
+    again = await seed_sources(tg, manifest, path, "labacct", quiet)
+    assert len(tg.sent_files) == sent_before
+    assert again == {"protected_source": {}, "open_source": {}}
+
+
+@pytest.mark.asyncio
+async def test_seed_sources_records_server_rejection_explicitly(tmp_path):
+    class RejectingTG(FakeTG):
+        async def send_file(self, entity, file, **kwargs):
+            attributes = kwargs.get("attributes") or []
+            if any(type(a).__name__ == "DocumentAttributeSticker" for a in attributes):
+                raise RuntimeError("STICKER_INVALID")
+            return await super().send_file(entity, file, **kwargs)
+
+    tg = RejectingTG()
+    manifest = new_manifest(7)
+    path = tmp_path / "lab.json"
+    await create_lab_channels(tg, manifest, path, "labacct", quiet)
+    results = await seed_sources(tg, manifest, path, "labacct", quiet)
+    assert results["open_source"]["sticker"] == "blocked:RuntimeError"
+    assert "sticker" not in seeded_ids(manifest, "open_source")
+
+
+@pytest.mark.asyncio
+async def test_mutations_respect_kill_switch(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_READONLY", "1")
+    tg = FakeTG()
+    manifest = new_manifest(7)
+    with pytest.raises(PolicyError):
+        await create_lab_channels(tg, manifest, tmp_path / "lab.json", "labacct", quiet)
+    assert tg.raw_requests == []
