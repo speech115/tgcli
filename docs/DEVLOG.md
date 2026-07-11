@@ -15,6 +15,32 @@ Template:
 
 ---
 
+## 2026-07-11 — R0 protected-content probe evidence (Claude Opus 4.8)
+**Did:** ran the read-only mirror capability probe (`scripts/mirror_probe.py`,
+commit 7de7c90) live against two real protected broadcast channels — one where
+the account is owner, one where it is an ordinary subscriber. Runtime: Telegram
+layer 227, Telethon 1.44.0. Both sources reported `protected: true`. Owned scan
+covered 86 messages; subscriber scan covered 2394. The paired privacy validator
+passed and `audit.jsonl` was byte-for-byte unchanged (no mutation).
+**Decided:** R0 Decision Gate → **Branch 1**. Every discovered byte-bearing kind
+returned Telethon `pass` for both account roles, so gotd is NOT required. The
+next step is an R1 controlled-lab plan to fill `not_found`/`limited` kinds, not a
+second backend.
+**Learned:** Telethon streamed complete bytes (full SHA-256) for every media kind
+in both roles, including a ~1.0 GB video read as an ordinary subscriber of a
+`noforwards` channel — strong evidence the four-tier capability router collapses
+to native-copy (unprotected) + Telethon-reconstruction (protected). Byte-`pass`
+kinds: owned = photo, video, video_note; subscriber = audio, document, photo,
+sticker, video, video_note, voice. `not_applicable` (no byte payload): text,
+webpage, service, poll, story. Zero `fail`/`inconclusive`. Gotcha: an earlier
+Codex run mis-selected an unprotected channel as the "owned protected" source,
+which is why its paired validator failed; the real owned protected channel was
+used here.
+**Next:** consolidate ADR-0013 + the router design + the M0-M4 plan into one
+gotd-free decision, then write the R1 controlled-lab plan.
+
+---
+
 ## 2026-07-11 — Bench default retargeted; PLAN.md marked historical (Claude Fable 5)
 **Did:** the dr34m.txt channel was renamed to "MIR Сергея Иванова"
 (@mir_ivanova) and is now reachable from the main account, so
