@@ -107,7 +107,7 @@ def test_empty_capability_starts_unproven():
         "kind": "video",
         "sample_message_id": 42,
         "decode": "pass",
-        "telethon_bytes": "not_applicable",
+        "telethon_bytes": "not_tested",
         "bytes": None,
         "sha256": None,
         "error": None,
