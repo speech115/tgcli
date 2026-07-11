@@ -15,7 +15,68 @@ Template:
 
 ---
 
-## 2026-07-11 — R0 protected-content probe evidence (Claude Opus 4.8)
+## 2026-07-11 — R1 controlled-lab probe evidence (Claude Fable 5)
+
+**Did:** implemented `src/tgcli/mirror_lab.py` (manifest model, frozen fixture
+matrix, verdict/fidelity comparison, provisioning/seeding/copy/teardown engines)
+and `scripts/mirror_lab.py` (7-phase CLI entrypoint) in worktree
+`claude/mirror-r1-controlled-lab` via 6 TDD commits. 249 passed, 8 skipped;
+coverage gate green (23 namespaces). `mirror_probe.py` unchanged.
+
+Ran the full live acceptance (account `main`, Telethon 1.44, layer 227) against
+4 disposable lab channels (`tgcli-r1-lab` marker prefix). Every mutation was
+gated by `enforce_mutation_allowed`, audited, and targeted only manifest-listed
+peers.
+
+**Seeding results** (both `protected_source` and `open_source`):
+16 of 17 planned kinds `seeded`; `todo` = `blocked:MediaInvalidError` on both
+roles (server rejects `InputMediaTodo` for broadcast channels — explicit
+unsupported, not a silent skip). `album` = 2 photos grouped. All non-byte kinds
+(contact, dice, geo, geo_live, poll, venue) seeded and decoded `pass`.
+
+**Protected-source probe verdict:** `red`. 7 byte kinds (animation, audio,
+photo, sticker, video, video_note, voice) missing — Telegram classified all lab
+payloads as `document` because raw deterministic bytes are not valid media
+containers (mp3, mp4, ogg, webp). `document` itself returned `telethon_bytes:
+pass` with 3 samples. Non-byte kinds all `pass`. `protected: true` confirmed.
+
+**`restricted_check`:** `confirmed` — `CHAT_FORWARDS_RESTRICTED` raised on
+native `forwardMessages(drop_author=True)` from protected source to dest, exactly
+as ADR-0013 §10 predicts.
+
+**Native forward (open_source → dest_native):** all 16 kinds `forwarded`.
+**Reupload (protected_source → dest_reupload):** all 9 byte kinds + album
+`copied`; 7 non-byte kinds `not_applicable`.
+
+**Fidelity verdicts:** both `red`. Root cause is not transport failure but
+classification collapse: because all lab byte payloads are classified as
+`document` by the server, the probe aggregates heterogeneous kinds into one
+`document` bucket (3 samples per kind), making SHA-256 list comparison
+meaningless. The transports themselves work — every kind was forwarded/copied —
+but the frozen probe classifier cannot distinguish kinds the server flattens.
+
+**Excluded kinds (unchanged):** game, giveaway, giveaway_results, invoice,
+paid_media_preview, paid_media_revealed, story.
+
+**Decided:** R1 Decision Gate → **Branch 2**. `todo` moves to the
+explicit-unsupported set in ADR-0013 §1 with `MediaInvalidError` as evidence.
+`CHAT_FORWARDS_RESTRICTED` is confirmed evidence — no ADR-0013 §10 revision
+needed. The fidelity red is a lab-fixture limitation (invalid media containers),
+not a transport defect — both transports completed every kind successfully. M0
+content evidence from R0 stands; R1 adds `todo` exclusion and
+`CHAT_FORWARDS_RESTRICTED` confirmation.
+
+**Learned:** the probe classifier depends on Telegram server-side media-type
+detection, which ignores `DocumentAttribute*` on non-container bytes. To get
+per-kind fidelity in a future lab run, fixtures need valid minimal containers
+(valid mp4 for video/animation/video_note, valid ogg for voice, valid webp for
+sticker, valid mp3 for audio) — or the probe must classify by sent fixture kind
+rather than by server-returned attributes. The `Poll` constructor on layer 227
+requires `hash` as a positional argument (discovered during TDD).
+
+**Next:** merge `claude/mirror-r1-controlled-lab` to main, then proceed to M0
+Task 0.1 (watcher-session concurrency) per the phase plan. A future R2 could
+re-test per-kind fidelity with valid containers if M2 renderer policy needs it.
 **Did:** ran the read-only mirror capability probe (`scripts/mirror_probe.py`,
 commit 7de7c90) live against two real protected broadcast channels — one where
 the account is owner, one where it is an ordinary subscriber. Runtime: Telegram
