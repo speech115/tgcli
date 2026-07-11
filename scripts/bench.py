@@ -22,9 +22,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-# main is creator of this channel; the public dr34m.txt channel is not
-# joined from the main account, so the mirror exercises the same path.
-DEFAULT_SUBSCRIBERS_CHANNEL = "-1003890108644"  # mirror: dr34m.txt
+# The default needs a channel whose participants the account may list.
+DEFAULT_SUBSCRIBERS_CHANNEL = "@mir_ivanova"  # MIR Сергея Иванова (own channel)
 STEP_TIMEOUT_SECONDS = 120
 
 

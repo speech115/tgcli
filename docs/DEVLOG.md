@@ -15,6 +15,17 @@ Template:
 
 ---
 
+## 2026-07-11 — Bench default retargeted; PLAN.md marked historical (Claude Fable 5)
+**Did:** the dr34m.txt channel was renamed to "MIR Сергея Иванова"
+(@mir_ivanova) and is now reachable from the main account, so
+`scripts/bench.py` defaults its subscribers step to `@mir_ivanova` instead of
+the mirror-channel id (verified live: 20-row CSV export, exit 0). Added a
+completed/historical status banner to docs/PLAN.md.
+**Decided:** PLAN.md stays at its current path as a historical record — MAP,
+README, and kb notes link to it and its Risks table is still operationally
+current; new work gets a fresh scoped plan or ADR, never a new phase there.
+**Next:** none; maintenance mode.
+
 ## 2026-07-11 — v1 closeout: PRs merged, CI, live bench, numeric-id fix (Claude Fable 5)
 **Did:** reviewed and merged PR #2 (hardening + invocation diagnostics) and
 PR #3 (legacy MCP decommission record, DEVLOG conflict resolved); deleted all

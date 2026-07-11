@@ -1,5 +1,11 @@
 # tgcli Master Plan
 
+> **Status: completed 2026-07-10 — historical record.** All phases 0–7 are
+> done and the project is in maintenance mode. This document is kept in place
+> (not archived) because MAP, README, and the knowledge base link here, and
+> the Risks table below still describes live operational trade-offs. New work
+> starts as a fresh scoped plan or ADR, not as a new phase in this file.
+
 **Goal:** replace the daemon-first `tools/telegram` stack with a small,
 stateless, gogcli-style CLI that agents and scripts can rely on.
 
