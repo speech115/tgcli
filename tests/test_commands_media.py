@@ -48,6 +48,10 @@ def test_safe_filename_uses_message_id_when_name_is_empty():
     assert safe_filename("..", 42) == "media-42.bin"
 
 
+def test_safe_filename_is_capped_to_a_portable_byte_length():
+    assert len(safe_filename("a" * 300 + ".bin", 42).encode()) <= 200
+
+
 def test_destination_refuses_existing_final_path(tmp_path):
     target = tmp_path / "already-there.bin"
     target.write_bytes(b"done")
@@ -121,6 +125,30 @@ async def test_download_resumes_from_existing_partial_transfer(tmp_path):
     }
 
 
+async def test_download_throttles_state_writes_and_progress_updates(tmp_path, monkeypatch):
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "out.bin"
+    fake = FakeDownloadTelegram([b"x"] * 17)
+    state_writes = []
+    progress_updates = []
+    from tgcli.commands import media
+
+    original_write_state = media._write_state
+
+    def record_state(*args):
+        state_writes.append(args[-1])
+        original_write_state(*args)
+
+    monkeypatch.setattr(media, "_write_state", record_state)
+
+    await download_media(
+        fake, source, "main", output=str(target), progress=lambda current, total: progress_updates.append(current)
+    )
+
+    assert state_writes == [0, 16, 17]
+    assert progress_updates == [16, 17]
+
+
 async def test_download_refuses_existing_final_path(tmp_path):
     target = tmp_path / "out.bin"
     target.write_bytes(b"done")
@@ -188,6 +216,22 @@ def test_resume_offset_raises_policy_error_when_part_file_missing(tmp_path):
 
     with pytest.raises(PolicyError, match="no partial file"):
         _resume_offset(state_path, part_path, source, destination)
+
+
+def test_resume_offset_discards_uncheckpointed_bytes(tmp_path):
+    source = MediaSource("@channel", 42, None)
+    destination = tmp_path / "out.bin"
+    state_path = tmp_path / "state.json"
+    part_path = tmp_path / "out.part"
+    part_path.write_bytes(b"checkpointed-extra")
+    state_path.write_text(json.dumps({
+        "source": _source_label(source),
+        "destination": str(destination),
+        "offset": len(b"checkpointed"),
+    }))
+
+    assert _resume_offset(state_path, part_path, source, destination) == len(b"checkpointed")
+    assert part_path.read_bytes() == b"checkpointed"
 
 
 async def test_resolve_message_uses_public_chat_reference():

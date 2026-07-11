@@ -15,6 +15,40 @@ Template:
 
 ---
 
+## 2026-07-11 — Preserve cancellation cleanup regression (Codex)
+**Did:** recovered the one unique untracked regression from an obsolete Claude
+worktree: cancellation during an atomic export removes its temporary file.
+The production cleanup behavior was already present in the hardening branch.
+**Decided:** retain the test in the active PR rather than duplicate its older
+source changes or publish the stale worktree.
+**Next:** run the full suite, update the PR, then remove only verified stale
+Git residues.
+
+## 2026-07-10 — Add invocation journal and verbose diagnostics (Codex)
+**Did:** added metadata-only `invocations.jsonl` for successfully parsed CLI
+commands and made `-v/--verbose` configure Python/Telethon debug output on
+stderr. The journal records command, resolved account, exit/result metadata,
+and duration, never message/search text, chat references, or raw parameters.
+Updated CONTRACT, MAP, and ADR-0012.
+**Decided:** journal write failures warn and preserve the command result;
+mutation audit remains separately fail-closed (ADR-0011/0012).
+**Next:** run the full regression suite and inspect the exact diff before any
+commit.
+
+## 2026-07-10 — Close minor Phase 3–5 review findings (Codex)
+**Did:** added TDD regressions and fixed cancellation cleanup for atomic
+exports, CSV formula injection in subscriber names, structured audit-write
+failures, and media filename/checkpoint/progress throttling. A resume now
+truncates bytes written after its last persisted checkpoint before continuing.
+Updated CONTRACT, MAP, and ADR-0011. Verification: `uv run pytest -q` →
+`183 passed, 8 skipped`; `git diff --check` passes.
+**Decided:** audit persistence is fail-closed: an audit-path `OSError` is a
+structured exit-2 policy block, so tgcli never makes an authorised unaudited
+mutation (ADR-0011).
+**Learned:** checkpoint throttling needs a matching resume rule; otherwise a
+crash can leave a partial file longer than its persisted offset.
+**Next:** commit these reviewed hardening fixes when requested.
+
 ## 2026-07-10 — Roadmap completion doc pass (Codex)
 **Did:** reconciled the master-plan status with completed acceptance evidence:
 Phase 4 safe writes and Phase 6 migration/cutover are now marked complete.

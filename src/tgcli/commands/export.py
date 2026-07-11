@@ -31,11 +31,9 @@ def _atomic_text_destination(destination: Path):
             yield handle
         os.replace(temporary, destination)
     except OSError as exc:
-        temporary.unlink(missing_ok=True)
         raise ExportError(f"cannot write export to {destination}: {exc}") from exc
-    except Exception:
+    finally:
         temporary.unlink(missing_ok=True)
-        raise
 
 
 async def _resolve_entity(tg, chat: str):
@@ -80,12 +78,17 @@ async def export_messages(tg, chat: str, destination: Path, limit: int | None = 
 def _subscriber_to_row(subscriber) -> dict:
     return {
         "id": subscriber.id,
-        "username": getattr(subscriber, "username", None) or "",
-        "first_name": getattr(subscriber, "first_name", None) or "",
-        "last_name": getattr(subscriber, "last_name", None) or "",
+        "username": _csv_cell(getattr(subscriber, "username", None)),
+        "first_name": _csv_cell(getattr(subscriber, "first_name", None)),
+        "last_name": _csv_cell(getattr(subscriber, "last_name", None)),
         "phone": getattr(subscriber, "phone", None) or "",
         "is_bot": str(bool(getattr(subscriber, "bot", False))),
     }
+
+
+def _csv_cell(value: str | None) -> str:
+    value = value or ""
+    return f"'{value}" if value.startswith(("=", "+", "-", "@")) else value
 
 
 async def export_subscribers(tg, channel: str, destination: Path, limit: int | None = None) -> dict:
