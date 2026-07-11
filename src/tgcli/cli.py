@@ -1,11 +1,13 @@
 import argparse
 import asyncio
+import logging
 import sys
+import time
 from pathlib import Path
 
 from telethon import errors as telethon_errors
 
-from tgcli import __version__, output, safety, session
+from tgcli import __version__, invocations, output, safety, session
 from tgcli.commands import accounts as accounts_cmd
 from tgcli.commands import api as api_cmd
 from tgcli.commands import dialogs as dialogs_cmd
@@ -17,6 +19,29 @@ from tgcli.commands import search as search_cmd
 from tgcli.commands import send as send_cmd
 from tgcli.config import load_config, resolve_account
 from tgcli.errors import PolicyError, RateLimitError, TgcliError
+
+
+LOGGER = logging.getLogger(__name__)
+
+
+def _enable_verbose_diagnostics():
+    configured = []
+    for name in ("tgcli", "telethon"):
+        logger = logging.getLogger(name)
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+        configured.append((logger, logger.level, logger.propagate, handler))
+        logger.setLevel(logging.DEBUG)
+        logger.propagate = False
+        logger.addHandler(handler)
+    return configured
+
+
+def _restore_diagnostics(configured) -> None:
+    for logger, level, propagate, handler in configured:
+        logger.removeHandler(handler)
+        logger.setLevel(level)
+        logger.propagate = propagate
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -199,6 +224,10 @@ def main(argv: list[str] | None = None) -> int:
     }.items():
         if not hasattr(args, name):
             setattr(args, name, default)
+    verbose_diagnostics = _enable_verbose_diagnostics() if args.verbose else []
+    started = time.monotonic()
+    exit_code = 1
+    error_code = None
     try:
         if args.command == "send":
             if args.commit:
@@ -244,6 +273,9 @@ def main(argv: list[str] | None = None) -> int:
                 rows = accounts_cmd.to_rows(data)
             else:
                 account = resolve_account(config, args.account)
+                args.account = account.alias
+                if args.verbose:
+                    LOGGER.debug("resolved account=%s command=%s", account.alias, args.command)
                 if args.command == "send" and args.commit:
                     safety.append_audit("send", account.alias, {"preview_id": args.commit})
                 if args.command == "api" and args.write:
@@ -255,16 +287,39 @@ def main(argv: list[str] | None = None) -> int:
                     data, rows = asyncio.run(asyncio.wait_for(network, timeout=args.timeout))
     except TgcliError as err:
         output.emit_error(err, as_json=args.json)
-        return err.exit_code
-    if args.json:
-        output.emit_json(data)
-    elif args.plain:
-        output.emit_plain(rows)
+        error_code = err.code
+        exit_code = err.exit_code
+    except Exception:
+        error_code = "UNHANDLED"
+        raise
     else:
-        output.emit_plain(
-            [(" | ".join("" if cell is None else str(cell) for cell in row),) for row in rows]
+        if args.json:
+            output.emit_json(data)
+        elif args.plain:
+            output.emit_plain(rows)
+        else:
+            output.emit_plain(
+                [(" | ".join("" if cell is None else str(cell) for cell in row),) for row in rows]
+            )
+        exit_code = 0
+    finally:
+        duration_ms = int((time.monotonic() - started) * 1000)
+        if args.verbose:
+            LOGGER.debug(
+                "completed command=%s exit_code=%s duration_ms=%s",
+                args.command,
+                exit_code,
+                duration_ms,
+            )
+        invocations.log_invocation(
+            command=args.command,
+            account=args.account,
+            exit_code=exit_code,
+            error=error_code,
+            duration_ms=duration_ms,
         )
-    return 0
+        _restore_diagnostics(verbose_diagnostics)
+    return exit_code
 
 
 def entrypoint() -> None:

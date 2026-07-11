@@ -18,7 +18,7 @@ Global flags (available on every command):
 | `--plain` | stable TSV to stdout (no colors, no alignment) |
 | `--readonly` | hard-block any mutating call in this invocation |
 | `--timeout <sec>` | overall invocation deadline (default 60; no default deadline for media and exports) |
-| `-v/--verbose` | extra diagnostics on stderr |
+| `-v/--verbose` | Python and Telethon debug diagnostics on stderr for this invocation |
 
 Env equivalents: `TGCLI_ACCOUNT`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`.
 Flag beats env, env beats config.
@@ -195,7 +195,20 @@ mode they are passed through as data (JSON escaping is sufficient). In human
 mode control characters are stripped. tgcli never interpolates message
 content into shell commands or file paths without sanitizing.
 
-## 9. Accounts (phase 6)
+## 9. Invocation Journal and Diagnostics
+
+Every successfully parsed command appends one JSON object to
+`~/.local/state/tgcli/invocations.jsonl` (or `TGCLI_STATE_DIR/invocations.jsonl`):
+`timestamp`, `command`, resolved `account` when applicable, `exit_code`,
+structured `error` code when applicable, and `duration_ms`. The journal never
+contains message/search text, chat references, raw API parameters, or command
+output. A journal-write failure emits a warning to stderr but does not change
+the command result.
+
+`-v` / `--verbose` enables Python and Telethon debug logs on stderr for the
+current process. Stdout remains contract data in all output modes.
+
+## 10. Accounts (phase 6)
 
 ```
 tg accounts import [ALIAS ...] [--source-root PATH] [--force]

@@ -45,12 +45,12 @@ def test_missing_config_exits_3(tmp_path, monkeypatch, capsys):
     assert json.loads(captured.err)["error"]["code"] == "CONFIG"
 
 
-def test_accounts_list_accepts_global_flags_and_keeps_human_output(config_env, capsys):
+def test_accounts_list_verbose_keeps_data_on_stdout_and_writes_debug_to_stderr(config_env, capsys):
     code = main(["accounts", "list", "--readonly", "-v"])
 
     assert code == 0
     captured = capsys.readouterr()
-    assert captured.err == ""
+    assert "DEBUG tgcli.cli: completed command=accounts exit_code=0 duration_ms=" in captured.err
     assert captured.out == "main | main\n"
 
 

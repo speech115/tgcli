@@ -15,6 +15,17 @@ Template:
 
 ---
 
+## 2026-07-10 — Add invocation journal and verbose diagnostics (Codex)
+**Did:** added metadata-only `invocations.jsonl` for successfully parsed CLI
+commands and made `-v/--verbose` configure Python/Telethon debug output on
+stderr. The journal records command, resolved account, exit/result metadata,
+and duration, never message/search text, chat references, or raw parameters.
+Updated CONTRACT, MAP, and ADR-0012.
+**Decided:** journal write failures warn and preserve the command result;
+mutation audit remains separately fail-closed (ADR-0011/0012).
+**Next:** run the full regression suite and inspect the exact diff before any
+commit.
+
 ## 2026-07-10 — Close minor Phase 3–5 review findings (Codex)
 **Did:** added TDD regressions and fixed cancellation cleanup for atomic
 exports, CSV formula injection in subscriber names, structured audit-write
