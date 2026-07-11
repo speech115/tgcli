@@ -124,6 +124,15 @@ async def test_probe_message_marks_interruption_inconclusive():
 
 
 @pytest.mark.asyncio
+async def test_probe_message_redacts_unsupported_media_class_name():
+    private_media_type = type("DO_NOT_LEAK_TL_CLASS_91c8", (), {})
+    result = await probe_message(DownloadFake([]), message(private_media_type()))
+    assert result["decode"] == "unsupported"
+    assert result["error"] == "unsupported_media"
+    assert "DO_NOT_LEAK_TL_CLASS_91c8" not in json.dumps(result)
+
+
+@pytest.mark.asyncio
 async def test_probe_chat_aggregates_samples_per_kind_and_redacts_identity():
     source = ChatFake(
         [

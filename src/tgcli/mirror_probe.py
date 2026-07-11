@@ -94,7 +94,7 @@ async def probe_message(tg, message) -> dict:
             result["error"] = "stories_excluded"
         elif kind == "unsupported":
             result["decode"] = "unsupported"
-            result["error"] = type(getattr(message, "media", None)).__name__
+            result["error"] = "unsupported_media"
         return result
 
     digest = hashlib.sha256()
