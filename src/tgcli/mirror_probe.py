@@ -85,6 +85,45 @@ def empty_capability(kind: str, sample_id: int) -> dict:
     }
 
 
+async def probe_message(tg, message) -> dict:
+    kind = classify_message(message)
+    result = empty_capability(kind, message.id)
+    if result["telethon_bytes"] == "not_applicable":
+        if kind == "story":
+            result["decode"] = "unsupported"
+            result["error"] = "stories_excluded"
+        elif kind == "unsupported":
+            result["decode"] = "unsupported"
+            result["error"] = type(getattr(message, "media", None)).__name__
+        return result
+
+    digest = hashlib.sha256()
+    byte_count = 0
+    try:
+        async for chunk in tg.iter_download(message.media, request_size=512 * 1024):
+            data = bytes(chunk)
+            digest.update(data)
+            byte_count += len(data)
+    except Exception as exc:
+        result.update(
+            telethon_bytes="inconclusive",
+            bytes=byte_count,
+            sha256=None,
+            error=type(exc).__name__,
+        )
+        return result
+
+    if byte_count == 0:
+        result.update(telethon_bytes="fail", bytes=0, error="zero_bytes")
+        return result
+    result.update(
+        telethon_bytes="pass",
+        bytes=byte_count,
+        sha256=digest.hexdigest(),
+    )
+    return result
+
+
 def runtime_metadata() -> dict:
     return {
         "telethon": telethon.__version__,
