@@ -1,0 +1,51 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "aiand/glm-5.2-normal",
+  "provider": {
+    "aiand": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "ai&",
+      "options": {
+        "baseURL": "https://api.aiand.com/v1",
+        "apiKey": "{env:AIAND_API_KEY}",
+        "timeout": 600000,
+        "chunkTimeout": 120000
+      },
+      "models": {
+        "glm-5.2-fast": {
+          "id": "zai-org/glm-5.2",
+          "name": "GLM 5.2 Fast",
+          "options": {
+            "reasoningEffort": "low"
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 32768
+          }
+        },
+        "glm-5.2-normal": {
+          "id": "zai-org/glm-5.2",
+          "name": "GLM 5.2 Normal",
+          "options": {
+            "reasoningEffort": "medium"
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 32768
+          }
+        },
+        "glm-5.2-deep": {
+          "id": "zai-org/glm-5.2",
+          "name": "GLM 5.2 Deep",
+          "options": {
+            "reasoningEffort": "high"
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 32768
+          }
+        }
+      }
+    }
+  }
+}
