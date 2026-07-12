@@ -77,6 +77,44 @@ requires `hash` as a positional argument (discovered during TDD).
 **Next:** merge `claude/mirror-r1-controlled-lab` to main, then proceed to M0
 Task 0.1 (watcher-session concurrency) per the phase plan. A future R2 could
 re-test per-kind fidelity with valid containers if M2 renderer policy needs it.
+## 2026-07-11 — Configure project-local GLM provider (Codex)
+**Did:** added `opencode.json` with the OpenAI-compatible ai& endpoint, the
+`zai-org/glm-5.2` model, an environment-backed API key, a 600s request timeout,
+a 120s streamed-chunk timeout; updated `docs/MAP.md`. Verified the
+Keychain-backed shell environment from the `tgcli` directory and confirmed
+`GET /v1/models` returns GLM 5.2.
+**Decided:** keep the provider configuration project-local while keeping the
+credential exclusively environment-backed; no API key is stored in the repo.
+**Learned:** direct streamed GLM requests returned HTTP 200 in about 5 seconds.
+Do not constrain model reasoning to diagnose transport issues: that changes
+answer quality rather than repairing the connection.
+**Next:** launch `opencode` from this directory and select `GLM 5.2 Fast`,
+`GLM 5.2 Normal`, or `GLM 5.2 Deep` in `/models` as appropriate.
+
+## 2026-07-11 — Merged capability design; wrote R1 controlled-lab plan (Claude Fable 5)
+**Did:** fast-forwarded `main` to `b26ac94` (13 commits: R0 probe + gotd-free
+capability consolidation), verified `pytest -q` green on the merge result
+(214 passed, 8 skipped), pushed, and deleted `codex/mirror-capability-design`.
+Wrote `docs/superpowers/plans/2026-07-11-mirror-r1-controlled-lab.md`: a
+7-task TDD plan for a disposable owned lab (4 marked channels via a local
+manifest), seeding every self-authorable kind R0 could not observe
+(`animation` plus owned-role `audio`/`document`/`sticker`/`voice`, and
+`todo`/`contact`/`geo`/`geo_live`/`venue`/`dice`/`poll`), byte-proof via the
+frozen R0 probe, and per-kind fidelity checks for both ADR-0013 §10
+transports, including the expected `CHAT_FORWARDS_RESTRICTED` rejection.
+**Decided:** kinds requiring bots/Premium/monetization (`game`, `giveaway*`,
+`invoice`, `paid_media_*`, `story`) are explicit lab exclusions with reasons,
+not silent gaps. Reupload fidelity is byte-exact for document-backed kinds
+and re-encode-tolerant only for `photo`. Every lab mutation is gated by
+`enforce_mutation_allowed`, audited, and restricted to manifest-listed peers.
+**Learned:** M1 remains blocked by two independent evidence gates: M0 Task 0.1
+(watcher-session concurrency) and a successful R1 acceptance run. R1 can run
+independently of Task 0.1, but its result must not be presumed green.
+**Next:** execute R1, record its actual verdict without upgrading red or
+inconclusive evidence to green, then proceed only through the resulting
+decision-gate branch.
+
+## 2026-07-11 — R0 protected-content probe evidence (Claude Opus 4.8)
 **Did:** ran the read-only mirror capability probe (`scripts/mirror_probe.py`,
 commit 7de7c90) live against two real protected broadcast channels — one where
 the account is owner, one where it is an ordinary subscriber. Runtime: Telegram

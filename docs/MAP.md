@@ -11,6 +11,7 @@ tgcli/
 ├── CLAUDE.md                  [done]    Claude adapter → AGENTS.md
 ├── SKILL.md                   [done]    agent command routing and safety contract (phase 6)
 ├── pyproject.toml             [done]    uv-managed; deps: telethon; dev: pytest
+├── opencode.json              [done]    project-local ai& GLM 5.2 provider config
 ├── docs/
 │   ├── MAP.md                 [done]    this file
 │   ├── PLAN.md                [done]    master plan, phases 0–7 (all complete)
