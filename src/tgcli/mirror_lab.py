@@ -138,12 +138,12 @@ class ByteFixture:
 BYTE_FIXTURES: dict[str, ByteFixture] = {
     "photo": ByteFixture(
         kind="photo",
-        filename="lab-photo.png",
+        filename="lab-photo.jpg",
         payload=lambda: build_png((0, 0, 255)),
         attributes=lambda: [],
         force_document=False,
         reupload_fidelity="reencoded",
-        mime_type="image/png",
+        mime_type="image/jpeg",
     ),
     "document": ByteFixture(
         kind="document",
@@ -212,16 +212,15 @@ BYTE_FIXTURES: dict[str, ByteFixture] = {
     ),
     "animation": ByteFixture(
         kind="animation",
-        filename="lab-animation.mp4",
+        filename="lab-animation.gif",
         payload=lambda: deterministic_bytes("animation", 20_480),
         attributes=lambda: [
-            types.DocumentAttributeFilename("lab-animation.mp4"),
+            types.DocumentAttributeFilename("lab-animation.gif"),
             types.DocumentAttributeAnimated(),
-            types.DocumentAttributeVideo(duration=1, w=32, h=32),
         ],
         force_document=False,
         reupload_fidelity="exact",
-        mime_type="video/mp4",
+        mime_type="image/gif",
     ),
     "sticker": ByteFixture(
         kind="sticker",
@@ -270,7 +269,7 @@ def preflight_fixture_tools() -> dict[str, str]:
         capture_output=True,
         text=True,
     ).stdout
-    required = ("libmp3lame", "libopus", "libx264", "png")
+    required = ("libmp3lame", "libopus", "libx264", "png", "mjpeg", "gif")
     unavailable = [encoder for encoder in required if encoder not in encoders]
     if unavailable:
         raise ValueError(
@@ -291,9 +290,6 @@ def materialize_fixture(kind: str, directory: Path) -> Path:
     fixture = BYTE_FIXTURES[kind]
     directory.mkdir(parents=True, exist_ok=True)
     output = directory / fixture.filename
-    if kind == "photo":
-        output.write_bytes(build_png((0, 0, 255)))
-        return output
     if kind == "document":
         output.write_bytes(deterministic_bytes("document", 16_384))
         return output
@@ -302,7 +298,14 @@ def materialize_fixture(kind: str, directory: Path) -> Path:
     common = [
         tools["ffmpeg"], "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
     ]
-    if kind == "audio":
+    if kind == "photo":
+        command = common + [
+            "-f", "lavfi", "-i", "color=c=0x3366cc:s=512x512:d=1",
+            "-frames:v", "1", "-map_metadata", "-1", "-fflags", "+bitexact",
+            "-flags:v", "+bitexact", "-threads", "1", "-c:v", "mjpeg",
+            "-q:v", "2", str(output),
+        ]
+    elif kind == "audio":
         command = common + [
             "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
             "-map_metadata", "-1", "-fflags", "+bitexact", "-flags:a", "+bitexact",
@@ -317,11 +320,10 @@ def materialize_fixture(kind: str, directory: Path) -> Path:
             "-application", "voip", "-frame_duration", "20", "-serial_offset", "137",
             str(output),
         ]
-    elif kind in {"video", "video_note", "animation"}:
+    elif kind in {"video", "video_note"}:
         settings = {
             "video": ("640x360", "30", "2", "0"),
             "video_note": ("240x240", "24", "2", "23"),
-            "animation": ("32x32", "15", "1", "23"),
         }
         size, rate, duration, crf = settings[kind]
         command = common + [
@@ -331,6 +333,12 @@ def materialize_fixture(kind: str, directory: Path) -> Path:
             "-pix_fmt", "yuv420p", "-threads", "1", "-x264-params",
             "threads=1:lookahead_threads=1:sync-lookahead=0:force-cfr=1",
             "-movflags", "+faststart", str(output),
+        ]
+    elif kind == "animation":
+        command = common + [
+            "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=15:duration=1",
+            "-map_metadata", "-1", "-fflags", "+bitexact", "-flags:v", "+bitexact",
+            "-an", "-c:v", "gif", "-threads", "1", str(output),
         ]
     elif kind == "sticker":
         png = directory / "lab-sticker.png"
@@ -664,7 +672,11 @@ async def _seed_kind(tg, entity, kind: str, fixture_dir: Path) -> list[int]:
         message = await tg.send_message(entity, "lab text fixture")
         return [message.id]
     if kind == "album":
-        files = [build_png(color) for color in ALBUM_COLORS]
+        files = []
+        for index, color in enumerate(ALBUM_COLORS):
+            path = fixture_dir / f"lab-album-{index}.png"
+            path.write_bytes(build_png(color))
+            files.append(path)
         messages = await tg.send_file(entity, files)
         return [message.id for message in messages]
     if kind in BYTE_FIXTURES:

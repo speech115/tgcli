@@ -155,11 +155,12 @@ def test_deterministic_bytes_are_stable_and_sized():
 )
 def test_materialized_media_fixtures_are_valid_and_deterministic(tmp_path):
     expected = {
+        "photo": ("jpeg_pipe", "mjpeg"),
         "audio": ("mp3", "mp3"),
         "voice": ("ogg", "opus"),
         "video": ("mov,mp4,m4a,3gp,3g2,mj2", "h264"),
         "video_note": ("mov,mp4,m4a,3gp,3g2,mj2", "h264"),
-        "animation": ("mov,mp4,m4a,3gp,3g2,mj2", "h264"),
+        "animation": ("gif", "gif"),
         "sticker": ("webp_pipe", "webp"),
     }
     first = tmp_path / "first"
@@ -480,6 +481,15 @@ async def test_byte_seed_uses_named_path_and_explicit_mime_type(tmp_path):
     assert isinstance(uploaded, Path)
     assert uploaded.name == "lab-audio.mp3"
     assert kwargs["mime_type"] == "audio/mpeg"
+
+
+@pytest.mark.asyncio
+async def test_album_seed_uses_named_png_paths(tmp_path):
+    tg = FakeTG()
+    await lab_module._seed_kind(tg, NS(id=1), "album", tmp_path)
+    _, uploaded, _ = tg.sent_files[-1]
+    assert all(isinstance(path, Path) for path in uploaded)
+    assert [path.suffix for path in uploaded] == [".png", ".png"]
 
 
 def quiet(_message):
