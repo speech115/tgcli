@@ -4,11 +4,12 @@ import json
 import shutil
 import subprocess
 import tempfile
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
 from tgcli.errors import PolicyError
-from tgcli.mirror_probe import write_report
+from tgcli.mirror_probe import probe_message, write_report
 
 LAB_MARKER = "tgcli-r1-lab"
 MANIFEST_VERSION = 1
@@ -27,6 +28,7 @@ def new_manifest(account_user_id: int) -> dict:
         "created_at": datetime.now(UTC).isoformat(),
         "channels": {},
         "seeded": {},
+        "blocked": {},
     }
 
 
@@ -52,6 +54,7 @@ def load_manifest(path: Path) -> dict:
         if peer_id in seen_peer_ids:
             raise ValueError(f"duplicate lab peer id: {peer_id}")
         seen_peer_ids.add(peer_id)
+    data.setdefault("blocked", {})
     return data
 
 
@@ -80,6 +83,10 @@ def record_seed(manifest: dict, role: str, kind: str, message_ids: list[int]) ->
     manifest["seeded"].setdefault(role, {})[kind] = list(message_ids)
 
 
+def record_blocked(manifest: dict, role: str, kind: str, error: str) -> None:
+    manifest.setdefault("blocked", {}).setdefault(role, {})[kind] = error
+
+
 def seeded_ids(manifest: dict, role: str) -> dict[str, list[int]]:
     return dict(manifest["seeded"].get(role, {}))
 
@@ -89,7 +96,6 @@ def seeded_ids(manifest: dict, role: str) -> dict[str, list[int]]:
 import hashlib
 import struct
 import zlib
-from collections import Counter
 from dataclasses import dataclass
 from typing import Callable
 
@@ -288,7 +294,12 @@ def _run_fixture_command(command: list[str]) -> None:
         raise ValueError(f"lab fixture generation failed: {detail}") from exc
 
 
-def materialize_fixture(kind: str, directory: Path) -> Path:
+def materialize_fixture(
+    kind: str,
+    directory: Path,
+    *,
+    color: tuple[int, int, int] = (0, 0, 255),
+) -> Path:
     fixture = BYTE_FIXTURES[kind]
     directory.mkdir(parents=True, exist_ok=True)
     output = directory / fixture.filename
@@ -301,8 +312,9 @@ def materialize_fixture(kind: str, directory: Path) -> Path:
         tools["ffmpeg"], "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
     ]
     if kind == "photo":
+        hex_color = "".join(f"{component:02x}" for component in color)
         command = common + [
-            "-f", "lavfi", "-i", "color=c=0x3366cc:s=512x512:d=1",
+            "-f", "lavfi", "-i", f"color=c=0x{hex_color}:s=512x512:d=1",
             "-frames:v", "1", "-map_metadata", "-1", "-fflags", "+bitexact",
             "-flags:v", "+bitexact", "-threads", "1", "-c:v", "mjpeg",
             "-q:v", "2", str(output),
@@ -429,7 +441,10 @@ from tgcli.mirror_probe import NON_BYTE_KINDS
 
 def lab_verdict(report: dict, manifest: dict, role: str) -> dict:
     seeded = manifest["seeded"].get(role, {})
-    expected = {kind for kind in seeded if kind != "album"}
+    planned = set(planned_kinds())
+    blocked = dict(manifest.get("blocked", {}).get(role, {}))
+    pending = sorted(planned - set(seeded) - set(blocked))
+    expected = planned - {"album"} - set(blocked)
     observed = {row["kind"]: row for row in report["capabilities"]}
     missing = sorted(expected - set(observed))
     failing = sorted(
@@ -444,11 +459,13 @@ def lab_verdict(report: dict, manifest: dict, role: str) -> dict:
             )
         )
     )
-    green = not missing and not failing
+    green = not missing and not failing and not pending
     return {
         "verdict": "green" if green else "red",
         "missing": missing,
         "failing": failing,
+        "pending": pending,
+        "blocked": blocked,
         "excluded": dict(EXCLUDED_KINDS),
         "covered_by_r0": sorted(COVERED_BY_R0),
     }
@@ -463,13 +480,30 @@ def _kind_shas(report: dict) -> dict[str, list[str]]:
     }
 
 
-async def album_group_sizes(tg, entity, *, limit: int) -> list[int]:
-    groups = Counter()
+async def album_groups(tg, entity, *, limit: int) -> list[dict]:
+    groups: dict[int, list] = {}
     async for message in tg.iter_messages(entity, limit=limit):
         grouped_id = getattr(message, "grouped_id", None)
         if grouped_id is not None:
-            groups[grouped_id] += 1
-    return sorted(size for size in groups.values() if size > 1)
+            groups.setdefault(grouped_id, []).append(message)
+    result = []
+    ordered_groups = sorted(
+        (messages for messages in groups.values() if len(messages) > 1),
+        key=lambda messages: min(message.id for message in messages),
+    )
+    for messages in ordered_groups:
+        samples = [
+            await probe_message(tg, message)
+            for message in sorted(messages, key=lambda message: message.id)
+        ]
+        result.append(
+            {
+                "count": len(samples),
+                "sha256": [sample["sha256"] for sample in samples],
+                "telethon_bytes": [sample["telethon_bytes"] for sample in samples],
+            }
+        )
+    return result
 
 
 def compare_transport(
@@ -487,12 +521,35 @@ def compare_transport(
     dest_shas = _kind_shas(dest_report)
 
     rows = []
-    kinds = expected_kinds or (set(source) & set(BYTE_FIXTURES))
+    kinds = (
+        expected_kinds
+        if expected_kinds is not None
+        else (set(source) & set(BYTE_FIXTURES))
+    )
     for kind in sorted(kinds):
         if kind == "album":
-            source_groups = source_report.get("album_group_sizes", [])
-            dest_groups = dest_report.get("album_group_sizes", [])
-            matched = bool(source_groups) and source_groups == dest_groups
+            source_groups = source_report.get("album_groups", [])
+            dest_groups = dest_report.get("album_groups", [])
+
+            def valid(groups):
+                return bool(groups) and all(
+                    group["count"] == len(group["sha256"])
+                    == len(group["telethon_bytes"])
+                    and all(state == "pass" for state in group["telethon_bytes"])
+                    and None not in group["sha256"]
+                    and len(set(group["sha256"])) == group["count"]
+                    for group in groups
+                )
+
+            if transport == "native":
+                matched = valid(source_groups) and source_groups == dest_groups
+            else:
+                matched = (
+                    valid(source_groups)
+                    and valid(dest_groups)
+                    and [group["count"] for group in source_groups]
+                    == [group["count"] for group in dest_groups]
+                )
             rows.append(
                 {
                     "kind": kind,
@@ -522,11 +579,18 @@ def compare_transport(
                 )
             )
         elif expectation == "exact":
-            matched = bool(source_shas[kind]) and source_shas[kind] == dest_shas.get(kind)
+            matched = (
+                source[kind].get("telethon_bytes") == "pass"
+                and dest[kind].get("telethon_bytes") == "pass"
+                and bool(source_shas[kind])
+                and source_shas[kind] == dest_shas.get(kind)
+            )
         else:
-            matched = dest[kind]["telethon_bytes"] == "pass" and len(
-                dest_shas.get(kind, [])
-            ) == len(source_shas[kind])
+            matched = (
+                source[kind].get("telethon_bytes") == "pass"
+                and dest[kind].get("telethon_bytes") == "pass"
+                and len(dest_shas.get(kind, [])) == len(source_shas[kind])
+            )
         rows.append(
             {
                 "kind": kind,
@@ -562,7 +626,8 @@ async def _audited_mutation(action, account_alias, details, mutation):
     )
     try:
         result = await mutation()
-    except Exception as exc:
+    except BaseException as exc:
+        status = "ambiguous" if isinstance(exc, asyncio.CancelledError) else "failed"
         append_audit(
             action,
             account_alias,
@@ -570,7 +635,7 @@ async def _audited_mutation(action, account_alias, details, mutation):
                 **details,
                 "operation_id": operation_id,
                 "phase": "result",
-                "status": "failed",
+                "status": status,
                 "error": type(exc).__name__,
             },
         )
@@ -686,8 +751,10 @@ async def _seed_kind(tg, entity, kind: str, fixture_dir: Path) -> list[int]:
         return [message.id]
     if kind == "album":
         files = [
-            materialize_fixture("photo", fixture_dir / f"album-{index}")
-            for index, _color in enumerate(ALBUM_COLORS)
+            materialize_fixture(
+                "photo", fixture_dir / f"album-{index}", color=color
+            )
+            for index, color in enumerate(ALBUM_COLORS)
         ]
         messages = await tg.send_file(entity, files)
         return [message.id for message in messages]
@@ -726,8 +793,12 @@ async def seed_sources(tg, manifest, manifest_path, account_alias, note) -> dict
                         {"role": role, "kind": kind},
                         lambda: _seed_kind(tg, entity, kind, fixture_path),
                     )
+                except FloodWaitError:
+                    raise
                 except Exception as exc:
                     results[role][kind] = f"blocked:{type(exc).__name__}"
+                    record_blocked(manifest, role, kind, type(exc).__name__)
+                    save_manifest(manifest_path, manifest)
                     note(f"{role}: {kind} blocked by {type(exc).__name__}")
                     continue
                 record_seed(manifest, role, kind, ids)
@@ -742,7 +813,12 @@ async def seed_sources(tg, manifest, manifest_path, account_alias, note) -> dict
 import shutil
 from pathlib import Path
 
-from telethon.errors import ChatForwardsRestrictedError
+from telethon.errors import (
+    ChannelInvalidError,
+    ChannelPrivateError,
+    ChatForwardsRestrictedError,
+    FloodWaitError,
+)
 
 
 async def copy_native(tg, manifest, account_alias, note) -> dict:
@@ -791,6 +867,8 @@ async def copy_native(tg, manifest, account_alias, note) -> dict:
                     )
                 ),
             )
+        except FloodWaitError:
+            raise
         except Exception as exc:
             results[kind] = f"blocked:{type(exc).__name__}"
             note(f"native {kind}: blocked by {type(exc).__name__}")
@@ -846,6 +924,8 @@ async def copy_reupload(tg, manifest, workdir: Path, account_alias, note) -> dic
                     {"kind": kind, "ids": len(ids)},
                     reupload_one,
                 )
+            except FloodWaitError:
+                raise
             except Exception as exc:
                 results[kind] = f"blocked:{type(exc).__name__}"
                 note(f"reupload {kind}: blocked by {type(exc).__name__}")
@@ -862,13 +942,38 @@ async def copy_reupload(tg, manifest, workdir: Path, account_alias, note) -> dic
 async def teardown_lab(tg, manifest, manifest_path, account_alias, note) -> dict:
     removed = []
     for role, channel in list(manifest["channels"].items()):
-        entity = await _lab_entity(tg, manifest, role)
-        await _audited_mutation(
-            "mirror-lab-teardown",
-            account_alias,
-            {"role": role},
-            lambda: tg(functions.channels.DeleteChannelRequest(channel=entity)),
-        )
+        deleting = channel.get("delete_state") == "deleting"
+        try:
+            entity = await _lab_entity(tg, manifest, role)
+        except (ChannelInvalidError, ChannelPrivateError):
+            if not deleting:
+                raise
+            entity = None
+        if not deleting:
+            channel["delete_state"] = "deleting"
+            save_manifest(manifest_path, manifest)
+        if entity is not None:
+            try:
+                await _audited_mutation(
+                    "mirror-lab-teardown",
+                    account_alias,
+                    {"role": role},
+                    lambda: tg(
+                        functions.channels.DeleteChannelRequest(channel=entity)
+                    ),
+                )
+            except (ChannelInvalidError, ChannelPrivateError):
+                pass
+        if entity is None:
+            async def reconciled():
+                return None
+
+            await _audited_mutation(
+                "mirror-lab-teardown-reconcile",
+                account_alias,
+                {"role": role},
+                reconciled,
+            )
         removed.append(role)
         del manifest["channels"][role]
         save_manifest(manifest_path, manifest)

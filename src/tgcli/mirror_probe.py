@@ -183,7 +183,7 @@ async def probe_chat(
             rows.append(await probe_message(tg, message))
 
     return {
-        "probe_version": 1,
+        "probe_version": 2,
         "runtime": runtime_metadata(),
         "source": {
             "fingerprint": _source_fingerprint(account_user_id, entity.id),

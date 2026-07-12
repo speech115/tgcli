@@ -26,7 +26,9 @@ audit records. Verdicts require the manifest's complete expected matrix and
 album grouping. Valid named MP3/OGG/MP4/WebP fixtures are generated only in a
 temporary directory under ADR-0014; `todo` is explicitly unsupported under
 ADR-0013 after the live `MediaInvalidError` evidence. Restored the R0 DEVLOG
-heading and synchronized MAP, ADRs, and the committed R1 plan.
+heading and synchronized MAP, ADRs, and the committed R1 plan. Corrected the
+server-attribute-order classifier and bumped probe reports to schema 2; schema-1
+R0 hashes remain byte-access evidence but subtype labels are not mixed with v2.
 **Decided:** a red or collapsed lab result never upgrades to transport fidelity
 evidence. R1 may merge only after a fresh controlled run returns complete green
 verdicts for the supported matrix.

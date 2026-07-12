@@ -104,7 +104,7 @@ async def run(args) -> dict:
                 tg, str(peer_id), me.id, role="lab", limit=args.limit
             )
             entity = await tg.get_entity(peer_id)
-            report["album_group_sizes"] = await mirror_lab.album_group_sizes(
+            report["album_groups"] = await mirror_lab.album_groups(
                 tg, entity, limit=args.limit
             )
             return report

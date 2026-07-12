@@ -13,12 +13,12 @@ disposable owned lab channels, before any M1 production code.
 
 **Architecture:** A new pure library module (`mirror_lab`) owns the lab
 manifest, the frozen fixture matrix, and verdict/fidelity comparison; it reuses
-R0's `mirror_probe` classifier and report writer unchanged. A standalone script
+R0's `mirror_probe` classifier and report writer. A standalone script
 drives explicit phases (`create`, `seed`, `probe`, `copy-native`,
 `copy-reupload`, `verdict`, `teardown`); every mutation targets only channels
 recorded in the local lab manifest, checks kill switches, and appends an audit
-record. R0's `src/tgcli/mirror_probe.py` is frozen evidence and is not
-modified.
+record. The initial plan treated R0's classifier as frozen; the 2026-07-12
+repair corrected its attribute-order bug and bumped `probe_version` to 2.
 
 **Tech Stack:** Python 3.12, pinned Telethon 1.44 (layer 227), stdlib
 `argparse`, `asyncio`, `dataclasses`, `hashlib`, `json`, `struct`, `zlib`,
@@ -37,7 +37,8 @@ pytest/pytest-asyncio.
 - No mirror ledger, watcher, destination-publishing production code, and no
   `tg mirror` CLI surface: the script stays at `scripts/mirror_lab.py`
   (same research status as `scripts/mirror_probe.py`).
-- `src/tgcli/mirror_probe.py` and its tests are not modified.
+- Version-1 R0 reports remain byte-access evidence. Any post-repair report uses
+  probe schema 2; subtype labels are not compared across schema versions.
 - Reports and DEVLOG stay privacy-safe exactly as in R0: no usernames, phone
   numbers, message text, or raw TL dumps. Lab peer ids live only in the local
   manifest (never committed; `TGCLI_STATE_DIR` is outside the repo).
@@ -1859,7 +1860,7 @@ Stop after Task 7. Classify the next step from evidence:
 - Excluded kinds are documented with reasons; nothing was silently skipped.
 - `CHAT_FORWARDS_RESTRICTED` on the protected source is recorded evidence.
 - No media bytes, peer ids, or message text entered the repo or DEVLOG.
-- `pytest -q` and the coverage gate stay green; `mirror_probe.py` is
-  unchanged.
+- `pytest -q` and the coverage gate stay green; post-repair probe reports use
+  `probe_version: 2`.
 - The lab is torn down (or explicitly kept by user decision) and the manifest
   records the final state.

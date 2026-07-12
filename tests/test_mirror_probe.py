@@ -180,6 +180,7 @@ async def test_probe_chat_aggregates_samples_per_kind_and_redacts_identity():
         samples_per_kind=3,
     )
     encoded = json.dumps(report)
+    assert report["probe_version"] == 2
     assert report["source"]["protected"] is True
     assert report["source"]["role"] == "owned"
     assert len(report["source"]["fingerprint"]) == 16

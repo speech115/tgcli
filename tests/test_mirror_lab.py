@@ -2,6 +2,7 @@ import json
 import hashlib
 import os
 import subprocess
+import asyncio
 
 import pytest
 
@@ -12,11 +13,12 @@ REAL_MATERIALIZE_FIXTURE = getattr(lab_module, "materialize_fixture", None)
 
 @pytest.fixture(autouse=True)
 def lightweight_fixture_materializer(monkeypatch):
-    def materialize(kind, directory):
+    def materialize(kind, directory, *, color=(0, 0, 255)):
         fixture = lab_module.BYTE_FIXTURES[kind]
         path = Path(directory) / fixture.filename
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(fixture.payload())
+        payload = build_png(color) if kind == "photo" else fixture.payload()
+        path.write_bytes(payload)
         return path
 
     monkeypatch.setattr(lab_module, "materialize_fixture", materialize)
@@ -119,6 +121,7 @@ def test_record_and_read_seeds():
 # --- Task 2: fixture matrix and payload generators ---
 
 from telethon.tl import types  # noqa: E402
+from telethon.errors import ChannelPrivateError, FloodWaitError  # noqa: E402
 
 from tgcli.mirror_probe import NON_BYTE_KINDS, classify_message  # noqa: E402
 from tgcli.mirror_lab import (  # noqa: E402
@@ -191,6 +194,12 @@ def test_materialized_media_fixtures_are_valid_and_deterministic(tmp_path):
                 "aac",
             }
     assert (first / BYTE_FIXTURES["video"].filename).stat().st_size > 512 * 1024
+
+    red = REAL_MATERIALIZE_FIXTURE("photo", first / "red", color=(255, 0, 0))
+    green = REAL_MATERIALIZE_FIXTURE("photo", first / "green", color=(0, 255, 0))
+    assert hashlib.sha256(red.read_bytes()).digest() != hashlib.sha256(
+        green.read_bytes()
+    ).digest()
 
 
 def test_byte_fixture_matrix_covers_every_byte_kind():
@@ -287,19 +296,26 @@ def report(*capabilities):
 
 def seeded_manifest():
     manifest = new_manifest(7)
-    record_seed(manifest, "protected_source", "photo", [1])
-    record_seed(manifest, "protected_source", "poll", [2])
-    record_seed(manifest, "protected_source", "album", [3, 4])
-    return manifest
+    rows = []
+    next_id = 1
+    for kind in planned_kinds():
+        ids = [next_id, next_id + 1] if kind == "album" else [next_id]
+        next_id += len(ids)
+        record_seed(manifest, "protected_source", kind, ids)
+        if kind == "album":
+            continue
+        if kind in BYTE_FIXTURES:
+            rows.append(capability(kind, shas=(f"{kind}-sha",)))
+        else:
+            rows.append(capability(kind, bytes_state="not_applicable"))
+    return manifest, rows
 
 
 def test_lab_verdict_green_when_all_seeded_kinds_pass():
+    manifest, rows = seeded_manifest()
     result = lab_verdict(
-        report(
-            capability("photo", shas=("a",)),
-            capability("poll", bytes_state="not_applicable"),
-        ),
-        seeded_manifest(),
+        report(*rows),
+        manifest,
         "protected_source",
     )
     assert result["verdict"] == "green"
@@ -308,22 +324,31 @@ def test_lab_verdict_green_when_all_seeded_kinds_pass():
 
 
 def test_lab_verdict_red_on_missing_or_failing_kind():
+    manifest, rows = seeded_manifest()
     missing = lab_verdict(
-        report(capability("photo", shas=("a",))),
-        seeded_manifest(),
+        report(*(row for row in rows if row["kind"] != "poll")),
+        manifest,
         "protected_source",
     )
     assert missing["verdict"] == "red" and missing["missing"] == ["poll"]
 
     failing = lab_verdict(
-        report(
-            capability("photo", shas=(), bytes_state="fail"),
-            capability("poll", bytes_state="not_applicable"),
-        ),
-        seeded_manifest(),
+        report(*(
+            capability("photo", shas=(), bytes_state="fail")
+            if row["kind"] == "photo" else row
+            for row in rows
+        )),
+        manifest,
         "protected_source",
     )
     assert failing["verdict"] == "red" and failing["failing"] == ["photo"]
+
+
+def test_lab_verdict_rejects_empty_or_partial_seed_matrix():
+    empty = new_manifest(7)
+    result = lab_verdict(report(), empty, "protected_source")
+    assert result["verdict"] == "red"
+    assert result["pending"]
 
 
 def test_compare_transport_native_requires_exact_hashes():
@@ -339,6 +364,12 @@ def test_compare_transport_native_requires_exact_hashes():
     assert bad["verdict"] == "red"
     video_row = next(r for r in bad["rows"] if r["kind"] == "video")
     assert video_row["result"] == "fail" and video_row["expectation"] == "exact"
+
+    inconclusive = report(
+        capability("video", shas=("v1",), bytes_state="inconclusive")
+    )
+    result = compare_transport(inconclusive, inconclusive, transport="native")
+    assert result["verdict"] == "red"
 
 
 def test_compare_transport_reupload_allows_photo_reencode():
@@ -371,18 +402,28 @@ def test_compare_transport_cannot_greenlight_incomplete_expected_matrix():
         "video",
     }
 
+    observed = report(capability("document", shas=("same",)))
+    result = compare_transport(
+        observed, observed, transport="native", expected_kinds=set()
+    )
+    assert result["verdict"] == "red"
+
 
 def test_compare_transport_checks_non_byte_kinds_and_album_grouping():
     source = report(
         capability("text", bytes_state="not_applicable"),
         capability("poll", bytes_state="not_applicable"),
     )
-    source["album_group_sizes"] = [2]
+    source["album_groups"] = [
+        {"count": 2, "sha256": ["red", "green"], "telethon_bytes": ["pass", "pass"]}
+    ]
     dest = report(
         capability("text", bytes_state="not_applicable"),
         capability("poll", bytes_state="not_applicable"),
     )
-    dest["album_group_sizes"] = [2]
+    dest["album_groups"] = [
+        {"count": 2, "sha256": ["red", "green"], "telethon_bytes": ["pass", "pass"]}
+    ]
 
     result = compare_transport(
         source,
@@ -392,7 +433,9 @@ def test_compare_transport_checks_non_byte_kinds_and_album_grouping():
     )
     assert result["verdict"] == "green"
 
-    dest["album_group_sizes"] = []
+    dest["album_groups"] = [
+        {"count": 2, "sha256": ["red", "red"], "telethon_bytes": ["pass", "pass"]}
+    ]
     result = compare_transport(
         source,
         dest,
@@ -404,13 +447,28 @@ def test_compare_transport_checks_non_byte_kinds_and_album_grouping():
 
 
 @pytest.mark.asyncio
-async def test_album_group_sizes_reports_only_real_groups():
+async def test_album_groups_report_ordered_constituent_hashes():
     class AlbumTG:
         async def iter_messages(self, entity, limit):
-            for grouped_id in (10, 10, 20, 20, 20, None):
-                yield NS(grouped_id=grouped_id)
+            for message_id, grouped_id in ((3, 10), (2, 10), (1, None)):
+                yield NS(
+                    id=message_id,
+                    grouped_id=grouped_id,
+                    media=types.MessageMediaPhoto(
+                        photo=NS(payload=b"red" if message_id == 2 else b"green")
+                    ),
+                    action=None,
+                    message="",
+                )
 
-    assert await lab_module.album_group_sizes(AlbumTG(), NS(id=1), limit=20) == [2, 3]
+        async def iter_download(self, media, request_size):
+            yield media.photo.payload
+
+    tg = AlbumTG()
+    groups = await lab_module.album_groups(tg, NS(id=1), limit=20)
+    assert groups[0]["count"] == 2
+    assert len(groups[0]["sha256"]) == 2
+    assert groups[0]["sha256"][0] != groups[0]["sha256"][1]
 
 
 # --- Task 4: provisioning and seeding engines ---
@@ -624,6 +682,24 @@ async def test_seed_sources_records_server_rejection_explicitly(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_seed_stops_immediately_on_flood_wait(tmp_path):
+    class FloodTG(FakeTG):
+        async def send_message(self, entity, text):
+            raise FloodWaitError(request=None, capture=42)
+
+    tg = FloodTG()
+    manifest = new_manifest(7)
+    path = tmp_path / "lab.json"
+    await create_lab_channels(tg, manifest, path, "labacct", quiet)
+
+    with pytest.raises(FloodWaitError):
+        await seed_sources(tg, manifest, path, "labacct", quiet)
+
+    assert seeded_ids(manifest, "protected_source") == {}
+    assert seeded_ids(manifest, "open_source") == {}
+
+
+@pytest.mark.asyncio
 async def test_seed_refuses_manifest_peer_without_live_lab_ownership(tmp_path):
     class ForeignTG(FakeTG):
         async def get_entity(self, ref):
@@ -668,6 +744,21 @@ async def test_create_writes_correlated_attempt_and_result_audit(tmp_path):
     for pair in by_operation.values():
         assert [record["phase"] for record in pair] == ["attempt", "result"]
         assert pair[-1]["status"] == "confirmed"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_mutation_records_ambiguous_audit_result():
+    from tgcli.safety import audit_path
+
+    async def cancel():
+        raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        await lab_module._audited_mutation("lab-test", "labacct", {}, cancel)
+
+    records = [json.loads(line) for line in audit_path().read_text().splitlines()]
+    assert [record["phase"] for record in records] == ["attempt", "result"]
+    assert records[-1]["status"] == "ambiguous"
 
 
 # --- Task 5: copy transports ---
@@ -875,6 +966,43 @@ async def test_teardown_persists_progress_before_later_delete_failure(tmp_path):
 
     persisted = load_manifest(path)
     assert set(persisted["channels"]) == {"dest_native"}
+
+
+@pytest.mark.asyncio
+async def test_teardown_reconciles_cancel_after_server_accepted_delete(tmp_path):
+    class AcceptThenCancelTG(TeardownTG):
+        async def __call__(self, request):
+            if isinstance(request, functions.channels.DeleteChannelRequest):
+                self.deleted.append(request.channel)
+                raise asyncio.CancelledError()
+            return await super().__call__(request)
+
+    manifest = new_manifest(7)
+    record_channel(manifest, "open_source", 100, f"{LAB_MARKER} open_source x")
+    record_channel(manifest, "dest_native", 200, f"{LAB_MARKER} dest_native x")
+    path = tmp_path / "lab.json"
+    save_manifest(path, manifest)
+    first = AcceptThenCancelTG({
+        100: f"{LAB_MARKER} open_source x",
+        200: f"{LAB_MARKER} dest_native x",
+    })
+
+    with pytest.raises(asyncio.CancelledError):
+        await teardown_lab(first, manifest, path, "labacct", quiet)
+    assert load_manifest(path)["channels"]["open_source"]["delete_state"] == "deleting"
+
+    class RecoverTG(TeardownTG):
+        async def get_entity(self, ref):
+            peer_id = getattr(ref, "channel_id", ref)
+            if peer_id == 100:
+                raise ChannelPrivateError(request=None)
+            return await super().get_entity(ref)
+
+    persisted = load_manifest(path)
+    second = RecoverTG({200: f"{LAB_MARKER} dest_native x"})
+    result = await teardown_lab(second, persisted, path, "labacct", quiet)
+    assert sorted(result["removed"]) == ["dest_native", "open_source"]
+    assert load_manifest(path)["channels"] == {}
 
 
 @pytest.mark.asyncio

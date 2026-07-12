@@ -280,6 +280,11 @@ Before per-kind R1 results authorize renderer behavior, the lab must use valid
 minimal containers and obtain green complete-matrix verdicts, or this ADR must
 narrow the supported capability matrix again.
 
+The repaired classifier uses probe schema 2 because Telegram may reorder
+`DocumentAttributeVideo` and `DocumentAttributeAnimated`. Version-1 R0 hashes
+remain valid byte-access evidence, but subtype labels are not compared across
+schema versions.
+
 ## Consequences
 
 - Reliability requires more local protocol than the first draft, but it removes
