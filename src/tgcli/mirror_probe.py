@@ -23,17 +23,16 @@ NON_BYTE_KINDS = {
 
 def _document_kind(document) -> str:
     attributes = list(getattr(document, "attributes", ()) or ())
+    if any(isinstance(attribute, types.DocumentAttributeSticker) for attribute in attributes):
+        return "sticker"
+    if any(isinstance(attribute, types.DocumentAttributeAnimated) for attribute in attributes):
+        return "animation"
     for attribute in attributes:
-        if isinstance(attribute, types.DocumentAttributeSticker):
-            return "sticker"
-        if isinstance(attribute, types.DocumentAttributeAnimated):
-            return "animation"
         if isinstance(attribute, types.DocumentAttributeAudio):
             return "voice" if attribute.voice else "audio"
+    for attribute in attributes:
         if isinstance(attribute, types.DocumentAttributeVideo):
-            if attribute.round_message:
-                return "video_note"
-            return "video"
+            return "video_note" if attribute.round_message else "video"
     return "document"
 
 

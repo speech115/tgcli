@@ -672,11 +672,10 @@ async def _seed_kind(tg, entity, kind: str, fixture_dir: Path) -> list[int]:
         message = await tg.send_message(entity, "lab text fixture")
         return [message.id]
     if kind == "album":
-        files = []
-        for index, color in enumerate(ALBUM_COLORS):
-            path = fixture_dir / f"lab-album-{index}.png"
-            path.write_bytes(build_png(color))
-            files.append(path)
+        files = [
+            materialize_fixture("photo", fixture_dir / f"album-{index}")
+            for index, _color in enumerate(ALBUM_COLORS)
+        ]
         messages = await tg.send_file(entity, files)
         return [message.id for message in messages]
     if kind in BYTE_FIXTURES:

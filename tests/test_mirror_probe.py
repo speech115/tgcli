@@ -51,6 +51,20 @@ def test_classifies_document_subtypes_from_attributes():
     assert classify_message(message(types.MessageMediaDocument(document=round_video))) == "video_note"
 
 
+def test_animation_classification_does_not_depend_on_server_attribute_order():
+    animation = NS(
+        mime_type="video/mp4",
+        attributes=[
+            types.DocumentAttributeVideo(duration=1, w=64, h=64),
+            types.DocumentAttributeAnimated(),
+            types.DocumentAttributeFilename("animation.mp4"),
+        ],
+    )
+    assert classify_message(
+        message(types.MessageMediaDocument(document=animation))
+    ) == "animation"
+
+
 def test_empty_capability_starts_unproven():
     assert empty_capability("video", 42) == {
         "kind": "video",

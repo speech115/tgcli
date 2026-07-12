@@ -484,12 +484,12 @@ async def test_byte_seed_uses_named_path_and_explicit_mime_type(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_album_seed_uses_named_png_paths(tmp_path):
+async def test_album_seed_uses_named_photo_paths(tmp_path):
     tg = FakeTG()
     await lab_module._seed_kind(tg, NS(id=1), "album", tmp_path)
     _, uploaded, _ = tg.sent_files[-1]
     assert all(isinstance(path, Path) for path in uploaded)
-    assert [path.suffix for path in uploaded] == [".png", ".png"]
+    assert [path.suffix for path in uploaded] == [".jpg", ".jpg"]
 
 
 def quiet(_message):
