@@ -18,8 +18,8 @@ tgcli/
 │   ├── CONTRACT.md            [done]    CLI automation contract (stdout/exit codes/JSON)
 │   ├── DEVLOG.md              [done]    session-by-session agent log
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── decisions/             [done]    ADR-0001…0012 accepted; ADR-0013 proposed
-│   └── superpowers/plans/     [done]    completed v1 plans + planned mirror M0-M4
+│   ├── decisions/             [done]    ADR-0001…0012/0014 accepted; ADR-0013 proposed
+│   └── superpowers/plans/     [done]    completed v1 plans, R0/R1 probes, planned mirror M0-M4
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
 │   ├── cli.py                 [done]    argparse tree, global flags, dispatch, exit-code mapping
@@ -30,6 +30,8 @@ tgcli/
 │   ├── session.py             [done]    session paths, per-account file lock, TelegramClient factory
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
+│   ├── mirror_probe.py        [done]    R0 read-only protected-content capability probe
+│   ├── mirror_lab.py          [done]    disposable R1 lab harness; not production mirror code
 │   ├── mirror/                [planned] crash-safe mirror ledger, outbox, renderer, service, watcher (ADR-0013)
 │   └── commands/
 │   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)
@@ -43,11 +45,15 @@ tgcli/
 │   │   ├── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
 │   │   └── mirror.py          [planned] tg mirror facade (ADR-0013; M0-M4 plan)
 ├── tests/                     [done]    unit tests, mocked Telethon client
+│   ├── test_mirror_probe.py   [done]    R0 probe unit coverage
+│   ├── test_mirror_lab.py     [done]    R1 lab engine and fixture coverage
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
     ├── install-link.sh        [done]    symlink tg → PATH (phase 6 cutover)
     ├── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
-    └── bench.py               [done]    live benchmark: every command against a real account
+    ├── bench.py               [done]    live benchmark: every command against a real account
+    ├── mirror_probe.py        [done]    read-only R0 capability runner
+    └── mirror_lab.py          [done]    explicitly mutating disposable R1 lab runner
 ```
 
 ## Module Ownership Rules
@@ -75,3 +81,4 @@ tgcli/
 | [0011](decisions/ADR-0011-audit-write-failure-policy.md) | Audit persistence fails closed before any mutation |
 | [0012](decisions/ADR-0012-invocation-journal-and-verbose-diagnostics.md) | Local invocation journal and opt-in stderr diagnostics |
 | [0013](decisions/ADR-0013-channel-mirror.md) | Proposed crash-safe channel mirror with dedicated foreground watcher session |
+| [0014](decisions/ADR-0014-lab-fixture-generation.md) | Lab-only ffmpeg/cwebp generation of valid disposable R1 media fixtures |

@@ -15,7 +15,28 @@ Template:
 
 ---
 
-## 2026-07-11 — R1 controlled-lab probe evidence (Claude Fable 5)
+## 2026-07-12 — R1 safety and fixture repair before rerun (Codex GPT-5)
+**Did:** independently audited the GLM 5.2 R1 branch, reproduced a false-green
+transport verdict, and repaired the lab before any merge. Manifest loading now
+validates roles, markers, peer ids, and uniqueness; every mutation revalidates
+the exact live title, creator ownership, and broadcast type. Kill switches and
+fixture preflight run before config/session access. Protected-source setup and
+teardown are resumable, and every mutation emits correlated attempt/result
+audit records. Verdicts require the manifest's complete expected matrix and
+album grouping. Valid named MP3/OGG/MP4/WebP fixtures are generated only in a
+temporary directory under ADR-0014; `todo` is explicitly unsupported under
+ADR-0013 after the live `MediaInvalidError` evidence. Restored the R0 DEVLOG
+heading and synchronized MAP, ADRs, and the committed R1 plan.
+**Decided:** a red or collapsed lab result never upgrades to transport fidelity
+evidence. R1 may merge only after a fresh controlled run returns complete green
+verdicts for the supported matrix.
+**Learned:** Telegram classifies actual container bytes, not claimed filenames
+or `DocumentAttribute*`; named paths plus explicit MIME are required for a
+meaningful fixture lab.
+**Next:** commit the repaired harness, rerun all seven live phases against new
+disposable channels, tear them down, and record the fresh evidence.
+
+## 2026-07-11 — Initial R1 controlled-lab run (GLM 5.2 Deep via OpenCode)
 
 **Did:** implemented `src/tgcli/mirror_lab.py` (manifest model, frozen fixture
 matrix, verdict/fidelity comparison, provisioning/seeding/copy/teardown engines)
@@ -23,10 +44,8 @@ and `scripts/mirror_lab.py` (7-phase CLI entrypoint) in worktree
 `claude/mirror-r1-controlled-lab` via 6 TDD commits. 249 passed, 8 skipped;
 coverage gate green (23 namespaces). `mirror_probe.py` unchanged.
 
-Ran the full live acceptance (account `main`, Telethon 1.44, layer 227) against
-4 disposable lab channels (`tgcli-r1-lab` marker prefix). Every mutation was
-gated by `enforce_mutation_allowed`, audited, and targeted only manifest-listed
-peers.
+Ran the initial live acceptance (account `main`, Telethon 1.44, layer 227) against
+4 disposable lab channels (`tgcli-r1-lab` marker prefix).
 
 **Seeding results** (both `protected_source` and `open_source`):
 16 of 17 planned kinds `seeded`; `todo` = `blocked:MediaInvalidError` on both
@@ -48,23 +67,20 @@ as ADR-0013 §10 predicts.
 **Reupload (protected_source → dest_reupload):** all 9 byte kinds + album
 `copied`; 7 non-byte kinds `not_applicable`.
 
-**Fidelity verdicts:** both `red`. Root cause is not transport failure but
-classification collapse: because all lab byte payloads are classified as
-`document` by the server, the probe aggregates heterogeneous kinds into one
-`document` bucket (3 samples per kind), making SHA-256 list comparison
-meaningless. The transports themselves work — every kind was forwarded/copied —
-but the frozen probe classifier cannot distinguish kinds the server flattens.
+**Fidelity verdicts:** both `red`. The run proved that both transport phase
+calls completed for the seeded messages, but it did not prove per-kind media
+fidelity. Invalid synthetic MP3/MP4/OGG/WebP payloads were classified by
+Telegram as `document`, collapsing distinct fixture kinds into one report
+bucket. A successful phase call is not fidelity evidence.
 
 **Excluded kinds (unchanged):** game, giveaway, giveaway_results, invoice,
 paid_media_preview, paid_media_revealed, story.
 
-**Decided:** R1 Decision Gate → **Branch 2**. `todo` moves to the
-explicit-unsupported set in ADR-0013 §1 with `MediaInvalidError` as evidence.
-`CHAT_FORWARDS_RESTRICTED` is confirmed evidence — no ADR-0013 §10 revision
-needed. The fidelity red is a lab-fixture limitation (invalid media containers),
-not a transport defect — both transports completed every kind successfully. M0
-content evidence from R0 stands; R1 adds `todo` exclusion and
-`CHAT_FORWARDS_RESTRICTED` confirmation.
+**Decided:** `todo` follows R1 Decision Gate Branch 2 and becomes explicitly
+unsupported with `MediaInvalidError` evidence. `CHAT_FORWARDS_RESTRICTED`
+confirms ADR-0013 §10's protected-source routing assumption. Overall R1 remains
+red/inconclusive because neither transport fidelity verdict passed; it does not
+authorize per-kind renderer behavior or close the content gate.
 
 **Learned:** the probe classifier depends on Telegram server-side media-type
 detection, which ignores `DocumentAttribute*` on non-container bytes. To get
@@ -74,9 +90,10 @@ sticker, valid mp3 for audio) — or the probe must classify by sent fixture kin
 rather than by server-returned attributes. The `Poll` constructor on layer 227
 requires `hash` as a positional argument (discovered during TDD).
 
-**Next:** merge `claude/mirror-r1-controlled-lab` to main, then proceed to M0
-Task 0.1 (watcher-session concurrency) per the phase plan. A future R2 could
-re-test per-kind fidelity with valid containers if M2 renderer policy needs it.
+**Next:** repair manifest/account safety and verdict completeness, replace
+arbitrary bytes with valid minimal containers, rerun the live lab, and require
+green per-kind fidelity before merge or M1/M2 reliance.
+
 ## 2026-07-11 — Configure project-local GLM provider (Codex)
 **Did:** added `opencode.json` with the OpenAI-compatible ai& endpoint, the
 `zai-org/glm-5.2` model, an environment-backed API key, a 600s request timeout,

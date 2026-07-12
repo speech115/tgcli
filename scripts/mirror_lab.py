@@ -53,7 +53,17 @@ def run_verdict(args) -> dict:
         if not args.transport:
             raise ValueError("--transport is required with --dest-report")
         dest = json.loads(Path(args.dest_report).read_text(encoding="utf-8"))
-        return mirror_lab.compare_transport(source, dest, transport=args.transport)
+        manifest = mirror_lab.load_manifest(Path(args.manifest))
+        role = "open_source" if args.transport == "native" else "protected_source"
+        expected = set(mirror_lab.seeded_ids(manifest, role))
+        if args.transport == "reupload":
+            expected &= set(mirror_lab.BYTE_FIXTURES) | {"album"}
+        return mirror_lab.compare_transport(
+            source,
+            dest,
+            transport=args.transport,
+            expected_kinds=expected,
+        )
     if not args.role:
         raise ValueError("--role is required without --dest-report")
     manifest = mirror_lab.load_manifest(Path(args.manifest))
@@ -61,6 +71,10 @@ def run_verdict(args) -> dict:
 
 
 async def run(args) -> dict:
+    if args.phase in {"create", "seed", "copy-native", "copy-reupload", "teardown"}:
+        mirror_lab.enforce_mutation_allowed(readonly=False)
+    if args.phase == "seed":
+        mirror_lab.preflight_fixture_tools()
     account = config.resolve_account(config.load_config(), args.account)
     manifest_path = Path(args.manifest)
     async with session.client(account) as tg:
@@ -86,9 +100,14 @@ async def run(args) -> dict:
             return {"phase": "seed", "results": results}
         if args.phase == "probe":
             peer_id = manifest["channels"][args.role]["peer_id"]
-            return await probe_chat(
+            report = await probe_chat(
                 tg, str(peer_id), me.id, role="lab", limit=args.limit
             )
+            entity = await tg.get_entity(peer_id)
+            report["album_group_sizes"] = await mirror_lab.album_group_sizes(
+                tg, entity, limit=args.limit
+            )
+            return report
         if args.phase == "copy-native":
             return await mirror_lab.copy_native(tg, manifest, account.alias, note)
         if args.phase == "copy-reupload":
@@ -97,7 +116,9 @@ async def run(args) -> dict:
                     tg, manifest, Path(workdir), account.alias, note
                 )
         if args.phase == "teardown":
-            return await mirror_lab.teardown_lab(tg, manifest, account.alias, note)
+            return await mirror_lab.teardown_lab(
+                tg, manifest, manifest_path, account.alias, note
+            )
         raise ValueError(f"unknown phase: {args.phase}")
 
 

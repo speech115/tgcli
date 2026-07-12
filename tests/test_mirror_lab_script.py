@@ -40,8 +40,12 @@ def test_verdict_is_pure_and_needs_no_session(tmp_path, capsys):
     }
     source.write_text(json.dumps({"capabilities": [row]}))
     dest.write_text(json.dumps({"capabilities": [row]}))
+    manifest = script.mirror_lab.new_manifest(7)
+    script.mirror_lab.record_seed(manifest, "open_source", "video", [1])
+    manifest_path = tmp_path / "lab.json"
+    script.mirror_lab.save_manifest(manifest_path, manifest)
     code = script.main([
-        "verdict", "--manifest", str(tmp_path / "absent.json"),
+        "verdict", "--manifest", str(manifest_path),
         "--source-report", str(source), "--dest-report", str(dest),
         "--transport", "native",
     ])
@@ -77,3 +81,36 @@ def test_policy_error_maps_to_exit_2(tmp_path, monkeypatch, capsys):
     code = script.main(["create", "--manifest", str(tmp_path / "lab.json")])
     assert code == 2
     assert "policy" in capsys.readouterr().err.lower()
+
+
+def test_mutation_kill_switch_precedes_config_and_session(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("TGCLI_NO_SEND", "1")
+    monkeypatch.setattr(
+        script.config,
+        "load_config",
+        lambda: (_ for _ in ()).throw(AssertionError("config touched")),
+    )
+
+    code = script.main(["create", "--manifest", str(tmp_path / "lab.json")])
+
+    assert code == 2
+    assert "policy" in capsys.readouterr().err.lower()
+
+
+def test_seed_fixture_preflight_precedes_config_and_session(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(
+        script.mirror_lab,
+        "preflight_fixture_tools",
+        lambda: (_ for _ in ()).throw(ValueError("ffmpeg unavailable")),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        script.config,
+        "load_config",
+        lambda: (_ for _ in ()).throw(AssertionError("config touched")),
+    )
+
+    code = script.main(["seed", "--manifest", str(tmp_path / "lab.json")])
+
+    assert code == 4
+    assert "ffmpeg unavailable" in capsys.readouterr().err

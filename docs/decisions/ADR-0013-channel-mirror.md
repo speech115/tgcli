@@ -3,6 +3,8 @@
 Status: proposed (2026-07-11).
 Amended 2026-07-11 after R0 evidence (see DEVLOG): gotd backend removed; copy
 method is capability-based.
+Amended 2026-07-12 after R1 evidence: Telegram todo is unsupported in
+broadcast-channel mirrors; the initial media-fidelity run was inconclusive.
 
 Amends PLAN.md by bringing a constrained channel mirror back into scope. It
 narrows ADR-0002's no-daemon rule without allowing self-installing background
@@ -53,6 +55,9 @@ both problems before implementation.
   original server dates, original senders, paid media, and unsupported service
   actions are not promised. Unsupported items produce an explicit placeholder
   and ledger status; they are never silently dropped.
+- Telegram todo is explicitly unsupported for broadcast-channel sources. R1
+  observed `MediaInvalidError` for `InputMediaTodo` on both owned source roles;
+  the mirror records an unsupported placeholder instead of silently dropping it.
 
 ### 2. Session topology
 
@@ -263,6 +268,18 @@ native copy -> Telethon reconstruction -> unsupported
 There is no gotd tier and no unbounded retry across backends. A capability
 that is not provably `pass` never authorizes automatic mirroring.
 
+### 11. R1 controlled-lab evidence
+
+R1 confirmed `CHAT_FORWARDS_RESTRICTED` for native copy from a protected
+broadcast channel. The initial run completed native-forward and
+download/reupload calls, but did not prove per-kind fidelity: arbitrary bytes
+with MP3/MP4/OGG/WebP names collapsed to Telegram `document`, so both verdicts
+were red/inconclusive. Completion of a transport call is not fidelity evidence.
+
+Before per-kind R1 results authorize renderer behavior, the lab must use valid
+minimal containers and obtain green complete-matrix verdicts, or this ADR must
+narrow the supported capability matrix again.
+
 ## Consequences
 
 - Reliability requires more local protocol than the first draft, but it removes
@@ -277,5 +294,6 @@ that is not provably `pass` never authorizes automatic mirroring.
   becomes wrapped only when the event loop exists; raw upload remains excluded.
 - PLAN.md remains historical but its old mirror non-goal gains a dated pointer to
   this ADR and the new scoped plan.
-- No production mirror code starts until M0 session and protected-content gates
-  are green and their evidence is recorded in DEVLOG.
+- No production mirror code starts until the watcher-session gate and every
+  capability relied on by production have green or explicitly narrowed
+  evidence recorded in DEVLOG.

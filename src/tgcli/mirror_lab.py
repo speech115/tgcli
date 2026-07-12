@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -34,6 +37,21 @@ def load_manifest(path: Path) -> dict:
     for key in ("account_user_id", "channels", "seeded"):
         if key not in data:
             raise ValueError(f"lab manifest missing {key!r}")
+    seen_peer_ids = set()
+    for role, channel in data["channels"].items():
+        if role not in CHANNEL_ROLES:
+            raise ValueError(f"unknown lab channel role: {role}")
+        if not isinstance(channel, dict):
+            raise ValueError(f"invalid lab channel entry: {role}")
+        peer_id = channel.get("peer_id")
+        title = channel.get("title")
+        if not isinstance(peer_id, int) or peer_id <= 0:
+            raise ValueError(f"invalid lab peer id: {role}")
+        if not isinstance(title, str) or not title.startswith(LAB_MARKER):
+            raise ValueError(f"lab channel title lacks marker: {role}")
+        if peer_id in seen_peer_ids:
+            raise ValueError(f"duplicate lab peer id: {peer_id}")
+        seen_peer_ids.add(peer_id)
     return data
 
 
@@ -71,6 +89,7 @@ def seeded_ids(manifest: dict, role: str) -> dict[str, list[int]]:
 import hashlib
 import struct
 import zlib
+from collections import Counter
 from dataclasses import dataclass
 from typing import Callable
 
@@ -113,6 +132,7 @@ class ByteFixture:
     attributes: Callable[[], list]
     force_document: bool
     reupload_fidelity: str  # "exact" | "reencoded"
+    mime_type: str
 
 
 BYTE_FIXTURES: dict[str, ByteFixture] = {
@@ -123,6 +143,7 @@ BYTE_FIXTURES: dict[str, ByteFixture] = {
         attributes=lambda: [],
         force_document=False,
         reupload_fidelity="reencoded",
+        mime_type="image/png",
     ),
     "document": ByteFixture(
         kind="document",
@@ -133,6 +154,7 @@ BYTE_FIXTURES: dict[str, ByteFixture] = {
         ],
         force_document=True,
         reupload_fidelity="exact",
+        mime_type="text/plain",
     ),
     "audio": ByteFixture(
         kind="audio",
@@ -146,6 +168,7 @@ BYTE_FIXTURES: dict[str, ByteFixture] = {
         ],
         force_document=False,
         reupload_fidelity="exact",
+        mime_type="audio/mpeg",
     ),
     "voice": ByteFixture(
         kind="voice",
@@ -157,6 +180,7 @@ BYTE_FIXTURES: dict[str, ByteFixture] = {
         ],
         force_document=False,
         reupload_fidelity="exact",
+        mime_type="audio/ogg",
     ),
     "video": ByteFixture(
         kind="video",
@@ -170,6 +194,7 @@ BYTE_FIXTURES: dict[str, ByteFixture] = {
         ],
         force_document=False,
         reupload_fidelity="exact",
+        mime_type="video/mp4",
     ),
     "video_note": ByteFixture(
         kind="video_note",
@@ -183,6 +208,7 @@ BYTE_FIXTURES: dict[str, ByteFixture] = {
         ],
         force_document=False,
         reupload_fidelity="exact",
+        mime_type="video/mp4",
     ),
     "animation": ByteFixture(
         kind="animation",
@@ -195,6 +221,7 @@ BYTE_FIXTURES: dict[str, ByteFixture] = {
         ],
         force_document=False,
         reupload_fidelity="exact",
+        mime_type="video/mp4",
     ),
     "sticker": ByteFixture(
         kind="sticker",
@@ -208,11 +235,12 @@ BYTE_FIXTURES: dict[str, ByteFixture] = {
         ],
         force_document=False,
         reupload_fidelity="exact",
+        mime_type="image/webp",
     ),
 }
 
 NON_BYTE_LAB_KINDS = (
-    "contact", "dice", "geo", "geo_live", "poll", "todo", "venue",
+    "contact", "dice", "geo", "geo_live", "poll", "venue",
 )
 
 EXCLUDED_KINDS: dict[str, str] = {
@@ -223,11 +251,103 @@ EXCLUDED_KINDS: dict[str, str] = {
     "paid_media_preview": "requires a monetization-enabled channel",
     "paid_media_revealed": "requires a monetization-enabled channel",
     "story": "excluded by ADR-0013 fidelity target; channel stories need boosts",
+    "todo": "broadcast channels rejected InputMediaTodo with MediaInvalidError in R1",
 }
 
 COVERED_BY_R0 = frozenset({"text", "webpage", "service", "empty", "unsupported"})
 
 ALBUM_COLORS = ((255, 0, 0), (0, 255, 0))
+
+
+def preflight_fixture_tools() -> dict[str, str]:
+    tools = {name: shutil.which(name) for name in ("ffmpeg", "cwebp")}
+    missing = [name for name, path in tools.items() if path is None]
+    if missing:
+        raise ValueError(f"lab fixture tool unavailable: {', '.join(missing)}")
+    encoders = subprocess.run(
+        [tools["ffmpeg"], "-hide_banner", "-encoders"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    required = ("libmp3lame", "libopus", "libx264", "png")
+    unavailable = [encoder for encoder in required if encoder not in encoders]
+    if unavailable:
+        raise ValueError(
+            f"lab fixture encoder unavailable: {', '.join(unavailable)}"
+        )
+    return {name: path for name, path in tools.items() if path is not None}
+
+
+def _run_fixture_command(command: list[str]) -> None:
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.strip().splitlines()[-1] if exc.stderr else "command failed"
+        raise ValueError(f"lab fixture generation failed: {detail}") from exc
+
+
+def materialize_fixture(kind: str, directory: Path) -> Path:
+    fixture = BYTE_FIXTURES[kind]
+    directory.mkdir(parents=True, exist_ok=True)
+    output = directory / fixture.filename
+    if kind == "photo":
+        output.write_bytes(build_png((0, 0, 255)))
+        return output
+    if kind == "document":
+        output.write_bytes(deterministic_bytes("document", 16_384))
+        return output
+
+    tools = preflight_fixture_tools()
+    common = [
+        tools["ffmpeg"], "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+    ]
+    if kind == "audio":
+        command = common + [
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
+            "-map_metadata", "-1", "-fflags", "+bitexact", "-flags:a", "+bitexact",
+            "-ac", "1", "-c:a", "libmp3lame", "-b:a", "64k",
+            "-id3v2_version", "0", "-write_xing", "0", str(output),
+        ]
+    elif kind == "voice":
+        command = common + [
+            "-f", "lavfi", "-i", "sine=frequency=660:sample_rate=48000:duration=2",
+            "-map_metadata", "-1", "-fflags", "+bitexact", "-flags:a", "+bitexact",
+            "-ac", "1", "-c:a", "libopus", "-b:a", "24k", "-vbr", "off",
+            "-application", "voip", "-frame_duration", "20", "-serial_offset", "137",
+            str(output),
+        ]
+    elif kind in {"video", "video_note", "animation"}:
+        settings = {
+            "video": ("640x360", "30", "2", "0"),
+            "video_note": ("240x240", "24", "2", "23"),
+            "animation": ("32x32", "15", "1", "23"),
+        }
+        size, rate, duration, crf = settings[kind]
+        command = common + [
+            "-f", "lavfi", "-i", f"testsrc2=size={size}:rate={rate}:duration={duration}",
+            "-map_metadata", "-1", "-fflags", "+bitexact", "-flags:v", "+bitexact",
+            "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", crf,
+            "-pix_fmt", "yuv420p", "-threads", "1", "-x264-params",
+            "threads=1:lookahead_threads=1:sync-lookahead=0:force-cfr=1",
+            "-movflags", "+faststart", str(output),
+        ]
+    elif kind == "sticker":
+        png = directory / "lab-sticker.png"
+        _run_fixture_command(common + [
+            "-f", "lavfi", "-i", "color=c=0x3366cc:s=512x512:d=1",
+            "-frames:v", "1", "-map_metadata", "-1", "-fflags", "+bitexact",
+            str(png),
+        ])
+        _run_fixture_command([
+            tools["cwebp"], "-quiet", "-lossless", "-m", "6", "-o", str(output), str(png),
+        ])
+        png.unlink()
+        return output
+    else:
+        raise ValueError(f"unknown byte fixture: {kind}")
+    _run_fixture_command(command)
+    return output
 
 
 def non_byte_media() -> dict[str, object]:
@@ -249,17 +369,6 @@ def non_byte_media() -> dict[str, object]:
                         text=types.TextWithEntities(text="B", entities=[]),
                         option=b"1",
                     ),
-                ],
-            )
-        ),
-        "todo": types.InputMediaTodo(
-            todo=types.TodoList(
-                title=types.TextWithEntities(text="lab todo", entities=[]),
-                list=[
-                    types.TodoItem(
-                        id=1,
-                        title=types.TextWithEntities(text="item", entities=[]),
-                    )
                 ],
             )
         ),
@@ -333,7 +442,22 @@ def _kind_shas(report: dict) -> dict[str, list[str]]:
     }
 
 
-def compare_transport(source_report: dict, dest_report: dict, *, transport: str) -> dict:
+async def album_group_sizes(tg, entity, *, limit: int) -> list[int]:
+    groups = Counter()
+    async for message in tg.iter_messages(entity, limit=limit):
+        grouped_id = getattr(message, "grouped_id", None)
+        if grouped_id is not None:
+            groups[grouped_id] += 1
+    return sorted(size for size in groups.values() if size > 1)
+
+
+def compare_transport(
+    source_report: dict,
+    dest_report: dict,
+    *,
+    transport: str,
+    expected_kinds: set[str] | None = None,
+) -> dict:
     if transport not in {"native", "reupload"}:
         raise ValueError(f"unknown transport: {transport}")
     source = {row["kind"]: row for row in source_report["capabilities"]}
@@ -342,14 +466,41 @@ def compare_transport(source_report: dict, dest_report: dict, *, transport: str)
     dest_shas = _kind_shas(dest_report)
 
     rows = []
-    for kind in sorted(set(source) & set(BYTE_FIXTURES)):
+    kinds = expected_kinds or (set(source) & set(BYTE_FIXTURES))
+    for kind in sorted(kinds):
+        if kind == "album":
+            source_groups = source_report.get("album_group_sizes", [])
+            dest_groups = dest_report.get("album_group_sizes", [])
+            matched = bool(source_groups) and source_groups == dest_groups
+            rows.append(
+                {
+                    "kind": kind,
+                    "expectation": "grouped",
+                    "result": "pass" if matched else "fail",
+                }
+            )
+            continue
         expectation = "exact"
         if transport == "reupload":
-            expectation = BYTE_FIXTURES[kind].reupload_fidelity
+            expectation = BYTE_FIXTURES.get(
+                kind, BYTE_FIXTURES["document"]
+            ).reupload_fidelity
+        if kind not in source:
+            rows.append({"kind": kind, "expectation": expectation, "result": "missing"})
+            continue
         if kind not in dest:
             rows.append({"kind": kind, "expectation": expectation, "result": "missing"})
             continue
-        if expectation == "exact":
+        if kind not in BYTE_FIXTURES:
+            matched = (
+                source[kind].get("sample_count") == dest[kind].get("sample_count")
+                and all(
+                    sample.get("decode") == "pass"
+                    for sample in source[kind].get("samples", [])
+                    + dest[kind].get("samples", [])
+                )
+            )
+        elif expectation == "exact":
             matched = bool(source_shas[kind]) and source_shas[kind] == dest_shas.get(kind)
         else:
             matched = dest[kind]["telethon_bytes"] == "pass" and len(
@@ -373,10 +524,47 @@ def compare_transport(source_report: dict, dest_report: dict, *, transport: str)
 # --- Task 4: channel provisioning and seeding engines ---
 
 import os
+import secrets
 
 from telethon.tl import functions
 
 from tgcli.safety import append_audit, enforce_mutation_allowed
+
+
+async def _audited_mutation(action, account_alias, details, mutation):
+    enforce_mutation_allowed(readonly=False)
+    operation_id = secrets.token_hex(12)
+    append_audit(
+        action,
+        account_alias,
+        {**details, "operation_id": operation_id, "phase": "attempt"},
+    )
+    try:
+        result = await mutation()
+    except Exception as exc:
+        append_audit(
+            action,
+            account_alias,
+            {
+                **details,
+                "operation_id": operation_id,
+                "phase": "result",
+                "status": "failed",
+                "error": type(exc).__name__,
+            },
+        )
+        raise
+    append_audit(
+        action,
+        account_alias,
+        {
+            **details,
+            "operation_id": operation_id,
+            "phase": "result",
+            "status": "confirmed",
+        },
+    )
+    return result
 
 
 def _random_id() -> int:
@@ -397,38 +585,81 @@ def _sent_message_id(update) -> int:
 async def _lab_entity(tg, manifest: dict, role: str):
     channel = manifest["channels"][role]
     assert_lab_peer(manifest, channel["peer_id"])
-    return await tg.get_entity(types.PeerChannel(channel["peer_id"]))
+    entity = await tg.get_entity(types.PeerChannel(channel["peer_id"]))
+    if (
+        getattr(entity, "title", None) != channel["title"]
+        or not getattr(entity, "creator", False)
+        or not getattr(entity, "broadcast", False)
+        or getattr(entity, "megagroup", False)
+    ):
+        raise PolicyError(f"{role}: peer is not the expected owned lab broadcast")
+    return entity
 
 
 async def create_lab_channels(tg, manifest, manifest_path, account_alias, note) -> dict:
     stamp = manifest["created_at"][:19].replace(":", "").replace("-", "")
     for role in CHANNEL_ROLES:
         if role in manifest["channels"]:
-            note(f"{role}: already created, skipping")
+            if role == "protected_source":
+                entity = await _lab_entity(tg, manifest, role)
+                if (
+                    not manifest["channels"][role].get("protection_enabled", False)
+                    or not getattr(entity, "noforwards", False)
+                ):
+                    await _audited_mutation(
+                        "mirror-lab-protect",
+                        account_alias,
+                        {"role": role},
+                        lambda: tg(
+                            functions.messages.ToggleNoForwardsRequest(
+                                peer=entity,
+                                enabled=True,
+                            )
+                        ),
+                    )
+                    manifest["channels"][role]["protection_enabled"] = True
+                    save_manifest(manifest_path, manifest)
+                    note(f"{role}: protection enabled")
+                else:
+                    note(f"{role}: already created, skipping")
+            else:
+                note(f"{role}: already created, skipping")
             continue
-        enforce_mutation_allowed(readonly=False)
         title = f"{LAB_MARKER} {role} {stamp}"
-        append_audit("mirror-lab-create", account_alias, {"role": role, "title": title})
-        update = await tg(
-            functions.channels.CreateChannelRequest(
-                title=title,
-                about="tgcli R1 disposable lab channel",
-                broadcast=True,
-                megagroup=False,
-            )
+        update = await _audited_mutation(
+            "mirror-lab-create",
+            account_alias,
+            {"role": role, "title": title},
+            lambda: tg(
+                functions.channels.CreateChannelRequest(
+                    title=title,
+                    about="tgcli R1 disposable lab channel",
+                    broadcast=True,
+                    megagroup=False,
+                )
+            ),
         )
         channel = update.chats[0]
         record_channel(manifest, role, channel.id, title)
         save_manifest(manifest_path, manifest)
         if role == "protected_source":
-            await tg(
-                functions.messages.ToggleNoForwardsRequest(peer=channel, enabled=True)
+            await _audited_mutation(
+                "mirror-lab-protect",
+                account_alias,
+                {"role": role},
+                lambda: tg(
+                    functions.messages.ToggleNoForwardsRequest(
+                        peer=channel, enabled=True
+                    )
+                ),
             )
+            manifest["channels"][role]["protection_enabled"] = True
+            save_manifest(manifest_path, manifest)
         note(f"{role}: created lab channel")
     return manifest
 
 
-async def _seed_kind(tg, entity, kind: str) -> list[int]:
+async def _seed_kind(tg, entity, kind: str, fixture_dir: Path) -> list[int]:
     if kind == "text":
         message = await tg.send_message(entity, "lab text fixture")
         return [message.id]
@@ -438,11 +669,13 @@ async def _seed_kind(tg, entity, kind: str) -> list[int]:
         return [message.id for message in messages]
     if kind in BYTE_FIXTURES:
         fixture = BYTE_FIXTURES[kind]
+        path = materialize_fixture(kind, fixture_dir)
         message = await tg.send_file(
             entity,
-            fixture.payload(),
+            path,
             attributes=fixture.attributes(),
             force_document=fixture.force_document,
+            mime_type=fixture.mime_type,
         )
         return [message.id]
     media = non_byte_media()[kind]
@@ -456,24 +689,27 @@ async def _seed_kind(tg, entity, kind: str) -> list[int]:
 
 async def seed_sources(tg, manifest, manifest_path, account_alias, note) -> dict:
     results: dict[str, dict[str, str]] = {}
-    for role in ("protected_source", "open_source"):
-        entity = await _lab_entity(tg, manifest, role)
-        results[role] = {}
-        for kind in pending_kinds(manifest, role):
-            enforce_mutation_allowed(readonly=False)
-            append_audit(
-                "mirror-lab-seed", account_alias, {"role": role, "kind": kind}
-            )
-            try:
-                ids = await _seed_kind(tg, entity, kind)
-            except Exception as exc:
-                results[role][kind] = f"blocked:{type(exc).__name__}"
-                note(f"{role}: {kind} blocked by {type(exc).__name__}")
-                continue
-            record_seed(manifest, role, kind, ids)
-            save_manifest(manifest_path, manifest)
-            results[role][kind] = "seeded"
-            note(f"{role}: seeded {kind}")
+    with tempfile.TemporaryDirectory(prefix="tgcli-r1-fixtures-") as fixture_dir:
+        fixture_path = Path(fixture_dir)
+        for role in ("protected_source", "open_source"):
+            entity = await _lab_entity(tg, manifest, role)
+            results[role] = {}
+            for kind in pending_kinds(manifest, role):
+                try:
+                    ids = await _audited_mutation(
+                        "mirror-lab-seed",
+                        account_alias,
+                        {"role": role, "kind": kind},
+                        lambda: _seed_kind(tg, entity, kind, fixture_path),
+                    )
+                except Exception as exc:
+                    results[role][kind] = f"blocked:{type(exc).__name__}"
+                    note(f"{role}: {kind} blocked by {type(exc).__name__}")
+                    continue
+                record_seed(manifest, role, kind, ids)
+                save_manifest(manifest_path, manifest)
+                results[role][kind] = "seeded"
+                note(f"{role}: seeded {kind}")
     return results
 
 
@@ -494,21 +730,20 @@ async def copy_native(tg, manifest, account_alias, note) -> dict:
     restricted_check = "skipped:no_protected_seed"
     if protected_seeds:
         first_ids = next(iter(protected_seeds.values()))
-        enforce_mutation_allowed(readonly=False)
-        append_audit(
-            "mirror-lab-forward-restricted-check",
-            account_alias,
-            {"ids": len(first_ids)},
-        )
         try:
-            await tg(
-                functions.messages.ForwardMessagesRequest(
-                    from_peer=protected_entity,
-                    id=list(first_ids),
-                    random_id=[_random_id() for _ in first_ids],
-                    to_peer=dest_entity,
-                    drop_author=True,
-                )
+            await _audited_mutation(
+                "mirror-lab-forward-restricted-check",
+                account_alias,
+                {"ids": len(first_ids)},
+                lambda: tg(
+                    functions.messages.ForwardMessagesRequest(
+                        from_peer=protected_entity,
+                        id=list(first_ids),
+                        random_id=[_random_id() for _ in first_ids],
+                        to_peer=dest_entity,
+                        drop_author=True,
+                    )
+                ),
             )
             restricted_check = "unexpected_success"
         except ChatForwardsRestrictedError:
@@ -517,19 +752,20 @@ async def copy_native(tg, manifest, account_alias, note) -> dict:
 
     results: dict[str, str] = {}
     for kind, ids in seeded_ids(manifest, "open_source").items():
-        enforce_mutation_allowed(readonly=False)
-        append_audit(
-            "mirror-lab-copy-native", account_alias, {"kind": kind, "ids": len(ids)}
-        )
         try:
-            await tg(
-                functions.messages.ForwardMessagesRequest(
-                    from_peer=open_entity,
-                    id=list(ids),
-                    random_id=[_random_id() for _ in ids],
-                    to_peer=dest_entity,
-                    drop_author=True,
-                )
+            await _audited_mutation(
+                "mirror-lab-copy-native",
+                account_alias,
+                {"kind": kind, "ids": len(ids)},
+                lambda: tg(
+                    functions.messages.ForwardMessagesRequest(
+                        from_peer=open_entity,
+                        id=list(ids),
+                        random_id=[_random_id() for _ in ids],
+                        to_peer=dest_entity,
+                        drop_author=True,
+                    )
+                ),
             )
         except Exception as exc:
             results[kind] = f"blocked:{type(exc).__name__}"
@@ -557,34 +793,35 @@ async def copy_reupload(tg, manifest, workdir: Path, account_alias, note) -> dic
             if kind not in BYTE_FIXTURES and kind != "album":
                 results[kind] = "not_applicable"
                 continue
-            enforce_mutation_allowed(readonly=False)
-            append_audit(
-                "mirror-lab-copy-reupload",
-                account_alias,
-                {"kind": kind, "ids": len(ids)},
-            )
             try:
-                messages = await tg.get_messages(source_entity, ids=list(ids))
-                paths = []
-                attributes = None
-                force_document = False
-                for message in messages:
-                    target = run_dir / f"{kind}-{message.id}"
-                    paths.append(Path(await tg.download_media(message, file=target)))
-                if kind in BYTE_FIXTURES:
-                    document = getattr(messages[0], "document", None)
-                    if document is not None:
-                        attributes = list(document.attributes)
-                        force_document = BYTE_FIXTURES[kind].force_document
-                if kind == "album":
-                    await tg.send_file(dest_entity, [str(p) for p in paths])
-                else:
-                    await tg.send_file(
+                async def reupload_one():
+                    messages = await tg.get_messages(source_entity, ids=list(ids))
+                    paths = []
+                    attributes = None
+                    force_document = False
+                    for message in messages:
+                        target = run_dir / f"{kind}-{message.id}"
+                        paths.append(Path(await tg.download_media(message, file=target)))
+                    if kind in BYTE_FIXTURES:
+                        document = getattr(messages[0], "document", None)
+                        if document is not None:
+                            attributes = list(document.attributes)
+                            force_document = BYTE_FIXTURES[kind].force_document
+                    if kind == "album":
+                        return await tg.send_file(dest_entity, [str(p) for p in paths])
+                    return await tg.send_file(
                         dest_entity,
                         str(paths[0]),
                         attributes=attributes,
                         force_document=force_document,
                     )
+
+                await _audited_mutation(
+                    "mirror-lab-copy-reupload",
+                    account_alias,
+                    {"kind": kind, "ids": len(ids)},
+                    reupload_one,
+                )
             except Exception as exc:
                 results[kind] = f"blocked:{type(exc).__name__}"
                 note(f"reupload {kind}: blocked by {type(exc).__name__}")
@@ -598,20 +835,18 @@ async def copy_reupload(tg, manifest, workdir: Path, account_alias, note) -> dic
 
 # --- Task 6: teardown ---
 
-async def teardown_lab(tg, manifest, account_alias, note) -> dict:
-    entities = {}
-    for role, channel in manifest["channels"].items():
-        entity = await tg.get_entity(types.PeerChannel(channel["peer_id"]))
-        if not getattr(entity, "title", "").startswith(LAB_MARKER):
-            raise PolicyError(
-                f"{role}: live title lost lab marker; refusing to delete"
-            )
-        entities[role] = entity
+async def teardown_lab(tg, manifest, manifest_path, account_alias, note) -> dict:
     removed = []
-    for role, entity in entities.items():
-        enforce_mutation_allowed(readonly=False)
-        append_audit("mirror-lab-teardown", account_alias, {"role": role})
-        await tg(functions.channels.DeleteChannelRequest(channel=entity))
+    for role, channel in list(manifest["channels"].items()):
+        entity = await _lab_entity(tg, manifest, role)
+        await _audited_mutation(
+            "mirror-lab-teardown",
+            account_alias,
+            {"role": role},
+            lambda: tg(functions.channels.DeleteChannelRequest(channel=entity)),
+        )
         removed.append(role)
+        del manifest["channels"][role]
+        save_manifest(manifest_path, manifest)
         note(f"{role}: deleted lab channel")
     return {"removed": removed}
