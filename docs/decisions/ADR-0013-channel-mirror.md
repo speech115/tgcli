@@ -58,6 +58,10 @@ both problems before implementation.
 - Telegram todo is explicitly unsupported for broadcast-channel sources. R1
   observed `MediaInvalidError` for `InputMediaTodo` on both owned source roles;
   the mirror records an unsupported placeholder instead of silently dropping it.
+- Live locations are explicitly unsupported. R1 schema-2 evidence showed that
+  native channel forwarding converts `geo_live` into a static `geo`, violating
+  kind fidelity. The mirror records an unsupported placeholder instead of
+  silently degrading it.
 
 ### 2. Session topology
 
@@ -275,6 +279,10 @@ broadcast channel. The initial run completed native-forward and
 download/reupload calls, but did not prove per-kind fidelity: arbitrary bytes
 with MP3/MP4/OGG/WebP names collapsed to Telegram `document`, so both verdicts
 were red/inconclusive. Completion of a transport call is not fidelity evidence.
+
+The repaired run found one real native-transport limitation: `geo_live`
+degrades to static `geo`. ADR-0013 therefore narrows that kind to explicit
+unsupported; all other supported native rows and every reupload row passed.
 
 Before per-kind R1 results authorize renderer behavior, the lab must use valid
 minimal containers and obtain green complete-matrix verdicts, or this ADR must

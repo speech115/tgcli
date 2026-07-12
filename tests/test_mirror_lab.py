@@ -226,7 +226,6 @@ def test_non_byte_media_constructs_pinned_layer_objects():
     assert isinstance(media["poll"], types.InputMediaPoll)
     assert isinstance(media["contact"], types.InputMediaContact)
     assert isinstance(media["geo"], types.InputMediaGeoPoint)
-    assert isinstance(media["geo_live"], types.InputMediaGeoLive)
     assert isinstance(media["venue"], types.InputMediaVenue)
     assert isinstance(media["dice"], types.InputMediaDice)
 
@@ -242,6 +241,11 @@ def test_every_probe_kind_is_planned_excluded_or_covered():
 def test_todo_is_explicitly_unsupported_after_live_server_rejection():
     assert "todo" not in planned_kinds()
     assert "MediaInvalidError" in EXCLUDED_KINDS["todo"]
+
+
+def test_geo_live_is_explicitly_unsupported_after_native_fidelity_failure():
+    assert "geo_live" not in planned_kinds()
+    assert "static geo" in EXCLUDED_KINDS["geo_live"]
 
 
 def test_fixture_attributes_classify_back_to_expected_kind():
@@ -825,18 +829,18 @@ async def test_copy_native_confirms_restriction_and_forwards_per_kind(tmp_path):
 
 @pytest.mark.asyncio
 async def test_copy_native_records_per_kind_blocks(tmp_path):
-    class GeoLiveBlockingTG(TransportTG):
+    class GeoBlockingTG(TransportTG):
         async def __call__(self, request):
             if isinstance(request, functions.messages.ForwardMessagesRequest):
-                if getattr(self, "geo_live_ids", None) and set(request.id) & self.geo_live_ids:
+                if getattr(self, "geo_ids", None) and set(request.id) & self.geo_ids:
                     raise RuntimeError("MEDIA_INVALID")
             return await super().__call__(request)
 
-    tg = GeoLiveBlockingTG()
+    tg = GeoBlockingTG()
     manifest = await seeded_lab(tg, tmp_path)
-    tg.geo_live_ids = set(seeded_ids(manifest, "open_source")["geo_live"])
+    tg.geo_ids = set(seeded_ids(manifest, "open_source")["geo"])
     result = await copy_native(tg, manifest, "labacct", quiet)
-    assert result["results"]["geo_live"] == "blocked:RuntimeError"
+    assert result["results"]["geo"] == "blocked:RuntimeError"
     assert result["results"]["photo"] == "forwarded"
 
 

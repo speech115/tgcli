@@ -245,13 +245,14 @@ BYTE_FIXTURES: dict[str, ByteFixture] = {
 }
 
 NON_BYTE_LAB_KINDS = (
-    "contact", "dice", "geo", "geo_live", "poll", "venue",
+    "contact", "dice", "geo", "poll", "venue",
 )
 
 EXCLUDED_KINDS: dict[str, str] = {
     "game": "requires a bot-owned game",
     "giveaway": "requires a Premium boost purchase with real cost",
     "giveaway_results": "exists only after a finished giveaway",
+    "geo_live": "native channel forward degrades live location to static geo",
     "invoice": "requires a payment-enabled bot",
     "paid_media_preview": "requires a monetization-enabled channel",
     "paid_media_revealed": "requires a monetization-enabled channel",
@@ -412,7 +413,6 @@ def non_byte_media() -> dict[str, object]:
             vcard="",
         ),
         "geo": types.InputMediaGeoPoint(geo_point=geo_point()),
-        "geo_live": types.InputMediaGeoLive(geo_point=geo_point(), period=900),
         "venue": types.InputMediaVenue(
             geo_point=geo_point(),
             title="Lab venue",

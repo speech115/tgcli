@@ -34,7 +34,9 @@ evidence. R1 may merge only after a fresh controlled run returns complete green
 verdicts for the supported matrix.
 **Learned:** Telegram classifies actual container bytes, not claimed filenames
 or `DocumentAttribute*`; named paths plus explicit MIME are required for a
-meaningful fixture lab.
+meaningful fixture lab. The repaired live run also proved that Telegram native
+channel forwarding converts `geo_live` into static `geo`; that kind is now an
+explicit unsupported placeholder rather than a silent fidelity loss.
 **Next:** commit the repaired harness, rerun all seven live phases against new
 disposable channels, tear them down, and record the fresh evidence.
 
