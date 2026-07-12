@@ -64,6 +64,19 @@ def test_animation_classification_does_not_depend_on_server_attribute_order():
         message(types.MessageMediaDocument(document=animation))
     ) == "animation"
 
+    round_animation = NS(
+        mime_type="video/mp4",
+        attributes=[
+            types.DocumentAttributeVideo(
+                duration=1, w=240, h=240, round_message=True
+            ),
+            types.DocumentAttributeAnimated(),
+        ],
+    )
+    assert classify_message(
+        message(types.MessageMediaDocument(document=round_animation))
+    ) == "video_note"
+
 
 def test_empty_capability_starts_unproven():
     assert empty_capability("video", 42) == {

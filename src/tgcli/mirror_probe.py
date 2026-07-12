@@ -25,14 +25,20 @@ def _document_kind(document) -> str:
     attributes = list(getattr(document, "attributes", ()) or ())
     if any(isinstance(attribute, types.DocumentAttributeSticker) for attribute in attributes):
         return "sticker"
+    videos = [
+        attribute
+        for attribute in attributes
+        if isinstance(attribute, types.DocumentAttributeVideo)
+    ]
+    if any(attribute.round_message for attribute in videos):
+        return "video_note"
     if any(isinstance(attribute, types.DocumentAttributeAnimated) for attribute in attributes):
         return "animation"
     for attribute in attributes:
         if isinstance(attribute, types.DocumentAttributeAudio):
             return "voice" if attribute.voice else "audio"
-    for attribute in attributes:
-        if isinstance(attribute, types.DocumentAttributeVideo):
-            return "video_note" if attribute.round_message else "video"
+    if videos:
+        return "video"
     return "document"
 
 

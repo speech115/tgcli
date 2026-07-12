@@ -185,6 +185,11 @@ def test_materialized_media_fixtures_are_valid_and_deterministic(tmp_path):
         metadata = json.loads(probe.stdout)
         assert metadata["format"]["format_name"] == format_name
         assert metadata["streams"][0]["codec_name"] == codec_name
+        if kind == "video":
+            assert {stream["codec_name"] for stream in metadata["streams"]} == {
+                "h264",
+                "aac",
+            }
     assert (first / BYTE_FIXTURES["video"].filename).stat().st_size > 512 * 1024
 
 

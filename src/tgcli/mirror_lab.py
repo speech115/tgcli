@@ -269,7 +269,9 @@ def preflight_fixture_tools() -> dict[str, str]:
         capture_output=True,
         text=True,
     ).stdout
-    required = ("libmp3lame", "libopus", "libx264", "png", "mjpeg", "gif")
+    required = (
+        "libmp3lame", "libopus", "libx264", "aac", "png", "mjpeg", "gif"
+    )
     unavailable = [encoder for encoder in required if encoder not in encoders]
     if unavailable:
         raise ValueError(
@@ -326,14 +328,25 @@ def materialize_fixture(kind: str, directory: Path) -> Path:
             "video_note": ("240x240", "24", "2", "23"),
         }
         size, rate, duration, crf = settings[kind]
-        command = common + [
+        inputs = [
             "-f", "lavfi", "-i", f"testsrc2=size={size}:rate={rate}:duration={duration}",
+        ]
+        audio = []
+        if kind == "video":
+            inputs += [
+                "-f", "lavfi", "-i",
+                "sine=frequency=330:sample_rate=48000:duration=2",
+            ]
+            audio = ["-c:a", "aac", "-b:a", "64k", "-shortest"]
+        else:
+            audio = ["-an"]
+        command = common + inputs + [
             "-map_metadata", "-1", "-fflags", "+bitexact", "-flags:v", "+bitexact",
-            "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", crf,
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", crf,
             "-pix_fmt", "yuv420p", "-threads", "1", "-x264-params",
             "threads=1:lookahead_threads=1:sync-lookahead=0:force-cfr=1",
-            "-movflags", "+faststart", str(output),
-        ]
+            "-movflags", "+faststart",
+        ] + audio + [str(output)]
     elif kind == "animation":
         command = common + [
             "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=15:duration=1",
