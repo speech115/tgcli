@@ -8,7 +8,7 @@ from tgcli.mirror.store import CopyOperation, MirrorRecord, MirrorStore
 
 
 def _temporary_title(record: MirrorRecord) -> str:
-    return f"{record.source_title} [tgcli:{record.mirror_id[:12]}]"
+    return f"[tgcli:{record.mirror_id[:12]}]"
 
 
 def _is_private_owned_broadcast(entity, *, title: str | None = None) -> bool:

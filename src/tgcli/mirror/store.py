@@ -59,11 +59,20 @@ class MirrorStore:
             self._create_schema(connection)
             connection.execute(
                 """
-                INSERT OR IGNORE INTO mirrors (
+                INSERT INTO mirrors (
                     mirror_id, account_user_id, source_peer_id, source_title
                 ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(mirror_id) DO NOTHING
                 """,
                 (identity, account_user_id, source_peer_id, source_title),
+            )
+            connection.execute(
+                """
+                UPDATE mirrors
+                SET source_title = ?
+                WHERE mirror_id = ?
+                """,
+                (source_title, identity),
             )
             record = self._read_record(connection)
 
@@ -104,9 +113,10 @@ class MirrorStore:
             record = self._read_record(connection)
             connection.execute(
                 """
-                INSERT OR IGNORE INTO copy_operations (
+                INSERT INTO copy_operations (
                     source_peer_id, source_message_id, random_id
                 ) VALUES (?, ?, ?)
+                ON CONFLICT(source_peer_id, source_message_id) DO NOTHING
                 """,
                 (record.source_peer_id, source_message_id, random_id),
             )

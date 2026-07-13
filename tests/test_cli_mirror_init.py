@@ -112,7 +112,7 @@ def test_mirror_init_commit_creates_once_and_restores_source_title(
     assert len(creates) == 1
     assert creates[0].broadcast is True
     assert creates[0].megagroup is False
-    assert mirror_id(42, 123)[:12] in creates[0].title
+    assert creates[0].title == f"[tgcli:{mirror_id(42, 123)[:12]}]"
     assert [request.title for request in titles] == ["Source channel"]
 
     assert main(["mirror", "init", "@source", "--commit", "--json"]) == 0
@@ -124,6 +124,40 @@ def test_mirror_init_commit_creates_once_and_restores_source_title(
     assert reopened.destination_peer_id == 999
     assert reopened.authorized is True
     assert len(safety.audit_path().read_text().splitlines()) == 2
+
+
+def test_mirror_init_commit_after_preview_restores_current_source_title(
+    config_env, monkeypatch, capsys
+):
+    client = MirrorInitClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "init", "@source", "--json"]) == 0
+    capsys.readouterr()
+    client.source.title = "Renamed source"
+
+    assert main(["mirror", "init", "@source", "--commit", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["mirror"]["source"]["title"] == "Renamed source"
+    assert result["mirror"]["destination"] == {
+        "id": 999,
+        "title": "Renamed source",
+    }
+    creates = [
+        request
+        for request in client.requests
+        if isinstance(request, functions.channels.CreateChannelRequest)
+    ]
+    titles = [
+        request
+        for request in client.requests
+        if isinstance(request, functions.channels.EditTitleRequest)
+    ]
+    assert [request.title for request in creates] == [
+        f"[tgcli:{mirror_id(42, 123)[:12]}]"
+    ]
+    assert [request.title for request in titles] == ["Renamed source"]
 
 
 @pytest.mark.asyncio
@@ -153,7 +187,7 @@ async def test_mirror_init_reconciles_accepted_ambiguous_create_without_duplicat
 async def test_mirror_init_refuses_multiple_marker_matches(config_env):
     from tgcli.commands.mirror import commit_init
 
-    marker = f"Source channel [tgcli:{mirror_id(42, 123)[:12]}]"
+    marker = f"[tgcli:{mirror_id(42, 123)[:12]}]"
     client = MirrorInitClient(dialogs=[channel(998, marker), channel(999, marker)])
 
     with pytest.raises(PolicyError, match="multiple"):

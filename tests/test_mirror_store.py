@@ -38,7 +38,9 @@ def test_create_reopens_metadata_and_authorization(tmp_path, monkeypatch):
     assert authorized.authorized is True
 
     reopened = MirrorStore().create(42, -100123, "Changed title")
-    assert reopened == authorized
+    assert reopened.source_title == "Changed title"
+    assert reopened.destination_peer_id == authorized.destination_peer_id
+    assert reopened.authorized is True
 
 
 def test_copy_operations_are_unique_per_source_peer_and_reuse_random_id(
@@ -75,6 +77,37 @@ def test_generated_random_id_is_persisted_signed_64_bit(tmp_path, monkeypatch):
 
     assert -(2**63) <= operation.random_id <= 2**63 - 1
     assert reopened.prepare_copy(8).random_id == operation.random_id
+
+
+@pytest.mark.parametrize("random_id", [-(2**63), 2**63 - 1])
+def test_prepare_copy_accepts_signed_64_bit_boundaries(
+    tmp_path, monkeypatch, random_id
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+
+    assert store.prepare_copy(8, random_id=random_id).random_id == random_id
+
+
+@pytest.mark.parametrize(
+    ("random_id", "error"),
+    [
+        (-(2**63) - 1, ValueError),
+        (2**63, ValueError),
+        (False, TypeError),
+        (True, TypeError),
+    ],
+)
+def test_prepare_copy_rejects_out_of_range_and_boolean_random_ids(
+    tmp_path, monkeypatch, random_id, error
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+
+    with pytest.raises(error):
+        store.prepare_copy(8, random_id=random_id)
 
 
 def test_confirm_copy_atomically_maps_message_and_advances_high_water(
