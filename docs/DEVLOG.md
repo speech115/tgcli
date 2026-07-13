@@ -15,6 +15,25 @@ Template:
 
 ---
 
+## 2026-07-13 — Resumable scenario phase state added (Codex GPT-5)
+**Did:** added deterministic all-or-one scenario selection, validated resume-phase
+lookup, and pure sequential checkpoint advancement across the accepted
+`preflight` through `complete` phases. RED→GREEN tests cover unknown targets,
+malformed checkpoints, out-of-order confirmation, defensive copying, terminal
+idempotency, and the cleanup gate before completion.
+**Decided:** the first runner foundation remains three small dict-based pure
+functions. It introduces no generic execution framework and no Telegram calls;
+future mocked phase handlers must reconcile their own marked operations before
+using these transitions.
+**Learned:** phase order alone is insufficient for safe completion. Teardown can
+advance only when obligations are empty and the independent cleanup domain is
+green, otherwise resume remains explicitly blocked at teardown.
+**Checks:** focused mirror lab/probe suite: `116 passed, 1 skipped`; full suite:
+`324 passed, 9 skipped`; namespace coverage: `coverage OK: 23 namespaces`;
+`git diff --check` clean. No live Telegram access or mutation ran.
+**Next:** add a mocked preflight/provisioning planner that binds each selected
+scenario to its exact topology, protection, discussion, and account-role needs.
+
 ## 2026-07-13 — Aggregate mirror compatibility gate completed (Codex GPT-5)
 **Did:** added pure fingerprint comparison, topology-specific required domains,
 30-day freshness and clock checks, per-cell verdict classification, and strict

@@ -110,6 +110,17 @@ def required_scenarios() -> tuple[ScenarioSpec, ...]:
     return _REQUIRED_SCENARIOS
 
 
+def select_scenarios(scenario_key: str | None = None) -> tuple[ScenarioSpec, ...]:
+    if scenario_key is None:
+        return required_scenarios()
+    selected = tuple(
+        spec for spec in required_scenarios() if spec.key == scenario_key
+    )
+    if not selected:
+        raise ValueError(f"unknown scenario key: {scenario_key}")
+    return selected
+
+
 def required_scenario_domains(spec: ScenarioSpec) -> tuple[str, ...]:
     domains = (
         "content",
@@ -292,6 +303,45 @@ def _validate_scenario_checkpoint_envelope(
         fingerprint,
         allow_version_mismatch=not bind_fingerprint_to_scenario,
     )
+
+
+def scenario_resume_phase(checkpoint: dict) -> str:
+    fingerprint = (
+        checkpoint.get("compatibility_fingerprint")
+        if isinstance(checkpoint, dict)
+        else None
+    )
+    scenario_key = (
+        fingerprint.get("scenario_key") if isinstance(fingerprint, dict) else ""
+    )
+    select_scenarios(scenario_key)
+    _validate_scenario_checkpoint_envelope(
+        scenario_key,
+        checkpoint,
+        bind_fingerprint_to_scenario=True,
+    )
+    return checkpoint["phase"]
+
+
+def advance_scenario_phase(checkpoint: dict, confirmed_phase: str) -> dict:
+    current_phase = scenario_resume_phase(checkpoint)
+    if confirmed_phase != current_phase:
+        raise ValueError(
+            f"phase confirmation mismatch: expected {current_phase}, got {confirmed_phase}"
+        )
+    advanced = deepcopy(checkpoint)
+    if current_phase == "complete":
+        return advanced
+    if current_phase == "teardown":
+        verdicts = checkpoint["verdicts"]
+        domains = verdicts.get("domains") if isinstance(verdicts, dict) else None
+        if checkpoint["cleanup_obligations"] or not isinstance(domains, dict) or domains.get(
+            "cleanup"
+        ) != "green":
+            raise ValueError("cleanup is not green")
+    current_index = SCENARIO_PHASES.index(current_phase)
+    advanced["phase"] = SCENARIO_PHASES[current_index + 1]
+    return advanced
 
 
 def compare_compatibility_fingerprints(expected: dict, actual: dict) -> dict:

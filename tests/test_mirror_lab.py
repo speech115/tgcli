@@ -233,6 +233,57 @@ def test_scenario_checkpoint_rejects_mismatched_fingerprint_key():
     assert fingerprint["scenario_key"] == "basic.open"
 
 
+def test_select_scenarios_returns_frozen_all_order_or_one_exact_target():
+    all_specs = lab_module.select_scenarios()
+    assert all_specs == lab_module.required_scenarios()
+    assert lab_module.select_scenarios("forum.protected") == (
+        next(spec for spec in all_specs if spec.key == "forum.protected"),
+    )
+
+    with pytest.raises(ValueError, match="unknown scenario key"):
+        lab_module.select_scenarios("forum.missing")
+
+
+def test_scenario_resume_phase_validates_and_reports_first_unconfirmed_phase():
+    fingerprint = classification_fingerprint()
+    checkpoint = lab_module.new_scenario_checkpoint("basic.open", fingerprint)
+    assert lab_module.scenario_resume_phase(checkpoint) == "preflight"
+
+    malformed = deepcopy(checkpoint)
+    malformed["checkpoint_version"] = 2
+    with pytest.raises(ValueError, match="checkpoint version"):
+        lab_module.scenario_resume_phase(malformed)
+
+
+def test_advance_scenario_phase_is_sequential_pure_and_cleanup_gated():
+    fingerprint = classification_fingerprint()
+    checkpoint = lab_module.new_scenario_checkpoint("basic.open", fingerprint)
+
+    advanced = lab_module.advance_scenario_phase(checkpoint, "preflight")
+    assert checkpoint["phase"] == "preflight"
+    assert advanced["phase"] == "create"
+    assert advanced is not checkpoint
+    assert (
+        advanced["compatibility_fingerprint"]
+        is not checkpoint["compatibility_fingerprint"]
+    )
+
+    with pytest.raises(ValueError, match="phase confirmation mismatch"):
+        lab_module.advance_scenario_phase(advanced, "seed")
+
+    advanced["phase"] = "teardown"
+    advanced["cleanup_obligations"] = [{"peer": "pending"}]
+    advanced["verdicts"] = {"domains": {"cleanup": "blocked"}}
+    with pytest.raises(ValueError, match="cleanup is not green"):
+        lab_module.advance_scenario_phase(advanced, "teardown")
+
+    advanced["cleanup_obligations"] = []
+    advanced["verdicts"]["domains"]["cleanup"] = "green"
+    complete = lab_module.advance_scenario_phase(advanced, "teardown")
+    assert complete["phase"] == "complete"
+    assert lab_module.advance_scenario_phase(complete, "complete") == complete
+
+
 def test_compare_compatibility_fingerprints_reports_all_mismatches_in_order():
     expected = classification_fingerprint()
     actual = classification_fingerprint(
