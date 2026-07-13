@@ -872,6 +872,311 @@ async def test_scenario_teardown_reconciles_persisted_delete_after_flood_wait():
     assert cleaned["cleanup_obligations"] == []
 
 
+@pytest.mark.asyncio
+async def test_channel_comment_canary_proves_native_root_and_nested_reply(
+    monkeypatch,
+):
+    scenario_key = "channel_plain.open_open"
+    lab_id = "f" * 24
+    fingerprint = classification_fingerprint(scenario_key)
+    checkpoint = lab_module.new_scenario_checkpoint(scenario_key, fingerprint)
+    checkpoint["phase"] = "seed"
+    roles = ("source", "source_discussion", "destination", "destination_discussion")
+    checkpoint["created_peers"] = {
+        role: {"peer_id": 701 + index, "title_marker_verified": True}
+        for index, role in enumerate(roles)
+    }
+    peers = {
+        role: NS(
+            id=checkpoint["created_peers"][role]["peer_id"],
+            title=lab_module.scenario_peer_title(lab_id, scenario_key, role),
+            creator=True,
+        )
+        for role in roles
+    }
+
+    class CommentTG:
+        def __init__(self):
+            self.requests = []
+            self.messages = []
+            self.next_id = 800
+            self.root = None
+            self.discussion_reads = 0
+            self.reply_reads = 0
+
+        async def get_entity(self, ref):
+            peer_id = ref.channel_id
+            return next(peer for peer in peers.values() if peer.id == peer_id)
+
+        async def get_input_entity(self, ref):
+            return await self.get_entity(ref)
+
+        async def __call__(self, request):
+            self.requests.append(request)
+            if isinstance(request, lab_module.functions.messages.SendMessageRequest):
+                self.next_id += 1
+                message = NS(
+                    id=self.next_id,
+                    peer_id=lab_module.types.PeerChannel(request.peer.id),
+                    message=request.message,
+                    reply_to=NS(
+                        reply_to_msg_id=request.reply_to.reply_to_msg_id,
+                        reply_to_top_id=request.reply_to.top_msg_id,
+                    ) if request.reply_to else None,
+                )
+                self.messages.append(message)
+                return NS(
+                    updates=[
+                        NS(message=NS(id=9999, message="unrelated")),
+                        lab_module.types.UpdateMessageID(
+                            random_id=request.random_id,
+                            id=message.id,
+                        ),
+                        NS(message=message),
+                    ]
+                )
+            if isinstance(
+                request,
+                lab_module.functions.messages.GetDiscussionMessageRequest,
+            ):
+                self.discussion_reads += 1
+                if self.discussion_reads == 1:
+                    return NS(messages=[], chats=[])
+                self.root = NS(
+                    id=900,
+                    peer_id=lab_module.types.PeerChannel(
+                        peers["source_discussion"].id
+                    ),
+                    message=self.messages[0].message,
+                    fwd_from=NS(channel_post=self.messages[0].id),
+                )
+                return NS(messages=[self.messages[0], self.root], chats=[])
+            if isinstance(request, lab_module.functions.messages.GetRepliesRequest):
+                self.reply_reads += 1
+                if self.reply_reads == 1:
+                    return NS(messages=[])
+                return NS(messages=[self.root, *self.messages[1:]])
+            raise AssertionError(type(request).__name__)
+
+    states = []
+    tg = CommentTG()
+    async def no_sleep(_delay):
+        return None
+
+    monkeypatch.setattr(lab_module.asyncio, "sleep", no_sleep)
+    result = await lab_module.verify_channel_comment_thread_live(
+        tg,
+        checkpoint,
+        fingerprint,
+        lab_id=lab_id,
+        account_alias="labacct",
+        side="source",
+        record=lambda key, state: states.append((key, state)),
+    )
+
+    assert result == {
+        "side": "source",
+        "post": "confirmed",
+        "discussion_root": "confirmed",
+        "comment": "confirmed",
+        "nested_reply": "confirmed",
+    }
+    assert [type(request).__name__ for request in tg.requests] == [
+        "SendMessageRequest",
+        "GetDiscussionMessageRequest",
+        "GetDiscussionMessageRequest",
+        "SendMessageRequest",
+        "SendMessageRequest",
+        "GetRepliesRequest",
+        "GetRepliesRequest",
+    ]
+    comment_request = tg.requests[3]
+    nested_request = tg.requests[4]
+    assert comment_request.reply_to.reply_to_msg_id == 900
+    assert comment_request.reply_to.top_msg_id is None
+    assert nested_request.reply_to.reply_to_msg_id == 802
+    assert nested_request.reply_to.top_msg_id == 900
+    assert states == [
+        ("source:post", "prepared"),
+        ("source:post", "dispatched"),
+        ("source:post", "confirmed"),
+        ("source:comment", "prepared"),
+        ("source:comment", "dispatched"),
+        ("source:comment", "confirmed"),
+        ("source:nested_reply", "prepared"),
+        ("source:nested_reply", "dispatched"),
+        ("source:nested_reply", "confirmed"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_channel_comment_canary_rejects_non_plain_topology_before_client():
+    scenario_key = "forum.open"
+    fingerprint = classification_fingerprint(scenario_key)
+    checkpoint = lab_module.new_scenario_checkpoint(scenario_key, fingerprint)
+
+    with pytest.raises(PolicyError, match="plain linked discussion"):
+        await lab_module.verify_channel_comment_thread_live(
+            object(),
+            checkpoint,
+            fingerprint,
+            lab_id="f" * 24,
+            account_alias="labacct",
+            side="source",
+            record=lambda *_: None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_forum_topic_canary_proves_general_and_custom_reply_chains():
+    scenario_key = "forum.open"
+    lab_id = "1" * 24
+    fingerprint = classification_fingerprint(scenario_key)
+    checkpoint = lab_module.new_scenario_checkpoint(scenario_key, fingerprint)
+    checkpoint["phase"] = "seed"
+    checkpoint["created_peers"] = {
+        "source": {"peer_id": 701, "title_marker_verified": True},
+        "destination": {"peer_id": 702, "title_marker_verified": True},
+    }
+    peers = {
+        role: NS(
+            id=checkpoint["created_peers"][role]["peer_id"],
+            title=lab_module.scenario_peer_title(lab_id, scenario_key, role),
+            creator=True,
+            forum=True,
+        )
+        for role in ("source", "destination")
+    }
+
+    class ForumTG:
+        def __init__(self):
+            self.requests = []
+            self.messages = []
+            self.next_id = 800
+            self.topic_id = 900
+            self.topic_title = None
+
+        async def get_entity(self, ref):
+            return next(peer for peer in peers.values() if peer.id == ref.channel_id)
+
+        async def get_input_entity(self, ref):
+            return await self.get_entity(ref)
+
+        async def __call__(self, request):
+            self.requests.append(request)
+            if isinstance(
+                request,
+                lab_module.functions.messages.GetForumTopicsByIDRequest,
+            ):
+                topic_id = request.topics[0]
+                title = "General" if topic_id == 1 else self.topic_title
+                return NS(topics=[NS(id=topic_id, title=title, closed=False, hidden=False)])
+            if isinstance(
+                request,
+                lab_module.functions.messages.CreateForumTopicRequest,
+            ):
+                self.topic_title = request.title
+                service = NS(
+                    id=self.topic_id,
+                    action=lab_module.types.MessageActionTopicCreate(
+                        title=request.title,
+                        icon_color=request.icon_color,
+                    ),
+                )
+                return NS(updates=[NS(message=service)])
+            if isinstance(request, lab_module.functions.messages.SendMessageRequest):
+                self.next_id += 1
+                reply = request.reply_to
+                message = NS(
+                    id=self.next_id,
+                    message=request.message,
+                    peer_id=lab_module.types.PeerChannel(request.peer.id),
+                    reply_to=NS(
+                        reply_to_msg_id=reply.reply_to_msg_id,
+                        reply_to_top_id=(
+                            None
+                            if reply.reply_to_msg_id == self.topic_id
+                            else reply.top_msg_id
+                        ),
+                        forum_topic=True,
+                    ) if reply else None,
+                )
+                self.messages.append(message)
+                return NS(
+                    updates=[
+                        lab_module.types.UpdateMessageID(
+                            random_id=request.random_id,
+                            id=message.id,
+                        ),
+                        NS(message=message),
+                    ]
+                )
+            if isinstance(request, lab_module.functions.messages.GetRepliesRequest):
+                if request.msg_id == 1:
+                    selected = self.messages[:2]
+                else:
+                    selected = self.messages[2:]
+                return NS(messages=selected)
+            raise AssertionError(type(request).__name__)
+
+    states = []
+    tg = ForumTG()
+    result = await lab_module.verify_forum_topics_live(
+        tg,
+        checkpoint,
+        fingerprint,
+        lab_id=lab_id,
+        account_alias="labacct",
+        side="source",
+        record=lambda key, state: states.append((key, state)),
+    )
+
+    assert result == {
+        "side": "source",
+        "general_topic": "confirmed",
+        "custom_topic": "confirmed",
+        "general_reply": "confirmed",
+        "custom_reply": "confirmed",
+    }
+    create = next(
+        request
+        for request in tg.requests
+        if isinstance(request, lab_module.functions.messages.CreateForumTopicRequest)
+    )
+    assert create.icon_color == 0x6FB9F0
+    send_requests = [
+        request
+        for request in tg.requests
+        if isinstance(request, lab_module.functions.messages.SendMessageRequest)
+    ]
+    assert send_requests[0].reply_to is None
+    assert send_requests[1].reply_to.reply_to_msg_id == 801
+    assert send_requests[1].reply_to.top_msg_id == 1
+    assert send_requests[2].reply_to.reply_to_msg_id == 900
+    assert send_requests[2].reply_to.top_msg_id == 900
+    assert send_requests[3].reply_to.reply_to_msg_id == 803
+    assert send_requests[3].reply_to.top_msg_id == 900
+    assert states[-1] == ("source:custom_reply", "confirmed")
+
+
+@pytest.mark.asyncio
+async def test_forum_topic_canary_rejects_non_forum_before_client():
+    scenario_key = "supergroup.open"
+    fingerprint = classification_fingerprint(scenario_key)
+    checkpoint = lab_module.new_scenario_checkpoint(scenario_key, fingerprint)
+
+    with pytest.raises(PolicyError, match="standalone forum"):
+        await lab_module.verify_forum_topics_live(
+            object(),
+            checkpoint,
+            fingerprint,
+            lab_id="1" * 24,
+            account_alias="labacct",
+            side="source",
+            record=lambda *_: None,
+        )
+
+
 def test_materialize_basic_and_forum_create_requests_without_dispatch():
     lab_id = "a" * 24
     basic_fingerprint = classification_fingerprint(

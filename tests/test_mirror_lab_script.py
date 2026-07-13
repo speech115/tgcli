@@ -378,3 +378,194 @@ def test_expanded_cleanup_removes_confirmed_checkpoint(tmp_path, monkeypatch):
     ) == 0
     persisted = script.mirror_lab.load_manifest(manifest_path)
     assert scenario_key not in persisted["scenarios"]
+
+
+@pytest.mark.parametrize(
+    ("phase", "scenario_key", "verify_attr", "result_field"),
+    (
+        (
+            "expanded-comments-canary",
+            "channel_plain.open_open",
+            "verify_channel_comment_thread_live",
+            "comment_threads",
+        ),
+        (
+            "expanded-forum-canary",
+            "forum.open",
+            "verify_forum_topics_live",
+            "forum_peers",
+        ),
+    ),
+)
+def test_expanded_content_canary_verifies_both_sides_and_cleans(
+    tmp_path,
+    monkeypatch,
+    capsys,
+    phase,
+    scenario_key,
+    verify_attr,
+    result_field,
+):
+    manifest_path = tmp_path / "expanded.json"
+    fingerprint = script.mirror_lab.new_compatibility_fingerprint(
+        scenario_key,
+        fixture_schema_version=1,
+        lab_code_digest="a" * 64,
+        mirror_code_digest="b" * 64,
+        telethon_version="1.44.0",
+        telegram_schema_layer=227,
+        account_role_binding={
+            "operator": {"alias": "labacct", "user_id": 7},
+        },
+        config_digest="c" * 64,
+    )
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get_me(self):
+            return NS(id=7)
+
+    account = NS(alias="labacct")
+    monkeypatch.setattr(script.config, "load_config", lambda: {})
+    monkeypatch.setattr(script.config, "resolve_account", lambda *_: account)
+    monkeypatch.setattr(script.session, "client", lambda _account: FakeClient())
+    monkeypatch.setattr(
+        script, "live_scenario_fingerprint", lambda *_: fingerprint
+    )
+
+    async def provision(_tg, checkpoint, _fingerprint, *, persist, **_kwargs):
+        current = deepcopy(checkpoint)
+        current["phase"] = "seed"
+        roles = tuple(
+            intent["target_role"]
+            for intent in script.mirror_lab.build_scenario_provisioning_intents(
+                scenario_key, fingerprint
+            )
+            if intent["method"]
+            in {"messages.createChat", "channels.createChannel"}
+        )
+        current["created_peers"] = {
+            role: {"peer_id": 701 + index, "title_marker_verified": True}
+            for index, role in enumerate(roles)
+        }
+        current["cleanup_obligations"] = [
+            {"peer_role": role} for role in roles
+        ]
+        for intent in script.mirror_lab.build_scenario_provisioning_intents(
+            scenario_key, fingerprint
+        ):
+            current["outbound_operations"][intent["intent_key"]] = {
+                "method": intent["method"],
+                "target_role": intent["target_role"],
+                "parameters": deepcopy(intent["parameters"]),
+                "state": "confirmed",
+            }
+        persist(current)
+        return current
+
+    verified = []
+
+    async def verify(_tg, _checkpoint, _fingerprint, *, side, record, **_kwargs):
+        verified.append(side)
+        for operation in ("post", "comment", "nested_reply"):
+            key = f"{side}:{operation}"
+            record(key, "prepared")
+            record(key, "dispatched")
+            record(key, "confirmed")
+        return {"side": side, "nested_reply": "confirmed"}
+
+    async def cleanup(_tg, checkpoint, _fingerprint, *, persist, **_kwargs):
+        cleaned = deepcopy(checkpoint)
+        cleaned["created_peers"] = {}
+        cleaned["cleanup_obligations"] = []
+        persist(cleaned)
+        return cleaned
+
+    monkeypatch.setattr(script.mirror_lab, "provision_scenario_live", provision)
+    monkeypatch.setattr(script.mirror_lab, verify_attr, verify)
+    monkeypatch.setattr(script.mirror_lab, "teardown_scenario_peers", cleanup)
+
+    assert script.main(
+        [
+            phase,
+            "--manifest",
+            str(manifest_path),
+            "--scenario",
+            scenario_key,
+        ]
+    ) == 0
+    assert verified == ["source", "destination"]
+    payload = json.loads(capsys.readouterr().out)
+    assert payload[result_field] == ["source", "destination"]
+    persisted = script.mirror_lab.load_manifest(manifest_path)
+    assert scenario_key not in persisted["scenarios"]
+
+
+def test_interrupted_content_canary_is_cleanup_only(
+    tmp_path, monkeypatch, capsys
+):
+    scenario_key = "channel_plain.open_open"
+    manifest_path = tmp_path / "expanded.json"
+    fingerprint = script.mirror_lab.new_compatibility_fingerprint(
+        scenario_key,
+        fixture_schema_version=1,
+        lab_code_digest="a" * 64,
+        mirror_code_digest="b" * 64,
+        telethon_version="1.44.0",
+        telegram_schema_layer=227,
+        account_role_binding={
+            "operator": {"alias": "labacct", "user_id": 7},
+        },
+        config_digest="c" * 64,
+    )
+    manifest = script.mirror_lab.new_manifest(7)
+    checkpoint = script.mirror_lab.new_scenario_checkpoint(
+        scenario_key, fingerprint
+    )
+    checkpoint["phase"] = "seed"
+    checkpoint["verdicts"] = {
+        "canary_operations": {"source:post": {"state": "confirmed"}}
+    }
+    manifest["scenarios"][scenario_key] = checkpoint
+    script.mirror_lab.save_manifest(manifest_path, manifest)
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get_me(self):
+            return NS(id=7)
+
+    account = NS(alias="labacct")
+    monkeypatch.setattr(script.config, "load_config", lambda: {})
+    monkeypatch.setattr(script.config, "resolve_account", lambda *_: account)
+    monkeypatch.setattr(script.session, "client", lambda _account: FakeClient())
+    monkeypatch.setattr(
+        script, "live_scenario_fingerprint", lambda *_: fingerprint
+    )
+    monkeypatch.setattr(
+        script.mirror_lab,
+        "provision_scenario_live",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("provision called")
+        ),
+    )
+
+    assert script.main(
+        [
+            "expanded-comments-canary",
+            "--manifest",
+            str(manifest_path),
+            "--scenario",
+            scenario_key,
+        ]
+    ) == 2
+    assert "cleanup-only" in capsys.readouterr().err

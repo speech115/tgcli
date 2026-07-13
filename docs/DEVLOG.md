@@ -15,6 +15,32 @@ Template:
 
 ---
 
+## 2026-07-13 — Native channel comments proven end to end (Codex GPT-5)
+**Did:** added audited, marker-correlated content canaries for plain linked
+channel comments and standalone forum topics. The channel path sends a marked
+post, resolves its auto-forwarded discussion root, sends a comment and nested
+reply, then accepts only an exact `GetReplies` readback of both parent edges.
+The forum path independently verifies General topic id 1, creates and reads back
+a custom topic, and validates General/custom messages plus nested topic replies.
+Every write persists prepared/dispatched/confirmed or ambiguous state; an
+interrupted content checkpoint is explicitly cleanup-only and cannot resend.
+**Decided:** send responses are not sufficient evidence. Message ids correlate
+through the exact random id (with peer/marker fallback), propagation reads use
+bounded polling, and forum effective roots accept Telegram's optional
+`reply_to_top_id` normalization without weakening nested-parent checks.
+**Learned:** the controlled-live `channel_plain.open_open` run confirmed source
+and destination post → native root → comment → nested reply chains. Its process
+ended midway through teardown after deleting the destination pair; the source
+pair remained durably marked, a retry correctly surfaced `FLOOD_WAIT 506`, and
+`expanded-cleanup` later removed it. A separate exact-marker dialog scan then
+returned `remaining_disposable_dialogs=0`.
+**Checks:** focused comment/forum and runner tests are green; full suite:
+`360 passed, 9 skipped`; namespace coverage: `coverage OK: 23 namespaces`;
+`git diff --check` and compileall clean. No standalone forum live mutation ran
+while cleanup or FloodWait was pending.
+**Next:** after cooldown, run the standalone `forum.open` General/custom topic
+canary, verify zero marked dialogs, then commit and push the slice.
+
 ## 2026-07-13 — Live topology provisioning and forum blocker proven (Codex GPT-5)
 **Did:** wired expanded scenario intents to audited Telethon dispatch with exact
 creation, protection, discussion-eligibility, link, and topology readback. Added

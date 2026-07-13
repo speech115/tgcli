@@ -985,6 +985,497 @@ async def teardown_scenario_peers(
     return current
 
 
+async def _owned_scenario_entity(
+    tg,
+    checkpoint: dict,
+    fingerprint: dict,
+    *,
+    lab_id: str,
+    role: str,
+):
+    families = _scenario_peer_families(fingerprint)
+    peer = checkpoint["created_peers"].get(role)
+    if role not in families or not isinstance(peer, dict):
+        raise PolicyError(f"missing owned scenario peer: {role}")
+    entity = await tg.get_entity(
+        _scenario_peer_ref(families[role], peer["peer_id"])
+    )
+    expected_title = scenario_peer_title(
+        lab_id, fingerprint["scenario_key"], role
+    )
+    if (
+        getattr(entity, "title", None) != expected_title
+        or not getattr(entity, "creator", False)
+    ):
+        raise PolicyError(f"{role}: peer is not the exact owned scenario fixture")
+    return entity
+
+
+async def _scenario_canary_write(
+    tg,
+    *,
+    account_alias: str,
+    scenario_key: str,
+    side: str,
+    operation: str,
+    request,
+    record,
+):
+    operation_key = f"{side}:{operation}"
+    record(operation_key, "prepared")
+    record(operation_key, "dispatched")
+    try:
+        result = await _audited_mutation(
+            "mirror-lab-scenario-content",
+            account_alias,
+            {
+                "scenario_key": scenario_key,
+                "side": side,
+                "operation": operation,
+            },
+            lambda: tg(request),
+            ambiguous_errors=True,
+        )
+    except BaseException:
+        record(operation_key, "ambiguous")
+        raise
+    record(operation_key, "confirmed")
+    return result
+
+
+async def _bounded_scenario_readback(fetch, accept, description: str):
+    last_error = None
+    for attempt in range(5):
+        try:
+            result = await fetch()
+        except MsgIdInvalidError as exc:
+            last_error = exc
+        else:
+            if accept(result):
+                return result
+        if attempt < 4:
+            await asyncio.sleep(0.25)
+    raise ValueError(f"{description} was not observed after bounded polling") from last_error
+
+
+async def verify_channel_comment_thread_live(
+    tg,
+    checkpoint: dict,
+    fingerprint: dict,
+    *,
+    lab_id: str,
+    account_alias: str,
+    side: str,
+    record,
+) -> dict:
+    scenario_key = fingerprint.get("scenario_key")
+    spec = select_scenarios(scenario_key)[0]
+    if spec.discussion_kind != "plain":
+        raise PolicyError("channel comment canary requires a plain linked discussion")
+    if side not in {"source", "destination"}:
+        raise ValueError(f"invalid channel comment side: {side}")
+    if compare_compatibility_fingerprints(
+        fingerprint, checkpoint["compatibility_fingerprint"]
+    )["compatible"] is not True:
+        raise ValueError("checkpoint fingerprint is not compatible")
+    if checkpoint.get("phase") != "seed":
+        raise ValueError("channel comment canary requires seed phase")
+    if not callable(record):
+        raise ValueError("channel comment canary recorder is required")
+
+    channel = await _owned_scenario_entity(
+        tg,
+        checkpoint,
+        fingerprint,
+        lab_id=lab_id,
+        role=side,
+    )
+    discussion_role = f"{side}_discussion"
+    discussion = await _owned_scenario_entity(
+        tg,
+        checkpoint,
+        fingerprint,
+        lab_id=lab_id,
+        role=discussion_role,
+    )
+    channel_input = await tg.get_input_entity(
+        _scenario_peer_ref("channel", channel.id)
+    )
+    discussion_input = await tg.get_input_entity(
+        _scenario_peer_ref("supergroup", discussion.id)
+    )
+    marker_prefix = f"{LAB_MARKER}:{lab_id}:{scenario_key}:comments:{side}"
+
+    post_marker = f"{marker_prefix}:post"
+    post_request = functions.messages.SendMessageRequest(
+        peer=channel_input,
+        message=post_marker,
+        random_id=_random_id(),
+    )
+    post_update = await _scenario_canary_write(
+        tg,
+        account_alias=account_alias,
+        scenario_key=scenario_key,
+        side=side,
+        operation="post",
+        request=post_request,
+        record=record,
+    )
+    post_id = _sent_message_id(
+        post_update,
+        random_id=post_request.random_id,
+        peer_id=channel.id,
+        marker=post_marker,
+    )
+
+    def discussion_roots(result):
+        return [
+            message
+            for message in getattr(result, "messages", ())
+            if getattr(getattr(message, "peer_id", None), "channel_id", None)
+            == discussion.id
+            and getattr(getattr(message, "fwd_from", None), "channel_post", None)
+            == post_id
+            and getattr(message, "message", None) == post_marker
+        ]
+
+    discussion_result = await _bounded_scenario_readback(
+        lambda: tg(
+            functions.messages.GetDiscussionMessageRequest(
+                peer=channel_input,
+                msg_id=post_id,
+            )
+        ),
+        lambda result: len(discussion_roots(result)) == 1,
+        "native discussion root",
+    )
+    roots = discussion_roots(discussion_result)
+    if not _is_positive_int(getattr(roots[0], "id", None)):
+        raise ValueError("native discussion root has no valid message id")
+    root = roots[0]
+
+    comment_marker = f"{marker_prefix}:comment"
+    comment_request = functions.messages.SendMessageRequest(
+        peer=discussion_input,
+        message=comment_marker,
+        reply_to=types.InputReplyToMessage(reply_to_msg_id=root.id),
+        random_id=_random_id(),
+    )
+    comment_update = await _scenario_canary_write(
+        tg,
+        account_alias=account_alias,
+        scenario_key=scenario_key,
+        side=side,
+        operation="comment",
+        request=comment_request,
+        record=record,
+    )
+    comment_id = _sent_message_id(
+        comment_update,
+        random_id=comment_request.random_id,
+        peer_id=discussion.id,
+        marker=comment_marker,
+    )
+    nested_marker = f"{marker_prefix}:nested"
+    await _scenario_canary_write(
+        tg,
+        account_alias=account_alias,
+        scenario_key=scenario_key,
+        side=side,
+        operation="nested_reply",
+        request=functions.messages.SendMessageRequest(
+            peer=discussion_input,
+            message=nested_marker,
+            reply_to=types.InputReplyToMessage(
+                reply_to_msg_id=comment_id,
+                top_msg_id=root.id,
+            ),
+            random_id=_random_id(),
+        ),
+        record=record,
+    )
+
+    def marker_messages(result):
+        return {
+            marker: [
+                message
+                for message in getattr(result, "messages", ())
+                if getattr(message, "message", None) == marker
+            ]
+            for marker in (comment_marker, nested_marker)
+        }
+
+    replies = await _bounded_scenario_readback(
+        lambda: tg(
+            functions.messages.GetRepliesRequest(
+                peer=discussion_input,
+                msg_id=root.id,
+                offset_id=0,
+                offset_date=None,
+                add_offset=0,
+                limit=50,
+                max_id=0,
+                min_id=0,
+                hash=0,
+            )
+        ),
+        lambda result: all(
+            len(messages) == 1
+            for messages in marker_messages(result).values()
+        ),
+        "native comment reply chain",
+    )
+    by_marker = marker_messages(replies)
+    if any(len(messages) != 1 for messages in by_marker.values()):
+        raise ValueError("native comment markers were not observed exactly once")
+    comment = by_marker[comment_marker][0]
+    nested = by_marker[nested_marker][0]
+    if (
+        getattr(getattr(comment, "reply_to", None), "reply_to_msg_id", None)
+        != root.id
+        or getattr(getattr(nested, "reply_to", None), "reply_to_msg_id", None)
+        != comment.id
+        or getattr(getattr(nested, "reply_to", None), "reply_to_top_id", None)
+        != root.id
+    ):
+        raise ValueError("native comment reply chain does not match expected parents")
+    return {
+        "side": side,
+        "post": "confirmed",
+        "discussion_root": "confirmed",
+        "comment": "confirmed",
+        "nested_reply": "confirmed",
+    }
+
+
+async def verify_forum_topics_live(
+    tg,
+    checkpoint: dict,
+    fingerprint: dict,
+    *,
+    lab_id: str,
+    account_alias: str,
+    side: str,
+    record,
+) -> dict:
+    scenario_key = fingerprint.get("scenario_key")
+    spec = select_scenarios(scenario_key)[0]
+    if spec.source_family != "forum" or spec.discussion_kind != "none":
+        raise PolicyError("forum topic canary requires a standalone forum")
+    if side not in {"source", "destination"}:
+        raise ValueError(f"invalid forum canary side: {side}")
+    if compare_compatibility_fingerprints(
+        fingerprint, checkpoint["compatibility_fingerprint"]
+    )["compatible"] is not True:
+        raise ValueError("checkpoint fingerprint is not compatible")
+    if checkpoint.get("phase") != "seed":
+        raise ValueError("forum topic canary requires seed phase")
+    if not callable(record):
+        raise ValueError("forum topic canary recorder is required")
+
+    forum = await _owned_scenario_entity(
+        tg,
+        checkpoint,
+        fingerprint,
+        lab_id=lab_id,
+        role=side,
+    )
+    if not getattr(forum, "forum", False):
+        raise PolicyError(f"{side}: owned scenario peer is not a forum")
+    forum_input = await tg.get_input_entity(
+        _scenario_peer_ref("forum", forum.id)
+    )
+    general_result = await tg(
+        functions.messages.GetForumTopicsByIDRequest(
+            peer=forum_input,
+            topics=[1],
+        )
+    )
+    general_topics = [
+        topic
+        for topic in getattr(general_result, "topics", ())
+        if getattr(topic, "id", None) == 1
+        and type(topic).__name__ != "ForumTopicDeleted"
+    ]
+    if len(general_topics) != 1:
+        raise ValueError("General forum topic was not observed exactly once")
+
+    marker_prefix = f"{LAB_MARKER}:{lab_id}:{scenario_key}:forum:{side}"
+    custom_title = f"{marker_prefix}:topic"
+    topic_update = await _scenario_canary_write(
+        tg,
+        account_alias=account_alias,
+        scenario_key=scenario_key,
+        side=side,
+        operation="custom_topic",
+        request=functions.messages.CreateForumTopicRequest(
+            peer=forum_input,
+            title=custom_title,
+            icon_color=0x6FB9F0,
+            random_id=_random_id(),
+        ),
+        record=record,
+    )
+    topic_messages = [
+        getattr(update, "message", None)
+        for update in getattr(topic_update, "updates", ())
+    ]
+    created_topics = [
+        message
+        for message in topic_messages
+        if message is not None
+        and isinstance(
+            getattr(message, "action", None),
+            types.MessageActionTopicCreate,
+        )
+        and getattr(message.action, "title", None) == custom_title
+        and _is_positive_int(getattr(message, "id", None))
+    ]
+    if len(created_topics) != 1:
+        raise ValueError("custom forum topic creation was not observed exactly once")
+    topic_id = created_topics[0].id
+    custom_result = await tg(
+        functions.messages.GetForumTopicsByIDRequest(
+            peer=forum_input,
+            topics=[topic_id],
+        )
+    )
+    custom_topics = [
+        topic
+        for topic in getattr(custom_result, "topics", ())
+        if getattr(topic, "id", None) == topic_id
+        and getattr(topic, "title", None) == custom_title
+        and not getattr(topic, "closed", False)
+        and not getattr(topic, "hidden", False)
+        and type(topic).__name__ != "ForumTopicDeleted"
+    ]
+    if len(custom_topics) != 1:
+        raise ValueError("custom forum topic readback did not match creation")
+
+    async def send(operation: str, marker: str, reply_to=None) -> int:
+        request = functions.messages.SendMessageRequest(
+            peer=forum_input,
+            message=marker,
+            reply_to=reply_to,
+            random_id=_random_id(),
+        )
+        update = await _scenario_canary_write(
+            tg,
+            account_alias=account_alias,
+            scenario_key=scenario_key,
+            side=side,
+            operation=operation,
+            request=request,
+            record=record,
+        )
+        return _sent_message_id(
+            update,
+            random_id=request.random_id,
+            peer_id=forum.id,
+            marker=marker,
+        )
+
+    general_marker = f"{marker_prefix}:general"
+    general_id = await send("general_message", general_marker)
+    general_reply_marker = f"{marker_prefix}:general_reply"
+    await send(
+        "general_reply",
+        general_reply_marker,
+        types.InputReplyToMessage(reply_to_msg_id=general_id, top_msg_id=1),
+    )
+    custom_marker = f"{marker_prefix}:custom"
+    custom_id = await send(
+        "custom_message",
+        custom_marker,
+        types.InputReplyToMessage(
+            reply_to_msg_id=topic_id,
+            top_msg_id=topic_id,
+        ),
+    )
+    custom_reply_marker = f"{marker_prefix}:custom_reply"
+    await send(
+        "custom_reply",
+        custom_reply_marker,
+        types.InputReplyToMessage(
+            reply_to_msg_id=custom_id,
+            top_msg_id=topic_id,
+        ),
+    )
+
+    async def topic_messages(root_id: int, markers: tuple[str, str]):
+        result = await tg(
+            functions.messages.GetRepliesRequest(
+                peer=forum_input,
+                msg_id=root_id,
+                offset_id=0,
+                offset_date=None,
+                add_offset=0,
+                limit=50,
+                max_id=0,
+                min_id=0,
+                hash=0,
+            )
+        )
+        found = {
+            marker: [
+                message
+                for message in getattr(result, "messages", ())
+                if getattr(message, "message", None) == marker
+            ]
+            for marker in markers
+        }
+        if any(len(messages) != 1 for messages in found.values()):
+            raise ValueError("forum topic markers were not observed exactly once")
+        return tuple(found[marker][0] for marker in markers)
+
+    general_message, general_reply = await topic_messages(
+        1, (general_marker, general_reply_marker)
+    )
+    custom_message, custom_reply = await topic_messages(
+        topic_id, (custom_marker, custom_reply_marker)
+    )
+    if (
+        getattr(getattr(general_reply, "reply_to", None), "reply_to_msg_id", None)
+        != general_message.id
+        or getattr(
+            getattr(general_reply, "reply_to", None), "reply_to_top_id", None
+        )
+        != 1
+        or getattr(getattr(custom_message, "reply_to", None), "reply_to_msg_id", None)
+        != topic_id
+        or (
+            getattr(
+                getattr(custom_message, "reply_to", None),
+                "reply_to_top_id",
+                None,
+            )
+            or getattr(
+                getattr(custom_message, "reply_to", None),
+                "reply_to_msg_id",
+                None,
+            )
+        )
+        != topic_id
+        or not getattr(
+            getattr(custom_message, "reply_to", None), "forum_topic", False
+        )
+        or getattr(getattr(custom_reply, "reply_to", None), "reply_to_msg_id", None)
+        != custom_message.id
+        or getattr(
+            getattr(custom_reply, "reply_to", None), "reply_to_top_id", None
+        )
+        != topic_id
+    ):
+        raise ValueError("forum topic reply chain does not match expected parents")
+    return {
+        "side": side,
+        "general_topic": "confirmed",
+        "custom_topic": "confirmed",
+        "general_reply": "confirmed",
+        "custom_reply": "confirmed",
+    }
+
+
 def _apply_scenario_intent_observation(
     checkpoint: dict,
     intent: dict,
@@ -1964,7 +2455,37 @@ def _random_id() -> int:
     return int.from_bytes(os.urandom(8), "little", signed=True)
 
 
-def _sent_message_id(update) -> int:
+def _sent_message_id(
+    update,
+    *,
+    random_id: int | None = None,
+    peer_id: int | None = None,
+    marker: str | None = None,
+) -> int:
+    if random_id is not None:
+        correlated = [
+            item.id
+            for item in getattr(update, "updates", ())
+            if type(item).__name__ == "UpdateMessageID"
+            and getattr(item, "random_id", None) == random_id
+            and _is_positive_int(getattr(item, "id", None))
+        ]
+        if len(correlated) == 1:
+            return correlated[0]
+        messages = [
+            item.message
+            for item in getattr(update, "updates", ())
+            if getattr(item, "message", None) is not None
+            and getattr(item.message, "message", None) == marker
+            and (
+                peer_id is None
+                or getattr(getattr(item.message, "peer_id", None), "channel_id", None)
+                == peer_id
+            )
+        ]
+        if len(messages) == 1 and _is_positive_int(getattr(messages[0], "id", None)):
+            return messages[0].id
+        raise ValueError("could not correlate sent message id to request")
     for item in getattr(update, "updates", ()):
         message = getattr(item, "message", None)
         if message is not None and hasattr(message, "id"):
@@ -2161,6 +2682,7 @@ from telethon.errors import (
     ChannelPrivateError,
     ChatForwardsRestrictedError,
     FloodWaitError,
+    MsgIdInvalidError,
 )
 
 

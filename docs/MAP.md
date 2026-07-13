@@ -33,7 +33,7 @@ tgcli/
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
 │   ├── mirror_probe.py        [done]    R0 read-only protected-content capability probe
-│   ├── mirror_lab.py          [wip]     accepted broadcast R1 harness plus ADR-0015 aggregate/resume safety, live provisioning/readback/teardown, and explicit linked-forum blocker evidence
+│   ├── mirror_lab.py          [wip]     ADR-0015 aggregate/resume safety, live provisioning/teardown, native comment-thread and standalone-forum topic canaries, plus linked-forum blocker evidence
 │   ├── mirror/                [planned] crash-safe mirror ledger, outbox, renderer, service, watcher (ADR-0013)
 │   └── commands/
 │   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)
@@ -55,7 +55,7 @@ tgcli/
     ├── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
     ├── bench.py               [done]    live benchmark: every command against a real account
     ├── mirror_probe.py        [done]    read-only R0 capability runner
-    └── mirror_lab.py          [done]    explicitly mutating R1 runner; resumable expanded provisioning canary and cleanup recovery
+    └── mirror_lab.py          [done]    explicitly mutating R1 runner; expanded provisioning/comments/forum canaries and cleanup-only recovery after interruption
 ```
 
 ## Module Ownership Rules

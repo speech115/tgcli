@@ -7,6 +7,7 @@ import hashlib
 import json
 import sys
 import tempfile
+from copy import deepcopy
 from pathlib import Path
 
 import telethon
@@ -54,6 +55,28 @@ def parse_args(argv=None):
         "--scenario",
         required=True,
         choices=tuple(spec.key for spec in mirror_lab.required_scenarios()),
+    )
+    comments = sub.add_parser("expanded-comments-canary")
+    comments.add_argument("--manifest", required=True)
+    comments.add_argument(
+        "--scenario",
+        required=True,
+        choices=tuple(
+            spec.key
+            for spec in mirror_lab.required_scenarios()
+            if spec.discussion_kind == "plain"
+        ),
+    )
+    forum = sub.add_parser("expanded-forum-canary")
+    forum.add_argument("--manifest", required=True)
+    forum.add_argument(
+        "--scenario",
+        required=True,
+        choices=tuple(
+            spec.key
+            for spec in mirror_lab.required_scenarios()
+            if spec.source_family == "forum" and spec.discussion_kind == "none"
+        ),
     )
     cleanup = sub.add_parser("expanded-cleanup")
     cleanup.add_argument("--manifest", required=True)
@@ -145,6 +168,8 @@ async def run(args) -> dict:
         "copy-reupload",
         "teardown",
         "expanded-provision-canary",
+        "expanded-comments-canary",
+        "expanded-forum-canary",
         "expanded-cleanup",
     }:
         mirror_lab.enforce_mutation_allowed(readonly=False)
@@ -165,7 +190,11 @@ async def run(args) -> dict:
                 raise ValueError("lab manifest belongs to another account")
         else:
             if args.phase != "create":
-                if args.phase != "expanded-provision-canary":
+                if args.phase not in {
+                    "expanded-provision-canary",
+                    "expanded-comments-canary",
+                    "expanded-forum-canary",
+                }:
                     raise ValueError(f"manifest not found: {manifest_path}")
             manifest = mirror_lab.new_manifest(me.id)
 
@@ -210,7 +239,11 @@ async def run(args) -> dict:
                 "checkpoint_retained": not operations_confirmed,
             }
 
-        if args.phase == "expanded-provision-canary":
+        if args.phase in {
+            "expanded-provision-canary",
+            "expanded-comments-canary",
+            "expanded-forum-canary",
+        }:
             spec = mirror_lab.select_scenarios(args.scenario)[0]
             if spec.source_family == "basic":
                 raise ValueError(
@@ -225,16 +258,31 @@ async def run(args) -> dict:
                 checkpoint["phase"] = "create"
                 manifest["scenarios"][args.scenario] = checkpoint
                 mirror_lab.save_manifest(manifest_path, manifest)
-            elif not mirror_lab.compare_compatibility_fingerprints(
-                fingerprint, checkpoint["compatibility_fingerprint"]
-            )["compatible"]:
-                raise ValueError("existing scenario checkpoint fingerprint is stale")
+            else:
+                canary_operations = checkpoint.get("verdicts", {}).get(
+                    "canary_operations", {}
+                )
+                if args.phase in {
+                    "expanded-comments-canary",
+                    "expanded-forum-canary",
+                } and canary_operations:
+                    raise PolicyError(
+                        "interrupted content canary is cleanup-only; "
+                        "run expanded-cleanup"
+                    )
+                if not mirror_lab.compare_compatibility_fingerprints(
+                    fingerprint, checkpoint["compatibility_fingerprint"]
+                )["compatible"]:
+                    raise ValueError(
+                        "existing scenario checkpoint fingerprint is stale"
+                    )
 
             def persist(value):
                 manifest["scenarios"][args.scenario] = value
                 mirror_lab.save_manifest(manifest_path, manifest)
 
             provisioned = None
+            succeeded = False
             try:
                 provisioned = await mirror_lab.provision_scenario_live(
                     tg,
@@ -244,8 +292,62 @@ async def run(args) -> dict:
                     account_alias=account.alias,
                     persist=persist,
                 )
+                if args.phase in {
+                    "expanded-comments-canary",
+                    "expanded-forum-canary",
+                }:
+                    def record(operation_key, state):
+                        current = deepcopy(manifest["scenarios"][args.scenario])
+                        operations = current["verdicts"].setdefault(
+                            "canary_operations", {}
+                        )
+                        previous = operations.get(operation_key)
+                        previous_state = (
+                            previous.get("state")
+                            if isinstance(previous, dict)
+                            else None
+                        )
+                        allowed = {
+                            None: {"prepared"},
+                            "prepared": {"dispatched"},
+                            "dispatched": {"confirmed", "ambiguous"},
+                        }
+                        if state not in allowed.get(previous_state, set()):
+                            raise ValueError(
+                                f"invalid canary operation transition: {operation_key}"
+                            )
+                        operations[operation_key] = {"state": state}
+                        persist(current)
+
+                    if args.phase == "expanded-comments-canary":
+                        verifier = mirror_lab.verify_channel_comment_thread_live
+                        result_field = "comment_threads"
+                    else:
+                        verifier = mirror_lab.verify_forum_topics_live
+                        result_field = "forum_peers"
+                    results = []
+                    for side in ("source", "destination"):
+                        results.append(
+                            await verifier(
+                                tg,
+                                manifest["scenarios"][args.scenario],
+                                fingerprint,
+                                lab_id=manifest["lab_id"],
+                                account_alias=account.alias,
+                                side=side,
+                                record=record,
+                            )
+                        )
+                    succeeded = True
+                    return {
+                        "phase": args.phase,
+                        "scenario": args.scenario,
+                        result_field: [result["side"] for result in results],
+                        "cleanup": "green",
+                    }
+                succeeded = True
                 return {
-                    "phase": "expanded-provision-canary",
+                    "phase": args.phase,
                     "scenario": args.scenario,
                     "provisioned_roles": sorted(provisioned["created_peers"]),
                     "intent_count": len(provisioned["outbound_operations"]),
@@ -270,7 +372,7 @@ async def run(args) -> dict:
                         operation["state"] == "confirmed"
                         for operation in cleaned["outbound_operations"].values()
                     )
-                    if cleanup_complete and operations_confirmed:
+                    if cleanup_complete and operations_confirmed and succeeded:
                         manifest["scenarios"].pop(args.scenario, None)
                         mirror_lab.save_manifest(manifest_path, manifest)
                     elif provisioned is not None and not cleanup_complete:
