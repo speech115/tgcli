@@ -15,6 +15,31 @@ Template:
 
 ---
 
+## 2026-07-13 — Complete showcase blocked safely before mutation (Codex GPT-5)
+**Did:** attempted only the missing `basic.open` live canary with the explicit
+`teamsyncsage` lab-peer account. Telegram returned `FLOOD_WAIT 54339` before
+creating any registered peer. Exact-marker read-only scans on both accounts
+found zero matching dialogs; the manifest has no created roles or cleanup
+obligations. Prototyped a unified expanded visual-review runner locally, then
+removed the entire uncommitted change after adversarial review found unsafe
+ambiguous-create, lease, and recovery paths.
+**Decided:** do not perform more live mutations during the retry window and do
+not retain or publish a runner that could unlock after an ambiguous create
+without proving that no marked peer exists. Existing four-channel showcase
+peers remain untouched for the user's requested inspection.
+**Learned:** a complete seven-case visual showcase needs generic exact-marker
+reconciliation for every non-basic create, one persisted lease clock, and a
+cleanup path that can close checkpoints even after ambiguous operations.
+`channel_forum` remains a separate Telegram topology blocker: a newly created
+forum is not eligible as a channel discussion group, and a linked plain group
+cannot be converted into a forum.
+**Checks:** experimental code fully removed; exact-marker scans returned zero
+matches for the failed basic canary on both accounts; `git diff --check` clean.
+**Next:** after the FloodWait window, first implement and test generic ambiguous
+create reconciliation plus bounded visual-review cleanup, then create the
+plain-comments, supergroup, forum, and basic fixtures; keep `channel_forum`
+explicitly blocked unless Telegram permits that topology.
+
 ## 2026-07-13 — User-visible channel mirror showcase (Codex GPT-5)
 **Did:** ran the existing persistent R1 channel lab on the explicit `main`
 account and created four uniquely marked private channels: open/protected
