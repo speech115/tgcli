@@ -15,6 +15,31 @@ Template:
 
 ---
 
+## 2026-07-13 — Versioned scenario checkpoints and fingerprints added (Codex GPT-5)
+**Did:** upgraded the lab manifest to version 3 with an in-memory-only v2
+migration, empty per-scenario checkpoint storage, versioned checkpoint and
+compatibility-fingerprint builders, and strict validation for the 16 frozen
+scenario keys, phases, digests, dependency/schema facts, and account-role
+bindings. The vertical TDD cycles observed focused REDs before each behavior;
+the final review regression reproduced and then blocked a neighboring-cell
+fingerprint from being silently reclassified by the checkpoint builder.
+**Decided:** legacy v2 channel recovery data never becomes expanded scenario
+evidence. Loading a valid v2 manifest preserves its data, adds no compatible
+cell, and does not rewrite the file. Fingerprints remain bound to exactly one
+scenario in both the public builder and persisted-manifest validator.
+**Learned:** defensive copying alone is insufficient when a builder also
+normalizes identity fields: rewriting `scenario_key` could manufacture a green
+result for a different topology/protection cell. Identity mismatch must fail
+closed before copying.
+**Checks:** focused mirror lab/probe suite: `85 passed, 1 skipped`; full suite:
+`293 passed, 9 skipped`; `git diff --check` clean. Terra performed one narrow
+read-only specification pass. Sol's first read-only gate found the cross-cell
+fingerprint blocker; after the Luna RED→GREEN fix, Sol's focused re-review was
+clean (`2 passed`). No live Telegram access or mutation ran.
+**Next:** add pure compatibility comparison and aggregate stale/missing/blocked
+classification before provisioning any expanded topology; groups, forums, and
+comments remain unsupported without controlled-live evidence.
+
 ## 2026-07-13 — Economical model-routed mirror agents configured (Codex GPT-5)
 **Did:** added project-scoped custom agents for bounded Luna implementation,
 read-only Terra investigation, and read-only Sol xhigh risk review. Added a

@@ -41,11 +41,12 @@ from tgcli.mirror_lab import (
 
 def test_new_manifest_shape():
     manifest = new_manifest(account_user_id=42)
-    assert manifest["manifest_version"] == 2
+    assert manifest["manifest_version"] == 3
     assert len(manifest["lab_id"]) == 24
     assert manifest["account_user_id"] == 42
     assert manifest["channels"] == {}
     assert manifest["seeded"] == {}
+    assert manifest["scenarios"] == {}
     assert manifest["created_at"]
 
 
@@ -57,10 +58,324 @@ def test_manifest_round_trip(tmp_path):
     assert load_manifest(path) == manifest
 
 
+def test_valid_v2_manifest_migrates_in_memory_without_rewrite_or_evidence(tmp_path):
+    legacy = new_manifest(7)
+    legacy["manifest_version"] = 2
+    legacy.pop("scenarios")
+    legacy["seeded"] = {"open_source": {"photo": [11]}}
+    legacy["blocked"] = {"open_source": {"poll": "blocked"}}
+    path = tmp_path / "lab.json"
+    save_manifest(path, legacy)
+    before = path.read_bytes()
+
+    loaded = load_manifest(path)
+
+    assert loaded["manifest_version"] == 3
+    assert loaded["scenarios"] == {}
+    assert loaded["seeded"] == legacy["seeded"]
+    assert loaded["blocked"] == legacy["blocked"]
+    assert path.read_bytes() == before
+
+
 def test_load_manifest_rejects_unknown_version(tmp_path):
     path = tmp_path / "lab.json"
     path.write_text('{"manifest_version": 99}')
     with pytest.raises(ValueError):
+        load_manifest(path)
+
+
+def test_v2_manifest_rejects_scenario_payload(tmp_path):
+    legacy = new_manifest(7)
+    legacy["manifest_version"] = 2
+    legacy["scenarios"] = {}
+    path = tmp_path / "lab.json"
+    save_manifest(path, legacy)
+
+    with pytest.raises(ValueError, match="v2.*scenarios"):
+        load_manifest(path)
+
+
+def test_manifest_version_requires_an_exact_integer(tmp_path):
+    manifest = new_manifest(7)
+    manifest["manifest_version"] = 3.0
+    path = tmp_path / "lab.json"
+    save_manifest(path, manifest)
+    with pytest.raises(ValueError, match="unsupported lab manifest"):
+        load_manifest(path)
+
+
+def test_compatibility_fingerprint_shape_and_defensive_role_copy():
+    roles = {
+        "operator": {"alias": "main", "user_id": 101},
+        "lab_peer": {"alias": "lab-peer", "user_id": 202},
+    }
+    fingerprint = lab_module.new_compatibility_fingerprint(
+        "basic.open",
+        fixture_schema_version=4,
+        lab_code_digest="a" * 64,
+        mirror_code_digest="b" * 64,
+        telethon_version="1.44.0",
+        telegram_schema_layer=216,
+        account_role_binding=roles,
+        config_digest="c" * 64,
+    )
+    assert fingerprint == {
+        "fingerprint_version": 1,
+        "scenario_key": "basic.open",
+        "fixture_schema_version": 4,
+        "lab_code_digest": "a" * 64,
+        "mirror_code_digest": "b" * 64,
+        "telethon_version": "1.44.0",
+        "telegram_schema_layer": 216,
+        "account_role_binding": {
+            "operator": {"alias": "main", "user_id": 101},
+            "lab_peer": {"alias": "lab-peer", "user_id": 202},
+        },
+        "config_digest": "c" * 64,
+    }
+    roles["operator"]["alias"] = "mutated"
+    assert fingerprint["account_role_binding"]["operator"]["alias"] == "main"
+
+
+def test_scenario_checkpoint_shape_defensive_copy_and_v3_round_trip(tmp_path):
+    fingerprint = lab_module.new_compatibility_fingerprint(
+        "channel.open",
+        fixture_schema_version=1,
+        lab_code_digest="a" * 64,
+        mirror_code_digest="b" * 64,
+        telethon_version="1.44.0",
+        telegram_schema_layer=216,
+        account_role_binding={"operator": {"alias": "main", "user_id": 101}},
+        config_digest="c" * 64,
+    )
+    checkpoint = lab_module.new_scenario_checkpoint("channel.open", fingerprint)
+    assert checkpoint == {
+        "checkpoint_version": 1,
+        "phase": "preflight",
+        "created_peers": {},
+        "created_topics": {},
+        "outbound_operations": {},
+        "verdicts": {},
+        "cleanup_obligations": [],
+        "compatibility_fingerprint": fingerprint,
+    }
+    fingerprint["account_role_binding"]["operator"]["alias"] = "mutated"
+    assert checkpoint["compatibility_fingerprint"]["account_role_binding"]["operator"]["alias"] == "main"
+
+    manifest = new_manifest(7)
+    manifest["scenarios"]["channel.open"] = checkpoint
+    path = tmp_path / "lab.json"
+    save_manifest(path, manifest)
+    assert load_manifest(path) == manifest
+
+
+def test_scenario_checkpoint_rejects_mismatched_fingerprint_key():
+    fingerprint = lab_module.new_compatibility_fingerprint(
+        "basic.open",
+        fixture_schema_version=1,
+        lab_code_digest="a" * 64,
+        mirror_code_digest="b" * 64,
+        telethon_version="1.44.0",
+        telegram_schema_layer=216,
+        account_role_binding={"operator": {"alias": "main", "user_id": 101}},
+        config_digest="c" * 64,
+    )
+
+    with pytest.raises(ValueError, match="scenario key mismatch"):
+        lab_module.new_scenario_checkpoint("basic.protected", fingerprint)
+
+    assert fingerprint["scenario_key"] == "basic.open"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("checkpoint_version", 2, "checkpoint version"),
+        ("checkpoint_version", True, "checkpoint version"),
+        ("phase", "paused", "phase"),
+    ),
+)
+def test_invalid_checkpoint_version_or_phase_rejects(tmp_path, field, value, message):
+    fingerprint = lab_module.new_compatibility_fingerprint(
+        "channel.open",
+        fixture_schema_version=1,
+        lab_code_digest="a" * 64,
+        mirror_code_digest="b" * 64,
+        telethon_version="1.44.0",
+        telegram_schema_layer=216,
+        account_role_binding={"operator": {"alias": "main", "user_id": 101}},
+        config_digest="c" * 64,
+    )
+    manifest = new_manifest(7)
+    checkpoint = lab_module.new_scenario_checkpoint("channel.open", fingerprint)
+    checkpoint[field] = value
+    manifest["scenarios"]["channel.open"] = checkpoint
+    path = tmp_path / "lab.json"
+    save_manifest(path, manifest)
+
+    with pytest.raises(ValueError, match=message):
+        load_manifest(path)
+
+
+def test_malformed_compatibility_fingerprints_reject(tmp_path):
+    def valid_fingerprint():
+        return lab_module.new_compatibility_fingerprint(
+            "basic.open",
+            fixture_schema_version=1,
+            lab_code_digest="a" * 64,
+            mirror_code_digest="b" * 64,
+            telethon_version="1.44.0",
+            telegram_schema_layer=216,
+            account_role_binding={
+                "operator": {"alias": "main", "user_id": 101},
+                "lab_peer": {"alias": "lab-peer", "user_id": 202},
+            },
+            config_digest="c" * 64,
+        )
+
+    cases = (
+        lambda fp: fp.update(fingerprint_version=2),
+        lambda fp: fp.update(fingerprint_version=True),
+        lambda fp: fp.update(scenario_key="basic.protected"),
+        lambda fp: fp.update(fixture_schema_version=0),
+        lambda fp: fp.update(fixture_schema_version=True),
+        lambda fp: fp.update(lab_code_digest="A" * 64),
+        lambda fp: fp.update(mirror_code_digest="b" * 63),
+        lambda fp: fp.update(config_digest="z" * 64),
+        lambda fp: fp.update(telethon_version=""),
+        lambda fp: fp.update(telegram_schema_layer=0),
+        lambda fp: fp.update(telegram_schema_layer=True),
+        lambda fp: fp.update(account_role_binding={}),
+        lambda fp: fp["account_role_binding"].update(
+            observer={"alias": "other", "user_id": 303}
+        ),
+        lambda fp: fp["account_role_binding"]["operator"].update(alias=""),
+        lambda fp: fp["account_role_binding"]["operator"].update(user_id=0),
+        lambda fp: fp["account_role_binding"]["operator"].update(user_id=True),
+        lambda fp: fp["account_role_binding"]["lab_peer"].update(alias=""),
+        lambda fp: fp["account_role_binding"]["lab_peer"].update(user_id=101),
+    )
+    path = tmp_path / "lab.json"
+    for mutate in cases:
+        fingerprint = valid_fingerprint()
+        manifest = new_manifest(7)
+        manifest["scenarios"]["basic.open"] = lab_module.new_scenario_checkpoint(
+            "basic.open", fingerprint
+        )
+        # Exercise embedded-key mismatch through saved data, not the builder.
+        mutate(fingerprint)
+        manifest["scenarios"]["basic.open"]["compatibility_fingerprint"] = fingerprint
+        save_manifest(path, manifest)
+        with pytest.raises(ValueError):
+            load_manifest(path)
+
+
+def test_checkpoint_fields_scenario_keys_and_container_types_are_strict(tmp_path):
+    def valid_checkpoint(scenario_key="channel.open"):
+        fingerprint = lab_module.new_compatibility_fingerprint(
+            scenario_key,
+            fixture_schema_version=1,
+            lab_code_digest="a" * 64,
+            mirror_code_digest="b" * 64,
+            telethon_version="1.44.0",
+            telegram_schema_layer=216,
+            account_role_binding={"operator": {"alias": "main", "user_id": 101}},
+            config_digest="c" * 64,
+        )
+        return lab_module.new_scenario_checkpoint(scenario_key, fingerprint)
+
+    path = tmp_path / "lab.json"
+    invalid_manifests = []
+
+    missing_scenarios = new_manifest(7)
+    missing_scenarios.pop("scenarios")
+    invalid_manifests.append(missing_scenarios)
+    wrong_scenarios = new_manifest(7)
+    wrong_scenarios["scenarios"] = []
+    invalid_manifests.append(wrong_scenarios)
+    unknown_scenario = new_manifest(7)
+    unknown_scenario["scenarios"]["unknown.open"] = valid_checkpoint("unknown.open")
+    invalid_manifests.append(unknown_scenario)
+    non_dict_checkpoint = new_manifest(7)
+    non_dict_checkpoint["scenarios"]["channel.open"] = []
+    invalid_manifests.append(non_dict_checkpoint)
+
+    for field in (
+        "checkpoint_version",
+        "phase",
+        "created_peers",
+        "created_topics",
+        "outbound_operations",
+        "verdicts",
+        "cleanup_obligations",
+        "compatibility_fingerprint",
+    ):
+        manifest = new_manifest(7)
+        checkpoint = valid_checkpoint()
+        checkpoint.pop(field)
+        manifest["scenarios"]["channel.open"] = checkpoint
+        invalid_manifests.append(manifest)
+
+    unknown_field = new_manifest(7)
+    checkpoint = valid_checkpoint()
+    checkpoint["extra"] = {}
+    unknown_field["scenarios"]["channel.open"] = checkpoint
+    invalid_manifests.append(unknown_field)
+
+    for field, wrong_value in (
+        ("created_peers", []),
+        ("created_topics", []),
+        ("outbound_operations", []),
+        ("verdicts", []),
+        ("cleanup_obligations", {}),
+    ):
+        manifest = new_manifest(7)
+        checkpoint = valid_checkpoint()
+        checkpoint[field] = wrong_value
+        manifest["scenarios"]["channel.open"] = checkpoint
+        invalid_manifests.append(manifest)
+
+    for fingerprint_change in ("missing", "unknown"):
+        manifest = new_manifest(7)
+        checkpoint = valid_checkpoint()
+        fingerprint = checkpoint["compatibility_fingerprint"]
+        if fingerprint_change == "missing":
+            fingerprint.pop("config_digest")
+        else:
+            fingerprint["extra"] = "value"
+        manifest["scenarios"]["channel.open"] = checkpoint
+        invalid_manifests.append(manifest)
+
+    for manifest in invalid_manifests:
+        save_manifest(path, manifest)
+        with pytest.raises(ValueError):
+            load_manifest(path)
+
+
+def test_v2_migration_rejects_invalid_legacy_provenance_and_creating(tmp_path):
+    path = tmp_path / "lab.json"
+    legacy = new_manifest(7)
+    legacy["manifest_version"] = 2
+    legacy.pop("scenarios")
+    legacy["channels"] = {
+        "open_source": {
+            "peer_id": True,
+            "title": lab_title(legacy, "open_source"),
+        }
+    }
+    save_manifest(path, legacy)
+    with pytest.raises(ValueError, match="peer id"):
+        load_manifest(path)
+
+    legacy["channels"] = {}
+    legacy["creating"] = {
+        "open_source": {
+            "title": lab_title(legacy, "open_source"),
+            "state": "invented",
+        }
+    }
+    save_manifest(path, legacy)
+    with pytest.raises(ValueError, match="creating state"):
         load_manifest(path)
 
 

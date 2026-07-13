@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import asyncio
 import secrets
+from copy import deepcopy
 from datetime import UTC, datetime
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +15,18 @@ from tgcli.errors import PolicyError
 from tgcli.mirror_probe import probe_message, write_report
 
 LAB_MARKER = "tgcli-r1-lab"
-MANIFEST_VERSION = 2
+MANIFEST_VERSION = 3
+SCENARIO_CHECKPOINT_VERSION = 1
+COMPATIBILITY_FINGERPRINT_VERSION = 1
+SCENARIO_PHASES = (
+    "preflight",
+    "create",
+    "seed",
+    "mirror",
+    "verify",
+    "teardown",
+    "complete",
+)
 CHANNEL_ROLES = (
     "protected_source",
     "open_source",
@@ -85,6 +97,48 @@ def required_scenarios() -> tuple[ScenarioSpec, ...]:
     return _REQUIRED_SCENARIOS
 
 
+def new_compatibility_fingerprint(
+    scenario_key: str,
+    *,
+    fixture_schema_version: int,
+    lab_code_digest: str,
+    mirror_code_digest: str,
+    telethon_version: str,
+    telegram_schema_layer: int,
+    account_role_binding: dict,
+    config_digest: str,
+) -> dict:
+    return {
+        "fingerprint_version": COMPATIBILITY_FINGERPRINT_VERSION,
+        "scenario_key": scenario_key,
+        "fixture_schema_version": fixture_schema_version,
+        "lab_code_digest": lab_code_digest,
+        "mirror_code_digest": mirror_code_digest,
+        "telethon_version": telethon_version,
+        "telegram_schema_layer": telegram_schema_layer,
+        "account_role_binding": {
+            role: dict(binding) for role, binding in account_role_binding.items()
+        },
+        "config_digest": config_digest,
+    }
+
+
+def new_scenario_checkpoint(scenario_key: str, fingerprint: dict) -> dict:
+    if fingerprint.get("scenario_key") != scenario_key:
+        raise ValueError(f"fingerprint scenario key mismatch: {scenario_key}")
+    fingerprint_copy = deepcopy(fingerprint)
+    return {
+        "checkpoint_version": SCENARIO_CHECKPOINT_VERSION,
+        "phase": "preflight",
+        "created_peers": {},
+        "created_topics": {},
+        "outbound_operations": {},
+        "verdicts": {},
+        "cleanup_obligations": [],
+        "compatibility_fingerprint": fingerprint_copy,
+    }
+
+
 def new_manifest(account_user_id: int) -> dict:
     return {
         "manifest_version": MANIFEST_VERSION,
@@ -95,16 +149,94 @@ def new_manifest(account_user_id: int) -> dict:
         "creating": {},
         "seeded": {},
         "blocked": {},
+        "scenarios": {},
     }
+
+
+def _is_positive_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _validate_compatibility_fingerprint(
+    scenario_key: str, fingerprint: object
+) -> None:
+    fields = {
+        "fingerprint_version",
+        "scenario_key",
+        "fixture_schema_version",
+        "lab_code_digest",
+        "mirror_code_digest",
+        "telethon_version",
+        "telegram_schema_layer",
+        "account_role_binding",
+        "config_digest",
+    }
+    if not isinstance(fingerprint, dict) or set(fingerprint) != fields:
+        raise ValueError(f"invalid compatibility fingerprint fields: {scenario_key}")
+    if (
+        type(fingerprint["fingerprint_version"]) is not int
+        or fingerprint["fingerprint_version"] != COMPATIBILITY_FINGERPRINT_VERSION
+    ):
+        raise ValueError(f"unsupported fingerprint version: {scenario_key}")
+    if fingerprint["scenario_key"] != scenario_key:
+        raise ValueError(f"fingerprint scenario key mismatch: {scenario_key}")
+    if not _is_positive_int(fingerprint["fixture_schema_version"]):
+        raise ValueError(f"invalid fixture schema version: {scenario_key}")
+    if not _is_positive_int(fingerprint["telegram_schema_layer"]):
+        raise ValueError(f"invalid Telegram schema layer: {scenario_key}")
+    for field in ("lab_code_digest", "mirror_code_digest", "config_digest"):
+        digest = fingerprint[field]
+        if (
+            not isinstance(digest, str)
+            or len(digest) != 64
+            or any(char not in "0123456789abcdef" for char in digest)
+        ):
+            raise ValueError(f"invalid {field}: {scenario_key}")
+    telethon_version = fingerprint["telethon_version"]
+    if not isinstance(telethon_version, str) or not telethon_version:
+        raise ValueError(f"invalid Telethon version: {scenario_key}")
+    roles = fingerprint["account_role_binding"]
+    if (
+        not isinstance(roles, dict)
+        or "operator" not in roles
+        or not set(roles) <= {"operator", "lab_peer"}
+    ):
+        raise ValueError(f"invalid account role binding: {scenario_key}")
+    role_ids = []
+    for role, binding in roles.items():
+        if not isinstance(binding, dict) or set(binding) != {"alias", "user_id"}:
+            raise ValueError(f"invalid account role: {scenario_key}.{role}")
+        if not isinstance(binding["alias"], str) or not binding["alias"]:
+            raise ValueError(f"invalid account alias: {scenario_key}.{role}")
+        if not _is_positive_int(binding["user_id"]):
+            raise ValueError(f"invalid account user id: {scenario_key}.{role}")
+        role_ids.append(binding["user_id"])
+    if len(role_ids) != len(set(role_ids)):
+        raise ValueError(f"duplicate account role user id: {scenario_key}")
 
 
 def load_manifest(path: Path) -> dict:
     data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or data.get("manifest_version") != MANIFEST_VERSION:
+    if (
+        not isinstance(data, dict)
+        or type(data.get("manifest_version")) is not int
+        or data["manifest_version"] not in {2, 3}
+    ):
         raise ValueError("unsupported lab manifest")
+    source_version = data["manifest_version"]
+    if source_version == 2 and "scenarios" in data:
+        raise ValueError("v2 manifest must not contain scenarios")
+    if source_version == 3 and not isinstance(data.get("scenarios"), dict):
+        raise ValueError("v3 manifest requires scenarios object")
     for key in ("account_user_id", "lab_id", "channels", "seeded"):
         if key not in data:
             raise ValueError(f"lab manifest missing {key!r}")
+    if not _is_positive_int(data["account_user_id"]):
+        raise ValueError("invalid lab account user id")
+    if not isinstance(data["channels"], dict):
+        raise ValueError("invalid lab channels")
+    if not isinstance(data["seeded"], dict):
+        raise ValueError("invalid lab seeded state")
     lab_id = data["lab_id"]
     if (
         not isinstance(lab_id, str)
@@ -120,14 +252,16 @@ def load_manifest(path: Path) -> dict:
             raise ValueError(f"invalid lab channel entry: {role}")
         peer_id = channel.get("peer_id")
         title = channel.get("title")
-        if not isinstance(peer_id, int) or peer_id <= 0:
+        if not _is_positive_int(peer_id):
             raise ValueError(f"invalid lab peer id: {role}")
         if title != lab_title(data, role):
             raise ValueError(f"lab channel title does not match provenance: {role}")
         if peer_id in seen_peer_ids:
             raise ValueError(f"duplicate lab peer id: {peer_id}")
         seen_peer_ids.add(peer_id)
-    data.setdefault("blocked", {})
+    blocked = data.setdefault("blocked", {})
+    if not isinstance(blocked, dict):
+        raise ValueError("invalid blocked state")
     creating = data.setdefault("creating", {})
     if not isinstance(creating, dict):
         raise ValueError("invalid creating state")
@@ -140,6 +274,45 @@ def load_manifest(path: Path) -> dict:
             raise ValueError(f"invalid creating title: {role}")
         if pending.get("state") not in {"dispatching", "ambiguous"}:
             raise ValueError(f"invalid creating state: {role}")
+    if source_version == 2:
+        data["manifest_version"] = MANIFEST_VERSION
+        data["scenarios"] = {}
+    checkpoint_fields = {
+        "checkpoint_version",
+        "phase",
+        "created_peers",
+        "created_topics",
+        "outbound_operations",
+        "verdicts",
+        "cleanup_obligations",
+        "compatibility_fingerprint",
+    }
+    allowed_scenarios = {spec.key for spec in required_scenarios()}
+    for scenario_key, checkpoint in data["scenarios"].items():
+        if scenario_key not in allowed_scenarios:
+            raise ValueError(f"unknown scenario key: {scenario_key}")
+        if not isinstance(checkpoint, dict) or set(checkpoint) != checkpoint_fields:
+            raise ValueError(f"invalid scenario checkpoint fields: {scenario_key}")
+        if (
+            type(checkpoint["checkpoint_version"]) is not int
+            or checkpoint["checkpoint_version"] != SCENARIO_CHECKPOINT_VERSION
+        ):
+            raise ValueError(f"unsupported checkpoint version: {scenario_key}")
+        if checkpoint["phase"] not in SCENARIO_PHASES:
+            raise ValueError(f"invalid scenario phase: {scenario_key}")
+        for field in (
+            "created_peers",
+            "created_topics",
+            "outbound_operations",
+            "verdicts",
+        ):
+            if not isinstance(checkpoint[field], dict):
+                raise ValueError(f"invalid {field}: {scenario_key}")
+        if not isinstance(checkpoint["cleanup_obligations"], list):
+            raise ValueError(f"invalid cleanup obligations: {scenario_key}")
+        _validate_compatibility_fingerprint(
+            scenario_key, checkpoint["compatibility_fingerprint"]
+        )
     return data
 
 
