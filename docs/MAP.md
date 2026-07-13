@@ -29,7 +29,7 @@ tgcli/
 │   ├── session.py             [done]    session paths, per-account file lock, TelegramClient factory
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
-│   ├── mirror/                [planned] lean SQLite identity, copy mapping, random-id recovery (ADR-0014)
+│   ├── mirror/                [wip]     SQLite identity/mapping/random-id recovery done; later fidelity slices planned
 │   └── commands/
 │   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
@@ -40,7 +40,7 @@ tgcli/
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
-│   │   └── mirror.py          [planned] tg mirror init|sync first, then media|comments|watch (ADR-0014)
+│   │   └── mirror.py          [wip]     tg mirror init + unprotected text sync done; media|comments|watch planned
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/

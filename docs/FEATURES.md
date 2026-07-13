@@ -18,14 +18,14 @@ Status values:
 | aicompose | api | No dedicated workflow; use raw TL only after task-specific review. |
 | auth | excluded | Session lifecycle is owned by `tg accounts`; raw auth calls are denylisted. |
 | bots | api | User-account tool; bot-management calls are raw TL only. |
-| channels | wrapped | `info`, `count`, media, and subscriber export cover daily work; raw TL covers the long tail. |
+| channels | wrapped | `info`, `count`, media, subscriber export, and lean mirror init cover daily work; raw TL covers the long tail. |
 | chatlists | api | No demonstrated daily workflow needs a wrapper. |
 | contacts | api | `resolveUsername`, `search`, and `getContacts` are allowlisted reads; other calls use raw safety gates. |
 | folders | api | No demonstrated daily workflow needs a wrapper. |
 | fragment | api | No dedicated workflow; use raw TL only after task-specific review. |
 | help | api | No dedicated workflow; use raw TL only after task-specific review. |
 | langpack | api | No dedicated workflow; use raw TL only after task-specific review. |
-| messages | wrapped | `read`, `search`, `latest`, `message`, `send`, and export cover daily work; raw TL covers the long tail. |
+| messages | wrapped | `read`, `search`, `latest`, `message`, `send`, export, and unprotected text mirror sync cover daily work; raw TL covers the long tail. |
 | payments | api | No dedicated workflow; mutations remain behind raw write safety gates. |
 | phone | excluded | Voice and video calls need a WebRTC media stack and are out of scope. |
 | photos | api | `getUserPhotos` is an allowlisted read; other calls use raw safety gates. |
@@ -34,8 +34,8 @@ Status values:
 | stats | api | Four broadcast, megagroup, and message stats reads are allowlisted (ADR-0010). |
 | stickers | api | No dedicated workflow; use raw TL only after task-specific review. |
 | stories | api | No dedicated workflow; use raw TL only after task-specific review. |
-| updates | excluded | Current CLI has no update loop; proposed ADR-0013 would add an explicit foreground watcher and this row changes only when that code exists. |
-| upload | excluded | Raw part-upload remains impractical over JSON; wrapped media/send paths own it and the planned mirror outbox will use audited raw TL sends internally. |
+| updates | excluded | Current CLI has no update loop; ADR-0014 defers an explicit foreground mirror watcher to a later slice. |
+| upload | excluded | Raw part-upload remains impractical over JSON; wrapped media/send paths own it and ADR-0014 defers protected mirror reupload to a later slice. |
 | users | wrapped | `info` covers daily identity inspection; raw TL covers the long tail. |
 
 ## Non-TL exclusions

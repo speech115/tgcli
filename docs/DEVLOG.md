@@ -15,6 +15,30 @@ Template:
 
 ---
 
+## 2026-07-13 — Lean mirror init and text sync implemented (Codex)
+**Did:** implemented the first ADR-0014 product slice on
+`codex/mirror-lean-product`: per-source SQLite identity/state, persisted signed
+64-bit copy random ids, atomic mapping/cursor confirmation, non-mutating
+`mirror init` preview, resumable private destination creation, and idempotent
+unprotected text `mirror sync`. All Telegram behavior is covered with mocked
+clients; no live account or chat was mutated.
+TDD evidence: store RED was the expected missing-module error and GREEN was
+`6 passed`; init RED was seven missing-command/module failures and GREEN was
+`7 passed`; sync RED began with the missing subcommand and closed at `11 passed`
+after review regressions. Final gates: focused mirror slice `31 passed`, full
+suite `245 passed, 8 skipped`, `coverage OK: 23 namespaces`, clean
+`git diff --check`, and `tg mirror --help` listed only `init` and `sync`.
+**Decided:** ambiguous destination creation uses a short deterministic temporary
+marker independent of source title, then restores the current source title.
+Both channel-level and message-level forwarding protection stop this slice
+before destination writes; protected reconstruction remains later work.
+**Learned:** independent task review caught two practical edge cases before
+live use: Telegram title length and per-message `noforwards`. The store and CLI
+were corrected with regressions rather than weakening the contract.
+**Next:** open a draft PR, then implement media/albums/replies as the next
+vertical slice before linked comments/watch.
+
+
 ## 2026-07-13 — Block protected messages before mirror sync writes (Codex)
 **Did:** fixed `mirror sync` so a per-message `noforwards=True` stops both new
 history and pending replay before prepare/audit/forward/confirmation. Added

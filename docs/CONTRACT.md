@@ -231,3 +231,57 @@ unparseable credentials for a newly configured account exits 3.
 ```
 
 `--plain` emits frozen TSV columns: `alias`, `status`, `config`.
+
+## 11. Lean Channel Mirror (post-v1, ADR-0014)
+
+```text
+tg mirror init SOURCE [--commit]
+tg mirror sync SOURCE
+```
+
+This first vertical slice accepts one broadcast channel. `init` without
+`--commit` resolves the configured account and source, creates or reopens only
+local planned state, and performs no Telegram mutation. Its JSON shape is:
+
+```json
+{"mirror":{"id":"<sha256>",
+           "source":{"id":123,"title":"Source channel"},
+           "destination":null,
+           "status":"planned","commit_required":true}}
+```
+
+`init --commit` creates or resumes one private creator-owned broadcast
+destination, restores its visible title to the current source title, and
+persists authorization. A unique temporary creation marker makes an ambiguous
+accepted create recoverable without blindly creating a duplicate. One exact
+match is resumed; multiple matches exit 2 for operator review. Authorized JSON
+uses `destination:{"id":999,"title":"Source channel"}`, status `authorized`,
+and `commit_required:false`. Plain init columns are `status`, `mirror_id`,
+`source_peer_id`, `destination_peer_id`.
+
+`sync` requires that authorization and currently copies only unprotected text
+posts, oldest first, using native server-side copy with the original author
+hidden. Its JSON adds:
+
+```json
+{"sync":{"copied":42,"last_confirmed_message_id":73}}
+```
+
+Plain sync columns are `copied`, `last_confirmed_message_id`, `mirror_id`,
+`source_peer_id`, `destination_peer_id`.
+
+Each mirror has one SQLite database at
+`TGCLI_STATE_DIR/mirrors/<mirror_id>.db`. Before every copy dispatch, tgcli
+persists a stable signed 64-bit Telegram `random_id`; retry reuses that value.
+The source/destination mapping and confirmed cursor advance atomically only
+after the matching Telegram confirmation. Re-running `sync` therefore creates
+no duplicate for an already confirmed source message.
+
+`--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block `init --commit`
+and `sync` before config/session/network work. Every create, title edit, and
+copy attempt appends the shared fail-closed audit before dispatch. A protected
+channel, a message with `noforwards`, media, or a service action exits 2 before
+that unsupported item is prepared or copied; already confirmed earlier text
+posts remain committed. Media, albums, replies, linked comments, foreground
+watch, protected-content reupload, and forum topics are explicit later slices,
+not silently claimed by this contract.
