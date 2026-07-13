@@ -33,7 +33,7 @@ tgcli/
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
 │   ├── mirror_probe.py        [done]    R0 read-only protected-content capability probe
-│   ├── mirror_lab.py          [wip]     accepted broadcast R1 harness plus pure ADR-0015 16-cell taxonomy, checkpoint/fingerprint aggregation, and cleanup-gated resumable phase state; expanded live engines planned
+│   ├── mirror_lab.py          [wip]     accepted broadcast R1 harness plus ADR-0015 16-cell aggregation, resumable phase state, and privacy-safe topology/account-role preflight plans; expanded live engines planned
 │   ├── mirror/                [planned] crash-safe mirror ledger, outbox, renderer, service, watcher (ADR-0013)
 │   └── commands/
 │   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)

@@ -15,6 +15,27 @@ Template:
 
 ---
 
+## 2026-07-13 — Expanded topology preflight plans added (Codex GPT-5)
+**Did:** added a pure privacy-safe preflight planner that binds every selected
+scenario to its exact source/destination family, independent source/discussion
+protection, linked plain/forum shape, content profile, required domains, and
+account-role requirements. Basic-group scenarios now fail preflight without a
+distinct validated `lab_peer` binding and explicitly normalize to an owner-only
+private destination supergroup. Also replaced a flaky probe privacy assertion
+that searched for the digits `999` inside timestamps/hashes with direct checks
+that raw `peer_id` structure and value are absent.
+**Decided:** preflight output exposes role names and topology requirements only;
+it never includes aliases, numeric user ids, digests, or fingerprint payloads.
+No provisioning request or Telegram client call exists in this slice.
+**Learned:** substring scanning serialized reports is not a valid privacy test:
+random timestamps and hashes can contain the same digits as a fixture id. Tests
+must assert the forbidden field/value structurally.
+**Checks:** focused mirror lab/probe suite: `122 passed, 1 skipped`; full suite:
+`330 passed, 9 skipped`; namespace coverage: `coverage OK: 23 namespaces`;
+`git diff --check` clean. No live Telegram access or mutation ran.
+**Next:** define mocked provisioning intents for basic groups, supergroups,
+forums, channels, and linked plain/forum discussions, with no dispatcher yet.
+
 ## 2026-07-13 — Resumable scenario phase state added (Codex GPT-5)
 **Did:** added deterministic all-or-one scenario selection, validated resume-phase
 lookup, and pure sequential checkpoint advancement across the accepted

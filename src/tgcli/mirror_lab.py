@@ -344,6 +344,34 @@ def advance_scenario_phase(checkpoint: dict, confirmed_phase: str) -> dict:
     return advanced
 
 
+def build_scenario_preflight_plan(scenario_key: str, fingerprint: dict) -> dict:
+    spec = select_scenarios(scenario_key)[0]
+    _validate_compatibility_fingerprint(scenario_key, fingerprint)
+    required_account_roles = (
+        ("operator", "lab_peer")
+        if spec.source_family == "basic"
+        else ("operator",)
+    )
+    bindings = fingerprint["account_role_binding"]
+    for role in required_account_roles:
+        if role not in bindings:
+            raise ValueError(f"missing required account role: {role}")
+    return {
+        "scenario_key": scenario_key,
+        "source_family": spec.source_family,
+        "source_protected": spec.source_protected,
+        "destination_family": spec.destination_family,
+        "destination_private": True,
+        "destination_owner_only": True,
+        "discussion_kind": spec.discussion_kind,
+        "discussion_protected": spec.discussion_protected,
+        "required_account_roles": required_account_roles,
+        "basic_group_normalization": spec.source_family == "basic",
+        "content_profile": spec.content_profile,
+        "required_domains": required_scenario_domains(spec),
+    }
+
+
 def compare_compatibility_fingerprints(expected: dict, actual: dict) -> dict:
     expected_key = expected.get("scenario_key") if isinstance(expected, dict) else ""
     _validate_compatibility_fingerprint(expected_key, expected)

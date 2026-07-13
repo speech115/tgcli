@@ -192,7 +192,8 @@ async def test_probe_chat_aggregates_samples_per_kind_and_redacts_identity():
     assert "Private title" not in encoded
     assert "private_name" not in encoded
     assert "secret" not in encoded
-    assert "999" not in encoded
+    assert '"peer_id"' not in encoded
+    assert 999 not in report["source"].values()
 
 
 @pytest.mark.asyncio

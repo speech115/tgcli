@@ -284,6 +284,75 @@ def test_advance_scenario_phase_is_sequential_pure_and_cleanup_gated():
     assert lab_module.advance_scenario_phase(complete, "complete") == complete
 
 
+def test_basic_preflight_requires_lab_peer_and_normalizes_destination():
+    fingerprint = classification_fingerprint(
+        "basic.open",
+        account_role_binding={
+            "operator": {"alias": "main", "user_id": 101},
+            "lab_peer": {"alias": "lab-peer", "user_id": 202},
+        },
+    )
+    assert lab_module.build_scenario_preflight_plan(
+        "basic.open", fingerprint
+    ) == {
+        "scenario_key": "basic.open",
+        "source_family": "basic",
+        "source_protected": False,
+        "destination_family": "supergroup",
+        "destination_private": True,
+        "destination_owner_only": True,
+        "discussion_kind": "none",
+        "discussion_protected": None,
+        "required_account_roles": ("operator", "lab_peer"),
+        "basic_group_normalization": True,
+        "content_profile": "full",
+        "required_domains": lab_module.required_scenario_domains(
+            lab_module.select_scenarios("basic.open")[0]
+        ),
+    }
+
+    missing_peer = classification_fingerprint("basic.open")
+    with pytest.raises(ValueError, match="missing required account role: lab_peer"):
+        lab_module.build_scenario_preflight_plan("basic.open", missing_peer)
+
+
+@pytest.mark.parametrize(
+    ("scenario_key", "source_family", "protected", "discussion", "discussion_protected"),
+    (
+        ("forum.protected", "forum", True, "none", None),
+        ("channel.open", "channel", False, "none", None),
+        ("channel_plain.open_protected", "channel", False, "plain", True),
+        ("channel_forum.protected_open", "channel", True, "forum", False),
+    ),
+)
+def test_preflight_preserves_exact_topology_and_protection_cell(
+    scenario_key, source_family, protected, discussion, discussion_protected
+):
+    fingerprint = classification_fingerprint(
+        scenario_key,
+        account_role_binding={
+            "operator": {"alias": "operator-secret", "user_id": 987654321},
+        },
+    )
+    plan = lab_module.build_scenario_preflight_plan(scenario_key, fingerprint)
+
+    assert plan["source_family"] == source_family
+    assert plan["source_protected"] is protected
+    assert plan["discussion_kind"] == discussion
+    assert plan["discussion_protected"] is discussion_protected
+    assert plan["required_account_roles"] == ("operator",)
+    assert plan["destination_private"] is True
+    assert plan["destination_owner_only"] is True
+    assert "operator-secret" not in repr(plan)
+    assert "987654321" not in repr(plan)
+
+
+def test_preflight_rejects_cross_cell_fingerprint():
+    fingerprint = classification_fingerprint("forum.open")
+    with pytest.raises(ValueError, match="fingerprint scenario key mismatch"):
+        lab_module.build_scenario_preflight_plan("forum.protected", fingerprint)
+
+
 def test_compare_compatibility_fingerprints_reports_all_mismatches_in_order():
     expected = classification_fingerprint()
     actual = classification_fingerprint(
