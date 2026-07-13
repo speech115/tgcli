@@ -139,6 +139,15 @@ and torn down before the next scenario. A scenario reports separate content,
 structure, attribution, comment-root, topic, transport, audit, and cleanup
 verdicts. Success in one protection combination never fills another matrix cell.
 
+Controlled-live foundation coverage later on 2026-07-13 additionally passed
+`supergroup.protected`, `forum.protected`, and
+`channel_plain.protected_open`, each with independent verified teardown and a
+zero-result exact-marker scan. `channel_plain.open_protected` hit
+`FLOOD_WAIT 415` during source discussion linking before content seeding. Its
+two peers were recovered after the retry window and the marker scan again found
+zero, but that cell remains unaccepted. `channel_plain.protected_protected` was
+not run. These outcomes do not collapse or infer the missing cells.
+
 The first controlled-live standalone `supergroup.open` foundation gate passed
 on 2026-07-13. Both private owner-only source and destination supergroups
 preserved a marked root, direct reply, and nested reply under exact server

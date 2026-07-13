@@ -15,6 +15,32 @@ Template:
 
 ---
 
+## 2026-07-13 — Protected topology foundations staged safely (Codex GPT-5)
+**Did:** ran three additional bounded protected cells after the accepted open
+foundations. `supergroup.protected` and `forum.protected` both preserved their
+full canary reply/topic semantics while independently confirming source
+no-forwards protection. `channel_plain.protected_open` confirmed source and
+destination native comment roots plus nested replies. Every accepted run
+removed its checkpoint and a separate exact-marker scan found zero dialogs.
+**Decided:** `channel_plain.open_protected` is not accepted. Telegram returned
+`FLOOD_WAIT 415` during source discussion linking, before any content write;
+the operation stayed ambiguous and the two created peers remained cleanup-only.
+After the retry window, `expanded-cleanup` removed both and retained the failed
+checkpoint until a zero-dialog marker scan allowed explicit reconciliation.
+**Learned:** the account tolerates bounded two-peer protected forum/supergroup
+runs, but repeated four-peer linked-channel cells still reach the mutation rate
+limit. Cleanup recovery remained exact and left no disposable dialog even when
+linking and deletion crossed the FloodWait boundary.
+**Checks:** repository code is unchanged from the green `363 passed, 9 skipped`
+and `coverage OK: 23 namespaces` commit. Live accepted cells:
+`supergroup.protected`, `forum.protected`,
+`channel_plain.protected_open`; cleanup-only red:
+`channel_plain.open_protected`; not run:
+`channel_plain.protected_protected`.
+**Next:** leave the two missing linked-channel protection cells unfilled until a
+later rate-limit window. Legacy basic groups still require a distinct dedicated
+`lab-peer` alias and explicit identity binding.
+
 ## 2026-07-13 — Standalone supergroup live gate passes (Codex GPT-5)
 **Did:** added and ran an audited `supergroup.open` canary for both disposable
 source and destination peers. Each side sent one marked root, a direct reply,
