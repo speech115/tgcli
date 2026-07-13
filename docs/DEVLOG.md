@@ -15,6 +15,30 @@ Template:
 
 ---
 
+## 2026-07-13 — Provisioning intents materialize to pinned TL requests (Codex GPT-5)
+**Did:** added strict local materialization of an exact scenario intent into the
+pinned Telethon 1.44 request class: `messages.CreateChatRequest`,
+`channels.CreateChannelRequest`, `messages.ToggleNoForwardsRequest`,
+`channels.GetGroupsForDiscussionRequest`, or
+`channels.SetDiscussionGroupRequest`. Titles carry the exact lab marker,
+lab id, scenario key, and semantic peer role. Tests use inert sentinel resolved
+roles and never call a client.
+**Decided:** materialization requires the current fingerprint and an intent that
+exactly matches the generated scenario plan. Forged methods, cross-cell data,
+invalid lab ids, and missing resolved roles fail before a request can exist.
+Request construction and dispatch remain separate boundaries.
+**Learned:** the pinned schema directly supports forum creation through
+`CreateChannelRequest(forum=True, megagroup=True)` and exposes discussion
+eligibility as a separate no-argument request whose candidate must be checked
+against the response before linking.
+**Checks:** focused mirror lab/probe suite: `139 passed, 1 skipped`; full suite:
+`347 passed, 9 skipped`; namespace coverage: `coverage OK: 23 namespaces`;
+`git diff --check` clean. Requests were constructed only; no client, account,
+session, network, or Telegram mutation was used.
+**Next:** controlled-live disposable provisioning is now the evidence gate.
+Verify creation/readback/protection/eligibility/linking and teardown before
+implementing topic/comment seeding from real observed response shapes.
+
 ## 2026-07-13 — Mock provisioning dispatcher hardened (Codex GPT-5)
 **Did:** added an injected async dispatcher boundary that persists `prepared`
 and `dispatched` checkpoints before calling a fake executor, validates a

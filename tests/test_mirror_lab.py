@@ -700,6 +700,133 @@ async def test_dispatch_invalid_observation_stays_ambiguous():
     assert persisted[-1]["outbound_operations"][key]["state"] == "ambiguous"
 
 
+def test_materialize_basic_and_forum_create_requests_without_dispatch():
+    lab_id = "a" * 24
+    basic_fingerprint = classification_fingerprint(
+        "basic.open",
+        account_role_binding={
+            "operator": {"alias": "main", "user_id": 101},
+            "lab_peer": {"alias": "lab-peer", "user_id": 202},
+        },
+    )
+    basic_intents = lab_module.build_scenario_provisioning_intents(
+        "basic.open", basic_fingerprint
+    )
+    lab_peer = object()
+    source_request = lab_module.materialize_scenario_intent_request(
+        basic_intents[0],
+        basic_fingerprint,
+        lab_id=lab_id,
+        resolved_roles={"lab_peer": lab_peer},
+    )
+    assert isinstance(source_request, lab_module.functions.messages.CreateChatRequest)
+    assert source_request.users == [lab_peer]
+    assert source_request.title == f"{LAB_MARKER} {lab_id} basic.open source"
+
+    destination_request = lab_module.materialize_scenario_intent_request(
+        basic_intents[1],
+        basic_fingerprint,
+        lab_id=lab_id,
+        resolved_roles={},
+    )
+    assert isinstance(
+        destination_request, lab_module.functions.channels.CreateChannelRequest
+    )
+    assert destination_request.broadcast is False
+    assert destination_request.megagroup is True
+    assert destination_request.forum is False
+
+    forum_fingerprint = classification_fingerprint("forum.open")
+    forum_intent = lab_module.build_scenario_provisioning_intents(
+        "forum.open", forum_fingerprint
+    )[0]
+    forum_request = lab_module.materialize_scenario_intent_request(
+        forum_intent,
+        forum_fingerprint,
+        lab_id=lab_id,
+        resolved_roles={},
+    )
+    assert forum_request.megagroup is True
+    assert forum_request.forum is True
+
+
+def test_materialize_protection_eligibility_and_link_requests_without_dispatch():
+    scenario_key = "channel_forum.protected_protected"
+    fingerprint = classification_fingerprint(scenario_key)
+    intents = {
+        intent["method"]: intent
+        for intent in lab_module.build_scenario_provisioning_intents(
+            scenario_key, fingerprint
+        )
+        if intent["method"] != "channels.createChannel"
+    }
+    source = object()
+    source_discussion = object()
+    resolved = {
+        "source": source,
+        "source_discussion": source_discussion,
+        "destination": object(),
+        "destination_discussion": object(),
+    }
+
+    protection = lab_module.materialize_scenario_intent_request(
+        intents["messages.toggleNoForwards"],
+        fingerprint,
+        lab_id="b" * 24,
+        resolved_roles=resolved,
+    )
+    assert isinstance(
+        protection, lab_module.functions.messages.ToggleNoForwardsRequest
+    )
+    assert protection.peer is source_discussion
+    assert protection.enabled is True
+
+    eligibility = lab_module.materialize_scenario_intent_request(
+        intents["channels.getGroupsForDiscussion"],
+        fingerprint,
+        lab_id="b" * 24,
+        resolved_roles=resolved,
+    )
+    assert isinstance(
+        eligibility,
+        lab_module.functions.channels.GetGroupsForDiscussionRequest,
+    )
+
+    link = lab_module.materialize_scenario_intent_request(
+        intents["channels.setDiscussionGroup"],
+        fingerprint,
+        lab_id="b" * 24,
+        resolved_roles=resolved,
+    )
+    assert isinstance(link, lab_module.functions.channels.SetDiscussionGroupRequest)
+    assert link.broadcast is resolved["destination"]
+    assert link.group is resolved["destination_discussion"]
+
+
+def test_materialize_request_rejects_forged_intent_and_missing_role():
+    fingerprint = classification_fingerprint("channel.protected")
+    intents = lab_module.build_scenario_provisioning_intents(
+        "channel.protected", fingerprint
+    )
+    forged = deepcopy(intents[0])
+    forged["method"] = "messages.sendMessage"
+    with pytest.raises(ValueError, match="intent does not match scenario plan"):
+        lab_module.materialize_scenario_intent_request(
+            forged,
+            fingerprint,
+            lab_id="c" * 24,
+            resolved_roles={},
+        )
+
+    with pytest.raises(ValueError, match="missing resolved role: source"):
+        lab_module.materialize_scenario_intent_request(
+            intents[1],
+            fingerprint,
+            lab_id="c" * 24,
+            resolved_roles={},
+        )
+
+
 def test_compare_compatibility_fingerprints_reports_all_mismatches_in_order():
     expected = classification_fingerprint()
     actual = classification_fingerprint(

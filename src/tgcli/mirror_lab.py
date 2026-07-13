@@ -504,6 +504,74 @@ def build_scenario_provisioning_intents(
     return tuple(intents)
 
 
+def materialize_scenario_intent_request(
+    intent: dict,
+    fingerprint: dict,
+    *,
+    lab_id: str,
+    resolved_roles: dict,
+):
+    scenario_key = (
+        fingerprint.get("scenario_key") if isinstance(fingerprint, dict) else ""
+    )
+    expected = {
+        candidate["intent_key"]: candidate
+        for candidate in build_scenario_provisioning_intents(
+            scenario_key, fingerprint
+        )
+    }
+    if (
+        not isinstance(intent, dict)
+        or not isinstance(intent.get("intent_key"), str)
+        or expected.get(intent["intent_key"]) != intent
+    ):
+        raise ValueError("intent does not match scenario plan")
+    if (
+        not isinstance(lab_id, str)
+        or len(lab_id) != 24
+        or any(char not in "0123456789abcdef" for char in lab_id)
+    ):
+        raise ValueError("invalid lab id")
+    if not isinstance(resolved_roles, dict):
+        raise ValueError("resolved roles must be an object")
+
+    def resolved(role: str):
+        if role not in resolved_roles:
+            raise ValueError(f"missing resolved role: {role}")
+        return resolved_roles[role]
+
+    method = intent["method"]
+    role = intent["target_role"]
+    title = f"{LAB_MARKER} {lab_id} {scenario_key} {role}"
+    parameters = intent["parameters"]
+    if method == "messages.createChat":
+        return functions.messages.CreateChatRequest(
+            users=[resolved(participant) for participant in parameters["participant_roles"]],
+            title=title,
+        )
+    if method == "channels.createChannel":
+        return functions.channels.CreateChannelRequest(
+            title=title,
+            about=f"{title} disposable fixture",
+            broadcast=parameters["broadcast"],
+            megagroup=parameters["megagroup"],
+            forum=parameters["forum"],
+        )
+    if method == "messages.toggleNoForwards":
+        return functions.messages.ToggleNoForwardsRequest(
+            peer=resolved(role),
+            enabled=parameters["enabled"],
+        )
+    if method == "channels.getGroupsForDiscussion":
+        return functions.channels.GetGroupsForDiscussionRequest()
+    if method == "channels.setDiscussionGroup":
+        return functions.channels.SetDiscussionGroupRequest(
+            broadcast=resolved(parameters["broadcast_role"]),
+            group=resolved(parameters["group_role"]),
+        )
+    raise ValueError(f"unsupported provisioning method: {method}")
+
+
 def _validated_scenario_operations(checkpoint: dict) -> tuple[str, dict[str, dict]]:
     phase = scenario_resume_phase(checkpoint)
     if phase != "create":
