@@ -78,6 +78,18 @@ def parse_args(argv=None):
             if spec.source_family == "forum" and spec.discussion_kind == "none"
         ),
     )
+    supergroup = sub.add_parser("expanded-supergroup-canary")
+    supergroup.add_argument("--manifest", required=True)
+    supergroup.add_argument(
+        "--scenario",
+        required=True,
+        choices=tuple(
+            spec.key
+            for spec in mirror_lab.required_scenarios()
+            if spec.source_family == "supergroup"
+            and spec.discussion_kind == "none"
+        ),
+    )
     cleanup = sub.add_parser("expanded-cleanup")
     cleanup.add_argument("--manifest", required=True)
     cleanup.add_argument(
@@ -170,6 +182,7 @@ async def run(args) -> dict:
         "expanded-provision-canary",
         "expanded-comments-canary",
         "expanded-forum-canary",
+        "expanded-supergroup-canary",
         "expanded-cleanup",
     }:
         mirror_lab.enforce_mutation_allowed(readonly=False)
@@ -194,6 +207,7 @@ async def run(args) -> dict:
                     "expanded-provision-canary",
                     "expanded-comments-canary",
                     "expanded-forum-canary",
+                    "expanded-supergroup-canary",
                 }:
                     raise ValueError(f"manifest not found: {manifest_path}")
             manifest = mirror_lab.new_manifest(me.id)
@@ -243,6 +257,7 @@ async def run(args) -> dict:
             "expanded-provision-canary",
             "expanded-comments-canary",
             "expanded-forum-canary",
+            "expanded-supergroup-canary",
         }:
             spec = mirror_lab.select_scenarios(args.scenario)[0]
             if spec.source_family == "basic":
@@ -265,6 +280,7 @@ async def run(args) -> dict:
                 if args.phase in {
                     "expanded-comments-canary",
                     "expanded-forum-canary",
+                    "expanded-supergroup-canary",
                 } and canary_operations:
                     raise PolicyError(
                         "interrupted content canary is cleanup-only; "
@@ -295,6 +311,7 @@ async def run(args) -> dict:
                 if args.phase in {
                     "expanded-comments-canary",
                     "expanded-forum-canary",
+                    "expanded-supergroup-canary",
                 }:
                     def record(operation_key, state):
                         current = deepcopy(manifest["scenarios"][args.scenario])
@@ -322,9 +339,12 @@ async def run(args) -> dict:
                     if args.phase == "expanded-comments-canary":
                         verifier = mirror_lab.verify_channel_comment_thread_live
                         result_field = "comment_threads"
-                    else:
+                    elif args.phase == "expanded-forum-canary":
                         verifier = mirror_lab.verify_forum_topics_live
                         result_field = "forum_peers"
+                    else:
+                        verifier = mirror_lab.verify_supergroup_reply_chain_live
+                        result_field = "supergroup_peers"
                     results = []
                     for side in ("source", "destination"):
                         results.append(

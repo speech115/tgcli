@@ -1180,6 +1180,113 @@ async def test_forum_topic_canary_rejects_non_forum_before_client():
         )
 
 
+@pytest.mark.asyncio
+async def test_supergroup_canary_proves_direct_and_nested_reply_chain():
+    scenario_key = "supergroup.open"
+    lab_id = "2" * 24
+    fingerprint = classification_fingerprint(scenario_key)
+    checkpoint = lab_module.new_scenario_checkpoint(scenario_key, fingerprint)
+    checkpoint["phase"] = "seed"
+    checkpoint["created_peers"] = {
+        "source": {"peer_id": 701, "title_marker_verified": True},
+        "destination": {"peer_id": 702, "title_marker_verified": True},
+    }
+    peers = {
+        role: NS(
+            id=checkpoint["created_peers"][role]["peer_id"],
+            title=lab_module.scenario_peer_title(lab_id, scenario_key, role),
+            creator=True,
+            megagroup=True,
+            forum=False,
+        )
+        for role in ("source", "destination")
+    }
+
+    class SupergroupTG:
+        def __init__(self):
+            self.requests = []
+            self.messages = []
+            self.next_id = 800
+
+        async def get_entity(self, ref):
+            return next(peer for peer in peers.values() if peer.id == ref.channel_id)
+
+        async def get_input_entity(self, ref):
+            return await self.get_entity(ref)
+
+        async def __call__(self, request):
+            self.requests.append(request)
+            if isinstance(request, lab_module.functions.messages.SendMessageRequest):
+                self.next_id += 1
+                reply = request.reply_to
+                message = NS(
+                    id=self.next_id,
+                    message=request.message,
+                    peer_id=lab_module.types.PeerChannel(request.peer.id),
+                    reply_to=NS(
+                        reply_to_msg_id=reply.reply_to_msg_id,
+                        reply_to_top_id=reply.top_msg_id,
+                    ) if reply else None,
+                )
+                self.messages.append(message)
+                return NS(
+                    updates=[
+                        lab_module.types.UpdateMessageID(
+                            random_id=request.random_id,
+                            id=message.id,
+                        ),
+                        NS(message=message),
+                    ]
+                )
+            if isinstance(request, lab_module.functions.channels.GetMessagesRequest):
+                return NS(messages=list(self.messages))
+            raise AssertionError(type(request).__name__)
+
+    states = []
+    tg = SupergroupTG()
+    result = await lab_module.verify_supergroup_reply_chain_live(
+        tg,
+        checkpoint,
+        fingerprint,
+        lab_id=lab_id,
+        account_alias="labacct",
+        side="source",
+        record=lambda key, state: states.append((key, state)),
+    )
+
+    assert result == {
+        "side": "source",
+        "root": "confirmed",
+        "direct_reply": "confirmed",
+        "nested_reply": "confirmed",
+    }
+    send_requests = tg.requests[:3]
+    assert send_requests[0].reply_to is None
+    assert send_requests[1].reply_to.reply_to_msg_id == 801
+    assert send_requests[1].reply_to.top_msg_id is None
+    assert send_requests[2].reply_to.reply_to_msg_id == 802
+    assert send_requests[2].reply_to.top_msg_id is None
+    assert states[-1] == ("source:nested_reply", "confirmed")
+
+
+@pytest.mark.asyncio
+async def test_supergroup_canary_rejects_forum_before_client():
+    scenario_key = "forum.open"
+    fingerprint = classification_fingerprint(scenario_key)
+    checkpoint = lab_module.new_scenario_checkpoint(scenario_key, fingerprint)
+
+    with pytest.raises(PolicyError, match="standalone supergroup"):
+        await lab_module.verify_supergroup_reply_chain_live(
+            object(),
+            checkpoint,
+            fingerprint,
+            lab_id="2" * 24,
+            account_alias="labacct",
+            side="source",
+            record=lambda *_: None,
+        )
+
+
 def test_materialize_basic_and_forum_create_requests_without_dispatch():
     lab_id = "a" * 24
     basic_fingerprint = classification_fingerprint(

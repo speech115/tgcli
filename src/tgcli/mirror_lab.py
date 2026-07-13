@@ -1474,6 +1474,129 @@ async def verify_forum_topics_live(
     }
 
 
+async def verify_supergroup_reply_chain_live(
+    tg,
+    checkpoint: dict,
+    fingerprint: dict,
+    *,
+    lab_id: str,
+    account_alias: str,
+    side: str,
+    record,
+) -> dict:
+    scenario_key = fingerprint.get("scenario_key")
+    spec = select_scenarios(scenario_key)[0]
+    if spec.source_family != "supergroup" or spec.discussion_kind != "none":
+        raise PolicyError("supergroup canary requires a standalone supergroup")
+    if side not in {"source", "destination"}:
+        raise ValueError(f"invalid supergroup canary side: {side}")
+    if compare_compatibility_fingerprints(
+        fingerprint, checkpoint["compatibility_fingerprint"]
+    )["compatible"] is not True:
+        raise ValueError("checkpoint fingerprint is not compatible")
+    if checkpoint.get("phase") != "seed":
+        raise ValueError("supergroup canary requires seed phase")
+    if not callable(record):
+        raise ValueError("supergroup canary recorder is required")
+
+    group = await _owned_scenario_entity(
+        tg,
+        checkpoint,
+        fingerprint,
+        lab_id=lab_id,
+        role=side,
+    )
+    if not getattr(group, "megagroup", False) or getattr(group, "forum", False):
+        raise PolicyError(f"{side}: owned scenario peer is not a plain supergroup")
+    group_input = await tg.get_input_entity(
+        _scenario_peer_ref("supergroup", group.id)
+    )
+    marker_prefix = f"{LAB_MARKER}:{lab_id}:{scenario_key}:group:{side}"
+
+    async def send(operation: str, marker: str, reply_to=None) -> int:
+        request = functions.messages.SendMessageRequest(
+            peer=group_input,
+            message=marker,
+            reply_to=reply_to,
+            random_id=_random_id(),
+        )
+        update = await _scenario_canary_write(
+            tg,
+            account_alias=account_alias,
+            scenario_key=scenario_key,
+            side=side,
+            operation=operation,
+            request=request,
+            record=record,
+        )
+        return _sent_message_id(
+            update,
+            random_id=request.random_id,
+            peer_id=group.id,
+            marker=marker,
+        )
+
+    root_marker = f"{marker_prefix}:root"
+    root_id = await send("root", root_marker)
+    reply_marker = f"{marker_prefix}:reply"
+    reply_id = await send(
+        "direct_reply",
+        reply_marker,
+        types.InputReplyToMessage(reply_to_msg_id=root_id),
+    )
+    nested_marker = f"{marker_prefix}:nested"
+    nested_id = await send(
+        "nested_reply",
+        nested_marker,
+        types.InputReplyToMessage(reply_to_msg_id=reply_id),
+    )
+
+    markers = (root_marker, reply_marker, nested_marker)
+
+    def marker_messages(result):
+        return {
+            marker: [
+                message
+                for message in getattr(result, "messages", ())
+                if getattr(message, "message", None) == marker
+            ]
+            for marker in markers
+        }
+
+    messages = await _bounded_scenario_readback(
+        lambda: tg(
+            functions.channels.GetMessagesRequest(
+                channel=group_input,
+                id=[
+                    types.InputMessageID(id=message_id)
+                    for message_id in (root_id, reply_id, nested_id)
+                ],
+            )
+        ),
+        lambda result: all(
+            len(found) == 1 for found in marker_messages(result).values()
+        ),
+        "supergroup reply chain",
+    )
+    by_marker = marker_messages(messages)
+    root = by_marker[root_marker][0]
+    reply = by_marker[reply_marker][0]
+    nested = by_marker[nested_marker][0]
+    if getattr(getattr(reply, "reply_to", None), "reply_to_msg_id", None) != root.id:
+        raise ValueError("supergroup direct reply parent mismatch")
+    if (
+        getattr(getattr(nested, "reply_to", None), "reply_to_msg_id", None)
+        != reply.id
+    ):
+        raise ValueError("supergroup nested reply parent mismatch")
+    return {
+        "side": side,
+        "root": "confirmed",
+        "direct_reply": "confirmed",
+        "nested_reply": "confirmed",
+    }
+
+
 def _apply_scenario_intent_observation(
     checkpoint: dict,
     intent: dict,

@@ -15,6 +15,27 @@ Template:
 
 ---
 
+## 2026-07-13 — Standalone supergroup live gate passes (Codex GPT-5)
+**Did:** added and ran an audited `supergroup.open` canary for both disposable
+source and destination peers. Each side sent one marked root, a direct reply,
+and a nested reply; `channels.getMessages` readback found every marker exactly
+once and confirmed both immediate parent edges. The runner reported
+`cleanup=green`, removed its checkpoint, and an independent exact-marker dialog
+scan returned `remaining_disposable_dialogs=0`.
+**Decided:** plain supergroups use ordinary immediate reply semantics without a
+forum top id. Message ids remain correlated through request random ids, every
+write uses the same durable canary state machine, and interrupted runs remain
+cleanup-only rather than replaying a possibly accepted message.
+**Learned:** after the cooldown, two owner-only supergroups plus six marked
+messages completed without another FloodWait. This closes the open standalone
+supergroup foundation independently from channel comments and forum topics.
+**Checks:** focused supergroup and runner tests green; full suite:
+`363 passed, 9 skipped`; namespace coverage: `coverage OK: 23 namespaces`;
+`git diff --check` clean. Live result covers `supergroup.open` only.
+**Next:** run protected channel-comment, forum, and supergroup cells in later
+bounded windows. Legacy basic groups remain blocked until a distinct dedicated
+`lab-peer` alias is configured and explicitly bound.
+
 ## 2026-07-13 — Standalone forum live gate passes (Codex GPT-5)
 **Did:** reran the bounded `forum.open` canary after a full cooldown and one
 server-shape correction. Both private owner-only source and destination forums

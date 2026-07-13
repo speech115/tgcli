@@ -395,6 +395,12 @@ def test_expanded_cleanup_removes_confirmed_checkpoint(tmp_path, monkeypatch):
             "verify_forum_topics_live",
             "forum_peers",
         ),
+        (
+            "expanded-supergroup-canary",
+            "supergroup.open",
+            "verify_supergroup_reply_chain_live",
+            "supergroup_peers",
+        ),
     ),
 )
 def test_expanded_content_canary_verifies_both_sides_and_cleans(

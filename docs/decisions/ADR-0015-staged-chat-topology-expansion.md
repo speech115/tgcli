@@ -139,6 +139,13 @@ and torn down before the next scenario. A scenario reports separate content,
 structure, attribution, comment-root, topic, transport, audit, and cleanup
 verdicts. Success in one protection combination never fills another matrix cell.
 
+The first controlled-live standalone `supergroup.open` foundation gate passed
+on 2026-07-13. Both private owner-only source and destination supergroups
+preserved a marked root, direct reply, and nested reply under exact server
+readback, then completed verified teardown; an independent exact-marker scan
+found zero remaining dialogs. This does not fill `supergroup.protected` or the
+full structural/content matrix.
+
 ### Membership and destination ownership
 
 Every destination group, supergroup, forum, discussion, and channel remains
