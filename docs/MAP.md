@@ -6,6 +6,8 @@ This file must always match the real tree (AGENTS.md rule).
 ```
 tgcli/
 ├── README.md                  [done]    vision + principles
+├── CONTEXT.md                 [done]    canonical mirror topology and fidelity language
+├── .codex/                    [done]    project-scoped economical mirror agents: Luna TDD, Terra investigation, Sol risk gate
 ├── .github/workflows/ci.yml   [done]    CI: pytest + coverage gate on push/PR
 ├── AGENTS.md                  [done]    agent contract, doc discipline
 ├── CLAUDE.md                  [done]    Claude adapter → AGENTS.md
@@ -18,7 +20,7 @@ tgcli/
 │   ├── CONTRACT.md            [done]    CLI automation contract (stdout/exit codes/JSON)
 │   ├── DEVLOG.md              [done]    session-by-session agent log
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── decisions/             [done]    ADR-0001…0012/0014 accepted; ADR-0013 proposed
+│   ├── decisions/             [done]    ADR-0001…0012/0014–0015 accepted; ADR-0013 proposed
 │   └── superpowers/plans/     [done]    completed v1 plans, R0/R1 probes, planned mirror M0-M4
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -31,7 +33,7 @@ tgcli/
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
 │   ├── mirror_probe.py        [done]    R0 read-only protected-content capability probe
-│   ├── mirror_lab.py          [done]    manifest-v2 R1 lab harness; exact provenance, resumable lifecycle, strict verdicts
+│   ├── mirror_lab.py          [wip]     accepted broadcast R1 harness plus pure ADR-0015 16-cell scenario taxonomy; expanded live engines planned
 │   ├── mirror/                [planned] crash-safe mirror ledger, outbox, renderer, service, watcher (ADR-0013)
 │   └── commands/
 │   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)
@@ -46,7 +48,7 @@ tgcli/
 │   │   └── mirror.py          [planned] tg mirror facade (ADR-0013; M0-M4 plan)
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   ├── test_mirror_probe.py   [done]    R0 probe unit coverage
-│   ├── test_mirror_lab.py     [done]    R1 lab engine and fixture coverage
+│   ├── test_mirror_lab.py     [wip]     R1 lab coverage plus exact expanded topology/protection/content-allocation matrix
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
     ├── install-link.sh        [done]    symlink tg → PATH (phase 6 cutover)
@@ -82,3 +84,4 @@ tgcli/
 | [0012](decisions/ADR-0012-invocation-journal-and-verbose-diagnostics.md) | Local invocation journal and opt-in stderr diagnostics |
 | [0013](decisions/ADR-0013-channel-mirror.md) | Proposed crash-safe channel mirror with dedicated foreground watcher session |
 | [0014](decisions/ADR-0014-lab-fixture-generation.md) | Lab-only ffmpeg/cwebp generation of valid disposable R1 media fixtures |
+| [0015](decisions/ADR-0015-staged-chat-topology-expansion.md) | Evidence-gated expansion from channels to supergroups, forums, and basic groups |

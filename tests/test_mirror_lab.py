@@ -133,6 +133,117 @@ def test_channel_roles_are_frozen():
     )
 
 
+def test_required_scenario_keys_cover_every_topology_protection_cell():
+    assert hasattr(lab_module, "required_scenarios")
+    assert tuple(spec.key for spec in lab_module.required_scenarios()) == (
+        "basic.open",
+        "basic.protected",
+        "supergroup.open",
+        "supergroup.protected",
+        "forum.open",
+        "forum.protected",
+        "channel.open",
+        "channel.protected",
+        "channel_plain.open_open",
+        "channel_plain.protected_open",
+        "channel_plain.open_protected",
+        "channel_plain.protected_protected",
+        "channel_forum.open_open",
+        "channel_forum.protected_open",
+        "channel_forum.open_protected",
+        "channel_forum.protected_protected",
+    )
+
+
+def test_full_content_suite_is_allocated_only_to_standalone_peer_families():
+    scenarios = lab_module.required_scenarios()
+    assert all(hasattr(spec, "content_profile") for spec in scenarios)
+    assert {
+        spec.key for spec in scenarios if spec.content_profile == "full"
+    } == {
+        "basic.open",
+        "basic.protected",
+        "supergroup.open",
+        "supergroup.protected",
+        "forum.open",
+        "forum.protected",
+        "channel.open",
+        "channel.protected",
+    }
+    assert {
+        spec.key for spec in scenarios if spec.content_profile == "sentinels"
+    } == {
+        "channel_plain.open_open",
+        "channel_plain.protected_open",
+        "channel_plain.open_protected",
+        "channel_plain.protected_protected",
+        "channel_forum.open_open",
+        "channel_forum.protected_open",
+        "channel_forum.open_protected",
+        "channel_forum.protected_protected",
+    }
+
+
+def test_scenario_specs_encode_source_and_discussion_protection_independently():
+    scenarios = lab_module.required_scenarios()
+    fields = (
+        "source_family",
+        "source_protected",
+        "discussion_kind",
+        "discussion_protected",
+    )
+    assert all(hasattr(spec, field) for spec in scenarios for field in fields)
+    assert {
+        (
+            spec.source_family,
+            spec.source_protected,
+            spec.discussion_kind,
+            spec.discussion_protected,
+        )
+        for spec in scenarios
+    } == {
+        ("basic", False, "none", None),
+        ("basic", True, "none", None),
+        ("supergroup", False, "none", None),
+        ("supergroup", True, "none", None),
+        ("forum", False, "none", None),
+        ("forum", True, "none", None),
+        ("channel", False, "none", None),
+        ("channel", True, "none", None),
+        *{
+            ("channel", channel_protected, discussion_kind, discussion_protected)
+            for channel_protected in (False, True)
+            for discussion_kind in ("plain", "forum")
+            for discussion_protected in (False, True)
+        },
+    }
+
+
+def test_basic_sources_are_normalized_to_supergroup_destinations():
+    scenarios = lab_module.required_scenarios()
+    assert all(hasattr(spec, "destination_family") for spec in scenarios)
+    assert {
+        spec.destination_family
+        for spec in scenarios
+        if spec.source_family == "basic"
+    } == {"supergroup"}
+    assert {
+        spec.destination_family
+        for spec in scenarios
+        if spec.source_family == "supergroup"
+    } == {"supergroup"}
+    assert {
+        spec.destination_family
+        for spec in scenarios
+        if spec.source_family == "forum"
+    } == {"forum"}
+    assert {
+        spec.destination_family
+        for spec in scenarios
+        if spec.source_family == "channel"
+    } == {"channel"}
+
+
 def test_record_and_read_seeds():
     manifest = new_manifest(7)
     record_seed(manifest, "open_source", "photo", [11])

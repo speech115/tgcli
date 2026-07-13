@@ -3,12 +3,23 @@
 > **Execution:** use `superpowers:subagent-driven-development` or
 > `superpowers:executing-plans` task by task. Do not skip the two M0 hard gates.
 
-**Governing decision:** [ADR-0013](../../decisions/ADR-0013-channel-mirror.md).
+**Governing decisions:** [ADR-0013](../../decisions/ADR-0013-channel-mirror.md)
+for the initial channel milestone and
+[ADR-0015](../../decisions/ADR-0015-staged-chat-topology-expansion.md) for the
+evidence-gated group, forum, and linked-discussion stages.
 
 **Goal:** build a crash-safe, append-only copy of a Telegram broadcast channel
 in a private owner-only destination, with chronological backfill, supported
 media fidelity, threaded comments, authoritative change audit, and a visible
 foreground watcher that does not block normal tgcli commands.
+
+**Expansion progress (2026-07-13):** the accepted broadcast R1 lab remains
+green. The first pure ADR-0015 slice now freezes 16 independent
+topology/protection scenarios, the eight full-content cells versus eight linked
+sentinel cells, independent channel/discussion protection, and basic-group
+destination normalization. Expanded manifests, provisioning, topics, comments,
+content reconstruction, visual review, and controlled-live evidence remain
+planned and must not be reported as implemented.
 
 ## Architecture
 
@@ -174,8 +185,8 @@ mirror(
   schema_version INTEGER NOT NULL,
   account_alias TEXT NOT NULL,
   account_user_id INTEGER NOT NULL,
-  source_peer_id INTEGER NOT NULL,
-  source_access_hash INTEGER,
+  source_root_peer_id INTEGER NOT NULL,
+  current_source_peer_id INTEGER NOT NULL,
   source_ref TEXT NOT NULL,
   dest_peer_id INTEGER,
   linked_source_peer_id INTEGER,
@@ -183,9 +194,22 @@ mirror(
   lifecycle TEXT NOT NULL,
   authorization_version INTEGER,
   authorized_at TEXT,
-  last_confirmed_id INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
-  UNIQUE(account_user_id, source_peer_id)
+  UNIQUE(account_user_id, source_root_peer_id)
+);
+
+source_peer(
+  mirror_id TEXT NOT NULL,
+  peer_id INTEGER NOT NULL,
+  peer_kind TEXT NOT NULL,
+  peer_role TEXT NOT NULL,
+  access_hash INTEGER,
+  source_ref TEXT,
+  predecessor_peer_id INTEGER,
+  migrated_from_max_id INTEGER,
+  last_confirmed_id INTEGER NOT NULL DEFAULT 0,
+  first_seen_at TEXT NOT NULL,
+  PRIMARY KEY(mirror_id, peer_id)
 );
 
 message_map(
@@ -245,6 +269,10 @@ scan(
 ```
 
 - [ ] Test stable identity after resolving aliases to the same canonical peer.
+- [ ] Test that creating from either a migrated basic-group predecessor or its
+  supergroup successor resolves the same lineage root and destination.
+- [ ] Test that predecessor and successor message ids coexist, preserve
+  `migrated_from_max_id`, and advance independent per-peer cursors.
 - [ ] Test that two accounts mirroring the same peer do not collide.
 - [ ] Test that channel message `42` and linked-group message `42` coexist.
 - [ ] Test schema creation, foreign invariants, transaction rollback, WAL mode,
@@ -318,12 +346,36 @@ planned -> channel_created -> profile_synced -> discussion_created
 - [ ] `create` without `--commit` returns a non-mutating plan including canonical
   source id, intended private destination, profile/comment capabilities, and
   authorization scope.
+- [ ] Preserve discussion topology parity: none stays none, a plain discussion
+  creates a plain private supergroup, and a forum discussion creates a private
+  forum supergroup. Never silently downgrade one topology to another.
+- [ ] Before accepting forum-discussion support, prove live that the disposable
+  forum is eligible for linking, `channels.setDiscussionGroup` accepts it, an
+  auto-forwarded post root appears, and discussion lookup plus a reply roundtrip
+  resolve that root. A red or inconclusive gate blocks only this topology.
 - [ ] `create --commit` creates the ledger first, audits each mutation, persists
   destination id immediately, and resumes missing lifecycle steps on retry.
 - [ ] Inject failure after every lifecycle step and prove a retry creates no
   second channel or linked group.
 - [ ] Before authorization, fetch destination state and prove creator ownership,
   private/no username, and no exported invite link created by tgcli.
+- [ ] For every destination topology, prove no source member was invited, no
+  role or ban was recreated, and no membership notification was emitted.
+- [ ] Keep any visible source membership snapshot in private mirror-local state;
+  never post it into the destination or label an API-visible subset complete.
+- [ ] Membership rows contain only local numeric user id, display name, public
+  username, source role, bot/deleted flags, and observation time. Reject phone,
+  bio, access-hash, profile-photo bytes, and unrelated profile fields at the
+  storage boundary.
+- [ ] Persist visible/exported counts, completeness, and incompleteness reason.
+  `status` returns only these aggregates; row-level data requires an explicit
+  atomic local export path and never enters logs, audit, or destination chats.
+- [ ] Keep one normalized current membership row plus idempotent append-only
+  `joined`, `left`, `role_changed`, and `name_changed` facts; do not duplicate a
+  full member list for every observation.
+- [ ] Emit `left` only after a complete paginated scan and targeted participant
+  lookup confirm absence. Hidden membership, access loss, cancellation, or
+  FloodWait produces no departure facts.
 - [ ] Bind authorization to account user id, source/destination ids, linked peer,
   and schema version.
 - [ ] Add `tg mirror list` and `status`; expose lifecycle and blocked operations.
@@ -349,7 +401,9 @@ Define representations before network code:
 - UTF-16 entity offsets after prefix insertion;
 - text/caption limits and deterministic overflow messages;
 - albums with one caption and constituent mappings;
-- replies when parent exists and explicit fallback when it does not;
+- replies released from a durable dependency queue after parent mapping, with
+  explicit unavailable-parent fallback only after complete-range and targeted
+  lookup evidence;
 - photo/document/video/voice note/video note/sticker/web preview/poll snapshot;
 - unsupported, paid, expired, or service content placeholders.
 
@@ -390,10 +444,21 @@ Define representations before network code:
 - [ ] Upload media, then dispatch raw durable requests with persisted random ids.
 - [ ] Albums use constituent logical keys plus one group operation and map every
   source constituent.
-- [ ] Replies resolve peer-scoped parent mappings. Missing parents use the frozen
-  renderer fallback, never an unrelated numeric id.
+- [ ] Replies resolve peer-scoped parent mappings. Unmapped children enter a
+  durable dependency queue. Release them natively after parent confirmation;
+  use the frozen unavailable-parent fallback only after complete-range and
+  targeted lookup evidence, never an unrelated numeric id.
 - [ ] Comments target the linked destination and use the copied channel post as
-  reply root; author is rendered as data because tgcli cannot impersonate them.
+  reply root. Preserve Telegram's native forward attribution when permitted;
+  otherwise use ADR-0015's privacy-safe reconstructed source label.
+- [ ] Verify every copied channel post maps to its automatically forwarded
+  destination discussion root before releasing dependent comments.
+- [ ] For every channel post inside the authorized mirror range, page the full
+  accessible comment thread regardless of comment dates and persist resumable
+  per-thread progress before declaring comment coverage complete.
+- [ ] Do not copy comments rooted outside the authorized post range. Report
+  their visible root/comment counts as excluded coverage in status instead of
+  silently presenting the mirror as complete.
 - [ ] Pins are applied only after their destination mappings exist and are their
   own audited durable operations.
 - [ ] Add `tg mirror backfill <mirror>` with progress on stderr and one final
@@ -479,7 +544,8 @@ and verifies destination ids contain no duplicate logical operations.
 - [ ] `tg mirror diff <mirror>` emits frozen changelog rows.
 - [ ] `status` exposes lifecycle, last confirmed source id, prepared/dispatched/
   ambiguous/failed operation counts, last complete audit range, and degradation
-  flags without leaking message text.
+  flags without leaking message text. It also exposes complete, pending, and
+  excluded channel-comment coverage counts.
 - [ ] CONTRACT freezes command forms, result shapes, stderr behavior, exit codes,
   and recovery guidance.
 - [ ] MAP marks actual modules done; FEATURES marks `updates` wrapped and keeps raw
@@ -496,17 +562,118 @@ The phase is complete only when all are true:
 
 - M0 proves concurrent primary/watcher sessions for the same Telegram user and
   the protected-content capability matrix.
+- The controlled lab proves ADR-0015's full protection matrix for basic groups,
+  standalone supergroups/forums, and every plain/forum channel-discussion
+  protection combination. Every cell has independent structure, transport,
+  attribution, audit, and cleanup evidence; no neighboring result is inferred.
+- Every topology proves ADR-0015's structural matrix: profile changes,
+  text/media/album, direct and nested replies, pin/unpin, append-only
+  edit/delete representation, membership/roles, basic migration, General plus
+  two custom topics and their lifecycle, channel comment roots, teardown, and
+  idempotent resume/re-run.
+- Every protection cell runs text/photo/album/reply structural sentinels. The
+  full content matrix runs once per open/protected basic-group, supergroup,
+  forum, and broadcast peer family; forum content is topic-scoped. Linked cells
+  prove comment coupling and mixed protection without redundant full uploads.
+- Todo and live location are re-probed in group/forum families and never inherit
+  their broadcast-channel unsupported status.
+- The full authored content suite covers text/entities/captions, photo, generic
+  document, audio, voice, video, video note, animation, static/animated/video
+  sticker cases, contact, static geo, venue, dice, poll, hydrated webpage, and
+  photo, mixed photo/video, and generic-file media groups. Protected non-byte
+  items receive semantic reconstruction verdicts rather than `not_applicable`.
+- Todo probes cover stable item ids, append, complete/uncomplete, edit/remove,
+  and item replies. Live-location probes cover send, update, and stop. A missing
+  account capability is blocked/inconclusive evidence, never a neighboring pass.
+- Service evidence is action-specific, unknown media/actions retain constructor
+  names in placeholders, custom emoji is not generic document, and
+  `MessageMediaVideoStream` is classified explicitly under the calls/live-story
+  exclusion.
+- Every content report records the exact Telethon version and Telegram schema
+  layer; dependency/schema drift forces compatibility revalidation before old
+  verdicts can be reused.
+- The lab exposes targeted scenario execution and one serial aggregate
+  acceptance run. Every scenario checkpoints preflight, create, seed, mirror,
+  verify, teardown, and complete; interrupted runs reconcile marked peers and
+  outbound operations before retrying.
+- Aggregate acceptance requires every required topology/protection/domain cell,
+  matching fixture/code/dependency/schema/account/config fingerprints, and a
+  green independent teardown. Missing, blocked, red, stale, ambiguous, and
+  cleanup-pending cells remain explicit non-passes.
+- A fingerprint mismatch invalidates its affected result immediately. Otherwise
+  compatible live evidence expires after 30 days; aggregate acceptance reruns
+  only mismatched or expired cells and reports `completed_at`, `expires_at`, and
+  an exact stale reason. Invalid or backward-moving clock evidence blocks rather
+  than extending a result.
+- A targeted green result never upgrades the aggregate verdict by itself, and
+  ambiguous creation/dispatch/cleanup keeps the manifest available for
+  evidence-backed recovery.
+- Acceptance reports independent `machine_green` and `visual_approved`
+  verdicts. The first requires the full matrix; the second comes only from an
+  explicit visual-review run and never substitutes for machine evidence.
+- Visual review creates one open and one protected representative scenario per
+  destination topology after focused machine checks pass, checkpoints at
+  `awaiting_visual_review`, exposes only private destination references and a
+  versioned checklist, and records explicit approve/reject results before
+  mandatory teardown.
+- The visual-review command owns a 30-minute foreground lease. Explicit
+  heartbeats may extend it only to two hours from review start; approval,
+  rejection, cancellation, or expiry runs teardown immediately. Lease facts are
+  durable and opening a Telegram link never counts as renewal.
+- No daemon is added. A normal signal attempts cleanup; process/host loss marks
+  the manifest `cleanup_due`, and every later lab invocation must reconcile and
+  finish that cleanup before creating another disposable peer. A deadline alone
+  is never reported as verified teardown.
+- Screenshots are disabled by default. Explicit `--capture-review` persists only
+  a local owner-readable sanitized bundle under the tgcli state root; frames
+  containing unrelated dialogs, member lists, private identifiers,
+  notifications, or account-switcher content are rejected rather than stored.
+- Review bundles contain sanitized frames, checklist facts, fingerprints, and
+  hashes only. Raw buffers are deleted after sanitization. Bundles expire after
+  30 days; every lab invocation runs verified retention cleanup first and an
+  explicit purge path is available. With no daemon, an unprocessed expiry is
+  reported as `purge_due`, never as already deleted.
+- `visual_approved` is mandatory before first production promotion of each
+  topology and again after destination presentation, attribution, topic/comment
+  rendering, checklist, or relevant Telegram client/schema fingerprint changes.
+  Its evidence expires after 30 days.
+- Focused development needs `machine_green` only. A non-presentation release may
+  reuse fresh compatible visual approval only when the report proves the visual
+  fingerprint was unaffected; a missing visual gate never silently authorizes
+  promotion or an affected release.
+- The visual checklist covers native channel comments, plain/forum discussion
+  parity, General/custom topics and lifecycle state, author attribution,
+  albums/captions, protected reconstruction, pins, append-only edit/delete
+  presentation, and basic-group normalization disclosure. It never exposes
+  membership rows or unrelated dialogs.
+- Calls, boosts, reactions, and monetization remain explicit exclusions and
+  cannot inherit support from a neighboring green result.
+- Basic-group fixtures use only an explicitly configured secondary user account
+  whose alias and canonical user id are bound in the manifest. A missing,
+  unauthorized, mismatched, bot, or unrelated peer blocks before mutation.
+- The lab peer performs only the marked text, generated media, reply, admin
+  grant/revoke, leave, and re-add fixture actions. Each has correlated audit
+  attempt/result evidence and exact peer/state verification before advancing.
+- Protection scenarios run sequentially with unique markers and verified
+  teardown, so acceptance leaves no disposable Telegram peers behind.
+- Basic-group teardown verifies absence or definitive inaccessibility from both
+  user sessions. Ambiguous cleanup remains manifest-listed and makes acceptance
+  red; it never triggers deletion of an unverified chat.
 - A watcher running for an account does not make a normal `tg` read command busy.
 - Crash injection at every outbound transition and creation lifecycle boundary
   produces no duplicate destination channel, group, message, album, annotation,
   or pin operation.
 - Channel and linked-group messages with the same numeric id coexist correctly.
+- Basic-group predecessor and migrated-supergroup successor histories share one
+  logical mirror while retaining distinct peer-scoped keys and cursors.
 - A post arriving during watcher startup appears exactly once.
 - An interrupted or access-failed audit produces zero false deletions.
 - A real source deletion while watch is down is confirmed by complete scan plus
   targeted fetch, then represented by one append-only changelog message.
 - Destination private ownership and authorization binding are revalidated before
   writes and after reconnect.
+- Every destination remains operator-only; membership snapshots cause no invite,
+  promotion, ban, or other external membership mutation.
 - `pytest -q`, coverage gate, CLI help, and gated live smokes are green with real
   output quoted in DEVLOG.
 - No self-installed daemon/background process exists; no mirror-specific state

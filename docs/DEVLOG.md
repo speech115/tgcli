@@ -15,6 +15,371 @@ Template:
 
 ---
 
+## 2026-07-13 — Economical model-routed mirror agents configured (Codex GPT-5)
+**Did:** added project-scoped custom agents for bounded Luna implementation,
+read-only Terra investigation, and read-only Sol xhigh risk review. Added a
+three-thread, depth-one, 20-minute worker cap to prevent recursive or runaway
+delegation.
+**Decided:** Luna may edit only assigned pure/mocked TDD slices and never access
+live Telegram; Terra is read-only and evidence-focused; Sol is reserved for the
+final crash-safety, privacy, cleanup, and controlled-live plan gate. Telegram
+mutations remain with the parent agent under the accepted lab policy.
+**Learned:** current Codex supports per-agent `model` and
+`model_reasoning_effort` through project agent files even though the direct
+spawn call does not expose an inline model field. Agent configuration is loaded
+for sessions started from this worktree.
+**Checks:** all four TOML files parsed with Python `tomllib`; `codex
+--strict-config doctor --json` reported `config loaded` for this worktree and
+the active GPT-5.6 Sol configuration. No subagent or Telegram mutation ran.
+**Next:** start a new Codex task from this worktree so the three roles are loaded,
+then assign only the next checkpoint/fingerprint TDD slice to Luna.
+
+## 2026-07-13 — Expanded topology scenario taxonomy started with TDD (Codex GPT-5)
+**Did:** added a pure immutable scenario model covering all 16 accepted
+topology/protection cells, independent channel/discussion protection, full versus
+sentinel content allocation, and basic-group destination normalization. RED was
+observed separately for missing scenario enumeration, content allocation,
+protection fields, and destination normalization before each minimal GREEN.
+**Decided:** the exact matrix is executable code rather than a prose-only list;
+later provisioning and verdicts must consume these stable scenario specs.
+**Learned:** the matrix contains eight standalone full-content cells and eight
+linked discussion sentinel cells. Encoding discussion protection separately
+prevents an open channel result from concealing a protected discussion failure.
+**Checks:** focused mirror lab/probe suite: `73 passed, 1 skipped`; full suite:
+`281 passed, 9 skipped`; `git diff --check` clean.
+**Next:** add versioned per-scenario checkpoints and compatibility fingerprints
+with pure manifest migration tests before implementing any Telegram mutation.
+
+## 2026-07-13 — Visual promotion and presentation-release gate accepted (Codex GPT-5)
+**Did:** documented when visual approval blocks topology promotion and releases,
+its 30-day lifetime, presentation compatibility fingerprint, and the narrower
+machine-only rule for focused development.
+**Decided:** first production enablement and presentation-affecting releases need
+fresh `visual_approved`. Non-presentation development may use `machine_green`,
+but release evidence must prove the visual fingerprint was unaffected.
+**Learned:** requiring a reviewer for every debug rerun would slow safe recovery,
+while making review informational would allow native Telegram presentation to
+regress exactly at promotion time. A scoped release gate preserves both speed
+and accountability.
+**Next:** execute the accepted topology expansion through the TDD slices in the
+mirror plan, starting with versioned scenario keys, manifests, and classifier
+coverage before any new Telegram mutation.
+
+## 2026-07-13 — Opt-in sanitized visual bundles accepted (Codex GPT-5)
+**Did:** documented default no-capture behavior, explicit local review bundles,
+scope/redaction gates, owner-only storage, raw-buffer cleanup, 30-day retention,
+and verified lazy purge semantics for the stateless CLI.
+**Decided:** screenshots exist only with `--capture-review` and never include
+unrelated dialogs, member lists, private identifiers, notifications, or account
+switching UI. Unsafe frames are discarded rather than retained.
+**Learned:** a no-daemon CLI cannot guarantee deletion at an unattended wall
+clock instant. It can make expired evidence invalid immediately and verify
+physical purge before every later lab action or through an explicit command.
+**Next:** decide where `visual_approved` is mandatory: development diagnostics,
+topology promotion, or every release acceptance.
+
+## 2026-07-13 — Bounded foreground visual-review lease accepted (Codex GPT-5)
+**Did:** documented a 30-minute visual-review lease, explicit extensions capped
+at two hours, foreground teardown triggers, crash recovery, and a cleanup-first
+gate on every later lab invocation.
+**Decided:** tgcli gains no daemon. A live foreground runner tears down on
+approval, rejection, cancellation, or expiry; after process/host loss the
+durable manifest blocks new fixture creation until cleanup is reconciled.
+**Learned:** a claimed wall-clock expiry is not deletion evidence. Stateless CLI
+safety requires a persistent cleanup obligation and verification on the next
+invocation when no process survived to execute the timer.
+**Next:** choose whether visual evidence retains screenshots or only a local
+checklist verdict and privacy-safe metadata.
+
+## 2026-07-13 — Independent machine and visual acceptance accepted (Codex GPT-5)
+**Did:** documented separate `machine_green` and `visual_approved` verdicts, an
+explicit representative visual-review mode, its native Telegram checklist, and
+the durable pre-teardown review checkpoint.
+**Decided:** the full matrix remains unattended machine evidence. Visual review
+uses one open and protected representative per topology and requires an explicit
+human approve/reject; neither verdict substitutes for the other.
+**Learned:** protocol mappings can be correct while Telegram presentation feels
+unnatural, but screenshots also cannot prove resume, idempotence, or coverage.
+The two evidence classes need independent gates.
+**Next:** choose the no-response timeout and cleanup behavior while a disposable
+visual-review scenario is waiting for a human.
+
+## 2026-07-13 — Thirty-day compatible-evidence lifetime accepted (Codex GPT-5)
+**Did:** documented immediate fingerprint invalidation, a 30-day lifetime for
+otherwise compatible controlled-live results, selective stale-cell reruns, and
+explicit completion/expiry/stale-reason reporting.
+**Decided:** code, fixture, dependency, schema, account-role, or configuration
+drift invalidates affected evidence immediately. Purely time-stale evidence is
+rerun cell by cell; unrelated fresh results remain valid.
+**Learned:** fingerprints detect local drift but not silent Telegram server-side
+behavior changes. A bounded lifetime supplies that missing live revalidation
+without forcing the full mutation matrix on every acceptance run.
+**Next:** decide whether organic-copy acceptance needs a human visual gate in
+addition to machine-verifiable topology and content invariants.
+
+## 2026-07-13 — Resumable scenario and aggregate runner accepted (Codex GPT-5)
+**Did:** documented phase checkpoints, targeted scenario execution, serial
+aggregate acceptance, compatibility fingerprints, explicit non-pass states, and
+evidence-backed resume/cleanup reconciliation.
+**Decided:** one interrupted or red cell does not erase compatible evidence from
+other cells. A targeted pass never becomes overall acceptance; the aggregate
+requires every required cell and a separate green teardown for each scenario.
+**Learned:** a monolithic live run conflates Telegram transport failure with
+orchestration failure and encourages unsafe recreation after ambiguous replies.
+Durable per-scenario manifests make both retry and cleanup auditable.
+**Next:** choose the time-based freshness lifetime for otherwise compatible live
+evidence so server-side Telegram drift cannot remain green forever.
+
+## 2026-07-13 — Exact expanded content inventory frozen (Codex GPT-5)
+**Did:** reconciled the R1 classifier and fixtures against Telethon 1.44 layer
+227, then documented full authored, family-scoped, observation-negative,
+action-specific service, and excluded content classes.
+**Decided:** webpage becomes an authored hydrated fixture; protected non-byte
+content needs semantic reconstruction evidence; todo and live location are
+group-family probes; `MessageMediaVideoStream` and custom emoji receive explicit
+classification instead of generic fallthrough. Version/layer drift invalidates
+inherited verdicts until compatibility is checked.
+**Learned:** the old 15-kind broadcast result did not author webpage, collapsed
+all service actions, skipped protected non-byte reconstruction, and could not
+prove any group/forum capability. Content verdicts must be peer-family scoped.
+**Next:** freeze the resumable execution and final aggregation contract for the
+larger live scenario suite.
+
+## 2026-07-13 — Peer-family content covering matrix accepted (Codex GPT-5)
+**Did:** documented structural sentinels per protection cell and full content
+suites per open/protected peer family, including group/forum re-probes for todo
+and live location.
+**Decided:** linked discussion cells prove topology coupling and mixed protection
+without duplicating every media upload. No content result crosses peer-family or
+protection boundaries.
+**Learned:** a covering design preserves evidence strength at Telegram's actual
+behavior boundaries while avoiding a redundant full Cartesian upload matrix.
+**Next:** reconcile the exact R1 content inventory with the pinned Telegram
+schema and classify additions, exclusions, and family-specific probes.
+
+## 2026-07-13 — Full structural fidelity matrix accepted (Codex GPT-5)
+**Did:** documented the required profile, content, reply, pin, edit/delete,
+membership, migration, topic, comment-root, teardown, and idempotent rerun
+evidence; added structural fidelity to the glossary and acceptance plan.
+**Decided:** a group or forum is not complete when only message transport works.
+Calls, boosts, reactions, and monetization remain explicit exclusions.
+**Learned:** content fidelity and topology fidelity are independent verdicts;
+collapsing them would let valid media conceal broken forum or comment structure.
+**Next:** decide how the full content-kind matrix is distributed across the many
+topology/protection cells without creating redundant Telegram mutations.
+
+## 2026-07-13 — Bounded active lab-peer script accepted (Codex GPT-5)
+**Did:** documented the exact lab-peer mutation allowlist, per-action audit and
+state verification, two-account teardown proof, and ambiguous-cleanup stop rule.
+**Decided:** the secondary user sends one marked text, one generated media item,
+and one reply; receives and loses admin; leaves and is re-added. It never touches
+another dialog or uses personal content.
+**Learned:** passive membership cannot prove author attribution, replies, role
+facts, leave/rejoin handling, or their service updates; a bounded script can do
+so without granting the lab open-ended write authority.
+**Next:** freeze the structural event matrix required to call groups and forums
+complete in the expanded lab.
+
+## 2026-07-13 — Existing secondary alias verified for lab-peer role (Codex GPT-5)
+**Did:** selected local alias `recklessou` as the deployment-specific lab-peer
+and ran read-only `tg info me` checks for it and `main`. Both sessions were
+authorized user accounts with distinct canonical ids; ids remain redacted from
+repository documentation.
+**Decided:** portable code and defaults do not hardcode `recklessou`. The alias
+is supplied explicitly to the local lab manifest, which binds the verified ids
+before any mutation.
+**Learned:** an already configured controlled secondary user account satisfies
+the basic-group fixture identity requirement without provisioning another
+Telegram account.
+**Next:** decide whether the lab peer is passive or performs a bounded set of
+messages, replies, membership, and role transitions for fidelity evidence.
+
+## 2026-07-13 — Dedicated user account selected for basic-group lab fixtures (Codex GPT-5)
+**Did:** documented the lab-peer account role, identity-bound manifest preflight,
+and acceptance rule forbidding bots or unrelated contacts as basic-group fixture
+participants.
+**Decided:** a dedicated secondary Telegram user account is invited only to a
+uniquely marked disposable basic-group source. It never joins production
+destinations, and any alias/auth/identity mismatch blocks before mutation.
+**Learned:** a bot satisfies Telegram's participant count but does not prove
+ordinary user membership, permissions, or service-message behavior.
+**Next:** inspect registered local tgcli aliases without opening sessions, then
+freeze provisioning if no dedicated lab-peer account exists.
+
+## 2026-07-13 — Basic groups normalized into lineage-aware supergroups (Codex GPT-5)
+**Did:** documented owner-only supergroup normalization, stable source lineage,
+predecessor discovery, peer-scoped cursors, and migration-boundary tests; updated
+the proposed ledger schema accordingly.
+**Decided:** a basic-group source never causes invitations. Its history and any
+migrated supergroup successor feed one destination and one lineage-root mirror
+identity while retaining distinct peer/message keys.
+**Learned:** canonical current peer id is not a stable mirror identity across
+Telegram migration; the earliest discoverable predecessor must anchor identity.
+**Next:** choose the controlled second identity required to create disposable
+basic-group source fixtures without involving an unrelated real person.
+
+## 2026-07-13 — Owner-only basic-group constraint confirmed (Codex GPT-5)
+**Did:** checked current official Telegram MTProto documentation for basic-group
+and supergroup creation and recorded the constraint in ADR-0015.
+**Decided:** no destination decision yet. The grill must choose explicitly
+between a supergroup destination, inviting a real participant to manufacture a
+basic group, or dropping basic-group support.
+**Learned:** `messages.createChat` requires invited users and may return
+`USERS_TOO_FEW`; `channels.createChannel(megagroup=True)` can create the required
+owner-only private supergroup without involving another person.
+**Next:** choose the legacy basic-group destination and migration-lineage rule.
+
+## 2026-07-13 — Verified membership change history accepted (Codex GPT-5)
+**Did:** documented normalized current membership state, idempotent append-only
+change facts, and complete-scan plus targeted-lookup evidence for departures.
+**Decided:** membership retains `joined`, `left`, `role_changed`, and
+`name_changed` facts without full repeated snapshots. Incomplete visibility,
+access loss, cancellation, or FloodWait never produces a `left` fact.
+**Learned:** member absence needs the same evidence discipline as source message
+deletion; one incomplete iterator cannot distinguish departure from invisibility.
+**Next:** verify Telegram's owner-only basic-group creation constraints before
+freezing legacy-group destination and migration behavior.
+
+## 2026-07-13 — Minimal privacy-safe membership snapshot accepted (Codex GPT-5)
+**Did:** froze allowed membership fields, completeness metadata, forbidden
+profile fields, and the aggregate-status versus explicit-local-export boundary.
+**Decided:** local rows retain only numeric id, display name, public username,
+role, bot/deleted flags, and observation time. Phone, bio, access hash, and
+profile-photo bytes are forbidden; row-level output is always explicit and local.
+**Learned:** stable author correlation needs a local peer id, but normal status
+and logs do not need row-level personal data.
+**Next:** decide whether membership history overwrites the last snapshot or
+records verified changes over time.
+
+## 2026-07-13 — Owner-only destinations with local membership snapshots accepted (Codex GPT-5)
+**Did:** documented private owner-only destinations, non-mutating membership
+snapshots, and acceptance checks forbidding member, role, and ban replication.
+**Decided:** source participants and roles may be observed in private local
+mirror state but are never invited or posted into the destination. Incomplete
+Telegram visibility is reported as such, not upgraded to a complete member list.
+**Learned:** preserving membership as evidence is separate from recreating a
+community; the latter would notify and affect real people outside the archive.
+**Next:** freeze the minimum privacy-safe fields and completeness metadata stored
+in a membership snapshot.
+
+## 2026-07-13 — Full protected topology matrix accepted (Codex GPT-5)
+**Did:** documented the open/protected matrix across basic groups, standalone
+supergroups/forums, and linked plain/forum discussions; added corresponding
+production-phase acceptance gates and the glossary term.
+**Decided:** every matrix cell requires independent controlled-live evidence.
+Disposable scenarios run sequentially and must tear down completely before the
+next cell; no result is inferred from a neighboring topology or protection
+combination.
+**Learned:** channel protection and linked-discussion protection are independent
+capabilities, so one protected broadcast fixture cannot prove comment or topic
+transport behavior.
+**Next:** decide whether group mirrors copy membership and permissions or remain
+private content archives owned only by the operator.
+
+## 2026-07-13 — Full comment threads for mirrored posts accepted (Codex GPT-5)
+**Did:** added the comment-coverage domain term and documented full per-post
+thread backfill, resumable paging, watcher continuation, and excluded-root
+reporting in ADR-0015 and the production plan.
+**Decided:** every mirrored channel post receives its complete accessible
+comment history regardless of comment dates. Comments for posts outside the
+authorized mirror range are not copied and remain visible as excluded coverage.
+**Learned:** applying the post date window to individual comments creates
+arbitrarily truncated discussions; the post root, not comment date, owns the
+coverage boundary.
+**Next:** decide the protected/unprotected topology matrix required for lab
+acceptance.
+
+## 2026-07-13 — Exact channel-discussion topology parity accepted (Codex GPT-5)
+**Did:** added discussion-topology parity to ADR-0015 and the glossary, and
+expanded the planned creation/comment acceptance gates with a controlled live
+forum-link proof.
+**Decided:** no source discussion creates none; a plain discussion stays plain;
+a forum discussion stays a forum. A failed live forum-link gate blocks that
+topology and never authorizes silent downgrade.
+**Learned:** Telegram's public schema documents discussion linking and forums
+separately but does not itself prove their combined behavior; an auto-forwarded
+root and reply roundtrip are required evidence.
+**Next:** decide the history boundary for comments attached to mirrored channel
+posts.
+
+## 2026-07-13 — Parent dependency queue and proven fallback accepted (Codex GPT-5)
+**Did:** documented durable parent dependencies, the unavailable-parent domain
+term, and exact M2 reply/comment acceptance behavior in ADRs and the mirror plan.
+**Decided:** an unmapped child waits for its peer-scoped parent mapping. Only a
+complete-range scan plus targeted lookup may release it through an explicit
+unavailable-parent fallback; it is never flattened early, misattached, or
+silently dropped.
+**Learned:** dependency absence and proven parent absence are different states,
+just as missing iterator output is not deletion evidence under ADR-0013.
+**Next:** decide the destination topology for channel discussions that are not
+forums at the source.
+
+## 2026-07-13 — Capability-based source attribution accepted (Codex GPT-5)
+**Did:** added the source-attribution glossary term and documented native-forward
+and reconstructed author presentation in ADR-0015 and ADR-0013.
+**Decided:** comments and forum messages retain Telegram's official forwarded
+author header when permitted. Protected or otherwise non-forwardable messages
+use a compact display-name/public-username label and never expose phone numbers,
+numeric ids, or access hashes.
+**Learned:** source attribution is presentation data, not sender identity; the
+destination message remains authored technically by the mirror account.
+**Next:** decide how replies and comments behave when their mapped parent is not
+yet available or cannot be copied.
+
+## 2026-07-13 — Native topic state with append-only history accepted (Codex GPT-5)
+**Did:** extended ADR-0015 with forum-topic fidelity rules, clarified ADR-0013's
+append-only boundary, and added the archived-topic glossary term.
+**Decided:** destination topic title, icon/color, and open/closed state follow
+the current source while every transition is recorded idempotently. Source
+topic deletion closes and archives the destination topic instead of deleting
+copied history.
+**Learned:** native current-state fidelity and archival history are compatible
+when mutable topic metadata is separated from immutable copied messages and
+changelog facts.
+**Next:** decide how source authors are represented in copied comments and forum
+messages when Telegram cannot impersonate them.
+
+## 2026-07-13 — Staged production topology expansion accepted (Codex GPT-5)
+**Did:** recorded ADR-0015, amended ADR-0013's scope boundary, and extended the
+glossary and project map for basic groups, supergroups, and the topology matrix.
+**Decided:** the final product includes channels with linked comments,
+standalone supergroups, standalone forum supergroups, and legacy basic groups.
+Delivery is lab-first, then channel discussions, then standalone
+supergroups/forums, then basic groups.
+**Learned:** the existing channel-first ADR remains a useful first milestone;
+expanding the final boundary does not require mixing every topology into one
+implementation or allowing incomplete lab evidence into production routing.
+**Next:** freeze forum-topic fidelity requirements before designing the expanded
+lab fixtures and acceptance matrix.
+
+## 2026-07-13 — Both forum topologies made explicit (Codex GPT-5)
+**Did:** added the project glossary and defined standalone forum supergroups,
+channel discussions with topics, topics, channel comments, and organic channel
+copies as distinct domain concepts. Updated MAP for the new glossary.
+**Decided:** the required topology matrix includes both a standalone forum
+supergroup and a channel-linked discussion group with topics enabled. This does
+not yet decide whether both become production mirror sources or remain lab
+fixtures until a later phase.
+**Learned:** testing topic mechanics in a standalone forum does not prove the
+post-to-comment-root mapping required by a channel-linked forum discussion.
+**Next:** decide the production scope and staged delivery order before amending
+ADR-0013 or writing implementation tests.
+
+## 2026-07-13 — Mirror topology scope audit before forum grill (Codex GPT-5)
+**Did:** audited the accepted R1 controlled lab, production mirror plan, ADR-0013,
+and focused mirror tests before expanding the lab to forums and linked comments.
+The focused suite reported `79 passed, 1 skipped`; an independent full-suite run
+reported `277 passed, 9 skipped`. No Telegram state was changed.
+**Decided:** no scope decision yet. The next design gate must distinguish a
+standalone forum supergroup from a channel-linked discussion group with topics
+before changing the lab or production plan.
+**Learned:** R1 currently proves content transports only between owned broadcast
+channels and explicitly rejects megagroups. Basic groups, supergroups, forums,
+and linked channel comments have no mirror lab or live acceptance evidence;
+production `tg mirror` remains planned.
+**Next:** resolve which forum topologies are required, then update the glossary
+and topology matrix before writing implementation tests.
+
 ## 2026-07-13 — Final R1 controlled-lab acceptance (Codex GPT-5)
 **Did:** completed two repaired R1 runs, including a fresh post-review run
 against manifest-v2 channels, with Telethon 1.44.0 at layer 227 and probe

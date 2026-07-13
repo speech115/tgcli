@@ -7,6 +7,7 @@ import tempfile
 import asyncio
 import secrets
 from datetime import UTC, datetime
+from dataclasses import dataclass
 from pathlib import Path
 
 from tgcli.errors import PolicyError
@@ -20,6 +21,68 @@ CHANNEL_ROLES = (
     "dest_native",
     "dest_reupload",
 )
+
+
+@dataclass(frozen=True)
+class ScenarioSpec:
+    key: str
+    content_profile: str
+    source_family: str
+    source_protected: bool
+    destination_family: str
+    discussion_kind: str
+    discussion_protected: bool | None
+
+
+def _scenario_spec(key: str) -> ScenarioSpec:
+    topology, protection = key.split(".", 1)
+    if topology.startswith("channel_"):
+        channel_protection, discussion_protection = protection.split("_", 1)
+        return ScenarioSpec(
+            key=key,
+            content_profile="sentinels",
+            source_family="channel",
+            source_protected=channel_protection == "protected",
+            destination_family="channel",
+            discussion_kind=topology.removeprefix("channel_"),
+            discussion_protected=discussion_protection == "protected",
+        )
+    return ScenarioSpec(
+        key=key,
+        content_profile="full",
+        source_family=topology,
+        source_protected=protection == "protected",
+        destination_family="supergroup" if topology == "basic" else topology,
+        discussion_kind="none",
+        discussion_protected=None,
+    )
+
+
+_REQUIRED_SCENARIOS = tuple(
+    _scenario_spec(key)
+    for key in (
+        "basic.open",
+        "basic.protected",
+        "supergroup.open",
+        "supergroup.protected",
+        "forum.open",
+        "forum.protected",
+        "channel.open",
+        "channel.protected",
+        "channel_plain.open_open",
+        "channel_plain.protected_open",
+        "channel_plain.open_protected",
+        "channel_plain.protected_protected",
+        "channel_forum.open_open",
+        "channel_forum.protected_open",
+        "channel_forum.open_protected",
+        "channel_forum.protected_protected",
+    )
+)
+
+
+def required_scenarios() -> tuple[ScenarioSpec, ...]:
+    return _REQUIRED_SCENARIOS
 
 
 def new_manifest(account_user_id: int) -> dict:
@@ -124,7 +187,6 @@ def seeded_ids(manifest: dict, role: str) -> dict[str, list[int]]:
 import hashlib
 import struct
 import zlib
-from dataclasses import dataclass
 from typing import Callable
 
 from telethon.tl import types

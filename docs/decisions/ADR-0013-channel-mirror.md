@@ -6,6 +6,8 @@ method is capability-based.
 Amended 2026-07-13 after final R1 evidence: Telegram todo and live locations
 are unsupported in broadcast-channel mirrors; the narrowed matrix passed both
 copy transports.
+Amended by ADR-0015: general groups and standalone forums remain outside this
+ADR's first production milestone but are part of the staged product target.
 
 Amends PLAN.md by bringing a constrained channel mirror back into scope. It
 narrows ADR-0002's no-daemon rule without allowing self-installing background
@@ -37,8 +39,10 @@ both problems before implementation.
 
 ### 1. Scope
 
-- Source: one broadcast channel, public or closed, plus its linked discussion
-  group when present. General groups and 1:1 dialogs remain out of scope.
+- Initial production source: one broadcast channel, public or closed, plus its
+  linked discussion group when present. General groups and standalone forums
+  enter through the later evidence-gated stages defined by ADR-0015; 1:1
+  dialogs remain out of scope.
 - Destination: a real private broadcast channel owned by the same Telegram user.
   A linked private megagroup may be created for copied comments.
 - Copy method: capability-based, not one fixed transport. Unprotected source
@@ -56,6 +60,10 @@ both problems before implementation.
   original server dates, original senders, paid media, and unsupported service
   actions are not promised. Unsupported items produce an explicit placeholder
   and ledger status; they are never silently dropped.
+- Source authors of comments and forum messages follow ADR-0015's
+  capability-based attribution rule: native Telegram forward attribution when
+  available, otherwise a privacy-safe reconstructed label. Sender impersonation
+  is never promised.
 - Telegram todo is explicitly unsupported for broadcast-channel sources. R1
   observed `MediaInvalidError` for `InputMediaTodo` on both owned source roles;
   the mirror records an unsupported placeholder instead of silently dropping it.
@@ -94,8 +102,10 @@ is outside tgcli and is not shipped by this phase.
 ### 3. Identity and state ownership
 
 A mirror is identified only after source resolution. Its stable identity is a
-hash of `(account_user_id, canonical_source_peer_id)`, not a user-supplied
-username or link. Aliases may change; canonical peer identity does not.
+hash of `(account_user_id, source_lineage_root_peer_id)`, not a user-supplied
+username or link. For a non-migrated source, the lineage root is the canonical
+source peer. ADR-0015 defines predecessor discovery for migrated basic groups.
+Aliases and current peer ids may change; the lineage root does not.
 
 Each mirror owns one SQLite database:
 
@@ -105,7 +115,7 @@ TGCLI_STATE_DIR/mirrors/<mirror_id>.db
 
 Telegram message ids are peer-scoped. Every source key is therefore
 `(source_peer_id, source_msg_id)`. The same rule applies to comments, parents,
-changelog entries, operations, and destination mappings.
+changelog entries, operations, destination mappings, and per-peer cursors.
 
 The database owns:
 
@@ -115,6 +125,10 @@ The database owns:
 - durable outbound operations and their Telegram `random_id` values;
 - backfill and watcher high-water marks;
 - scan coverage and changelog facts.
+
+Reply and comment operations may also wait on a peer-scoped parent mapping.
+ADR-0015's dependency rule governs their release and proven-unavailable
+fallback; queue presence alone is never evidence that the parent is absent.
 
 The existing global `TGCLI_STATE_DIR/audit.jsonl` remains the security audit
 required by ADR-0011. It is intentionally outside `mirrors/`; the
@@ -188,6 +202,12 @@ An "annotation" means a new changelog message or reply in the destination:
 
 This makes append-only behavior literal rather than relying on ambiguous wording
 such as "annotate the copy".
+
+ADR-0015 narrows this immutability rule to copied message history and changelog
+facts. Forum topic metadata may track source title, icon/color, and open/closed
+state while every transition remains recorded append-only. A deleted source
+topic is closed and archived in the destination; it is never deleted with its
+copied messages.
 
 ### 7. Authoritative audit semantics
 
