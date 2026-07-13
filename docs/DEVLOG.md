@@ -15,6 +15,19 @@ Template:
 
 ---
 
+## 2026-07-13 — Block protected messages before mirror sync writes (Codex)
+**Did:** fixed `mirror sync` so a per-message `noforwards=True` stops both new
+history and pending replay before prepare/audit/forward/confirmation. Added
+regressions for both paths. RED was the new-history regression copying one
+protected message (`expected exit 2, got 0`); focused GREEN was `11 passed in
+0.20s`. The requested mirror regression set passed with `31 passed in 0.28s`,
+and the full suite passed with `245 passed, 8 skipped in 1.68s`.
+**Decided:** keep protected reconstruction in its later product slice; this fix
+only closes the native-forward safety gap and does not change the CLI contract.
+**Learned:** channel-level `noforwards` is insufficient because fetched
+messages can carry the protection flag independently, including pending replay.
+**Next:** re-review Task 3 against the two per-message protection regressions.
+
 ## 2026-07-13 — Mirror product reset to a lean vertical slice (Codex)
 **Did:** reviewed the clean `main` baseline, the expanded laboratory branch and
 draft PR, ADR-0013, its M0-M4 plan, and an independent review of their cost.

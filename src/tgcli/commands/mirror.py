@@ -142,6 +142,11 @@ def _destination_message_id(response, random_id: int) -> int:
 
 
 def _require_text_message(message) -> None:
+    if getattr(message, "noforwards", False):
+        raise PolicyError(
+            f"protected mirror messages require the later media sync slice; "
+            f"stopped at source message {message.id}"
+        )
     if getattr(message, "media", None) is not None or getattr(
         message, "action", None
     ) is not None:

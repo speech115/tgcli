@@ -38,8 +38,14 @@ def channel(channel_id, title, *, creator=False, noforwards=False):
     )
 
 
-def text_message(message_id, text):
-    return SimpleNamespace(id=message_id, message=text, media=None, action=None)
+def text_message(message_id, text, *, noforwards=False):
+    return SimpleNamespace(
+        id=message_id,
+        message=text,
+        media=None,
+        action=None,
+        noforwards=noforwards,
+    )
 
 
 def media_message(message_id):
@@ -210,6 +216,44 @@ def test_mirror_sync_refuses_protected_source_before_destination_write(
     assert "protected" in error["error"]["message"]
     assert client.input_entity_calls == []
     assert client.requests == []
+    assert store.last_confirmed_message_id() == 0
+    assert not safety.audit_path().exists()
+
+
+def test_mirror_sync_refuses_protected_new_history_before_prepare_or_write(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    client = MirrorSyncClient([text_message(1, "one", noforwards=True)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 2
+
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"]["code"] == "BLOCKED"
+    assert "protected" in error["error"]["message"]
+    assert client.requests == []
+    assert store.pending_copies() == []
+    assert store.last_confirmed_message_id() == 0
+    assert not safety.audit_path().exists()
+
+
+def test_mirror_sync_keeps_protected_pending_copy_without_replay_or_write(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    pending = store.prepare_copy(1, random_id=-321)
+    client = MirrorSyncClient([text_message(1, "one", noforwards=True)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 2
+
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"]["code"] == "BLOCKED"
+    assert "protected" in error["error"]["message"]
+    assert client.events == ["get:1"]
+    assert client.requests == []
+    assert store.pending_copies() == [pending]
     assert store.last_confirmed_message_id() == 0
     assert not safety.audit_path().exists()
 
