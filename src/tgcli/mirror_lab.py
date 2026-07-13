@@ -332,6 +332,13 @@ def advance_scenario_phase(checkpoint: dict, confirmed_phase: str) -> dict:
     advanced = deepcopy(checkpoint)
     if current_phase == "complete":
         return advanced
+    if current_phase == "create":
+        _, expected_intents = _validated_scenario_operations(checkpoint)
+        operations = checkpoint["outbound_operations"]
+        if set(operations) != set(expected_intents) or any(
+            operation["state"] != "confirmed" for operation in operations.values()
+        ):
+            raise ValueError("provisioning intents are incomplete")
     if current_phase == "teardown":
         verdicts = checkpoint["verdicts"]
         domains = verdicts.get("domains") if isinstance(verdicts, dict) else None
@@ -470,6 +477,104 @@ def build_scenario_provisioning_intents(
         create_peer("destination_discussion", discussion_family, owner_only=True)
         link_discussion("destination")
     return tuple(intents)
+
+
+def _validated_scenario_operations(checkpoint: dict) -> tuple[str, dict[str, dict]]:
+    phase = scenario_resume_phase(checkpoint)
+    if phase != "create":
+        raise ValueError(f"scenario intent phase must be create, got {phase}")
+    fingerprint = checkpoint["compatibility_fingerprint"]
+    scenario_key = fingerprint["scenario_key"]
+    expected = {
+        intent["intent_key"]: intent
+        for intent in build_scenario_provisioning_intents(scenario_key, fingerprint)
+    }
+    operation_fields = {"method", "target_role", "parameters", "state"}
+    for intent_key, operation in checkpoint["outbound_operations"].items():
+        expected_intent = expected.get(intent_key)
+        if (
+            expected_intent is None
+            or not isinstance(operation, dict)
+            or set(operation) != operation_fields
+            or operation["state"]
+            not in {"prepared", "dispatched", "confirmed", "ambiguous", "blocked"}
+            or {
+                "intent_key": intent_key,
+                "method": operation["method"],
+                "target_role": operation["target_role"],
+                "parameters": operation["parameters"],
+            }
+            != expected_intent
+        ):
+            raise ValueError(f"invalid scenario operation: {intent_key}")
+    return scenario_key, expected
+
+
+def prepare_scenario_intent(checkpoint: dict, intent: dict) -> dict:
+    _, expected = _validated_scenario_operations(checkpoint)
+    if (
+        not isinstance(intent, dict)
+        or not isinstance(intent.get("intent_key"), str)
+        or expected.get(intent["intent_key"]) != intent
+    ):
+        raise ValueError("intent does not match scenario plan")
+    prepared = deepcopy(checkpoint)
+    intent_key = intent["intent_key"]
+    if intent_key not in prepared["outbound_operations"]:
+        prepared["outbound_operations"][intent_key] = {
+            "method": intent["method"],
+            "target_role": intent["target_role"],
+            "parameters": deepcopy(intent["parameters"]),
+            "state": "prepared",
+        }
+    return prepared
+
+
+def mark_scenario_intent_dispatched(checkpoint: dict, intent_key: str) -> dict:
+    _validated_scenario_operations(checkpoint)
+    operation = checkpoint["outbound_operations"].get(intent_key)
+    if not isinstance(operation, dict) or operation.get("state") != "prepared":
+        raise ValueError(f"intent is not prepared: {intent_key}")
+    dispatched = deepcopy(checkpoint)
+    dispatched["outbound_operations"][intent_key]["state"] = "dispatched"
+    return dispatched
+
+
+def record_scenario_intent_outcome(
+    checkpoint: dict, intent_key: str, outcome: str
+) -> dict:
+    if outcome not in {"confirmed", "ambiguous", "blocked"}:
+        raise ValueError(f"invalid intent outcome: {outcome}")
+    _validated_scenario_operations(checkpoint)
+    operation = checkpoint["outbound_operations"].get(intent_key)
+    if not isinstance(operation, dict):
+        raise ValueError(f"unknown scenario intent: {intent_key}")
+    if operation["state"] == outcome:
+        return deepcopy(checkpoint)
+    if operation["state"] != "dispatched":
+        raise ValueError(f"intent is not dispatched: {intent_key}")
+    resolved = deepcopy(checkpoint)
+    resolved["outbound_operations"][intent_key]["state"] = outcome
+    return resolved
+
+
+def reconcile_scenario_intent(
+    checkpoint: dict, intent_key: str, *, observed: bool | None
+) -> dict:
+    _validated_scenario_operations(checkpoint)
+    operation = checkpoint["outbound_operations"].get(intent_key)
+    if not isinstance(operation, dict) or operation.get("state") not in {
+        "dispatched",
+        "ambiguous",
+    }:
+        raise ValueError(f"intent does not require reconciliation: {intent_key}")
+    if observed is not None and type(observed) is not bool:
+        raise ValueError("reconciliation observation must be boolean or None")
+    reconciled = deepcopy(checkpoint)
+    reconciled["outbound_operations"][intent_key]["state"] = (
+        "ambiguous" if observed is None else "confirmed" if observed else "prepared"
+    )
+    return reconciled
 
 
 def compare_compatibility_fingerprints(expected: dict, actual: dict) -> dict:

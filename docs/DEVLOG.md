@@ -15,6 +15,25 @@ Template:
 
 ---
 
+## 2026-07-13 — Provisioning intent journal made resumable (Codex GPT-5)
+**Did:** added pure checkpoint operations that prepare only exact scenario-plan
+intents, mark them dispatched, record confirmed/ambiguous/blocked outcomes, and
+reconcile uncertain dispatches from explicit observed/absent evidence. The
+`create` phase now refuses to advance until every exact provisioning intent for
+that cell exists and is confirmed.
+**Decided:** an ambiguous or merely dispatched intent can never be sent again
+directly. It remains blocked for reconciliation; only an explicit positive
+observation confirms it, while an explicit absence returns it to `prepared`.
+Stable journal entries contain no server result payload or resolved identity.
+**Learned:** a resumable phase enum is not enough by itself. Without binding
+phase advancement to the complete exact intent set, a caller could skip
+provisioning work and still advance from `create` to `seed`.
+**Checks:** focused mirror lab/probe suite: `131 passed, 1 skipped`; full suite:
+`339 passed, 9 skipped`; namespace coverage: `coverage OK: 23 namespaces`;
+`git diff --check` clean. No live Telegram access or mutation ran.
+**Next:** add a fake-client dispatcher that persists prepared/dispatched state
+before invoking one mocked request and records ambiguous exceptions safely.
+
 ## 2026-07-13 — Expanded provisioning intents defined (Codex GPT-5)
 **Did:** added pure stable-key provisioning intents for all 16 scenarios using
 the pinned Telethon schema's exact operation families: `messages.createChat`

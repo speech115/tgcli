@@ -453,6 +453,109 @@ def test_all_provisioning_intent_keys_are_stable_and_unique_per_cell():
         assert all(key.startswith(f"{spec.key}:") for key in keys)
 
 
+def provisioning_checkpoint(scenario_key="forum.protected"):
+    fingerprint = classification_fingerprint(scenario_key)
+    checkpoint = lab_module.new_scenario_checkpoint(scenario_key, fingerprint)
+    checkpoint["phase"] = "create"
+    intent = lab_module.build_scenario_provisioning_intents(
+        scenario_key, fingerprint
+    )[0]
+    return checkpoint, intent
+
+
+def test_prepare_scenario_intent_is_pure_idempotent_and_exact():
+    checkpoint, intent = provisioning_checkpoint()
+    prepared = lab_module.prepare_scenario_intent(checkpoint, intent)
+
+    assert checkpoint["outbound_operations"] == {}
+    assert prepared is not checkpoint
+    assert prepared["outbound_operations"][intent["intent_key"]] == {
+        "method": intent["method"],
+        "target_role": intent["target_role"],
+        "parameters": intent["parameters"],
+        "state": "prepared",
+    }
+    assert lab_module.prepare_scenario_intent(prepared, intent) == prepared
+
+    forged = deepcopy(intent)
+    forged["method"] = "messages.sendMessage"
+    with pytest.raises(ValueError, match="intent does not match scenario plan"):
+        lab_module.prepare_scenario_intent(checkpoint, forged)
+
+
+def test_intent_dispatch_and_outcome_transitions_are_fail_closed():
+    checkpoint, intent = provisioning_checkpoint()
+    prepared = lab_module.prepare_scenario_intent(checkpoint, intent)
+    key = intent["intent_key"]
+
+    dispatched = lab_module.mark_scenario_intent_dispatched(prepared, key)
+    assert dispatched["outbound_operations"][key]["state"] == "dispatched"
+    assert prepared["outbound_operations"][key]["state"] == "prepared"
+
+    ambiguous = lab_module.record_scenario_intent_outcome(
+        dispatched, key, "ambiguous"
+    )
+    assert ambiguous["outbound_operations"][key]["state"] == "ambiguous"
+    with pytest.raises(ValueError, match="intent is not prepared"):
+        lab_module.mark_scenario_intent_dispatched(ambiguous, key)
+
+    with pytest.raises(ValueError, match="invalid intent outcome"):
+        lab_module.record_scenario_intent_outcome(dispatched, key, "success")
+
+
+def test_ambiguous_intent_requires_evidence_backed_reconciliation():
+    checkpoint, intent = provisioning_checkpoint()
+    key = intent["intent_key"]
+    prepared = lab_module.prepare_scenario_intent(checkpoint, intent)
+    dispatched = lab_module.mark_scenario_intent_dispatched(prepared, key)
+    ambiguous = lab_module.record_scenario_intent_outcome(
+        dispatched, key, "ambiguous"
+    )
+
+    still_ambiguous = lab_module.reconcile_scenario_intent(
+        ambiguous, key, observed=None
+    )
+    assert still_ambiguous["outbound_operations"][key]["state"] == "ambiguous"
+
+    confirmed = lab_module.reconcile_scenario_intent(
+        ambiguous, key, observed=True
+    )
+    assert confirmed["outbound_operations"][key]["state"] == "confirmed"
+
+    retryable = lab_module.reconcile_scenario_intent(
+        ambiguous, key, observed=False
+    )
+    assert retryable["outbound_operations"][key]["state"] == "prepared"
+    assert (
+        lab_module.mark_scenario_intent_dispatched(retryable, key)
+        ["outbound_operations"][key]["state"]
+        == "dispatched"
+    )
+
+
+def test_create_phase_advances_only_after_every_intent_is_confirmed():
+    checkpoint, _ = provisioning_checkpoint("forum.open")
+    fingerprint = checkpoint["compatibility_fingerprint"]
+    intents = lab_module.build_scenario_provisioning_intents(
+        "forum.open", fingerprint
+    )
+
+    with pytest.raises(ValueError, match="provisioning intents are incomplete"):
+        lab_module.advance_scenario_phase(checkpoint, "create")
+
+    for intent in intents:
+        checkpoint = lab_module.prepare_scenario_intent(checkpoint, intent)
+        checkpoint = lab_module.mark_scenario_intent_dispatched(
+            checkpoint, intent["intent_key"]
+        )
+        checkpoint = lab_module.record_scenario_intent_outcome(
+            checkpoint, intent["intent_key"], "confirmed"
+        )
+
+    advanced = lab_module.advance_scenario_phase(checkpoint, "create")
+    assert advanced["phase"] == "seed"
+
+
 def test_compare_compatibility_fingerprints_reports_all_mismatches_in_order():
     expected = classification_fingerprint()
     actual = classification_fingerprint(
