@@ -4,7 +4,7 @@ from telethon.tl import functions, types
 
 from tgcli import chatref, safety
 from tgcli.errors import NotFoundError, PolicyError
-from tgcli.mirror.store import MirrorRecord, MirrorStore
+from tgcli.mirror.store import CopyOperation, MirrorRecord, MirrorStore
 
 
 def _temporary_title(record: MirrorRecord) -> str:
@@ -129,9 +129,125 @@ async def commit_init(tg, source: str, account_alias: str) -> dict:
     return _result(record)
 
 
+def _destination_message_id(response, random_id: int) -> int:
+    matches = [
+        update.id
+        for update in getattr(response, "updates", ())
+        if isinstance(update, types.UpdateMessageID)
+        and update.random_id == random_id
+    ]
+    if len(matches) != 1:
+        raise PolicyError("Telegram did not confirm the mirrored message")
+    return matches[0]
+
+
+def _require_text_message(message) -> None:
+    if getattr(message, "media", None) is not None or getattr(
+        message, "action", None
+    ) is not None:
+        raise PolicyError(
+            f"mirror sync supports text messages only; stopped at source message {message.id}"
+        )
+
+
+async def _forward_copy(
+    tg,
+    *,
+    source_peer,
+    destination_peer,
+    operation: CopyOperation,
+    account_alias: str,
+    mirror_id: str,
+) -> int:
+    safety.append_audit(
+        "mirror-sync-forward",
+        account_alias,
+        {
+            "mirror_id": mirror_id,
+            "source_message_id": operation.source_message_id,
+            "random_id": operation.random_id,
+        },
+    )
+    response = await tg(
+        functions.messages.ForwardMessagesRequest(
+            from_peer=source_peer,
+            id=[operation.source_message_id],
+            random_id=[operation.random_id],
+            to_peer=destination_peer,
+            drop_author=True,
+        )
+    )
+    return _destination_message_id(response, operation.random_id)
+
+
+async def sync_text(tg, source: str, account_alias: str) -> dict:
+    entity, me = await _resolve(tg, source)
+    store = MirrorStore()
+    record = store.create(me.id, entity.id, entity.title)
+    if not record.authorized:
+        raise PolicyError("mirror source is not authorized; run mirror init --commit")
+    if getattr(entity, "noforwards", False):
+        raise PolicyError("protected mirror sources require the later media sync slice")
+
+    destination = await _destination_entity(tg, record)
+    source_peer = await tg.get_input_entity(entity)
+    destination_peer = await tg.get_input_entity(destination)
+    copied = 0
+    for operation in store.pending_copies():
+        message = await tg.get_messages(entity, ids=operation.source_message_id)
+        if message is None:
+            raise PolicyError(
+                f"pending source message is unavailable: {operation.source_message_id}"
+            )
+        _require_text_message(message)
+        destination_message_id = await _forward_copy(
+            tg,
+            source_peer=source_peer,
+            destination_peer=destination_peer,
+            operation=operation,
+            account_alias=account_alias,
+            mirror_id=record.mirror_id,
+        )
+        store.confirm_copy(operation.source_message_id, destination_message_id)
+        copied += 1
+
+    cursor = store.last_confirmed_message_id()
+    async for message in tg.iter_messages(entity, min_id=cursor, reverse=True):
+        _require_text_message(message)
+        operation = store.prepare_copy(message.id)
+        destination_message_id = await _forward_copy(
+            tg,
+            source_peer=source_peer,
+            destination_peer=destination_peer,
+            operation=operation,
+            account_alias=account_alias,
+            mirror_id=record.mirror_id,
+        )
+        store.confirm_copy(message.id, destination_message_id)
+        copied += 1
+
+    return {
+        "mirror": _result(record)["mirror"],
+        "sync": {
+            "copied": copied,
+            "last_confirmed_message_id": store.last_confirmed_message_id(),
+        },
+    }
+
+
 def to_rows(data: dict) -> list[tuple]:
     mirror = data["mirror"]
     destination = mirror["destination"] or {}
+    if "sync" in data:
+        return [
+            (
+                data["sync"]["copied"],
+                data["sync"]["last_confirmed_message_id"],
+                mirror["id"],
+                mirror["source"]["id"],
+                destination.get("id"),
+            )
+        ]
     return [
         (
             mirror["status"],

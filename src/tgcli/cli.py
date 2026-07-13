@@ -137,6 +137,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_mirror_init = mirror_sub.add_parser("init", parents=[global_flags])
     p_mirror_init.add_argument("source", help="source broadcast channel")
     p_mirror_init.add_argument("--commit", action="store_true")
+    p_mirror_sync = mirror_sub.add_parser("sync", parents=[global_flags])
+    p_mirror_sync.add_argument("source", help="source broadcast channel")
 
     return parser
 
@@ -208,6 +210,9 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                 else:
                     data = await mirror_cmd.preview_init(tg, args.source, account.alias)
                 return data, mirror_cmd.to_rows(data)
+            if args.command == "mirror" and args.mirror_command == "sync":
+                data = await mirror_cmd.sync_text(tg, args.source, account.alias)
+                return data, mirror_cmd.to_rows(data)
             raise AssertionError(f"unhandled network command: {args.command}")
     except telethon_errors.TakeoutInitDelayError as exc:
         raise RateLimitError(
@@ -244,8 +249,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if (
             args.command == "mirror"
-            and args.mirror_command == "init"
-            and args.commit
+            and (
+                args.mirror_command == "sync"
+                or (args.mirror_command == "init" and args.commit)
+            )
         ):
             safety.enforce_mutation_allowed(args.readonly)
         if args.command == "send":

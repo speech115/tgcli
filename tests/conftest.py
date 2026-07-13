@@ -12,6 +12,7 @@ class FakeClient:
         dialogs=(),
         messages=(),
         entities=None,
+        me=None,
         search_messages=None,
         message_total=None,
         participants=(),
@@ -19,6 +20,7 @@ class FakeClient:
         self._dialogs = list(dialogs)
         self._messages = list(messages)
         self._entities = entities or {}
+        self._me = me
         self._search_messages = search_messages or {}
         self._message_total = message_total
         self._participants = list(participants)
@@ -35,12 +37,15 @@ class FakeClient:
         for dialog in self._dialogs[:limit]:
             yield dialog
 
-    async def iter_messages(self, entity, search=None, limit=None, reverse=False):
+    async def iter_messages(
+        self, entity, search=None, limit=None, reverse=False, min_id=0
+    ):
         self.iter_messages_calls.append((entity, search, limit))
         self.iter_messages_reverse_calls.append(reverse)
         if self.iter_messages_error is not None:
             raise self.iter_messages_error
         messages = self._search_messages.get(search, self._messages)
+        messages = [message for message in messages if message.id > min_id]
         if reverse:
             messages = list(reversed(messages))
         for message in messages[:limit]:
@@ -62,6 +67,12 @@ class FakeClient:
         if key not in self._entities:
             raise ValueError(f"no entity {key!r}")
         return self._entities[key]
+
+    async def get_input_entity(self, key):
+        return key
+
+    async def get_me(self):
+        return self._me
 
     async def get_messages(self, entity, ids=None, limit=None):
         self.get_messages_calls.append((entity, ids, limit))
