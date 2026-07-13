@@ -269,6 +269,8 @@ hidden. Its JSON adds:
 
 Plain sync columns are `copied`, `last_confirmed_message_id`, `mirror_id`,
 `source_peer_id`, `destination_peer_id`.
+The mirror envelope returned by `sync` reports the title read from the resolved
+destination rather than assuming it still matches the source.
 
 Each mirror has one SQLite database at
 `TGCLI_STATE_DIR/mirrors/<mirror_id>.db`. Before every copy dispatch, tgcli
@@ -285,3 +287,9 @@ that unsupported item is prepared or copied; already confirmed earlier text
 posts remain committed. Media, albums, replies, linked comments, foreground
 watch, protected-content reupload, and forum topics are explicit later slices,
 not silently claimed by this contract.
+
+`sync` has no implicit overall timeout because a serial backfill may
+legitimately run for longer than 60 seconds. An explicit `--timeout` still
+applies; interruption leaves an unconfirmed operation with its persisted
+random id for the next resumable run. `init` retains the normal 60-second
+default timeout.

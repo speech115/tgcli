@@ -1,3 +1,4 @@
+import asyncio
 import json
 from types import SimpleNamespace
 
@@ -122,6 +123,36 @@ class UnmatchedConfirmationClient(MirrorSyncClient):
         )
 
 
+class ConfirmationEnvelopeClient(MirrorSyncClient):
+    def __init__(self, messages, envelope):
+        super().__init__(messages)
+        self.envelope = envelope
+
+    async def __call__(self, request):
+        response = await super().__call__(request)
+        update = response.updates[0]
+        if self.envelope == "updates":
+            return types.Updates(
+                updates=[update], users=[], chats=[], date=None, seq=1
+            )
+        if self.envelope == "updates_combined":
+            return types.UpdatesCombined(
+                updates=[update],
+                users=[],
+                chats=[],
+                date=None,
+                seq_start=1,
+                seq=1,
+            )
+        return types.UpdateShort(update=update, date=None)
+
+
+class CancellingMirrorSyncClient(MirrorSyncClient):
+    async def __call__(self, request):
+        await super().__call__(request)
+        raise asyncio.CancelledError
+
+
 def authorize_mirror():
     store = MirrorStore()
     store.create(42, 123, "Source channel")
@@ -181,6 +212,89 @@ def test_mirror_sync_recovers_pending_copy_first_with_the_same_random_id(
     assert [request.id for request in client.requests] == [[2], [3]]
     assert client.requests[0].random_id == [pending.random_id]
     assert store.pending_copies() == []
+
+
+@pytest.mark.parametrize("envelope", ["updates", "updates_combined", "update_short"])
+def test_mirror_sync_correlates_confirmation_across_update_envelopes(
+    config_env, monkeypatch, capsys, envelope
+):
+    store = authorize_mirror()
+    client = ConfirmationEnvelopeClient([text_message(1, "one")], envelope)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["sync"] == {"copied": 1, "last_confirmed_message_id": 1}
+    assert store.pending_copies() == []
+    assert store.prepare_copy(1).destination_message_id == 1001
+
+
+@pytest.mark.asyncio
+async def test_mirror_sync_cancellation_reuses_pending_random_id_on_restart(
+    config_env,
+):
+    from tgcli.commands.mirror import sync_text
+
+    store = authorize_mirror()
+    cancelled = CancellingMirrorSyncClient([text_message(1, "one")])
+
+    with pytest.raises(asyncio.CancelledError):
+        await sync_text(cancelled, "@source", "main")
+
+    [pending] = store.pending_copies()
+    assert pending.random_id == cancelled.requests[0].random_id[0]
+
+    restarted = MirrorSyncClient([text_message(1, "one")])
+    result = await sync_text(restarted, "@source", "main")
+
+    assert result["sync"] == {"copied": 1, "last_confirmed_message_id": 1}
+    assert restarted.requests[0].random_id == [pending.random_id]
+    assert store.pending_copies() == []
+
+
+def test_mirror_timeout_selection(config_env, monkeypatch, capsys):
+    from tgcli import cli
+
+    authorize_mirror()
+    client = MirrorSyncClient([])
+    make_session_fake(monkeypatch, client)
+    observed = []
+    original_wait_for = cli.asyncio.wait_for
+
+    async def record_timeout(awaitable, timeout):
+        observed.append(timeout)
+        return await original_wait_for(awaitable, timeout)
+
+    monkeypatch.setattr(cli.asyncio, "wait_for", record_timeout)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+    capsys.readouterr()
+    assert observed == []
+
+    assert main(["mirror", "init", "@source", "--json"]) == 0
+    capsys.readouterr()
+    assert observed == [60.0]
+
+    assert main(["mirror", "sync", "@source", "--timeout", "12", "--json"]) == 0
+    assert observed == [60.0, 12.0]
+
+
+def test_mirror_sync_reports_resolved_destination_title(
+    config_env, monkeypatch, capsys
+):
+    authorize_mirror()
+    client = MirrorSyncClient([])
+    client.destination.title = "Manually renamed destination"
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["mirror"]["destination"] == {
+        "id": 999,
+        "title": "Manually renamed destination",
+    }
 
 
 def test_mirror_sync_stops_at_media_without_marking_it_copied(

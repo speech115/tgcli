@@ -232,12 +232,15 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as err:
         return 0 if err.code == 0 else 1
     timeout_supplied = hasattr(args, "timeout")
+    no_default_timeout = args.command == "export" or (
+        args.command == "mirror" and args.mirror_command == "sync"
+    )
     for name, default in {
         "account": None,
         "json": False,
         "plain": False,
         "readonly": False,
-        "timeout": None if args.command == "export" else 60.0,
+        "timeout": None if no_default_timeout else 60.0,
         "verbose": False,
     }.items():
         if not hasattr(args, name):
@@ -307,7 +310,10 @@ def main(argv: list[str] | None = None) -> int:
                 if args.command == "api" and args.write:
                     safety.append_audit("api", account.alias, {"method": args.method})
                 network = _run_network(args, account)
-                if args.command == "media" and not timeout_supplied:
+                if (
+                    args.command == "media"
+                    or (args.command == "mirror" and args.mirror_command == "sync")
+                ) and not timeout_supplied:
                     data, rows = asyncio.run(network)
                 else:
                     data, rows = asyncio.run(asyncio.wait_for(network, timeout=args.timeout))

@@ -27,14 +27,22 @@ def config_env(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_CONFIG", str(path))
 
 
-def channel(channel_id, title, *, creator=True):
+def channel(
+    channel_id,
+    title,
+    *,
+    creator=True,
+    username=None,
+    usernames=(),
+):
     return SimpleNamespace(
         id=channel_id,
         title=title,
         creator=creator,
         broadcast=True,
         megagroup=False,
-        username=None,
+        username=username,
+        usernames=list(usernames),
     )
 
 
@@ -191,6 +199,65 @@ async def test_mirror_init_refuses_multiple_marker_matches(config_env):
     client = MirrorInitClient(dialogs=[channel(998, marker), channel(999, marker)])
 
     with pytest.raises(PolicyError, match="multiple"):
+        await commit_init(client, "@source", "main")
+    assert client.requests == []
+
+
+@pytest.mark.parametrize(
+    "public_identity",
+    [
+        {"username": "public_mirror"},
+        {
+            "usernames": [
+                SimpleNamespace(username="public_mirror", active=True)
+            ]
+        },
+    ],
+)
+@pytest.mark.asyncio
+async def test_mirror_init_does_not_reconcile_public_marker_channel(
+    config_env, public_identity
+):
+    from tgcli.commands.mirror import commit_init
+
+    marker = f"[tgcli:{mirror_id(42, 123)[:12]}]"
+    public_marker = channel(998, marker, **public_identity)
+    client = MirrorInitClient(dialogs=[public_marker])
+
+    result = await commit_init(client, "@source", "main")
+
+    assert result["mirror"]["destination"]["id"] == 999
+    assert any(
+        isinstance(request, functions.channels.CreateChannelRequest)
+        for request in client.requests
+    )
+
+
+@pytest.mark.parametrize(
+    "public_identity",
+    [
+        {"username": "public_mirror"},
+        {
+            "usernames": [
+                SimpleNamespace(username="public_mirror", active=True)
+            ]
+        },
+    ],
+)
+@pytest.mark.asyncio
+async def test_mirror_init_rejects_public_authorized_destination(
+    config_env, public_identity
+):
+    from tgcli.commands.mirror import commit_init
+
+    store = MirrorStore()
+    store.create(42, 123, "Source channel")
+    store.authorize(999)
+    destination = channel(999, "Source channel", **public_identity)
+    client = MirrorInitClient()
+    client.destination = destination
+
+    with pytest.raises(PolicyError, match="not a private owned broadcast"):
         await commit_init(client, "@source", "main")
     assert client.requests == []
 

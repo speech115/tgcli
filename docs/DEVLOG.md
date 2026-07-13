@@ -15,6 +15,23 @@ Template:
 
 ---
 
+## 2026-07-13 — Lean mirror final Telegram edge review (Codex)
+**Did:** added narrow regressions and fixes for all whole-branch review
+findings: `UpdateShort` confirmation envelopes, active secondary public
+usernames, resumable cancellation, no implicit timeout for backfill, and the
+actual resolved destination title in sync output.
+Final verification after the fixes: mirror-focused `41 passed`; full suite
+`255 passed, 8 skipped`; `coverage OK: 23 namespaces`; clean
+`git diff --check`; `tg mirror --help` exposes only `init` and `sync`.
+**Decided:** `mirror sync` follows export's long-running timeout policy while
+`mirror init` keeps the normal 60-second default. A destination is private only
+when it has neither a primary username nor any active secondary username.
+**Learned:** Telegram's valid update envelope and username shapes are wider
+than the most common high-level objects; raw request paths need tests for the
+full pinned union, not only the usual response.
+**Next:** rerun focused/full gates and publish the reviewed draft PR.
+
+
 ## 2026-07-13 — Lean mirror init and text sync implemented (Codex)
 **Did:** implemented the first ADR-0014 product slice on
 `codex/mirror-lean-product`: per-source SQLite identity/state, persisted signed

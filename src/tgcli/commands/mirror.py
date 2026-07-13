@@ -12,12 +12,17 @@ def _temporary_title(record: MirrorRecord) -> str:
 
 
 def _is_private_owned_broadcast(entity, *, title: str | None = None) -> bool:
+    active_usernames = any(
+        getattr(item, "active", False)
+        for item in (getattr(entity, "usernames", None) or ())
+    )
     return bool(
         (title is None or getattr(entity, "title", None) == title)
         and getattr(entity, "creator", False)
         and getattr(entity, "broadcast", False)
         and not getattr(entity, "megagroup", False)
         and getattr(entity, "username", None) is None
+        and not active_usernames
     )
 
 
@@ -32,12 +37,12 @@ async def _resolve(tg, source: str) -> tuple[object, object]:
     return entity, me
 
 
-def _result(record: MirrorRecord) -> dict:
+def _result(record: MirrorRecord, *, destination_title: str | None = None) -> dict:
     destination = None
     if record.destination_peer_id is not None:
         destination = {
             "id": record.destination_peer_id,
-            "title": record.source_title,
+            "title": destination_title,
         }
     return {
         "mirror": {
@@ -54,7 +59,10 @@ async def preview_init(tg, source: str, account_alias: str) -> dict:
     del account_alias
     entity, me = await _resolve(tg, source)
     record = MirrorStore().create(me.id, entity.id, entity.title)
-    return _result(record)
+    if not record.authorized:
+        return _result(record)
+    destination = await _destination_entity(tg, record)
+    return _result(record, destination_title=getattr(destination, "title", None))
 
 
 async def _find_marker_matches(tg, marker: str) -> list[object]:
@@ -114,7 +122,8 @@ async def commit_init(tg, source: str, account_alias: str) -> dict:
             destination = candidates[0]
         record = store.authorize(destination.id)
 
-    if getattr(destination, "title", None) != record.source_title:
+    destination_title = getattr(destination, "title", None)
+    if destination_title != record.source_title:
         safety.append_audit(
             "mirror-init-title",
             account_alias,
@@ -126,13 +135,18 @@ async def commit_init(tg, source: str, account_alias: str) -> dict:
                 title=record.source_title,
             )
         )
-    return _result(record)
+        destination_title = record.source_title
+    return _result(record, destination_title=destination_title)
 
 
 def _destination_message_id(response, random_id: int) -> int:
+    updates = getattr(response, "updates", None)
+    if updates is None:
+        update = getattr(response, "update", None)
+        updates = () if update is None else (update,)
     matches = [
         update.id
-        for update in getattr(response, "updates", ())
+        for update in updates
         if isinstance(update, types.UpdateMessageID)
         and update.random_id == random_id
     ]
@@ -232,7 +246,10 @@ async def sync_text(tg, source: str, account_alias: str) -> dict:
         copied += 1
 
     return {
-        "mirror": _result(record)["mirror"],
+        "mirror": _result(
+            record,
+            destination_title=getattr(destination, "title", None),
+        )["mirror"],
         "sync": {
             "copied": copied,
             "last_confirmed_message_id": store.last_confirmed_message_id(),
