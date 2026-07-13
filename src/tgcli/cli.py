@@ -14,6 +14,7 @@ from tgcli.commands import dialogs as dialogs_cmd
 from tgcli.commands import export as export_cmd
 from tgcli.commands import info as info_cmd
 from tgcli.commands import media as media_cmd
+from tgcli.commands import mirror as mirror_cmd
 from tgcli.commands import read as read_cmd
 from tgcli.commands import search as search_cmd
 from tgcli.commands import send as send_cmd
@@ -131,6 +132,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_export_subscribers.add_argument("--output", required=True, type=Path)
     p_export_subscribers.add_argument("--limit", type=int)
 
+    p_mirror = sub.add_parser("mirror", help="Manage a private channel mirror", parents=[global_flags])
+    mirror_sub = p_mirror.add_subparsers(dest="mirror_command", required=True)
+    p_mirror_init = mirror_sub.add_parser("init", parents=[global_flags])
+    p_mirror_init.add_argument("source", help="source broadcast channel")
+    p_mirror_init.add_argument("--commit", action="store_true")
+
     return parser
 
 
@@ -195,6 +202,12 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                         tg, args.channel, args.output, limit=args.limit
                     )
                 return data, export_cmd.to_rows(data)
+            if args.command == "mirror" and args.mirror_command == "init":
+                if args.commit:
+                    data = await mirror_cmd.commit_init(tg, args.source, account.alias)
+                else:
+                    data = await mirror_cmd.preview_init(tg, args.source, account.alias)
+                return data, mirror_cmd.to_rows(data)
             raise AssertionError(f"unhandled network command: {args.command}")
     except telethon_errors.TakeoutInitDelayError as exc:
         raise RateLimitError(
@@ -229,6 +242,12 @@ def main(argv: list[str] | None = None) -> int:
     exit_code = 1
     error_code = None
     try:
+        if (
+            args.command == "mirror"
+            and args.mirror_command == "init"
+            and args.commit
+        ):
+            safety.enforce_mutation_allowed(args.readonly)
         if args.command == "send":
             if args.commit:
                 if args.preview or args.chat is not None or args.text is not None:
