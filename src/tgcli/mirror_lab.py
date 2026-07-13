@@ -372,6 +372,106 @@ def build_scenario_preflight_plan(scenario_key: str, fingerprint: dict) -> dict:
     }
 
 
+def build_scenario_provisioning_intents(
+    scenario_key: str, fingerprint: dict
+) -> tuple[dict, ...]:
+    plan = build_scenario_preflight_plan(scenario_key, fingerprint)
+    intents = []
+
+    def create_peer(role: str, family: str, *, owner_only: bool) -> None:
+        if family == "basic":
+            method = "messages.createChat"
+            parameters = {
+                "family": family,
+                "private": True,
+                "owner_only": False,
+                "participant_roles": ("lab_peer",),
+                "title_marker_required": True,
+            }
+        else:
+            method = "channels.createChannel"
+            parameters = {
+                "family": family,
+                "private": True,
+                "owner_only": owner_only,
+                "participant_roles": (),
+                "broadcast": family == "channel",
+                "megagroup": family in {"supergroup", "forum"},
+                "forum": family == "forum",
+                "title_marker_required": True,
+            }
+        intents.append(
+            {
+                "intent_key": f"{scenario_key}:create:{role}",
+                "method": method,
+                "target_role": role,
+                "parameters": parameters,
+            }
+        )
+
+    def protect_peer(role: str) -> None:
+        intents.append(
+            {
+                "intent_key": f"{scenario_key}:protect:{role}",
+                "method": "messages.toggleNoForwards",
+                "target_role": role,
+                "parameters": {"enabled": True},
+            }
+        )
+
+    def link_discussion(side: str) -> None:
+        intents.append(
+            {
+                "intent_key": f"{scenario_key}:verify:{side}_discussion_eligibility",
+                "method": "channels.getGroupsForDiscussion",
+                "target_role": f"{side}_discussion",
+                "parameters": {
+                    "candidate_group_role": f"{side}_discussion",
+                },
+            }
+        )
+        intents.append(
+            {
+                "intent_key": f"{scenario_key}:link:{side}_discussion",
+                "method": "channels.setDiscussionGroup",
+                "target_role": side,
+                "parameters": {
+                    "broadcast_role": side,
+                    "group_role": f"{side}_discussion",
+                },
+            }
+        )
+
+    create_peer(
+        "source",
+        plan["source_family"],
+        owner_only=plan["source_family"] != "basic",
+    )
+    if plan["source_protected"]:
+        protect_peer("source")
+    if plan["discussion_kind"] != "none":
+        discussion_family = (
+            "forum" if plan["discussion_kind"] == "forum" else "supergroup"
+        )
+        create_peer("source_discussion", discussion_family, owner_only=True)
+        if plan["discussion_protected"]:
+            protect_peer("source_discussion")
+        link_discussion("source")
+
+    create_peer(
+        "destination",
+        plan["destination_family"],
+        owner_only=plan["destination_owner_only"],
+    )
+    if plan["discussion_kind"] != "none":
+        discussion_family = (
+            "forum" if plan["discussion_kind"] == "forum" else "supergroup"
+        )
+        create_peer("destination_discussion", discussion_family, owner_only=True)
+        link_discussion("destination")
+    return tuple(intents)
+
+
 def compare_compatibility_fingerprints(expected: dict, actual: dict) -> dict:
     expected_key = expected.get("scenario_key") if isinstance(expected, dict) else ""
     _validate_compatibility_fingerprint(expected_key, expected)

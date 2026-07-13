@@ -15,6 +15,27 @@ Template:
 
 ---
 
+## 2026-07-13 — Expanded provisioning intents defined (Codex GPT-5)
+**Did:** added pure stable-key provisioning intents for all 16 scenarios using
+the pinned Telethon schema's exact operation families: `messages.createChat`
+for the disposable basic source, `channels.createChannel` for channels,
+supergroups and forums, `messages.toggleNoForwards` for independent source and
+discussion protection, and `channels.setDiscussionGroup` for both source and
+destination channel discussions. Every linked discussion now has a preceding
+`channels.getGroupsForDiscussion` eligibility intent.
+**Decided:** intents contain only semantic peer roles, booleans, topology flags,
+and stable scenario-local reconcile keys. They contain no aliases, user ids,
+access hashes, resolved entities, titles, or executable Telegram requests.
+**Learned:** forum creation is represented directly by the pinned
+`channels.createChannel(..., megagroup=True, forum=True)` schema, while basic
+groups require `messages.createChat` with the controlled `lab_peer`. Discussion
+eligibility must be an explicit verified step before linking, not an assumption.
+**Checks:** focused mirror lab/probe suite: `127 passed, 1 skipped`; full suite:
+`335 passed, 9 skipped`; namespace coverage: `coverage OK: 23 namespaces`;
+`git diff --check` clean. No live Telegram access or mutation ran.
+**Next:** add a mocked dispatcher boundary that journals each stable intent as
+prepared before dispatch and leaves ambiguous outcomes resumable.
+
 ## 2026-07-13 — Expanded topology preflight plans added (Codex GPT-5)
 **Did:** added a pure privacy-safe preflight planner that binds every selected
 scenario to its exact source/destination family, independent source/discussion

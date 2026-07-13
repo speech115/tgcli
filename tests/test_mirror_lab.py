@@ -353,6 +353,106 @@ def test_preflight_rejects_cross_cell_fingerprint():
         lab_module.build_scenario_preflight_plan("forum.protected", fingerprint)
 
 
+def test_basic_provisioning_intents_use_create_chat_and_supergroup_destination():
+    fingerprint = classification_fingerprint(
+        "basic.open",
+        account_role_binding={
+            "operator": {"alias": "operator-secret", "user_id": 101},
+            "lab_peer": {"alias": "peer-secret", "user_id": 202},
+        },
+    )
+    intents = lab_module.build_scenario_provisioning_intents(
+        "basic.open", fingerprint
+    )
+
+    assert [intent["method"] for intent in intents] == [
+        "messages.createChat",
+        "channels.createChannel",
+    ]
+    assert intents[0]["target_role"] == "source"
+    assert intents[0]["parameters"]["participant_roles"] == ("lab_peer",)
+    assert intents[0]["parameters"]["owner_only"] is False
+    assert intents[1]["target_role"] == "destination"
+    assert intents[1]["parameters"]["megagroup"] is True
+    assert intents[1]["parameters"]["forum"] is False
+    assert intents[1]["parameters"]["owner_only"] is True
+    assert "operator-secret" not in repr(intents)
+    assert "peer-secret" not in repr(intents)
+    assert "101" not in repr(intents)
+    assert "202" not in repr(intents)
+
+
+def test_forum_provisioning_intents_preserve_forum_and_source_protection():
+    fingerprint = classification_fingerprint("forum.protected")
+    intents = lab_module.build_scenario_provisioning_intents(
+        "forum.protected", fingerprint
+    )
+
+    assert [intent["method"] for intent in intents] == [
+        "channels.createChannel",
+        "messages.toggleNoForwards",
+        "channels.createChannel",
+    ]
+    assert intents[0]["parameters"]["forum"] is True
+    assert intents[1]["target_role"] == "source"
+    assert intents[1]["parameters"] == {"enabled": True}
+    assert intents[2]["parameters"]["forum"] is True
+
+
+@pytest.mark.parametrize("discussion_kind", ("plain", "forum"))
+def test_linked_channel_intents_create_and_link_matching_discussions(
+    discussion_kind,
+):
+    scenario_key = f"channel_{discussion_kind}.protected_protected"
+    fingerprint = classification_fingerprint(scenario_key)
+    intents = lab_module.build_scenario_provisioning_intents(
+        scenario_key, fingerprint
+    )
+    by_key = {intent["intent_key"]: intent for intent in intents}
+
+    assert len(by_key) == len(intents)
+    assert by_key[f"{scenario_key}:create:source"]["parameters"]["broadcast"] is True
+    assert by_key[f"{scenario_key}:create:destination"]["parameters"]["broadcast"] is True
+    for side in ("source", "destination"):
+        create = by_key[f"{scenario_key}:create:{side}_discussion"]
+        assert create["parameters"]["megagroup"] is True
+        assert create["parameters"]["forum"] is (discussion_kind == "forum")
+        eligibility = by_key[f"{scenario_key}:verify:{side}_discussion_eligibility"]
+        assert eligibility["method"] == "channels.getGroupsForDiscussion"
+        assert eligibility["parameters"] == {
+            "candidate_group_role": f"{side}_discussion"
+        }
+        link = by_key[f"{scenario_key}:link:{side}_discussion"]
+        assert link["method"] == "channels.setDiscussionGroup"
+        assert link["parameters"] == {
+            "broadcast_role": side,
+            "group_role": f"{side}_discussion",
+        }
+        assert intents.index(eligibility) < intents.index(link)
+    protected_roles = {
+        intent["target_role"]
+        for intent in intents
+        if intent["method"] == "messages.toggleNoForwards"
+    }
+    assert protected_roles == {"source", "source_discussion"}
+
+
+def test_all_provisioning_intent_keys_are_stable_and_unique_per_cell():
+    for spec in lab_module.required_scenarios():
+        bindings = {"operator": {"alias": "main", "user_id": 101}}
+        if spec.source_family == "basic":
+            bindings["lab_peer"] = {"alias": "lab-peer", "user_id": 202}
+        fingerprint = classification_fingerprint(
+            spec.key, account_role_binding=bindings
+        )
+        intents = lab_module.build_scenario_provisioning_intents(
+            spec.key, fingerprint
+        )
+        keys = [intent["intent_key"] for intent in intents]
+        assert len(keys) == len(set(keys))
+        assert all(key.startswith(f"{spec.key}:") for key in keys)
+
+
 def test_compare_compatibility_fingerprints_reports_all_mismatches_in_order():
     expected = classification_fingerprint()
     actual = classification_fingerprint(
