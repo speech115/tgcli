@@ -15,6 +15,29 @@ Template:
 
 ---
 
+## 2026-07-13 — User-visible channel mirror showcase (Codex GPT-5)
+**Did:** ran the existing persistent R1 channel lab on the explicit `main`
+account and created four uniquely marked private channels: open/protected
+sources plus native/reupload destinations. Both sources were seeded with the
+15-kind fixture set. Native copy passed 15/15 kinds; the protected source
+correctly rejected forwarding; reconstruction copied all 9 byte-backed kinds.
+Fresh source/destination probes and transport verdicts were green. The marked
+channels are intentionally retained for the user's visual review under the
+local manifest `~/.local/state/tgcli/labs/channel-showcase-20260713.json`.
+**Decided:** report expanded comments, standalone forum, and supergroup lab
+evidence as verified destination structure, not as a completed source-to-copy
+mirror. Do not add a persistent expanded-showcase shortcut that bypasses
+ADR-0015's bounded visual-review lease and cleanup-first rules.
+**Learned:** the legacy channel lab already supplies the exact persistent
+source-to-copy demonstration needed here; expanded topology canaries seed both
+sides independently and therefore must not be presented as organic copying.
+**Checks:** focused mirror lab/runner suite: `156 passed, 1 skipped`; native
+verdict: `green` with `copy_gate=pass`; protected reconstruction verdict:
+`green` with `copy_gate=pass`; `git diff --check` clean before this entry.
+**Next:** let the user inspect the four marked private channels, then run the
+manifest-bound `teardown` command; implement ADR-0015 visual-review mode before
+retaining expanded topology fixtures.
+
 ## 2026-07-13 — Two-account basic canary and final plain-comment gates (Codex GPT-5)
 **Did:** added an explicit `expanded-basic-canary` with two authorized sessions,
 identity-bound role fingerprints, exact two-participant readback, operator and
