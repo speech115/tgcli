@@ -38,11 +38,13 @@ not rewritten.
 ## Non-Goals (v1)
 
 - MCP server (agents call `tg ... --json` via shell; revisit only with evidence).
-- General mirror/archive remains outside completed v1. A constrained,
-  crash-safe broadcast-channel mirror re-entered proposed scope on 2026-07-11
-  through [ADR-0013](decisions/ADR-0013-channel-mirror.md) and the independent
-  [M0-M4 plan](superpowers/plans/2026-07-11-phase-mirror.md); it does not reopen
-  or rewrite completed phases 0-7.
+- General mirror/archive remains outside completed v1. A lean faithful
+  broadcast-channel mirror is new post-v1 product work governed by
+  [ADR-0014](decisions/ADR-0014-lean-faithful-mirror.md) and delivered as small
+  vertical slices beginning with
+  [init + text sync](superpowers/plans/2026-07-13-lean-mirror-init-sync.md). The
+  earlier ADR-0013/M0-M4 design remains research history and is not the product
+  implementation plan.
 - Multi-user distribution / packaging for strangers.
 - Bot API (this is a user-account MTProto tool).
 - Secret chats (Telethon does not implement them), voice/video calls

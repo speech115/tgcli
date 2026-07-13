@@ -1,6 +1,6 @@
 # ADR-0013: Crash-safe channel mirror with an explicit foreground watcher
 
-Status: proposed (2026-07-11).
+Status: superseded by ADR-0014 (2026-07-13).
 Amended 2026-07-11 after R0 evidence (see DEVLOG): gotd backend removed; copy
 method is capability-based.
 

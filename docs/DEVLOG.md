@@ -15,6 +15,24 @@ Template:
 
 ---
 
+## 2026-07-13 — Mirror product reset to a lean vertical slice (Codex)
+**Did:** reviewed the clean `main` baseline, the expanded laboratory branch and
+draft PR, ADR-0013, its M0-M4 plan, and an independent review of their cost.
+Recorded ADR-0014 and a TDD plan for the first product slice: destination init
+plus restart-safe text sync. Baseline verification before branching was
+`uv run pytest -q` (`214 passed, 8 skipped`) and
+`uv run python scripts/check-coverage.py` (`coverage OK: 23 namespaces`).
+**Decided:** keep the expanded lab PR as a research artifact and do not merge it
+into the product path. Preserve the useful R0 protected-content evidence and
+the persisted-random-id invariant, while dropping the five-state outbox,
+forensic deletion proof, and broad topology matrix from the shipping critical
+path.
+**Learned:** the cheapest meaningful restart guarantee is a stable Telegram
+random id persisted before dispatch plus atomic mapping/cursor confirmation;
+the larger lab protocol is not required to begin validating fidelity.
+**Next:** execute `2026-07-13-lean-mirror-init-sync.md` with mocked Telegram,
+then review before any controlled live mutation.
+
 ## 2026-07-11 — R0 protected-content probe evidence (Claude Opus 4.8)
 **Did:** ran the read-only mirror capability probe (`scripts/mirror_probe.py`,
 commit 7de7c90) live against two real protected broadcast channels — one where
