@@ -15,6 +15,28 @@ Template:
 
 ---
 
+## 2026-07-13 — Aggregate mirror compatibility gate completed (Codex GPT-5)
+**Did:** added pure fingerprint comparison, topology-specific required domains,
+30-day freshness and clock checks, per-cell verdict classification, and strict
+16-cell aggregate acceptance for the ADR-0015 topology/protection matrix. After
+taking over an interrupted delegated slice, added RED→GREEN regressions proving
+that an unsupported checkpoint version, malformed checkpoint envelope, and an
+unknown scenario key cannot be classified as valid or merely missing.
+**Decided:** targeted green evidence never upgrades aggregate acceptance; every
+required cell must be fresh, fingerprint-compatible, complete, all-domain green,
+and independently cleanup-green. Pure classification remains local and uses
+aware `datetime` values as specified; persistence, CLI scheduling, and live
+Telegram mutation remain outside this slice.
+**Learned:** validating fingerprints and verdicts was not sufficient at the
+public classifier boundary: without re-validating the checkpoint envelope, a
+caller could bypass the manifest loader and present an unsupported checkpoint
+version as machine-compatible.
+**Checks:** focused mirror lab/probe suite: `113 passed, 1 skipped`; full suite:
+`321 passed, 9 skipped`; namespace coverage: `coverage OK: 23 namespaces`;
+`git diff --check` clean. No live Telegram access or mutation ran.
+**Next:** implement the first mocked resumable scenario-engine slice before any
+controlled-live provisioning; actual chat creation remains a human-gated step.
+
 ## 2026-07-13 — Versioned scenario checkpoints and fingerprints added (Codex GPT-5)
 **Did:** upgraded the lab manifest to version 3 with an in-memory-only v2
 migration, empty per-scenario checkpoint storage, versioned checkpoint and

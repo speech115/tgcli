@@ -3,6 +3,8 @@ import hashlib
 import os
 import subprocess
 import asyncio
+from copy import deepcopy
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -37,6 +39,50 @@ from tgcli.mirror_lab import (
     save_manifest,
     seeded_ids,
 )
+
+
+def classification_fingerprint(scenario_key="basic.open", **overrides):
+    values = {
+        "fixture_schema_version": 1,
+        "lab_code_digest": "a" * 64,
+        "mirror_code_digest": "b" * 64,
+        "telethon_version": "1.44.0",
+        "telegram_schema_layer": 216,
+        "account_role_binding": {
+            "operator": {"alias": "main", "user_id": 101},
+        },
+        "config_digest": "c" * 64,
+    }
+    values.update(overrides)
+    return lab_module.new_compatibility_fingerprint(scenario_key, **values)
+
+
+def classification_checkpoint(
+    scenario_key="basic.open",
+    *,
+    fingerprint=None,
+    completed_at=None,
+    domain_status="green",
+):
+    fingerprint = fingerprint or classification_fingerprint(scenario_key)
+    checkpoint = lab_module.new_scenario_checkpoint(scenario_key, fingerprint)
+    checkpoint["phase"] = "complete"
+    spec = next(spec for spec in lab_module.required_scenarios() if spec.key == scenario_key)
+    checkpoint["verdicts"] = {
+        "completed_at": completed_at or datetime(2026, 7, 1, tzinfo=UTC),
+        "domains": {
+            domain: domain_status
+            for domain in lab_module.required_scenario_domains(spec)
+        },
+    }
+    return checkpoint
+
+
+def classification_fingerprint_matrix():
+    return {
+        spec.key: classification_fingerprint(spec.key)
+        for spec in lab_module.required_scenarios()
+    }
 
 
 def test_new_manifest_shape():
@@ -185,6 +231,474 @@ def test_scenario_checkpoint_rejects_mismatched_fingerprint_key():
         lab_module.new_scenario_checkpoint("basic.protected", fingerprint)
 
     assert fingerprint["scenario_key"] == "basic.open"
+
+
+def test_compare_compatibility_fingerprints_reports_all_mismatches_in_order():
+    expected = classification_fingerprint()
+    actual = classification_fingerprint(
+        "basic.protected",
+        fixture_schema_version=2,
+        lab_code_digest="d" * 64,
+        mirror_code_digest="e" * 64,
+        telethon_version="1.45.0",
+        telegram_schema_layer=217,
+        account_role_binding={
+            "operator": {"alias": "other", "user_id": 202},
+        },
+        config_digest="f" * 64,
+    )
+    actual["fingerprint_version"] = 2
+
+    assert lab_module.compare_compatibility_fingerprints(expected, actual) == {
+        "compatible": False,
+        "reasons": [
+            "fingerprint_version_mismatch",
+            "scenario_key_mismatch",
+            "fixture_schema_version_mismatch",
+            "lab_code_digest_mismatch",
+            "mirror_code_digest_mismatch",
+            "telethon_version_mismatch",
+            "telegram_schema_layer_mismatch",
+            "account_role_binding_mismatch",
+            "config_digest_mismatch",
+        ],
+    }
+
+
+def test_compare_compatibility_fingerprints_exact_and_malformed_inputs():
+    fingerprint = classification_fingerprint()
+    assert lab_module.compare_compatibility_fingerprints(
+        fingerprint, deepcopy(fingerprint)
+    ) == {"compatible": True, "reasons": []}
+
+    malformed = deepcopy(fingerprint)
+    malformed.pop("config_digest")
+    with pytest.raises(ValueError):
+        lab_module.compare_compatibility_fingerprints(fingerprint, malformed)
+
+    malformed_key = deepcopy(fingerprint)
+    malformed_key["scenario_key"] = 7
+    with pytest.raises(ValueError):
+        lab_module.compare_compatibility_fingerprints(fingerprint, malformed_key)
+
+    unsupported_expected = deepcopy(fingerprint)
+    unsupported_expected["fingerprint_version"] = 2
+    with pytest.raises(ValueError):
+        lab_module.compare_compatibility_fingerprints(
+            unsupported_expected, fingerprint
+        )
+
+
+def test_required_scenario_domains_are_topology_specific_and_ordered():
+    specs = {spec.key: spec for spec in lab_module.required_scenarios()}
+    universal = (
+        "content",
+        "structure",
+        "attribution",
+        "transport",
+        "audit",
+        "cleanup",
+    )
+    assert lab_module.required_scenario_domains(specs["basic.open"]) == universal
+    assert lab_module.required_scenario_domains(specs["channel.open"]) == universal
+    assert lab_module.required_scenario_domains(specs["forum.open"]) == (
+        *universal,
+        "topic",
+    )
+    assert lab_module.required_scenario_domains(
+        specs["channel_plain.open_open"]
+    ) == (*universal, "comment_root")
+    assert lab_module.required_scenario_domains(
+        specs["channel_forum.open_open"]
+    ) == (*universal, "topic", "comment_root")
+
+
+def test_missing_exact_scenario_cell_stays_missing():
+    expected = classification_fingerprint("basic.protected")
+    assert lab_module.classify_scenario_cell(
+        "basic.protected",
+        None,
+        expected,
+        now=datetime(2026, 7, 13, tzinfo=UTC),
+    ) == {
+        "scenario_key": "basic.protected",
+        "status": "missing",
+        "freshness": "missing",
+        "machine_compatible": False,
+        "reasons": ["checkpoint_missing"],
+        "fingerprint_reasons": [],
+        "completed_at": None,
+        "expires_at": None,
+        "domains": {},
+        "cleanup": "missing",
+    }
+
+
+def test_missing_unknown_scenario_cell_rejects_instead_of_looking_missing():
+    expected = classification_fingerprint("unknown.open")
+
+    with pytest.raises(ValueError, match="unknown scenario key"):
+        lab_module.classify_scenario_cell(
+            "unknown.open",
+            None,
+            expected,
+            now=datetime(2026, 7, 13, tzinfo=UTC),
+        )
+
+
+def test_fingerprint_mismatch_is_immediately_stale_with_exact_reasons():
+    expected = classification_fingerprint()
+    actual = classification_fingerprint(lab_code_digest="d" * 64)
+    checkpoint = classification_checkpoint(fingerprint=actual)
+    completed_at = checkpoint["verdicts"]["completed_at"]
+
+    result = lab_module.classify_scenario_cell(
+        "basic.open",
+        checkpoint,
+        expected,
+        now=completed_at + timedelta(days=1),
+    )
+
+    assert result["status"] == "stale"
+    assert result["freshness"] == "fresh"
+    assert result["machine_compatible"] is False
+    assert result["reasons"] == ["lab_code_digest_mismatch"]
+    assert result["fingerprint_reasons"] == ["lab_code_digest_mismatch"]
+    assert result["cleanup"] == "green"
+
+
+def test_evidence_is_fresh_before_ttl_and_stale_at_exact_boundary():
+    fingerprint = classification_fingerprint()
+    checkpoint = classification_checkpoint(fingerprint=fingerprint)
+    completed_at = checkpoint["verdicts"]["completed_at"]
+
+    fresh = lab_module.classify_scenario_cell(
+        "basic.open",
+        checkpoint,
+        fingerprint,
+        now=completed_at + timedelta(days=30) - timedelta(microseconds=1),
+    )
+    assert fresh["status"] == "machine_compatible"
+    assert fresh["freshness"] == "fresh"
+    assert fresh["expires_at"] == completed_at + timedelta(days=30)
+
+    boundary = lab_module.classify_scenario_cell(
+        "basic.open",
+        checkpoint,
+        fingerprint,
+        now=completed_at + timedelta(days=30),
+    )
+    assert boundary["status"] == "stale"
+    assert boundary["freshness"] == "stale"
+    assert boundary["machine_compatible"] is False
+    assert boundary["reasons"] == ["evidence_expired"]
+
+
+@pytest.mark.parametrize(
+    ("case", "reason"),
+    (
+        ("unavailable", "clock_unavailable"),
+        ("now_type", "clock_invalid"),
+        ("now_naive", "clock_invalid"),
+        ("completion_type", "clock_invalid"),
+        ("completion_naive", "clock_invalid"),
+        ("before_completion", "clock_before_completion"),
+        ("observed_type", "clock_invalid"),
+        ("observed_naive", "clock_invalid"),
+        ("moved_backward", "clock_moved_backward"),
+    ),
+)
+def test_invalid_and_backward_clocks_block(case, reason):
+    fingerprint = classification_fingerprint()
+    completed_at = datetime(2026, 7, 1, tzinfo=UTC)
+    checkpoint = classification_checkpoint(
+        fingerprint=fingerprint, completed_at=completed_at
+    )
+    now = completed_at + timedelta(days=1)
+    last_observed_at = None
+    if case == "unavailable":
+        now = None
+    elif case == "now_type":
+        now = "2026-07-02"
+    elif case == "now_naive":
+        now = datetime(2026, 7, 2)
+    elif case == "completion_type":
+        checkpoint["verdicts"]["completed_at"] = "2026-07-01"
+    elif case == "completion_naive":
+        checkpoint["verdicts"]["completed_at"] = datetime(2026, 7, 1)
+    elif case == "before_completion":
+        now = completed_at - timedelta(seconds=1)
+    elif case == "observed_type":
+        last_observed_at = "2026-07-01"
+    elif case == "observed_naive":
+        last_observed_at = datetime(2026, 7, 1)
+    elif case == "moved_backward":
+        last_observed_at = now + timedelta(seconds=1)
+
+    result = lab_module.classify_scenario_cell(
+        "basic.open",
+        checkpoint,
+        fingerprint,
+        now=now,
+        last_observed_at=last_observed_at,
+    )
+
+    assert result["status"] == "blocked"
+    assert result["freshness"] == "blocked"
+    assert result["machine_compatible"] is False
+    assert reason in result["reasons"]
+    assert result["cleanup"] == "green"
+
+
+def test_blocked_red_and_cleanup_pending_keep_independent_axes():
+    fingerprint = classification_fingerprint()
+    now = datetime(2026, 7, 2, tzinfo=UTC)
+
+    blocked_checkpoint = classification_checkpoint(fingerprint=fingerprint)
+    blocked_checkpoint["verdicts"]["domains"]["content"] = "blocked"
+    blocked_checkpoint["verdicts"]["domains"]["structure"] = "red"
+    blocked = lab_module.classify_scenario_cell(
+        "basic.open", blocked_checkpoint, fingerprint, now=now
+    )
+    assert blocked["status"] == "blocked"
+    assert blocked["freshness"] == "fresh"
+    assert "domain_blocked:content" in blocked["reasons"]
+    assert "domain_red:structure" in blocked["reasons"]
+    assert blocked["cleanup"] == "green"
+
+    red_checkpoint = classification_checkpoint(fingerprint=fingerprint)
+    red_checkpoint["verdicts"]["domains"]["content"] = "red"
+    red = lab_module.classify_scenario_cell(
+        "basic.open", red_checkpoint, fingerprint, now=now
+    )
+    assert red["status"] == "red"
+    assert red["freshness"] == "fresh"
+    assert red["cleanup"] == "green"
+
+    pending_checkpoint = classification_checkpoint(fingerprint=fingerprint)
+    pending_checkpoint["cleanup_obligations"] = [{"peer": "disposable"}]
+    pending_checkpoint["verdicts"]["domains"]["cleanup"] = "blocked"
+    pending = lab_module.classify_scenario_cell(
+        "basic.open", pending_checkpoint, fingerprint, now=now
+    )
+    assert pending["status"] == "cleanup_pending"
+    assert pending["freshness"] == "fresh"
+    assert pending["cleanup"] == "pending"
+    assert "domain_blocked:cleanup" in pending["reasons"]
+
+
+def test_machine_compatible_requires_complete_all_green_and_empty_cleanup():
+    fingerprint = classification_fingerprint()
+    checkpoint = classification_checkpoint(fingerprint=fingerprint)
+    completed_at = checkpoint["verdicts"]["completed_at"]
+    domains = checkpoint["verdicts"]["domains"]
+
+    assert lab_module.classify_scenario_cell(
+        "basic.open",
+        checkpoint,
+        fingerprint,
+        now=completed_at + timedelta(days=1),
+    ) == {
+        "scenario_key": "basic.open",
+        "status": "machine_compatible",
+        "freshness": "fresh",
+        "machine_compatible": True,
+        "reasons": [],
+        "fingerprint_reasons": [],
+        "completed_at": completed_at,
+        "expires_at": completed_at + timedelta(days=30),
+        "domains": domains,
+        "cleanup": "green",
+    }
+
+    checkpoint["phase"] = "verify"
+    result = lab_module.classify_scenario_cell(
+        "basic.open",
+        checkpoint,
+        fingerprint,
+        now=completed_at + timedelta(days=1),
+    )
+    assert result["status"] == "blocked"
+    assert result["machine_compatible"] is False
+    assert result["cleanup"] == "blocked"
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    (
+        (lambda checkpoint: checkpoint.update(checkpoint_version=2), "checkpoint version"),
+        (lambda checkpoint: checkpoint.update(phase="paused"), "scenario phase"),
+        (lambda checkpoint: checkpoint.update(unexpected={}), "checkpoint fields"),
+        (lambda checkpoint: checkpoint.update(created_peers=[]), "created_peers"),
+    ),
+)
+def test_cell_rejects_malformed_checkpoint_envelope(mutate, message):
+    fingerprint = classification_fingerprint()
+    checkpoint = classification_checkpoint(fingerprint=fingerprint)
+    mutate(checkpoint)
+
+    with pytest.raises(ValueError, match=message):
+        lab_module.classify_scenario_cell(
+            "basic.open",
+            checkpoint,
+            fingerprint,
+            now=datetime(2026, 7, 2, tzinfo=UTC),
+        )
+
+
+def test_one_targeted_green_matrix_cell_leaves_fifteen_missing():
+    expected = classification_fingerprint_matrix()
+    checkpoints = {
+        "basic.open": classification_checkpoint(
+            "basic.open", fingerprint=expected["basic.open"]
+        )
+    }
+    result = lab_module.classify_scenario_matrix(
+        checkpoints,
+        expected,
+        now=datetime(2026, 7, 2, tzinfo=UTC),
+    )
+
+    assert result["machine_green"] is False
+    assert result["counts"] == {
+        "missing": 15,
+        "stale": 0,
+        "blocked": 0,
+        "red": 0,
+        "cleanup_pending": 0,
+        "machine_compatible": 1,
+    }
+    assert result["cells"]["basic.open"]["status"] == "machine_compatible"
+    assert result["cells"]["basic.protected"]["status"] == "missing"
+    assert result["non_green_cells"] == [
+        spec.key for spec in lab_module.required_scenarios()[1:]
+    ]
+
+
+def test_machine_green_requires_all_sixteen_cells_with_green_cleanup():
+    expected = classification_fingerprint_matrix()
+    checkpoints = {
+        spec.key: classification_checkpoint(
+            spec.key, fingerprint=expected[spec.key]
+        )
+        for spec in lab_module.required_scenarios()
+    }
+    now = datetime(2026, 7, 2, tzinfo=UTC)
+
+    green = lab_module.classify_scenario_matrix(checkpoints, expected, now=now)
+    assert green["machine_green"] is True
+    assert green["counts"]["machine_compatible"] == 16
+    assert green["non_green_cells"] == []
+    assert all(cell["cleanup"] == "green" for cell in green["cells"].values())
+
+    checkpoints["channel.open"]["cleanup_obligations"] = [{"pending": True}]
+    pending = lab_module.classify_scenario_matrix(checkpoints, expected, now=now)
+    assert pending["machine_green"] is False
+    assert pending["counts"]["cleanup_pending"] == 1
+    assert pending["non_green_cells"] == ["channel.open"]
+
+
+def test_matrix_rejects_unknown_incomplete_and_cross_key_inputs():
+    expected = classification_fingerprint_matrix()
+    now = datetime(2026, 7, 2, tzinfo=UTC)
+
+    with pytest.raises(ValueError):
+        lab_module.classify_scenario_matrix(
+            {"unknown.open": {}}, expected, now=now
+        )
+
+    incomplete = dict(expected)
+    incomplete.pop("basic.protected")
+    with pytest.raises(ValueError):
+        lab_module.classify_scenario_matrix({}, incomplete, now=now)
+
+    borrowed_expected = dict(expected)
+    borrowed_expected["basic.open"] = expected["basic.protected"]
+    with pytest.raises(ValueError):
+        lab_module.classify_scenario_matrix({}, borrowed_expected, now=now)
+
+    borrowed_checkpoint = classification_checkpoint(
+        "basic.protected", fingerprint=expected["basic.protected"]
+    )
+    with pytest.raises(ValueError):
+        lab_module.classify_scenario_matrix(
+            {"basic.open": borrowed_checkpoint}, expected, now=now
+        )
+
+
+def test_migrated_v2_manifest_classifies_all_sixteen_cells_missing(tmp_path):
+    legacy = new_manifest(7)
+    legacy["manifest_version"] = 2
+    legacy.pop("scenarios")
+    legacy["seeded"] = {"open_source": {"photo": [11]}}
+    legacy["blocked"] = {"open_source": {"poll": "blocked"}}
+    path = tmp_path / "legacy.json"
+    save_manifest(path, legacy)
+    migrated = load_manifest(path)
+
+    result = lab_module.classify_scenario_matrix(
+        migrated["scenarios"],
+        classification_fingerprint_matrix(),
+        now=datetime(2026, 7, 2, tzinfo=UTC),
+    )
+
+    assert result["machine_green"] is False
+    assert result["counts"]["missing"] == 16
+    assert result["counts"]["machine_compatible"] == 0
+    assert result["non_green_cells"] == [
+        spec.key for spec in lab_module.required_scenarios()
+    ]
+
+
+def test_cell_rejects_malformed_fingerprint_and_accumulates_clock_reasons():
+    fingerprint = classification_fingerprint()
+    checkpoint = classification_checkpoint(fingerprint=fingerprint)
+    checkpoint.pop("compatibility_fingerprint")
+    with pytest.raises(ValueError):
+        lab_module.classify_scenario_cell(
+            "basic.open", checkpoint, fingerprint, now=None
+        )
+
+    checkpoint = classification_checkpoint(fingerprint=fingerprint)
+    checkpoint["verdicts"]["completed_at"] = "invalid"
+    result = lab_module.classify_scenario_cell(
+        "basic.open", checkpoint, fingerprint, now=None
+    )
+    assert "clock_unavailable" in result["reasons"]
+    assert "clock_invalid" in result["reasons"]
+
+
+def test_domain_envelope_is_fail_closed():
+    fingerprint = classification_fingerprint("forum.open")
+    checkpoint = classification_checkpoint("forum.open", fingerprint=fingerprint)
+    checkpoint["verdicts"]["domains"].pop("topic")
+    missing = lab_module.classify_scenario_cell(
+        "forum.open",
+        checkpoint,
+        fingerprint,
+        now=datetime(2026, 7, 2, tzinfo=UTC),
+    )
+    assert missing["status"] == "blocked"
+    assert "domain_missing:topic" in missing["reasons"]
+
+    checkpoint["verdicts"]["domains"]["topic"] = "amber"
+    with pytest.raises(ValueError):
+        lab_module.classify_scenario_cell(
+            "forum.open",
+            checkpoint,
+            fingerprint,
+            now=datetime(2026, 7, 2, tzinfo=UTC),
+        )
+
+    checkpoint["verdicts"]["domains"]["topic"] = "green"
+    checkpoint["verdicts"]["domains"]["borrowed"] = "green"
+    with pytest.raises(ValueError):
+        lab_module.classify_scenario_cell(
+            "forum.open",
+            checkpoint,
+            fingerprint,
+            now=datetime(2026, 7, 2, tzinfo=UTC),
+        )
 
 
 @pytest.mark.parametrize(

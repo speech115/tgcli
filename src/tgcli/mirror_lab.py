@@ -7,7 +7,7 @@ import tempfile
 import asyncio
 import secrets
 from copy import deepcopy
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +18,7 @@ LAB_MARKER = "tgcli-r1-lab"
 MANIFEST_VERSION = 3
 SCENARIO_CHECKPOINT_VERSION = 1
 COMPATIBILITY_FINGERPRINT_VERSION = 1
+EVIDENCE_TTL = timedelta(days=30)
 SCENARIO_PHASES = (
     "preflight",
     "create",
@@ -26,6 +27,18 @@ SCENARIO_PHASES = (
     "verify",
     "teardown",
     "complete",
+)
+SCENARIO_CHECKPOINT_FIELDS = frozenset(
+    {
+        "checkpoint_version",
+        "phase",
+        "created_peers",
+        "created_topics",
+        "outbound_operations",
+        "verdicts",
+        "cleanup_obligations",
+        "compatibility_fingerprint",
+    }
 )
 CHANNEL_ROLES = (
     "protected_source",
@@ -97,6 +110,22 @@ def required_scenarios() -> tuple[ScenarioSpec, ...]:
     return _REQUIRED_SCENARIOS
 
 
+def required_scenario_domains(spec: ScenarioSpec) -> tuple[str, ...]:
+    domains = (
+        "content",
+        "structure",
+        "attribution",
+        "transport",
+        "audit",
+        "cleanup",
+    )
+    if spec.source_family == "forum" or spec.discussion_kind == "forum":
+        domains += ("topic",)
+    if spec.discussion_kind in {"plain", "forum"}:
+        domains += ("comment_root",)
+    return domains
+
+
 def new_compatibility_fingerprint(
     scenario_key: str,
     *,
@@ -158,7 +187,10 @@ def _is_positive_int(value: object) -> bool:
 
 
 def _validate_compatibility_fingerprint(
-    scenario_key: str, fingerprint: object
+    scenario_key: str,
+    fingerprint: object,
+    *,
+    allow_version_mismatch: bool = False,
 ) -> None:
     fields = {
         "fingerprint_version",
@@ -175,10 +207,19 @@ def _validate_compatibility_fingerprint(
         raise ValueError(f"invalid compatibility fingerprint fields: {scenario_key}")
     if (
         type(fingerprint["fingerprint_version"]) is not int
-        or fingerprint["fingerprint_version"] != COMPATIBILITY_FINGERPRINT_VERSION
+        or fingerprint["fingerprint_version"] <= 0
+        or (
+            not allow_version_mismatch
+            and fingerprint["fingerprint_version"]
+            != COMPATIBILITY_FINGERPRINT_VERSION
+        )
     ):
         raise ValueError(f"unsupported fingerprint version: {scenario_key}")
-    if fingerprint["scenario_key"] != scenario_key:
+    if (
+        not isinstance(fingerprint["scenario_key"], str)
+        or not fingerprint["scenario_key"]
+        or fingerprint["scenario_key"] != scenario_key
+    ):
         raise ValueError(f"fingerprint scenario key mismatch: {scenario_key}")
     if not _is_positive_int(fingerprint["fixture_schema_version"]):
         raise ValueError(f"invalid fixture schema version: {scenario_key}")
@@ -213,6 +254,292 @@ def _validate_compatibility_fingerprint(
         role_ids.append(binding["user_id"])
     if len(role_ids) != len(set(role_ids)):
         raise ValueError(f"duplicate account role user id: {scenario_key}")
+
+
+def _validate_scenario_checkpoint_envelope(
+    scenario_key: str,
+    checkpoint: object,
+    *,
+    bind_fingerprint_to_scenario: bool,
+) -> None:
+    if not isinstance(checkpoint, dict) or set(checkpoint) != SCENARIO_CHECKPOINT_FIELDS:
+        raise ValueError(f"invalid scenario checkpoint fields: {scenario_key}")
+    if (
+        type(checkpoint["checkpoint_version"]) is not int
+        or checkpoint["checkpoint_version"] != SCENARIO_CHECKPOINT_VERSION
+    ):
+        raise ValueError(f"unsupported checkpoint version: {scenario_key}")
+    if checkpoint["phase"] not in SCENARIO_PHASES:
+        raise ValueError(f"invalid scenario phase: {scenario_key}")
+    for field in (
+        "created_peers",
+        "created_topics",
+        "outbound_operations",
+        "verdicts",
+    ):
+        if not isinstance(checkpoint[field], dict):
+            raise ValueError(f"invalid {field}: {scenario_key}")
+    if not isinstance(checkpoint["cleanup_obligations"], list):
+        raise ValueError(f"invalid cleanup obligations: {scenario_key}")
+    fingerprint = checkpoint["compatibility_fingerprint"]
+    fingerprint_key = scenario_key
+    if not bind_fingerprint_to_scenario:
+        fingerprint_key = (
+            fingerprint.get("scenario_key") if isinstance(fingerprint, dict) else ""
+        )
+    _validate_compatibility_fingerprint(
+        fingerprint_key,
+        fingerprint,
+        allow_version_mismatch=not bind_fingerprint_to_scenario,
+    )
+
+
+def compare_compatibility_fingerprints(expected: dict, actual: dict) -> dict:
+    expected_key = expected.get("scenario_key") if isinstance(expected, dict) else ""
+    _validate_compatibility_fingerprint(expected_key, expected)
+    actual_key = actual.get("scenario_key") if isinstance(actual, dict) else ""
+    _validate_compatibility_fingerprint(
+        actual_key,
+        actual,
+        allow_version_mismatch=True,
+    )
+    fields = (
+        "fingerprint_version",
+        "scenario_key",
+        "fixture_schema_version",
+        "lab_code_digest",
+        "mirror_code_digest",
+        "telethon_version",
+        "telegram_schema_layer",
+        "account_role_binding",
+        "config_digest",
+    )
+    reasons = [
+        f"{field}_mismatch" for field in fields if expected[field] != actual[field]
+    ]
+    return {"compatible": not reasons, "reasons": reasons}
+
+
+def classify_scenario_cell(
+    scenario_key: str,
+    checkpoint: dict | None,
+    expected_fingerprint: dict,
+    *,
+    now: datetime | None,
+    last_observed_at: datetime | None = None,
+) -> dict:
+    _validate_compatibility_fingerprint(scenario_key, expected_fingerprint)
+    spec = next((spec for spec in required_scenarios() if spec.key == scenario_key), None)
+    if spec is None:
+        raise ValueError(f"unknown scenario key: {scenario_key}")
+    if checkpoint is None:
+        return {
+            "scenario_key": scenario_key,
+            "status": "missing",
+            "freshness": "missing",
+            "machine_compatible": False,
+            "reasons": ["checkpoint_missing"],
+            "fingerprint_reasons": [],
+            "completed_at": None,
+            "expires_at": None,
+            "domains": {},
+            "cleanup": "missing",
+        }
+    if not isinstance(checkpoint, dict):
+        raise ValueError(f"invalid scenario checkpoint: {scenario_key}")
+    _validate_scenario_checkpoint_envelope(
+        scenario_key,
+        checkpoint,
+        bind_fingerprint_to_scenario=False,
+    )
+    comparison = compare_compatibility_fingerprints(
+        expected_fingerprint,
+        checkpoint.get("compatibility_fingerprint"),
+    )
+    required_domains = required_scenario_domains(spec)
+    reasons = list(comparison["reasons"])
+    blocked = False
+    red = False
+
+    verdicts = checkpoint.get("verdicts")
+    if not isinstance(verdicts, dict) or set(verdicts) != {"completed_at", "domains"}:
+        reasons.append("result_metadata_invalid")
+        blocked = True
+        verdicts = {}
+    raw_completed_at = verdicts.get("completed_at")
+    completed_at_valid = (
+        isinstance(raw_completed_at, datetime)
+        and raw_completed_at.tzinfo is not None
+        and raw_completed_at.utcoffset() is not None
+    )
+    completed_at = raw_completed_at if completed_at_valid else None
+    expires_at = completed_at + EVIDENCE_TTL if completed_at is not None else None
+
+    raw_domains = verdicts.get("domains")
+    if not isinstance(raw_domains, dict):
+        if "result_metadata_invalid" not in reasons:
+            reasons.append("result_metadata_invalid")
+        blocked = True
+        domains = {}
+    else:
+        domains = dict(raw_domains)
+        unknown_domains = set(domains) - set(required_domains)
+        if unknown_domains:
+            raise ValueError(f"unknown scenario domains: {scenario_key}")
+        if any(value not in {"green", "red", "blocked"} for value in domains.values()):
+            raise ValueError(f"invalid scenario domain status: {scenario_key}")
+    for domain in required_domains:
+        state = domains.get(domain)
+        if state is None:
+            reasons.append(f"domain_missing:{domain}")
+            blocked = True
+        elif state == "blocked":
+            reasons.append(f"domain_blocked:{domain}")
+            blocked = True
+        elif state == "red":
+            reasons.append(f"domain_red:{domain}")
+            red = True
+
+    phase = checkpoint.get("phase")
+    obligations = checkpoint.get("cleanup_obligations")
+    cleanup_pending = phase == "teardown" or (
+        isinstance(obligations, list) and bool(obligations)
+    )
+    if cleanup_pending:
+        cleanup = "pending"
+        reasons.append("cleanup_pending")
+    elif not isinstance(obligations, list):
+        cleanup = "blocked"
+        reasons.append("cleanup_blocked")
+        blocked = True
+    elif phase != "complete" or domains.get("cleanup") != "green":
+        cleanup = "blocked"
+        reasons.append("cleanup_blocked")
+        blocked = True
+    else:
+        cleanup = "green"
+    if phase not in {"complete", "teardown"}:
+        reasons.append("phase_incomplete")
+        blocked = True
+
+    clock_reasons = []
+    now_valid = (
+        isinstance(now, datetime)
+        and now.tzinfo is not None
+        and now.utcoffset() is not None
+    )
+    observed_valid = (
+        isinstance(last_observed_at, datetime)
+        and last_observed_at.tzinfo is not None
+        and last_observed_at.utcoffset() is not None
+    )
+    if now is None:
+        clock_reasons.append("clock_unavailable")
+    elif not now_valid:
+        clock_reasons.append("clock_invalid")
+    if not completed_at_valid and "clock_invalid" not in clock_reasons:
+        clock_reasons.append("clock_invalid")
+    if last_observed_at is not None and not observed_valid:
+        if "clock_invalid" not in clock_reasons:
+            clock_reasons.append("clock_invalid")
+    if now_valid and completed_at_valid and now < raw_completed_at:
+        clock_reasons.append("clock_before_completion")
+    if now_valid and observed_valid and now < last_observed_at:
+        clock_reasons.append("clock_moved_backward")
+    if clock_reasons:
+        freshness = "blocked"
+        blocked = True
+        reasons.extend(clock_reasons)
+    elif now >= expires_at:
+        freshness = "stale"
+        reasons.append("evidence_expired")
+    else:
+        freshness = "fresh"
+
+    if comparison["reasons"] or freshness == "stale":
+        status = "stale"
+    elif cleanup_pending:
+        status = "cleanup_pending"
+    elif blocked:
+        status = "blocked"
+    elif red:
+        status = "red"
+    else:
+        status = "machine_compatible"
+    return {
+        "scenario_key": scenario_key,
+        "status": status,
+        "freshness": freshness,
+        "machine_compatible": status == "machine_compatible",
+        "reasons": reasons,
+        "fingerprint_reasons": comparison["reasons"],
+        "completed_at": completed_at,
+        "expires_at": expires_at,
+        "domains": domains,
+        "cleanup": cleanup,
+    }
+
+
+def classify_scenario_matrix(
+    checkpoints: dict[str, dict],
+    expected_fingerprints: dict[str, dict],
+    *,
+    now: datetime | None,
+    last_observed_at: datetime | None = None,
+) -> dict:
+    if not isinstance(checkpoints, dict) or not isinstance(expected_fingerprints, dict):
+        raise ValueError("scenario matrix inputs must be objects")
+    scenario_keys = tuple(spec.key for spec in required_scenarios())
+    required_keys = set(scenario_keys)
+    if set(expected_fingerprints) != required_keys:
+        raise ValueError("expected fingerprints must cover every required scenario")
+    if not set(checkpoints) <= required_keys:
+        raise ValueError("unknown scenario checkpoint key")
+    for scenario_key, fingerprint in expected_fingerprints.items():
+        _validate_compatibility_fingerprint(scenario_key, fingerprint)
+    for scenario_key, checkpoint in checkpoints.items():
+        if (
+            not isinstance(checkpoint, dict)
+            or not isinstance(checkpoint.get("compatibility_fingerprint"), dict)
+            or checkpoint["compatibility_fingerprint"].get("scenario_key")
+            != scenario_key
+        ):
+            raise ValueError(f"checkpoint scenario key mismatch: {scenario_key}")
+
+    cells = {
+        scenario_key: classify_scenario_cell(
+            scenario_key,
+            checkpoints.get(scenario_key),
+            expected_fingerprints[scenario_key],
+            now=now,
+            last_observed_at=last_observed_at,
+        )
+        for scenario_key in scenario_keys
+    }
+    statuses = (
+        "missing",
+        "stale",
+        "blocked",
+        "red",
+        "cleanup_pending",
+        "machine_compatible",
+    )
+    counts = {
+        status: sum(cell["status"] == status for cell in cells.values())
+        for status in statuses
+    }
+    non_green_cells = [
+        scenario_key
+        for scenario_key in scenario_keys
+        if cells[scenario_key]["status"] != "machine_compatible"
+        or cells[scenario_key]["cleanup"] != "green"
+    ]
+    return {
+        "machine_green": not non_green_cells,
+        "cells": cells,
+        "counts": counts,
+        "non_green_cells": non_green_cells,
+    }
 
 
 def load_manifest(path: Path) -> dict:
@@ -277,41 +604,14 @@ def load_manifest(path: Path) -> dict:
     if source_version == 2:
         data["manifest_version"] = MANIFEST_VERSION
         data["scenarios"] = {}
-    checkpoint_fields = {
-        "checkpoint_version",
-        "phase",
-        "created_peers",
-        "created_topics",
-        "outbound_operations",
-        "verdicts",
-        "cleanup_obligations",
-        "compatibility_fingerprint",
-    }
     allowed_scenarios = {spec.key for spec in required_scenarios()}
     for scenario_key, checkpoint in data["scenarios"].items():
         if scenario_key not in allowed_scenarios:
             raise ValueError(f"unknown scenario key: {scenario_key}")
-        if not isinstance(checkpoint, dict) or set(checkpoint) != checkpoint_fields:
-            raise ValueError(f"invalid scenario checkpoint fields: {scenario_key}")
-        if (
-            type(checkpoint["checkpoint_version"]) is not int
-            or checkpoint["checkpoint_version"] != SCENARIO_CHECKPOINT_VERSION
-        ):
-            raise ValueError(f"unsupported checkpoint version: {scenario_key}")
-        if checkpoint["phase"] not in SCENARIO_PHASES:
-            raise ValueError(f"invalid scenario phase: {scenario_key}")
-        for field in (
-            "created_peers",
-            "created_topics",
-            "outbound_operations",
-            "verdicts",
-        ):
-            if not isinstance(checkpoint[field], dict):
-                raise ValueError(f"invalid {field}: {scenario_key}")
-        if not isinstance(checkpoint["cleanup_obligations"], list):
-            raise ValueError(f"invalid cleanup obligations: {scenario_key}")
-        _validate_compatibility_fingerprint(
-            scenario_key, checkpoint["compatibility_fingerprint"]
+        _validate_scenario_checkpoint_envelope(
+            scenario_key,
+            checkpoint,
+            bind_fingerprint_to_scenario=True,
         )
     return data
 
