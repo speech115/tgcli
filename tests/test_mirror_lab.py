@@ -1095,7 +1095,10 @@ async def test_forum_topic_canary_proves_general_and_custom_reply_chains():
                         reply_to_msg_id=reply.reply_to_msg_id,
                         reply_to_top_id=(
                             None
-                            if reply.reply_to_msg_id == self.topic_id
+                            if (
+                                reply.reply_to_msg_id == self.topic_id
+                                or request.message.endswith(":general_reply")
+                            )
                             else reply.top_msg_id
                         ),
                         forum_topic=True,

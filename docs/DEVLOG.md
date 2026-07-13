@@ -15,6 +15,30 @@ Template:
 
 ---
 
+## 2026-07-13 — Standalone forum live gate passes (Codex GPT-5)
+**Did:** reran the bounded `forum.open` canary after a full cooldown and one
+server-shape correction. Both private owner-only source and destination forums
+confirmed General topic id 1, exact custom-topic creation/readback, a General
+message and reply, and a custom-topic message and nested reply. The runner
+reported `cleanup=green`, removed the scenario checkpoint, and an independent
+exact-marker dialog scan returned `remaining_disposable_dialogs=0`.
+**Decided:** General replies retain a strict immediate parent but accept
+Telegram's native omission of `reply_to_top_id`; only `None` or protocol topic
+id 1 is valid. Custom direct messages resolve their effective root as
+`reply_to_top_id or reply_to_msg_id`, while nested custom replies still require
+the exact parent and explicit custom-topic top id.
+**Learned:** the first live attempt had already created and read back all source
+forum markers; its generic red came solely from assuming Telegram echoes top id
+1 for General. Privacy-safe per-condition mismatch codes and a mock that omits
+that field now prevent the same false red. That attempt also tore down cleanly
+and its marker scan found zero dialogs before the accepted rerun.
+**Checks:** focused forum tests: `2 passed`; full suite: `360 passed, 9 skipped`;
+namespace coverage: `coverage OK: 23 namespaces`; `git diff --check` clean.
+Accepted live result covers open standalone forum foundations only.
+**Next:** add protected standalone forum and topic metadata-transition cells,
+then run standalone supergroup cells; basic groups still require a dedicated
+configured `lab-peer` account.
+
 ## 2026-07-13 — Native channel comments proven end to end (Codex GPT-5)
 **Did:** added audited, marker-correlated content canaries for plain linked
 channel comments and standalone forum topics. The channel path sends a marked

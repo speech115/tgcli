@@ -48,6 +48,14 @@ closes the destination topic, marks it archived in native-visible metadata where
 Telegram permits, and appends one deletion fact. Replies continue to resolve
 through the stable topic and peer-scoped message mappings.
 
+The first controlled-live standalone `forum.open` gate passed on 2026-07-13:
+both disposable source and destination forums exposed General topic id 1,
+created and read back a marked custom topic, and preserved direct parent plus
+effective topic-root semantics for General and custom replies. Verified
+teardown removed both peers and an independent exact-marker scan found zero
+remaining dialogs. This is foundation evidence only; protected forum cells and
+the full topic-transition matrix remain separate gates.
+
 ### Source author fidelity
 
 Comments and forum messages use capability-based source attribution. When

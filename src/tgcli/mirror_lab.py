@@ -1434,39 +1434,37 @@ async def verify_forum_topics_live(
     custom_message, custom_reply = await topic_messages(
         topic_id, (custom_marker, custom_reply_marker)
     )
+    failures = []
+    general_header = getattr(general_reply, "reply_to", None)
+    custom_header = getattr(custom_message, "reply_to", None)
+    custom_reply_header = getattr(custom_reply, "reply_to", None)
+    if getattr(general_header, "reply_to_msg_id", None) != general_message.id:
+        failures.append("general_parent_mismatch")
+    if getattr(general_header, "reply_to_top_id", None) not in {None, 1}:
+        failures.append("general_top_invalid")
+    if getattr(custom_header, "reply_to_msg_id", None) != topic_id:
+        failures.append("custom_root_parent_mismatch")
     if (
-        getattr(getattr(general_reply, "reply_to", None), "reply_to_msg_id", None)
-        != general_message.id
-        or getattr(
-            getattr(general_reply, "reply_to", None), "reply_to_top_id", None
-        )
-        != 1
-        or getattr(getattr(custom_message, "reply_to", None), "reply_to_msg_id", None)
-        != topic_id
-        or (
             getattr(
-                getattr(custom_message, "reply_to", None),
+                custom_header,
                 "reply_to_top_id",
                 None,
             )
             or getattr(
-                getattr(custom_message, "reply_to", None),
+                custom_header,
                 "reply_to_msg_id",
                 None,
             )
-        )
-        != topic_id
-        or not getattr(
-            getattr(custom_message, "reply_to", None), "forum_topic", False
-        )
-        or getattr(getattr(custom_reply, "reply_to", None), "reply_to_msg_id", None)
-        != custom_message.id
-        or getattr(
-            getattr(custom_reply, "reply_to", None), "reply_to_top_id", None
-        )
-        != topic_id
-    ):
-        raise ValueError("forum topic reply chain does not match expected parents")
+    ) != topic_id:
+        failures.append("custom_effective_root_mismatch")
+    if not getattr(custom_header, "forum_topic", False):
+        failures.append("custom_forum_flag_missing")
+    if getattr(custom_reply_header, "reply_to_msg_id", None) != custom_message.id:
+        failures.append("custom_reply_parent_mismatch")
+    if getattr(custom_reply_header, "reply_to_top_id", None) != topic_id:
+        failures.append("custom_reply_top_mismatch")
+    if failures:
+        raise ValueError("forum topic reply chain mismatch: " + ",".join(failures))
     return {
         "side": side,
         "general_topic": "confirmed",
