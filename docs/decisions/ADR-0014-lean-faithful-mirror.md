@@ -71,10 +71,13 @@ before network dispatch. Recovery resends the same request with the same random
 id; mapping and cursor advance together after Telegram confirms it.
 
 Destination creation has no caller-supplied random id. The database therefore
-records a `planned` creation before dispatch. After an ambiguous result, retry
-first searches for one exact private creator-owned channel matching the stored
-creation marker. Zero matches permits creation; one resumes it; multiple
-matches stop for operator review. Automatic orphan deletion is forbidden.
+records a `planned` creation and a unique temporary title marker derived from
+the mirror id before dispatch. After an ambiguous result, retry first searches
+for an exact private creator-owned channel matching that marker. Zero matches
+permits creation; one resumes it; multiple matches stop for operator review.
+After authorization, an idempotent profile step changes the visible title to
+the source title, so the finished copy remains organic. Automatic orphan
+deletion is forbidden.
 
 ### Transport and fidelity
 

@@ -80,16 +80,19 @@ mocked Telegram clients.
 - [ ] Write CLI tests proving preview makes no Telegram mutation, commit creates
   exactly one private broadcast channel, repeated commit resumes the stored
   destination rather than creating another, an ambiguous create reconciles one
-  exact private creator-owned title match and refuses multiple matches, and each
-  kill switch blocks before config/session/network work.
+  exact private creator-owned temporary marker match and refuses multiple
+  matches, the authorized destination receives the source title, and each kill
+  switch blocks before config/session/network work.
 - [ ] Verify RED with `uv run pytest tests/test_cli_mirror_init.py -q`; expected
   parser failure because `mirror` is not registered.
 - [ ] Register `mirror init SOURCE [--commit]`. Resolve the source and current
   user, create/reopen the store, call Telethon `channels.CreateChannelRequest`
   only when no destination is recorded, then persist destination authorization.
-  Before retrying an unconfirmed creation, search exact private creator-owned
-  title matches: resume one, create on zero, and stop on multiple. Append the
-  existing audit before creation. Do not create a discussion group.
+  Before retrying an unconfirmed creation, search an exact private
+  creator-owned temporary title marker derived from the mirror id: resume one,
+  create on zero, and stop on multiple. After authorization, idempotently change
+  the visible title to the source title. Append the existing audit before each
+  mutation. Do not create a discussion group.
 - [ ] Verify GREEN with the same focused command.
 
 ### Task 3: Idempotent text sync
