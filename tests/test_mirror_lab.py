@@ -453,6 +453,20 @@ def test_all_provisioning_intent_keys_are_stable_and_unique_per_cell():
         assert all(key.startswith(f"{spec.key}:") for key in keys)
 
 
+def test_channel_forum_live_gate_is_explicitly_blocked_by_controlled_evidence():
+    blocker = lab_module.scenario_live_blocker("channel_forum.open_open")
+
+    assert blocker == {
+        "reason_code": "telegram_forum_discussion_incompatible",
+        "evidence": (
+            "created_forum_not_discussion_eligible",
+            "linked_plain_group_forum_toggle_rejected",
+        ),
+    }
+    assert lab_module.scenario_live_blocker("channel_plain.open_open") is None
+    assert lab_module.scenario_live_blocker("forum.open") is None
+
+
 def provisioning_checkpoint(scenario_key="forum.protected"):
     fingerprint = classification_fingerprint(scenario_key)
     checkpoint = lab_module.new_scenario_checkpoint(scenario_key, fingerprint)
@@ -700,6 +714,164 @@ async def test_dispatch_invalid_observation_stays_ambiguous():
     assert persisted[-1]["outbound_operations"][key]["state"] == "ambiguous"
 
 
+@pytest.mark.asyncio
+async def test_mocked_live_provisioning_readback_and_teardown_are_complete():
+    class ScenarioTG:
+        def __init__(self):
+            self.next_id = 700
+            self.peers = {}
+            self.links = {}
+            self.deleted = []
+
+        async def __call__(self, request):
+            if isinstance(request, lab_module.functions.channels.CreateChannelRequest):
+                self.next_id += 1
+                peer = NS(
+                    id=self.next_id,
+                    title=request.title,
+                    creator=True,
+                    broadcast=bool(request.broadcast),
+                    megagroup=bool(request.megagroup),
+                    forum=bool(request.forum),
+                    noforwards=False,
+                )
+                self.peers[peer.id] = peer
+                return NS(chats=[peer])
+            if isinstance(request, lab_module.functions.messages.ToggleNoForwardsRequest):
+                request.peer.noforwards = request.enabled
+                return NS(updates=[])
+            if isinstance(request, lab_module.functions.channels.GetGroupsForDiscussionRequest):
+                return NS(chats=[peer for peer in self.peers.values() if peer.megagroup])
+            if isinstance(request, lab_module.functions.channels.SetDiscussionGroupRequest):
+                self.links[request.broadcast.id] = request.group.id
+                return NS(updates=[])
+            if isinstance(request, lab_module.functions.channels.GetFullChannelRequest):
+                return NS(full_chat=NS(linked_chat_id=self.links.get(request.channel.id)))
+            if isinstance(request, lab_module.functions.channels.DeleteChannelRequest):
+                self.deleted.append(request.channel.id)
+                self.peers.pop(request.channel.id)
+                return NS(updates=[])
+            raise AssertionError(type(request).__name__)
+
+        async def get_input_entity(self, ref):
+            return self.peers[ref.channel_id]
+
+        async def get_entity(self, ref):
+            peer_id = getattr(ref, "channel_id", ref)
+            return self.peers[peer_id]
+
+    scenario_key = "channel_plain.protected_protected"
+    fingerprint = classification_fingerprint(scenario_key)
+    checkpoint = lab_module.new_scenario_checkpoint(scenario_key, fingerprint)
+    checkpoint["phase"] = "create"
+    persisted = []
+
+    def persist(value):
+        persisted.append(deepcopy(value))
+
+    tg = ScenarioTG()
+    provisioned = await lab_module.provision_scenario_live(
+        tg,
+        checkpoint,
+        fingerprint,
+        lab_id="d" * 24,
+        account_alias="labacct",
+        persist=persist,
+    )
+
+    assert provisioned["phase"] == "seed"
+    assert set(provisioned["created_peers"]) == {
+        "source",
+        "source_discussion",
+        "destination",
+        "destination_discussion",
+    }
+    assert all(
+        operation["state"] == "confirmed"
+        for operation in provisioned["outbound_operations"].values()
+    )
+    assert tg.peers[provisioned["created_peers"]["source"]["peer_id"]].noforwards
+    assert tg.peers[
+        provisioned["created_peers"]["source_discussion"]["peer_id"]
+    ].noforwards
+    assert len(tg.links) == 2
+    assert not tg.peers[
+        provisioned["created_peers"]["source_discussion"]["peer_id"]
+    ].forum
+    assert not tg.peers[
+        provisioned["created_peers"]["destination_discussion"]["peer_id"]
+    ].forum
+
+    cleaned = await lab_module.teardown_scenario_peers(
+        tg,
+        provisioned,
+        fingerprint,
+        lab_id="d" * 24,
+        account_alias="labacct",
+        persist=persist,
+    )
+    assert cleaned["created_peers"] == {}
+    assert cleaned["cleanup_obligations"] == []
+    assert len(tg.deleted) == 4
+
+
+@pytest.mark.asyncio
+async def test_scenario_teardown_reconciles_persisted_delete_after_flood_wait():
+    scenario_key = "channel.open"
+    fingerprint = classification_fingerprint(scenario_key)
+    checkpoint = lab_module.new_scenario_checkpoint(scenario_key, fingerprint)
+    checkpoint["phase"] = "seed"
+    checkpoint["created_peers"] = {
+        "destination": {"peer_id": 702, "title_marker_verified": True},
+    }
+    checkpoint["cleanup_obligations"] = [{"peer_role": "destination"}]
+    persisted = []
+
+    class FloodingTG:
+        async def get_entity(self, _ref):
+            return NS(
+                id=702,
+                title=lab_module.scenario_peer_title(
+                    "e" * 24, scenario_key, "destination"
+                ),
+                creator=True,
+            )
+
+        async def __call__(self, request):
+            assert isinstance(
+                request, lab_module.functions.channels.DeleteChannelRequest
+            )
+            raise FloodWaitError(request=None, capture=600)
+
+    with pytest.raises(FloodWaitError):
+        await lab_module.teardown_scenario_peers(
+            FloodingTG(),
+            checkpoint,
+            fingerprint,
+            lab_id="e" * 24,
+            account_alias="labacct",
+            persist=lambda value: persisted.append(deepcopy(value)),
+        )
+    assert persisted[-1]["cleanup_obligations"] == [
+        {"peer_role": "destination", "state": "deleting"}
+    ]
+
+    class AlreadyDeletedTG:
+        async def get_entity(self, _ref):
+            raise ChannelPrivateError(request=None)
+
+    cleaned = await lab_module.teardown_scenario_peers(
+        AlreadyDeletedTG(),
+        persisted[-1],
+        fingerprint,
+        lab_id="e" * 24,
+        account_alias="labacct",
+        persist=lambda value: persisted.append(deepcopy(value)),
+    )
+    assert cleaned["created_peers"] == {}
+    assert cleaned["cleanup_obligations"] == []
+
+
 def test_materialize_basic_and_forum_create_requests_without_dispatch():
     lab_id = "a" * 24
     basic_fingerprint = classification_fingerprint(
@@ -801,7 +973,6 @@ def test_materialize_protection_eligibility_and_link_requests_without_dispatch()
     assert isinstance(link, lab_module.functions.channels.SetDiscussionGroupRequest)
     assert link.broadcast is resolved["destination"]
     assert link.group is resolved["destination_discussion"]
-
 
 def test_materialize_request_rejects_forged_intent_and_missing_role():
     fingerprint = classification_fingerprint("channel.protected")

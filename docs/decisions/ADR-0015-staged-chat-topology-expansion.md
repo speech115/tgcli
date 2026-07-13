@@ -90,6 +90,17 @@ and reply routing work. Official schema compatibility alone is not acceptance
 evidence. A failed gate blocks that topology; it never silently downgrades a
 forum discussion to a plain group.
 
+Controlled-live evidence on 2026-07-13 blocks linked forum discussions under
+the pinned Telethon 1.44 schema layer 227. A forum created directly with
+`channels.createChannel(forum=True, megagroup=True)` was absent from
+`channels.getGroupsForDiscussion`. A plain megagroup was eligible and linked
+successfully, but Telegram then rejected `channels.toggleForum` for that linked
+group with `ChatDiscussionUnallowedError`. Both probes completed verified
+teardown with no marked disposable peer remaining. The four `channel_forum.*`
+cells therefore stay in the required matrix as explicitly blocked evidence;
+they cannot enter mirror routing or be represented by a plain-group downgrade.
+Standalone `forum.*` and `channel_plain.*` cells remain independent gates.
+
 ### Channel comment history boundary
 
 Every channel post inside the authorized mirror range owns the complete

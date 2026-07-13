@@ -153,6 +153,7 @@ and malformed classifications fail the checker.
 | Scope creep back to 200k LOC | AGENTS.md: new abstraction requires ADR; YAGNI rule; MAP review each phase |
 | TL layer drift (Telegram adds methods/namespaces) | Telethon version-pinned; pin bumps re-run check-coverage against FEATURES.md (phase 7) |
 | `tg api` as safety bypass | explicit default-deny read allowlist, `--write` gate wired to same env kill-switches, typed `--confirm`, hard denylist (ADR-0010) |
+| Telegram rejects linked forum discussions | keep `channel_forum.*` explicitly blocked by ADR-0015 controlled-live evidence; test standalone forums and plain linked comments independently; never downgrade silently |
 
 ## Research Addendum (2026-07-06, competitor survey)
 

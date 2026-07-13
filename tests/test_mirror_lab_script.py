@@ -1,5 +1,6 @@
 import json
 import sys
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -198,3 +199,182 @@ def test_seed_fixture_preflight_precedes_config_and_session(tmp_path, monkeypatc
 
     assert code == 4
     assert "ffmpeg unavailable" in capsys.readouterr().err
+
+
+def test_expanded_canary_retains_ambiguous_checkpoint_after_cleanup(
+    tmp_path, monkeypatch
+):
+    scenario_key = "channel_plain.open_open"
+    manifest_path = tmp_path / "expanded.json"
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get_me(self):
+            return NS(id=7)
+
+    account = NS(alias="labacct")
+    monkeypatch.setattr(script.config, "load_config", lambda: {})
+    monkeypatch.setattr(script.config, "resolve_account", lambda *_: account)
+    monkeypatch.setattr(script.session, "client", lambda _account: FakeClient())
+
+    fingerprint = script.mirror_lab.new_compatibility_fingerprint(
+        scenario_key,
+        fixture_schema_version=1,
+        lab_code_digest="a" * 64,
+        mirror_code_digest="b" * 64,
+        telethon_version="1.44.0",
+        telegram_schema_layer=227,
+        account_role_binding={
+            "operator": {"alias": "labacct", "user_id": 7},
+        },
+        config_digest="c" * 64,
+    )
+    monkeypatch.setattr(
+        script, "live_scenario_fingerprint", lambda *_: fingerprint
+    )
+
+    async def ambiguous_provision(
+        _tg, checkpoint, _fingerprint, *, persist, **_kwargs
+    ):
+        intent = script.mirror_lab.build_scenario_provisioning_intents(
+            scenario_key, fingerprint
+        )[0]
+        current = script.mirror_lab.prepare_scenario_intent(checkpoint, intent)
+        current = script.mirror_lab.mark_scenario_intent_dispatched(
+            current, intent["intent_key"]
+        )
+        current = script.mirror_lab.record_scenario_intent_outcome(
+            current, intent["intent_key"], "ambiguous"
+        )
+        persist(current)
+        raise ConnectionError("response lost")
+
+    async def no_peer_teardown(_tg, checkpoint, _fingerprint, **_kwargs):
+        return deepcopy(checkpoint)
+
+    monkeypatch.setattr(
+        script.mirror_lab, "provision_scenario_live", ambiguous_provision
+    )
+    monkeypatch.setattr(
+        script.mirror_lab, "teardown_scenario_peers", no_peer_teardown
+    )
+
+    assert script.main(
+        [
+            "expanded-provision-canary",
+            "--manifest",
+            str(manifest_path),
+            "--scenario",
+            scenario_key,
+        ]
+    ) == 1
+    persisted = script.mirror_lab.load_manifest(manifest_path)
+    assert scenario_key in persisted["scenarios"]
+    states = {
+        operation["state"]
+        for operation in persisted["scenarios"][scenario_key][
+            "outbound_operations"
+        ].values()
+    }
+    assert states == {"ambiguous"}
+
+
+def test_expanded_canary_blocks_known_forum_topology_before_session(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr(
+        script.config,
+        "load_config",
+        lambda: (_ for _ in ()).throw(AssertionError("config touched")),
+    )
+
+    code = script.main(
+        [
+            "expanded-provision-canary",
+            "--manifest",
+            str(tmp_path / "expanded.json"),
+            "--scenario",
+            "channel_forum.open_open",
+        ]
+    )
+
+    assert code == 2
+    assert "telegram_forum_discussion_incompatible" in capsys.readouterr().err
+
+
+def test_expanded_cleanup_removes_confirmed_checkpoint(tmp_path, monkeypatch):
+    scenario_key = "channel_plain.open_open"
+    manifest_path = tmp_path / "expanded.json"
+    manifest = script.mirror_lab.new_manifest(7)
+    fingerprint = script.mirror_lab.new_compatibility_fingerprint(
+        scenario_key,
+        fixture_schema_version=1,
+        lab_code_digest="a" * 64,
+        mirror_code_digest="b" * 64,
+        telethon_version="1.44.0",
+        telegram_schema_layer=227,
+        account_role_binding={
+            "operator": {"alias": "labacct", "user_id": 7},
+        },
+        config_digest="c" * 64,
+    )
+    checkpoint = script.mirror_lab.new_scenario_checkpoint(
+        scenario_key, fingerprint
+    )
+    checkpoint["phase"] = "seed"
+    checkpoint["created_peers"] = {
+        "source": {"peer_id": 701, "title_marker_verified": True},
+    }
+    checkpoint["cleanup_obligations"] = [{"peer_role": "source"}]
+    for intent in script.mirror_lab.build_scenario_provisioning_intents(
+        scenario_key, fingerprint
+    ):
+        checkpoint["outbound_operations"][intent["intent_key"]] = {
+            "method": intent["method"],
+            "target_role": intent["target_role"],
+            "parameters": deepcopy(intent["parameters"]),
+            "state": "confirmed",
+        }
+    manifest["scenarios"][scenario_key] = checkpoint
+    script.mirror_lab.save_manifest(manifest_path, manifest)
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get_me(self):
+            return NS(id=7)
+
+    account = NS(alias="labacct")
+    monkeypatch.setattr(script.config, "load_config", lambda: {})
+    monkeypatch.setattr(script.config, "resolve_account", lambda *_: account)
+    monkeypatch.setattr(script.session, "client", lambda _account: FakeClient())
+
+    async def clean(_tg, current, _fingerprint, *, persist, **_kwargs):
+        cleaned = deepcopy(current)
+        cleaned["created_peers"] = {}
+        cleaned["cleanup_obligations"] = []
+        persist(cleaned)
+        return cleaned
+
+    monkeypatch.setattr(script.mirror_lab, "teardown_scenario_peers", clean)
+
+    assert script.main(
+        [
+            "expanded-cleanup",
+            "--manifest",
+            str(manifest_path),
+            "--scenario",
+            scenario_key,
+        ]
+    ) == 0
+    persisted = script.mirror_lab.load_manifest(manifest_path)
+    assert scenario_key not in persisted["scenarios"]

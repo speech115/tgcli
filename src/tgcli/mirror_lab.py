@@ -121,6 +121,19 @@ def select_scenarios(scenario_key: str | None = None) -> tuple[ScenarioSpec, ...
     return selected
 
 
+def scenario_live_blocker(scenario_key: str) -> dict | None:
+    spec = select_scenarios(scenario_key)[0]
+    if spec.discussion_kind != "forum":
+        return None
+    return {
+        "reason_code": "telegram_forum_discussion_incompatible",
+        "evidence": (
+            "created_forum_not_discussion_eligible",
+            "linked_plain_group_forum_toggle_rejected",
+        ),
+    }
+
+
 def required_scenario_domains(spec: ScenarioSpec) -> tuple[str, ...]:
     domains = (
         "content",
@@ -504,6 +517,22 @@ def build_scenario_provisioning_intents(
     return tuple(intents)
 
 
+def scenario_peer_title(lab_id: str, scenario_key: str, role: str) -> str:
+    if (
+        not isinstance(lab_id, str)
+        or len(lab_id) != 24
+        or any(char not in "0123456789abcdef" for char in lab_id)
+    ):
+        raise ValueError("invalid lab id")
+    spec = select_scenarios(scenario_key)[0]
+    allowed_roles = {"source", "destination"}
+    if spec.discussion_kind != "none":
+        allowed_roles |= {"source_discussion", "destination_discussion"}
+    if role not in allowed_roles:
+        raise ValueError(f"invalid scenario peer role: {role}")
+    return f"{LAB_MARKER} {lab_id} {scenario_key} {role}"
+
+
 def materialize_scenario_intent_request(
     intent: dict,
     fingerprint: dict,
@@ -526,12 +555,6 @@ def materialize_scenario_intent_request(
         or expected.get(intent["intent_key"]) != intent
     ):
         raise ValueError("intent does not match scenario plan")
-    if (
-        not isinstance(lab_id, str)
-        or len(lab_id) != 24
-        or any(char not in "0123456789abcdef" for char in lab_id)
-    ):
-        raise ValueError("invalid lab id")
     if not isinstance(resolved_roles, dict):
         raise ValueError("resolved roles must be an object")
 
@@ -542,7 +565,7 @@ def materialize_scenario_intent_request(
 
     method = intent["method"]
     role = intent["target_role"]
-    title = f"{LAB_MARKER} {lab_id} {scenario_key} {role}"
+    title = scenario_peer_title(lab_id, scenario_key, role)
     parameters = intent["parameters"]
     if method == "messages.createChat":
         return functions.messages.CreateChatRequest(
@@ -728,6 +751,238 @@ async def dispatch_scenario_intent(
     )
     persist(confirmed)
     return confirmed
+
+
+def _scenario_peer_families(fingerprint: dict) -> dict[str, str]:
+    scenario_key = fingerprint["scenario_key"]
+    return {
+        intent["target_role"]: intent["parameters"]["family"]
+        for intent in build_scenario_provisioning_intents(
+            scenario_key, fingerprint
+        )
+        if intent["method"] in {"messages.createChat", "channels.createChannel"}
+    }
+
+
+def _scenario_peer_ref(family: str, peer_id: int):
+    if family == "basic":
+        return types.PeerChat(peer_id)
+    return types.PeerChannel(peer_id)
+
+
+async def execute_scenario_provisioning_intent(
+    tg,
+    checkpoint: dict,
+    intent: dict,
+    fingerprint: dict,
+    *,
+    lab_id: str,
+    account_alias: str,
+    resolved_account_roles: dict | None = None,
+) -> dict:
+    comparison = compare_compatibility_fingerprints(
+        fingerprint, checkpoint["compatibility_fingerprint"]
+    )
+    if not comparison["compatible"]:
+        raise ValueError("checkpoint fingerprint is not compatible")
+    families = _scenario_peer_families(fingerprint)
+    resolved_roles = dict(resolved_account_roles or {})
+    for role, peer in checkpoint["created_peers"].items():
+        resolved_roles[role] = await tg.get_input_entity(
+            _scenario_peer_ref(families[role], peer["peer_id"])
+        )
+    request = materialize_scenario_intent_request(
+        intent,
+        fingerprint,
+        lab_id=lab_id,
+        resolved_roles=resolved_roles,
+    )
+    response = await _audited_mutation(
+        "mirror-lab-scenario-provision",
+        account_alias,
+        {
+            "scenario_key": fingerprint["scenario_key"],
+            "intent_key": intent["intent_key"],
+            "method": intent["method"],
+            "role": intent["target_role"],
+        },
+        lambda: tg(request),
+        ambiguous_errors=True,
+    )
+    method = intent["method"]
+    role = intent["target_role"]
+    if method in {"messages.createChat", "channels.createChannel"}:
+        expected_title = scenario_peer_title(
+            lab_id, fingerprint["scenario_key"], role
+        )
+        matches = [
+            peer
+            for peer in getattr(response, "chats", ())
+            if getattr(peer, "title", None) == expected_title
+            and getattr(peer, "creator", False)
+        ]
+        if len(matches) != 1 or not _is_positive_int(matches[0].id):
+            raise ValueError("created peer response lacks exact owned lab peer")
+        peer = matches[0]
+        family = intent["parameters"]["family"]
+        shape_ok = family == "basic" or (
+            bool(getattr(peer, "broadcast", False))
+            == intent["parameters"]["broadcast"]
+            and bool(getattr(peer, "megagroup", False))
+            == intent["parameters"]["megagroup"]
+            and bool(getattr(peer, "forum", False))
+            == intent["parameters"]["forum"]
+        )
+        if not shape_ok:
+            raise ValueError("created peer topology does not match intent")
+        return {
+            "peer_role": role,
+            "peer_id": peer.id,
+            "title_marker_verified": True,
+        }
+    if method == "messages.toggleNoForwards":
+        peer = checkpoint["created_peers"][role]
+        entity = await tg.get_entity(
+            _scenario_peer_ref(families[role], peer["peer_id"])
+        )
+        return {"protected": bool(getattr(entity, "noforwards", False))}
+    if method == "channels.getGroupsForDiscussion":
+        candidate_role = intent["parameters"]["candidate_group_role"]
+        candidate_id = checkpoint["created_peers"][candidate_role]["peer_id"]
+        eligible = any(
+            getattr(peer, "id", None) == candidate_id
+            for peer in getattr(response, "chats", ())
+        )
+        return {"eligible": eligible}
+    if method == "channels.setDiscussionGroup":
+        broadcast_role = intent["parameters"]["broadcast_role"]
+        group_role = intent["parameters"]["group_role"]
+        full = await tg(
+            functions.channels.GetFullChannelRequest(
+                channel=resolved_roles[broadcast_role]
+            )
+        )
+        linked_id = getattr(getattr(full, "full_chat", None), "linked_chat_id", None)
+        return {
+            "linked": linked_id
+            == checkpoint["created_peers"][group_role]["peer_id"]
+        }
+    raise ValueError(f"unsupported provisioning method: {method}")
+
+
+async def provision_scenario_live(
+    tg,
+    checkpoint: dict,
+    fingerprint: dict,
+    *,
+    lab_id: str,
+    account_alias: str,
+    persist,
+    resolved_account_roles: dict | None = None,
+) -> dict:
+    current = deepcopy(checkpoint)
+
+    def persist_current(value):
+        nonlocal current
+        current = deepcopy(value)
+        persist(current)
+
+    for intent in build_scenario_provisioning_intents(
+        fingerprint["scenario_key"], fingerprint
+    ):
+        async def execute(candidate, *, _current=lambda: current):
+            return await execute_scenario_provisioning_intent(
+                tg,
+                _current(),
+                candidate,
+                fingerprint,
+                lab_id=lab_id,
+                account_alias=account_alias,
+                resolved_account_roles=resolved_account_roles,
+            )
+
+        current = await dispatch_scenario_intent(
+            current,
+            intent,
+            persist=persist_current,
+            execute=execute,
+        )
+    current = advance_scenario_phase(current, "create")
+    persist(current)
+    return current
+
+
+async def teardown_scenario_peers(
+    tg,
+    checkpoint: dict,
+    fingerprint: dict,
+    *,
+    lab_id: str,
+    account_alias: str,
+    persist,
+) -> dict:
+    current = deepcopy(checkpoint)
+    families = _scenario_peer_families(fingerprint)
+    create_roles = tuple(families)
+    for role in reversed(create_roles):
+        peer = current["created_peers"].get(role)
+        if peer is None:
+            continue
+        if families[role] == "basic":
+            raise PolicyError("basic-group teardown requires dedicated lab-peer support")
+        obligation = next(
+            (
+                item
+                for item in current["cleanup_obligations"]
+                if isinstance(item, dict) and item.get("peer_role") == role
+            ),
+            None,
+        )
+        deleting = isinstance(obligation, dict) and obligation.get("state") == "deleting"
+        ref = _scenario_peer_ref(families[role], peer["peer_id"])
+        try:
+            entity = await tg.get_entity(ref)
+        except (ChannelInvalidError, ChannelPrivateError):
+            if not deleting:
+                raise
+            current["created_peers"].pop(role, None)
+            current["cleanup_obligations"] = [
+                item
+                for item in current["cleanup_obligations"]
+                if not isinstance(item, dict) or item.get("peer_role") != role
+            ]
+            persist(current)
+            continue
+        expected_title = scenario_peer_title(
+            lab_id, fingerprint["scenario_key"], role
+        )
+        if (
+            getattr(entity, "title", None) != expected_title
+            or not getattr(entity, "creator", False)
+        ):
+            raise PolicyError(f"{role}: peer is not the exact owned scenario fixture")
+        current["cleanup_obligations"] = [
+            {"peer_role": role, "state": "deleting"}
+            if isinstance(item, dict) and item.get("peer_role") == role
+            else item
+            for item in current["cleanup_obligations"]
+        ]
+        persist(current)
+        await _audited_mutation(
+            "mirror-lab-scenario-teardown",
+            account_alias,
+            {"scenario_key": fingerprint["scenario_key"], "role": role},
+            lambda: tg(functions.channels.DeleteChannelRequest(channel=entity)),
+            ambiguous_errors=True,
+        )
+        current["created_peers"].pop(role, None)
+        current["cleanup_obligations"] = [
+            item
+            for item in current["cleanup_obligations"]
+            if not isinstance(item, dict) or item.get("peer_role") != role
+        ]
+        persist(current)
+    return current
 
 
 def _apply_scenario_intent_observation(

@@ -15,6 +15,35 @@ Template:
 
 ---
 
+## 2026-07-13 — Live topology provisioning and forum blocker proven (Codex GPT-5)
+**Did:** wired expanded scenario intents to audited Telethon dispatch with exact
+creation, protection, discussion-eligibility, link, and topology readback. Added
+reverse-order teardown that persists every deletion obligation before dispatch,
+plus an explicit `expanded-cleanup` recovery command for interrupted cleanup.
+Two controlled-live forum probes used only uniquely marked disposable peers and
+left none behind: a directly created forum was not discussion-eligible, while a
+plain linked group could not subsequently enable forum mode. Added a stable
+`telegram_forum_discussion_incompatible` blocker for all `channel_forum.*`
+canaries so the known-red gate cannot be mistaken for supported parity.
+**Decided:** retain linked-forum cells as blocked evidence under ADR-0015. Do
+not retry the known-invalid sequence during normal canaries and never downgrade
+it to a plain discussion. Standalone forums and channel comments through plain
+linked discussions remain separate acceptance paths.
+**Learned:** Telegram accepts the plain discussion link first and then returns
+`ChatDiscussionUnallowedError` when that linked group is converted to a forum.
+The inverse order also fails because a directly created forum is absent from
+the eligible discussion list. A later plain-comments canary provisioned both
+source and destination pairs successfully, then hit `FLOOD_WAIT 600` before
+teardown; its exact four cleanup obligations remained durable for recovery.
+After the retry window, `expanded-cleanup` removed all four and a separate
+read-only exact-marker dialog scan returned `remaining_disposable_dialogs=0`.
+**Checks:** focused mirror lab/script suite: `138 passed, 1 skipped`; full suite:
+`353 passed, 9 skipped`; namespace coverage: `coverage OK: 23 namespaces`;
+`git diff --check` clean. Controlled-live provisioning proved both plain linked
+pairs and the forum blocker; verified cleanup left zero marked dialogs.
+**Next:** prove native channel comment roots/replies and standalone forum topic
+creation as independent resumable canaries.
+
 ## 2026-07-13 — Provisioning intents materialize to pinned TL requests (Codex GPT-5)
 **Did:** added strict local materialization of an exact scenario intent into the
 pinned Telethon 1.44 request class: `messages.CreateChatRequest`,

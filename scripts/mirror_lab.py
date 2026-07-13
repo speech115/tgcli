@@ -3,12 +3,15 @@
 
 import argparse
 import asyncio
+import hashlib
 import json
 import sys
 import tempfile
 from pathlib import Path
 
+import telethon
 from telethon.errors import FloodWaitError
+from telethon.tl import alltlobjects
 
 from tgcli import config, session
 from tgcli.errors import ConfigError, NotFoundError, PolicyError
@@ -45,7 +48,54 @@ def parse_args(argv=None):
     verdict.add_argument("--transport", choices=("native", "reupload"), default=None)
     verdict.add_argument("--role", choices=mirror_lab.CHANNEL_ROLES, default=None)
 
+    expanded = sub.add_parser("expanded-provision-canary")
+    expanded.add_argument("--manifest", required=True)
+    expanded.add_argument(
+        "--scenario",
+        required=True,
+        choices=tuple(spec.key for spec in mirror_lab.required_scenarios()),
+    )
+    cleanup = sub.add_parser("expanded-cleanup")
+    cleanup.add_argument("--manifest", required=True)
+    cleanup.add_argument(
+        "--scenario",
+        required=True,
+        choices=tuple(spec.key for spec in mirror_lab.required_scenarios()),
+    )
+
     return parser.parse_args(argv)
+
+
+def _sha256_paths(paths: tuple[Path, ...]) -> str:
+    digest = hashlib.sha256()
+    for path in paths:
+        digest.update(path.name.encode("utf-8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def live_scenario_fingerprint(account, me, scenario_key: str) -> dict:
+    root = Path(__file__).resolve().parents[1]
+    config_digest = hashlib.sha256(
+        json.dumps(
+            {"account_alias": account.alias, "scenario_key": scenario_key},
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    return mirror_lab.new_compatibility_fingerprint(
+        scenario_key,
+        fixture_schema_version=1,
+        lab_code_digest=_sha256_paths((root / "src/tgcli/mirror_lab.py",)),
+        mirror_code_digest=_sha256_paths(
+            (root / "src/tgcli/mirror_probe.py", root / "CONTEXT.md")
+        ),
+        telethon_version=telethon.__version__,
+        telegram_schema_layer=alltlobjects.LAYER,
+        account_role_binding={
+            "operator": {"alias": account.alias, "user_id": me.id},
+        },
+        config_digest=config_digest,
+    )
 
 
 def run_verdict(args) -> dict:
@@ -88,8 +138,21 @@ def run_verdict(args) -> dict:
 
 
 async def run(args) -> dict:
-    if args.phase in {"create", "seed", "copy-native", "copy-reupload", "teardown"}:
+    if args.phase in {
+        "create",
+        "seed",
+        "copy-native",
+        "copy-reupload",
+        "teardown",
+        "expanded-provision-canary",
+        "expanded-cleanup",
+    }:
         mirror_lab.enforce_mutation_allowed(readonly=False)
+    if args.phase == "expanded-provision-canary":
+        blocker = mirror_lab.scenario_live_blocker(args.scenario)
+        if blocker is not None:
+            evidence = ",".join(blocker["evidence"])
+            raise PolicyError(f"{blocker['reason_code']}: {evidence}")
     if args.phase == "seed":
         mirror_lab.preflight_fixture_tools()
     account = config.resolve_account(config.load_config(), args.account)
@@ -102,8 +165,116 @@ async def run(args) -> dict:
                 raise ValueError("lab manifest belongs to another account")
         else:
             if args.phase != "create":
-                raise ValueError(f"manifest not found: {manifest_path}")
+                if args.phase != "expanded-provision-canary":
+                    raise ValueError(f"manifest not found: {manifest_path}")
             manifest = mirror_lab.new_manifest(me.id)
+
+        if args.phase == "expanded-cleanup":
+            checkpoint = manifest["scenarios"].get(args.scenario)
+            if checkpoint is None:
+                raise ValueError(f"scenario checkpoint not found: {args.scenario}")
+            fingerprint = checkpoint["compatibility_fingerprint"]
+            operator = fingerprint["account_role_binding"].get("operator")
+            if operator != {"alias": account.alias, "user_id": me.id}:
+                raise PolicyError("cleanup account does not match checkpoint operator")
+
+            def persist(value):
+                manifest["scenarios"][args.scenario] = value
+                mirror_lab.save_manifest(manifest_path, manifest)
+
+            cleaned = await mirror_lab.teardown_scenario_peers(
+                tg,
+                checkpoint,
+                fingerprint,
+                lab_id=manifest["lab_id"],
+                account_alias=account.alias,
+                persist=persist,
+            )
+            cleanup_complete = (
+                not cleaned["created_peers"]
+                and not cleaned["cleanup_obligations"]
+            )
+            if not cleanup_complete:
+                raise PolicyError("expanded cleanup is incomplete")
+            operations_confirmed = bool(cleaned["outbound_operations"]) and all(
+                operation["state"] == "confirmed"
+                for operation in cleaned["outbound_operations"].values()
+            )
+            if operations_confirmed:
+                manifest["scenarios"].pop(args.scenario, None)
+                mirror_lab.save_manifest(manifest_path, manifest)
+            return {
+                "phase": "expanded-cleanup",
+                "scenario": args.scenario,
+                "cleanup": "green",
+                "checkpoint_retained": not operations_confirmed,
+            }
+
+        if args.phase == "expanded-provision-canary":
+            spec = mirror_lab.select_scenarios(args.scenario)[0]
+            if spec.source_family == "basic":
+                raise ValueError(
+                    "basic scenario requires a configured dedicated lab-peer account"
+                )
+            fingerprint = live_scenario_fingerprint(account, me, args.scenario)
+            checkpoint = manifest["scenarios"].get(args.scenario)
+            if checkpoint is None:
+                checkpoint = mirror_lab.new_scenario_checkpoint(
+                    args.scenario, fingerprint
+                )
+                checkpoint["phase"] = "create"
+                manifest["scenarios"][args.scenario] = checkpoint
+                mirror_lab.save_manifest(manifest_path, manifest)
+            elif not mirror_lab.compare_compatibility_fingerprints(
+                fingerprint, checkpoint["compatibility_fingerprint"]
+            )["compatible"]:
+                raise ValueError("existing scenario checkpoint fingerprint is stale")
+
+            def persist(value):
+                manifest["scenarios"][args.scenario] = value
+                mirror_lab.save_manifest(manifest_path, manifest)
+
+            provisioned = None
+            try:
+                provisioned = await mirror_lab.provision_scenario_live(
+                    tg,
+                    checkpoint,
+                    fingerprint,
+                    lab_id=manifest["lab_id"],
+                    account_alias=account.alias,
+                    persist=persist,
+                )
+                return {
+                    "phase": "expanded-provision-canary",
+                    "scenario": args.scenario,
+                    "provisioned_roles": sorted(provisioned["created_peers"]),
+                    "intent_count": len(provisioned["outbound_operations"]),
+                    "cleanup": "green",
+                }
+            finally:
+                latest = manifest["scenarios"].get(args.scenario)
+                if latest is not None:
+                    cleaned = await mirror_lab.teardown_scenario_peers(
+                        tg,
+                        latest,
+                        fingerprint,
+                        lab_id=manifest["lab_id"],
+                        account_alias=account.alias,
+                        persist=persist,
+                    )
+                    cleanup_complete = (
+                        not cleaned["created_peers"]
+                        and not cleaned["cleanup_obligations"]
+                    )
+                    operations_confirmed = bool(cleaned["outbound_operations"]) and all(
+                        operation["state"] == "confirmed"
+                        for operation in cleaned["outbound_operations"].values()
+                    )
+                    if cleanup_complete and operations_confirmed:
+                        manifest["scenarios"].pop(args.scenario, None)
+                        mirror_lab.save_manifest(manifest_path, manifest)
+                    elif provisioned is not None and not cleanup_complete:
+                        raise PolicyError("expanded canary cleanup is incomplete")
 
         if args.phase == "create":
             await mirror_lab.create_lab_channels(
