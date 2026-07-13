@@ -41,6 +41,7 @@ def parse_args(argv=None):
     verdict.add_argument("--manifest", required=True)
     verdict.add_argument("--source-report", required=True)
     verdict.add_argument("--dest-report", default=None)
+    verdict.add_argument("--copy-report", default=None)
     verdict.add_argument("--transport", choices=("native", "reupload"), default=None)
     verdict.add_argument("--role", choices=mirror_lab.CHANNEL_ROLES, default=None)
 
@@ -52,18 +53,34 @@ def run_verdict(args) -> dict:
     if args.dest_report:
         if not args.transport:
             raise ValueError("--transport is required with --dest-report")
+        if not args.copy_report:
+            raise ValueError("--copy-report is required with --dest-report")
         dest = json.loads(Path(args.dest_report).read_text(encoding="utf-8"))
+        copy = json.loads(Path(args.copy_report).read_text(encoding="utf-8"))
         manifest = mirror_lab.load_manifest(Path(args.manifest))
         role = "open_source" if args.transport == "native" else "protected_source"
-        expected = set(mirror_lab.seeded_ids(manifest, role))
+        expected = set(mirror_lab.planned_kinds())
         if args.transport == "reupload":
             expected &= set(mirror_lab.BYTE_FIXTURES) | {"album"}
-        return mirror_lab.compare_transport(
+        result = mirror_lab.compare_transport(
             source,
             dest,
             transport=args.transport,
             expected_kinds=expected,
         )
+        expected_status = "forwarded" if args.transport == "native" else "copied"
+        copy_gate = (
+            copy.get("transport") == args.transport
+            and all(copy.get("results", {}).get(kind) == expected_status for kind in expected)
+            and (
+                args.transport != "native"
+                or copy.get("restricted_check") == "confirmed"
+            )
+        )
+        result["copy_gate"] = "pass" if copy_gate else "fail"
+        if not copy_gate:
+            result["verdict"] = "red"
+        return result
     if not args.role:
         raise ValueError("--role is required without --dest-report")
     manifest = mirror_lab.load_manifest(Path(args.manifest))

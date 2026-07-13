@@ -28,7 +28,7 @@ def test_probe_requires_role_and_output():
     assert args.role == "dest_native"
 
 
-def test_verdict_is_pure_and_needs_no_session(tmp_path, capsys):
+def test_verdict_rejects_partial_matrix_and_needs_no_session(tmp_path, capsys):
     source = tmp_path / "source.json"
     dest = tmp_path / "dest.json"
     row = {
@@ -38,8 +38,14 @@ def test_verdict_is_pure_and_needs_no_session(tmp_path, capsys):
                      "telethon_bytes": "pass", "sha256": "v1",
                      "bytes": 1, "error": None}],
     }
-    source.write_text(json.dumps({"capabilities": [row]}))
-    dest.write_text(json.dumps({"capabilities": [row]}))
+    source.write_text(json.dumps({"probe_version": 2, "capabilities": [row]}))
+    dest.write_text(json.dumps({"probe_version": 2, "capabilities": [row]}))
+    copy = tmp_path / "copy.json"
+    copy.write_text(json.dumps({
+        "transport": "native",
+        "restricted_check": "confirmed",
+        "results": {"video": "forwarded"},
+    }))
     manifest = script.mirror_lab.new_manifest(7)
     script.mirror_lab.record_seed(manifest, "open_source", "video", [1])
     manifest_path = tmp_path / "lab.json"
@@ -47,11 +53,89 @@ def test_verdict_is_pure_and_needs_no_session(tmp_path, capsys):
     code = script.main([
         "verdict", "--manifest", str(manifest_path),
         "--source-report", str(source), "--dest-report", str(dest),
-        "--transport", "native",
+        "--transport", "native", "--copy-report", str(copy),
     ])
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["verdict"] == "green"
+    assert payload["verdict"] == "red"
+    assert payload["copy_gate"] == "fail"
+
+    copy.write_text(json.dumps({
+        "transport": "native",
+        "restricted_check": "unexpected_success",
+        "results": {"video": "forwarded"},
+    }))
+    code = script.main([
+        "verdict", "--manifest", str(manifest_path),
+        "--source-report", str(source), "--dest-report", str(dest),
+        "--transport", "native", "--copy-report", str(copy),
+    ])
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verdict"] == "red"
+    assert payload["copy_gate"] == "fail"
+
+
+def test_verdict_accepts_complete_native_matrix(tmp_path):
+    capabilities = []
+    for kind in script.mirror_lab.planned_kinds():
+        if kind == "album":
+            continue
+        byte_kind = kind in script.mirror_lab.BYTE_FIXTURES
+        state = "pass" if byte_kind else "not_applicable"
+        sha = f"{kind}-sha" if byte_kind else None
+        capabilities.append({
+            "kind": kind,
+            "sample_count": 1,
+            "coverage": "complete",
+            "telethon_bytes": state,
+            "samples": [{
+                "kind": kind,
+                "decode": "pass",
+                "telethon_bytes": state,
+                "sha256": sha,
+                "bytes": 1 if sha else None,
+                "error": None,
+            }],
+        })
+    report = {
+        "probe_version": 2,
+        "capabilities": capabilities,
+        "album_groups": [{
+            "count": 2,
+            "sha256": ["album-a", "album-b"],
+            "telethon_bytes": ["pass", "pass"],
+        }],
+    }
+    source = tmp_path / "source.json"
+    dest = tmp_path / "dest.json"
+    copy = tmp_path / "copy.json"
+    source.write_text(json.dumps(report))
+    dest.write_text(json.dumps(report))
+    copy.write_text(json.dumps({
+        "transport": "native",
+        "restricted_check": "confirmed",
+        "results": {
+            kind: "forwarded" for kind in script.mirror_lab.planned_kinds()
+        },
+    }))
+    manifest = script.mirror_lab.new_manifest(7)
+    for message_id, kind in enumerate(script.mirror_lab.planned_kinds(), 1):
+        script.mirror_lab.record_seed(manifest, "open_source", kind, [message_id])
+    manifest_path = tmp_path / "lab.json"
+    script.mirror_lab.save_manifest(manifest_path, manifest)
+
+    result = script.run_verdict(NS(
+        source_report=str(source),
+        dest_report=str(dest),
+        copy_report=str(copy),
+        transport="native",
+        manifest=str(manifest_path),
+        role=None,
+    ))
+
+    assert result["verdict"] == "green"
+    assert result["copy_gate"] == "pass"
 
 
 def test_policy_error_maps_to_exit_2(tmp_path, monkeypatch, capsys):

@@ -231,3 +231,19 @@ unparseable credentials for a newly configured account exits 3.
 ```
 
 `--plain` emits frozen TSV columns: `alias`, `status`, `config`.
+
+## 11. R1 Research Runner
+
+`scripts/mirror_lab.py` is an explicitly mutating research runner, not a
+public `tg` command. Its local manifest is version 2 and binds every channel
+role to an exact `tgcli-r1-lab <24-hex-lab-id> <role>` live title. In-flight
+creates are persisted before dispatch; ambiguous creates refuse duplicates,
+and ambiguous deletes retain their channel entry.
+
+Transport verdicts with `--dest-report` also require
+`--copy-report <copy-phase.json>`. A green result requires probe schema 2, a
+passing copy-phase gate, the expected protected-forward rejection for native
+copy, the complete supported matrix, and exact ordered album hashes. Its JSON
+adds `schema` and `copy_gate`; teardown returns both `removed` and
+`unresolved`. These research shapes do not extend the stable public `tg` JSON
+surface in §5.

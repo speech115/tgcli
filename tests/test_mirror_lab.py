@@ -28,6 +28,7 @@ from tgcli.mirror_lab import (
     CHANNEL_ROLES,
     LAB_MARKER,
     assert_lab_peer,
+    lab_title,
     lab_peer_ids,
     load_manifest,
     new_manifest,
@@ -40,7 +41,8 @@ from tgcli.mirror_lab import (
 
 def test_new_manifest_shape():
     manifest = new_manifest(account_user_id=42)
-    assert manifest["manifest_version"] == 1
+    assert manifest["manifest_version"] == 2
+    assert len(manifest["lab_id"]) == 24
     assert manifest["account_user_id"] == 42
     assert manifest["channels"] == {}
     assert manifest["seeded"] == {}
@@ -49,7 +51,7 @@ def test_new_manifest_shape():
 
 def test_manifest_round_trip(tmp_path):
     manifest = new_manifest(7)
-    record_channel(manifest, "open_source", 100, f"{LAB_MARKER} open_source x")
+    record_channel(manifest, "open_source", 100, lab_title(manifest, "open_source"))
     path = tmp_path / "lab.json"
     save_manifest(path, manifest)
     assert load_manifest(path) == manifest
@@ -69,15 +71,37 @@ def test_load_manifest_rejects_unmarked_or_duplicate_channel_entries(tmp_path):
     }
     path = tmp_path / "lab.json"
     save_manifest(path, manifest)
-    with pytest.raises(ValueError, match="marker"):
+    with pytest.raises(ValueError, match="provenance"):
         load_manifest(path)
 
     manifest["channels"] = {
-        "open_source": {"peer_id": 100, "title": f"{LAB_MARKER} open"},
-        "dest_native": {"peer_id": 100, "title": f"{LAB_MARKER} dest"},
+        "open_source": {"peer_id": 100, "title": lab_title(manifest, "open_source")},
+        "dest_native": {"peer_id": 100, "title": lab_title(manifest, "dest_native")},
     }
     save_manifest(path, manifest)
     with pytest.raises(ValueError, match="duplicate"):
+        load_manifest(path)
+
+
+def test_load_manifest_rejects_stale_or_invalid_creating_entries(tmp_path):
+    manifest = new_manifest(7)
+    path = tmp_path / "lab.json"
+    manifest["creating"] = {
+        "protected_source": {
+            "title": f"{LAB_MARKER} stale-lab protected_source",
+            "state": "ambiguous",
+        }
+    }
+    save_manifest(path, manifest)
+    with pytest.raises(ValueError, match="creating title"):
+        load_manifest(path)
+
+    manifest["creating"]["protected_source"] = {
+        "title": lab_title(manifest, "protected_source"),
+        "state": "invented",
+    }
+    save_manifest(path, manifest)
+    with pytest.raises(ValueError, match="creating state"):
         load_manifest(path)
 
 
@@ -87,11 +111,13 @@ def test_record_channel_requires_known_role_and_marker():
         record_channel(manifest, "mystery", 100, f"{LAB_MARKER} x")
     with pytest.raises(PolicyError):
         record_channel(manifest, "open_source", 100, "innocent channel")
+    with pytest.raises(PolicyError):
+        record_channel(manifest, "open_source", 100, f"{LAB_MARKER} forged")
 
 
 def test_assert_lab_peer_blocks_foreign_peers():
     manifest = new_manifest(7)
-    record_channel(manifest, "dest_native", 200, f"{LAB_MARKER} dest_native x")
+    record_channel(manifest, "dest_native", 200, lab_title(manifest, "dest_native"))
     assert lab_peer_ids(manifest) == {200}
     assert_lab_peer(manifest, 200)
     with pytest.raises(PolicyError):
@@ -294,8 +320,8 @@ def capability(kind, *, shas=(), bytes_state="pass", decode="pass"):
     }
 
 
-def report(*capabilities):
-    return {"capabilities": list(capabilities)}
+def report(*capabilities, probe_version=2):
+    return {"probe_version": probe_version, "capabilities": list(capabilities)}
 
 
 def seeded_manifest():
@@ -353,6 +379,22 @@ def test_lab_verdict_rejects_empty_or_partial_seed_matrix():
     result = lab_verdict(report(), empty, "protected_source")
     assert result["verdict"] == "red"
     assert result["pending"]
+
+
+def test_lab_verdict_rejects_blocked_or_old_schema_matrix():
+    blocked = new_manifest(7)
+    for kind in planned_kinds():
+        lab_module.record_blocked(blocked, "protected_source", kind, "RuntimeError")
+    result = lab_verdict(report(), blocked, "protected_source")
+    assert result["verdict"] == "red"
+    assert sorted(result["blocked"]) == sorted(planned_kinds())
+
+    manifest, rows = seeded_manifest()
+    result = lab_verdict(
+        report(*rows, probe_version=1), manifest, "protected_source"
+    )
+    assert result["verdict"] == "red"
+    assert result["schema"] == "unsupported"
 
 
 def test_compare_transport_native_requires_exact_hashes():
@@ -448,6 +490,30 @@ def test_compare_transport_checks_non_byte_kinds_and_album_grouping():
     )
     assert result["verdict"] == "red"
     assert next(row for row in result["rows"] if row["kind"] == "album")["result"] == "fail"
+
+
+def test_compare_transport_rejects_old_schema_and_reupload_album_drift():
+    source = report(capability("video", shas=("v1",)), probe_version=1)
+    dest = report(capability("video", shas=("v1",)))
+    result = compare_transport(source, dest, transport="native")
+    assert result["verdict"] == "red"
+    assert result["schema"] == "unsupported"
+
+    source = report()
+    source["album_groups"] = [
+        {"count": 2, "sha256": ["red", "green"], "telethon_bytes": ["pass", "pass"]}
+    ]
+    dest = report()
+    dest["album_groups"] = [
+        {"count": 2, "sha256": ["green", "red"], "telethon_bytes": ["pass", "pass"]}
+    ]
+    result = compare_transport(
+        source, dest, transport="reupload", expected_kinds={"album"}
+    )
+    assert result["verdict"] == "red"
+    assert result["rows"] == [
+        {"kind": "album", "expectation": "grouped", "result": "fail"}
+    ]
 
 
 @pytest.mark.asyncio
@@ -593,6 +659,84 @@ async def test_create_lab_channels_is_idempotent(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_create_reconciles_ambiguous_accepted_channel_without_duplicate(tmp_path):
+    class AcceptThenCancelCreateTG(FakeTG):
+        def __init__(self):
+            super().__init__()
+            self.cancel_once = True
+
+        async def __call__(self, request):
+            if (
+                self.cancel_once
+                and isinstance(request, functions.channels.CreateChannelRequest)
+            ):
+                self.cancel_once = False
+                await super().__call__(request)
+                raise asyncio.CancelledError()
+            return await super().__call__(request)
+
+        async def iter_dialogs(self):
+            for entity in self._channels.values():
+                yield NS(entity=entity)
+
+    tg = AcceptThenCancelCreateTG()
+    manifest = new_manifest(7)
+    path = tmp_path / "lab.json"
+
+    with pytest.raises(asyncio.CancelledError):
+        await create_lab_channels(tg, manifest, path, "labacct", quiet)
+    persisted = load_manifest(path)
+    assert persisted["channels"] == {}
+    assert persisted["creating"]["protected_source"]["state"] == "ambiguous"
+
+    await create_lab_channels(tg, persisted, path, "labacct", quiet)
+    creates = [
+        request for request in tg.raw_requests
+        if isinstance(request, functions.channels.CreateChannelRequest)
+    ]
+    assert len(creates) == len(CHANNEL_ROLES)
+    assert set(load_manifest(path)["channels"]) == set(CHANNEL_ROLES)
+
+
+@pytest.mark.asyncio
+async def test_create_reconciles_disconnect_after_server_acceptance(tmp_path):
+    class AcceptThenDisconnectTG(FakeTG):
+        def __init__(self):
+            super().__init__()
+            self.disconnect_once = True
+
+        async def __call__(self, request):
+            if (
+                self.disconnect_once
+                and isinstance(request, functions.channels.CreateChannelRequest)
+            ):
+                self.disconnect_once = False
+                await super().__call__(request)
+                raise ConnectionError("connection lost after dispatch")
+            return await super().__call__(request)
+
+        async def iter_dialogs(self):
+            for entity in self._channels.values():
+                yield NS(entity=entity)
+
+    tg = AcceptThenDisconnectTG()
+    manifest = new_manifest(7)
+    path = tmp_path / "lab.json"
+
+    with pytest.raises(ConnectionError, match="after dispatch"):
+        await create_lab_channels(tg, manifest, path, "labacct", quiet)
+    persisted = load_manifest(path)
+    assert persisted["creating"]["protected_source"]["state"] == "ambiguous"
+
+    await create_lab_channels(tg, persisted, path, "labacct", quiet)
+    creates = [
+        request for request in tg.raw_requests
+        if isinstance(request, functions.channels.CreateChannelRequest)
+    ]
+    assert len(creates) == len(CHANNEL_ROLES)
+
+
+@pytest.mark.asyncio
 async def test_create_retries_protected_toggle_after_partial_failure(tmp_path):
     class ToggleFailsOnceTG(FakeTG):
         def __init__(self):
@@ -706,21 +850,31 @@ async def test_seed_stops_immediately_on_flood_wait(tmp_path):
 @pytest.mark.asyncio
 async def test_seed_refuses_manifest_peer_without_live_lab_ownership(tmp_path):
     class ForeignTG(FakeTG):
+        def __init__(self, title):
+            super().__init__()
+            self.title = title
+
         async def get_entity(self, ref):
             return NS(
                 id=getattr(ref, "channel_id", ref),
-                title=f"{LAB_MARKER} open_source x",
+                title=self.title,
                 creator=False,
                 broadcast=True,
                 megagroup=False,
             )
 
     manifest = new_manifest(7)
-    record_channel(manifest, "protected_source", 100, f"{LAB_MARKER} protected_source x")
-    record_channel(manifest, "open_source", 200, f"{LAB_MARKER} open_source x")
+    record_channel(manifest, "protected_source", 100, lab_title(manifest, "protected_source"))
+    record_channel(manifest, "open_source", 200, lab_title(manifest, "open_source"))
 
     with pytest.raises(PolicyError, match="owned lab broadcast"):
-        await seed_sources(ForeignTG(), manifest, tmp_path / "lab.json", "labacct", quiet)
+        await seed_sources(
+            ForeignTG(lab_title(manifest, "open_source")),
+            manifest,
+            tmp_path / "lab.json",
+            "labacct",
+            quiet,
+        )
 
 
 @pytest.mark.asyncio
@@ -904,11 +1058,11 @@ class TeardownTG(TransportTG):
 @pytest.mark.asyncio
 async def test_teardown_deletes_only_marked_lab_channels(tmp_path):
     manifest = new_manifest(7)
-    record_channel(manifest, "open_source", 100, f"{LAB_MARKER} open_source x")
-    record_channel(manifest, "dest_native", 200, f"{LAB_MARKER} dest_native x")
+    record_channel(manifest, "open_source", 100, lab_title(manifest, "open_source"))
+    record_channel(manifest, "dest_native", 200, lab_title(manifest, "dest_native"))
     tg = TeardownTG({
-        100: f"{LAB_MARKER} open_source x",
-        200: f"{LAB_MARKER} dest_native x",
+        100: lab_title(manifest, "open_source"),
+        200: lab_title(manifest, "dest_native"),
     })
     path = tmp_path / "lab.json"
     save_manifest(path, manifest)
@@ -921,7 +1075,7 @@ async def test_teardown_deletes_only_marked_lab_channels(tmp_path):
 @pytest.mark.asyncio
 async def test_teardown_refuses_channel_without_live_marker(tmp_path):
     manifest = new_manifest(7)
-    record_channel(manifest, "open_source", 100, f"{LAB_MARKER} open_source x")
+    record_channel(manifest, "open_source", 100, lab_title(manifest, "open_source"))
     tg = TeardownTG({100: "renamed innocent channel"})
     with pytest.raises(PolicyError):
         await teardown_lab(tg, manifest, tmp_path / "lab.json", "labacct", quiet)
@@ -937,8 +1091,8 @@ async def test_teardown_refuses_marked_channel_not_owned_by_account(tmp_path):
             return entity
 
     manifest = new_manifest(7)
-    record_channel(manifest, "open_source", 100, f"{LAB_MARKER} open_source x")
-    tg = ForeignTeardownTG({100: f"{LAB_MARKER} open_source x"})
+    record_channel(manifest, "open_source", 100, lab_title(manifest, "open_source"))
+    tg = ForeignTeardownTG({100: lab_title(manifest, "open_source")})
     with pytest.raises(PolicyError, match="owned lab broadcast"):
         await teardown_lab(
             tg, manifest, tmp_path / "lab.json", "labacct", quiet
@@ -956,13 +1110,13 @@ async def test_teardown_persists_progress_before_later_delete_failure(tmp_path):
             return await super().__call__(request)
 
     manifest = new_manifest(7)
-    record_channel(manifest, "open_source", 100, f"{LAB_MARKER} open_source x")
-    record_channel(manifest, "dest_native", 200, f"{LAB_MARKER} dest_native x")
+    record_channel(manifest, "open_source", 100, lab_title(manifest, "open_source"))
+    record_channel(manifest, "dest_native", 200, lab_title(manifest, "dest_native"))
     path = tmp_path / "lab.json"
     save_manifest(path, manifest)
     tg = SecondDeleteFailsTG({
-        100: f"{LAB_MARKER} open_source x",
-        200: f"{LAB_MARKER} dest_native x",
+        100: lab_title(manifest, "open_source"),
+        200: lab_title(manifest, "dest_native"),
     })
 
     with pytest.raises(RuntimeError, match="second delete"):
@@ -973,7 +1127,7 @@ async def test_teardown_persists_progress_before_later_delete_failure(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_teardown_reconciles_cancel_after_server_accepted_delete(tmp_path):
+async def test_teardown_preserves_ambiguous_delete_until_confirmed(tmp_path):
     class AcceptThenCancelTG(TeardownTG):
         async def __call__(self, request):
             if isinstance(request, functions.channels.DeleteChannelRequest):
@@ -982,13 +1136,13 @@ async def test_teardown_reconciles_cancel_after_server_accepted_delete(tmp_path)
             return await super().__call__(request)
 
     manifest = new_manifest(7)
-    record_channel(manifest, "open_source", 100, f"{LAB_MARKER} open_source x")
-    record_channel(manifest, "dest_native", 200, f"{LAB_MARKER} dest_native x")
+    record_channel(manifest, "open_source", 100, lab_title(manifest, "open_source"))
+    record_channel(manifest, "dest_native", 200, lab_title(manifest, "dest_native"))
     path = tmp_path / "lab.json"
     save_manifest(path, manifest)
     first = AcceptThenCancelTG({
-        100: f"{LAB_MARKER} open_source x",
-        200: f"{LAB_MARKER} dest_native x",
+        100: lab_title(manifest, "open_source"),
+        200: lab_title(manifest, "dest_native"),
     })
 
     with pytest.raises(asyncio.CancelledError):
@@ -1003,10 +1157,12 @@ async def test_teardown_reconciles_cancel_after_server_accepted_delete(tmp_path)
             return await super().get_entity(ref)
 
     persisted = load_manifest(path)
-    second = RecoverTG({200: f"{LAB_MARKER} dest_native x"})
+    second = RecoverTG({200: lab_title(manifest, "dest_native")})
     result = await teardown_lab(second, persisted, path, "labacct", quiet)
-    assert sorted(result["removed"]) == ["dest_native", "open_source"]
-    assert load_manifest(path)["channels"] == {}
+    assert result == {"removed": ["dest_native"], "unresolved": ["open_source"]}
+    remaining = load_manifest(path)["channels"]
+    assert set(remaining) == {"open_source"}
+    assert remaining["open_source"]["delete_state"] == "deleting"
 
 
 @pytest.mark.asyncio

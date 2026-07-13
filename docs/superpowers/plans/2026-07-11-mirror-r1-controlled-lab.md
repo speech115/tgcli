@@ -1,8 +1,9 @@
 # Mirror R1 Controlled-Lab Probe Implementation Plan
 
-**Status:** implemented and first run on 2026-07-11; initial live acceptance
-was red/inconclusive and requires fixture, verdict, and safety repairs before
-this plan can be accepted.
+**Status:** accepted on 2026-07-13 after fixture, verdict, safety, retry, and
+teardown repairs plus an independent-review hardening pass. The final fresh
+manifest-v2 run passed the narrowed supported matrix and copy gate for both
+transports and deleted all four disposable channels.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -27,13 +28,20 @@ pytest/pytest-asyncio.
 ## Global Constraints
 
 - Mutations are allowed only against channels created by this probe and
-  recorded in the lab manifest. `assert_lab_peer` runs before every mutation;
-  mutating any non-manifest peer raises `PolicyError`.
+  recorded in the version-2 lab manifest. Every role's exact live title embeds
+  a random 24-hex lab id; `assert_lab_peer` and `_lab_entity` run before every
+  mutation. This protects against accidental or stale manifest substitution;
+  the local operator who owns both state files and the Telegram account remains
+  inside the trust boundary.
 - Every mutation phase calls `safety.enforce_mutation_allowed(readonly=False)`
   first (honors `TGCLI_READONLY=1` and `TGCLI_NO_SEND=1`) and appends one
   `safety.append_audit` record before dispatch (ADR-0011 fail-closed order).
-- Lab channels carry the title marker prefix `tgcli-r1-lab`; teardown refuses
-  to delete any channel whose live title lost the marker.
+- Lab channels carry the exact title `tgcli-r1-lab <lab_id> <role>`; teardown
+  refuses to delete a channel whose live title differs at all.
+- In-flight creates are persisted before dispatch. An ambiguous retry searches
+  for the exact owned title and refuses to create a duplicate until reconciled.
+  An ambiguous delete never drops the manifest entry merely because the peer
+  becomes private or invalid.
 - No mirror ledger, watcher, destination-publishing production code, and no
   `tg mirror` CLI surface: the script stays at `scripts/mirror_lab.py`
   (same research status as `scripts/mirror_probe.py`).
@@ -122,7 +130,8 @@ from tgcli.mirror_lab import (
 
 def test_new_manifest_shape():
     manifest = new_manifest(account_user_id=42)
-    assert manifest["manifest_version"] == 1
+    assert manifest["manifest_version"] == 2
+    assert len(manifest["lab_id"]) == 24
     assert manifest["account_user_id"] == 42
     assert manifest["channels"] == {}
     assert manifest["seeded"] == {}
@@ -200,7 +209,7 @@ from tgcli.errors import PolicyError
 from tgcli.mirror_probe import write_report
 
 LAB_MARKER = "tgcli-r1-lab"
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
 CHANNEL_ROLES = (
     "protected_source",
     "open_source",
@@ -213,6 +222,7 @@ def new_manifest(account_user_id: int) -> dict:
     return {
         "manifest_version": MANIFEST_VERSION,
         "account_user_id": account_user_id,
+        "lab_id": secrets.token_hex(12),
         "created_at": datetime.now(UTC).isoformat(),
         "channels": {},
         "seeded": {},
@@ -1780,7 +1790,8 @@ returns `telethon_bytes: "pass"`, and every seeded non-byte kind decodes.
   --manifest "$LAB" --role dest_native --output /tmp/r1-dest-native.json
 .venv/bin/python scripts/mirror_lab.py --account <account> verdict \
   --manifest "$LAB" --source-report /tmp/r1-open.json \
-  --dest-report /tmp/r1-dest-native.json --transport native
+  --dest-report /tmp/r1-dest-native.json \
+  --copy-report /tmp/r1-native.json --transport native
 
 .venv/bin/python scripts/mirror_lab.py --account <account> copy-reupload \
   --manifest "$LAB" --output /tmp/r1-reupload.json
@@ -1788,15 +1799,16 @@ returns `telethon_bytes: "pass"`, and every seeded non-byte kind decodes.
   --manifest "$LAB" --role dest_reupload --output /tmp/r1-dest-reupload.json
 .venv/bin/python scripts/mirror_lab.py --account <account> verdict \
   --manifest "$LAB" --source-report /tmp/r1-protected.json \
-  --dest-report /tmp/r1-dest-reupload.json --transport reupload
+  --dest-report /tmp/r1-dest-reupload.json \
+  --copy-report /tmp/r1-reupload.json --transport reupload
 ```
 
 Expected: `copy-native` reports `restricted_check: "confirmed"`
 (`CHAT_FORWARDS_RESTRICTED` on the protected source — the §10 router
 assumption); both `verdict` runs report green, with byte-exact SHA-256 for
 every document-backed kind and `reencoded` acceptance only for `photo` under
-reupload. Also verify grouped album messages exist in both destinations
-(`sample_count` for `photo` matches the source report).
+reupload. Grouped album hashes and order must match exactly in both
+destinations; a count-only match is not fidelity evidence.
 
 - [ ] **Step 4: Record privacy-safe R1 evidence in DEVLOG**
 
@@ -1864,3 +1876,13 @@ Stop after Task 7. Classify the next step from evidence:
   `probe_version: 2`.
 - The lab is torn down (or explicitly kept by user decision) and the manifest
   records the final state.
+
+Final post-review evidence: manifest v2 bound every role to a random exact live
+title; both roles seeded all 15 supported kinds; the protected-source probe was
+green; protected forwarding produced the expected
+`ChatForwardsRestrictedError`; native copy passed its copy gate and 15 rows;
+reupload passed its copy gate and all 9 applicable byte/album rows; album
+grouping retained exact hashes for two distinct ordered items; all 64
+operations had paired audit records; and teardown left both `channels` and
+`creating` empty. `todo` and `geo_live` are explicit unsupported rows under
+ADR-0013, not missing coverage.

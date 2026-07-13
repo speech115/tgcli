@@ -3,8 +3,9 @@
 Status: proposed (2026-07-11).
 Amended 2026-07-11 after R0 evidence (see DEVLOG): gotd backend removed; copy
 method is capability-based.
-Amended 2026-07-12 after R1 evidence: Telegram todo is unsupported in
-broadcast-channel mirrors; the initial media-fidelity run was inconclusive.
+Amended 2026-07-13 after final R1 evidence: Telegram todo and live locations
+are unsupported in broadcast-channel mirrors; the narrowed matrix passed both
+copy transports.
 
 Amends PLAN.md by bringing a constrained channel mirror back into scope. It
 narrows ADR-0002's no-daemon rule without allowing self-installing background
@@ -280,13 +281,26 @@ download/reupload calls, but did not prove per-kind fidelity: arbitrary bytes
 with MP3/MP4/OGG/WebP names collapsed to Telegram `document`, so both verdicts
 were red/inconclusive. Completion of a transport call is not fidelity evidence.
 
-The repaired run found one real native-transport limitation: `geo_live`
-degrades to static `geo`. ADR-0013 therefore narrows that kind to explicit
-unsupported; all other supported native rows and every reupload row passed.
+The final post-review run used manifest v2, valid minimal containers, and probe
+schema 2. Both owned source roles seeded all 15 supported kinds. The
+protected-source probe was green; the native transport passed its copy gate and
+all 15 supported rows; and protected download/reupload passed its copy gate and
+all 9 applicable byte/album rows, including exact hashes for two distinct
+ordered album items. All four disposable channels were deleted.
 
-Before per-kind R1 results authorize renderer behavior, the lab must use valid
-minimal containers and obtain green complete-matrix verdicts, or this ADR must
-narrow the supported capability matrix again.
+The repaired run also found one real native-transport limitation: `geo_live`
+degrades to static `geo`. ADR-0013 therefore narrows that kind to explicit
+unsupported. Together with the earlier `todo` rejection, these are explicit
+capability boundaries rather than silent losses. The expected protected-source
+forward failure and every accepted mutation had paired attempt/result audit
+records.
+
+The lab itself is fail-closed around ambiguous channel lifecycle events.
+Manifest v2 includes a random lab id in every exact live title and persists
+in-flight creates before dispatch; retries reconcile an accepted create by that
+title and never issue a duplicate while the result is unresolved. A private or
+invalid lookup after an ambiguous delete is not treated as deletion proof: the
+manifest entry remains until a later confirmed delete.
 
 The repaired classifier uses probe schema 2 because Telegram may reorder
 `DocumentAttributeVideo` and `DocumentAttributeAnimated`. Version-1 R0 hashes

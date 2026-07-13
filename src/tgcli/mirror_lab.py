@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import tempfile
 import asyncio
+import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from tgcli.errors import PolicyError
 from tgcli.mirror_probe import probe_message, write_report
 
 LAB_MARKER = "tgcli-r1-lab"
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
 CHANNEL_ROLES = (
     "protected_source",
     "open_source",
@@ -25,8 +26,10 @@ def new_manifest(account_user_id: int) -> dict:
     return {
         "manifest_version": MANIFEST_VERSION,
         "account_user_id": account_user_id,
+        "lab_id": secrets.token_hex(12),
         "created_at": datetime.now(UTC).isoformat(),
         "channels": {},
+        "creating": {},
         "seeded": {},
         "blocked": {},
     }
@@ -36,9 +39,16 @@ def load_manifest(path: Path) -> dict:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or data.get("manifest_version") != MANIFEST_VERSION:
         raise ValueError("unsupported lab manifest")
-    for key in ("account_user_id", "channels", "seeded"):
+    for key in ("account_user_id", "lab_id", "channels", "seeded"):
         if key not in data:
             raise ValueError(f"lab manifest missing {key!r}")
+    lab_id = data["lab_id"]
+    if (
+        not isinstance(lab_id, str)
+        or len(lab_id) != 24
+        or any(char not in "0123456789abcdef" for char in lab_id)
+    ):
+        raise ValueError("invalid lab id")
     seen_peer_ids = set()
     for role, channel in data["channels"].items():
         if role not in CHANNEL_ROLES:
@@ -49,12 +59,24 @@ def load_manifest(path: Path) -> dict:
         title = channel.get("title")
         if not isinstance(peer_id, int) or peer_id <= 0:
             raise ValueError(f"invalid lab peer id: {role}")
-        if not isinstance(title, str) or not title.startswith(LAB_MARKER):
-            raise ValueError(f"lab channel title lacks marker: {role}")
+        if title != lab_title(data, role):
+            raise ValueError(f"lab channel title does not match provenance: {role}")
         if peer_id in seen_peer_ids:
             raise ValueError(f"duplicate lab peer id: {peer_id}")
         seen_peer_ids.add(peer_id)
     data.setdefault("blocked", {})
+    creating = data.setdefault("creating", {})
+    if not isinstance(creating, dict):
+        raise ValueError("invalid creating state")
+    for role, pending in creating.items():
+        if role not in CHANNEL_ROLES or not isinstance(pending, dict):
+            raise ValueError(f"invalid creating role: {role}")
+        if role in data["channels"]:
+            raise ValueError(f"creating role already has a channel: {role}")
+        if pending.get("title") != lab_title(data, role):
+            raise ValueError(f"invalid creating title: {role}")
+        if pending.get("state") not in {"dispatching", "ambiguous"}:
+            raise ValueError(f"invalid creating state: {role}")
     return data
 
 
@@ -62,11 +84,17 @@ def save_manifest(path: Path, manifest: dict) -> None:
     write_report(path, manifest)
 
 
+def lab_title(manifest: dict, role: str) -> str:
+    if role not in CHANNEL_ROLES:
+        raise ValueError(f"unknown lab channel role: {role}")
+    return f"{LAB_MARKER} {manifest['lab_id']} {role}"
+
+
 def record_channel(manifest: dict, role: str, peer_id: int, title: str) -> None:
     if role not in CHANNEL_ROLES:
         raise ValueError(f"unknown lab channel role: {role}")
-    if not title.startswith(LAB_MARKER):
-        raise PolicyError(f"channel title lacks lab marker: {title!r}")
+    if title != lab_title(manifest, role):
+        raise PolicyError(f"channel title lacks exact lab provenance: {title!r}")
     manifest["channels"][role] = {"peer_id": peer_id, "title": title}
 
 
@@ -440,6 +468,7 @@ from tgcli.mirror_probe import NON_BYTE_KINDS
 
 
 def lab_verdict(report: dict, manifest: dict, role: str) -> dict:
+    schema_ok = report.get("probe_version") == 2
     seeded = manifest["seeded"].get(role, {})
     planned = set(planned_kinds())
     blocked = dict(manifest.get("blocked", {}).get(role, {}))
@@ -459,9 +488,10 @@ def lab_verdict(report: dict, manifest: dict, role: str) -> dict:
             )
         )
     )
-    green = not missing and not failing and not pending
+    green = schema_ok and not blocked and not missing and not failing and not pending
     return {
         "verdict": "green" if green else "red",
+        "schema": "pass" if schema_ok else "unsupported",
         "missing": missing,
         "failing": failing,
         "pending": pending,
@@ -515,6 +545,10 @@ def compare_transport(
 ) -> dict:
     if transport not in {"native", "reupload"}:
         raise ValueError(f"unknown transport: {transport}")
+    schema_ok = (
+        source_report.get("probe_version") == 2
+        and dest_report.get("probe_version") == 2
+    )
     source = {row["kind"]: row for row in source_report["capabilities"]}
     dest = {row["kind"]: row for row in dest_report["capabilities"]}
     source_shas = _kind_shas(source_report)
@@ -541,15 +575,11 @@ def compare_transport(
                     for group in groups
                 )
 
-            if transport == "native":
-                matched = valid(source_groups) and source_groups == dest_groups
-            else:
-                matched = (
-                    valid(source_groups)
-                    and valid(dest_groups)
-                    and [group["count"] for group in source_groups]
-                    == [group["count"] for group in dest_groups]
-                )
+            matched = (
+                valid(source_groups)
+                and valid(dest_groups)
+                and source_groups == dest_groups
+            )
             rows.append(
                 {
                     "kind": kind,
@@ -598,10 +628,11 @@ def compare_transport(
                 "result": "pass" if matched else "fail",
             }
         )
-    green = rows and all(row["result"] == "pass" for row in rows)
+    green = schema_ok and rows and all(row["result"] == "pass" for row in rows)
     return {
         "transport": transport,
         "verdict": "green" if green else "red",
+        "schema": "pass" if schema_ok else "unsupported",
         "rows": rows,
     }
 
@@ -609,14 +640,15 @@ def compare_transport(
 # --- Task 4: channel provisioning and seeding engines ---
 
 import os
-import secrets
 
 from telethon.tl import functions
 
 from tgcli.safety import append_audit, enforce_mutation_allowed
 
 
-async def _audited_mutation(action, account_alias, details, mutation):
+async def _audited_mutation(
+    action, account_alias, details, mutation, *, ambiguous_errors=False
+):
     enforce_mutation_allowed(readonly=False)
     operation_id = secrets.token_hex(12)
     append_audit(
@@ -627,7 +659,11 @@ async def _audited_mutation(action, account_alias, details, mutation):
     try:
         result = await mutation()
     except BaseException as exc:
-        status = "ambiguous" if isinstance(exc, asyncio.CancelledError) else "failed"
+        status = (
+            "ambiguous"
+            if ambiguous_errors or isinstance(exc, asyncio.CancelledError)
+            else "failed"
+        )
         append_audit(
             action,
             account_alias,
@@ -682,8 +718,25 @@ async def _lab_entity(tg, manifest: dict, role: str):
     return entity
 
 
+async def _find_ambiguous_created_channel(tg, title: str):
+    matches = []
+    async for dialog in tg.iter_dialogs():
+        entity = getattr(dialog, "entity", None)
+        if (
+            getattr(entity, "title", None) == title
+            and getattr(entity, "creator", False)
+            and getattr(entity, "broadcast", False)
+            and not getattr(entity, "megagroup", False)
+        ):
+            matches.append(entity)
+    if len(matches) > 1:
+        raise PolicyError("ambiguous lab create matched multiple owned channels")
+    return matches[0] if matches else None
+
+
 async def create_lab_channels(tg, manifest, manifest_path, account_alias, note) -> dict:
-    stamp = manifest["created_at"][:19].replace(":", "").replace("-", "")
+    enforce_mutation_allowed(readonly=False)
+    manifest.setdefault("creating", {})
     for role in CHANNEL_ROLES:
         if role in manifest["channels"]:
             if role == "protected_source":
@@ -711,22 +764,41 @@ async def create_lab_channels(tg, manifest, manifest_path, account_alias, note) 
             else:
                 note(f"{role}: already created, skipping")
             continue
-        title = f"{LAB_MARKER} {role} {stamp}"
-        update = await _audited_mutation(
-            "mirror-lab-create",
-            account_alias,
-            {"role": role, "title": title},
-            lambda: tg(
-                functions.channels.CreateChannelRequest(
-                    title=title,
-                    about="tgcli R1 disposable lab channel",
-                    broadcast=True,
-                    megagroup=False,
+        title = lab_title(manifest, role)
+        pending = manifest["creating"].get(role)
+        if pending:
+            channel = await _find_ambiguous_created_channel(tg, pending["title"])
+            if channel is None:
+                pending["state"] = "ambiguous"
+                save_manifest(manifest_path, manifest)
+                raise PolicyError(
+                    f"{role}: ambiguous create is not yet visible; refusing duplicate"
                 )
-            ),
-        )
-        channel = update.chats[0]
+        else:
+            manifest["creating"][role] = {"title": title, "state": "dispatching"}
+            save_manifest(manifest_path, manifest)
+            try:
+                update = await _audited_mutation(
+                    "mirror-lab-create",
+                    account_alias,
+                    {"role": role, "title": title},
+                    lambda: tg(
+                        functions.channels.CreateChannelRequest(
+                            title=title,
+                            about="tgcli R1 disposable lab channel",
+                            broadcast=True,
+                            megagroup=False,
+                        )
+                    ),
+                    ambiguous_errors=True,
+                )
+            except BaseException:
+                manifest["creating"][role]["state"] = "ambiguous"
+                save_manifest(manifest_path, manifest)
+                raise
+            channel = update.chats[0]
         record_channel(manifest, role, channel.id, title)
+        del manifest["creating"][role]
         save_manifest(manifest_path, manifest)
         if role == "protected_source":
             await _audited_mutation(
@@ -941,6 +1013,7 @@ async def copy_reupload(tg, manifest, workdir: Path, account_alias, note) -> dic
 
 async def teardown_lab(tg, manifest, manifest_path, account_alias, note) -> dict:
     removed = []
+    unresolved = []
     for role, channel in list(manifest["channels"].items()):
         deleting = channel.get("delete_state") == "deleting"
         try:
@@ -948,7 +1021,9 @@ async def teardown_lab(tg, manifest, manifest_path, account_alias, note) -> dict
         except (ChannelInvalidError, ChannelPrivateError):
             if not deleting:
                 raise
-            entity = None
+            unresolved.append(role)
+            note(f"{role}: delete remains ambiguous; manifest entry preserved")
+            continue
         if not deleting:
             channel["delete_state"] = "deleting"
             save_manifest(manifest_path, manifest)
@@ -963,19 +1038,11 @@ async def teardown_lab(tg, manifest, manifest_path, account_alias, note) -> dict
                     ),
                 )
             except (ChannelInvalidError, ChannelPrivateError):
-                pass
-        if entity is None:
-            async def reconciled():
-                return None
-
-            await _audited_mutation(
-                "mirror-lab-teardown-reconcile",
-                account_alias,
-                {"role": role},
-                reconciled,
-            )
+                unresolved.append(role)
+                note(f"{role}: delete remains ambiguous; manifest entry preserved")
+                continue
         removed.append(role)
         del manifest["channels"][role]
         save_manifest(manifest_path, manifest)
         note(f"{role}: deleted lab channel")
-    return {"removed": removed}
+    return {"removed": removed, "unresolved": unresolved}

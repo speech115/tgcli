@@ -15,6 +15,39 @@ Template:
 
 ---
 
+## 2026-07-13 — Final R1 controlled-lab acceptance (Codex GPT-5)
+**Did:** completed two repaired R1 runs, including a fresh post-review run
+against manifest-v2 channels, with Telethon 1.44.0 at layer 227 and probe
+schema 2. Manifest v2 binds each role to an exact random lab id in its live
+title, persists in-flight creates, reconciles accepted ambiguous creates
+without duplication, and preserves ambiguous delete entries. Blocked kinds or
+old probe schemas now force red; transport verdicts require the copy-phase
+report and the protected-forward gate; reupload albums require exact ordered
+hashes. Both source roles
+seeded all 15 supported kinds: album, animation, audio, contact, dice,
+document, geo, photo, poll, sticker, text, venue, video, video note, and voice.
+The protected-source probe was green, the expected
+`ChatForwardsRestrictedError` was confirmed, native copy passed all 15 rows,
+and protected download/reupload passed all 9 applicable byte/album rows. Album
+comparison preserved two distinct ordered items. The post-review run's 64 live
+operations had
+paired attempt/result audit records; the only failed result was the expected
+protected-forward rejection. Teardown deleted all four channels and left the
+manifest with no channel or in-flight create entries.
+The final independent re-review reported no Critical or Important findings.
+Fresh closeout checks reported 277 passed, 9 skipped; fixture smoke reported
+63 passed; and the coverage gate covered all 23 namespaces.
+**Decided:** R1 is accepted for the narrowed ADR-0013 capability matrix.
+`todo` remains explicitly unsupported after `MediaInvalidError`, and
+`geo_live` remains explicitly unsupported because native forwarding degraded
+it to static `geo`; neither is silently counted as supported.
+**Learned:** valid containers, server-returned subtype classification, a
+complete expected matrix, copy-phase evidence, and exact album comparison are
+all necessary for a meaningful transport verdict. An unavailable channel after
+an ambiguous delete is not deletion proof, so its manifest entry must remain.
+**Next:** wait at the push boundary; publish only after the user's next
+explicit instruction.
+
 ## 2026-07-12 — R1 safety and fixture repair before rerun (Codex GPT-5)
 **Did:** independently audited the GLM 5.2 R1 branch, reproduced a false-green
 transport verdict, and repaired the lab before any merge. Manifest loading now
