@@ -815,16 +815,90 @@ async def execute_scenario_provisioning_intent(
         expected_title = scenario_peer_title(
             lab_id, fingerprint["scenario_key"], role
         )
+        family = intent["parameters"]["family"]
         matches = [
             peer
             for peer in getattr(response, "chats", ())
             if getattr(peer, "title", None) == expected_title
-            and getattr(peer, "creator", False)
+            and (family == "basic" or getattr(peer, "creator", False))
         ]
+        if family == "basic" and not matches:
+            for attempt in range(5):
+                dialog_matches = []
+                async for dialog in tg.iter_dialogs():
+                    entity = getattr(dialog, "entity", None)
+                    if (
+                        isinstance(entity, types.Chat)
+                        and getattr(entity, "title", None) == expected_title
+                        and getattr(entity, "creator", False)
+                        and not getattr(entity, "left", False)
+                        and not getattr(entity, "deactivated", False)
+                    ):
+                        dialog_matches.append(entity)
+                if len(dialog_matches) > 1:
+                    raise PolicyError(
+                        "basic creation produced multiple exact marker matches"
+                    )
+                if dialog_matches:
+                    matches = dialog_matches
+                    break
+                if attempt < 4:
+                    await asyncio.sleep(0.25)
         if len(matches) != 1 or not _is_positive_int(matches[0].id):
             raise ValueError("created peer response lacks exact owned lab peer")
         peer = matches[0]
-        family = intent["parameters"]["family"]
+        if family == "basic":
+            expected_participant_ids = {
+                fingerprint["account_role_binding"]["operator"]["user_id"],
+                fingerprint["account_role_binding"]["lab_peer"]["user_id"],
+            }
+            fresh_matches = []
+            participant_ids = set()
+            for attempt in range(5):
+                full = await tg(
+                    functions.messages.GetFullChatRequest(chat_id=peer.id)
+                )
+                fresh_matches = [
+                    chat
+                    for chat in getattr(full, "chats", ())
+                    if getattr(chat, "id", None) == peer.id
+                    and getattr(chat, "title", None) == expected_title
+                    and getattr(chat, "creator", False)
+                    and not getattr(chat, "left", False)
+                    and not getattr(chat, "deactivated", False)
+                    and getattr(chat, "migrated_to", None) is None
+                ]
+                participants = getattr(
+                    getattr(full, "full_chat", None), "participants", None
+                )
+                participant_ids = {
+                    getattr(participant, "user_id", None)
+                    for participant in getattr(participants, "participants", ())
+                    if _is_positive_int(getattr(participant, "user_id", None))
+                }
+                if (
+                    len(fresh_matches) == 1
+                    and participant_ids == expected_participant_ids
+                ):
+                    break
+                if attempt < 4:
+                    await asyncio.sleep(0.5)
+            if len(fresh_matches) != 1 or participant_ids != expected_participant_ids:
+                operator_present = (
+                    fingerprint["account_role_binding"]["operator"]["user_id"]
+                    in participant_ids
+                )
+                lab_peer_present = (
+                    fingerprint["account_role_binding"]["lab_peer"]["user_id"]
+                    in participant_ids
+                )
+                raise PolicyError(
+                    "basic_lab_peer_not_joined: "
+                    f"count={len(participant_ids)},"
+                    f"operator_present={operator_present},"
+                    f"lab_peer_present={lab_peer_present},"
+                    f"extras={len(participant_ids - expected_participant_ids)}"
+                )
         shape_ok = family == "basic" or (
             bool(getattr(peer, "broadcast", False))
             == intent["parameters"]["broadcast"]
@@ -912,6 +986,152 @@ async def provision_scenario_live(
     return current
 
 
+async def reconcile_ambiguous_basic_creation_live(
+    operator_tg,
+    lab_peer_tg,
+    checkpoint: dict,
+    fingerprint: dict,
+    *,
+    lab_id: str,
+    persist,
+) -> dict:
+    scenario_key = fingerprint["scenario_key"]
+    spec = select_scenarios(scenario_key)[0]
+    if spec.source_family != "basic":
+        return deepcopy(checkpoint)
+    current = deepcopy(checkpoint)
+    source_intent = next(
+        intent
+        for intent in build_scenario_provisioning_intents(
+            scenario_key, fingerprint
+        )
+        if intent["method"] == "messages.createChat"
+    )
+    operation = current["outbound_operations"].get(source_intent["intent_key"])
+    source_requires_reconciliation = isinstance(operation, dict) and operation.get(
+        "state"
+    ) in {"dispatched", "ambiguous"}
+    source_title = scenario_peer_title(lab_id, scenario_key, "source")
+
+    async def matching_basic_dialog_ids(tg, *, require_creator: bool) -> set[int]:
+        matches = set()
+        async for dialog in tg.iter_dialogs():
+            entity = getattr(dialog, "entity", None)
+            if (
+                isinstance(entity, types.Chat)
+                and getattr(entity, "title", None) == source_title
+                and not getattr(entity, "deactivated", False)
+                and (not require_creator or getattr(entity, "creator", False))
+                and _is_positive_int(getattr(entity, "id", None))
+            ):
+                matches.add(entity.id)
+        return matches
+
+    if source_requires_reconciliation:
+        operator_matches = set()
+        lab_peer_matches = set()
+        for attempt in range(5):
+            operator_matches = await matching_basic_dialog_ids(
+                operator_tg, require_creator=True
+            )
+            lab_peer_matches = await matching_basic_dialog_ids(
+                lab_peer_tg, require_creator=False
+            )
+            if operator_matches or attempt == 4:
+                break
+            await asyncio.sleep(0.25)
+        if len(operator_matches) > 1 or len(lab_peer_matches) > 1:
+            raise PolicyError(
+                "ambiguous basic-group creation has multiple marker matches"
+            )
+        if not operator_matches:
+            return current
+        peer_id = next(iter(operator_matches))
+        if lab_peer_matches and lab_peer_matches != {peer_id}:
+            raise PolicyError("lab-peer basic-group marker resolved to another peer")
+        observed = _apply_scenario_intent_observation(
+            current,
+            source_intent,
+            {
+                "peer_role": "source",
+                "peer_id": peer_id,
+                "title_marker_verified": True,
+            },
+        )
+        current = reconcile_scenario_intent(
+            observed, source_intent["intent_key"], observed=True
+        )
+        persist(current)
+
+    destination_intent = next(
+        intent
+        for intent in build_scenario_provisioning_intents(
+            scenario_key, fingerprint
+        )
+        if intent["target_role"] == "destination"
+        and intent["method"] == "channels.createChannel"
+    )
+    destination_operation = current["outbound_operations"].get(
+        destination_intent["intent_key"]
+    )
+    if not isinstance(destination_operation, dict) or destination_operation.get(
+        "state"
+    ) not in {"dispatched", "ambiguous"}:
+        return current
+    destination_title = scenario_peer_title(
+        lab_id, scenario_key, "destination"
+    )
+    destination_matches = []
+    for attempt in range(5):
+        destination_matches = []
+        async for dialog in operator_tg.iter_dialogs():
+            entity = getattr(dialog, "entity", None)
+            if (
+                isinstance(entity, types.Channel)
+                and getattr(entity, "title", None) == destination_title
+                and getattr(entity, "creator", False)
+                and getattr(entity, "megagroup", False)
+                and not getattr(entity, "broadcast", False)
+                and not getattr(entity, "forum", False)
+            ):
+                destination_matches.append(entity)
+        if destination_matches or attempt == 4:
+            break
+        await asyncio.sleep(0.25)
+    if len(destination_matches) > 1:
+        raise PolicyError(
+            "ambiguous basic destination creation has multiple marker matches"
+        )
+    if not destination_matches:
+        return current
+    destination = destination_matches[0]
+    fresh_destination = await operator_tg.get_entity(
+        types.PeerChannel(destination.id)
+    )
+    if (
+        getattr(fresh_destination, "title", None) != destination_title
+        or not getattr(fresh_destination, "creator", False)
+        or not getattr(fresh_destination, "megagroup", False)
+        or getattr(fresh_destination, "broadcast", False)
+        or getattr(fresh_destination, "forum", False)
+    ):
+        raise PolicyError("ambiguous basic destination does not match exact shape")
+    observed = _apply_scenario_intent_observation(
+        current,
+        destination_intent,
+        {
+            "peer_role": "destination",
+            "peer_id": destination.id,
+            "title_marker_verified": True,
+        },
+    )
+    current = reconcile_scenario_intent(
+        observed, destination_intent["intent_key"], observed=True
+    )
+    persist(current)
+    return current
+
+
 async def teardown_scenario_peers(
     tg,
     checkpoint: dict,
@@ -920,16 +1140,20 @@ async def teardown_scenario_peers(
     lab_id: str,
     account_alias: str,
     persist,
+    lab_peer_tg=None,
+    lab_peer_alias: str | None = None,
+    lab_peer_input=None,
 ) -> dict:
     current = deepcopy(checkpoint)
     families = _scenario_peer_families(fingerprint)
     create_roles = tuple(families)
-    for role in reversed(create_roles):
+    teardown_roles = (
+        create_roles if "basic" in families.values() else tuple(reversed(create_roles))
+    )
+    for role in teardown_roles:
         peer = current["created_peers"].get(role)
         if peer is None:
             continue
-        if families[role] == "basic":
-            raise PolicyError("basic-group teardown requires dedicated lab-peer support")
         obligation = next(
             (
                 item
@@ -939,6 +1163,139 @@ async def teardown_scenario_peers(
             None,
         )
         deleting = isinstance(obligation, dict) and obligation.get("state") == "deleting"
+        if families[role] == "basic":
+            if lab_peer_tg is None or not lab_peer_alias or lab_peer_input is None:
+                raise PolicyError(
+                    "basic-group teardown requires the identity-bound lab peer"
+                )
+            expected_title = scenario_peer_title(
+                lab_id, fingerprint["scenario_key"], role
+            )
+            operator_chat = await _active_basic_scenario_chat(
+                tg, peer["peer_id"]
+            )
+            lab_peer_chat = await _active_basic_scenario_chat(
+                lab_peer_tg, peer["peer_id"]
+            )
+            if operator_chat is None and lab_peer_chat is None:
+                current["created_peers"].pop(role, None)
+                current["cleanup_obligations"] = [
+                    item
+                    for item in current["cleanup_obligations"]
+                    if not isinstance(item, dict) or item.get("peer_role") != role
+                ]
+                persist(current)
+                continue
+            if operator_chat is None:
+                raise PolicyError("basic group remains visible only to the lab peer")
+            if (
+                getattr(operator_chat, "title", None) != expected_title
+                or not getattr(operator_chat, "creator", False)
+                or (
+                    lab_peer_chat is not None
+                    and getattr(lab_peer_chat, "title", None) != expected_title
+                )
+            ):
+                raise PolicyError(
+                    f"{role}: peer is not the exact owned basic-group fixture"
+                )
+            current["cleanup_obligations"] = [
+                {"peer_role": role, "state": "removing_lab_peer"}
+                if isinstance(item, dict) and item.get("peer_role") == role
+                else item
+                for item in current["cleanup_obligations"]
+            ]
+            persist(current)
+            if lab_peer_chat is not None:
+                await _audited_mutation(
+                    "mirror-lab-scenario-teardown",
+                    account_alias,
+                    {
+                        "scenario_key": fingerprint["scenario_key"],
+                        "role": role,
+                        "step": "remove_lab_peer",
+                    },
+                    lambda: tg(
+                        functions.messages.DeleteChatUserRequest(
+                            chat_id=peer["peer_id"],
+                            user_id=lab_peer_input,
+                            revoke_history=True,
+                        )
+                    ),
+                    ambiguous_errors=True,
+                )
+                lab_peer_absent = False
+                for attempt in range(5):
+                    if (
+                        await _active_basic_scenario_chat(
+                            lab_peer_tg, peer["peer_id"]
+                        )
+                        is None
+                    ):
+                        lab_peer_absent = True
+                        break
+                    if attempt < 4:
+                        await asyncio.sleep(0.25)
+                if not lab_peer_absent:
+                    raise PolicyError(
+                        "basic-group lab peer removal is not confirmed"
+                    )
+            current["cleanup_obligations"] = [
+                {"peer_role": role, "state": "removing_operator"}
+                if isinstance(item, dict) and item.get("peer_role") == role
+                else item
+                for item in current["cleanup_obligations"]
+            ]
+            persist(current)
+            if await _active_basic_scenario_chat(tg, peer["peer_id"]) is not None:
+                await _audited_mutation(
+                    "mirror-lab-scenario-teardown",
+                    account_alias,
+                    {
+                        "scenario_key": fingerprint["scenario_key"],
+                        "role": role,
+                        "step": "remove_operator",
+                    },
+                    lambda: tg(
+                        functions.messages.DeleteChatRequest(
+                            chat_id=peer["peer_id"],
+                        )
+                    ),
+                    ambiguous_errors=True,
+                )
+            current["cleanup_obligations"] = [
+                {"peer_role": role, "state": "verifying_both"}
+                if isinstance(item, dict) and item.get("peer_role") == role
+                else item
+                for item in current["cleanup_obligations"]
+            ]
+            persist(current)
+            both_absent = False
+            for attempt in range(5):
+                if (
+                    await _active_basic_scenario_chat(tg, peer["peer_id"])
+                    is None
+                    and await _active_basic_scenario_chat(
+                        lab_peer_tg, peer["peer_id"]
+                    )
+                    is None
+                ):
+                    both_absent = True
+                    break
+                if attempt < 4:
+                    await asyncio.sleep(0.25)
+            if not both_absent:
+                raise PolicyError(
+                    "basic-group teardown is not confirmed for both accounts"
+                )
+            current["created_peers"].pop(role, None)
+            current["cleanup_obligations"] = [
+                item
+                for item in current["cleanup_obligations"]
+                if not isinstance(item, dict) or item.get("peer_role") != role
+            ]
+            persist(current)
+            continue
         ref = _scenario_peer_ref(families[role], peer["peer_id"])
         try:
             entity = await tg.get_entity(ref)
@@ -983,6 +1340,28 @@ async def teardown_scenario_peers(
         ]
         persist(current)
     return current
+
+
+async def _active_basic_scenario_chat(tg, chat_id: int):
+    try:
+        result = await tg(functions.messages.GetChatsRequest(id=[chat_id]))
+    except ChatIdInvalidError:
+        return None
+    matches = [
+        chat
+        for chat in getattr(result, "chats", ())
+        if getattr(chat, "id", None) == chat_id
+    ]
+    if not matches or all(isinstance(chat, types.ChatForbidden) for chat in matches):
+        return None
+    active = [chat for chat in matches if not isinstance(chat, types.ChatForbidden)]
+    if len(active) != 1:
+        raise ValueError("basic group readback is ambiguous")
+    if getattr(active[0], "deactivated", False) or getattr(
+        active[0], "left", False
+    ):
+        return None
+    return active[0]
 
 
 async def _owned_scenario_entity(
@@ -1593,6 +1972,262 @@ async def verify_supergroup_reply_chain_live(
         "side": side,
         "root": "confirmed",
         "direct_reply": "confirmed",
+        "nested_reply": "confirmed",
+    }
+
+
+async def verify_basic_group_reply_chain_live(
+    operator_tg,
+    lab_peer_tg,
+    checkpoint: dict,
+    fingerprint: dict,
+    *,
+    lab_id: str,
+    operator_alias: str,
+    lab_peer_alias: str,
+    record,
+) -> dict:
+    scenario_key = fingerprint.get("scenario_key")
+    spec = select_scenarios(scenario_key)[0]
+    if spec.source_family != "basic" or spec.discussion_kind != "none":
+        raise PolicyError("basic canary requires a standalone basic-group source")
+    if compare_compatibility_fingerprints(
+        fingerprint, checkpoint["compatibility_fingerprint"]
+    )["compatible"] is not True:
+        raise ValueError("checkpoint fingerprint is not compatible")
+    if checkpoint.get("phase") != "seed":
+        raise ValueError("basic canary requires seed phase")
+    if not callable(record):
+        raise ValueError("basic canary recorder is required")
+    bindings = fingerprint["account_role_binding"]
+    operator_user_id = bindings["operator"]["user_id"]
+    lab_peer_user_id = bindings["lab_peer"]["user_id"]
+    if operator_user_id == lab_peer_user_id:
+        raise PolicyError("basic canary requires two distinct user accounts")
+
+    source = await _owned_scenario_entity(
+        operator_tg,
+        checkpoint,
+        fingerprint,
+        lab_id=lab_id,
+        role="source",
+    )
+    destination = await _owned_scenario_entity(
+        operator_tg,
+        checkpoint,
+        fingerprint,
+        lab_id=lab_id,
+        role="destination",
+    )
+    if getattr(source, "megagroup", False) or getattr(source, "broadcast", False):
+        raise PolicyError("source is not a legacy basic group")
+    if not getattr(destination, "megagroup", False) or getattr(
+        destination, "forum", False
+    ):
+        raise PolicyError("destination is not an owner-only plain supergroup")
+
+    source_operator_input = await operator_tg.get_input_entity(
+        _scenario_peer_ref("basic", source.id)
+    )
+    source_lab_peer_input = await lab_peer_tg.get_input_entity(
+        _scenario_peer_ref("basic", source.id)
+    )
+    destination_input = await operator_tg.get_input_entity(
+        _scenario_peer_ref("supergroup", destination.id)
+    )
+
+    async def send(
+        tg,
+        account_alias: str,
+        side: str,
+        operation: str,
+        peer,
+        marker: str,
+        *,
+        peer_id: int,
+        reply_to=None,
+    ) -> int:
+        request = functions.messages.SendMessageRequest(
+            peer=peer,
+            message=marker,
+            reply_to=reply_to,
+            random_id=_random_id(),
+        )
+        update = await _scenario_canary_write(
+            tg,
+            account_alias=account_alias,
+            scenario_key=scenario_key,
+            side=side,
+            operation=operation,
+            request=request,
+            record=record,
+        )
+        return _sent_message_id(
+            update,
+            random_id=request.random_id,
+            peer_id=peer_id,
+            marker=marker,
+        )
+
+    source_prefix = f"{LAB_MARKER}:{lab_id}:{scenario_key}:basic:source"
+    source_root = f"{source_prefix}:operator-root"
+    source_root_id = await send(
+        operator_tg,
+        operator_alias,
+        "source",
+        "operator_root",
+        source_operator_input,
+        source_root,
+        peer_id=source.id,
+    )
+    source_reply = f"{source_prefix}:lab-peer-reply"
+    source_reply_id = await send(
+        lab_peer_tg,
+        lab_peer_alias,
+        "source",
+        "lab_peer_reply",
+        source_lab_peer_input,
+        source_reply,
+        peer_id=source.id,
+        reply_to=types.InputReplyToMessage(reply_to_msg_id=source_root_id),
+    )
+    source_nested = f"{source_prefix}:operator-nested"
+    await send(
+        operator_tg,
+        operator_alias,
+        "source",
+        "operator_nested_reply",
+        source_operator_input,
+        source_nested,
+        peer_id=source.id,
+        reply_to=types.InputReplyToMessage(reply_to_msg_id=source_reply_id),
+    )
+
+    destination_prefix = (
+        f"{LAB_MARKER}:{lab_id}:{scenario_key}:basic:destination"
+    )
+    destination_root = f"{destination_prefix}:root"
+    destination_root_id = await send(
+        operator_tg,
+        operator_alias,
+        "destination",
+        "root",
+        destination_input,
+        destination_root,
+        peer_id=destination.id,
+    )
+    destination_reply = f"{destination_prefix}:reply"
+    destination_reply_id = await send(
+        operator_tg,
+        operator_alias,
+        "destination",
+        "direct_reply",
+        destination_input,
+        destination_reply,
+        peer_id=destination.id,
+        reply_to=types.InputReplyToMessage(reply_to_msg_id=destination_root_id),
+    )
+    destination_nested = f"{destination_prefix}:nested"
+    await send(
+        operator_tg,
+        operator_alias,
+        "destination",
+        "nested_reply",
+        destination_input,
+        destination_nested,
+        peer_id=destination.id,
+        reply_to=types.InputReplyToMessage(reply_to_msg_id=destination_reply_id),
+    )
+
+    async def read_markers(peer, markers):
+        def found(result):
+            return {
+                marker: [
+                    message
+                    for message in getattr(result, "messages", ())
+                    if getattr(message, "message", None) == marker
+                ]
+                for marker in markers
+            }
+
+        result = await _bounded_scenario_readback(
+            lambda: operator_tg(
+                functions.messages.GetHistoryRequest(
+                    peer=peer,
+                    offset_id=0,
+                    offset_date=None,
+                    add_offset=0,
+                    limit=50,
+                    max_id=0,
+                    min_id=0,
+                    hash=0,
+                )
+            ),
+            lambda candidate: all(
+                len(messages) == 1 for messages in found(candidate).values()
+            ),
+            "basic-group reply chain",
+        )
+        return {marker: found(result)[marker][0] for marker in markers}
+
+    source_messages = await read_markers(
+        source_operator_input,
+        (source_root, source_reply, source_nested),
+    )
+    destination_messages = await read_markers(
+        destination_input,
+        (destination_root, destination_reply, destination_nested),
+    )
+
+    def author_id(message):
+        return getattr(getattr(message, "from_id", None), "user_id", None)
+
+    if author_id(source_messages[source_root]) != operator_user_id:
+        raise ValueError("basic source root author mismatch")
+    if author_id(source_messages[source_reply]) != lab_peer_user_id:
+        raise ValueError("basic source reply author mismatch")
+    if author_id(source_messages[source_nested]) != operator_user_id:
+        raise ValueError("basic source nested author mismatch")
+    if (
+        getattr(
+            getattr(source_messages[source_reply], "reply_to", None),
+            "reply_to_msg_id",
+            None,
+        )
+        != source_messages[source_root].id
+        or getattr(
+            getattr(source_messages[source_nested], "reply_to", None),
+            "reply_to_msg_id",
+            None,
+        )
+        != source_messages[source_reply].id
+    ):
+        raise ValueError("basic source reply chain mismatch")
+    if any(
+        author_id(message) != operator_user_id
+        for message in destination_messages.values()
+    ):
+        raise ValueError("basic destination author mismatch")
+    if (
+        getattr(
+            getattr(destination_messages[destination_reply], "reply_to", None),
+            "reply_to_msg_id",
+            None,
+        )
+        != destination_messages[destination_root].id
+        or getattr(
+            getattr(destination_messages[destination_nested], "reply_to", None),
+            "reply_to_msg_id",
+            None,
+        )
+        != destination_messages[destination_reply].id
+    ):
+        raise ValueError("basic destination reply chain mismatch")
+    return {
+        "source": "confirmed",
+        "destination": "confirmed",
+        "operator_author": "confirmed",
+        "lab_peer_author": "confirmed",
         "nested_reply": "confirmed",
     }
 
@@ -2801,6 +3436,7 @@ from pathlib import Path
 from telethon.errors import (
     ChannelInvalidError,
     ChannelPrivateError,
+    ChatIdInvalidError,
     ChatForwardsRestrictedError,
     FloodWaitError,
     MsgIdInvalidError,

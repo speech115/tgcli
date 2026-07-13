@@ -15,6 +15,39 @@ Template:
 
 ---
 
+## 2026-07-13 — Two-account basic canary and final plain-comment gates (Codex GPT-5)
+**Did:** added an explicit `expanded-basic-canary` with two authorized sessions,
+identity-bound role fingerprints, exact two-participant readback, operator and
+lab-peer authored reply chains, normalized owner-only supergroup validation,
+and cleanup-only recovery. Ambiguous source basic-group and destination
+supergroup creates are reconciled by unique exact markers before teardown;
+creator tombstones are accepted only after both accounts independently confirm
+inaccessibility. A focused regression proves an ambiguous destination is
+registered and receives `channels.deleteChannel` during cleanup.
+**Decided:** the already selected deployment account remains an explicit
+`--lab-peer-account` input rather than a hardcoded portable alias. The live
+identity preflight passed, but fresh basic-group membership readback contained
+only the operator, so `basic.open` and `basic.protected` are blocked as
+`basic_lab_peer_not_joined`. The lab does not silently switch accounts, modify
+contacts/privacy, or infer membership from a successful create response.
+**Learned:** `messages.createChat` may omit the new chat from `response.chats`;
+bounded exact-dialog discovery plus `messages.getFullChat` is required.
+Creator cleanup leaves a server tombstone with `left` and `deactivated` set,
+zero participants, and forbidden participant details. Separately,
+`channel_plain.open_protected` passed both native post → discussion root →
+comment → nested reply chains and cleaned green. The subsequent
+`channel_plain.protected_protected` run hit `FLOOD_WAIT 836`; after the retry
+window, cleanup removed all four peers. Independent scans on both configured
+accounts found zero marked dialogs; the failed checkpoint remains as evidence.
+**Checks:** focused mirror lab/runner suite: `156 passed, 1 skipped`; final full
+suite after safety review: `371 passed, 9 skipped`; namespace coverage:
+`coverage OK: 23 namespaces`; `git diff --check` clean. A second read-only
+safety review returned `SHIP` with no remaining P1 finding.
+**Next:** choose explicitly whether to change the selected lab account's group
+privacy/contact capability or bind another dedicated account, then rerun the two
+basic cells. Retry `channel_plain.protected_protected` only in a fresh mutation
+window; linked forum discussions remain blocked by Telegram behavior.
+
 ## 2026-07-13 — Protected topology foundations staged safely (Codex GPT-5)
 **Did:** ran three additional bounded protected cells after the accepted open
 foundations. `supergroup.protected` and `forum.protected` both preserved their

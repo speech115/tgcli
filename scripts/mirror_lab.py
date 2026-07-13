@@ -11,6 +11,7 @@ from copy import deepcopy
 from pathlib import Path
 
 import telethon
+from telethon import utils
 from telethon.errors import FloodWaitError
 from telethon.tl import alltlobjects
 
@@ -90,6 +91,18 @@ def parse_args(argv=None):
             and spec.discussion_kind == "none"
         ),
     )
+    basic = sub.add_parser("expanded-basic-canary")
+    basic.add_argument("--manifest", required=True)
+    basic.add_argument(
+        "--scenario",
+        required=True,
+        choices=tuple(
+            spec.key
+            for spec in mirror_lab.required_scenarios()
+            if spec.source_family == "basic" and spec.discussion_kind == "none"
+        ),
+    )
+    basic.add_argument("--lab-peer-account", required=True)
     cleanup = sub.add_parser("expanded-cleanup")
     cleanup.add_argument("--manifest", required=True)
     cleanup.add_argument(
@@ -97,6 +110,7 @@ def parse_args(argv=None):
         required=True,
         choices=tuple(spec.key for spec in mirror_lab.required_scenarios()),
     )
+    cleanup.add_argument("--lab-peer-account", default=None)
 
     return parser.parse_args(argv)
 
@@ -109,11 +123,24 @@ def _sha256_paths(paths: tuple[Path, ...]) -> str:
     return digest.hexdigest()
 
 
-def live_scenario_fingerprint(account, me, scenario_key: str) -> dict:
+def live_scenario_fingerprint(
+    account,
+    me,
+    scenario_key: str,
+    *,
+    lab_peer_account=None,
+    lab_peer_me=None,
+) -> dict:
     root = Path(__file__).resolve().parents[1]
     config_digest = hashlib.sha256(
         json.dumps(
-            {"account_alias": account.alias, "scenario_key": scenario_key},
+            {
+                "account_alias": account.alias,
+                "lab_peer_alias": (
+                    lab_peer_account.alias if lab_peer_account is not None else None
+                ),
+                "scenario_key": scenario_key,
+            },
             sort_keys=True,
         ).encode("utf-8")
     ).hexdigest()
@@ -128,6 +155,16 @@ def live_scenario_fingerprint(account, me, scenario_key: str) -> dict:
         telegram_schema_layer=alltlobjects.LAYER,
         account_role_binding={
             "operator": {"alias": account.alias, "user_id": me.id},
+            **(
+                {
+                    "lab_peer": {
+                        "alias": lab_peer_account.alias,
+                        "user_id": lab_peer_me.id,
+                    }
+                }
+                if lab_peer_account is not None and lab_peer_me is not None
+                else {}
+            ),
         },
         config_digest=config_digest,
     )
@@ -172,6 +209,158 @@ def run_verdict(args) -> dict:
     return mirror_lab.lab_verdict(source, manifest, args.role)
 
 
+async def _run_basic_canary(
+    args,
+    loaded_config,
+    operator_account,
+    operator_tg,
+    operator_me,
+    manifest,
+    manifest_path: Path,
+) -> dict:
+    lab_peer_account = config.resolve_account(loaded_config, args.lab_peer_account)
+    if (
+        lab_peer_account.alias == operator_account.alias
+        or lab_peer_account.session == operator_account.session
+    ):
+        raise PolicyError("basic canary requires a distinct account and session")
+    if getattr(operator_me, "bot", False) or getattr(operator_me, "deleted", False):
+        raise PolicyError("operator must be an active ordinary user account")
+
+    async with session.client(lab_peer_account) as lab_peer_tg:
+        lab_peer_me = await lab_peer_tg.get_me()
+        if (
+            getattr(lab_peer_me, "bot", False)
+            or getattr(lab_peer_me, "deleted", False)
+            or lab_peer_me.id == operator_me.id
+        ):
+            raise PolicyError("lab peer must be a distinct active ordinary user")
+        try:
+            operator_scoped_peer = await operator_tg.get_input_entity(lab_peer_me.id)
+            lab_peer_input = utils.get_input_user(operator_scoped_peer)
+            resolved_lab_peer = await operator_tg.get_entity(operator_scoped_peer)
+        except Exception as exc:
+            raise PolicyError(
+                "operator account cannot resolve the selected lab peer"
+            ) from exc
+        if getattr(resolved_lab_peer, "id", None) != lab_peer_me.id:
+            raise PolicyError("resolved lab peer identity does not match binding")
+
+        fingerprint = live_scenario_fingerprint(
+            operator_account,
+            operator_me,
+            args.scenario,
+            lab_peer_account=lab_peer_account,
+            lab_peer_me=lab_peer_me,
+        )
+        checkpoint = manifest["scenarios"].get(args.scenario)
+        if checkpoint is None:
+            checkpoint = mirror_lab.new_scenario_checkpoint(
+                args.scenario, fingerprint
+            )
+            checkpoint["phase"] = "create"
+            manifest["scenarios"][args.scenario] = checkpoint
+            mirror_lab.save_manifest(manifest_path, manifest)
+        elif not mirror_lab.compare_compatibility_fingerprints(
+            fingerprint, checkpoint["compatibility_fingerprint"]
+        )["compatible"]:
+            raise PolicyError("basic checkpoint account binding is stale")
+        elif checkpoint.get("verdicts", {}).get("canary_operations"):
+            raise PolicyError(
+                "interrupted basic canary is cleanup-only; run expanded-cleanup"
+            )
+
+        def persist(value):
+            manifest["scenarios"][args.scenario] = value
+            mirror_lab.save_manifest(manifest_path, manifest)
+
+        def record(operation_key, state):
+            current = deepcopy(manifest["scenarios"][args.scenario])
+            operations = current["verdicts"].setdefault("canary_operations", {})
+            previous = operations.get(operation_key)
+            previous_state = previous.get("state") if isinstance(previous, dict) else None
+            allowed = {
+                None: {"prepared"},
+                "prepared": {"dispatched"},
+                "dispatched": {"confirmed", "ambiguous"},
+            }
+            if state not in allowed.get(previous_state, set()):
+                raise ValueError(
+                    f"invalid canary operation transition: {operation_key}"
+                )
+            operations[operation_key] = {"state": state}
+            persist(current)
+
+        succeeded = False
+        try:
+            await mirror_lab.provision_scenario_live(
+                operator_tg,
+                checkpoint,
+                fingerprint,
+                lab_id=manifest["lab_id"],
+                account_alias=operator_account.alias,
+                persist=persist,
+                resolved_account_roles={"lab_peer": lab_peer_input},
+            )
+            result = await mirror_lab.verify_basic_group_reply_chain_live(
+                operator_tg,
+                lab_peer_tg,
+                manifest["scenarios"][args.scenario],
+                fingerprint,
+                lab_id=manifest["lab_id"],
+                operator_alias=operator_account.alias,
+                lab_peer_alias=lab_peer_account.alias,
+                record=record,
+            )
+            succeeded = True
+            return {
+                "phase": args.phase,
+                "scenario": args.scenario,
+                "basic_group": result["source"],
+                "normalized_destination": result["destination"],
+                "two_account_authorship": result["lab_peer_author"],
+                "cleanup": "green",
+            }
+        finally:
+            latest = manifest["scenarios"].get(args.scenario)
+            if latest is not None:
+                latest = await mirror_lab.reconcile_ambiguous_basic_creation_live(
+                    operator_tg,
+                    lab_peer_tg,
+                    latest,
+                    fingerprint,
+                    lab_id=manifest["lab_id"],
+                    persist=persist,
+                )
+                cleaned = await mirror_lab.teardown_scenario_peers(
+                    operator_tg,
+                    latest,
+                    fingerprint,
+                    lab_id=manifest["lab_id"],
+                    account_alias=operator_account.alias,
+                    persist=persist,
+                    lab_peer_tg=lab_peer_tg,
+                    lab_peer_alias=lab_peer_account.alias,
+                    lab_peer_input=lab_peer_input,
+                )
+                cleanup_complete = (
+                    not cleaned["created_peers"]
+                    and not cleaned["cleanup_obligations"]
+                )
+                operation_states = {
+                    operation["state"]
+                    for operation in cleaned["outbound_operations"].values()
+                }
+                if cleanup_complete and (
+                    succeeded
+                    or not operation_states.intersection({"dispatched", "ambiguous"})
+                ):
+                    manifest["scenarios"].pop(args.scenario, None)
+                    mirror_lab.save_manifest(manifest_path, manifest)
+                elif not cleanup_complete:
+                    raise PolicyError("basic canary cleanup is incomplete")
+
+
 async def run(args) -> dict:
     if args.phase in {
         "create",
@@ -183,6 +372,7 @@ async def run(args) -> dict:
         "expanded-comments-canary",
         "expanded-forum-canary",
         "expanded-supergroup-canary",
+        "expanded-basic-canary",
         "expanded-cleanup",
     }:
         mirror_lab.enforce_mutation_allowed(readonly=False)
@@ -193,7 +383,8 @@ async def run(args) -> dict:
             raise PolicyError(f"{blocker['reason_code']}: {evidence}")
     if args.phase == "seed":
         mirror_lab.preflight_fixture_tools()
-    account = config.resolve_account(config.load_config(), args.account)
+    loaded_config = config.load_config()
+    account = config.resolve_account(loaded_config, args.account)
     manifest_path = Path(args.manifest)
     async with session.client(account) as tg:
         me = await tg.get_me()
@@ -208,9 +399,21 @@ async def run(args) -> dict:
                     "expanded-comments-canary",
                     "expanded-forum-canary",
                     "expanded-supergroup-canary",
+                    "expanded-basic-canary",
                 }:
                     raise ValueError(f"manifest not found: {manifest_path}")
             manifest = mirror_lab.new_manifest(me.id)
+
+        if args.phase == "expanded-basic-canary":
+            return await _run_basic_canary(
+                args,
+                loaded_config,
+                account,
+                tg,
+                me,
+                manifest,
+                manifest_path,
+            )
 
         if args.phase == "expanded-cleanup":
             checkpoint = manifest["scenarios"].get(args.scenario)
@@ -225,14 +428,74 @@ async def run(args) -> dict:
                 manifest["scenarios"][args.scenario] = value
                 mirror_lab.save_manifest(manifest_path, manifest)
 
-            cleaned = await mirror_lab.teardown_scenario_peers(
-                tg,
-                checkpoint,
-                fingerprint,
-                lab_id=manifest["lab_id"],
-                account_alias=account.alias,
-                persist=persist,
-            )
+            lab_peer_binding = fingerprint["account_role_binding"].get("lab_peer")
+            if lab_peer_binding is not None:
+                bound_alias = lab_peer_binding["alias"]
+                if (
+                    args.lab_peer_account is not None
+                    and args.lab_peer_account != bound_alias
+                ):
+                    raise PolicyError(
+                        "cleanup lab-peer alias does not match checkpoint binding"
+                    )
+                lab_peer_account = config.resolve_account(
+                    loaded_config, bound_alias
+                )
+                if (
+                    lab_peer_account.alias == account.alias
+                    or lab_peer_account.session == account.session
+                ):
+                    raise PolicyError(
+                        "basic cleanup requires a distinct account and session"
+                    )
+                async with session.client(lab_peer_account) as lab_peer_tg:
+                    lab_peer_me = await lab_peer_tg.get_me()
+                    if lab_peer_me.id != lab_peer_binding["user_id"]:
+                        raise PolicyError(
+                            "cleanup lab-peer identity does not match checkpoint"
+                        )
+                    try:
+                        operator_scoped_peer = await tg.get_input_entity(
+                            lab_peer_me.id
+                        )
+                        lab_peer_input = utils.get_input_user(operator_scoped_peer)
+                        resolved_lab_peer = await tg.get_entity(operator_scoped_peer)
+                    except Exception as exc:
+                        raise PolicyError(
+                            "operator cannot resolve checkpoint lab peer"
+                        ) from exc
+                    if getattr(resolved_lab_peer, "id", None) != lab_peer_me.id:
+                        raise PolicyError(
+                            "resolved cleanup lab peer does not match checkpoint"
+                        )
+                    checkpoint = await mirror_lab.reconcile_ambiguous_basic_creation_live(
+                        tg,
+                        lab_peer_tg,
+                        checkpoint,
+                        fingerprint,
+                        lab_id=manifest["lab_id"],
+                        persist=persist,
+                    )
+                    cleaned = await mirror_lab.teardown_scenario_peers(
+                        tg,
+                        checkpoint,
+                        fingerprint,
+                        lab_id=manifest["lab_id"],
+                        account_alias=account.alias,
+                        persist=persist,
+                        lab_peer_tg=lab_peer_tg,
+                        lab_peer_alias=lab_peer_account.alias,
+                        lab_peer_input=lab_peer_input,
+                    )
+            else:
+                cleaned = await mirror_lab.teardown_scenario_peers(
+                    tg,
+                    checkpoint,
+                    fingerprint,
+                    lab_id=manifest["lab_id"],
+                    account_alias=account.alias,
+                    persist=persist,
+                )
             cleanup_complete = (
                 not cleaned["created_peers"]
                 and not cleaned["cleanup_obligations"]

@@ -873,6 +873,391 @@ async def test_scenario_teardown_reconciles_persisted_delete_after_flood_wait():
 
 
 @pytest.mark.asyncio
+async def test_basic_teardown_deletes_group_and_verifies_both_accounts():
+    scenario_key = "basic.open"
+    fingerprint = classification_fingerprint(
+        scenario_key,
+        account_role_binding={
+            "operator": {"alias": "main", "user_id": 101},
+            "lab_peer": {"alias": "lab-peer", "user_id": 202},
+        },
+    )
+    checkpoint = lab_module.new_scenario_checkpoint(scenario_key, fingerprint)
+    checkpoint["phase"] = "seed"
+    checkpoint["created_peers"] = {
+        "source": {"peer_id": 701, "title_marker_verified": True},
+    }
+    checkpoint["cleanup_obligations"] = [{"peer_role": "source"}]
+    expected_title = lab_module.scenario_peer_title(
+        "e" * 24, scenario_key, "source"
+    )
+
+    class BasicTG:
+        def __init__(self, *, creator):
+            self.creator = creator
+            self.active = True
+            self.requests = []
+
+        async def get_entity(self, _ref):
+            return NS(id=701, title=expected_title, creator=self.creator)
+
+        async def __call__(self, request):
+            self.requests.append(request)
+            if isinstance(request, lab_module.functions.messages.DeleteChatRequest):
+                operator.active = False
+                return NS()
+            if isinstance(request, lab_module.functions.messages.DeleteChatUserRequest):
+                lab_peer.active = False
+                return NS()
+            if isinstance(request, lab_module.functions.messages.GetChatsRequest):
+                chats = (
+                    [NS(id=701, title=expected_title, creator=self.creator)]
+                    if self.active
+                    else [lab_module.types.ChatForbidden(id=701, title=expected_title)]
+                )
+                return NS(chats=chats)
+            raise AssertionError(type(request).__name__)
+
+    operator = BasicTG(creator=True)
+    lab_peer = BasicTG(creator=False)
+    persisted = []
+
+    cleaned = await lab_module.teardown_scenario_peers(
+        operator,
+        checkpoint,
+        fingerprint,
+        lab_id="e" * 24,
+        account_alias="main",
+        persist=lambda value: persisted.append(deepcopy(value)),
+        lab_peer_tg=lab_peer,
+        lab_peer_alias="lab-peer",
+        lab_peer_input=object(),
+    )
+
+    assert cleaned["created_peers"] == {}
+    assert cleaned["cleanup_obligations"] == []
+    assert any(
+        isinstance(request, lab_module.functions.messages.DeleteChatRequest)
+        for request in operator.requests
+    )
+    assert any(
+        isinstance(request, lab_module.functions.messages.GetChatsRequest)
+        for request in operator.requests
+    )
+    assert any(
+        isinstance(request, lab_module.functions.messages.GetChatsRequest)
+        for request in lab_peer.requests
+    )
+
+
+@pytest.mark.asyncio
+async def test_basic_chat_tombstone_is_confirmed_inaccessible():
+    class TombstoneTG:
+        async def __call__(self, request):
+            assert isinstance(request, lab_module.functions.messages.GetChatsRequest)
+            return NS(
+                chats=[
+                    NS(
+                        id=701,
+                        title="disposed",
+                        creator=True,
+                        left=True,
+                        deactivated=True,
+                    )
+                ]
+            )
+
+    assert await lab_module._active_basic_scenario_chat(TombstoneTG(), 701) is None
+
+
+@pytest.mark.asyncio
+async def test_basic_canary_proves_distinct_author_reply_chain():
+    scenario_key = "basic.open"
+    lab_id = "b" * 24
+    fingerprint = classification_fingerprint(
+        scenario_key,
+        account_role_binding={
+            "operator": {"alias": "main", "user_id": 101},
+            "lab_peer": {"alias": "lab-peer", "user_id": 202},
+        },
+    )
+    checkpoint = lab_module.new_scenario_checkpoint(scenario_key, fingerprint)
+    checkpoint["phase"] = "seed"
+    checkpoint["created_peers"] = {
+        "source": {"peer_id": 701, "title_marker_verified": True},
+        "destination": {"peer_id": 702, "title_marker_verified": True},
+    }
+    peers = {
+        "source": NS(
+            id=701,
+            title=lab_module.scenario_peer_title(lab_id, scenario_key, "source"),
+            creator=True,
+        ),
+        "destination": NS(
+            id=702,
+            title=lab_module.scenario_peer_title(
+                lab_id, scenario_key, "destination"
+            ),
+            creator=True,
+            megagroup=True,
+            forum=False,
+        ),
+    }
+    messages = []
+
+    class BasicCanaryTG:
+        def __init__(self, user_id):
+            self.user_id = user_id
+
+        async def get_entity(self, ref):
+            peer_id = getattr(ref, "chat_id", getattr(ref, "channel_id", ref))
+            return peers["source" if peer_id == 701 else "destination"]
+
+        async def get_input_entity(self, ref):
+            return ref
+
+        async def __call__(self, request):
+            if isinstance(request, lab_module.functions.messages.SendMessageRequest):
+                message_id = 800 + len(messages) + 1
+                message = NS(
+                    id=message_id,
+                    peer_id=request.peer,
+                    message=request.message,
+                    from_id=lab_module.types.PeerUser(self.user_id),
+                    reply_to=request.reply_to,
+                )
+                messages.append(message)
+                return NS(
+                    updates=[
+                        lab_module.types.UpdateMessageID(
+                            id=message_id, random_id=request.random_id
+                        ),
+                        NS(message=message),
+                    ]
+                )
+            if isinstance(request, lab_module.functions.messages.GetHistoryRequest):
+                return NS(messages=list(messages))
+            raise AssertionError(type(request).__name__)
+
+    states = []
+    result = await lab_module.verify_basic_group_reply_chain_live(
+        BasicCanaryTG(101),
+        BasicCanaryTG(202),
+        checkpoint,
+        fingerprint,
+        lab_id=lab_id,
+        operator_alias="main",
+        lab_peer_alias="lab-peer",
+        record=lambda key, state: states.append((key, state)),
+    )
+
+    assert result == {
+        "source": "confirmed",
+        "destination": "confirmed",
+        "operator_author": "confirmed",
+        "lab_peer_author": "confirmed",
+        "nested_reply": "confirmed",
+    }
+    assert states[-1] == ("destination:nested_reply", "confirmed")
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_basic_creation_reconciles_exact_unique_marker():
+    scenario_key = "basic.open"
+    lab_id = "c" * 24
+    fingerprint = classification_fingerprint(
+        scenario_key,
+        account_role_binding={
+            "operator": {"alias": "main", "user_id": 101},
+            "lab_peer": {"alias": "lab-peer", "user_id": 202},
+        },
+    )
+    checkpoint = lab_module.new_scenario_checkpoint(scenario_key, fingerprint)
+    checkpoint["phase"] = "create"
+    intent = lab_module.build_scenario_provisioning_intents(
+        scenario_key, fingerprint
+    )[0]
+    checkpoint = lab_module.prepare_scenario_intent(checkpoint, intent)
+    checkpoint = lab_module.mark_scenario_intent_dispatched(
+        checkpoint, intent["intent_key"]
+    )
+    checkpoint = lab_module.record_scenario_intent_outcome(
+        checkpoint, intent["intent_key"], "ambiguous"
+    )
+    title = lab_module.scenario_peer_title(lab_id, scenario_key, "source")
+    operator_chat = lab_module.types.Chat(
+        id=701,
+        title=title,
+        photo=lab_module.types.ChatPhotoEmpty(),
+        participants_count=2,
+        date=None,
+        version=1,
+        creator=True,
+    )
+    lab_peer_chat = lab_module.types.Chat(
+        id=701,
+        title=title,
+        photo=lab_module.types.ChatPhotoEmpty(),
+        participants_count=2,
+        date=None,
+        version=1,
+    )
+
+    class DialogTG:
+        def __init__(self, entity):
+            self.entity = entity
+
+        async def iter_dialogs(self):
+            yield NS(entity=self.entity)
+
+    persisted = []
+    reconciled = await lab_module.reconcile_ambiguous_basic_creation_live(
+        DialogTG(operator_chat),
+        DialogTG(lab_peer_chat),
+        checkpoint,
+        fingerprint,
+        lab_id=lab_id,
+        persist=lambda value: persisted.append(deepcopy(value)),
+    )
+
+    assert reconciled["outbound_operations"][intent["intent_key"]]["state"] == (
+        "confirmed"
+    )
+    assert reconciled["created_peers"] == {
+        "source": {"peer_id": 701, "title_marker_verified": True}
+    }
+    assert reconciled["cleanup_obligations"] == [{"peer_role": "source"}]
+    assert persisted[-1] == reconciled
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_basic_destination_is_reconciled_then_deleted():
+    scenario_key = "basic.open"
+    lab_id = "d" * 24
+    fingerprint = classification_fingerprint(
+        scenario_key,
+        account_role_binding={
+            "operator": {"alias": "main", "user_id": 101},
+            "lab_peer": {"alias": "lab-peer", "user_id": 202},
+        },
+    )
+    checkpoint = lab_module.new_scenario_checkpoint(scenario_key, fingerprint)
+    checkpoint["phase"] = "create"
+    source_intent, destination_intent = (
+        intent
+        for intent in lab_module.build_scenario_provisioning_intents(
+            scenario_key, fingerprint
+        )
+        if intent["method"] in {"messages.createChat", "channels.createChannel"}
+    )
+    checkpoint = lab_module.prepare_scenario_intent(checkpoint, source_intent)
+    checkpoint = lab_module.mark_scenario_intent_dispatched(
+        checkpoint, source_intent["intent_key"]
+    )
+    checkpoint = lab_module._apply_scenario_intent_observation(
+        checkpoint,
+        source_intent,
+        {
+            "peer_role": "source",
+            "peer_id": 701,
+            "title_marker_verified": True,
+        },
+    )
+    checkpoint = lab_module.record_scenario_intent_outcome(
+        checkpoint, source_intent["intent_key"], "confirmed"
+    )
+    checkpoint = lab_module.prepare_scenario_intent(
+        checkpoint, destination_intent
+    )
+    checkpoint = lab_module.mark_scenario_intent_dispatched(
+        checkpoint, destination_intent["intent_key"]
+    )
+    checkpoint = lab_module.record_scenario_intent_outcome(
+        checkpoint, destination_intent["intent_key"], "ambiguous"
+    )
+    destination_title = lab_module.scenario_peer_title(
+        lab_id, scenario_key, "destination"
+    )
+    destination = lab_module.types.Channel(
+        id=702,
+        title=destination_title,
+        photo=lab_module.types.ChatPhotoEmpty(),
+        date=None,
+        creator=True,
+        broadcast=False,
+        megagroup=True,
+        forum=False,
+        access_hash=1,
+    )
+
+    class OperatorTG:
+        def __init__(self):
+            self.deleted = []
+
+        async def iter_dialogs(self):
+            yield NS(entity=destination)
+
+        async def get_entity(self, ref):
+            assert getattr(ref, "channel_id", None) == 702
+            return destination
+
+        async def __call__(self, request):
+            if isinstance(request, lab_module.functions.messages.GetChatsRequest):
+                return NS(
+                    chats=[
+                        lab_module.types.ChatForbidden(id=701, title="disposed")
+                    ]
+                )
+            if isinstance(request, lab_module.functions.channels.DeleteChannelRequest):
+                self.deleted.append(request)
+                return NS()
+            raise AssertionError(type(request).__name__)
+
+    class LabPeerTG:
+        async def iter_dialogs(self):
+            if False:
+                yield None
+
+        async def __call__(self, request):
+            assert isinstance(request, lab_module.functions.messages.GetChatsRequest)
+            return NS(
+                chats=[lab_module.types.ChatForbidden(id=701, title="disposed")]
+            )
+
+    operator = OperatorTG()
+    lab_peer = LabPeerTG()
+    persisted = []
+    reconciled = await lab_module.reconcile_ambiguous_basic_creation_live(
+        operator,
+        lab_peer,
+        checkpoint,
+        fingerprint,
+        lab_id=lab_id,
+        persist=lambda value: persisted.append(deepcopy(value)),
+    )
+
+    assert reconciled["outbound_operations"][destination_intent["intent_key"]][
+        "state"
+    ] == "confirmed"
+    assert reconciled["created_peers"]["destination"]["peer_id"] == 702
+
+    cleaned = await lab_module.teardown_scenario_peers(
+        operator,
+        reconciled,
+        fingerprint,
+        lab_id=lab_id,
+        account_alias="main",
+        persist=lambda value: persisted.append(deepcopy(value)),
+        lab_peer_tg=lab_peer,
+        lab_peer_alias="lab-peer",
+        lab_peer_input=object(),
+    )
+
+    assert cleaned["created_peers"] == {}
+    assert len(operator.deleted) == 1
+
+
+@pytest.mark.asyncio
 async def test_channel_comment_canary_proves_native_root_and_nested_reply(
     monkeypatch,
 ):
@@ -1335,6 +1720,78 @@ def test_materialize_basic_and_forum_create_requests_without_dispatch():
     )
     assert forum_request.megagroup is True
     assert forum_request.forum is True
+
+
+@pytest.mark.asyncio
+async def test_basic_create_confirms_fresh_owner_and_bound_participants():
+    scenario_key = "basic.open"
+    lab_id = "a" * 24
+    fingerprint = classification_fingerprint(
+        scenario_key,
+        account_role_binding={
+            "operator": {"alias": "main", "user_id": 101},
+            "lab_peer": {"alias": "lab-peer", "user_id": 202},
+        },
+    )
+    checkpoint = lab_module.new_scenario_checkpoint(scenario_key, fingerprint)
+    checkpoint["phase"] = "create"
+    intent = lab_module.build_scenario_provisioning_intents(
+        scenario_key, fingerprint
+    )[0]
+    title = lab_module.scenario_peer_title(lab_id, scenario_key, "source")
+
+    class BasicCreateTG:
+        async def __call__(self, request):
+            if isinstance(request, lab_module.functions.messages.CreateChatRequest):
+                return NS(chats=[])
+            if isinstance(request, lab_module.functions.messages.GetFullChatRequest):
+                return NS(
+                    chats=[
+                        NS(
+                            id=701,
+                            title=title,
+                            creator=True,
+                            left=False,
+                            deactivated=False,
+                            migrated_to=None,
+                        )
+                    ],
+                    full_chat=NS(
+                        participants=NS(
+                            participants=[NS(user_id=101), NS(user_id=202)]
+                        )
+                    ),
+                )
+            raise AssertionError(type(request).__name__)
+
+        async def iter_dialogs(self):
+            yield NS(
+                entity=lab_module.types.Chat(
+                    id=701,
+                    title=title,
+                    photo=lab_module.types.ChatPhotoEmpty(),
+                    participants_count=2,
+                    date=None,
+                    version=1,
+                    creator=True,
+                )
+            )
+
+    result = await lab_module.execute_scenario_provisioning_intent(
+        BasicCreateTG(),
+        checkpoint,
+        intent,
+        fingerprint,
+        lab_id=lab_id,
+        account_alias="main",
+        resolved_account_roles={"lab_peer": object()},
+    )
+
+    assert result == {
+        "peer_role": "source",
+        "peer_id": 701,
+        "title_marker_verified": True,
+    }
 
 
 def test_materialize_protection_eligibility_and_link_requests_without_dispatch():

@@ -140,13 +140,16 @@ structure, attribution, comment-root, topic, transport, audit, and cleanup
 verdicts. Success in one protection combination never fills another matrix cell.
 
 Controlled-live foundation coverage later on 2026-07-13 additionally passed
-`supergroup.protected`, `forum.protected`, and
-`channel_plain.protected_open`, each with independent verified teardown and a
-zero-result exact-marker scan. `channel_plain.open_protected` hit
-`FLOOD_WAIT 415` during source discussion linking before content seeding. Its
-two peers were recovered after the retry window and the marker scan again found
-zero, but that cell remains unaccepted. `channel_plain.protected_protected` was
-not run. These outcomes do not collapse or infer the missing cells.
+`supergroup.protected`, `forum.protected`,
+`channel_plain.protected_open`, and eventually
+`channel_plain.open_protected`, each with independent verified teardown and a
+zero-result exact-marker scan. The first `open_protected` attempt hit
+`FLOOD_WAIT 415`; a later bounded run confirmed both native comment chains and
+cleaned successfully. `channel_plain.protected_protected` then hit
+`FLOOD_WAIT 836` during provisioning. Its four peers were recovered after the
+retry window, cleanup was green, and both account marker scans returned zero,
+but the cell remains unaccepted. These outcomes do not collapse or infer the
+missing cell.
 
 The first controlled-live standalone `supergroup.open` foundation gate passed
 on 2026-07-13. Both private owner-only source and destination supergroups
@@ -220,6 +223,17 @@ marked text message and one generated media fixture, reply to a marked operator
 message, receive and lose an admin role, leave, and be re-added. Every action has
 correlated audit attempt/result records and verifies the expected peer, role,
 message, and service update before advancing.
+
+The first controlled-live basic-group foundation attempt on 2026-07-13 bound
+the previously selected deployment alias to a distinct authorized ordinary user
+and proved that the operator could resolve that exact account before mutation.
+Telegram created the exact marked legacy group, but repeated fresh
+`messages.getFullChat` reads contained only the operator; the bound lab peer was
+not admitted. The runner therefore classified the attempt as
+`basic_lab_peer_not_joined`, deleted the disposable group, and independent
+marker scans on both accounts returned zero. `basic.open` and
+`basic.protected` remain blocked; the lab must not switch accounts, modify
+privacy/contact state, or infer ordinary-user membership from creation alone.
 
 No action targets another dialog or uses personal content. Teardown must verify
 that the disposable group is absent or definitively inaccessible from both

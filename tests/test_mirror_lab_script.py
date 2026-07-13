@@ -29,6 +29,158 @@ def test_probe_requires_role_and_output():
     assert args.role == "dest_native"
 
 
+def test_basic_canary_requires_explicit_lab_peer_account():
+    with pytest.raises(SystemExit):
+        script.parse_args(
+            [
+                "expanded-basic-canary",
+                "--manifest",
+                "m.json",
+                "--scenario",
+                "basic.open",
+            ]
+        )
+    args = script.parse_args(
+        [
+            "expanded-basic-canary",
+            "--manifest",
+            "m.json",
+            "--scenario",
+            "basic.open",
+            "--lab-peer-account",
+            "lab-peer",
+        ]
+    )
+    assert args.lab_peer_account == "lab-peer"
+
+
+def test_basic_canary_opens_and_binds_both_sessions_before_provision(
+    tmp_path, monkeypatch, capsys
+):
+    scenario_key = "basic.open"
+    manifest_path = tmp_path / "basic.json"
+    operator = NS(alias="main", session="main")
+    lab_peer = NS(alias="lab-peer", session="lab-peer")
+    entered = []
+
+    class FakeClient:
+        def __init__(self, account):
+            self.account = account
+
+        async def __aenter__(self):
+            entered.append(self.account.alias)
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get_me(self):
+            return NS(
+                id=101 if self.account.alias == "main" else 202,
+                bot=False,
+                deleted=False,
+            )
+
+        async def get_input_entity(self, value):
+            assert self.account.alias == "main"
+            assert value == 202
+            return script.mirror_lab.types.InputPeerUser(
+                user_id=202, access_hash=303
+            )
+
+        async def get_entity(self, _value):
+            return NS(id=202)
+
+    loaded = NS(accounts={"main": operator, "lab-peer": lab_peer})
+    monkeypatch.setattr(script.config, "load_config", lambda: loaded)
+    monkeypatch.setattr(
+        script.config,
+        "resolve_account",
+        lambda _config, alias: operator if alias in {None, "main"} else lab_peer,
+    )
+    monkeypatch.setattr(script.session, "client", lambda account: FakeClient(account))
+
+    async def provision(_tg, checkpoint, fingerprint, *, persist, **kwargs):
+        assert entered == ["main", "lab-peer"]
+        assert set(fingerprint["account_role_binding"]) == {
+            "operator",
+            "lab_peer",
+        }
+        assert set(kwargs["resolved_account_roles"]) == {"lab_peer"}
+        current = deepcopy(checkpoint)
+        current["phase"] = "seed"
+        current["created_peers"] = {
+            "source": {"peer_id": 701, "title_marker_verified": True},
+            "destination": {"peer_id": 702, "title_marker_verified": True},
+        }
+        current["cleanup_obligations"] = [
+            {"peer_role": "source"},
+            {"peer_role": "destination"},
+        ]
+        for intent in script.mirror_lab.build_scenario_provisioning_intents(
+            scenario_key, fingerprint
+        ):
+            current["outbound_operations"][intent["intent_key"]] = {
+                "method": intent["method"],
+                "target_role": intent["target_role"],
+                "parameters": deepcopy(intent["parameters"]),
+                "state": "confirmed",
+            }
+        persist(current)
+        return current
+
+    async def verify(*_args, **_kwargs):
+        return {
+            "source": "confirmed",
+            "destination": "confirmed",
+            "operator_author": "confirmed",
+            "lab_peer_author": "confirmed",
+            "nested_reply": "confirmed",
+        }
+
+    async def reconcile(_operator, _peer, checkpoint, _fingerprint, **_kwargs):
+        return deepcopy(checkpoint)
+
+    cleanup_calls = []
+
+    async def cleanup(_operator, checkpoint, _fingerprint, *, persist, **kwargs):
+        cleanup_calls.append(kwargs)
+        cleaned = deepcopy(checkpoint)
+        cleaned["created_peers"] = {}
+        cleaned["cleanup_obligations"] = []
+        persist(cleaned)
+        return cleaned
+
+    monkeypatch.setattr(script.mirror_lab, "provision_scenario_live", provision)
+    monkeypatch.setattr(
+        script.mirror_lab, "verify_basic_group_reply_chain_live", verify
+    )
+    monkeypatch.setattr(
+        script.mirror_lab, "reconcile_ambiguous_basic_creation_live", reconcile
+    )
+    monkeypatch.setattr(script.mirror_lab, "teardown_scenario_peers", cleanup)
+
+    assert script.main(
+        [
+            "--account",
+            "main",
+            "expanded-basic-canary",
+            "--manifest",
+            str(manifest_path),
+            "--scenario",
+            scenario_key,
+            "--lab-peer-account",
+            "lab-peer",
+        ]
+    ) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["two_account_authorship"] == "confirmed"
+    assert cleanup_calls[0]["lab_peer_alias"] == "lab-peer"
+    assert scenario_key not in script.mirror_lab.load_manifest(manifest_path)[
+        "scenarios"
+    ]
+
+
 def test_verdict_rejects_partial_matrix_and_needs_no_session(tmp_path, capsys):
     source = tmp_path / "source.json"
     dest = tmp_path / "dest.json"
