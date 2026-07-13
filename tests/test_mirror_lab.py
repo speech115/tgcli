@@ -483,6 +483,19 @@ def test_prepare_scenario_intent_is_pure_idempotent_and_exact():
         lab_module.prepare_scenario_intent(checkpoint, forged)
 
 
+def test_prepare_scenario_intent_enforces_serial_plan_order():
+    scenario_key = "channel_forum.protected_protected"
+    fingerprint = classification_fingerprint(scenario_key)
+    checkpoint = lab_module.new_scenario_checkpoint(scenario_key, fingerprint)
+    checkpoint["phase"] = "create"
+    intents = lab_module.build_scenario_provisioning_intents(
+        scenario_key, fingerprint
+    )
+
+    with pytest.raises(ValueError, match="prior provisioning intent is incomplete"):
+        lab_module.prepare_scenario_intent(checkpoint, intents[-1])
+
+
 def test_intent_dispatch_and_outcome_transitions_are_fail_closed():
     checkpoint, intent = provisioning_checkpoint()
     prepared = lab_module.prepare_scenario_intent(checkpoint, intent)
@@ -552,8 +565,139 @@ def test_create_phase_advances_only_after_every_intent_is_confirmed():
             checkpoint, intent["intent_key"], "confirmed"
         )
 
+    with pytest.raises(ValueError, match="created peer evidence is incomplete"):
+        lab_module.advance_scenario_phase(checkpoint, "create")
+    for intent in intents:
+        if intent["method"] in {"messages.createChat", "channels.createChannel"}:
+            checkpoint["created_peers"][intent["target_role"]] = {
+                "peer_id": len(checkpoint["created_peers"]) + 1,
+                "title_marker_verified": True,
+            }
+            checkpoint["cleanup_obligations"].append(
+                {"peer_role": intent["target_role"]}
+            )
     advanced = lab_module.advance_scenario_phase(checkpoint, "create")
     assert advanced["phase"] == "seed"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_scenario_intent_persists_before_and_after_fake_execute():
+    checkpoint, intent = provisioning_checkpoint("channel.open")
+    persisted = []
+    executed = []
+
+    def persist(value):
+        persisted.append(deepcopy(value))
+
+    async def execute(value):
+        executed.append(deepcopy(value))
+        return {
+            "peer_role": "source",
+            "peer_id": 501,
+            "title_marker_verified": True,
+        }
+
+    result = await lab_module.dispatch_scenario_intent(
+        checkpoint,
+        intent,
+        persist=persist,
+        execute=execute,
+    )
+    key = intent["intent_key"]
+
+    assert [item["outbound_operations"][key]["state"] for item in persisted] == [
+        "prepared",
+        "dispatched",
+        "confirmed",
+    ]
+    assert executed == [intent]
+    assert result["outbound_operations"][key]["state"] == "confirmed"
+    assert result["created_peers"] == {
+        "source": {"peer_id": 501, "title_marker_verified": True}
+    }
+    assert result["cleanup_obligations"] == [{"peer_role": "source"}]
+    assert checkpoint["outbound_operations"] == {}
+
+
+@pytest.mark.asyncio
+async def test_dispatch_does_not_execute_when_pre_dispatch_persistence_fails():
+    checkpoint, intent = provisioning_checkpoint("channel.open")
+    executed = []
+
+    def persist(_value):
+        raise OSError("disk unavailable")
+
+    async def execute(value):
+        executed.append(value)
+
+    with pytest.raises(OSError, match="disk unavailable"):
+        await lab_module.dispatch_scenario_intent(
+            checkpoint,
+            intent,
+            persist=persist,
+            execute=execute,
+        )
+    assert executed == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_records_ambiguous_fake_exception_and_requires_reconcile():
+    checkpoint, intent = provisioning_checkpoint("channel.open")
+    persisted = []
+
+    def persist(value):
+        persisted.append(deepcopy(value))
+
+    async def execute(_value):
+        raise ConnectionError("response lost")
+
+    with pytest.raises(ConnectionError, match="response lost"):
+        await lab_module.dispatch_scenario_intent(
+            checkpoint,
+            intent,
+            persist=persist,
+            execute=execute,
+        )
+    key = intent["intent_key"]
+    ambiguous = persisted[-1]
+    assert ambiguous["outbound_operations"][key]["state"] == "ambiguous"
+
+    executed = False
+
+    async def must_not_execute(_value):
+        nonlocal executed
+        executed = True
+
+    with pytest.raises(PolicyError, match="requires reconciliation"):
+        await lab_module.dispatch_scenario_intent(
+            ambiguous,
+            intent,
+            persist=persist,
+            execute=must_not_execute,
+        )
+    assert executed is False
+
+
+@pytest.mark.asyncio
+async def test_dispatch_invalid_observation_stays_ambiguous():
+    checkpoint, intent = provisioning_checkpoint("channel.open")
+    persisted = []
+
+    def persist(value):
+        persisted.append(deepcopy(value))
+
+    async def execute(_value):
+        return None
+
+    with pytest.raises(ValueError, match="created peer observation"):
+        await lab_module.dispatch_scenario_intent(
+            checkpoint,
+            intent,
+            persist=persist,
+            execute=execute,
+        )
+    key = intent["intent_key"]
+    assert persisted[-1]["outbound_operations"][key]["state"] == "ambiguous"
 
 
 def test_compare_compatibility_fingerprints_reports_all_mismatches_in_order():

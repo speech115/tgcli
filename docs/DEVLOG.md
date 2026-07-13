@@ -15,6 +15,28 @@ Template:
 
 ---
 
+## 2026-07-13 — Mock provisioning dispatcher hardened (Codex GPT-5)
+**Did:** added an injected async dispatcher boundary that persists `prepared`
+and `dispatched` checkpoints before calling a fake executor, validates a
+normalized observation, then persists `confirmed`. Exceptions, cancellation,
+and malformed observations persist `ambiguous`. Create observations record a
+unique positive peer id plus verified lab marker and add the exact cleanup
+obligation. Provisioning journals must remain a continuous serial plan prefix.
+**Decided:** a successful callback return is not evidence by itself. Create
+intents require exact peer-role/id/marker evidence, later intents cannot run
+before prior confirmation, and `create` cannot advance without all expected
+peer records and cleanup obligations. The dispatcher remains dependency-
+injected and has no Telegram client, session, or live request wiring.
+**Learned:** confirming an RPC-shaped operation without persisting its created
+peer would strand cleanup and make resume unsafe. Likewise, stable intent keys
+do not enforce topology order unless the persisted journal is validated as an
+ordered prefix of the plan.
+**Checks:** focused mirror lab/probe suite: `136 passed, 1 skipped`; full suite:
+`344 passed, 9 skipped`; namespace coverage: `coverage OK: 23 namespaces`;
+`git diff --check` clean. No live Telegram access or mutation ran.
+**Next:** materialize the five allowed provisioning intent families into pinned
+Telethon request objects under mocked resolved-role tests, still without calls.
+
 ## 2026-07-13 — Provisioning intent journal made resumable (Codex GPT-5)
 **Did:** added pure checkpoint operations that prepare only exact scenario-plan
 intents, mark them dispatched, record confirmed/ambiguous/blocked outcomes, and

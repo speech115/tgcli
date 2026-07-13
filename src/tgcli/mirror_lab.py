@@ -339,6 +339,31 @@ def advance_scenario_phase(checkpoint: dict, confirmed_phase: str) -> dict:
             operation["state"] != "confirmed" for operation in operations.values()
         ):
             raise ValueError("provisioning intents are incomplete")
+        expected_peer_roles = {
+            intent["target_role"]
+            for intent in expected_intents.values()
+            if intent["method"] in {"messages.createChat", "channels.createChannel"}
+        }
+        created_peers = checkpoint["created_peers"]
+        cleanup_roles = {
+            obligation.get("peer_role")
+            for obligation in checkpoint["cleanup_obligations"]
+            if isinstance(obligation, dict) and set(obligation) == {"peer_role"}
+        }
+        if (
+            set(created_peers) != expected_peer_roles
+            or cleanup_roles != expected_peer_roles
+            or any(
+                not isinstance(peer, dict)
+                or set(peer) != {"peer_id", "title_marker_verified"}
+                or not _is_positive_int(peer["peer_id"])
+                or peer["title_marker_verified"] is not True
+                for peer in created_peers.values()
+            )
+            or len({peer["peer_id"] for peer in created_peers.values()})
+            != len(created_peers)
+        ):
+            raise ValueError("created peer evidence is incomplete")
     if current_phase == "teardown":
         verdicts = checkpoint["verdicts"]
         domains = verdicts.get("domains") if isinstance(verdicts, dict) else None
@@ -507,6 +532,13 @@ def _validated_scenario_operations(checkpoint: dict) -> tuple[str, dict[str, dic
             != expected_intent
         ):
             raise ValueError(f"invalid scenario operation: {intent_key}")
+    expected_keys = tuple(expected)
+    present_keys = set(checkpoint["outbound_operations"])
+    if present_keys != set(expected_keys[: len(present_keys)]):
+        raise ValueError("scenario operations are not a serial plan prefix")
+    for intent_key in expected_keys[: max(0, len(present_keys) - 1)]:
+        if checkpoint["outbound_operations"][intent_key]["state"] != "confirmed":
+            raise ValueError("prior provisioning intent is incomplete")
     return scenario_key, expected
 
 
@@ -521,6 +553,13 @@ def prepare_scenario_intent(checkpoint: dict, intent: dict) -> dict:
     prepared = deepcopy(checkpoint)
     intent_key = intent["intent_key"]
     if intent_key not in prepared["outbound_operations"]:
+        expected_keys = tuple(expected)
+        next_intent_key = expected_keys[len(prepared["outbound_operations"])]
+        if intent_key != next_intent_key or any(
+            operation["state"] != "confirmed"
+            for operation in prepared["outbound_operations"].values()
+        ):
+            raise ValueError("prior provisioning intent is incomplete")
         prepared["outbound_operations"][intent_key] = {
             "method": intent["method"],
             "target_role": intent["target_role"],
@@ -575,6 +614,97 @@ def reconcile_scenario_intent(
         "ambiguous" if observed is None else "confirmed" if observed else "prepared"
     )
     return reconciled
+
+
+async def dispatch_scenario_intent(
+    checkpoint: dict,
+    intent: dict,
+    *,
+    persist,
+    execute,
+) -> dict:
+    _validated_scenario_operations(checkpoint)
+    intent_key = intent.get("intent_key") if isinstance(intent, dict) else None
+    existing = checkpoint["outbound_operations"].get(intent_key)
+    if existing is not None:
+        prepared = prepare_scenario_intent(checkpoint, intent)
+        state = existing["state"]
+        if state == "confirmed":
+            return prepared
+        if state != "prepared":
+            raise PolicyError(f"intent requires reconciliation: {intent_key}")
+    else:
+        prepared = prepare_scenario_intent(checkpoint, intent)
+        persist(prepared)
+
+    dispatched = mark_scenario_intent_dispatched(prepared, intent_key)
+    persist(dispatched)
+    try:
+        observation = await execute(deepcopy(intent))
+        observed = _apply_scenario_intent_observation(
+            dispatched,
+            intent,
+            observation,
+        )
+    except BaseException as exc:
+        ambiguous = record_scenario_intent_outcome(
+            dispatched, intent_key, "ambiguous"
+        )
+        try:
+            persist(ambiguous)
+        except Exception as persist_error:
+            raise persist_error from exc
+        raise
+    confirmed = record_scenario_intent_outcome(
+        observed, intent_key, "confirmed"
+    )
+    persist(confirmed)
+    return confirmed
+
+
+def _apply_scenario_intent_observation(
+    checkpoint: dict,
+    intent: dict,
+    observation: object,
+) -> dict:
+    method = intent["method"]
+    observed = deepcopy(checkpoint)
+    if method in {"messages.createChat", "channels.createChannel"}:
+        if (
+            not isinstance(observation, dict)
+            or set(observation)
+            != {"peer_role", "peer_id", "title_marker_verified"}
+            or observation["peer_role"] != intent["target_role"]
+            or not _is_positive_int(observation["peer_id"])
+            or observation["title_marker_verified"] is not True
+        ):
+            raise ValueError("invalid created peer observation")
+        entry = {
+            "peer_id": observation["peer_id"],
+            "title_marker_verified": True,
+        }
+        existing = observed["created_peers"].get(intent["target_role"])
+        if existing is not None and existing != entry:
+            raise ValueError("created peer observation conflicts with checkpoint")
+        if any(
+            role != intent["target_role"] and peer.get("peer_id") == entry["peer_id"]
+            for role, peer in observed["created_peers"].items()
+            if isinstance(peer, dict)
+        ):
+            raise ValueError("created peer observation reuses peer id")
+        observed["created_peers"][intent["target_role"]] = entry
+        obligation = {"peer_role": intent["target_role"]}
+        if obligation not in observed["cleanup_obligations"]:
+            observed["cleanup_obligations"].append(obligation)
+        return observed
+    expected_observations = {
+        "messages.toggleNoForwards": {"protected": True},
+        "channels.getGroupsForDiscussion": {"eligible": True},
+        "channels.setDiscussionGroup": {"linked": True},
+    }
+    if observation != expected_observations.get(method):
+        raise ValueError(f"invalid intent observation: {method}")
+    return observed
 
 
 def compare_compatibility_fingerprints(expected: dict, actual: dict) -> dict:
