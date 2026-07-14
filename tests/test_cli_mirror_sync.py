@@ -9,6 +9,7 @@ from telethon.tl import functions, types
 from tests.conftest import make_session_fake
 from tgcli import safety
 from tgcli.cli import main
+from tgcli.errors import PolicyError
 from tgcli.mirror.store import MirrorStore, cooldown_deadline
 
 
@@ -108,6 +109,13 @@ class MirrorSyncClient:
     async def get_messages(self, entity, ids=None, limit=None):
         del entity, limit
         self.events.append(f"get:{ids}")
+        if isinstance(ids, list):
+            return [
+                message
+                for message_id in ids
+                for message in self.messages
+                if message.id == message_id
+            ]
         return next((message for message in self.messages if message.id == ids), None)
 
     async def iter_messages(self, entity, *, min_id=0, reverse=False):
@@ -129,19 +137,25 @@ class MirrorSyncClient:
 
     async def __call__(self, request):
         assert isinstance(request, functions.messages.ForwardMessagesRequest)
-        source_message_id = request.id[0]
         store = MirrorStore()
         store.create(42, 123, "Source channel")
-        operation = store.prepare_copy(source_message_id)
-        assert operation.random_id == request.random_id[0]
-        assert operation.destination_message_id is None
-        self.events.append(f"forward:{source_message_id}")
+        for source_message_id, random_id in zip(
+            request.id, request.random_id, strict=True
+        ):
+            operation = store.prepare_copy(source_message_id)
+            assert operation.random_id == random_id
+            assert operation.destination_message_id is None
+        forwarded = request.id[0] if len(request.id) == 1 else request.id
+        self.events.append(f"forward:{forwarded}")
         self.requests.append(request)
         return SimpleNamespace(
             updates=[
                 types.UpdateMessageID(
                     id=1000 + source_message_id,
-                    random_id=request.random_id[0],
+                    random_id=random_id,
+                )
+                for source_message_id, random_id in zip(
+                    request.id, request.random_id, strict=True
                 )
             ]
         )
@@ -162,21 +176,74 @@ class ConfirmationEnvelopeClient(MirrorSyncClient):
 
     async def __call__(self, request):
         response = await super().__call__(request)
-        update = response.updates[0]
+        updates = response.updates
         if self.envelope == "updates":
             return types.Updates(
-                updates=[update], users=[], chats=[], date=None, seq=1
+                updates=updates, users=[], chats=[], date=None, seq=1
             )
         if self.envelope == "updates_combined":
             return types.UpdatesCombined(
-                updates=[update],
+                updates=updates,
                 users=[],
                 chats=[],
                 date=None,
                 seq_start=1,
                 seq=1,
             )
-        return types.UpdateShort(update=update, date=None)
+        assert len(updates) == 1
+        return types.UpdateShort(update=updates[0], date=None)
+
+
+class RecoveryShapeClient(MirrorSyncClient):
+    def __init__(self, messages, shape):
+        super().__init__(messages)
+        self.shape = shape
+
+    async def get_messages(self, entity, ids=None, limit=None):
+        result = await super().get_messages(entity, ids=ids, limit=limit)
+        if not isinstance(ids, list):
+            return result
+        if self.shape == "shuffled":
+            return list(reversed(result))
+        if self.shape == "missing":
+            return result[:-1]
+        if self.shape == "duplicate":
+            return [result[0], result[0], *result[1:]]
+        if self.shape == "unexpected":
+            return [*result, text_message(999, "unexpected")]
+        raise AssertionError(f"unknown recovery shape: {self.shape}")
+
+
+class BatchConfirmationFaultClient(MirrorSyncClient):
+    def __init__(self, messages, fault):
+        super().__init__(messages)
+        self.fault = fault
+
+    async def __call__(self, request):
+        response = await super().__call__(request)
+        updates = response.updates
+        if self.fault == "missing":
+            return SimpleNamespace(updates=updates[:-1])
+        if self.fault == "duplicate-random":
+            return SimpleNamespace(updates=[updates[0], updates[0]])
+        if self.fault == "extra":
+            return SimpleNamespace(
+                updates=[
+                    *updates,
+                    types.UpdateMessageID(id=1999, random_id=999999),
+                ]
+            )
+        if self.fault == "duplicate-destination":
+            return SimpleNamespace(
+                updates=[
+                    types.UpdateMessageID(
+                        id=1777,
+                        random_id=update.random_id,
+                    )
+                    for update in updates
+                ]
+            )
+        raise AssertionError(f"unknown confirmation fault: {self.fault}")
 
 
 class CancellingMirrorSyncClient(MirrorSyncClient):
@@ -247,7 +314,7 @@ def test_mirror_sync_recovers_pending_copy_first_with_the_same_random_id(
 
     result = json.loads(capsys.readouterr().out)
     assert result["sync"] == {"copied": 2, "last_confirmed_message_id": 3}
-    assert client.events[:3] == ["get:2", "forward:2", "iter:2"]
+    assert client.events[:3] == ["get:[2]", "forward:2", "iter:2"]
     assert [request.id for request in client.requests] == [[2], [3]]
     assert client.requests[0].random_id == [pending.random_id]
     assert store.pending_copies() == []
@@ -463,7 +530,6 @@ def test_mirror_sync_uses_native_forward_for_explicit_single_content_allowlist(
             id="unknown-wrapper",
         ),
         pytest.param(mirror_message(1, noforwards=True), id="protected"),
-        pytest.param(mirror_message(1, grouped_id=0), id="album-zero-group-id"),
         pytest.param(
             mirror_message(1, reply_to=SimpleNamespace(reply_to_msg_id=9)),
             id="reply",
@@ -555,7 +621,7 @@ def test_mirror_sync_keeps_protected_pending_copy_without_replay_or_write(
     error = json.loads(capsys.readouterr().err)
     assert error["error"]["code"] == "BLOCKED"
     assert "protected" in error["error"]["message"]
-    assert client.events == ["get:1"]
+    assert client.events == ["get:[1]"]
     assert client.requests == []
     assert store.pending_copies() == [pending]
     assert store.last_confirmed_message_id() == 0
@@ -595,6 +661,409 @@ def test_mirror_sync_keeps_operation_pending_without_matching_confirmation(
     assert len(pending) == 1
     assert pending[0].random_id == client.requests[0].random_id[0]
     assert pending[0].destination_message_id is None
+
+
+def reply_header(parent_id, **kwargs):
+    return types.MessageReplyHeader(reply_to_msg_id=parent_id, **kwargs)
+
+
+def test_mirror_sync_recovers_shuffled_pending_album_before_new_history(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    pending = store.prepare_batch(
+        [2, 3], batch_key="album:44", random_ids=[-222, -333]
+    )
+    client = RecoveryShapeClient(
+        [
+            mirror_message(2, grouped_id=44),
+            mirror_message(3, grouped_id=44),
+            text_message(4, "new"),
+        ],
+        "shuffled",
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["sync"] == {"copied": 3, "last_confirmed_message_id": 4}
+    assert client.events[:3] == ["get:[2, 3]", "forward:[2, 3]", "iter:3"]
+    assert [request.id for request in client.requests] == [[2, 3], [4]]
+    assert client.requests[0].random_id == [item.random_id for item in pending]
+    assert store.pending_batches() == []
+
+
+@pytest.mark.parametrize("shape", ["missing", "duplicate", "unexpected"])
+def test_mirror_sync_rejects_inexact_pending_batch_recovery_before_audit_or_write(
+    config_env, monkeypatch, capsys, shape
+):
+    store = authorize_mirror()
+    pending = store.prepare_batch(
+        [2, 3], batch_key="album:44", random_ids=[-222, -333]
+    )
+    client = RecoveryShapeClient(
+        [mirror_message(2, grouped_id=44), mirror_message(3, grouped_id=44)],
+        shape,
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 2
+
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"]["code"] == "BLOCKED"
+    assert store.pending_batches() == [pending]
+    assert store.last_confirmed_message_id() == 0
+    assert client.requests == []
+    assert not safety.audit_path().exists()
+
+
+def test_mirror_sync_copies_album_once_with_ordered_audit_and_message_count(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    client = MirrorSyncClient(
+        [
+            mirror_message(7, grouped_id=0),
+            mirror_message(8, grouped_id=0),
+        ]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["sync"] == {"copied": 2, "last_confirmed_message_id": 8}
+    [request] = client.requests
+    assert request.id == [7, 8]
+    assert len(request.random_id) == 2
+    assert len(set(request.random_id)) == 2
+    [audit] = [
+        json.loads(line) for line in safety.audit_path().read_text().splitlines()
+    ]
+    assert audit["action"] == "mirror-sync-forward"
+    assert audit["source_message_ids"] == [7, 8]
+    assert audit["random_ids"] == request.random_id
+    assert store.pending_batches() == []
+    assert [store.destination_message_id(item) for item in (7, 8)] == [1007, 1008]
+
+
+def test_mirror_sync_preserves_non_null_group_id_on_single_observed_item(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    client = MirrorSyncClient([mirror_message(7, grouped_id=0)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"] == {
+        "copied": 1,
+        "last_confirmed_message_id": 7,
+    }
+    assert client.requests[0].id == [7]
+    assert store.prepare_copy(7).batch_key == "album:0"
+
+
+@pytest.mark.parametrize("envelope", ["updates", "updates_combined"])
+def test_mirror_sync_correlates_album_confirmation_across_update_envelopes(
+    config_env, monkeypatch, capsys, envelope
+):
+    store = authorize_mirror()
+    client = ConfirmationEnvelopeClient(
+        [mirror_message(7, grouped_id=44), mirror_message(8, grouped_id=44)],
+        envelope,
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 2
+    assert store.pending_batches() == []
+
+
+@pytest.mark.parametrize(
+    "fault", ["missing", "duplicate-random", "extra", "duplicate-destination"]
+)
+def test_mirror_sync_keeps_complete_album_pending_on_inexact_confirmation(
+    config_env, monkeypatch, capsys, fault
+):
+    store = authorize_mirror()
+    client = BatchConfirmationFaultClient(
+        [mirror_message(7, grouped_id=44), mirror_message(8, grouped_id=44)],
+        fault,
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 2
+
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"]["code"] == "BLOCKED"
+    [pending] = store.pending_batches()
+    assert [item.source_message_id for item in pending] == [7, 8]
+    assert store.last_confirmed_message_id() == 0
+
+
+@pytest.mark.asyncio
+async def test_mirror_sync_album_cancellation_replays_same_order_and_random_ids(
+    config_env,
+):
+    from tgcli.commands.mirror import sync_text
+
+    store = authorize_mirror()
+    messages = [mirror_message(7, grouped_id=44), mirror_message(8, grouped_id=44)]
+    cancelled = CancellingMirrorSyncClient(messages)
+
+    with pytest.raises(asyncio.CancelledError):
+        await sync_text(cancelled, "@source", "main")
+
+    [pending] = store.pending_batches()
+    cancelled_request = cancelled.requests[0]
+    assert cancelled_request.id == [7, 8]
+    assert cancelled_request.random_id == [item.random_id for item in pending]
+
+    restarted = MirrorSyncClient(messages)
+    result = await sync_text(restarted, "@source", "main")
+
+    assert result["sync"] == {"copied": 2, "last_confirmed_message_id": 8}
+    assert restarted.requests[0].id == cancelled_request.id
+    assert restarted.requests[0].random_id == cancelled_request.random_id
+
+
+def test_mirror_sync_album_audit_failure_keeps_complete_batch_pending(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    client = MirrorSyncClient(
+        [mirror_message(7, grouped_id=44), mirror_message(8, grouped_id=44)]
+    )
+    make_session_fake(monkeypatch, client)
+    monkeypatch.setattr(
+        safety,
+        "append_audit",
+        lambda *args, **kwargs: (_ for _ in ()).throw(PolicyError("audit failed")),
+    )
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 2
+
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "BLOCKED"
+    [pending] = store.pending_batches()
+    assert [item.source_message_id for item in pending] == [7, 8]
+    assert client.requests == []
+    assert store.last_confirmed_message_id() == 0
+
+
+def test_mirror_sync_blocks_mixed_album_before_prepare_audit_or_write(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    client = MirrorSyncClient(
+        [
+            mirror_message(7, grouped_id=44),
+            mirror_message(
+                8,
+                grouped_id=44,
+                media=types.MessageMediaPaidMedia(stars_amount=1, extended_media=[]),
+            ),
+        ]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 2
+
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "BLOCKED"
+    assert store.pending_batches() == []
+    assert client.requests == []
+    assert not safety.audit_path().exists()
+
+
+def test_mirror_sync_blocks_non_contiguous_group_reuse_before_second_prepare(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    client = MirrorSyncClient(
+        [
+            mirror_message(1, grouped_id=44),
+            mirror_message(2, grouped_id=44),
+            text_message(3, "separator"),
+            mirror_message(4, grouped_id=44),
+            mirror_message(5, grouped_id=44),
+        ]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 2
+
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "BLOCKED"
+    assert [request.id for request in client.requests] == [[1, 2], [3]]
+    assert store.last_confirmed_message_id() == 3
+    assert store.destination_message_id(4) is None
+    assert store.pending_batches() == []
+
+
+def test_mirror_sync_flushes_changed_group_without_merging_albums(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    client = MirrorSyncClient(
+        [
+            mirror_message(1, grouped_id=44),
+            mirror_message(2, grouped_id=44),
+            mirror_message(3, grouped_id=55),
+            mirror_message(4, grouped_id=55),
+        ]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"] == {
+        "copied": 4,
+        "last_confirmed_message_id": 4,
+    }
+    assert [request.id for request in client.requests] == [[1, 2], [3, 4]]
+    assert store.pending_batches() == []
+
+
+def test_mirror_sync_maps_reply_parent_and_preserves_quote_fields(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    store.prepare_copy(1, random_id=11)
+    store.confirm_copy(1, destination_message_id=1001)
+    quote_entities = [types.MessageEntityBold(offset=0, length=5)]
+    header = reply_header(
+        1,
+        reply_to_peer_id=types.PeerChannel(123),
+        quote=True,
+        quote_text="quote",
+        quote_entities=quote_entities,
+        quote_offset=2,
+    )
+    client = MirrorSyncClient([mirror_message(2, reply_to=header)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 1
+    [request] = client.requests
+    assert isinstance(request.reply_to, types.InputReplyToMessage)
+    assert request.reply_to.reply_to_msg_id == 1001
+    assert request.reply_to.quote_text == "quote"
+    assert request.reply_to.quote_entities == quote_entities
+    assert request.reply_to.quote_offset == 2
+    assert store.destination_message_id(2) == 1002
+
+
+def test_mirror_sync_blocks_reply_without_confirmed_parent_before_prepare_audit_or_write(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    client = MirrorSyncClient(
+        [mirror_message(2, reply_to=reply_header(1, quote_text="missing"))]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 2
+
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "BLOCKED"
+    assert store.pending_batches() == []
+    assert client.requests == []
+    assert not safety.audit_path().exists()
+
+
+@pytest.mark.parametrize("repeat_header", [False, True])
+def test_mirror_sync_album_uses_leading_reply_and_allows_later_omission_or_match(
+    config_env, monkeypatch, capsys, repeat_header
+):
+    store = authorize_mirror()
+    store.prepare_copy(1, random_id=11)
+    store.confirm_copy(1, destination_message_id=1001)
+    leading = reply_header(1, quote_text="album quote", quote_offset=1)
+    later = reply_header(1, quote_text="album quote", quote_offset=1)
+    client = MirrorSyncClient(
+        [
+            mirror_message(2, grouped_id=44, reply_to=leading),
+            mirror_message(
+                3,
+                grouped_id=44,
+                reply_to=later if repeat_header else None,
+            ),
+        ]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 2
+    [request] = client.requests
+    assert request.reply_to.reply_to_msg_id == 1001
+    assert request.reply_to.quote_text == "album quote"
+
+
+@pytest.mark.parametrize("shape", ["later-only", "conflicting-parent", "conflicting-quote"])
+def test_mirror_sync_blocks_inconsistent_album_reply_before_prepare_audit_or_write(
+    config_env, monkeypatch, capsys, shape
+):
+    store = authorize_mirror()
+    for source_id, destination_id in ((1, 1001), (6, 1006)):
+        store.prepare_copy(source_id, random_id=source_id * 10)
+        store.confirm_copy(source_id, destination_message_id=destination_id)
+    leading = None if shape == "later-only" else reply_header(1, quote_text="quote")
+    if shape == "conflicting-parent":
+        later = reply_header(6, quote_text="quote")
+    elif shape == "conflicting-quote":
+        later = reply_header(1, quote_text="different")
+    else:
+        later = reply_header(1, quote_text="quote")
+    client = MirrorSyncClient(
+        [
+            mirror_message(7, grouped_id=44, reply_to=leading),
+            mirror_message(8, grouped_id=44, reply_to=later),
+        ]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 2
+
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "BLOCKED"
+    assert store.destination_message_id(7) is None
+    assert store.pending_batches() == []
+    assert client.requests == []
+    assert not safety.audit_path().exists()
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        pytest.param(reply_header(1, reply_to_peer_id=types.PeerChannel(321)), id="cross-peer"),
+        pytest.param(reply_header(1, forum_topic=True), id="forum"),
+        pytest.param(reply_header(1, reply_to_scheduled=True), id="scheduled"),
+        pytest.param(reply_header(1, reply_to_ephemeral=True), id="ephemeral"),
+        pytest.param(reply_header(1, reply_to_top_id=1), id="top"),
+        pytest.param(reply_header(1, todo_item_id=1), id="todo"),
+        pytest.param(reply_header(1, poll_option=b"x"), id="poll-option"),
+        pytest.param(reply_header(1, reply_from=SimpleNamespace()), id="reply-from"),
+        pytest.param(reply_header(1, reply_media=SimpleNamespace()), id="reply-media"),
+        pytest.param(SimpleNamespace(reply_to_msg_id=1), id="unknown-header"),
+    ],
+)
+def test_mirror_sync_blocks_unsupported_reply_shapes_before_prepare_audit_or_write(
+    config_env, monkeypatch, capsys, header
+):
+    store = authorize_mirror()
+    store.prepare_copy(1, random_id=11)
+    store.confirm_copy(1, destination_message_id=1001)
+    client = MirrorSyncClient([mirror_message(2, reply_to=header)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 2
+
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "BLOCKED"
+    assert store.destination_message_id(2) is None
+    assert store.pending_batches() == []
+    assert client.requests == []
+    assert not safety.audit_path().exists()
 
 
 @pytest.mark.parametrize(

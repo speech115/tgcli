@@ -210,20 +210,37 @@ async def commit_init(
         return _result(record, destination_title=destination_title)
 
 
-def _destination_message_id(response, random_id: int) -> int:
+def _response_updates(response) -> tuple[object, ...]:
     updates = getattr(response, "updates", None)
     if updates is None:
         update = getattr(response, "update", None)
         updates = () if update is None else (update,)
-    matches = [
-        update.id
-        for update in updates
-        if isinstance(update, types.UpdateMessageID)
-        and update.random_id == random_id
-    ]
-    if len(matches) != 1:
-        raise PolicyError("Telegram did not confirm the mirrored message")
-    return matches[0]
+    return tuple(updates)
+
+
+def _destination_message_ids(
+    response, random_ids: list[int]
+) -> dict[int, int]:
+    confirmations: dict[int, int] = {}
+    for update in _response_updates(response):
+        if not isinstance(update, types.UpdateMessageID):
+            continue
+        if update.random_id in confirmations:
+            raise PolicyError("Telegram returned a duplicate mirror confirmation")
+        confirmations[update.random_id] = update.id
+    if set(confirmations) != set(random_ids) or len(confirmations) != len(random_ids):
+        raise PolicyError("Telegram did not confirm the complete mirrored batch")
+    destination_ids = list(confirmations.values())
+    if any(
+        isinstance(destination_id, bool)
+        or not isinstance(destination_id, int)
+        or destination_id <= 0
+        for destination_id in destination_ids
+    ):
+        raise PolicyError("Telegram returned an invalid mirror confirmation")
+    if len(set(destination_ids)) != len(destination_ids):
+        raise PolicyError("Telegram returned duplicate destination messages")
+    return confirmations
 
 
 _NATIVE_MEDIA_TYPES = (
@@ -239,16 +256,6 @@ def _require_supported_message(message) -> None:
             f"protected mirror messages require the later reconstruction slice; "
             f"stopped at source message {message.id}"
         )
-    if getattr(message, "grouped_id", None) is not None:
-        raise PolicyError(
-            f"mirror albums require the later atomic album slice; "
-            f"stopped at source message {message.id}"
-        )
-    if getattr(message, "reply_to", None) is not None:
-        raise PolicyError(
-            f"mirror replies require the later mapped reply slice; "
-            f"stopped at source message {message.id}"
-        )
     if getattr(message, "action", None) is not None:
         raise PolicyError(
             f"mirror service messages are not supported; "
@@ -262,37 +269,189 @@ def _require_supported_message(message) -> None:
         )
 
 
-async def _forward_copy(
+def _reply_peer_is_source(peer, source_peer_id: int) -> bool:
+    return isinstance(peer, types.PeerChannel) and peer.channel_id == source_peer_id
+
+
+def _normalized_reply(message, source_peer_id: int):
+    header = getattr(message, "reply_to", None)
+    if header is None:
+        return None
+    if not isinstance(header, types.MessageReplyHeader):
+        raise PolicyError(
+            f"mirror reply shape is not supported; stopped at source message {message.id}"
+        )
+    if (
+        bool(header.reply_to_scheduled)
+        or bool(header.forum_topic)
+        or bool(header.reply_to_ephemeral)
+        or header.reply_to_top_id is not None
+        or header.todo_item_id is not None
+        or header.poll_option is not None
+        or header.reply_from is not None
+        or header.reply_media is not None
+    ):
+        raise PolicyError(
+            f"mirror reply shape is not supported; stopped at source message {message.id}"
+        )
+    if header.reply_to_peer_id is not None and not _reply_peer_is_source(
+        header.reply_to_peer_id, source_peer_id
+    ):
+        raise PolicyError(
+            f"cross-peer mirror replies are not supported; "
+            f"stopped at source message {message.id}"
+        )
+    parent_id = header.reply_to_msg_id
+    if isinstance(parent_id, bool) or not isinstance(parent_id, int) or parent_id <= 0:
+        raise PolicyError(
+            f"mirror reply parent is invalid; stopped at source message {message.id}"
+        )
+    if header.quote_text is not None and not isinstance(header.quote_text, str):
+        raise PolicyError(
+            f"mirror reply quote is invalid; stopped at source message {message.id}"
+        )
+    quote_entities = tuple(header.quote_entities or ())
+    if quote_entities and header.quote_text is None:
+        raise PolicyError(
+            f"mirror reply quote is invalid; stopped at source message {message.id}"
+        )
+    if header.quote_offset is not None and (
+        isinstance(header.quote_offset, bool)
+        or not isinstance(header.quote_offset, int)
+        or header.quote_offset < 0
+        or header.quote_text is None
+    ):
+        raise PolicyError(
+            f"mirror reply quote is invalid; stopped at source message {message.id}"
+        )
+    return (
+        parent_id,
+        header.quote_text,
+        quote_entities,
+        header.quote_offset,
+    )
+
+
+def _validate_batch(
+    messages: list[object], store: MirrorStore, source_peer_id: int
+):
+    if not messages:
+        raise PolicyError("mirror batch is empty")
+    message_ids = [getattr(message, "id", None) for message in messages]
+    if any(
+        isinstance(message_id, bool)
+        or not isinstance(message_id, int)
+        or message_id <= 0
+        for message_id in message_ids
+    ) or len(set(message_ids)) != len(message_ids):
+        raise PolicyError("mirror batch contains invalid source message ids")
+
+    grouped_ids = [getattr(message, "grouped_id", None) for message in messages]
+    grouped_id = grouped_ids[0]
+    if grouped_id is None:
+        if len(messages) != 1 or any(item is not None for item in grouped_ids):
+            raise PolicyError("mirror batch membership is inconsistent")
+    else:
+        if (
+            isinstance(grouped_id, bool)
+            or not isinstance(grouped_id, int)
+            or any(item != grouped_id for item in grouped_ids)
+        ):
+            raise PolicyError("mirror album membership is inconsistent")
+
+    for message in messages:
+        _require_supported_message(message)
+
+    replies = [
+        _normalized_reply(message, source_peer_id) for message in messages
+    ]
+    leading = replies[0]
+    if leading is None:
+        if any(reply is not None for reply in replies[1:]):
+            raise PolicyError("mirror album reply appears only after its leading item")
+        return None
+    if any(reply is not None and reply != leading for reply in replies[1:]):
+        raise PolicyError("mirror album reply metadata is inconsistent")
+
+    parent_id, quote_text, quote_entities, quote_offset = leading
+    destination_parent_id = store.destination_message_id(parent_id)
+    if destination_parent_id is None:
+        raise PolicyError(
+            f"mirror reply parent is not confirmed: {parent_id}"
+        )
+    return types.InputReplyToMessage(
+        reply_to_msg_id=destination_parent_id,
+        quote_text=quote_text,
+        quote_entities=list(quote_entities) or None,
+        quote_offset=quote_offset,
+    )
+
+
+def _ordered_recovered_messages(
+    recovered, operations: list[CopyOperation]
+) -> list[object]:
+    if not isinstance(recovered, (list, tuple)):
+        raise PolicyError("Telegram did not return the complete pending mirror batch")
+    by_id: dict[int, object] = {}
+    for message in recovered:
+        message_id = getattr(message, "id", None)
+        if (
+            isinstance(message_id, bool)
+            or not isinstance(message_id, int)
+            or message_id <= 0
+            or message_id in by_id
+        ):
+            raise PolicyError("Telegram returned an invalid pending mirror batch")
+        by_id[message_id] = message
+    expected_ids = {operation.source_message_id for operation in operations}
+    if set(by_id) != expected_ids:
+        raise PolicyError("Telegram did not return the exact pending mirror batch")
+    return [by_id[operation.source_message_id] for operation in operations]
+
+
+async def _dispatch_prepared_batch(
     tg,
     *,
+    operations: list[CopyOperation],
+    store: MirrorStore,
+    reply_to,
     source_peer,
     destination_peer,
-    operation: CopyOperation,
     account_user_id: int,
     account_alias: str,
     mirror_id: str,
 ) -> int:
+    source_message_ids = [operation.source_message_id for operation in operations]
+    random_ids = [operation.random_id for operation in operations]
     safety.append_audit(
         "mirror-sync-forward",
         account_alias,
         {
             "mirror_id": mirror_id,
-            "source_message_id": operation.source_message_id,
-            "random_id": operation.random_id,
+            "source_message_ids": source_message_ids,
+            "random_ids": random_ids,
         },
     )
     response = await _dispatch_mutation(
         tg,
         functions.messages.ForwardMessagesRequest(
             from_peer=source_peer,
-            id=[operation.source_message_id],
-            random_id=[operation.random_id],
+            id=source_message_ids,
+            random_id=random_ids,
             to_peer=destination_peer,
             drop_author=True,
+            reply_to=reply_to,
         ),
         account_user_id,
     )
-    return _destination_message_id(response, operation.random_id)
+    confirmations = _destination_message_ids(response, random_ids)
+    store.confirm_batch(
+        {
+            operation.source_message_id: confirmations[operation.random_id]
+            for operation in operations
+        }
+    )
+    return len(operations)
 
 
 async def sync_text(tg, source: str, account_alias: str) -> dict:
@@ -312,40 +471,85 @@ async def sync_text(tg, source: str, account_alias: str) -> dict:
         source_peer = await tg.get_input_entity(entity)
         destination_peer = await tg.get_input_entity(destination)
         copied = 0
-        for operation in store.pending_copies():
-            message = await tg.get_messages(entity, ids=operation.source_message_id)
-            if message is None:
-                raise PolicyError(
-                    f"pending source message is unavailable: {operation.source_message_id}"
-                )
-            _require_supported_message(message)
-            destination_message_id = await _forward_copy(
+        for operations in store.pending_batches():
+            operations = sorted(operations, key=lambda item: item.batch_index)
+            source_message_ids = [
+                operation.source_message_id for operation in operations
+            ]
+            recovered = await tg.get_messages(entity, ids=source_message_ids)
+            messages = _ordered_recovered_messages(recovered, operations)
+            reply_to = _validate_batch(messages, store, entity.id)
+            copied += await _dispatch_prepared_batch(
                 tg,
+                operations=operations,
+                store=store,
+                reply_to=reply_to,
                 source_peer=source_peer,
                 destination_peer=destination_peer,
-                operation=operation,
                 account_user_id=me.id,
                 account_alias=account_alias,
                 mirror_id=record.mirror_id,
             )
-            store.confirm_copy(operation.source_message_id, destination_message_id)
-            copied += 1
 
         cursor = store.last_confirmed_message_id()
-        async for message in tg.iter_messages(entity, min_id=cursor, reverse=True):
-            _require_supported_message(message)
-            operation = store.prepare_copy(message.id)
-            destination_message_id = await _forward_copy(
+        active_album: list[object] = []
+        seen_group_ids: set[int] = set()
+
+        async def copy_new_batch(messages: list[object]) -> int:
+            reply_to = _validate_batch(messages, store, entity.id)
+            source_message_ids = [message.id for message in messages]
+            grouped_id = getattr(messages[0], "grouped_id", None)
+            batch_key = (
+                f"single:{source_message_ids[0]}"
+                if grouped_id is None
+                else f"album:{grouped_id}"
+            )
+            operations = store.prepare_batch(
+                source_message_ids,
+                batch_key=batch_key,
+            )
+            return await _dispatch_prepared_batch(
                 tg,
+                operations=operations,
+                store=store,
+                reply_to=reply_to,
                 source_peer=source_peer,
                 destination_peer=destination_peer,
-                operation=operation,
                 account_user_id=me.id,
                 account_alias=account_alias,
                 mirror_id=record.mirror_id,
             )
-            store.confirm_copy(message.id, destination_message_id)
-            copied += 1
+
+        async for message in tg.iter_messages(entity, min_id=cursor, reverse=True):
+            grouped_id = getattr(message, "grouped_id", None)
+            if grouped_id is None:
+                if active_album:
+                    copied += await copy_new_batch(active_album)
+                    active_album = []
+                copied += await copy_new_batch([message])
+                continue
+
+            if isinstance(grouped_id, bool) or not isinstance(grouped_id, int):
+                raise PolicyError(
+                    f"mirror album group id is invalid at source message {message.id}"
+                )
+            if active_album and grouped_id == getattr(
+                active_album[0], "grouped_id", None
+            ):
+                active_album.append(message)
+                continue
+            if active_album:
+                copied += await copy_new_batch(active_album)
+                active_album = []
+            if grouped_id in seen_group_ids:
+                raise PolicyError(
+                    f"mirror album group {grouped_id} is not contiguous"
+                )
+            seen_group_ids.add(grouped_id)
+            active_album = [message]
+
+        if active_album:
+            copied += await copy_new_batch(active_album)
 
         return {
             "mirror": _result(
