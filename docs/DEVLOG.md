@@ -23,8 +23,11 @@ its initial RED was `20 failed, 20 passed`; review-driven REDs were
 final store suite was `56 passed`. Task 2's explicit media-policy RED was
 `9 failed, 24 passed` and focused GREEN was `33 passed`. Task 3's album/reply
 RED was `14 failed, 51 passed` and focused GREEN was `66 passed`. The accepted
-Task 1, Task 2, and Task 3 reviews all returned PASS. Updated CONTRACT, MAP,
-PLAN, and the implementation plan to describe only shipped behavior.
+Task 1, Task 2, and Task 3 reviews all returned PASS. Whole-slice review then
+caught unhandled local-store `ValueError`; its end-to-end boundary RED was
+`3 failed, 66 passed` and final sync GREEN was `69 passed`. The corrected
+whole-slice re-review returned SHIP. Updated CONTRACT, MAP, PLAN, and the
+implementation plan to describe only shipped behavior.
 **Decided:** `sync` natively forwards only unprotected text, webpage, photo,
 and document wrappers; contiguous albums are one prepared/audited/dispatched/
 confirmed batch with distinct persisted random ids; plain intra-channel
@@ -35,10 +38,11 @@ reconstruction, groups, and forums remain deferred.
 **Learned:** the streaming backfill cannot pre-scan unbounded history. A
 non-contiguous reuse of a completed `grouped_id` therefore blocks the reused
 segment before its own prepare/audit/network work while previously confirmed
-batches remain committed. This preserves both fail-closed behavior and useful
-streaming progress.
-**Checks:** mirror-focused tests reported `154 passed in 1.23s`; the full suite
-reported `371 passed, 8 skipped in 2.75s`; the namespace gate reported
+batches remain committed. Cross-run reuse and malformed store state must also
+cross the CLI boundary as structured `BLOCKED`, never a Python traceback. This
+preserves fail-closed behavior and useful streaming progress.
+**Checks:** mirror-focused tests reported `157 passed in 1.52s`; the full suite
+reported `374 passed, 8 skipped in 2.95s`; the namespace gate reported
 `coverage OK: 23 namespaces`; `git diff --check` exited 0 with no output. All
 tests used local fakes or mocked clients; no Telegram connection or mutation
 was attempted.

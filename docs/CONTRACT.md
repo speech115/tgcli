@@ -371,6 +371,13 @@ discussion comments, foreground watch, protected-content reconstruction,
 forum topics, groups, reactions, views, and attribution emulation remain
 explicit later slices, not silently claimed by this contract.
 
+An expected local mirror-store migration or invariant failure exits 2 with
+`local mirror state is invalid; manual repair is required`. Detection during
+sync occurs before destination/input-peer preparation, audit, or Telegram
+mutation where the invalid state is already observable. This translation is
+limited to `MirrorStore` operations; unrelated Telegram/client `ValueError`
+exceptions are not mislabeled as local state failures.
+
 `sync` has no implicit overall timeout because a serial backfill may
 legitimately run for longer than 60 seconds. An explicit `--timeout` still
 applies; interruption leaves an unconfirmed batch with its persisted source
