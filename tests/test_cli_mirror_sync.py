@@ -40,22 +40,41 @@ def channel(channel_id, title, *, creator=False, noforwards=False):
     )
 
 
-def text_message(message_id, text, *, noforwards=False):
+def mirror_message(
+    message_id,
+    text="caption",
+    *,
+    media=None,
+    action=None,
+    noforwards=False,
+    grouped_id=None,
+    reply_to=None,
+):
     return SimpleNamespace(
         id=message_id,
         message=text,
-        media=None,
-        action=None,
+        media=media,
+        action=action,
         noforwards=noforwards,
+        grouped_id=grouped_id,
+        reply_to=reply_to,
     )
 
 
+def text_message(message_id, text, *, noforwards=False):
+    return mirror_message(message_id, text, noforwards=noforwards)
+
+
 def media_message(message_id):
-    return SimpleNamespace(
-        id=message_id,
-        message="caption",
-        media=SimpleNamespace(kind="photo"),
-        action=None,
+    return mirror_message(
+        message_id,
+        media=SimpleNamespace(kind="unknown"),
+    )
+
+
+def document_media(*attributes):
+    return types.MessageMediaDocument(
+        document=SimpleNamespace(attributes=list(attributes))
     )
 
 
@@ -68,6 +87,9 @@ class MirrorSyncClient:
         self.iter_messages_calls = []
         self.input_entity_calls = []
         self.events = []
+        self.download_media_calls = []
+        self.upload_file_calls = []
+        self.send_file_calls = []
 
     async def get_me(self):
         return SimpleNamespace(id=42)
@@ -95,6 +117,15 @@ class MirrorSyncClient:
         for message in sorted(self.messages, key=lambda item: item.id):
             if message.id > min_id:
                 yield message
+
+    async def download_media(self, *args, **kwargs):
+        self.download_media_calls.append((args, kwargs))
+
+    async def upload_file(self, *args, **kwargs):
+        self.upload_file_calls.append((args, kwargs))
+
+    async def send_file(self, *args, **kwargs):
+        self.send_file_calls.append((args, kwargs))
 
     async def __call__(self, request):
         assert isinstance(request, functions.messages.ForwardMessagesRequest)
@@ -338,6 +369,124 @@ def test_mirror_sync_reports_resolved_destination_title(
     }
 
 
+@pytest.mark.parametrize(
+    "media",
+    [
+        pytest.param(None, id="no-media"),
+        pytest.param(
+            types.MessageMediaWebPage(webpage=types.WebPageEmpty(id=71)),
+            id="webpage",
+        ),
+        pytest.param(
+            types.MessageMediaPhoto(photo=types.PhotoEmpty(id=72)),
+            id="photo",
+        ),
+        pytest.param(document_media(), id="generic-document"),
+        pytest.param(
+            document_media(types.DocumentAttributeVideo(duration=1, w=16, h=9)),
+            id="video-document",
+        ),
+        pytest.param(
+            document_media(types.DocumentAttributeAudio(duration=1, voice=True)),
+            id="voice-document",
+        ),
+        pytest.param(
+            document_media(
+                types.DocumentAttributeSticker(
+                    alt="sticker",
+                    stickerset=types.InputStickerSetEmpty(),
+                )
+            ),
+            id="sticker-document",
+        ),
+    ],
+)
+def test_mirror_sync_uses_native_forward_for_explicit_single_content_allowlist(
+    config_env, monkeypatch, capsys, media
+):
+    store = authorize_mirror()
+    client = MirrorSyncClient([mirror_message(7, media=media)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["sync"] == {"copied": 1, "last_confirmed_message_id": 7}
+    [request] = client.requests
+    assert isinstance(request, functions.messages.ForwardMessagesRequest)
+    assert request.id == [7]
+    assert request.drop_author is True
+    assert request.drop_media_captions is not True
+    assert client.download_media_calls == []
+    assert client.upload_file_calls == []
+    assert client.send_file_calls == []
+    assert store.pending_copies() == []
+    assert store.destination_message_id(7) == 1007
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        pytest.param(
+            mirror_message(1, action=types.MessageActionEmpty()),
+            id="service",
+        ),
+        pytest.param(
+            mirror_message(
+                1,
+                media=types.MessageMediaPaidMedia(
+                    stars_amount=1,
+                    extended_media=[],
+                ),
+            ),
+            id="paid-media",
+        ),
+        pytest.param(
+            mirror_message(
+                1,
+                media=types.MessageMediaStory(peer=types.PeerChannel(123), id=9),
+            ),
+            id="story",
+        ),
+        pytest.param(
+            mirror_message(
+                1,
+                media=types.MessageMediaPoll(
+                    poll=SimpleNamespace(),
+                    results=types.PollResults(),
+                ),
+            ),
+            id="poll",
+        ),
+        pytest.param(
+            mirror_message(1, media=SimpleNamespace(kind="unknown-wrapper")),
+            id="unknown-wrapper",
+        ),
+        pytest.param(mirror_message(1, noforwards=True), id="protected"),
+        pytest.param(mirror_message(1, grouped_id=0), id="album-zero-group-id"),
+        pytest.param(
+            mirror_message(1, reply_to=SimpleNamespace(reply_to_msg_id=9)),
+            id="reply",
+        ),
+    ],
+)
+def test_mirror_sync_blocks_non_allowlisted_or_deferred_content_before_prepare_audit_or_write(
+    config_env, monkeypatch, capsys, message
+):
+    store = authorize_mirror()
+    client = MirrorSyncClient([message])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 2
+
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"]["code"] == "BLOCKED"
+    assert store.pending_copies() == []
+    assert store.last_confirmed_message_id() == 0
+    assert client.requests == []
+    assert not safety.audit_path().exists()
+
+
 def test_mirror_sync_stops_at_media_without_marking_it_copied(
     config_env, monkeypatch, capsys
 ):
@@ -351,7 +500,7 @@ def test_mirror_sync_stops_at_media_without_marking_it_copied(
 
     error = json.loads(capsys.readouterr().err)
     assert error["error"]["code"] == "BLOCKED"
-    assert "text messages only" in error["error"]["message"]
+    assert "not supported" in error["error"]["message"]
     assert [request.id for request in client.requests] == [[1]]
     assert store.last_confirmed_message_id() == 1
     assert store.pending_copies() == []

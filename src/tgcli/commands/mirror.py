@@ -226,17 +226,39 @@ def _destination_message_id(response, random_id: int) -> int:
     return matches[0]
 
 
-def _require_text_message(message) -> None:
+_NATIVE_MEDIA_TYPES = (
+    types.MessageMediaWebPage,
+    types.MessageMediaPhoto,
+    types.MessageMediaDocument,
+)
+
+
+def _require_supported_message(message) -> None:
     if getattr(message, "noforwards", False):
         raise PolicyError(
-            f"protected mirror messages require the later media sync slice; "
+            f"protected mirror messages require the later reconstruction slice; "
             f"stopped at source message {message.id}"
         )
-    if getattr(message, "media", None) is not None or getattr(
-        message, "action", None
-    ) is not None:
+    if getattr(message, "grouped_id", None) is not None:
         raise PolicyError(
-            f"mirror sync supports text messages only; stopped at source message {message.id}"
+            f"mirror albums require the later atomic album slice; "
+            f"stopped at source message {message.id}"
+        )
+    if getattr(message, "reply_to", None) is not None:
+        raise PolicyError(
+            f"mirror replies require the later mapped reply slice; "
+            f"stopped at source message {message.id}"
+        )
+    if getattr(message, "action", None) is not None:
+        raise PolicyError(
+            f"mirror service messages are not supported; "
+            f"stopped at source message {message.id}"
+        )
+    media = getattr(message, "media", None)
+    if media is not None and not isinstance(media, _NATIVE_MEDIA_TYPES):
+        raise PolicyError(
+            f"mirror media type {type(media).__name__} is not supported; "
+            f"stopped at source message {message.id}"
         )
 
 
@@ -296,7 +318,7 @@ async def sync_text(tg, source: str, account_alias: str) -> dict:
                 raise PolicyError(
                     f"pending source message is unavailable: {operation.source_message_id}"
                 )
-            _require_text_message(message)
+            _require_supported_message(message)
             destination_message_id = await _forward_copy(
                 tg,
                 source_peer=source_peer,
@@ -311,7 +333,7 @@ async def sync_text(tg, source: str, account_alias: str) -> dict:
 
         cursor = store.last_confirmed_message_id()
         async for message in tg.iter_messages(entity, min_id=cursor, reverse=True):
-            _require_text_message(message)
+            _require_supported_message(message)
             operation = store.prepare_copy(message.id)
             destination_message_id = await _forward_copy(
                 tg,
