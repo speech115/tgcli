@@ -91,7 +91,8 @@ def make_session_fake(monkeypatch, fake_client):
     from tgcli import cli
 
     @asynccontextmanager
-    async def fake_session(account):
+    async def fake_session(account, *, mutation_safe=False):
+        fake_client.session_mutation_safe = mutation_safe
         yield fake_client
 
     monkeypatch.setattr(cli.session, "client", fake_session)

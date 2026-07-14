@@ -26,7 +26,7 @@ tgcli/
 │   ├── errors.py              [done]    TgcliError hierarchy ↔ exit codes (CONTRACT.md §4)
 │   ├── chatref.py             [done]    chat reference normalization (numeric dialog id → int)
 │   ├── config.py              [done]    ~/.config/tgcli/config.toml, accounts registry, alias resolution
-│   ├── session.py             [done]    session paths, per-account file lock, TelegramClient factory
+│   ├── session.py             [done]    session locks + normal/mutation-safe TelegramClient factory
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
 │   ├── mirror/                [wip]     per-source SQLite identity/copy recovery + create state; account cooldown store done; later fidelity slices planned
@@ -56,11 +56,13 @@ tgcli/
 - `commands/*` never print — they return data structures; `cli.py` passes
   them to `output.emit()`. This is what keeps the stdout contract testable.
 - `errors.py` is the only place exit codes live.
-- `mirror/store.py` owns durable per-source creation/copy state and the
-  account-scoped cooldown files under `TGCLI_STATE_DIR/mirrors/`.
+- `mirror/store.py` owns durable per-source creation/copy state, serialized
+  cooldown persistence, and hashed account-user-id mutation locks under
+  `TGCLI_STATE_DIR/mirrors/`.
 - `commands/mirror.py` owns init reconciliation, mutation-time cooldown
-  enforcement, and text-sync orchestration. Media, comments, watch, and
-  showcase promotion are not implemented by the current command module.
+  enforcement, account-lock scope, and text-sync orchestration. Media,
+  comments, watch, and showcase promotion are not implemented by the current
+  command module.
 
 ## ADR Index
 

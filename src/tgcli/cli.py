@@ -146,8 +146,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 async def _run_network(args, account) -> tuple[dict, list[tuple]]:
+    mutation_safe = args.command == "mirror" and (
+        args.mirror_command == "sync"
+        or (args.mirror_command == "init" and args.commit)
+    )
     try:
-        async with session.client(account) as tg:
+        async with session.client(account, mutation_safe=mutation_safe) as tg:
             if args.command == "dialogs":
                 data = await dialogs_cmd.fetch_dialogs(tg, limit=args.limit)
                 return data, dialogs_cmd.to_rows(data)
@@ -258,13 +262,13 @@ def main(argv: list[str] | None = None) -> int:
     exit_code = 1
     error_code = None
     try:
-        if (
-            args.command == "mirror"
-            and args.mirror_command == "init"
-            and not args.commit
-            and (args.retry_create or args.confirm is not None)
-        ):
-            raise PolicyError("mirror init retry flags require --commit")
+        if args.command == "mirror" and args.mirror_command == "init":
+            if args.retry_create != (args.confirm is not None):
+                raise PolicyError(
+                    "retry create requires --confirm with the exact mirror id"
+                )
+            if not args.commit and (args.retry_create or args.confirm is not None):
+                raise PolicyError("mirror init retry flags require --commit")
         if (
             args.command == "mirror"
             and (

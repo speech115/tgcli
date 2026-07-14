@@ -268,7 +268,11 @@ an automatic second create: the only retry form is
 exact id from that mirror. Either retry flag without `--commit`, a missing
 partner flag, or a non-exact id exits 2. An already authorized mirror resolves
 only its stored destination id and never scans the creation marker or creates
-again.
+again. Retry-create flags are inapplicable after authorization: missing,
+unpaired, non-exact, and otherwise valid retry pairs all exit 2 instead of
+being silently accepted. Retry-flag pairing is validated before session
+acquisition; exact mirror identity is validated after source/account
+resolution and before the authorized short-circuit.
 
 Authorized JSON uses `destination:{"id":999,"title":"Source channel"}`,
 status `authorized`, and `commit_required:false`. Plain init columns are
@@ -297,13 +301,27 @@ no duplicate for an already confirmed source message.
 A Telegram `FloodWait` during mirror create, title edit, or message copy writes
 an account-scoped UTC `retry_not_before` to
 `TGCLI_STATE_DIR/mirrors/cooldowns/<sha256-account-id>.json`. The file is mode
-`0600`, is replaced atomically, and a later existing deadline is never
-shortened. While the deadline is active, `init --commit` and `sync` fail
+`0600`, is replaced atomically, and the replacement plus parent directory are
+fsynced. Cooldown writers serialize on a private account-scoped lock, so
+concurrent compare-and-max updates never shorten a later deadline. While the
+deadline is active, `init --commit` and `sync` fail
 locally before mirror-store creation, marker scan, audit, or Telegram mutation;
 the existing exit-5 `FLOOD_WAIT` shape reports the ceiling of remaining seconds
 as `retry_after`. tgcli does not sleep or retry internally. `init` preview
 remains read-only and available, and expiry of the cooldown does not relax the
 explicit confirmed-retry rule after an ambiguous create.
+
+Mirror mutation sessions disable Telethon's hidden RPC replay and short-wait
+sleep behavior with exactly `request_retries=0` and
+`flood_sleep_threshold=0`. This mode is used only by `init --commit` and
+`sync`; init preview and unrelated commands keep the normal read-oriented
+Telethon defaults. After source/account resolution, both mutation commands
+hold one non-blocking lock keyed by the resolved Telegram user id across the
+cooldown check, reconciliation, audit, Telegram dispatch, and durable
+confirmation. The private mode-`0600` lock is
+`TGCLI_STATE_DIR/mirrors/locks/<sha256-account-id>.lock`, so different local
+session aliases for the same Telegram user cannot mutate concurrently; a
+contender exits 3 before audit or mutation dispatch.
 
 `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block `init --commit`
 and `sync` before config/session/network work. Every create, title edit, and

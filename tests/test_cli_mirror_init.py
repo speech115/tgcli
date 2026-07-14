@@ -1,5 +1,6 @@
 import asyncio
 import json
+import stat
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -10,7 +11,7 @@ from telethon.tl import functions
 from tests.conftest import make_session_fake
 from tgcli import safety
 from tgcli.cli import main
-from tgcli.errors import PolicyError
+from tgcli.errors import ConfigError, PolicyError
 from tgcli.mirror.store import (
     MirrorStore,
     cooldown_deadline,
@@ -120,6 +121,7 @@ def test_mirror_init_preview_makes_no_telegram_mutation(
         }
     }
     assert client.requests == []
+    assert client.session_mutation_safe is False
     assert not safety.audit_path().exists()
 
 
@@ -133,6 +135,7 @@ def test_mirror_init_commit_creates_once_and_restores_source_title(
     first = json.loads(capsys.readouterr().out)
     assert first["mirror"]["destination"] == {"id": 999, "title": "Source channel"}
     assert first["mirror"]["status"] == "authorized"
+    assert client.session_mutation_safe is True
 
     creates = [r for r in client.requests if isinstance(r, functions.channels.CreateChannelRequest)]
     titles = [r for r in client.requests if isinstance(r, functions.channels.EditTitleRequest)]
@@ -452,16 +455,99 @@ async def test_authorized_init_never_scans_or_creates_again(config_env, monkeypa
     monkeypatch.setattr(MirrorStore, "mark_create_dispatched", fail_marker_write)
     monkeypatch.setattr(MirrorStore, "mark_create_blocked", fail_marker_write)
 
-    result = await mirror.commit_init(
-        client,
-        "@source",
-        "main",
-        retry_create=True,
-        confirm=record.mirror_id,
-    )
+    result = await mirror.commit_init(client, "@source", "main")
 
     assert result["mirror"]["destination"] == {"id": 999, "title": "Source channel"}
     assert client.requests == []
+
+
+@pytest.mark.parametrize(
+    ("retry_create", "confirm", "message"),
+    [
+        (True, None, "exact mirror id"),
+        (False, mirror_id(42, 123), "exact mirror id"),
+        (True, "wrong-mirror-id", "exact mirror id"),
+        (True, mirror_id(42, 123), "not applicable"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_authorized_init_rejects_all_retry_create_flags(
+    config_env, retry_create, confirm, message
+):
+    from tgcli.commands.mirror import commit_init
+
+    store = MirrorStore()
+    store.create(42, 123, "Source channel")
+    store.authorize(999)
+    client = MirrorInitClient()
+    client.destination = channel(999, "Source channel")
+
+    with pytest.raises(PolicyError, match=message):
+        await commit_init(
+            client,
+            "@source",
+            "main",
+            retry_create=retry_create,
+            confirm=confirm,
+        )
+
+    assert client.requests == []
+    assert client.dialog_scan_calls == 0
+
+
+class BlockingMirrorInitClient(MirrorInitClient):
+    def __init__(self, entered, release):
+        super().__init__()
+        self.entered = entered
+        self.release = release
+
+    async def __call__(self, request):
+        if isinstance(request, functions.channels.CreateChannelRequest):
+            self.requests.append(request)
+            self.creation_state_at_dispatch = MirrorStore().create(
+                42, 123, self.source.title
+            ).creation_state
+            self.destination = channel(999, request.title)
+            self.entered.set()
+            await self.release.wait()
+            return SimpleNamespace(chats=[self.destination])
+        return await super().__call__(request)
+
+
+@pytest.mark.asyncio
+async def test_same_account_user_id_serializes_mutations_across_session_aliases(
+    config_env,
+):
+    from tgcli.commands.mirror import commit_init
+
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    first = BlockingMirrorInitClient(entered, release)
+    second = MirrorInitClient()
+    first_task = asyncio.create_task(
+        commit_init(first, "@source", "first-session-alias")
+    )
+    await asyncio.wait_for(entered.wait(), timeout=1)
+
+    with pytest.raises(ConfigError, match="mirror account.*busy"):
+        await commit_init(second, "@source", "second-session-alias")
+
+    assert second.dialog_scan_calls == 0
+    assert second.requests == []
+    release.set()
+    await first_task
+    assert sum(
+        isinstance(request, functions.channels.CreateChannelRequest)
+        for request in first.requests + second.requests
+    ) == 1
+
+    reopened = MirrorStore()
+    reopened.create(42, 123, "Source channel")
+    locks_dir = reopened.path.parent / "locks"
+    lock_files = list(locks_dir.glob("*.lock"))
+    assert len(lock_files) == 1
+    assert "42" not in lock_files[0].name
+    assert stat.S_IMODE(lock_files[0].stat().st_mode) == 0o600
 
 
 @pytest.mark.parametrize(
@@ -561,4 +647,25 @@ def test_retry_flags_without_commit_are_blocked_before_session(monkeypatch, extr
     )
 
     assert main(["mirror", "init", "@source", *extra]) == 2
+    assert not safety.audit_path().exists()
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--retry-create"],
+        ["--confirm", mirror_id(42, 123)],
+    ],
+)
+def test_paired_retry_flags_are_validated_before_session_with_commit(
+    monkeypatch, extra
+):
+    from tgcli import cli
+
+    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
+    monkeypatch.setattr(
+        cli.session, "client", lambda account: pytest.fail("session opened")
+    )
+
+    assert main(["mirror", "init", "@source", "--commit", *extra]) == 2
     assert not safety.audit_path().exists()

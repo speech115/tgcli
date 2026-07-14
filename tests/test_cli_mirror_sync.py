@@ -180,6 +180,7 @@ def test_mirror_sync_forwards_text_oldest_first_and_restart_adds_no_duplicates(
 
     result = json.loads(capsys.readouterr().out)
     assert result["sync"] == {"copied": 3, "last_confirmed_message_id": 3}
+    assert client.session_mutation_safe is True
     assert [request.id for request in client.requests] == [[1], [2], [3]]
     assert all(request.drop_author is True for request in client.requests)
     assert store.pending_copies() == []

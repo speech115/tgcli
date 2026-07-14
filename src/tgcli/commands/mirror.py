@@ -12,6 +12,7 @@ from tgcli.mirror.store import (
     CopyOperation,
     MirrorRecord,
     MirrorStore,
+    account_mutation_lock,
     cooldown_deadline,
     record_cooldown,
 )
@@ -129,76 +130,84 @@ async def commit_init(
     confirm: str | None = None,
 ) -> dict:
     entity, me = await _resolve(tg, source)
-    _enforce_cooldown(me.id)
-    store = MirrorStore()
-    record = store.create(me.id, entity.id, entity.title)
-
-    if record.authorized:
-        destination = await _destination_entity(tg, record)
-    else:
+    with account_mutation_lock(me.id):
+        _enforce_cooldown(me.id)
+        store = MirrorStore()
+        record = store.create(me.id, entity.id, entity.title)
         if retry_create != (confirm is not None) or (
-            retry_create and confirm != record.mirror_id
+            confirm is not None and confirm != record.mirror_id
         ):
             raise PolicyError("retry create requires --confirm with the exact mirror id")
 
-        marker = record.creation_marker or _temporary_title(record)
-        matches, wrong_shape = await _find_marker_candidates(tg, marker)
-        if len(matches) + len(wrong_shape) > 1:
-            store.mark_create_blocked()
-            raise PolicyError("mirror destination marker matched multiple channels")
-        if wrong_shape:
-            store.mark_create_blocked()
-            raise PolicyError("mirror destination marker matched a channel with wrong shape")
-        if matches:
-            destination = matches[0]
-        else:
-            if record.creation_state != "planned" and not retry_create:
+        if record.authorized:
+            if retry_create:
                 raise PolicyError(
-                    "ambiguous mirror creation requires explicit retry with the exact mirror id"
+                    "retry create flags are not applicable to an authorized mirror"
                 )
-            store.mark_create_dispatched(marker, datetime.now(timezone.utc))
+            destination = await _destination_entity(tg, record)
+        else:
+            marker = record.creation_marker or _temporary_title(record)
+            matches, wrong_shape = await _find_marker_candidates(tg, marker)
+            if len(matches) + len(wrong_shape) > 1:
+                store.mark_create_blocked()
+                raise PolicyError("mirror destination marker matched multiple channels")
+            if wrong_shape:
+                store.mark_create_blocked()
+                raise PolicyError(
+                    "mirror destination marker matched a channel with wrong shape"
+                )
+            if matches:
+                destination = matches[0]
+            else:
+                if record.creation_state != "planned" and not retry_create:
+                    raise PolicyError(
+                        "ambiguous mirror creation requires explicit retry with the exact mirror id"
+                    )
+                store.mark_create_dispatched(marker, datetime.now(timezone.utc))
+                safety.append_audit(
+                    "mirror-init-create",
+                    account_alias,
+                    {"mirror_id": record.mirror_id, "phase": "attempt"},
+                )
+                update = await _dispatch_mutation(
+                    tg,
+                    functions.channels.CreateChannelRequest(
+                        title=marker,
+                        about="",
+                        broadcast=True,
+                        megagroup=False,
+                    ),
+                    me.id,
+                )
+                candidates = [
+                    candidate
+                    for candidate in getattr(update, "chats", ())
+                    if _is_private_owned_broadcast(candidate, title=marker)
+                ]
+                if len(candidates) != 1:
+                    raise PolicyError(
+                        "Telegram did not return the created private channel"
+                    )
+                destination = candidates[0]
+            record = store.authorize(destination.id)
+
+        destination_title = getattr(destination, "title", None)
+        if destination_title != record.source_title:
             safety.append_audit(
-                "mirror-init-create",
+                "mirror-init-title",
                 account_alias,
                 {"mirror_id": record.mirror_id, "phase": "attempt"},
             )
-            update = await _dispatch_mutation(
+            await _dispatch_mutation(
                 tg,
-                functions.channels.CreateChannelRequest(
-                    title=marker,
-                    about="",
-                    broadcast=True,
-                    megagroup=False,
+                functions.channels.EditTitleRequest(
+                    channel=destination,
+                    title=record.source_title,
                 ),
                 me.id,
             )
-            candidates = [
-                candidate
-                for candidate in getattr(update, "chats", ())
-                if _is_private_owned_broadcast(candidate, title=marker)
-            ]
-            if len(candidates) != 1:
-                raise PolicyError("Telegram did not return the created private channel")
-            destination = candidates[0]
-        record = store.authorize(destination.id)
-
-    destination_title = getattr(destination, "title", None)
-    if destination_title != record.source_title:
-        safety.append_audit(
-            "mirror-init-title",
-            account_alias,
-            {"mirror_id": record.mirror_id, "phase": "attempt"},
-        )
-        await _dispatch_mutation(
-            tg,
-            functions.channels.EditTitleRequest(
-                channel=destination,
-                title=record.source_title,
-            ),
-            me.id,
-        )
-        destination_title = record.source_title
-    return _result(record, destination_title=destination_title)
+            destination_title = record.source_title
+        return _result(record, destination_title=destination_title)
 
 
 def _destination_message_id(response, random_id: int) -> int:
@@ -266,63 +275,66 @@ async def _forward_copy(
 
 async def sync_text(tg, source: str, account_alias: str) -> dict:
     entity, me = await _resolve(tg, source)
-    _enforce_cooldown(me.id)
-    store = MirrorStore()
-    record = store.create(me.id, entity.id, entity.title)
-    if not record.authorized:
-        raise PolicyError("mirror source is not authorized; run mirror init --commit")
-    if getattr(entity, "noforwards", False):
-        raise PolicyError("protected mirror sources require the later media sync slice")
-
-    destination = await _destination_entity(tg, record)
-    source_peer = await tg.get_input_entity(entity)
-    destination_peer = await tg.get_input_entity(destination)
-    copied = 0
-    for operation in store.pending_copies():
-        message = await tg.get_messages(entity, ids=operation.source_message_id)
-        if message is None:
+    with account_mutation_lock(me.id):
+        _enforce_cooldown(me.id)
+        store = MirrorStore()
+        record = store.create(me.id, entity.id, entity.title)
+        if not record.authorized:
+            raise PolicyError("mirror source is not authorized; run mirror init --commit")
+        if getattr(entity, "noforwards", False):
             raise PolicyError(
-                f"pending source message is unavailable: {operation.source_message_id}"
+                "protected mirror sources require the later media sync slice"
             )
-        _require_text_message(message)
-        destination_message_id = await _forward_copy(
-            tg,
-            source_peer=source_peer,
-            destination_peer=destination_peer,
-            operation=operation,
-            account_user_id=me.id,
-            account_alias=account_alias,
-            mirror_id=record.mirror_id,
-        )
-        store.confirm_copy(operation.source_message_id, destination_message_id)
-        copied += 1
 
-    cursor = store.last_confirmed_message_id()
-    async for message in tg.iter_messages(entity, min_id=cursor, reverse=True):
-        _require_text_message(message)
-        operation = store.prepare_copy(message.id)
-        destination_message_id = await _forward_copy(
-            tg,
-            source_peer=source_peer,
-            destination_peer=destination_peer,
-            operation=operation,
-            account_user_id=me.id,
-            account_alias=account_alias,
-            mirror_id=record.mirror_id,
-        )
-        store.confirm_copy(message.id, destination_message_id)
-        copied += 1
+        destination = await _destination_entity(tg, record)
+        source_peer = await tg.get_input_entity(entity)
+        destination_peer = await tg.get_input_entity(destination)
+        copied = 0
+        for operation in store.pending_copies():
+            message = await tg.get_messages(entity, ids=operation.source_message_id)
+            if message is None:
+                raise PolicyError(
+                    f"pending source message is unavailable: {operation.source_message_id}"
+                )
+            _require_text_message(message)
+            destination_message_id = await _forward_copy(
+                tg,
+                source_peer=source_peer,
+                destination_peer=destination_peer,
+                operation=operation,
+                account_user_id=me.id,
+                account_alias=account_alias,
+                mirror_id=record.mirror_id,
+            )
+            store.confirm_copy(operation.source_message_id, destination_message_id)
+            copied += 1
 
-    return {
-        "mirror": _result(
-            record,
-            destination_title=getattr(destination, "title", None),
-        )["mirror"],
-        "sync": {
-            "copied": copied,
-            "last_confirmed_message_id": store.last_confirmed_message_id(),
-        },
-    }
+        cursor = store.last_confirmed_message_id()
+        async for message in tg.iter_messages(entity, min_id=cursor, reverse=True):
+            _require_text_message(message)
+            operation = store.prepare_copy(message.id)
+            destination_message_id = await _forward_copy(
+                tg,
+                source_peer=source_peer,
+                destination_peer=destination_peer,
+                operation=operation,
+                account_user_id=me.id,
+                account_alias=account_alias,
+                mirror_id=record.mirror_id,
+            )
+            store.confirm_copy(message.id, destination_message_id)
+            copied += 1
+
+        return {
+            "mirror": _result(
+                record,
+                destination_title=getattr(destination, "title", None),
+            )["mirror"],
+            "sync": {
+                "copied": copied,
+                "last_confirmed_message_id": store.last_confirmed_message_id(),
+            },
+        }
 
 
 def to_rows(data: dict) -> list[tuple]:

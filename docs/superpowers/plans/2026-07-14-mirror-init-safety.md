@@ -1,5 +1,11 @@
 # Mirror Init Safety Hardening Implementation Plan
 
+> **Status: completed 2026-07-14, including whole-branch review fixes.** The
+> final review additionally disabled Telethon mutation retries/short FloodWait
+> sleeps, added resolved-account mutation locking, serialized cooldown
+> compare-and-max with directory fsync, and closed authorized retry-flag
+> validation gaps.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `superpowers:subagent-driven-development` (recommended) or
 > `superpowers:executing-plans` to implement this plan task-by-task. Steps use
@@ -55,20 +61,20 @@ argparse, pytest with mocked Telegram clients.
 - `cooldown_deadline(account_user_id: int) -> datetime | None`
 - `record_cooldown(account_user_id: int, retry_after: int, now: datetime | None = None) -> datetime`
 
-- [ ] **Step 1: Write failing store tests**
+- [x] **Step 1: Write failing store tests**
 
 Add tests proving: existing databases migrate without losing authorization or
 mappings; dispatch persists marker/state/time; authorize writes
 `user_owned_retained` atomically; blocked is durable; cooldown is account-scoped,
 owner-only on disk, uses UTC, and never shortens an existing later deadline.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run `uv run pytest tests/test_mirror_store.py -q`.
 
 Expected: failures because the new fields and functions do not exist.
 
-- [ ] **Step 3: Implement the minimal store migration**
+- [x] **Step 3: Implement the minimal store migration**
 
 Add columns to new schema and migrate old databases with `PRAGMA table_info`
 plus `ALTER TABLE`. Allowed creation states are `planned`,
@@ -77,11 +83,11 @@ are `provisional` and `user_owned_retained`. Write cooldown JSON atomically via
 a sibling temporary file, `fsync`, `os.replace`, and mode `0o600`. The cooldown
 filename must hash the numeric account id rather than expose it.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run the focused command from Step 2. Expected: all store tests pass.
 
-- [ ] **Step 5: Commit exact files**
+- [x] **Step 5: Commit exact files**
 
 Run `safe-commit "Harden mirror creation state" src/tgcli/mirror/store.py tests/test_mirror_store.py`.
 
@@ -96,7 +102,7 @@ Run `safe-commit "Harden mirror creation state" src/tgcli/mirror/store.py tests/
 - `commit_init(tg, source, account_alias, *, retry_create=False, confirm=None) -> dict`
 - `_find_marker_candidates(tg, marker) -> tuple[list[object], list[object]]`
 
-- [ ] **Step 1: Write failing command tests**
+- [x] **Step 1: Write failing command tests**
 
 Add these tests before implementation:
 
@@ -114,13 +120,13 @@ test_retry_flags_without_commit_are_blocked_before_session
 Update the old public-marker test: an exact-title public or wrong-shape
 candidate must block; it must not be treated as zero matches.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run `uv run pytest tests/test_cli_mirror_init.py -q`.
 
 Expected: the new safety tests fail on current automatic re-create behavior.
 
-- [ ] **Step 3: Implement reconciliation**
+- [x] **Step 3: Implement reconciliation**
 
 Parse `--retry-create` and `--confirm`. Before the create request call
 `mark_create_dispatched(marker, now)`. On `reconcile_required`, inspect all
@@ -129,11 +135,11 @@ block on wrong shape or multiple candidates; on zero require both retry flag
 and exact mirror id. Never delete a candidate. After destination id is stored,
 all later runs resolve only that id and may idempotently restore its title.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run the focused init tests. Expected: all pass.
 
-- [ ] **Step 5: Commit exact files**
+- [x] **Step 5: Commit exact files**
 
 Run `safe-commit "Reconcile ambiguous mirror creation" src/tgcli/commands/mirror.py src/tgcli/cli.py tests/test_cli_mirror_init.py`.
 
@@ -144,7 +150,7 @@ Run `safe-commit "Reconcile ambiguous mirror creation" src/tgcli/commands/mirror
 - Modify: `tests/test_cli_mirror_init.py`
 - Modify: `tests/test_cli_mirror_sync.py`
 
-- [ ] **Step 1: Write failing cooldown tests**
+- [x] **Step 1: Write failing cooldown tests**
 
 Prove a create FloodWait records the deadline and keeps
 `reconcile_required`; the next init mutation exits 5 without marker scan or
@@ -154,13 +160,13 @@ FloodWait records the same account gate and that active cooldown blocks both
 init commit and sync before audit or Telegram mutation while leaving init
 preview read-only and available.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run `uv run pytest tests/test_cli_mirror_init.py -q`.
 
 Expected: cooldown tests fail because no durable account gate exists.
 
-- [ ] **Step 3: Implement cooldown enforcement**
+- [x] **Step 3: Implement cooldown enforcement**
 
 After `_resolve` and before any mutation in both `commit_init` and `sync_text`,
 read the account cooldown and raise `RateLimitError` with
@@ -168,7 +174,7 @@ read the account cooldown and raise `RateLimitError` with
 their mutation paths, persist its seconds, then re-raise so the existing CLI
 exit-5 mapping remains canonical. Do not sleep or retry inside the command.
 
-- [ ] **Step 4: Verify GREEN and regression**
+- [x] **Step 4: Verify GREEN and regression**
 
 Run:
 
@@ -179,7 +185,7 @@ uv run pytest -q
 
 Expected: focused and full suites pass.
 
-- [ ] **Step 5: Commit exact files**
+- [x] **Step 5: Commit exact files**
 
 Run `safe-commit "Persist mirror FloodWait cooldown" src/tgcli/commands/mirror.py tests/test_cli_mirror_init.py tests/test_cli_mirror_sync.py`.
 
@@ -190,18 +196,18 @@ Run `safe-commit "Persist mirror FloodWait cooldown" src/tgcli/commands/mirror.p
 - Modify: `docs/MAP.md`
 - Modify: `docs/DEVLOG.md`
 
-- [ ] **Step 1: Document exact behavior**
+- [x] **Step 1: Document exact behavior**
 
 Document retry flags, creation states, retained ownership, cooldown path,
 exit-5 behavior, and the rule that no signal or review expiry deletes an
 authorized destination. MAP must match actual store and command ownership.
 
-- [ ] **Step 2: Append real evidence**
+- [x] **Step 2: Append real evidence**
 
 DEVLOG must contain exact RED failures, focused GREEN output, full suite,
 coverage result, and `git diff --check` result. Do not claim live evidence.
 
-- [ ] **Step 3: Run final gates**
+- [x] **Step 3: Run final gates**
 
 Run:
 
@@ -216,7 +222,7 @@ uv run tg mirror init --help
 Expected: all tests pass, coverage reports 23 namespaces, diff check is clean,
 and help exposes `--retry-create` plus `--confirm`.
 
-- [ ] **Step 4: Commit exact files**
+- [x] **Step 4: Commit exact files**
 
 Run `safe-commit "Document mirror init recovery" docs/CONTRACT.md docs/MAP.md docs/DEVLOG.md`.
 
@@ -229,3 +235,18 @@ Run `safe-commit "Document mirror init recovery" docs/CONTRACT.md docs/MAP.md do
 - It does not implement media, comments, forums, watchers, deletion, or a
   second showcase copy engine.
 - Native media, albums, and replies remain the immediately following slice.
+
+## Whole-Branch Review Closeout
+
+- Mirror mutations use a dedicated Telethon session mode with
+  `request_retries=0` and `flood_sleep_threshold=0`; pinned-Telethon
+  fake-sender tests prove a timeout dispatches once and a short FloodWait does
+  not sleep or retry.
+- `init --commit` and `sync` serialize by the resolved Telegram account user
+  id, not the configured session alias. The lock begins after `_resolve` and
+  covers cooldown enforcement through durable confirmation.
+- Cooldown writers use their own interprocess lock, compare-and-max while
+  serialized, and fsync the parent directory after atomic replacement.
+- Retry flags are paired before session acquisition, exact identity is checked
+  before authorized handling, and all retry-create forms are rejected once a
+  mirror is authorized.

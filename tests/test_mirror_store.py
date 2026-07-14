@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import stat
+import threading
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -211,6 +212,72 @@ def test_cooldown_is_account_scoped_private_utc_and_never_shortens(
         "2026-07-14T08:01:00+00:00",
         "2026-07-14T08:10:00+00:00",
     }
+
+
+def test_concurrent_cooldown_writers_retain_the_later_deadline(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    account_user_id = 420001
+    now = datetime(2026, 7, 14, 8, 0, tzinfo=timezone.utc)
+    both_read = threading.Barrier(2)
+    release_short = threading.Event()
+    original_deadline = mirror_store.cooldown_deadline
+
+    def force_legacy_read_race(requested_account_user_id):
+        existing = original_deadline(requested_account_user_id)
+        both_read.wait(timeout=2)
+        if threading.current_thread().name == "short-writer":
+            release_short.wait(timeout=2)
+        else:
+            release_short.set()
+        return existing
+
+    monkeypatch.setattr(mirror_store, "cooldown_deadline", force_legacy_read_race)
+    results = {}
+
+    def write(name, retry_after):
+        results[name] = mirror_store.record_cooldown(
+            account_user_id, retry_after, now=now
+        )
+
+    long_writer = threading.Thread(
+        target=write, args=("long", 600), name="long-writer"
+    )
+    short_writer = threading.Thread(
+        target=write, args=("short", 30), name="short-writer"
+    )
+    long_writer.start()
+    short_writer.start()
+    long_writer.join(timeout=3)
+    short_writer.join(timeout=3)
+
+    assert not long_writer.is_alive()
+    assert not short_writer.is_alive()
+    expected = now + timedelta(seconds=600)
+    assert original_deadline(account_user_id) == expected
+    assert results["long"] == expected
+    assert results["short"] in {now + timedelta(seconds=30), expected}
+
+
+def test_cooldown_replace_fsyncs_parent_directory(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    fsync_targets = []
+    original_fsync = mirror_store.os.fsync
+
+    def recording_fsync(fd):
+        fsync_targets.append(stat.S_ISDIR(mirror_store.os.fstat(fd).st_mode))
+        original_fsync(fd)
+
+    monkeypatch.setattr(mirror_store.os, "fsync", recording_fsync)
+
+    mirror_store.record_cooldown(
+        420001,
+        600,
+        now=datetime(2026, 7, 14, 8, 0, tzinfo=timezone.utc),
+    )
+
+    assert fsync_targets == [False, True]
 
 
 def test_copy_operations_are_unique_per_source_peer_and_reuse_random_id(

@@ -15,6 +15,38 @@ Template:
 
 ---
 
+## 2026-07-14 — Mirror mutation transport and account locks hardened (Codex GPT-5)
+**Did:** closed every whole-branch review blocker without Telegram access.
+Added a mutation-only Telethon session mode (`request_retries=0`,
+`flood_sleep_threshold=0`), a hashed resolved-account mutation lock shared by
+init commit and sync, serialized cooldown compare-and-max with parent-directory
+fsync, and fail-closed retry-flag validation for authorized mirrors. The first
+combined RED run was `13 failed, 65 passed in 0.84s`; failures covered each
+missing behavior. Pinned Telethon 1.44 fake-sender tests now prove one send on
+an ambiguous timeout and no sleep/retry for a five-second FloodWait. A
+two-client/two-alias concurrency test proves exactly one create dispatch for
+the same Telegram user id.
+**Decided:** read-oriented commands and init preview retain Telethon defaults;
+only mirror mutations opt into the no-retry transport. The non-blocking
+account-user-id lock starts immediately after source/account resolution and
+stays held through cooldown enforcement, reconciliation, audit, Telegram
+mutation, and durable confirmation. Cooldown persistence uses a separate
+blocking lock so it remains safe when called inside the broader mutation lock.
+Retry flags are paired before session acquisition, then checked against the
+exact mirror id before authorized handling; every retry form is inapplicable
+once authorization exists.
+**Learned:** serializing local session names is insufficient because aliases
+can share one Telegram identity. Atomic `os.replace` is also insufficient for
+both concurrency and crash durability: compare-and-max must happen under the
+same lock, and the containing directory must be fsynced after replacement.
+**Checks:** focused safety suites: `78 passed in 0.67s`; full suite:
+`287 passed, 8 skipped in 2.10s`; namespace gate:
+`coverage OK: 23 namespaces`; `git diff --check` exited 0 with no output; CLI
+help exposed `--retry-create` and `--confirm MIRROR_ID`. All tests used local
+fakes or mocked clients; no Telegram connection or mutation was attempted.
+**Next:** review and publish this branch before any controlled live showcase
+mutation.
+
 ## 2026-07-14 — Mirror init recovery and cooldown documented (Codex GPT-5)
 **Did:** closed the destination-creation safety plan in Tasks 1–4 without live
 Telegram access. Task 1 store RED was `6 failed, 12 passed in 0.17s`; focused

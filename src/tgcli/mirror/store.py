@@ -1,12 +1,16 @@
+import fcntl
 import hashlib
 import json
 import os
 import secrets
 import sqlite3
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from tgcli.errors import ConfigError
 
 
 _MIN_SIGNED_64 = -(2**63)
@@ -28,17 +32,74 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def _account_hash(account_user_id: int) -> str:
+    return hashlib.sha256(str(account_user_id).encode()).hexdigest()
+
+
 def _cooldown_path(account_user_id: int) -> Path:
-    account_hash = hashlib.sha256(str(account_user_id).encode()).hexdigest()
-    return _state_dir() / "mirrors" / "cooldowns" / f"{account_hash}.json"
+    return (
+        _state_dir()
+        / "mirrors"
+        / "cooldowns"
+        / f"{_account_hash(account_user_id)}.json"
+    )
 
 
-def cooldown_deadline(account_user_id: int) -> datetime | None:
-    path = _cooldown_path(account_user_id)
+def _open_private_lock(path: Path) -> int:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    os.fchmod(fd, 0o600)
+    return fd
+
+
+@contextmanager
+def account_mutation_lock(account_user_id: int):
+    path = (
+        _state_dir()
+        / "mirrors"
+        / "locks"
+        / f"{_account_hash(account_user_id)}.lock"
+    )
+    fd = _open_private_lock(path)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ConfigError(
+                "mirror account is busy (another mutation is in progress); retry later"
+            ) from None
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+@contextmanager
+def _cooldown_write_lock(account_user_id: int):
+    path = (
+        _state_dir()
+        / "mirrors"
+        / "cooldowns"
+        / f"{_account_hash(account_user_id)}.lock"
+    )
+    fd = _open_private_lock(path)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def _read_cooldown(path: Path) -> datetime | None:
     if not path.exists():
         return None
     payload = json.loads(path.read_text(encoding="utf-8"))
     return _as_utc(datetime.fromisoformat(payload["retry_not_before"]))
+
+
+def cooldown_deadline(account_user_id: int) -> datetime | None:
+    return _read_cooldown(_cooldown_path(account_user_id))
 
 
 def record_cooldown(
@@ -49,33 +110,38 @@ def record_cooldown(
     if retry_after < 0:
         raise ValueError("retry_after must not be negative")
 
-    current_time = _as_utc(now or datetime.now(timezone.utc))
-    deadline = current_time + timedelta(seconds=retry_after)
-    existing = cooldown_deadline(account_user_id)
-    if existing is not None:
-        deadline = max(deadline, existing)
-
     path = _cooldown_path(account_user_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            temporary_path = Path(handle.name)
-            os.chmod(handle.name, 0o600)
-            json.dump({"retry_not_before": deadline.isoformat()}, handle)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary_path, path)
-    finally:
-        if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
+    with _cooldown_write_lock(account_user_id):
+        current_time = _as_utc(now or datetime.now(timezone.utc))
+        deadline = current_time + timedelta(seconds=retry_after)
+        existing = _read_cooldown(path)
+        if existing is not None:
+            deadline = max(deadline, existing)
+
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temporary_path = Path(handle.name)
+                os.chmod(handle.name, 0o600)
+                json.dump({"retry_not_before": deadline.isoformat()}, handle)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, path)
+            directory_fd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
     return deadline
 
 
