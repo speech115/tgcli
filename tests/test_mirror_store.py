@@ -1028,3 +1028,23 @@ def test_strict_schema_fast_path_still_validates_existing_rows(
         assert connection.execute(
             "SELECT source_message_id, batch_index FROM copy_operations"
         ).fetchall() == [(7, -1)]
+
+
+def test_strict_schema_rebuilds_nullable_destination_check_that_rejects_null(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    database = _create_partial_copy_database(tmp_path)
+    _replace_with_strict_looking_copy_table(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO copy_operations VALUES (?, ?, ?, ?, ?, ?)",
+            (-100123, 7, -77, 700, "single:7", 0),
+        )
+
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+
+    assert store.destination_message_id(7) == 700
+    pending = store.prepare_copy(8, random_id=-88)
+    assert pending.destination_message_id is None

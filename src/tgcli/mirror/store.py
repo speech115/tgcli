@@ -875,7 +875,7 @@ class MirrorStore:
         schema = connection.execute(
             "SELECT sql FROM sqlite_master WHERE name = 'copy_operations'"
         ).fetchone()[0]
-        return all(
+        if not all(
             token in schema
             for token in (
                 "typeof(source_message_id)",
@@ -884,7 +884,39 @@ class MirrorStore:
                 "typeof(batch_key)",
                 "typeof(batch_index)",
             )
-        )
+        ):
+            return False
+        return MirrorStore._copy_schema_accepts_pending_destination(connection)
+
+    @staticmethod
+    def _copy_schema_accepts_pending_destination(
+        connection: sqlite3.Connection,
+    ) -> bool:
+        source_peer_id = 0
+        while connection.execute(
+            "SELECT 1 FROM copy_operations WHERE source_peer_id = ? LIMIT 1",
+            (source_peer_id,),
+        ).fetchone():
+            source_peer_id = -1 if source_peer_id == 0 else source_peer_id - 1
+
+        connection.execute("SAVEPOINT copy_schema_destination_probe")
+        try:
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO copy_operations (
+                        source_peer_id, source_message_id, random_id,
+                        destination_message_id, batch_key, batch_index
+                    ) VALUES (?, 1, 0, NULL, ?, 0)
+                    """,
+                    (source_peer_id, "__tgcli_destination_null_probe__"),
+                )
+            except sqlite3.IntegrityError:
+                return False
+            return True
+        finally:
+            connection.execute("ROLLBACK TO copy_schema_destination_probe")
+            connection.execute("RELEASE copy_schema_destination_probe")
 
     @staticmethod
     def _read_record(connection: sqlite3.Connection) -> MirrorRecord:
