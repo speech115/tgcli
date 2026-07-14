@@ -1,7 +1,11 @@
+import json
 import sqlite3
+import stat
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from tgcli.mirror import store as mirror_store
 from tgcli.mirror.store import MirrorStore, mirror_id
 
 
@@ -41,6 +45,172 @@ def test_create_reopens_metadata_and_authorization(tmp_path, monkeypatch):
     assert reopened.source_title == "Changed title"
     assert reopened.destination_peer_id == authorized.destination_peer_id
     assert reopened.authorized is True
+
+
+def test_existing_database_migrates_without_losing_mirror_or_copy_state(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    identity = mirror_id(42, -100123)
+    mirrors_dir = tmp_path / "mirrors"
+    mirrors_dir.mkdir()
+    database = mirrors_dir / f"{identity}.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE mirrors (
+                mirror_id TEXT PRIMARY KEY,
+                account_user_id INTEGER NOT NULL,
+                source_peer_id INTEGER NOT NULL,
+                source_title TEXT NOT NULL,
+                destination_peer_id INTEGER,
+                authorized INTEGER NOT NULL DEFAULT 0,
+                high_water_message_id INTEGER NOT NULL DEFAULT 0,
+                UNIQUE (account_user_id, source_peer_id)
+            );
+            CREATE TABLE copy_operations (
+                source_peer_id INTEGER NOT NULL,
+                source_message_id INTEGER NOT NULL,
+                random_id INTEGER NOT NULL,
+                destination_message_id INTEGER,
+                PRIMARY KEY (source_peer_id, source_message_id)
+            );
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO mirrors VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (identity, 42, -100123, "Source", -100999, 1, 7),
+        )
+        connection.execute(
+            """
+            INSERT INTO copy_operations VALUES (?, ?, ?, ?)
+            """,
+            (-100123, 7, -77, 700),
+        )
+
+    store = MirrorStore()
+    migrated = store.create(42, -100123, "Source")
+
+    assert migrated.destination_peer_id == -100999
+    assert migrated.authorized is True
+    assert migrated.creation_marker is None
+    assert migrated.creation_state == "authorized"
+    assert migrated.create_attempted_at is None
+    assert migrated.retention_class == "user_owned_retained"
+    assert store.prepare_copy(7, random_id=999).random_id == -77
+    assert store.prepare_copy(7).destination_message_id == 700
+    assert store.last_confirmed_message_id() == 7
+
+
+def test_mark_create_dispatched_persists_marker_state_and_utc_time(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+    attempted_at = datetime(2026, 7, 14, 12, 30, tzinfo=timezone(timedelta(hours=4)))
+
+    dispatched = store.mark_create_dispatched("tgcli-mirror-abcd", attempted_at)
+    reopened = MirrorStore().create(42, -100123, "Source")
+
+    assert dispatched.creation_marker == "tgcli-mirror-abcd"
+    assert dispatched.creation_state == "reconcile_required"
+    assert dispatched.create_attempted_at == "2026-07-14T08:30:00+00:00"
+    assert dispatched.retention_class == "provisional"
+    assert reopened == dispatched
+
+
+def test_authorize_atomically_records_retained_ownership(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+    store.mark_create_dispatched(
+        "tgcli-mirror-abcd", datetime(2026, 7, 14, tzinfo=timezone.utc)
+    )
+
+    authorized = store.authorize(-100999)
+
+    assert authorized.destination_peer_id == -100999
+    assert authorized.authorized is True
+    assert authorized.creation_state == "authorized"
+    assert authorized.retention_class == "user_owned_retained"
+
+
+def test_authorize_rolls_back_all_fields_when_retention_update_fails(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+    store.mark_create_dispatched(
+        "tgcli-mirror-abcd", datetime(2026, 7, 14, tzinfo=timezone.utc)
+    )
+    with sqlite3.connect(store.path) as connection:
+        connection.execute(
+            """
+            CREATE TRIGGER reject_retention
+            BEFORE UPDATE OF retention_class ON mirrors
+            BEGIN
+                SELECT RAISE(ABORT, 'forced retention failure');
+            END
+            """
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="forced retention failure"):
+        store.authorize(-100999)
+
+    current = MirrorStore().create(42, -100123, "Source")
+    assert current.destination_peer_id is None
+    assert current.authorized is False
+    assert current.creation_state == "reconcile_required"
+    assert current.retention_class == "provisional"
+
+
+def test_mark_create_blocked_is_durable(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+    dispatched = store.mark_create_dispatched(
+        "tgcli-mirror-abcd", datetime(2026, 7, 14, tzinfo=timezone.utc)
+    )
+
+    blocked = store.mark_create_blocked()
+    reopened = MirrorStore().create(42, -100123, "Source")
+
+    assert blocked.creation_state == "blocked"
+    assert blocked.creation_marker == dispatched.creation_marker
+    assert blocked.create_attempted_at == dispatched.create_attempted_at
+    assert reopened == blocked
+
+
+def test_cooldown_is_account_scoped_private_utc_and_never_shortens(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    local_now = datetime(2026, 7, 14, 12, 0, tzinfo=timezone(timedelta(hours=4)))
+
+    first_deadline = mirror_store.record_cooldown(420001, 600, now=local_now)
+    shorter_result = mirror_store.record_cooldown(420001, 30, now=local_now)
+    second_deadline = mirror_store.record_cooldown(430002, 60, now=local_now)
+
+    assert first_deadline == datetime(2026, 7, 14, 8, 10, tzinfo=timezone.utc)
+    assert shorter_result == first_deadline
+    assert mirror_store.cooldown_deadline(420001) == first_deadline
+    assert mirror_store.cooldown_deadline(430002) == second_deadline
+    assert mirror_store.cooldown_deadline(999999) is None
+
+    cooldown_files = sorted((tmp_path / "mirrors" / "cooldowns").glob("*.json"))
+    assert len(cooldown_files) == 2
+    assert all("420001" not in path.name and "430002" not in path.name for path in cooldown_files)
+    assert all(stat.S_IMODE(path.stat().st_mode) == 0o600 for path in cooldown_files)
+    assert not list((tmp_path / "mirrors" / "cooldowns").glob("*.tmp"))
+    payloads = [json.loads(path.read_text()) for path in cooldown_files]
+    assert {payload["retry_not_before"] for payload in payloads} == {
+        "2026-07-14T08:01:00+00:00",
+        "2026-07-14T08:10:00+00:00",
+    }
 
 
 def test_copy_operations_are_unique_per_source_peer_and_reuse_random_id(

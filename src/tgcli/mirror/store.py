@@ -1,8 +1,11 @@
 import hashlib
+import json
 import os
 import secrets
 import sqlite3
+import tempfile
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -19,6 +22,63 @@ def _state_dir() -> Path:
     return Path(os.environ.get("TGCLI_STATE_DIR", "~/.local/state/tgcli")).expanduser()
 
 
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("datetime must be timezone-aware")
+    return value.astimezone(timezone.utc)
+
+
+def _cooldown_path(account_user_id: int) -> Path:
+    account_hash = hashlib.sha256(str(account_user_id).encode()).hexdigest()
+    return _state_dir() / "mirrors" / "cooldowns" / f"{account_hash}.json"
+
+
+def cooldown_deadline(account_user_id: int) -> datetime | None:
+    path = _cooldown_path(account_user_id)
+    if not path.exists():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return _as_utc(datetime.fromisoformat(payload["retry_not_before"]))
+
+
+def record_cooldown(
+    account_user_id: int, retry_after: int, now: datetime | None = None
+) -> datetime:
+    if isinstance(retry_after, bool) or not isinstance(retry_after, int):
+        raise TypeError("retry_after must be an integer")
+    if retry_after < 0:
+        raise ValueError("retry_after must not be negative")
+
+    current_time = _as_utc(now or datetime.now(timezone.utc))
+    deadline = current_time + timedelta(seconds=retry_after)
+    existing = cooldown_deadline(account_user_id)
+    if existing is not None:
+        deadline = max(deadline, existing)
+
+    path = _cooldown_path(account_user_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_path = Path(handle.name)
+            os.chmod(handle.name, 0o600)
+            json.dump({"retry_not_before": deadline.isoformat()}, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+    return deadline
+
+
 @dataclass(frozen=True)
 class MirrorRecord:
     mirror_id: str
@@ -27,6 +87,10 @@ class MirrorRecord:
     source_title: str
     destination_peer_id: int | None
     authorized: bool
+    creation_marker: str | None
+    creation_state: str
+    create_attempted_at: str | None
+    retention_class: str
 
 
 @dataclass(frozen=True)
@@ -95,10 +159,41 @@ class MirrorStore:
             connection.execute(
                 """
                 UPDATE mirrors
-                SET destination_peer_id = ?, authorized = 1
+                SET destination_peer_id = ?, authorized = 1,
+                    creation_state = 'authorized',
+                    retention_class = 'user_owned_retained'
                 WHERE mirror_id = ?
                 """,
                 (destination_peer_id, current.mirror_id),
+            )
+            return self._read_record(connection)
+
+    def mark_create_dispatched(
+        self, marker: str, attempted_at: datetime
+    ) -> MirrorRecord:
+        with self._connect() as connection:
+            current = self._read_record(connection)
+            connection.execute(
+                """
+                UPDATE mirrors
+                SET creation_marker = ?, creation_state = 'reconcile_required',
+                    create_attempted_at = ?
+                WHERE mirror_id = ?
+                """,
+                (marker, _as_utc(attempted_at).isoformat(), current.mirror_id),
+            )
+            return self._read_record(connection)
+
+    def mark_create_blocked(self) -> MirrorRecord:
+        with self._connect() as connection:
+            current = self._read_record(connection)
+            connection.execute(
+                """
+                UPDATE mirrors
+                SET creation_state = 'blocked'
+                WHERE mirror_id = ?
+                """,
+                (current.mirror_id,),
             )
             return self._read_record(connection)
 
@@ -193,6 +288,16 @@ class MirrorStore:
                 source_title TEXT NOT NULL,
                 destination_peer_id INTEGER,
                 authorized INTEGER NOT NULL DEFAULT 0 CHECK (authorized IN (0, 1)),
+                creation_marker TEXT,
+                creation_state TEXT NOT NULL DEFAULT 'planned'
+                    CHECK (creation_state IN (
+                        'planned', 'reconcile_required', 'blocked', 'authorized'
+                    )),
+                create_attempted_at TEXT,
+                retention_class TEXT NOT NULL DEFAULT 'provisional'
+                    CHECK (retention_class IN (
+                        'provisional', 'user_owned_retained'
+                    )),
                 high_water_message_id INTEGER NOT NULL DEFAULT 0
                     CHECK (high_water_message_id >= 0),
                 UNIQUE (account_user_id, source_peer_id),
@@ -211,19 +316,53 @@ class MirrorStore:
             );
             """
         )
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(mirrors)")
+        }
+        if "creation_marker" not in columns:
+            connection.execute("ALTER TABLE mirrors ADD COLUMN creation_marker TEXT")
+        if "creation_state" not in columns:
+            connection.execute(
+                """
+                ALTER TABLE mirrors ADD COLUMN creation_state TEXT NOT NULL
+                DEFAULT 'planned' CHECK (creation_state IN (
+                    'planned', 'reconcile_required', 'blocked', 'authorized'
+                ))
+                """
+            )
+        if "create_attempted_at" not in columns:
+            connection.execute("ALTER TABLE mirrors ADD COLUMN create_attempted_at TEXT")
+        if "retention_class" not in columns:
+            connection.execute(
+                """
+                ALTER TABLE mirrors ADD COLUMN retention_class TEXT NOT NULL
+                DEFAULT 'provisional' CHECK (retention_class IN (
+                    'provisional', 'user_owned_retained'
+                ))
+                """
+            )
+        connection.execute(
+            """
+            UPDATE mirrors
+            SET creation_state = 'authorized',
+                retention_class = 'user_owned_retained'
+            WHERE authorized = 1
+            """
+        )
 
     @staticmethod
     def _read_record(connection: sqlite3.Connection) -> MirrorRecord:
         row = connection.execute(
             """
             SELECT mirror_id, account_user_id, source_peer_id, source_title,
-                   destination_peer_id, authorized
+                   destination_peer_id, authorized, creation_marker,
+                   creation_state, create_attempted_at, retention_class
             FROM mirrors
             """
         ).fetchone()
         if row is None:
             raise RuntimeError("mirror database has no metadata")
-        return MirrorRecord(*row[:-1], authorized=bool(row[-1]))
+        return MirrorRecord(*row[:5], bool(row[5]), *row[6:])
 
     @staticmethod
     def _read_operation(
