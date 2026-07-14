@@ -2,6 +2,8 @@
 
 Status: accepted (2026-07-13).
 
+Persistent showcase evidence and topology promotion are amended by ADR-0015.
+
 Supersedes ADR-0013 as the production implementation design. ADR-0013 and the
 expanded laboratory remain useful research records, especially the R0 evidence
 that Telethon can read bytes from protected channels, but their full reliability

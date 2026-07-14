@@ -15,6 +15,27 @@ Template:
 
 ---
 
+## 2026-07-14 — Truthful persistent mirror showcase planned (Codex GPT-5)
+**Did:** audited the accepted lean product branch, the expanded R1 laboratory,
+and the rejected visual-runner prototype. Confirmed that production
+`mirror init` plus idempotent text `mirror sync` already exists, while expanded
+comment/forum/supergroup canaries seed both sides independently. Added
+ADR-0015 and a TDD plan that hardens ambiguous destination creation and durable
+account-level FloodWait cooldown before any further live showcase mutation.
+**Decided:** a showcase is a retained private destination created and filled
+only by production mirror commands. It is not a cleanup obligation and there is
+no second mutating showcase runner. Promotion is per topology through
+`candidate`, `organic_copy_green`, `visual_approved`, and
+`production_enabled`; `channel_forum` remains blocked by Telegram evidence.
+**Learned:** current lean init scans an exact marker but does not persist a
+pre-dispatch creation state. An accepted create followed by a lost response and
+temporary zero-result scan could therefore create a duplicate. This safety gap
+must close before the native media/album/reply slice or a live run.
+**Checks:** isolated worktree baseline: `255 passed, 8 skipped`; namespace
+coverage: `coverage OK: 23 namespaces`; no Telegram mutation performed.
+**Next:** execute `2026-07-14-mirror-init-safety.md` through TDD and independent
+task review, then implement native media, albums, and mapped replies.
+
 ## 2026-07-13 — Lean mirror final Telegram edge review (Codex)
 **Did:** added narrow regressions and fixes for all whole-branch review
 findings: `UpdateShort` confirmation envelopes, active secondary public

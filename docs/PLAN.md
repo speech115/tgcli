@@ -42,7 +42,13 @@ not rewritten.
   broadcast-channel mirror is new post-v1 product work governed by
   [ADR-0014](decisions/ADR-0014-lean-faithful-mirror.md) and delivered as small
   vertical slices beginning with
-  [init + text sync](superpowers/plans/2026-07-13-lean-mirror-init-sync.md). The
+  [init + text sync](superpowers/plans/2026-07-13-lean-mirror-init-sync.md).
+  The persistent pre-production visual gate is governed by
+  [ADR-0015](decisions/ADR-0015-truthful-persistent-mirror-showcase.md); it uses
+  only the production mirror path and never independently seeds a destination.
+  Destination-creation recovery is hardened by
+  [the mirror-init safety plan](superpowers/plans/2026-07-14-mirror-init-safety.md).
+  The
   earlier ADR-0013/M0-M4 design remains research history and is not the product
   implementation plan.
 - Multi-user distribution / packaging for strangers.

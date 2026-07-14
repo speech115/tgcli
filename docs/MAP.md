@@ -17,7 +17,7 @@ tgcli/
 │   ├── CONTRACT.md            [done]    CLI automation contract (stdout/exit codes/JSON)
 │   ├── DEVLOG.md              [done]    session-by-session agent log
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── decisions/             [done]    ADR-0001…0014; ADR-0014 supersedes mirror ADR-0013
+│   ├── decisions/             [done]    ADR-0001…0015; ADR-0014 lean mirror + ADR-0015 truthful showcase
 │   └── superpowers/plans/     [done]    completed v1 plans + lean mirror product slices
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -75,3 +75,4 @@ tgcli/
 | [0012](decisions/ADR-0012-invocation-journal-and-verbose-diagnostics.md) | Local invocation journal and opt-in stderr diagnostics |
 | [0013](decisions/ADR-0013-channel-mirror.md) | Superseded crash-safe mirror research design and R0 evidence |
 | [0014](decisions/ADR-0014-lean-faithful-mirror.md) | Lean faithful channel mirror; supersedes ADR-0013 production architecture |
+| [0015](decisions/ADR-0015-truthful-persistent-mirror-showcase.md) | Production-path-only persistent private showcase and topology promotion gates |
