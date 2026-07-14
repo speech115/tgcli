@@ -526,6 +526,7 @@ class MirrorStore:
 
     @staticmethod
     def _create_schema(connection: sqlite3.Connection) -> None:
+        MirrorStore._preflight_copy_operation_tables(connection)
         connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS mirrors (
@@ -613,10 +614,93 @@ class MirrorStore:
         MirrorStore._migrate_copy_operations(connection)
 
     @staticmethod
+    def _preflight_copy_operation_tables(connection: sqlite3.Connection) -> None:
+        known_names = {
+            "copy_operations",
+            "copy_operations_legacy",
+            "copy_operations_rebuild",
+        }
+        present = {
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'table' AND name IN (?, ?, ?)
+                """,
+                tuple(sorted(known_names)),
+            )
+        }
+        if "copy_operations" in present:
+            columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info(copy_operations)")
+            }
+            base_columns = {
+                "source_peer_id",
+                "source_message_id",
+                "random_id",
+                "destination_message_id",
+            }
+            allowed_columns = {
+                frozenset(base_columns),
+                frozenset(base_columns | {"batch_key"}),
+                frozenset(base_columns | {"batch_index"}),
+                frozenset(base_columns | {"batch_key", "batch_index"}),
+            }
+            if frozenset(columns) not in allowed_columns:
+                raise ValueError(
+                    "unsupported copy_operations schema; explicit migration required"
+                )
+
+            has_batch_key = "batch_key" in columns
+            has_batch_index = "batch_index" in columns
+            if has_batch_key != has_batch_index:
+                cannot_reconstruct = False
+                if has_batch_key:
+                    cannot_reconstruct = connection.execute(
+                        """
+                        SELECT 1 FROM copy_operations
+                        GROUP BY source_peer_id, batch_key
+                        HAVING COUNT(*) > 1
+                        LIMIT 1
+                        """
+                    ).fetchone() is not None
+                else:
+                    cannot_reconstruct = connection.execute(
+                        """
+                        SELECT 1 FROM copy_operations
+                        WHERE batch_index IS NULL OR batch_index != 0
+                        LIMIT 1
+                        """
+                    ).fetchone() is not None
+                if cannot_reconstruct:
+                    raise ValueError(
+                        "cannot reconstruct partial batch metadata without ambiguity"
+                    )
+
+        artifacts = present - {"copy_operations"}
+        nonempty_artifacts = [
+            name
+            for name in sorted(artifacts)
+            if connection.execute(f"SELECT 1 FROM {name} LIMIT 1").fetchone()
+            is not None
+        ]
+        if nonempty_artifacts:
+            raise ValueError(
+                "copy operation recovery artifact contains data; manual recovery required"
+            )
+        if artifacts:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                for name in sorted(artifacts):
+                    connection.execute(f"DROP TABLE {name}")
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    @staticmethod
     def _migrate_copy_operations(connection: sqlite3.Connection) -> None:
-        connection.execute("DROP TABLE IF EXISTS copy_operations_rebuild")
-        connection.execute("DROP TABLE IF EXISTS copy_operations_legacy")
-        connection.commit()
         if MirrorStore._copy_schema_is_strict(connection):
             return
 
@@ -686,6 +770,7 @@ class MirrorStore:
         source_count = connection.execute(
             "SELECT COUNT(*) FROM copy_operations"
         ).fetchone()[0]
+        connection.commit()
         try:
             connection.execute("BEGIN IMMEDIATE")
             connection.execute(
@@ -736,13 +821,10 @@ class MirrorStore:
             ).fetchone()[0]
             if target_count != source_count:
                 raise RuntimeError("copy operation migration row count mismatch")
-            connection.execute(
-                "ALTER TABLE copy_operations RENAME TO copy_operations_legacy"
-            )
+            connection.execute("DROP TABLE copy_operations")
             connection.execute(
                 "ALTER TABLE copy_operations_rebuild RENAME TO copy_operations"
             )
-            connection.execute("DROP TABLE copy_operations_legacy")
             connection.commit()
         except Exception:
             connection.rollback()

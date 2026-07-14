@@ -459,9 +459,6 @@ def _create_partial_copy_database(
             connection.execute(
                 "CREATE TABLE copy_operations_rebuild (discard_me TEXT)"
             )
-            connection.execute(
-                "INSERT INTO copy_operations_rebuild VALUES ('stale')"
-            )
     return database
 
 
@@ -807,3 +804,151 @@ def test_destination_lookup_returns_only_confirmed_mapping(tmp_path, monkeypatch
 
     store.confirm_copy(7, destination_message_id=700)
     assert store.destination_message_id(7) == 700
+
+
+def _database_dump(database):
+    with sqlite3.connect(database) as connection:
+        return tuple(connection.iterdump())
+
+
+@pytest.mark.parametrize(
+    "artifact_name", ["copy_operations_legacy", "copy_operations_rebuild"]
+)
+def test_copy_migration_preserves_and_fails_closed_on_sole_recovery_artifact(
+    tmp_path, monkeypatch, artifact_name
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    database = _create_partial_copy_database(tmp_path)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            f"ALTER TABLE copy_operations RENAME TO {artifact_name}"
+        )
+    before = _database_dump(database)
+
+    with pytest.raises(ValueError, match="manual recovery required"):
+        MirrorStore().create(42, -100123, "Source")
+
+    assert _database_dump(database) == before
+
+
+@pytest.mark.parametrize(
+    "artifact_name", ["copy_operations_legacy", "copy_operations_rebuild"]
+)
+def test_copy_migration_preserves_ambiguous_primary_and_recovery_artifact(
+    tmp_path, monkeypatch, artifact_name
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    database = _create_partial_copy_database(tmp_path)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            f"CREATE TABLE {artifact_name} AS SELECT * FROM copy_operations"
+        )
+    before = _database_dump(database)
+
+    with pytest.raises(ValueError, match="manual recovery required"):
+        MirrorStore().create(42, -100123, "Source")
+
+    assert _database_dump(database) == before
+
+
+@pytest.mark.parametrize(
+    ("extra_columns", "rows"),
+    [
+        (
+            ", batch_key TEXT",
+            [
+                (-100123, 7, -77, None, "album:44"),
+                (-100123, 8, -88, None, "album:44"),
+            ],
+        ),
+        (
+            ", batch_index INTEGER",
+            [
+                (-100123, 7, -77, None, 0),
+                (-100123, 8, -88, None, 1),
+            ],
+        ),
+    ],
+)
+def test_copy_migration_rejects_unreconstructable_partial_batch_metadata(
+    tmp_path, monkeypatch, extra_columns, rows
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    database = _create_partial_copy_database(
+        tmp_path,
+        extra_columns=extra_columns,
+        extra_values=("seed",) if "batch_key" in extra_columns else (0,),
+    )
+    with sqlite3.connect(database) as connection:
+        connection.execute("DELETE FROM copy_operations")
+        placeholders = ", ".join("?" for _ in rows[0])
+        connection.executemany(
+            f"INSERT INTO copy_operations VALUES ({placeholders})", rows
+        )
+    before = _database_dump(database)
+
+    with pytest.raises(ValueError, match="cannot reconstruct partial batch metadata"):
+        MirrorStore().create(42, -100123, "Source")
+
+    assert _database_dump(database) == before
+
+
+@pytest.mark.parametrize(
+    ("extra_columns", "rows"),
+    [
+        (
+            ", batch_key TEXT",
+            [
+                (-100123, 7, -77, None, "single-a"),
+                (-100123, 8, -88, None, "single-b"),
+            ],
+        ),
+        (
+            ", batch_index INTEGER",
+            [
+                (-100123, 7, -77, None, 0),
+                (-100123, 8, -88, None, 0),
+            ],
+        ),
+    ],
+)
+def test_copy_migration_accepts_reconstructable_partial_singletons(
+    tmp_path, monkeypatch, extra_columns, rows
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    database = _create_partial_copy_database(
+        tmp_path,
+        extra_columns=extra_columns,
+        extra_values=("seed",) if "batch_key" in extra_columns else (0,),
+    )
+    with sqlite3.connect(database) as connection:
+        connection.execute("DELETE FROM copy_operations")
+        placeholders = ", ".join("?" for _ in rows[0])
+        connection.executemany(
+            f"INSERT INTO copy_operations VALUES ({placeholders})", rows
+        )
+
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+
+    assert [item.source_message_id for item in store.pending_copies()] == [7, 8]
+
+
+def test_copy_migration_rejects_unknown_columns_without_mutation(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    database = _create_partial_copy_database(tmp_path)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "ALTER TABLE copy_operations ADD COLUMN unexpected_payload TEXT"
+        )
+        connection.execute(
+            "UPDATE copy_operations SET unexpected_payload = 'must survive'"
+        )
+    before = _database_dump(database)
+
+    with pytest.raises(ValueError, match="unsupported copy_operations schema"):
+        MirrorStore().create(42, -100123, "Source")
+
+    assert _database_dump(database) == before
