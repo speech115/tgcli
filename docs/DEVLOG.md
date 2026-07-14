@@ -15,6 +15,36 @@ Template:
 
 ---
 
+## 2026-07-14 — Native mirror fidelity slice completed (Codex GPT-5)
+**Did:** completed and documented the Telethon-1.44 native mirror slice without
+live Telegram access. Task 1 added strict atomic copy batches and parent lookup:
+its initial RED was `20 failed, 20 passed`; review-driven REDs were
+`7 failed, 46 passed`, `2 failed, 53 passed`, and `1 failed, 55 passed`; the
+final store suite was `56 passed`. Task 2's explicit media-policy RED was
+`9 failed, 24 passed` and focused GREEN was `33 passed`. Task 3's album/reply
+RED was `14 failed, 51 passed` and focused GREEN was `66 passed`. The accepted
+Task 1, Task 2, and Task 3 reviews all returned PASS. Updated CONTRACT, MAP,
+PLAN, and the implementation plan to describe only shipped behavior.
+**Decided:** `sync` natively forwards only unprotected text, webpage, photo,
+and document wrappers; contiguous albums are one prepared/audited/dispatched/
+confirmed batch with distinct persisted random ids; plain intra-channel
+replies require a confirmed mapped parent and preserve supported quote fields.
+No download/reupload path was added. Unsupported, protected, service, media,
+and reply shapes fail closed, while linked comments, watch, protected
+reconstruction, groups, and forums remain deferred.
+**Learned:** the streaming backfill cannot pre-scan unbounded history. A
+non-contiguous reuse of a completed `grouped_id` therefore blocks the reused
+segment before its own prepare/audit/network work while previously confirmed
+batches remain committed. This preserves both fail-closed behavior and useful
+streaming progress.
+**Checks:** mirror-focused tests reported `154 passed in 1.23s`; the full suite
+reported `371 passed, 8 skipped in 2.75s`; the namespace gate reported
+`coverage OK: 23 namespaces`; `git diff --check` exited 0 with no output. All
+tests used local fakes or mocked clients; no Telegram connection or mutation
+was attempted.
+**Next:** run the controlled source-only showcase and visual gate only with
+explicit operator approval; do not copy valuable real channels first.
+
 ## 2026-07-14 — Cooldown concurrency regression made effective (Codex GPT-5)
 **Did:** fixed the whole-branch re-review finding in the test only; production
 code was unchanged. The previous concurrency test patched public

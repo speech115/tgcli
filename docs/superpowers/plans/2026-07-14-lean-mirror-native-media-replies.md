@@ -1,5 +1,8 @@
 # Lean Mirror Native Media, Albums, and Replies Implementation Plan
 
+**Status:** completed 2026-07-14. All task reviews and final local gates passed;
+no live Telegram access or mutation was performed.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `superpowers:subagent-driven-development` (recommended) or
 > `superpowers:executing-plans` to implement this plan task-by-task. Steps use
@@ -30,6 +33,10 @@ Telegram clients.
 - A non-null `grouped_id` is an album. Its complete contiguous source group is
   prepared before dispatch, copied in one `ForwardMessagesRequest`, and
   confirmed in one SQLite transaction. No album item advances the cursor alone.
+- Sync remains streaming and does not pre-scan the complete channel history.
+  If a previously completed `grouped_id` reappears non-contiguously, the reused
+  segment blocks before its own prepare/audit/network work; earlier independently
+  confirmed batches remain committed.
 - Each album item owns one persisted signed 64-bit `random_id`; restart replays
   the same ordered ids and random ids.
 - Telethon is pinned as `telethon==1.44.0` in project metadata and the lockfile
@@ -64,7 +71,7 @@ Telegram clients.
 - `MirrorStore.pending_batches() -> list[list[CopyOperation]]`
 - `MirrorStore.destination_message_id(source_message_id: int) -> int | None`
 
-- [ ] **Step 1: Write failing store tests**
+- [x] **Step 1: Write failing store tests**
 
 Add tests proving: a legacy database and partially migrated databases (only one
 batch column present, nullable batch metadata, or a stale temporary rebuild
@@ -78,13 +85,13 @@ are rejected; repeating the same exact confirmation is idempotent; pending
 batches retain order and reject a mixed confirmed/pending batch; destination
 lookup returns only confirmed mappings.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run `uv run pytest tests/test_mirror_store.py -q`.
 
 Expected: the batch interfaces and columns do not exist.
 
-- [ ] **Step 3: Implement the minimal migration and transaction rules**
+- [x] **Step 3: Implement the minimal migration and transaction rules**
 
 First change project metadata to `telethon==1.44.0` and regenerate `uv.lock`.
 Then migrate `copy_operations` inside one SQLite transaction by rebuilding it
@@ -103,13 +110,13 @@ duplicate random ids, random-id length mismatches, cross-batch confirmation,
 incomplete mappings, changed batch membership/order, mixed confirmation state,
 and conflicting destination ids.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run the focused command from Step 2. Expected: all store tests pass.
 
 Then run `uv run pytest -q`. Expected: the full suite passes before commit.
 
-- [ ] **Step 5: Commit exact files**
+- [x] **Step 5: Commit exact files**
 
 Run `safe-commit "Add atomic mirror copy batches" pyproject.toml uv.lock src/tgcli/mirror/store.py tests/test_mirror_store.py`.
 
@@ -119,7 +126,7 @@ Run `safe-commit "Add atomic mirror copy batches" pyproject.toml uv.lock src/tgc
 - Modify: `src/tgcli/commands/mirror.py`
 - Modify: `tests/test_cli_mirror_sync.py`
 
-- [ ] **Step 1: Write failing content-policy tests**
+- [x] **Step 1: Write failing content-policy tests**
 
 Add tests proving one photo, one generic document, representative video/voice/
 sticker documents, and one webpage preview use the existing native forward path:
@@ -130,13 +137,13 @@ controlled-live visual gate. Prove a service message, paid media, story, poll,
 unknown media wrapper, protected message, album, and reply fail before
 prepare/audit/network until their respective task is implemented.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run `uv run pytest tests/test_cli_mirror_sync.py -q`.
 
 Expected: supported media still exits with the old text-only policy.
 
-- [ ] **Step 3: Implement a type-based allowlist**
+- [x] **Step 3: Implement a type-based allowlist**
 
 Replace the text-only guard with an explicit pinned-Telethon allowlist for no
 media, `MessageMediaWebPage`, `MessageMediaPhoto`, and
@@ -144,7 +151,7 @@ media, `MessageMediaWebPage`, `MessageMediaPhoto`, and
 order. Keep album and reply guards explicit so this intermediate commit cannot
 flatten them.
 
-- [ ] **Step 4: Verify GREEN and regression**
+- [x] **Step 4: Verify GREEN and regression**
 
 Run:
 
@@ -154,7 +161,7 @@ uv run pytest tests/test_mirror_store.py tests/test_cli_mirror_sync.py -q
 uv run pytest -q
 ```
 
-- [ ] **Step 5: Commit exact files**
+- [x] **Step 5: Commit exact files**
 
 Run `safe-commit "Copy native mirror media" src/tgcli/commands/mirror.py tests/test_cli_mirror_sync.py`.
 
@@ -164,7 +171,7 @@ Run `safe-commit "Copy native mirror media" src/tgcli/commands/mirror.py tests/t
 - Modify: `src/tgcli/commands/mirror.py`
 - Modify: `tests/test_cli_mirror_sync.py`
 
-- [ ] **Step 1: Write failing album and reply tests**
+- [x] **Step 1: Write failing album and reply tests**
 
 Cover: contiguous same-`grouped_id` (tested with `grouped_id is not None`, not
 truthiness) messages become one ordered request; each
@@ -180,9 +187,11 @@ before child preparation/audit/write. For album replies, the header may exist
 only on the oldest/leading item or be repeated with the same parent and quote
 metadata; non-leading omissions are allowed. Conflicting parents/metadata, a
 reply header appearing only after the leading item, cross-peer/forum/scheduled/
-ephemeral reply shapes, mixed supported/unsupported album items, and a
-non-contiguous reuse of the same grouped id block the whole batch before
-prepare/audit/network. A change of grouped id flushes the previous valid album
+ephemeral reply shapes and mixed supported/unsupported album items block the
+whole current batch before prepare/audit/network. A non-contiguous reuse of the
+same grouped id blocks the reused segment before its prepare/audit/network work;
+already confirmed prior batches remain committed so sync does not require a
+full-history pre-scan. A change of grouped id flushes the previous valid album
 without merging unrelated posts.
 
 Also prove one album RPC produces exactly one fail-closed
@@ -190,22 +199,23 @@ Also prove one album RPC produces exactly one fail-closed
 ids. If audit append fails, the complete batch stays pending and Telegram is
 not called.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run `uv run pytest tests/test_cli_mirror_sync.py -q`.
 
 Expected: albums remain blocked and reply mapping is absent.
 
-- [ ] **Step 3: Implement ordered batch dispatch**
+- [x] **Step 3: Implement ordered batch dispatch**
 
 Recover `pending_batches()` first. Fetch every pending source id, index returned
 objects by their actual positive `message.id`, verify the exact expected set
 with no duplicates, then reconstruct request order strictly by persisted
 `batch_index`; never trust Telegram's response order. For new history, buffer
 only contiguous equal `grouped_id is not None` values and remember completed
-group ids so a later non-contiguous reuse fails closed. Validate the entire
-batch's protection, media, reply shape/mapping, and membership before
-`prepare_batch`.
+group ids so a later non-contiguous reuse fails closed before preparing the
+reused segment. Do not roll back or defer earlier confirmed batches merely to
+pre-scan the rest of an unbounded history. Validate the entire current batch's
+protection, media, reply shape/mapping, and membership before `prepare_batch`.
 
 Extract a reply only from `MessageReplyHeader.reply_to_msg_id`; reject
 cross-peer, forum, scheduled, ephemeral, todo, poll-option, or otherwise
@@ -216,7 +226,7 @@ request using stored ordered source ids/random ids. Parse an exact one-to-one
 requested-random-id confirmation set with unique destination ids, then call
 `confirm_batch` once.
 
-- [ ] **Step 4: Verify GREEN and safety regressions**
+- [x] **Step 4: Verify GREEN and safety regressions**
 
 Run:
 
@@ -226,7 +236,7 @@ uv run pytest tests/test_mirror_store.py tests/test_cli_mirror_init.py tests/tes
 uv run pytest -q
 ```
 
-- [ ] **Step 5: Commit exact files**
+- [x] **Step 5: Commit exact files**
 
 Run `safe-commit "Preserve mirror albums and replies" src/tgcli/commands/mirror.py tests/test_cli_mirror_sync.py`.
 
@@ -239,20 +249,20 @@ Run `safe-commit "Preserve mirror albums and replies" src/tgcli/commands/mirror.
 - Modify: `docs/DEVLOG.md`
 - Modify: `docs/superpowers/plans/2026-07-14-lean-mirror-native-media-replies.md`
 
-- [ ] **Step 1: Document only shipped behavior**
+- [x] **Step 1: Document only shipped behavior**
 
 Replace the text-only mirror contract with the exact native media allowlist,
 batch/reply durability rules, JSON counters if changed, and remaining explicit
 deferrals. Mark this plan completed only after all gates pass. MAP must describe
 batch ownership in the store and orchestration ownership in the command.
 
-- [ ] **Step 2: Append truthful RED/GREEN evidence**
+- [x] **Step 2: Append truthful RED/GREEN evidence**
 
 DEVLOG records exact focused RED failures, focused GREEN counts, full suite,
 coverage, diff check, and review verdict. State explicitly that no live
 Telegram access or mutation occurred.
 
-- [ ] **Step 3: Run final gates**
+- [x] **Step 3: Run final gates**
 
 Run:
 
@@ -266,13 +276,13 @@ git diff --check
 Expected: all focused and full tests pass, coverage reports 23 namespaces, and
 the diff check is clean.
 
-- [ ] **Step 4: Independent whole-slice review**
+- [x] **Step 4: Independent whole-slice review**
 
 Review the full diff against ADR-0014/ADR-0015 for silent omission, partial
 album confirmation, reply flattening, duplicate risk, unsafe retry, and docs
 drift. Any finding returns to RED -> GREEN before closeout.
 
-- [ ] **Step 5: Commit exact files**
+- [x] **Step 5: Commit exact files**
 
 Run `safe-commit "Document native mirror fidelity" docs/CONTRACT.md docs/MAP.md docs/PLAN.md docs/DEVLOG.md docs/superpowers/plans/2026-07-14-lean-mirror-native-media-replies.md`.
 

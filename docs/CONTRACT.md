@@ -239,7 +239,7 @@ tg mirror init SOURCE [--commit [--retry-create --confirm MIRROR_ID]]
 tg mirror sync SOURCE
 ```
 
-This first vertical slice accepts one broadcast channel. `init` without
+This post-v1 mirror accepts one broadcast channel. `init` without
 `--commit` resolves the configured account and source, creates or reopens only
 local planned state, and performs no Telegram mutation. Its JSON shape is:
 
@@ -278,9 +278,16 @@ Authorized JSON uses `destination:{"id":999,"title":"Source channel"}`,
 status `authorized`, and `commit_required:false`. Plain init columns are
 `status`, `mirror_id`, `source_peer_id`, `destination_peer_id`.
 
-`sync` requires that authorization and currently copies only unprotected text
-posts, oldest first, using native server-side copy with the original author
-hidden. Its JSON adds:
+`sync` requires that authorization and copies supported unprotected content
+oldest first through Telethon exactly `1.44.0`, pinned in project metadata and
+the lockfile. The explicit native allowlist is text/no media,
+`MessageMediaWebPage`, `MessageMediaPhoto`, and `MessageMediaDocument`,
+including generic files and Telegram's video, audio, voice, and sticker
+document variants. Each supported item is copied by
+`messages.forwardMessages` with its original source message id,
+`drop_author=True`, and `drop_media_captions` unset, so Telegram carries the
+original native media and caption. Mirror sync does not download, render,
+upload, or reupload this content. Its JSON adds:
 
 ```json
 {"sync":{"copied":42,"last_confirmed_message_id":73}}
@@ -289,14 +296,44 @@ hidden. Its JSON adds:
 Plain sync columns are `copied`, `last_confirmed_message_id`, `mirror_id`,
 `source_peer_id`, `destination_peer_id`.
 The mirror envelope returned by `sync` reports the title read from the resolved
-destination rather than assuming it still matches the source.
+destination rather than assuming it still matches the source. `copied` counts
+confirmed source messages, including every item in a confirmed album, rather
+than Telegram RPCs or batches.
 
 Each mirror has one SQLite database at
-`TGCLI_STATE_DIR/mirrors/<mirror_id>.db`. Before every copy dispatch, tgcli
-persists a stable signed 64-bit Telegram `random_id`; retry reuses that value.
-The source/destination mapping and confirmed cursor advance atomically only
-after the matching Telegram confirmation. Re-running `sync` therefore creates
-no duplicate for an already confirmed source message.
+`TGCLI_STATE_DIR/mirrors/<mirror_id>.db`. A singleton message is a one-item
+batch; every complete contiguous run whose `grouped_id is not None` is one
+album batch. Before audit or dispatch, tgcli atomically persists the complete
+ordered batch. Every item owns a distinct stable signed 64-bit Telegram
+`random_id`, and retry reuses the same ordered source ids and random ids.
+
+One batch attempt appends exactly one fail-closed `mirror-sync-forward` audit
+record containing the ordered source ids and random ids, then issues exactly
+one `ForwardMessagesRequest`. Confirmation must contain exactly one matching
+`UpdateMessageID` for every requested random id and distinct positive
+destination ids. Missing, duplicate, extra, or invalid confirmations leave the
+entire batch pending and do not advance the cursor. A valid complete mapping,
+all source/destination mappings, and the confirmed cursor commit in one SQLite
+transaction; no album item advances alone.
+
+Pending batches recover before new history. tgcli requests the exact pending
+source-id set, rejects missing, duplicate, or unexpected returned ids, restores
+request order from persisted `batch_index`, revalidates content and reply
+policy, and replays the original random ids. Sync is streaming and does not
+pre-scan unbounded history: a later non-contiguous reuse of an already completed
+`grouped_id` blocks the reused segment before its prepare, audit, or network
+work, while earlier independently confirmed batches remain committed.
+
+A plain intra-channel reply is copied only when its
+`MessageReplyHeader.reply_to_msg_id` has an already confirmed destination
+mapping. The child is then forwarded with `InputReplyToMessage` targeting that
+destination parent; supported `quote_text`, `quote_entities`, and
+`quote_offset` are preserved. An album may carry the header on its leading
+item only, or repeat identical reply and quote metadata on later items.
+Unconfirmed parents, a header first appearing after the leading album item,
+conflicting album reply metadata, cross-peer, forum, scheduled, ephemeral,
+todo, poll-option, reply-from, and reply-media shapes exit 2 before the child
+batch is prepared, audited, or dispatched. Source replies are never flattened.
 
 A Telegram `FloodWait` during mirror create, title edit, or message copy writes
 an account-scoped UTC `retry_not_before` to
@@ -325,17 +362,20 @@ contender exits 3 before audit or mutation dispatch.
 
 `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block `init --commit`
 and `sync` before config/session/network work. Every create, title edit, and
-copy attempt appends the shared fail-closed audit before dispatch. A protected
-channel, a message with `noforwards`, media, or a service action exits 2 before
-that unsupported item is prepared or copied; already confirmed earlier text
-posts remain committed. Media, albums, replies, linked comments, foreground
-watch, protected-content reupload, and forum topics are explicit later slices,
-not silently claimed by this contract.
+copy-batch attempt appends the shared fail-closed audit before dispatch. A
+protected channel or message, service action, paid media, story, poll, or any
+other media wrapper outside the explicit allowlist exits 2 before that batch is
+prepared, audited, or dispatched. Mixed supported/unsupported albums also fail
+as a whole; already confirmed earlier batches remain committed. Linked
+discussion comments, foreground watch, protected-content reconstruction,
+forum topics, groups, reactions, views, and attribution emulation remain
+explicit later slices, not silently claimed by this contract.
 
 `sync` has no implicit overall timeout because a serial backfill may
 legitimately run for longer than 60 seconds. An explicit `--timeout` still
-applies; interruption leaves an unconfirmed operation with its persisted
-random id for the next resumable run. `init` retains the normal 60-second
-default timeout. Cancellation, timeout, review expiry, SIGINT, SIGTERM, and
-process failure never delete an authorized `user_owned_retained` destination;
-there is no automatic mirror-destination deletion path.
+applies; interruption leaves an unconfirmed batch with its persisted source
+order and random ids for the next resumable run. `init` retains the normal
+60-second default timeout. Cancellation, timeout, review expiry, SIGINT,
+SIGTERM, and process failure never delete an authorized
+`user_owned_retained` destination; there is no automatic
+mirror-destination deletion path.

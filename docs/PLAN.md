@@ -48,9 +48,10 @@ not rewritten.
   only the production mirror path and never independently seeds a destination.
   Destination-creation recovery is hardened by
   [the mirror-init safety plan](superpowers/plans/2026-07-14-mirror-init-safety.md).
-  The
-  earlier ADR-0013/M0-M4 design remains research history and is not the product
-  implementation plan.
+  The next completed post-v1 milestone adds
+  [native media, atomic albums, and mapped replies](superpowers/plans/2026-07-14-lean-mirror-native-media-replies.md)
+  through that same production sync path. The earlier ADR-0013/M0-M4 design
+  remains research history and is not the product implementation plan.
 - Multi-user distribution / packaging for strangers.
 - Bot API (this is a user-account MTProto tool).
 - Secret chats (Telethon does not implement them), voice/video calls

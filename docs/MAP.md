@@ -10,7 +10,7 @@ tgcli/
 ├── AGENTS.md                  [done]    agent contract, doc discipline
 ├── CLAUDE.md                  [done]    Claude adapter → AGENTS.md
 ├── SKILL.md                   [done]    agent command routing and safety contract (phase 6)
-├── pyproject.toml             [done]    uv-managed; deps: telethon; dev: pytest
+├── pyproject.toml             [done]    uv-managed; telethon==1.44.0; dev: pytest
 ├── docs/
 │   ├── MAP.md                 [done]    this file
 │   ├── PLAN.md                [done]    master plan, phases 0–7 (all complete)
@@ -29,7 +29,7 @@ tgcli/
 │   ├── session.py             [done]    session locks + normal/mutation-safe TelegramClient factory
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
-│   ├── mirror/                [wip]     per-source SQLite identity/copy recovery + create state; account cooldown store done; later fidelity slices planned
+│   ├── mirror/                [wip]     SQLite create state + atomic ordered copy batches/mappings/random ids; account cooldown/locks done
 │   └── commands/
 │   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
@@ -40,7 +40,7 @@ tgcli/
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
-│   │   └── mirror.py          [wip]     safe/reconcilable init + FloodWait gate + unprotected text sync done; media|comments|watch/showcase promotion planned
+│   │   └── mirror.py          [wip]     safe init + native text/media/album/mapped-reply sync done; comments|protected|watch/promotion planned
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
@@ -56,13 +56,15 @@ tgcli/
 - `commands/*` never print — they return data structures; `cli.py` passes
   them to `output.emit()`. This is what keeps the stdout contract testable.
 - `errors.py` is the only place exit codes live.
-- `mirror/store.py` owns durable per-source creation/copy state, serialized
-  cooldown persistence, and hashed account-user-id mutation locks under
-  `TGCLI_STATE_DIR/mirrors/`.
+- `mirror/store.py` owns durable per-source creation state, atomic ordered copy
+  batches, stable distinct random ids, exact batch confirmation, confirmed
+  parent lookup, serialized cooldown persistence, and hashed account-user-id
+  mutation locks under `TGCLI_STATE_DIR/mirrors/`.
 - `commands/mirror.py` owns init reconciliation, mutation-time cooldown
-  enforcement, account-lock scope, and text-sync orchestration. Media,
-  comments, watch, and showcase promotion are not implemented by the current
-  command module.
+  enforcement, account-lock scope, the pinned native content allowlist, atomic
+  album orchestration/recovery, and mapped plain intra-channel replies. Linked
+  comments, protected reconstruction, groups/forums, watch, and showcase
+  promotion are not implemented by the current command module.
 
 ## ADR Index
 
