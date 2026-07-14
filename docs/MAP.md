@@ -29,7 +29,7 @@ tgcli/
 │   ├── session.py             [done]    session paths, per-account file lock, TelegramClient factory
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
-│   ├── mirror/                [wip]     SQLite identity/mapping/random-id recovery done; later fidelity slices planned
+│   ├── mirror/                [wip]     per-source SQLite identity/copy recovery + create state; account cooldown store done; later fidelity slices planned
 │   └── commands/
 │   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
@@ -40,7 +40,7 @@ tgcli/
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
-│   │   └── mirror.py          [wip]     tg mirror init + unprotected text sync done; media|comments|watch planned
+│   │   └── mirror.py          [wip]     safe/reconcilable init + FloodWait gate + unprotected text sync done; media|comments|watch/showcase promotion planned
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
@@ -56,6 +56,11 @@ tgcli/
 - `commands/*` never print — they return data structures; `cli.py` passes
   them to `output.emit()`. This is what keeps the stdout contract testable.
 - `errors.py` is the only place exit codes live.
+- `mirror/store.py` owns durable per-source creation/copy state and the
+  account-scoped cooldown files under `TGCLI_STATE_DIR/mirrors/`.
+- `commands/mirror.py` owns init reconciliation, mutation-time cooldown
+  enforcement, and text-sync orchestration. Media, comments, watch, and
+  showcase promotion are not implemented by the current command module.
 
 ## ADR Index
 

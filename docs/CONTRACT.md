@@ -235,7 +235,7 @@ unparseable credentials for a newly configured account exits 3.
 ## 11. Lean Channel Mirror (post-v1, ADR-0014)
 
 ```text
-tg mirror init SOURCE [--commit]
+tg mirror init SOURCE [--commit [--retry-create --confirm MIRROR_ID]]
 tg mirror sync SOURCE
 ```
 
@@ -252,12 +252,27 @@ local planned state, and performs no Telegram mutation. Its JSON shape is:
 
 `init --commit` creates or resumes one private creator-owned broadcast
 destination, restores its visible title to the current source title, and
-persists authorization. A unique temporary creation marker makes an ambiguous
-accepted create recoverable without blindly creating a duplicate. One exact
-match is resumed; multiple matches exit 2 for operator review. Authorized JSON
-uses `destination:{"id":999,"title":"Source channel"}`, status `authorized`,
-and `commit_required:false`. Plain init columns are `status`, `mirror_id`,
-`source_peer_id`, `destination_peer_id`.
+persists authorization. Immediately before a create dispatch, tgcli records
+the exact temporary marker, a UTC attempt time, and creation state
+`reconcile_required`. Creation state is one of `planned`,
+`reconcile_required`, `blocked`, or `authorized`; retention class is
+`provisional` until authorization atomically changes it to
+`user_owned_retained` together with the destination id and authorized flag.
+
+Recovery scans every exact-marker dialog before any new create. Exactly one
+private creator-owned broadcast resumes. One wrong-shape exact-marker dialog
+or more than one exact-marker dialog records `blocked` and exits 2 without
+create, edit, or delete. Zero matches after a dispatched create never permits
+an automatic second create: the only retry form is
+`tg mirror init SOURCE --commit --retry-create --confirm MIRROR_ID`, with the
+exact id from that mirror. Either retry flag without `--commit`, a missing
+partner flag, or a non-exact id exits 2. An already authorized mirror resolves
+only its stored destination id and never scans the creation marker or creates
+again.
+
+Authorized JSON uses `destination:{"id":999,"title":"Source channel"}`,
+status `authorized`, and `commit_required:false`. Plain init columns are
+`status`, `mirror_id`, `source_peer_id`, `destination_peer_id`.
 
 `sync` requires that authorization and currently copies only unprotected text
 posts, oldest first, using native server-side copy with the original author
@@ -279,6 +294,17 @@ The source/destination mapping and confirmed cursor advance atomically only
 after the matching Telegram confirmation. Re-running `sync` therefore creates
 no duplicate for an already confirmed source message.
 
+A Telegram `FloodWait` during mirror create, title edit, or message copy writes
+an account-scoped UTC `retry_not_before` to
+`TGCLI_STATE_DIR/mirrors/cooldowns/<sha256-account-id>.json`. The file is mode
+`0600`, is replaced atomically, and a later existing deadline is never
+shortened. While the deadline is active, `init --commit` and `sync` fail
+locally before mirror-store creation, marker scan, audit, or Telegram mutation;
+the existing exit-5 `FLOOD_WAIT` shape reports the ceiling of remaining seconds
+as `retry_after`. tgcli does not sleep or retry internally. `init` preview
+remains read-only and available, and expiry of the cooldown does not relax the
+explicit confirmed-retry rule after an ambiguous create.
+
 `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block `init --commit`
 and `sync` before config/session/network work. Every create, title edit, and
 copy attempt appends the shared fail-closed audit before dispatch. A protected
@@ -292,4 +318,6 @@ not silently claimed by this contract.
 legitimately run for longer than 60 seconds. An explicit `--timeout` still
 applies; interruption leaves an unconfirmed operation with its persisted
 random id for the next resumable run. `init` retains the normal 60-second
-default timeout.
+default timeout. Cancellation, timeout, review expiry, SIGINT, SIGTERM, and
+process failure never delete an authorized `user_owned_retained` destination;
+there is no automatic mirror-destination deletion path.

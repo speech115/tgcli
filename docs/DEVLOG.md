@@ -15,6 +15,42 @@ Template:
 
 ---
 
+## 2026-07-14 — Mirror init recovery and cooldown documented (Codex GPT-5)
+**Did:** closed the destination-creation safety plan in Tasks 1–4 without live
+Telegram access. Task 1 store RED was `6 failed, 12 passed in 0.17s`; focused
+GREEN was `18 passed in 0.18s`, and its full regression was
+`261 passed, 8 skipped in 1.83s`. Task 2 init RED was
+`13 failed, 9 passed in 0.46s`; focused GREEN was
+`22 passed in 0.28s`, init plus store was `40 passed in 0.42s`, and its full
+regression was `271 passed, 8 skipped in 1.90s`. Task 3 init RED was
+`2 failed, 23 passed in 0.38s` and sync RED was
+`1 failed, 17 passed in 0.36s`; GREEN was `43 passed in 0.45s` for init plus
+store, `61 passed in 0.53s` for all mirror safety suites, and
+`275 passed, 8 skipped in 2.07s` for the full regression.
+**Decided:** `reconcile_required` is durable before a create dispatch; an
+ambiguous zero-match recovery can create again only with `--retry-create` and
+an exact `--confirm MIRROR_ID`. Wrong-shape or multiple exact-marker matches
+become `blocked`. Authorization atomically records `authorized` plus
+`user_owned_retained`. Create, title-edit, and copy FloodWaits share a hashed,
+account-level UTC cooldown under `TGCLI_STATE_DIR/mirrors/cooldowns/`; active
+cooldown returns exit 5 before mutation and never triggers internal sleep or
+retry. Authorized destinations are retained and never removed by interruption,
+timeout, signal, process failure, or review expiry.
+**Learned:** creation reconciliation and FloodWait handling need one account
+gate but two durability boundaries: per-source SQLite state preserves the
+ambiguous create, while the hashed account JSON blocks every source sharing
+that account. These changes do not implement media, comments, watch, forum
+parity, or showcase promotion.
+**Checks:** final mirror safety gate:
+`61 passed in 0.63s`; full suite:
+`275 passed, 8 skipped in 2.08s`; namespace gate:
+`coverage OK: 23 namespaces`; `git diff --check` exited 0 with no output;
+`uv run tg mirror init --help` exited 0 and exposed both `--retry-create` and
+`--confirm MIRROR_ID`. All tests used mocked clients; no Telegram connection or
+mutation was attempted.
+**Next:** independently review this safety slice before any controlled live
+showcase mutation, then implement native media, albums, and mapped replies.
+
 ## 2026-07-14 — Truthful persistent mirror showcase planned (Codex GPT-5)
 **Did:** audited the accepted lean product branch, the expanded R1 laboratory,
 and the rejected visual-runner prototype. Confirmed that production
