@@ -131,7 +131,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "telethon", specifier = ">=1.36" }]
+requires-dist = [{ name = "telethon", specifier = "==1.44.0" }]
 
 [package.metadata.requires-dev]
 dev = [

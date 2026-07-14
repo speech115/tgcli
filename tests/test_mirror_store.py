@@ -402,3 +402,408 @@ def test_confirm_copy_rolls_back_mapping_when_high_water_update_fails(
 
     assert store.pending_copies() == [pending]
     assert store.last_confirmed_message_id() == 0
+
+
+def _copy_operation_columns(database):
+    with sqlite3.connect(database) as connection:
+        return {
+            row[1]: {"not_null": bool(row[3]), "pk": row[5]}
+            for row in connection.execute("PRAGMA table_info(copy_operations)")
+        }
+
+
+def _create_partial_copy_database(
+    tmp_path,
+    *,
+    extra_columns="",
+    extra_values=(),
+    stale_rebuild=False,
+):
+    identity = mirror_id(42, -100123)
+    mirrors_dir = tmp_path / "mirrors"
+    mirrors_dir.mkdir(exist_ok=True)
+    database = mirrors_dir / f"{identity}.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            f"""
+            CREATE TABLE mirrors (
+                mirror_id TEXT PRIMARY KEY,
+                account_user_id INTEGER NOT NULL,
+                source_peer_id INTEGER NOT NULL,
+                source_title TEXT NOT NULL,
+                destination_peer_id INTEGER,
+                authorized INTEGER NOT NULL DEFAULT 0,
+                high_water_message_id INTEGER NOT NULL DEFAULT 0,
+                UNIQUE (account_user_id, source_peer_id)
+            );
+            CREATE TABLE copy_operations (
+                source_peer_id INTEGER NOT NULL,
+                source_message_id INTEGER NOT NULL,
+                random_id INTEGER NOT NULL,
+                destination_message_id INTEGER
+                {extra_columns},
+                PRIMARY KEY (source_peer_id, source_message_id)
+            );
+            """
+        )
+        connection.execute(
+            "INSERT INTO mirrors VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (identity, 42, -100123, "Source", -100999, 1, 7),
+        )
+        placeholders = ", ".join("?" for _ in range(4 + len(extra_values)))
+        connection.execute(
+            f"INSERT INTO copy_operations VALUES ({placeholders})",
+            (-100123, 7, -77, 700, *extra_values),
+        )
+        if stale_rebuild:
+            connection.execute(
+                "CREATE TABLE copy_operations_rebuild (discard_me TEXT)"
+            )
+            connection.execute(
+                "INSERT INTO copy_operations_rebuild VALUES ('stale')"
+            )
+    return database
+
+
+@pytest.mark.parametrize(
+    ("extra_columns", "extra_values", "expected_batch_key", "expected_index"),
+    [
+        ("", (), "single:7", 0),
+        (", batch_key TEXT", ("preserved",), "preserved", 0),
+        (", batch_index INTEGER", (0,), "single:7", 0),
+        (
+            ", batch_key TEXT, batch_index INTEGER",
+            ("album:44", 0),
+            "album:44",
+            0,
+        ),
+    ],
+)
+def test_copy_schema_migration_converges_from_legacy_and_partial_columns(
+    tmp_path,
+    monkeypatch,
+    extra_columns,
+    extra_values,
+    expected_batch_key,
+    expected_index,
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    database = _create_partial_copy_database(
+        tmp_path,
+        extra_columns=extra_columns,
+        extra_values=extra_values,
+        stale_rebuild=True,
+    )
+
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+
+    operation = store.prepare_copy(7)
+    assert operation.batch_key == expected_batch_key
+    assert operation.batch_index == expected_index
+    assert operation.random_id == -77
+    assert operation.destination_message_id == 700
+    columns = _copy_operation_columns(database)
+    assert columns["batch_key"]["not_null"] is True
+    assert columns["batch_index"]["not_null"] is True
+    with sqlite3.connect(database) as connection:
+        unique_columns = {
+            tuple(
+                row[2]
+                for row in connection.execute(f"PRAGMA index_info('{index[1]}')")
+            )
+            for index in connection.execute("PRAGMA index_list(copy_operations)")
+            if index[2]
+        }
+        assert {
+            ("source_peer_id", "source_message_id"),
+            ("source_peer_id", "batch_key", "batch_index"),
+            ("source_peer_id", "random_id"),
+            ("source_peer_id", "destination_message_id"),
+        }.issubset(unique_columns)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM copy_operations"
+        ).fetchone() == (1,)
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'copy_operations_rebuild'"
+        ).fetchone() is None
+
+
+def test_copy_schema_migration_is_idempotent(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+    prepared = store.prepare_batch([7, 8], batch_key="album:44", random_ids=[70, 80])
+
+    reopened = MirrorStore()
+    reopened.create(42, -100123, "Source")
+
+    assert reopened.pending_batches() == [prepared]
+
+
+@pytest.mark.parametrize(
+    ("rows", "error"),
+    [
+        (
+            [(-100123, 7, -77, None, None, 0)],
+            "batch metadata must not be NULL",
+        ),
+        (
+            [
+                (-100123, 7, -77, None, "album:1", 0),
+                (-100123, 8, -88, None, "album:1", 0),
+            ],
+            "duplicate batch membership",
+        ),
+        (
+            [
+                (-100123, 7, -77, None, "single:7", 0),
+                (-100123, 8, -77, None, "single:8", 0),
+            ],
+            "duplicate random id ownership",
+        ),
+        (
+            [
+                (-100123, 7, -77, 700, "single:7", 0),
+                (-100123, 8, -88, 700, "single:8", 0),
+            ],
+            "duplicate destination message ownership",
+        ),
+    ],
+)
+def test_copy_schema_migration_fails_closed_on_bad_batch_metadata(
+    tmp_path, monkeypatch, rows, error
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    database = _create_partial_copy_database(
+        tmp_path,
+        extra_columns=", batch_key TEXT, batch_index INTEGER",
+        extra_values=("seed", 0),
+    )
+    with sqlite3.connect(database) as connection:
+        connection.execute("DELETE FROM copy_operations")
+        connection.executemany(
+            "INSERT INTO copy_operations VALUES (?, ?, ?, ?, ?, ?)", rows
+        )
+
+    with pytest.raises(ValueError, match=error):
+        MirrorStore().create(42, -100123, "Source")
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM copy_operations"
+        ).fetchone() == (len(rows),)
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'copy_operations_rebuild'"
+        ).fetchone() is None
+
+
+def test_prepare_batch_is_atomic_ordered_and_idempotent(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+
+    prepared = store.prepare_batch([9, 7, 8], batch_key="album:44")
+    retried = store.prepare_batch(
+        [9, 7, 8], batch_key="album:44", random_ids=[900, 700, 800]
+    )
+
+    assert retried == prepared
+    assert [item.source_message_id for item in prepared] == [9, 7, 8]
+    assert [item.batch_index for item in prepared] == [0, 1, 2]
+    assert {item.batch_key for item in prepared} == {"album:44"}
+    assert len({item.random_id for item in prepared}) == 3
+    assert all(-(2**63) <= item.random_id <= 2**63 - 1 for item in prepared)
+    assert store.pending_batches() == [prepared]
+
+
+@pytest.mark.parametrize(
+    ("source_ids", "batch_key", "random_ids", "error"),
+    [
+        ([], "album:44", None, "must not be empty"),
+        ([7, 7], "album:44", None, "source message ids must be distinct"),
+        ([7], "", None, "batch_key must not be empty"),
+        ([7, 8], "album:44", [70], "random_ids length"),
+        ([7, 8], "album:44", [70, 70], "random ids must be distinct"),
+    ],
+)
+def test_prepare_batch_rejects_invalid_inputs_without_partial_rows(
+    tmp_path, monkeypatch, source_ids, batch_key, random_ids, error
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+
+    with pytest.raises((TypeError, ValueError), match=error):
+        store.prepare_batch(source_ids, batch_key=batch_key, random_ids=random_ids)
+
+    assert store.pending_batches() == []
+
+
+def test_prepare_batch_rejects_changed_membership_or_order(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+    original = store.prepare_batch(
+        [7, 8], batch_key="album:44", random_ids=[70, 80]
+    )
+
+    for source_ids in ([8, 7], [7], [7, 8, 9]):
+        with pytest.raises(ValueError, match="batch membership/order conflicts"):
+            store.prepare_batch(source_ids, batch_key="album:44")
+    with pytest.raises(ValueError, match="source message belongs to another batch"):
+        store.prepare_batch([7], batch_key="single:7")
+
+    assert store.pending_batches() == [original]
+
+
+def test_prepare_batch_rolls_back_every_item_on_insert_failure(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+    with sqlite3.connect(store.path) as connection:
+        connection.execute(
+            """
+            CREATE TRIGGER reject_second_batch_item
+            BEFORE INSERT ON copy_operations
+            WHEN NEW.batch_index = 1
+            BEGIN
+                SELECT RAISE(ABORT, 'forced batch failure');
+            END
+            """
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="forced batch failure"):
+        store.prepare_batch([7, 8], batch_key="album:44", random_ids=[70, 80])
+
+    assert store.pending_batches() == []
+
+
+def test_confirm_batch_requires_exact_mapping_and_is_idempotent(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+    prepared = store.prepare_batch(
+        [7, 9], batch_key="album:44", random_ids=[70, 90]
+    )
+
+    for mapping in ({7: 700}, {7: 700, 9: 900, 10: 1000}):
+        with pytest.raises(ValueError, match="exact complete batch mapping"):
+            store.confirm_batch(mapping)
+        assert store.pending_batches() == [prepared]
+        assert store.last_confirmed_message_id() == 0
+
+    confirmed = store.confirm_batch({9: 900, 7: 700})
+    repeated = store.confirm_batch({7: 700, 9: 900})
+
+    assert repeated == confirmed
+    assert [item.destination_message_id for item in confirmed] == [700, 900]
+    assert store.pending_batches() == []
+    assert store.last_confirmed_message_id() == 9
+
+
+def test_confirm_batch_rejects_cross_batch_and_duplicate_destinations(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+    first = store.prepare_batch([7, 8], batch_key="album:44", random_ids=[70, 80])
+    second = store.prepare_copy(9, random_id=90)
+
+    with pytest.raises(ValueError, match="one prepared batch"):
+        store.confirm_batch({7: 700, 9: 900})
+    with pytest.raises(ValueError, match="destination message ids must be distinct"):
+        store.confirm_batch({7: 700, 8: 700})
+
+    assert store.pending_batches() == [first, [second]]
+    assert store.pending_copies() == [*first, second]
+    assert store.last_confirmed_message_id() == 0
+
+
+def test_confirm_batch_rejects_destination_owned_by_another_batch(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+    store.prepare_copy(6, random_id=60)
+    store.confirm_copy(6, destination_message_id=600)
+    pending = store.prepare_batch(
+        [7, 8], batch_key="album:44", random_ids=[70, 80]
+    )
+
+    with pytest.raises(ValueError, match="destination message is already owned"):
+        store.confirm_batch({7: 600, 8: 800})
+
+    assert store.pending_batches() == [pending]
+    assert store.last_confirmed_message_id() == 6
+
+
+def test_confirm_batch_rolls_back_all_mappings_and_cursor_on_failure(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+    prepared = store.prepare_batch(
+        [7, 9], batch_key="album:44", random_ids=[70, 90]
+    )
+    with sqlite3.connect(store.path) as connection:
+        connection.execute(
+            """
+            CREATE TRIGGER reject_second_confirmation
+            BEFORE UPDATE OF destination_message_id ON copy_operations
+            WHEN NEW.source_message_id = 9
+            BEGIN
+                SELECT RAISE(ABORT, 'forced batch confirmation failure');
+            END
+            """
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="forced batch confirmation failure"):
+        store.confirm_batch({7: 700, 9: 900})
+
+    assert store.pending_batches() == [prepared]
+    assert store.destination_message_id(7) is None
+    assert store.last_confirmed_message_id() == 0
+
+
+def test_pending_batches_retain_batch_and_item_order(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+    later = store.prepare_batch([20, 21], batch_key="album:2", random_ids=[200, 210])
+    earlier = store.prepare_batch([7, 8], batch_key="album:1", random_ids=[70, 80])
+
+    assert store.pending_batches() == [earlier, later]
+
+
+def test_pending_batches_fail_closed_on_mixed_batch_state(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+    store.prepare_batch([7, 8], batch_key="album:44", random_ids=[70, 80])
+    with sqlite3.connect(store.path) as connection:
+        connection.execute(
+            """
+            UPDATE copy_operations SET destination_message_id = 700
+            WHERE source_message_id = 7
+            """
+        )
+
+    with pytest.raises(ValueError, match="mixed confirmed/pending batch"):
+        store.pending_batches()
+
+
+def test_destination_lookup_returns_only_confirmed_mapping(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+    store.prepare_copy(7, random_id=70)
+
+    assert store.destination_message_id(7) is None
+    assert store.destination_message_id(999) is None
+
+    store.confirm_copy(7, destination_message_id=700)
+    assert store.destination_message_id(7) == 700
