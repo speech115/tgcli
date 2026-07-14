@@ -1,5 +1,6 @@
 import asyncio
 import json
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -923,6 +924,73 @@ def test_mirror_sync_flushes_changed_group_without_merging_albums(
     }
     assert [request.id for request in client.requests] == [[1, 2], [3, 4]]
     assert store.pending_batches() == []
+
+
+def test_mirror_sync_blocks_group_key_reuse_from_prior_run_as_mirror_state_error(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    store.prepare_batch([1, 2], batch_key="album:44", random_ids=[11, 22])
+    store.confirm_batch({1: 1001, 2: 1002})
+    client = MirrorSyncClient(
+        [mirror_message(3, grouped_id=44), mirror_message(4, grouped_id=44)]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 2
+
+    error = json.loads(capsys.readouterr().err)
+    assert error == {
+        "error": {
+            "code": "BLOCKED",
+            "message": "local mirror state is invalid; manual repair is required",
+        }
+    }
+    assert store.last_confirmed_message_id() == 2
+    assert [store.destination_message_id(item) for item in (1, 2)] == [1001, 1002]
+    assert [store.destination_message_id(item) for item in (3, 4)] == [None, None]
+    assert store.pending_batches() == []
+    assert client.requests == []
+    assert not safety.audit_path().exists()
+
+
+@pytest.mark.parametrize("invalid_state", ["unsupported-schema", "mixed-batch"])
+def test_mirror_sync_translates_store_schema_and_invariant_failures(
+    config_env, monkeypatch, capsys, invalid_state
+):
+    store = authorize_mirror()
+    with sqlite3.connect(store.path) as connection:
+        if invalid_state == "unsupported-schema":
+            connection.execute(
+                "ALTER TABLE copy_operations ADD COLUMN unknown_state TEXT"
+            )
+        else:
+            store.prepare_batch(
+                [1, 2], batch_key="album:44", random_ids=[11, 22]
+            )
+            connection.execute(
+                """
+                UPDATE copy_operations SET destination_message_id = 1001
+                WHERE source_message_id = 1
+                """
+            )
+    client = MirrorSyncClient([])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert json.loads(captured.err) == {
+        "error": {
+            "code": "BLOCKED",
+            "message": "local mirror state is invalid; manual repair is required",
+        }
+    }
+    assert "Traceback" not in captured.err
+    assert client.requests == []
+    assert client.input_entity_calls == []
+    assert not safety.audit_path().exists()
 
 
 def test_mirror_sync_maps_reply_parent_and_preserves_quote_fields(

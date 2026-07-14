@@ -59,6 +59,15 @@ def _enforce_cooldown(account_user_id: int) -> None:
         )
 
 
+def _store_call(method, /, *args, **kwargs):
+    try:
+        return method(*args, **kwargs)
+    except ValueError:
+        raise PolicyError(
+            "local mirror state is invalid; manual repair is required"
+        ) from None
+
+
 async def _dispatch_mutation(tg, request, account_user_id: int):
     try:
         return await tg(request)
@@ -88,7 +97,8 @@ def _result(record: MirrorRecord, *, destination_title: str | None = None) -> di
 async def preview_init(tg, source: str, account_alias: str) -> dict:
     del account_alias
     entity, me = await _resolve(tg, source)
-    record = MirrorStore().create(me.id, entity.id, entity.title)
+    store = MirrorStore()
+    record = _store_call(store.create, me.id, entity.id, entity.title)
     if not record.authorized:
         return _result(record)
     destination = await _destination_entity(tg, record)
@@ -133,7 +143,7 @@ async def commit_init(
     with account_mutation_lock(me.id):
         _enforce_cooldown(me.id)
         store = MirrorStore()
-        record = store.create(me.id, entity.id, entity.title)
+        record = _store_call(store.create, me.id, entity.id, entity.title)
         if retry_create != (confirm is not None) or (
             confirm is not None and confirm != record.mirror_id
         ):
@@ -149,10 +159,10 @@ async def commit_init(
             marker = record.creation_marker or _temporary_title(record)
             matches, wrong_shape = await _find_marker_candidates(tg, marker)
             if len(matches) + len(wrong_shape) > 1:
-                store.mark_create_blocked()
+                _store_call(store.mark_create_blocked)
                 raise PolicyError("mirror destination marker matched multiple channels")
             if wrong_shape:
-                store.mark_create_blocked()
+                _store_call(store.mark_create_blocked)
                 raise PolicyError(
                     "mirror destination marker matched a channel with wrong shape"
                 )
@@ -163,7 +173,11 @@ async def commit_init(
                     raise PolicyError(
                         "ambiguous mirror creation requires explicit retry with the exact mirror id"
                     )
-                store.mark_create_dispatched(marker, datetime.now(timezone.utc))
+                _store_call(
+                    store.mark_create_dispatched,
+                    marker,
+                    datetime.now(timezone.utc),
+                )
                 safety.append_audit(
                     "mirror-init-create",
                     account_alias,
@@ -189,7 +203,7 @@ async def commit_init(
                         "Telegram did not return the created private channel"
                     )
                 destination = candidates[0]
-            record = store.authorize(destination.id)
+            record = _store_call(store.authorize, destination.id)
 
         destination_title = getattr(destination, "title", None)
         if destination_title != record.source_title:
@@ -374,7 +388,7 @@ def _validate_batch(
         raise PolicyError("mirror album reply metadata is inconsistent")
 
     parent_id, quote_text, quote_entities, quote_offset = leading
-    destination_parent_id = store.destination_message_id(parent_id)
+    destination_parent_id = _store_call(store.destination_message_id, parent_id)
     if destination_parent_id is None:
         raise PolicyError(
             f"mirror reply parent is not confirmed: {parent_id}"
@@ -445,11 +459,12 @@ async def _dispatch_prepared_batch(
         account_user_id,
     )
     confirmations = _destination_message_ids(response, random_ids)
-    store.confirm_batch(
+    _store_call(
+        store.confirm_batch,
         {
             operation.source_message_id: confirmations[operation.random_id]
             for operation in operations
-        }
+        },
     )
     return len(operations)
 
@@ -459,7 +474,7 @@ async def sync_text(tg, source: str, account_alias: str) -> dict:
     with account_mutation_lock(me.id):
         _enforce_cooldown(me.id)
         store = MirrorStore()
-        record = store.create(me.id, entity.id, entity.title)
+        record = _store_call(store.create, me.id, entity.id, entity.title)
         if not record.authorized:
             raise PolicyError("mirror source is not authorized; run mirror init --commit")
         if getattr(entity, "noforwards", False):
@@ -467,11 +482,12 @@ async def sync_text(tg, source: str, account_alias: str) -> dict:
                 "protected mirror sources require the later media sync slice"
             )
 
+        pending_batches = _store_call(store.pending_batches)
         destination = await _destination_entity(tg, record)
         source_peer = await tg.get_input_entity(entity)
         destination_peer = await tg.get_input_entity(destination)
         copied = 0
-        for operations in store.pending_batches():
+        for operations in pending_batches:
             operations = sorted(operations, key=lambda item: item.batch_index)
             source_message_ids = [
                 operation.source_message_id for operation in operations
@@ -491,7 +507,7 @@ async def sync_text(tg, source: str, account_alias: str) -> dict:
                 mirror_id=record.mirror_id,
             )
 
-        cursor = store.last_confirmed_message_id()
+        cursor = _store_call(store.last_confirmed_message_id)
         active_album: list[object] = []
         seen_group_ids: set[int] = set()
 
@@ -504,7 +520,8 @@ async def sync_text(tg, source: str, account_alias: str) -> dict:
                 if grouped_id is None
                 else f"album:{grouped_id}"
             )
-            operations = store.prepare_batch(
+            operations = _store_call(
+                store.prepare_batch,
                 source_message_ids,
                 batch_key=batch_key,
             )
@@ -558,7 +575,9 @@ async def sync_text(tg, source: str, account_alias: str) -> dict:
             )["mirror"],
             "sync": {
                 "copied": copied,
-                "last_confirmed_message_id": store.last_confirmed_message_id(),
+                "last_confirmed_message_id": _store_call(
+                    store.last_confirmed_message_id
+                ),
             },
         }
 
