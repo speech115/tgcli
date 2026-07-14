@@ -701,9 +701,7 @@ class MirrorStore:
 
     @staticmethod
     def _migrate_copy_operations(connection: sqlite3.Connection) -> None:
-        if MirrorStore._copy_schema_is_strict(connection):
-            return
-
+        schema_is_strict = MirrorStore._copy_schema_is_strict(connection)
         columns = {
             row[1] for row in connection.execute("PRAGMA table_info(copy_operations)")
         }
@@ -766,6 +764,8 @@ class MirrorStore:
             """
         ).fetchone():
             raise ValueError("duplicate destination message ownership")
+        if schema_is_strict:
+            return
 
         source_count = connection.execute(
             "SELECT COUNT(*) FROM copy_operations"
@@ -853,6 +853,8 @@ class MirrorStore:
                 "batch_index",
             )
         ):
+            return False
+        if columns["destination_message_id"][3]:
             return False
         unique_columns = {
             tuple(

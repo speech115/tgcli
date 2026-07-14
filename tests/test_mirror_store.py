@@ -952,3 +952,79 @@ def test_copy_migration_rejects_unknown_columns_without_mutation(
         MirrorStore().create(42, -100123, "Source")
 
     assert _database_dump(database) == before
+
+
+def _replace_with_strict_looking_copy_table(
+    database, *, destination_not_null=False, weak_checks=False
+):
+    check = (
+        lambda expression: f"CHECK (1 /* {expression} */)"
+        if weak_checks
+        else f"CHECK ({expression})"
+    )
+    destination_required = "NOT NULL" if destination_not_null else ""
+    with sqlite3.connect(database) as connection:
+        connection.execute("DROP TABLE copy_operations")
+        connection.execute(
+            f"""
+            CREATE TABLE copy_operations (
+                source_peer_id INTEGER NOT NULL,
+                source_message_id INTEGER NOT NULL
+                    {check("typeof(source_message_id) = 'integer' AND source_message_id > 0")},
+                random_id INTEGER NOT NULL
+                    {check("typeof(random_id) = 'integer'")},
+                destination_message_id INTEGER {destination_required}
+                    {check("typeof(destination_message_id) = 'integer' AND destination_message_id > 0")},
+                batch_key TEXT NOT NULL
+                    {check("typeof(batch_key) = 'text' AND length(batch_key) > 0")},
+                batch_index INTEGER NOT NULL
+                    {check("typeof(batch_index) = 'integer' AND batch_index >= 0")},
+                PRIMARY KEY (source_peer_id, source_message_id),
+                UNIQUE (source_peer_id, batch_key, batch_index),
+                UNIQUE (source_peer_id, random_id),
+                UNIQUE (source_peer_id, destination_message_id)
+            )
+            """
+        )
+
+
+def test_strict_schema_rebuilds_non_nullable_destination_without_data_loss(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    database = _create_partial_copy_database(tmp_path)
+    _replace_with_strict_looking_copy_table(database, destination_not_null=True)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO copy_operations VALUES (?, ?, ?, ?, ?, ?)",
+            (-100123, 7, -77, 700, "single:7", 0),
+        )
+
+    store = MirrorStore()
+    store.create(42, -100123, "Source")
+
+    columns = _copy_operation_columns(database)
+    assert columns["destination_message_id"]["not_null"] is False
+    assert store.destination_message_id(7) == 700
+    assert store.prepare_copy(8, random_id=-88).destination_message_id is None
+
+
+def test_strict_schema_fast_path_still_validates_existing_rows(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    database = _create_partial_copy_database(tmp_path)
+    _replace_with_strict_looking_copy_table(database, weak_checks=True)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO copy_operations VALUES (?, ?, ?, ?, ?, ?)",
+            (-100123, 7, -77, None, "album:44", -1),
+        )
+
+    with pytest.raises(ValueError, match="violates strict schema"):
+        MirrorStore().create(42, -100123, "Source")
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT source_message_id, batch_index FROM copy_operations"
+        ).fetchall() == [(7, -1)]
