@@ -142,13 +142,17 @@ Run `safe-commit "Reconcile ambiguous mirror creation" src/tgcli/commands/mirror
 **Files:**
 - Modify: `src/tgcli/commands/mirror.py`
 - Modify: `tests/test_cli_mirror_init.py`
+- Modify: `tests/test_cli_mirror_sync.py`
 
 - [ ] **Step 1: Write failing cooldown tests**
 
 Prove a create FloodWait records the deadline and keeps
 `reconcile_required`; the next init mutation exits 5 without marker scan or
 network write; an expired cooldown permits only the explicit confirmed retry;
-another source under the same account observes the same cooldown.
+another source under the same account observes the same cooldown. Prove a sync
+FloodWait records the same account gate and that active cooldown blocks both
+init commit and sync before audit or Telegram mutation while leaving init
+preview read-only and available.
 
 - [ ] **Step 2: Verify RED**
 
@@ -158,11 +162,11 @@ Expected: cooldown tests fail because no durable account gate exists.
 
 - [ ] **Step 3: Implement cooldown enforcement**
 
-After `_resolve` and before any mutation, read the account cooldown and raise
-`RateLimitError` with `ceil(deadline-now)` when active. Catch only Telegram
-`FloodWaitError` around mutations, persist its seconds, then re-raise so the
-existing CLI exit-5 mapping remains canonical. Do not sleep or retry inside the
-command.
+After `_resolve` and before any mutation in both `commit_init` and `sync_text`,
+read the account cooldown and raise `RateLimitError` with
+`ceil(deadline-now)` when active. Catch only Telegram `FloodWaitError` around
+their mutation paths, persist its seconds, then re-raise so the existing CLI
+exit-5 mapping remains canonical. Do not sleep or retry inside the command.
 
 - [ ] **Step 4: Verify GREEN and regression**
 
@@ -177,7 +181,7 @@ Expected: focused and full suites pass.
 
 - [ ] **Step 5: Commit exact files**
 
-Run `safe-commit "Persist mirror FloodWait cooldown" src/tgcli/commands/mirror.py tests/test_cli_mirror_init.py`.
+Run `safe-commit "Persist mirror FloodWait cooldown" src/tgcli/commands/mirror.py tests/test_cli_mirror_init.py tests/test_cli_mirror_sync.py`.
 
 ### Task 4: Contract and closeout
 
