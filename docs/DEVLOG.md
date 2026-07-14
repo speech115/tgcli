@@ -15,6 +15,30 @@ Template:
 
 ---
 
+## 2026-07-14 — Cooldown concurrency regression made effective (Codex GPT-5)
+**Did:** fixed the whole-branch re-review finding in the test only; production
+code was unchanged. The previous concurrency test patched public
+`cooldown_deadline()`, while `record_cooldown()` actually calls private
+`_read_cooldown()`, so its forced race was inert. The replacement starts two
+writers through a barrier and instruments every `_read_cooldown()` with a
+non-blocking flock probe that proves the account cooldown lock is already
+held. With `_cooldown_write_lock` temporarily replaced by a no-op, the exact
+test RED was `1 failed in 0.06s` with two
+`cooldown read ran outside the write lock` errors. Restoring the real lock made
+the same test GREEN: `1 passed in 0.05s`.
+**Decided:** the regression verifies the synchronization boundary directly,
+then verifies concurrent compare-and-max retains the later deadline. It does
+not rely on thread timing or patch an unused public reader.
+**Learned:** a concurrency test can look deterministic yet test nothing when
+its synchronization hook is off the production call path. Lock ownership at
+the actual read boundary is the stronger invariant.
+**Checks:** `uv run pytest tests/test_mirror_store.py -q` reported
+`20 passed in 0.17s`; `uv run pytest -q` reported
+`287 passed, 8 skipped in 1.83s`; `git diff --check` exited 0 with no output.
+No Telegram connection or mutation was attempted.
+**Next:** independently re-review the corrected regression, then publish the
+branch before any controlled live showcase mutation.
+
 ## 2026-07-14 — Mirror mutation transport and account locks hardened (Codex GPT-5)
 **Did:** closed every whole-branch review blocker without Telegram access.
 Added a mutation-only Telethon session mode (`request_retries=0`,

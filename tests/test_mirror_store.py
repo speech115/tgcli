@@ -1,3 +1,4 @@
+import fcntl
 import json
 import sqlite3
 import stat
@@ -220,26 +221,35 @@ def test_concurrent_cooldown_writers_retain_the_later_deadline(
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     account_user_id = 420001
     now = datetime(2026, 7, 14, 8, 0, tzinfo=timezone.utc)
-    both_read = threading.Barrier(2)
-    release_short = threading.Event()
-    original_deadline = mirror_store.cooldown_deadline
+    start = threading.Barrier(3)
+    original_read = mirror_store._read_cooldown
 
-    def force_legacy_read_race(requested_account_user_id):
-        existing = original_deadline(requested_account_user_id)
-        both_read.wait(timeout=2)
-        if threading.current_thread().name == "short-writer":
-            release_short.wait(timeout=2)
-        else:
-            release_short.set()
-        return existing
+    def assert_read_holds_cooldown_lock(path):
+        probe = mirror_store._open_private_lock(path.with_suffix(".lock"))
+        try:
+            try:
+                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return original_read(path)
+            fcntl.flock(probe, fcntl.LOCK_UN)
+            raise AssertionError("cooldown read ran outside the write lock")
+        finally:
+            mirror_store.os.close(probe)
 
-    monkeypatch.setattr(mirror_store, "cooldown_deadline", force_legacy_read_race)
+    monkeypatch.setattr(
+        mirror_store, "_read_cooldown", assert_read_holds_cooldown_lock
+    )
     results = {}
+    errors = []
 
     def write(name, retry_after):
-        results[name] = mirror_store.record_cooldown(
-            account_user_id, retry_after, now=now
-        )
+        try:
+            start.wait(timeout=1)
+            results[name] = mirror_store.record_cooldown(
+                account_user_id, retry_after, now=now
+            )
+        except Exception as exc:
+            errors.append(exc)
 
     long_writer = threading.Thread(
         target=write, args=("long", 600), name="long-writer"
@@ -249,13 +259,15 @@ def test_concurrent_cooldown_writers_retain_the_later_deadline(
     )
     long_writer.start()
     short_writer.start()
+    start.wait(timeout=1)
     long_writer.join(timeout=3)
     short_writer.join(timeout=3)
 
     assert not long_writer.is_alive()
     assert not short_writer.is_alive()
+    assert errors == []
     expected = now + timedelta(seconds=600)
-    assert original_deadline(account_user_id) == expected
+    assert original_read(mirror_store._cooldown_path(account_user_id)) == expected
     assert results["long"] == expected
     assert results["short"] in {now + timedelta(seconds=30), expected}
 
