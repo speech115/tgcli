@@ -1,5 +1,7 @@
 """Lean faithful-mirror command facade (ADR-0014)."""
 
+from datetime import datetime, timezone
+
 from telethon.tl import functions, types
 
 from tgcli import chatref, safety
@@ -65,13 +67,20 @@ async def preview_init(tg, source: str, account_alias: str) -> dict:
     return _result(record, destination_title=getattr(destination, "title", None))
 
 
-async def _find_marker_matches(tg, marker: str) -> list[object]:
-    matches = []
+async def _find_marker_candidates(
+    tg, marker: str
+) -> tuple[list[object], list[object]]:
+    valid = []
+    wrong_shape = []
     async for dialog in tg.iter_dialogs():
         entity = getattr(dialog, "entity", None)
+        if getattr(entity, "title", None) != marker:
+            continue
         if _is_private_owned_broadcast(entity, title=marker):
-            matches.append(entity)
-    return matches
+            valid.append(entity)
+        else:
+            wrong_shape.append(entity)
+    return valid, wrong_shape
 
 
 async def _destination_entity(tg, record: MirrorRecord):
@@ -84,7 +93,14 @@ async def _destination_entity(tg, record: MirrorRecord):
     return entity
 
 
-async def commit_init(tg, source: str, account_alias: str) -> dict:
+async def commit_init(
+    tg,
+    source: str,
+    account_alias: str,
+    *,
+    retry_create: bool = False,
+    confirm: str | None = None,
+) -> dict:
     entity, me = await _resolve(tg, source)
     store = MirrorStore()
     record = store.create(me.id, entity.id, entity.title)
@@ -92,13 +108,27 @@ async def commit_init(tg, source: str, account_alias: str) -> dict:
     if record.authorized:
         destination = await _destination_entity(tg, record)
     else:
-        marker = _temporary_title(record)
-        matches = await _find_marker_matches(tg, marker)
-        if len(matches) > 1:
+        if retry_create != (confirm is not None) or (
+            retry_create and confirm != record.mirror_id
+        ):
+            raise PolicyError("retry create requires --confirm with the exact mirror id")
+
+        marker = record.creation_marker or _temporary_title(record)
+        matches, wrong_shape = await _find_marker_candidates(tg, marker)
+        if len(matches) + len(wrong_shape) > 1:
+            store.mark_create_blocked()
             raise PolicyError("mirror destination marker matched multiple channels")
+        if wrong_shape:
+            store.mark_create_blocked()
+            raise PolicyError("mirror destination marker matched a channel with wrong shape")
         if matches:
             destination = matches[0]
         else:
+            if record.creation_state != "planned" and not retry_create:
+                raise PolicyError(
+                    "ambiguous mirror creation requires explicit retry with the exact mirror id"
+                )
+            store.mark_create_dispatched(marker, datetime.now(timezone.utc))
             safety.append_audit(
                 "mirror-init-create",
                 account_alias,

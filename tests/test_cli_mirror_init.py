@@ -1,3 +1,4 @@
+import asyncio
 import json
 from types import SimpleNamespace
 
@@ -32,6 +33,8 @@ def channel(
     title,
     *,
     creator=True,
+    broadcast=True,
+    megagroup=False,
     username=None,
     usernames=(),
 ):
@@ -39,20 +42,22 @@ def channel(
         id=channel_id,
         title=title,
         creator=creator,
-        broadcast=True,
-        megagroup=False,
+        broadcast=broadcast,
+        megagroup=megagroup,
         username=username,
         usernames=list(usernames),
     )
 
 
 class MirrorInitClient:
-    def __init__(self, *, dialogs=(), fail_create=False):
+    def __init__(self, *, dialogs=(), fail_create=False, create_error=None):
         self.source = channel(123, "Source channel", creator=False)
         self.destination = None
         self.dialogs = list(dialogs)
         self.fail_create = fail_create
+        self.create_error = create_error
         self.requests = []
+        self.creation_state_at_dispatch = None
 
     async def get_me(self):
         return SimpleNamespace(id=42)
@@ -71,8 +76,13 @@ class MirrorInitClient:
     async def __call__(self, request):
         self.requests.append(request)
         if isinstance(request, functions.channels.CreateChannelRequest):
+            self.creation_state_at_dispatch = MirrorStore().create(
+                42, 123, self.source.title
+            ).creation_state
             self.destination = channel(999, request.title)
             self.dialogs.append(self.destination)
+            if self.create_error is not None:
+                raise self.create_error
             if self.fail_create:
                 raise ConnectionError("accepted then disconnected")
             return SimpleNamespace(chats=[self.destination])
@@ -169,6 +179,21 @@ def test_mirror_init_commit_after_preview_restores_current_source_title(
 
 
 @pytest.mark.asyncio
+async def test_init_persists_reconcile_required_before_create_dispatch(config_env):
+    from tgcli.commands.mirror import commit_init
+
+    client = MirrorInitClient()
+
+    await commit_init(client, "@source", "main")
+
+    assert client.creation_state_at_dispatch == "reconcile_required"
+    record = MirrorStore().create(42, 123, "Source channel")
+    assert record.creation_state == "authorized"
+    assert record.creation_marker == f"[tgcli:{record.mirror_id[:12]}]"
+    assert record.create_attempted_at is not None
+
+
+@pytest.mark.asyncio
 async def test_mirror_init_reconciles_accepted_ambiguous_create_without_duplicate(
     config_env,
 ):
@@ -192,6 +217,82 @@ async def test_mirror_init_reconciles_accepted_ambiguous_create_without_duplicat
 
 
 @pytest.mark.asyncio
+async def test_init_zero_match_after_ambiguous_create_never_creates_automatically(
+    config_env,
+):
+    from tgcli.commands.mirror import commit_init
+
+    first = MirrorInitClient(fail_create=True)
+    with pytest.raises(ConnectionError, match="accepted then disconnected"):
+        await commit_init(first, "@source", "main")
+
+    retry = MirrorInitClient()
+    with pytest.raises(PolicyError, match="explicit retry"):
+        await commit_init(retry, "@source", "main")
+
+    assert retry.requests == []
+
+
+@pytest.mark.asyncio
+async def test_init_retry_create_requires_exact_mirror_id(config_env):
+    from tgcli.commands.mirror import commit_init
+
+    first = MirrorInitClient(fail_create=True)
+    with pytest.raises(ConnectionError, match="accepted then disconnected"):
+        await commit_init(first, "@source", "main")
+
+    identity = mirror_id(42, 123)
+    for retry_create, confirm in (
+        (True, None),
+        (False, identity),
+        (True, "wrong-mirror-id"),
+    ):
+        retry = MirrorInitClient()
+        with pytest.raises(PolicyError, match="exact mirror id"):
+            await commit_init(
+                retry,
+                "@source",
+                "main",
+                retry_create=retry_create,
+                confirm=confirm,
+            )
+        assert retry.requests == []
+
+    confirmed = MirrorInitClient()
+    result = await commit_init(
+        confirmed,
+        "@source",
+        "main",
+        retry_create=True,
+        confirm=identity,
+    )
+
+    assert result["mirror"]["destination"] == {"id": 999, "title": "Source channel"}
+    assert len(
+        [
+            request
+            for request in confirmed.requests
+            if isinstance(request, functions.channels.CreateChannelRequest)
+        ]
+    ) == 1
+
+
+@pytest.mark.asyncio
+async def test_init_exact_marker_with_wrong_shape_blocks_without_create(config_env):
+    from tgcli.commands.mirror import commit_init
+
+    marker = f"[tgcli:{mirror_id(42, 123)[:12]}]"
+    wrong_shape = channel(998, marker, broadcast=False)
+    client = MirrorInitClient(dialogs=[wrong_shape])
+
+    with pytest.raises(PolicyError, match="wrong shape"):
+        await commit_init(client, "@source", "main")
+
+    assert client.requests == []
+    assert MirrorStore().create(42, 123, "Source channel").creation_state == "blocked"
+
+
+@pytest.mark.asyncio
 async def test_mirror_init_refuses_multiple_marker_matches(config_env):
     from tgcli.commands.mirror import commit_init
 
@@ -200,6 +301,70 @@ async def test_mirror_init_refuses_multiple_marker_matches(config_env):
 
     with pytest.raises(PolicyError, match="multiple"):
         await commit_init(client, "@source", "main")
+    assert client.requests == []
+    assert MirrorStore().create(42, 123, "Source channel").creation_state == "blocked"
+
+
+@pytest.mark.asyncio
+async def test_init_multiple_marker_matches_stays_blocked_without_delete(config_env):
+    from tgcli.commands.mirror import commit_init
+
+    marker = f"[tgcli:{mirror_id(42, 123)[:12]}]"
+    client = MirrorInitClient(dialogs=[channel(998, marker), channel(999, marker)])
+
+    with pytest.raises(PolicyError, match="multiple"):
+        await commit_init(client, "@source", "main")
+    with pytest.raises(PolicyError, match="multiple"):
+        await commit_init(client, "@source", "main")
+
+    assert client.requests == []
+    assert MirrorStore().create(42, 123, "Source channel").creation_state == "blocked"
+
+
+@pytest.mark.asyncio
+async def test_init_cancellation_leaves_reconcile_required(config_env):
+    from tgcli.commands.mirror import commit_init
+
+    client = MirrorInitClient(create_error=asyncio.CancelledError())
+
+    with pytest.raises(asyncio.CancelledError):
+        await commit_init(client, "@source", "main")
+
+    record = MirrorStore().create(42, 123, "Source channel")
+    assert record.creation_state == "reconcile_required"
+    assert record.destination_peer_id is None
+
+
+@pytest.mark.asyncio
+async def test_authorized_init_never_scans_or_creates_again(config_env, monkeypatch):
+    from tgcli.commands import mirror
+
+    store = MirrorStore()
+    record = store.create(42, 123, "Source channel")
+    store.authorize(999)
+    destination = channel(999, "Source channel")
+    client = MirrorInitClient()
+    client.destination = destination
+
+    async def fail_scan(*args, **kwargs):
+        pytest.fail("authorized init scanned marker candidates")
+
+    def fail_marker_write(*args, **kwargs):
+        pytest.fail("authorized init changed creation markers")
+
+    monkeypatch.setattr(mirror, "_find_marker_candidates", fail_scan, raising=False)
+    monkeypatch.setattr(MirrorStore, "mark_create_dispatched", fail_marker_write)
+    monkeypatch.setattr(MirrorStore, "mark_create_blocked", fail_marker_write)
+
+    result = await mirror.commit_init(
+        client,
+        "@source",
+        "main",
+        retry_create=True,
+        confirm=record.mirror_id,
+    )
+
+    assert result["mirror"]["destination"] == {"id": 999, "title": "Source channel"}
     assert client.requests == []
 
 
@@ -215,7 +380,7 @@ async def test_mirror_init_refuses_multiple_marker_matches(config_env):
     ],
 )
 @pytest.mark.asyncio
-async def test_mirror_init_does_not_reconcile_public_marker_channel(
+async def test_mirror_init_blocks_public_marker_channel(
     config_env, public_identity
 ):
     from tgcli.commands.mirror import commit_init
@@ -224,13 +389,11 @@ async def test_mirror_init_does_not_reconcile_public_marker_channel(
     public_marker = channel(998, marker, **public_identity)
     client = MirrorInitClient(dialogs=[public_marker])
 
-    result = await commit_init(client, "@source", "main")
+    with pytest.raises(PolicyError, match="wrong shape"):
+        await commit_init(client, "@source", "main")
 
-    assert result["mirror"]["destination"]["id"] == 999
-    assert any(
-        isinstance(request, functions.channels.CreateChannelRequest)
-        for request in client.requests
-    )
+    assert client.requests == []
+    assert MirrorStore().create(42, 123, "Source channel").creation_state == "blocked"
 
 
 @pytest.mark.parametrize(
@@ -282,4 +445,24 @@ def test_mirror_init_commit_is_blocked_before_config_or_session(
         argv = [flag, "mirror", "init", "@source", "--commit"]
 
     assert main(argv) == 2
+    assert not safety.audit_path().exists()
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--retry-create"],
+        ["--confirm", mirror_id(42, 123)],
+        ["--retry-create", "--confirm", mirror_id(42, 123)],
+    ],
+)
+def test_retry_flags_without_commit_are_blocked_before_session(monkeypatch, extra):
+    from tgcli import cli
+
+    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
+    monkeypatch.setattr(
+        cli.session, "client", lambda account: pytest.fail("session opened")
+    )
+
+    assert main(["mirror", "init", "@source", *extra]) == 2
     assert not safety.audit_path().exists()
