@@ -1,15 +1,22 @@
 import asyncio
 import json
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+from telethon import errors as telethon_errors
 from telethon.tl import functions
 
 from tests.conftest import make_session_fake
 from tgcli import safety
 from tgcli.cli import main
 from tgcli.errors import PolicyError
-from tgcli.mirror.store import MirrorStore, mirror_id
+from tgcli.mirror.store import (
+    MirrorStore,
+    cooldown_deadline,
+    mirror_id,
+    record_cooldown,
+)
 
 
 SAMPLE = '''
@@ -58,6 +65,7 @@ class MirrorInitClient:
         self.create_error = create_error
         self.requests = []
         self.creation_state_at_dispatch = None
+        self.dialog_scan_calls = 0
 
     async def get_me(self):
         return SimpleNamespace(id=42)
@@ -70,6 +78,7 @@ class MirrorInitClient:
         raise ValueError(f"unknown entity: {ref!r}")
 
     async def iter_dialogs(self):
+        self.dialog_scan_calls += 1
         for entity in self.dialogs:
             yield SimpleNamespace(entity=entity)
 
@@ -333,6 +342,93 @@ async def test_init_cancellation_leaves_reconcile_required(config_env):
     record = MirrorStore().create(42, 123, "Source channel")
     assert record.creation_state == "reconcile_required"
     assert record.destination_peer_id is None
+
+
+@pytest.mark.asyncio
+async def test_init_create_flood_wait_persists_account_cooldown_and_reconcile_state(
+    config_env,
+):
+    from tgcli.commands.mirror import commit_init
+
+    client = MirrorInitClient(
+        create_error=telethon_errors.FloodWaitError(request=None, capture=600)
+    )
+    started_at = datetime.now(timezone.utc)
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        await commit_init(client, "@source", "main")
+
+    deadline = cooldown_deadline(42)
+    assert deadline is not None
+    assert deadline >= started_at + timedelta(seconds=599)
+    record = MirrorStore().create(42, 123, "Source channel")
+    assert record.creation_state == "reconcile_required"
+    assert record.destination_peer_id is None
+
+
+def test_active_cooldown_blocks_other_source_init_before_scan_audit_or_write_but_not_preview(
+    config_env, monkeypatch, capsys
+):
+    record_cooldown(42, 600)
+    client = MirrorInitClient()
+    client.source = channel(124, "Other source", creator=False)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "init", "@source", "--commit", "--json"]) == 5
+
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"]["code"] == "FLOOD_WAIT"
+    assert error["error"]["retry_after"] > 0
+    assert client.dialog_scan_calls == 0
+    assert client.requests == []
+    assert not safety.audit_path().exists()
+
+    assert main(["mirror", "init", "@source", "--json"]) == 0
+
+    preview = json.loads(capsys.readouterr().out)
+    assert preview["mirror"]["source"] == {"id": 124, "title": "Other source"}
+    assert client.dialog_scan_calls == 0
+    assert client.requests == []
+    assert not safety.audit_path().exists()
+
+
+@pytest.mark.asyncio
+async def test_expired_cooldown_still_requires_explicit_confirmed_create_retry(
+    config_env,
+):
+    from tgcli.commands.mirror import commit_init
+
+    store = MirrorStore()
+    record = store.create(42, 123, "Source channel")
+    marker = f"[tgcli:{record.mirror_id[:12]}]"
+    store.mark_create_dispatched(marker, datetime.now(timezone.utc) - timedelta(hours=1))
+    record_cooldown(
+        42,
+        60,
+        now=datetime.now(timezone.utc) - timedelta(minutes=2),
+    )
+
+    blocked = MirrorInitClient()
+    with pytest.raises(PolicyError, match="explicit retry"):
+        await commit_init(blocked, "@source", "main")
+    assert blocked.requests == []
+
+    confirmed = MirrorInitClient()
+    result = await commit_init(
+        confirmed,
+        "@source",
+        "main",
+        retry_create=True,
+        confirm=record.mirror_id,
+    )
+    assert result["mirror"]["status"] == "authorized"
+    assert len(
+        [
+            request
+            for request in confirmed.requests
+            if isinstance(request, functions.channels.CreateChannelRequest)
+        ]
+    ) == 1
 
 
 @pytest.mark.asyncio

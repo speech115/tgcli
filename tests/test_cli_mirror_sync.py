@@ -3,12 +3,13 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
 from tests.conftest import make_session_fake
 from tgcli import safety
 from tgcli.cli import main
-from tgcli.mirror.store import MirrorStore
+from tgcli.mirror.store import MirrorStore, cooldown_deadline
 
 
 SAMPLE = '''
@@ -153,6 +154,12 @@ class CancellingMirrorSyncClient(MirrorSyncClient):
         raise asyncio.CancelledError
 
 
+class FloodingMirrorSyncClient(MirrorSyncClient):
+    async def __call__(self, request):
+        await super().__call__(request)
+        raise telethon_errors.FloodWaitError(request=None, capture=600)
+
+
 def authorize_mirror():
     store = MirrorStore()
     store.create(42, 123, "Source channel")
@@ -251,6 +258,39 @@ async def test_mirror_sync_cancellation_reuses_pending_random_id_on_restart(
     assert result["sync"] == {"copied": 1, "last_confirmed_message_id": 1}
     assert restarted.requests[0].random_id == [pending.random_id]
     assert store.pending_copies() == []
+
+
+def test_sync_flood_wait_persists_account_cooldown_and_blocks_next_sync_before_audit_or_write(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    flooded = FloodingMirrorSyncClient([text_message(1, "one")])
+    make_session_fake(monkeypatch, flooded)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 5
+
+    first_error = json.loads(capsys.readouterr().err)
+    assert first_error["error"]["code"] == "FLOOD_WAIT"
+    assert first_error["error"]["retry_after"] == 600
+    deadline = cooldown_deadline(42)
+    assert deadline is not None
+    [pending] = store.pending_copies()
+    assert pending.random_id == flooded.requests[0].random_id[0]
+    audit_before_retry = safety.audit_path().read_text()
+
+    blocked = MirrorSyncClient([text_message(1, "one")])
+    make_session_fake(monkeypatch, blocked)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 5
+
+    second_error = json.loads(capsys.readouterr().err)
+    assert second_error["error"]["code"] == "FLOOD_WAIT"
+    assert second_error["error"]["retry_after"] > 0
+    assert blocked.input_entity_calls == []
+    assert blocked.events == []
+    assert blocked.requests == []
+    assert safety.audit_path().read_text() == audit_before_retry
+    assert store.pending_copies() == [pending]
 
 
 def test_mirror_timeout_selection(config_env, monkeypatch, capsys):

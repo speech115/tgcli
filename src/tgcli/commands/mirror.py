@@ -1,12 +1,20 @@
 """Lean faithful-mirror command facade (ADR-0014)."""
 
 from datetime import datetime, timezone
+from math import ceil
 
+from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
 from tgcli import chatref, safety
-from tgcli.errors import NotFoundError, PolicyError
-from tgcli.mirror.store import CopyOperation, MirrorRecord, MirrorStore
+from tgcli.errors import NotFoundError, PolicyError, RateLimitError
+from tgcli.mirror.store import (
+    CopyOperation,
+    MirrorRecord,
+    MirrorStore,
+    cooldown_deadline,
+    record_cooldown,
+)
 
 
 def _temporary_title(record: MirrorRecord) -> str:
@@ -37,6 +45,25 @@ async def _resolve(tg, source: str) -> tuple[object, object]:
         raise PolicyError("mirror source must be a broadcast channel")
     me = await tg.get_me()
     return entity, me
+
+
+def _enforce_cooldown(account_user_id: int) -> None:
+    deadline = cooldown_deadline(account_user_id)
+    if deadline is None:
+        return
+    retry_after = ceil((deadline - datetime.now(timezone.utc)).total_seconds())
+    if retry_after > 0:
+        raise RateLimitError(
+            f"rate limited for {retry_after}s", retry_after=retry_after
+        )
+
+
+async def _dispatch_mutation(tg, request, account_user_id: int):
+    try:
+        return await tg(request)
+    except telethon_errors.FloodWaitError as exc:
+        record_cooldown(account_user_id, exc.seconds)
+        raise
 
 
 def _result(record: MirrorRecord, *, destination_title: str | None = None) -> dict:
@@ -102,6 +129,7 @@ async def commit_init(
     confirm: str | None = None,
 ) -> dict:
     entity, me = await _resolve(tg, source)
+    _enforce_cooldown(me.id)
     store = MirrorStore()
     record = store.create(me.id, entity.id, entity.title)
 
@@ -134,13 +162,15 @@ async def commit_init(
                 account_alias,
                 {"mirror_id": record.mirror_id, "phase": "attempt"},
             )
-            update = await tg(
+            update = await _dispatch_mutation(
+                tg,
                 functions.channels.CreateChannelRequest(
                     title=marker,
                     about="",
                     broadcast=True,
                     megagroup=False,
-                )
+                ),
+                me.id,
             )
             candidates = [
                 candidate
@@ -159,11 +189,13 @@ async def commit_init(
             account_alias,
             {"mirror_id": record.mirror_id, "phase": "attempt"},
         )
-        await tg(
+        await _dispatch_mutation(
+            tg,
             functions.channels.EditTitleRequest(
                 channel=destination,
                 title=record.source_title,
-            )
+            ),
+            me.id,
         )
         destination_title = record.source_title
     return _result(record, destination_title=destination_title)
@@ -205,6 +237,7 @@ async def _forward_copy(
     source_peer,
     destination_peer,
     operation: CopyOperation,
+    account_user_id: int,
     account_alias: str,
     mirror_id: str,
 ) -> int:
@@ -217,20 +250,23 @@ async def _forward_copy(
             "random_id": operation.random_id,
         },
     )
-    response = await tg(
+    response = await _dispatch_mutation(
+        tg,
         functions.messages.ForwardMessagesRequest(
             from_peer=source_peer,
             id=[operation.source_message_id],
             random_id=[operation.random_id],
             to_peer=destination_peer,
             drop_author=True,
-        )
+        ),
+        account_user_id,
     )
     return _destination_message_id(response, operation.random_id)
 
 
 async def sync_text(tg, source: str, account_alias: str) -> dict:
     entity, me = await _resolve(tg, source)
+    _enforce_cooldown(me.id)
     store = MirrorStore()
     record = store.create(me.id, entity.id, entity.title)
     if not record.authorized:
@@ -254,6 +290,7 @@ async def sync_text(tg, source: str, account_alias: str) -> dict:
             source_peer=source_peer,
             destination_peer=destination_peer,
             operation=operation,
+            account_user_id=me.id,
             account_alias=account_alias,
             mirror_id=record.mirror_id,
         )
@@ -269,6 +306,7 @@ async def sync_text(tg, source: str, account_alias: str) -> dict:
             source_peer=source_peer,
             destination_peer=destination_peer,
             operation=operation,
+            account_user_id=me.id,
             account_alias=account_alias,
             mirror_id=record.mirror_id,
         )
