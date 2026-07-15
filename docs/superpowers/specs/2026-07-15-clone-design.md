@@ -33,6 +33,14 @@ semantics); "mirror" over-promised continuous synchronization.
 
 ## Goals
 
+- **Order fidelity is a hard requirement.** Destination messages appear in the
+  exact same sequence as the source. Achieved by copying strictly oldest→newest
+  (`reverse=True`), so Telegram assigns destination ids in source order; albums
+  keep their grouping and position; skipped messages (service / unsupported)
+  leave a gap but never reorder anything else. Original post *dates* are not
+  preserved — copies carry the clone-time date (Telegram sets a new message's
+  date to send time); only the sequence is guaranteed. v1 clones broadcast
+  channels only (not groups, forums, or comment threads).
 - Full behavior parity with what is live-proven today: text, media, albums,
   replies, protected sources (download/reupload transport), service-message skip,
   idempotent re-runs, FloodWait cooldown, fail-closed on corrupted state.
@@ -202,8 +210,9 @@ Kept: `mirror_probe.py` + its script/tests (independent read-only diagnostic),
   unsupported kind skipped with report entry (not fatal).
 - **Live acceptance is the release gate**, not test count: re-run the Stage-2
   demo (open pair with reply+album, protected pair) via `tg clone`, verify
-  visually, re-run sync to confirm idempotence (0 copied). Mirror is deleted
-  only after this passes.
+  visually that the destination message sequence matches the source one-for-one
+  (order fidelity), and re-run sync to confirm idempotence (0 copied). Mirror is
+  deleted only after this passes.
 
 ## Documentation changes
 
