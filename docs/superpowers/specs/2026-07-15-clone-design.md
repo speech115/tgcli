@@ -36,6 +36,10 @@ semantics); "mirror" over-promised continuous synchronization.
 - Full behavior parity with what is live-proven today: text, media, albums,
   replies, protected sources (download/reupload transport), service-message skip,
   idempotent re-runs, FloodWait cooldown, fail-closed on corrupted state.
+  One deliberate deviation from mirror: unsupported message kinds are skipped
+  and reported, not fatal (see Sync algorithm step 5) — mirror's fail-closed
+  allowlist made any channel with a poll mid-history permanently unsyncable
+  (this is why the 07-13 showcase sources could not be reused).
 - Production code budget: `commands/clone.py` ≤ 400 lines, `clone/state.py` ≤ 150
   lines. Mocked tests ≤ ~1,200 lines total. Exceeding a budget requires cutting
   before adding.
@@ -55,7 +59,7 @@ semantics); "mirror" over-promised continuous synchronization.
 tg clone status [SOURCE]                 # read-only; no SOURCE = list all clones
 tg clone init SOURCE                     # preview: plan, no mutation
 tg clone init SOURCE --commit PREVIEW_ID # create destination channel
-tg clone sync SOURCE                     # idempotent catch-up copy
+tg clone sync SOURCE [--limit N]         # idempotent catch-up copy
 ```
 
 - `init` preview resolves the source (must be a broadcast channel, not megagroup),
@@ -67,6 +71,10 @@ tg clone sync SOURCE                     # idempotent catch-up copy
   config/session, as in `send`), and append to the shared fail-closed audit log.
 - `sync` has no default `--timeout` (backfill can run long); everything else
   keeps the global 60 s default.
+- `sync --limit N` copies at most N batches per run and reports
+  `"more": true` when the head was not reached — controlled portions for large
+  backfills and predictable run time for agents. Re-running continues from the
+  cursor; idempotence is unaffected.
 - Output follows the core contract: command functions return a plain dict +
   `to_rows(data)`; only `cli.py` emits. Exit codes reuse the existing table
   (2 policy, 3 config/busy, 4 not found, 5 flood-wait).
@@ -139,7 +147,9 @@ Destinations are user-owned and never auto-deleted (ADR-0015 carries over).
 4. Skip service messages (`action is not None`), count as `skipped_service`
    (live gotcha: every fresh channel starts with one).
 5. Validate each batch against the supported-kind allowlist (same set as mirror
-   today); unsupported kind fails closed with a clear message naming it.
+   today). Unsupported kinds are **skipped and reported**, never fatal: the sync
+   report lists them as `skipped_unsupported: [{"id": 57, "kind": "poll"}, ...]`
+   and the cursor advances past them. Nothing is skipped silently.
 6. Choose transport per batch (ADR-0016 rule, verbatim):
    - **reupload** if the source or any message is protected (`noforwards`) OR
      the batch contains a reply (Telegram silently drops `reply_to` on
@@ -188,7 +198,8 @@ Kept: `mirror_probe.py` + its script/tests (independent read-only diagnostic),
   Budget ≤ ~1,200 lines total.
 - **Regression tests for every live gotcha**, named as such: service-message
   skip, `grouped_id=0` album, reply forces reupload transport, corrupted state
-  → PolicyError, cooldown persisted before exit 5, tail mismatch detection.
+  → PolicyError, cooldown persisted before exit 5, tail mismatch detection,
+  unsupported kind skipped with report entry (not fatal).
 - **Live acceptance is the release gate**, not test count: re-run the Stage-2
   demo (open pair with reply+album, protected pair) via `tg clone`, verify
   visually, re-run sync to confirm idempotence (0 copied). Mirror is deleted
@@ -202,7 +213,21 @@ Kept: `mirror_probe.py` + its script/tests (independent read-only diagnostic),
   model, the no-migration state policy, and the complexity budgets.
 - MAP.md, PLAN.md, DEVLOG.md updated in the same change.
 
+## Decisions log (2026-07-15, resolved with the user)
+
+- Rewrite path: clean rewrite with transplant; scope v1 = full live-proven
+  parity; crash model = tail verification.
+- Unsupported kinds: skip + report (deliberate deviation from mirror).
+- `sync --limit N` is in v1.
+- Repo hygiene: demo branch merges to main first; lab branches
+  (`claude/mirror-r1-controlled-lab`, `codex/mirror-aggregate-checkpoints`)
+  are preserved as `archive/*` tags and the branches deleted; fully merged
+  mirror branches deleted outright. Clone work happens on `feature/clone`
+  with a PR to main. Mirror code stays in tree (frozen) as transplant donor
+  and is deleted in the final task after live acceptance.
+- Executor: Claude implements; the plan is written self-contained so Codex
+  can take over any task.
+
 ## Open questions
 
-None. All decision points (rewrite path, v1 scope = full parity, crash model)
-were resolved with the user on 2026-07-15.
+None.
