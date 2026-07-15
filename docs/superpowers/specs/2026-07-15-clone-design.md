@@ -252,7 +252,7 @@ over any task from its description alone.
    copied.
 7. ✅ **Docs** — rewrite CONTRACT.md §11 for `tg clone`; update MAP.md/PLAN.md in
    the same commit as the code they describe.
-8. **Live acceptance** — re-run the Stage-2 demo pairs via `tg clone`, verify
+8. ✅ **Live acceptance** — re-run the Stage-2 demo pairs via `tg clone`, verify
    order fidelity visually, confirm idempotent rerun (0 copied).
 9. **Delete mirror** — remove `commands/mirror.py`, `mirror/`, mirror tests, the
    mirror subparser in `cli.py`, and mirror CONTRACT sections. Only after task 8.

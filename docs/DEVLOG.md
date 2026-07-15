@@ -14,6 +14,29 @@ Template:
 ```
 
 
+## 2026-07-15 — Clone live acceptance completed (Codex)
+**Did:** completed Task 8 on account `main` against the controlled Stage-2
+sources. Open source `3928214505` cloned 12/12 content messages to retained
+destination `3837236912`; protected source `4373370262` cloned 12/12 to
+retained destination `4341258020`. Both runs skipped one channel service row,
+reported zero unsupported kinds, reached cursor 13, and immediate reruns copied
+zero. Independent raw history comparison passed for content/media order,
+mapped reply parent, album grouping, and document MIME/attribute shapes.
+**Decided:** accepted ADR-0018 after the first open sync safely exposed a live
+baseline mismatch: channel creation plus init title edit produce two service
+rows. Tail verification now accepts service-only rows but still blocks any
+ordinary unexpected message before source scan, audit, or copy.
+**Learned:** a fixed numeric fresh-channel baseline is not stable across the
+real create-and-title workflow; classifying the visible tail preserves the
+safety boundary without blocking harmless Telegram metadata events. The TDD
+regression failed with the live exit-2 shape before the fix and passed after it.
+Final local checks: `429 passed, 8 skipped in 3.41s`; `coverage OK: 23
+namespaces`; compileall and `git diff --check` clean. Budgets remain
+`clone.py` 400 lines and `clone/state.py` 149.
+**Next:** execute Task 9: delete the frozen mirror parser, implementation,
+tests, and legacy CONTRACT appendix, then run the full cutover gate.
+
+
 ## 2026-07-15 — Clone contract made canonical (Codex)
 **Did:** completed Task 7. Reassigned CONTRACT.md §11 to the full `tg clone`
 surface, removed implementation-task wording, and demoted `tg mirror` to an

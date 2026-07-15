@@ -48,12 +48,12 @@ not rewritten.
   passes live acceptance, then is deleted. All earlier mirror ADRs (0013–0016)
   and mirror plans/specs are **history**, not the active plan — ADR-0015
   (destination retention) and ADR-0016 (live fidelity rules) carry forward into
-  clone unchanged; ADR-0013/0014 are superseded. Clone implementation Tasks 1–6
-  are complete on `feature/clone`: JSON state, read-only status, preview/commit
-  init with marker recovery, text and native media/album sync, mapped replies,
-  and protected reupload. Task 7 made `tg clone` the canonical CONTRACT.md §11
-  surface while retaining mirror as a clearly frozen legacy appendix. Controlled
-  live acceptance is next.
+  clone unchanged; ADR-0013/0014 are superseded. Clone Tasks 1–8 are complete
+  on `feature/clone`: JSON state, status, preview/commit init, text and native
+  media/album sync, mapped replies, protected reupload, canonical contract, and
+  controlled open/protected live acceptance. ADR-0018 records the live-found
+  service-only tail correction. Task 9 mirror deletion is the remaining clone
+  cutover step.
 - Multi-user distribution / packaging for strangers.
 - Bot API (this is a user-account MTProto tool).
 - Secret chats (Telethon does not implement them), voice/video calls

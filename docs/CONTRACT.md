@@ -472,9 +472,11 @@ the global 60-second default timeout.
 
 `sync SOURCE` requires initialized state and a private creator-owned broadcast
 destination. It verifies the destination tail before reading new source
-history: the last destination id may not exceed the largest persisted mapping
-(or the fresh-channel service baseline id 1). An unexpected tail exits 2 with
-`unexpected` and requires manual repair; no source scan, audit, or copy occurs.
+history. Rows after the largest persisted mapping (or the fresh-channel id-1
+baseline) are accepted only when every visible tail row is a Telegram service
+action, such as channel creation or the init title change. Any ordinary tail
+message exits 2 with its count in `unexpected` and requires manual repair; no
+source scan, audit, or copy occurs (ADR-0018).
 
 Sync iterates source history with `reverse=True` and
 `min_id=cursor`, so confirmed destination messages follow source order. The

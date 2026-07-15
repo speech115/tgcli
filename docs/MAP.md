@@ -30,7 +30,7 @@ tgcli/
 │   ├── session.py             [done]    session locks + normal/mutation-safe TelegramClient factory
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
-│   ├── clone/                 [wip]     JSON clone state; implementation complete, live acceptance pending (ADR-0017)
+│   ├── clone/                 [done]    live-accepted JSON clone state and progress window (ADR-0017)
 │   ├── mirror/                [frozen]  being replaced by `tg clone` (ADR-0017); transplant donor only, deleted after clone lands
 │   └── commands/
 │   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)
@@ -42,7 +42,7 @@ tgcli/
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
-│   │   ├── clone.py           [wip]     complete tg clone command surface; live acceptance pending (ADR-0017)
+│   │   ├── clone.py           [done]    live-accepted clone status/init/sync surface (ADR-0017/0018)
 │   │   └── mirror.py          [frozen]  replaced by clone (ADR-0017); do not extend — transplant donor
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
@@ -88,3 +88,4 @@ tgcli/
 | [0015](decisions/ADR-0015-truthful-persistent-mirror-showcase.md) | Production-path-only persistent private showcase and topology promotion gates |
 | [0016](decisions/ADR-0016-live-mirror-fidelity-corrections.md) | Service-message skip, reply reconstruction fallback, and append-only TSV extension |
 | [0017](decisions/ADR-0017-clone-supersedes-mirror.md) | Clone rewrite supersedes mirror; JSON state, core-primitive reuse, tail-verification crash model, complexity budgets |
+| [0018](decisions/ADR-0018-clone-service-tail.md) | Clone tail verification accepts service-only rows while still blocking ordinary destination content |

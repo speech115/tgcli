@@ -73,6 +73,7 @@ class CloneSyncClient:
         self.destination = channel(999, "Source channel", creator=True)
         self.messages = list(messages)
         self.destination_last_id = 1
+        self.destination_actions = {}
         self.requests = []
         self.iter_messages_calls = []
 
@@ -88,8 +89,9 @@ class CloneSyncClient:
 
     async def get_messages(self, entity, limit=None):
         assert entity is self.destination
-        assert limit == 1
-        return [SimpleNamespace(id=self.destination_last_id)]
+        return [SimpleNamespace(id=item_id, action=self.destination_actions.get(item_id))
+                for item_id in range(self.destination_last_id,
+                                     max(self.destination_last_id - limit, 0), -1)]
 
     async def iter_messages(self, entity, *, min_id=0, reverse=False):
         assert entity is self.source
@@ -210,6 +212,22 @@ def test_clone_sync_blocks_unexpected_destination_tail_before_copy(
     assert client.requests == []
     assert client.iter_messages_calls == []
     assert not safety.audit_path().exists()
+
+
+def test_clone_sync_accepts_service_only_destination_tail(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    client = CloneSyncClient([message(2)])
+    client.destination_last_id = 2
+    client.destination_actions[2] = object()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["sync"]["copied"] == 1
+    assert state.load(clone_state.clone_id).dest_for(2) == 3
 
 
 def test_clone_sync_skips_service_and_reports_unsupported_messages(

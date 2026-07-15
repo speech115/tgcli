@@ -320,10 +320,11 @@ async def sync_text(tg, source: str, account_alias: str,
     destination_last_id = latest[0].id if latest else 0
     baseline = clone_state.max_destination_id() or 1
     if destination_last_id > baseline:
-        raise PolicyError(
-            "clone destination has unexpected tail messages; manual repair is required",
-            unexpected=destination_last_id - baseline,
-        )
+        tail = await tg.get_messages(destination, limit=destination_last_id - baseline)
+        unexpected = [item for item in tail if item.id > baseline and getattr(item, "action", None) is None]
+        if unexpected:
+            raise PolicyError("clone destination has unexpected tail messages; manual repair is required",
+                              unexpected=len(unexpected))
     copied = 0
     copied_batches = 0
     skipped_service = 0
