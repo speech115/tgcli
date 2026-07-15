@@ -471,22 +471,27 @@ history: the last destination id may not exceed the largest persisted mapping
 (or the fresh-channel service baseline id 1). An unexpected tail exits 2 with
 `unexpected` and requires manual repair; no source scan, audit, or copy occurs.
 
-The Task-4 text slice iterates source history with `reverse=True` and
-`min_id=cursor`, so confirmed destination messages follow source order. Each
-plain unprotected non-reply message is sent by one
-`messages.forwardMessages(drop_author=True)` request. A matching positive
-`UpdateMessageID` must confirm it before the source/destination mapping and
-cursor are atomically saved. Missing or mismatched confirmation exits 2 without
-advancing state; the next run's tail verification detects a send that Telegram
-accepted but tgcli could not confirm.
+The Task-5 native slice iterates source history with `reverse=True` and
+`min_id=cursor`, so confirmed destination messages follow source order. The
+allowlist is unprotected non-reply text/no-media, `MessageMediaWebPage`,
+`MessageMediaPhoto`, and `MessageMediaDocument`; captions remain attached by
+native `messages.forwardMessages(drop_author=True)` copying.
+
+Contiguous messages whose `grouped_id is not None` are one album batch, including
+the valid edge case `grouped_id=0`. The complete ordered album is sent by one
+request with one distinct random id per item. Every requested random id must
+have exactly one unique positive `UpdateMessageID` before all mappings and the
+batch cursor are atomically saved. Missing, duplicate, extra, or invalid
+confirmation exits 2 without partially advancing state; the next run's tail
+verification detects a batch Telegram accepted but tgcli could not confirm.
 
 Service messages advance the cursor and increment `skipped_service` without
 audit or Telegram mutation. Truly unsupported kinds such as polls and dice
 advance the cursor and appear in `skipped_unsupported`; nothing is skipped
-silently. Media, albums, replies, and protected content belong to Tasks 5–6:
-until those transports land, encountering them exits 2 without advancing the
-cursor, so running the draft text slice cannot permanently lose content that a
-later task supports.
+silently. Replies and protected content belong to Task 6: until its reupload
+transport lands, encountering either exits 2 without advancing the cursor, so
+the draft native slice cannot permanently lose content that a later task
+supports. Poll reconstruction remains explicitly deferred in `docs/ISSUES.md`.
 
 `--limit N` must be positive and copies at most N message batches. If another
 source row remains, JSON reports `"more":true`; the next run resumes at the

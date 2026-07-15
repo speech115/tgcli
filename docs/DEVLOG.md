@@ -14,6 +14,25 @@ Template:
 ```
 
 
+## 2026-07-15 — Clone native media and albums implemented (Codex)
+**Did:** implemented Task 5 by TDD. `tg clone sync` now natively forwards the
+explicit webpage/photo/document media allowlist with captions intact, buffers
+contiguous albums by `grouped_id is not None` (including zero), preserves their
+position, sends each album in one request, and saves the complete mapping only
+after exact unique confirmations for every item. Added `docs/ISSUES.md` with a
+durable post-v1 poll-reconstruction item and live re-entry criteria. Updated
+CONTRACT, MAP, PLAN, and the clone checklist. Final local checks: `419 passed,
+8 skipped in 3.41s`; `coverage OK: 23 namespaces`; `clone.py` is exactly 400
+lines and `clone/state.py` is 149 lines.
+**Decided:** polls stay skip-and-report in v1, but their future reconstruction
+is now explicit rather than buried in the implementation plan. Native album
+confirmation is all-or-nothing in local state.
+**Learned:** a dictionary-based confirmation matcher can hide duplicate
+`UpdateMessageID` rows; counting the raw confirmation envelope first prevents
+partial or ambiguous album acceptance.
+**Next:** implement Task 6 reply mapping and protected-content reupload using
+the frozen mirror transports, then run the full clone contract suite.
+
 ## 2026-07-15 — Clone text sync implemented (Codex)
 **Did:** implemented Task 4 `tg clone sync` by TDD: oldest-first plain-text
 forwarding, exact confirmation before per-message state save, idempotent cursor

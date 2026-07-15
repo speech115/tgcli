@@ -15,6 +15,7 @@ tgcli/
 │   ├── MAP.md                 [done]    this file
 │   ├── PLAN.md                [done]    master plan, phases 0–7 (all complete)
 │   ├── CONTRACT.md            [done]    CLI automation contract (stdout/exit codes/JSON)
+│   ├── ISSUES.md              [done]    deliberately deferred product work and re-entry gates
 │   ├── DEVLOG.md              [done]    session-by-session agent log
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
 │   ├── decisions/             [done]    ADR-0001…0017; ADR-0017 clone supersedes mirror
@@ -41,7 +42,7 @@ tgcli/
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
-│   │   ├── clone.py           [wip]     tg clone status|init + text sync; media/replies pending (ADR-0017)
+│   │   ├── clone.py           [wip]     tg clone status|init + native media/album sync; replies/protected pending (ADR-0017)
 │   │   └── mirror.py          [frozen]  replaced by clone (ADR-0017); do not extend — transplant donor
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)

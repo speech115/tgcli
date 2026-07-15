@@ -99,14 +99,13 @@ class CloneSyncClient:
     async def __call__(self, request):
         assert isinstance(request, functions.messages.ForwardMessagesRequest)
         self.requests.append(request)
-        self.destination_last_id += 1
-        return SimpleNamespace(
-            updates=[
-                types.UpdateMessageID(
-                    id=self.destination_last_id, random_id=request.random_id[0]
-                )
-            ]
-        )
+        updates = []
+        for random_id in request.random_id:
+            self.destination_last_id += 1
+            updates.append(
+                types.UpdateMessageID(id=self.destination_last_id, random_id=random_id)
+            )
+        return SimpleNamespace(updates=updates)
 
 
 def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
@@ -200,21 +199,87 @@ def test_clone_sync_skips_service_and_reports_unsupported_messages(
     assert saved.dest_for(4) == 2
 
 
-def test_clone_sync_does_not_advance_past_media_reserved_for_task_5(
+@pytest.mark.parametrize(
+    "media",
+    [
+        types.MessageMediaWebPage(webpage=types.WebPageEmpty(id=6)),
+        types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7)),
+        types.MessageMediaDocument(document=types.DocumentEmpty(id=8)),
+    ],
+)
+def test_clone_sync_forwards_native_media_without_flattening_caption(
+    media, config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    client = CloneSyncClient([message(2, media=media, message="photo caption")])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["sync"]["copied"] == 1
+    saved = state.load(clone_state.clone_id)
+    assert saved.cursor == 2
+    assert saved.dest_for(2) == 2
+    assert [request.id for request in client.requests] == [[2]]
+    assert client.requests[0].drop_media_captions is None
+
+
+def test_clone_sync_keeps_grouped_id_zero_album_atomic_and_in_position(
     config_env, monkeypatch, capsys
 ):
     clone_state = seed_clone()
-    media = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
-    client = CloneSyncClient([message(2, media=media)])
+    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+    document = types.MessageMediaDocument(document=types.DocumentEmpty(id=8))
+    client = CloneSyncClient(
+        [
+            message(2),
+            message(3, media=photo, grouped_id=0),
+            message(4, media=document, grouped_id=0),
+            message(5),
+        ]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["sync"] == {
+        "copied": 4,
+        "skipped_service": 0,
+        "skipped_unsupported": [],
+        "cursor": 5,
+        "more": False,
+    }
+    assert [request.id for request in client.requests] == [[2], [3, 4], [5]]
+    assert len(client.requests[1].random_id) == 2
+    assert len(set(client.requests[1].random_id)) == 2
+    saved = state.load(clone_state.clone_id)
+    assert [saved.dest_for(source_id) for source_id in (2, 3, 4, 5)] == [2, 3, 4, 5]
+
+
+def test_clone_sync_rejects_duplicate_album_confirmation_atomically(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+
+    class DuplicateConfirmationClient(CloneSyncClient):
+        async def __call__(self, request):
+            response = await super().__call__(request)
+            response.updates.append(response.updates[0])
+            return response
+
+    client = DuplicateConfirmationClient(
+        [message(2, grouped_id=44), message(3, grouped_id=44)]
+    )
     make_session_fake(monkeypatch, client)
 
     assert main(["clone", "sync", "@source", "--json"]) == 2
 
-    assert "later clone task" in capsys.readouterr().err
+    assert "complete cloned batch" in capsys.readouterr().err
     saved = state.load(clone_state.clone_id)
     assert saved.cursor == 0
     assert saved.id_map == {}
-    assert client.requests == []
 
 
 def test_clone_sync_limit_reports_more_and_next_run_resumes(

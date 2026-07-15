@@ -239,22 +239,21 @@ def init_rows(data: dict) -> list[tuple]:
              None if destination is None else destination["id"])]
 
 
-def _confirmed_destination_id(response, random_id: int) -> int:
+def _confirmed_destination_ids(response, random_ids: list[int]) -> list[int]:
     updates = getattr(response, "updates", ())
-    matches = [update.id for update in updates
-               if isinstance(update, types.UpdateMessageID)
-               and update.random_id == random_id]
-    if (
-        len(matches) != 1
-        or isinstance(matches[0], bool)
-        or not isinstance(matches[0], int)
-        or matches[0] <= 0
-    ):
-        raise PolicyError("Telegram did not confirm the cloned message")
-    return matches[0]
+    confirmations = [(update.random_id, update.id) for update in updates
+                     if isinstance(update, types.UpdateMessageID)]
+    matches = dict(confirmations)
+    destination_ids = [matches.get(random_id) for random_id in random_ids]
+    if (len(confirmations) != len(random_ids) or set(matches) != set(random_ids)
+            or any(isinstance(item, bool) or not isinstance(item, int) or item <= 0
+                   for item in destination_ids)
+            or len(set(destination_ids)) != len(destination_ids)):
+        raise PolicyError("Telegram did not confirm the complete cloned batch")
+    return destination_ids
 
 
-_FUTURE_MEDIA_TYPES = (
+_NATIVE_MEDIA_TYPES = (
     types.MessageMediaWebPage, types.MessageMediaPhoto, types.MessageMediaDocument
 )
 
@@ -263,16 +262,35 @@ def _unsupported_kind(source_entity, message) -> str | None:
     media = getattr(message, "media", None)
     if (getattr(source_entity, "noforwards", False)
             or getattr(message, "noforwards", False)
-            or getattr(message, "reply_to", None) is not None
-            or getattr(message, "grouped_id", None) is not None
-            or isinstance(media, _FUTURE_MEDIA_TYPES)):
+            or getattr(message, "reply_to", None) is not None):
         raise PolicyError("media/reply handling belongs to a later clone task")
-    return None if media is None else type(media).__name__
+    return None if media is None or isinstance(media, _NATIVE_MEDIA_TYPES) \
+        else type(media).__name__
 
 
-async def sync_text(
-    tg, source: str, account_alias: str, *, limit: int | None = None
-) -> dict:
+async def _forward_batch(tg, source, destination, clone_state, account_alias, messages):
+    source_ids = [message.id for message in messages]
+    random_ids = [secrets.randbelow(2**63 - 1) + 1 for _ in messages]
+    safety.append_audit("clone-sync-forward", account_alias,
+                        {"clone_id": clone_state.clone_id, "source_message_ids": source_ids})
+    response = await _mutate(
+        tg,
+        functions.messages.ForwardMessagesRequest(
+            from_peer=source, id=source_ids, random_id=random_ids,
+            to_peer=destination, drop_author=True,
+        ),
+        clone_state,
+    )
+    destination_ids = _confirmed_destination_ids(response, random_ids)
+    for source_id, destination_id in zip(source_ids, destination_ids, strict=True):
+        clone_state.record_mapping(source_id, destination_id)
+    clone_state.cursor = source_ids[-1]
+    state.save(clone_state)
+    return len(source_ids)
+
+
+async def sync_text(tg, source: str, account_alias: str,
+                    *, limit: int | None = None) -> dict:
     source_entity = await _resolve_source(tg, source)
     me = await tg.get_me()
     clone_state = state.load(state.clone_id(me.id, source_entity.id))
@@ -302,47 +320,63 @@ async def sync_text(
     skipped_service = 0
     skipped_unsupported = []
     more = False
+    active_album = []
+    async def finish_batch(messages) -> None:
+        nonlocal copied, copied_batches
+        unsupported = [
+            {"id": message.id, "kind": kind}
+            for message in messages
+            if (kind := _unsupported_kind(source_entity, message)) is not None
+        ]
+        if unsupported:
+            skipped_unsupported.extend(unsupported)
+            clone_state.cursor = messages[-1].id
+            state.save(clone_state)
+            return
+        copied += await _forward_batch(
+            tg, source_entity, destination, clone_state, account_alias, messages
+        )
+        copied_batches += 1
+
     async for source_message in tg.iter_messages(
-        source_entity, min_id=clone_state.cursor, reverse=True
-    ):
-        if limit is not None and copied_batches >= limit:
-            more = True
-            break
+            source_entity, min_id=clone_state.cursor, reverse=True):
         if getattr(source_message, "action", None) is not None:
+            if active_album:
+                await finish_batch(active_album)
+                active_album = []
+            if limit is not None and copied_batches >= limit:
+                more = True
+                break
             skipped_service += 1
             clone_state.cursor = source_message.id
             state.save(clone_state)
             continue
-        kind = _unsupported_kind(source_entity, source_message)
-        if kind is not None:
-            skipped_unsupported.append({"id": source_message.id, "kind": kind})
-            clone_state.cursor = source_message.id
-            state.save(clone_state)
-            continue
 
-        random_id = secrets.randbelow(2**63 - 1) + 1
-        safety.append_audit(
-            "clone-sync-forward",
-            account_alias,
-            {"clone_id": clone_state.clone_id, "source_message_ids": [source_message.id]},
-        )
-        response = await _mutate(
-            tg,
-            functions.messages.ForwardMessagesRequest(
-                from_peer=source_entity,
-                id=[source_message.id],
-                random_id=[random_id],
-                to_peer=destination,
-                drop_author=True,
-            ),
-            clone_state,
-        )
-        destination_id = _confirmed_destination_id(response, random_id)
-        clone_state.record_mapping(source_message.id, destination_id)
-        clone_state.cursor = source_message.id
-        state.save(clone_state)
-        copied += 1
-        copied_batches += 1
+        grouped_id = getattr(source_message, "grouped_id", None)
+        if grouped_id is not None:
+            if isinstance(grouped_id, bool) or not isinstance(grouped_id, int):
+                raise PolicyError("clone album group id is invalid")
+            if active_album and active_album[0].grouped_id == grouped_id:
+                active_album.append(source_message)
+                continue
+            if active_album:
+                await finish_batch(active_album)
+                active_album = []
+            if limit is not None and copied_batches >= limit:
+                more = True
+                break
+            active_album = [source_message]
+            continue
+        if active_album:
+            await finish_batch(active_album)
+            active_album = []
+        if limit is not None and copied_batches >= limit:
+            more = True
+            break
+        await finish_batch([source_message])
+
+    if active_album:
+        await finish_batch(active_album)
 
     clone_state.last_synced_at = datetime.now(UTC).isoformat()
     state.save(clone_state)
