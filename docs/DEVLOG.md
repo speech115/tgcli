@@ -14,6 +14,28 @@ Template:
 ```
 
 
+## 2026-07-15 — Clone replies and protected reupload implemented (Codex)
+**Did:** implemented Task 6 by TDD. Reply-bearing batches now reconstruct with
+the persisted destination parent and supported quote metadata instead of using
+Telegram's reply-dropping native forward. Protected sources/messages reupload
+text, webpage previews, photos, documents, and albums; captions/entities,
+document MIME/attributes, album order, and per-item confirmation are retained.
+Temporary downloads are cleaned, failed downloads leave state retryable before
+audit/write, and upload/send/download FloodWait persists cooldown. Added the
+live-proven `UpdateShortSentMessage` confirmation path. Updated CONTRACT, MAP,
+PLAN, and the clone checklist. Final local checks: `428 passed, 8 skipped in
+3.53s`; `coverage OK: 23 namespaces`; compileall clean. Budgets: `clone.py`
+399 lines, `clone/state.py` 149, all clone mocked tests 1096.
+**Decided:** Task 6 carries ADR-0016 forward unchanged: every reply batch uses
+reupload even on an open channel; ordinary open non-replies remain native.
+No new module or architecture was introduced.
+**Learned:** reconstruction has two distinct valid confirmation envelopes;
+rejecting `UpdateShortSentMessage` would falsely block protected text after a
+successful Telegram send. Download failure must happen before the mutation
+audit because no upload/send has been attempted yet.
+**Next:** execute Task 7 contract cleanup, then Task 8 controlled live clone
+acceptance before deleting frozen mirror code.
+
 ## 2026-07-15 — Clone native media and albums implemented (Codex)
 **Did:** implemented Task 5 by TDD. `tg clone sync` now natively forwards the
 explicit webpage/photo/document media allowlist with captions intact, buffers

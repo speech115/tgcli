@@ -488,10 +488,28 @@ verification detects a batch Telegram accepted but tgcli could not confirm.
 Service messages advance the cursor and increment `skipped_service` without
 audit or Telegram mutation. Truly unsupported kinds such as polls and dice
 advance the cursor and appear in `skipped_unsupported`; nothing is skipped
-silently. Replies and protected content belong to Task 6: until its reupload
-transport lands, encountering either exits 2 without advancing the cursor, so
-the draft native slice cannot permanently lose content that a later task
-supports. Poll reconstruction remains explicitly deferred in `docs/ISSUES.md`.
+silently. Poll reconstruction remains explicitly deferred in `docs/ISSUES.md`.
+
+An unprotected batch without a reply uses native forwarding. A batch uses
+download/reupload reconstruction when the source channel or any message has
+`noforwards`, or when the batch carries a reply. This preserves the mapped
+destination reply relationship that Telegram drops from native forwarding.
+Only ordinary same-source-channel replies to an already mapped parent are
+accepted; cross-peer, forum, scheduled, ephemeral, todo, poll-option,
+reply-from, reply-media, malformed quote, missing-parent, and inconsistent
+album reply shapes exit 2 before audit or mutation. Supported quote text,
+entities, and offset are retained.
+
+Reupload sends text and webpage messages with `sendMessage`, photos/documents
+with `sendMedia`, and albums with per-item `uploadMedia` followed by one
+ordered `sendMultiMedia`. Captions and entities are retained; documents retain
+MIME type and Telegram attributes. Downloaded files live only in a temporary
+directory and are removed on success or failure. A download failure leaves the
+batch cursor and mapping unchanged and occurs before the fail-closed
+`clone-sync-reupload` audit/write boundary. Upload/send FloodWait persists the
+clone cooldown. Both `UpdateMessageID` batches and the single-message
+`UpdateShortSentMessage` envelope require exact positive confirmation before
+state advances.
 
 `--limit N` must be positive and copies at most N message batches. If another
 source row remains, JSON reports `"more":true`; the next run resumes at the

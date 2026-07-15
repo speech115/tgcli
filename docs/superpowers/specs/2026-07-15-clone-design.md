@@ -246,7 +246,7 @@ over any task from its description alone.
    `test_cli_clone_sync.py`.
 5. ✅ **`clone sync` — media + albums** — extend batches to media; album grouping
    by `grouped_id is not None`. Acceptance: album stays one unit, position kept.
-6. **`clone sync` — replies + protected reupload** — transplant both transports
+6. ✅ **`clone sync` — replies + protected reupload** — transplant both transports
    from `mirror.py`; reply-bearing or protected batch → reupload; reply mapped
    via `id_map`. Acceptance: reply lands on the right parent, protected source
    copied.

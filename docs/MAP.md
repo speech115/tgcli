@@ -42,7 +42,7 @@ tgcli/
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
-│   │   ├── clone.py           [wip]     tg clone status|init + native media/album sync; replies/protected pending (ADR-0017)
+│   │   ├── clone.py           [wip]     tg clone status|init + native/reupload sync with albums and replies (ADR-0017)
 │   │   └── mirror.py          [frozen]  replaced by clone (ADR-0017); do not extend — transplant donor
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)

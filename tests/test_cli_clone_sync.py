@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -51,6 +52,7 @@ def message(message_id, **overrides):
         "reply_to": None,
         "grouped_id": None,
         "noforwards": False,
+        "entities": None,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -106,6 +108,52 @@ class CloneSyncClient:
                 types.UpdateMessageID(id=self.destination_last_id, random_id=random_id)
             )
         return SimpleNamespace(updates=updates)
+
+
+class CloneReuploadClient(CloneSyncClient):
+    def __init__(self, messages, *, protected=False):
+        super().__init__(messages)
+        self.source.noforwards = protected
+        self.downloads = []
+        self.uploads = []
+
+    async def download_media(self, message, file=None):
+        path = Path(f"{file}.bin")
+        path.write_bytes(b"payload")
+        self.downloads.append(path)
+        return str(path)
+
+    async def upload_file(self, path):
+        self.uploads.append(path)
+        return types.InputFile(id=len(self.uploads), parts=1,
+                               name=Path(path).name, md5_checksum="")
+
+    async def __call__(self, request):
+        if isinstance(request, (functions.messages.SendMessageRequest,
+                                functions.messages.SendMediaRequest)):
+            self.requests.append(request)
+            self.destination_last_id += 1
+            return SimpleNamespace(updates=[types.UpdateMessageID(
+                id=self.destination_last_id, random_id=request.random_id
+            )])
+        if isinstance(request, functions.messages.UploadMediaRequest):
+            self.requests.append(request)
+            index = len([item for item in self.requests
+                         if isinstance(item, functions.messages.UploadMediaRequest)])
+            return types.MessageMediaPhoto(photo=types.Photo(
+                id=index, access_hash=index * 11, file_reference=b"ref", date=None,
+                sizes=[], dc_id=2,
+            ))
+        if isinstance(request, functions.messages.SendMultiMediaRequest):
+            self.requests.append(request)
+            updates = []
+            for item in request.multi_media:
+                self.destination_last_id += 1
+                updates.append(types.UpdateMessageID(
+                    id=self.destination_last_id, random_id=item.random_id
+                ))
+            return SimpleNamespace(updates=updates)
+        return await super().__call__(request)
 
 
 def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
@@ -280,6 +328,221 @@ def test_clone_sync_rejects_duplicate_album_confirmation_atomically(
     saved = state.load(clone_state.clone_id)
     assert saved.cursor == 0
     assert saved.id_map == {}
+
+
+def test_clone_sync_reuploads_reply_to_mapped_parent_with_quote(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    clone_state.record_mapping(1, 1001)
+    clone_state.cursor = 1
+    state.save(clone_state)
+    quote_entities = [types.MessageEntityBold(offset=0, length=5)]
+    reply = types.MessageReplyHeader(
+        reply_to_msg_id=1, quote_text="quote", quote_entities=quote_entities,
+        quote_offset=2,
+    )
+    client = CloneReuploadClient([message(2, message="child", reply_to=reply)])
+    client.destination_last_id = 1001
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 1
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMessageRequest)
+    assert request.reply_to.reply_to_msg_id == 1001
+    assert request.reply_to.quote_text == "quote"
+    assert request.reply_to.quote_entities == quote_entities
+    assert request.reply_to.quote_offset == 2
+    assert state.load(clone_state.clone_id).dest_for(2) == 1002
+
+
+def test_clone_sync_blocks_reply_quote_entities_without_quote_text(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    clone_state.record_mapping(1, 1001)
+    clone_state.cursor = 1
+    state.save(clone_state)
+    reply = types.MessageReplyHeader(
+        reply_to_msg_id=1,
+        quote_entities=[types.MessageEntityBold(offset=0, length=1)],
+    )
+    client = CloneReuploadClient([message(2, reply_to=reply)])
+    client.destination_last_id = 1001
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    assert "reply quote" in capsys.readouterr().err
+    assert state.load(clone_state.clone_id).dest_for(2) is None
+    assert client.requests == []
+    assert not safety.audit_path().exists()
+
+
+def test_clone_sync_blocks_reply_without_mapped_parent_before_audit_or_write(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    client = CloneReuploadClient([
+        message(2, reply_to=types.MessageReplyHeader(reply_to_msg_id=1))
+    ])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    assert "parent is not confirmed" in capsys.readouterr().err
+    assert state.load(clone_state.clone_id).cursor == 0
+    assert client.requests == []
+    assert not safety.audit_path().exists()
+
+
+def test_clone_sync_reuploads_protected_photo_with_caption_and_cleans_tempfile(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+    client = CloneReuploadClient(
+        [message(2, message="caption", media=photo)], protected=True
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 1
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMediaRequest)
+    assert isinstance(request.media, types.InputMediaUploadedPhoto)
+    assert request.message == "caption"
+    assert len(client.uploads) == 1
+    assert all(not path.exists() and not path.parent.exists() for path in client.downloads)
+    assert state.load(clone_state.clone_id).dest_for(2) == 2
+
+
+def test_clone_sync_download_failure_keeps_protected_batch_retryable(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+
+    class DownloadFailureClient(CloneReuploadClient):
+        async def download_media(self, message, file=None):
+            return None
+
+    media = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+    client = DownloadFailureClient([message(2, media=media)], protected=True)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    assert "media download failed" in capsys.readouterr().err
+    saved = state.load(clone_state.clone_id)
+    assert saved.cursor == 0 and saved.id_map == {}
+    assert client.requests == []
+    assert not safety.audit_path().exists()
+
+
+def test_clone_sync_accepts_short_sent_confirmation_for_protected_text(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+
+    class ShortSentClient(CloneReuploadClient):
+        async def __call__(self, request):
+            if isinstance(request, functions.messages.SendMessageRequest):
+                self.requests.append(request)
+                self.destination_last_id += 1
+                return types.UpdateShortSentMessage(
+                    id=self.destination_last_id, out=True, pts=1, pts_count=1,
+                    date=None,
+                )
+            return await super().__call__(request)
+
+    client = ShortSentClient([message(2, message="protected")], protected=True)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 1
+    assert state.load(clone_state.clone_id).dest_for(2) == 2
+
+
+def test_clone_sync_reuploads_protected_document_preserving_metadata(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    attributes = [types.DocumentAttributeFilename("report.txt")]
+    document = types.MessageMediaDocument(document=SimpleNamespace(
+        mime_type="text/plain", attributes=attributes,
+    ))
+    client = CloneReuploadClient(
+        [message(2, message="document", media=document)], protected=True
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    [request] = client.requests
+    assert isinstance(request.media, types.InputMediaUploadedDocument)
+    assert request.media.mime_type == "text/plain"
+    assert request.media.attributes == attributes
+    assert request.message == "document"
+    assert state.load(clone_state.clone_id).dest_for(2) == 2
+
+
+def test_clone_sync_reuploads_protected_album_as_one_ordered_batch(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+    client = CloneReuploadClient(
+        [message(2, message="first", media=photo, grouped_id=5),
+         message(3, message="second", media=photo, grouped_id=5)],
+        protected=True,
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 2
+    uploads = [item for item in client.requests
+               if isinstance(item, functions.messages.UploadMediaRequest)]
+    [multi] = [item for item in client.requests
+               if isinstance(item, functions.messages.SendMultiMediaRequest)]
+    assert len(uploads) == 2
+    assert [item.message for item in multi.multi_media] == ["first", "second"]
+    assert len({item.random_id for item in multi.multi_media}) == 2
+    saved = state.load(clone_state.clone_id)
+    assert [saved.dest_for(2), saved.dest_for(3)] == [2, 3]
+    assert all(not path.exists() and not path.parent.exists() for path in client.downloads)
+
+
+def test_clone_sync_reuploads_open_reply_album_to_mapped_parent(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    clone_state.record_mapping(1, 1001)
+    clone_state.cursor = 1
+    state.save(clone_state)
+    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+    reply = types.MessageReplyHeader(reply_to_msg_id=1, quote_text="album")
+    client = CloneReuploadClient([
+        message(2, media=photo, grouped_id=44, reply_to=reply),
+        message(3, media=photo, grouped_id=44),
+    ])
+    client.destination_last_id = 1001
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 2
+    [request] = [item for item in client.requests
+                 if isinstance(item, functions.messages.SendMultiMediaRequest)]
+    assert request.reply_to.reply_to_msg_id == 1001
+    assert request.reply_to.quote_text == "album"
+    saved = state.load(clone_state.clone_id)
+    assert [saved.dest_for(2), saved.dest_for(3)] == [1002, 1003]
 
 
 def test_clone_sync_limit_reports_more_and_next_run_resumes(

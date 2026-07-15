@@ -50,8 +50,9 @@ not rewritten.
   (destination retention) and ADR-0016 (live fidelity rules) carry forward into
   clone unchanged; ADR-0013/0014 are superseded. Clone implementation Tasks 1–3
   (JSON state, read-only status, preview/commit init with marker recovery) are
-  complete on `feature/clone`. Tasks 4–5 text/native-media/album sync are also
-  complete; replies and protected reupload are next.
+  complete on `feature/clone`. Tasks 4–6 sync are also complete: text, native
+  media/albums, mapped replies, and protected reupload. Contract normalization
+  and controlled live acceptance are next.
 - Multi-user distribution / packaging for strangers.
 - Bot API (this is a user-account MTProto tool).
 - Secret chats (Telethon does not implement them), voice/video calls
