@@ -30,7 +30,7 @@ tgcli/
 │   ├── session.py             [done]    session locks + normal/mutation-safe TelegramClient factory
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
-│   ├── clone/                 [wip]     JSON state for `tg clone`; init/sync implementation in progress (ADR-0017)
+│   ├── clone/                 [wip]     JSON clone state; implementation complete, live acceptance pending (ADR-0017)
 │   ├── mirror/                [frozen]  being replaced by `tg clone` (ADR-0017); transplant donor only, deleted after clone lands
 │   └── commands/
 │   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)
@@ -42,7 +42,7 @@ tgcli/
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
-│   │   ├── clone.py           [wip]     tg clone status|init + native/reupload sync with albums and replies (ADR-0017)
+│   │   ├── clone.py           [wip]     complete tg clone command surface; live acceptance pending (ADR-0017)
 │   │   └── mirror.py          [frozen]  replaced by clone (ADR-0017); do not extend — transplant donor
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)

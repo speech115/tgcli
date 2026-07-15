@@ -250,7 +250,7 @@ over any task from its description alone.
    from `mirror.py`; reply-bearing or protected batch → reupload; reply mapped
    via `id_map`. Acceptance: reply lands on the right parent, protected source
    copied.
-7. **Docs** — rewrite CONTRACT.md §11 for `tg clone`; update MAP.md/PLAN.md in
+7. ✅ **Docs** — rewrite CONTRACT.md §11 for `tg clone`; update MAP.md/PLAN.md in
    the same commit as the code they describe.
 8. **Live acceptance** — re-run the Stage-2 demo pairs via `tg clone`, verify
    order fidelity visually, confirm idempotent rerun (0 copied).

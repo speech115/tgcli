@@ -14,6 +14,23 @@ Template:
 ```
 
 
+## 2026-07-15 — Clone contract made canonical (Codex)
+**Did:** completed Task 7. Reassigned CONTRACT.md §11 to the full `tg clone`
+surface, removed implementation-task wording, and demoted `tg mirror` to an
+explicit frozen legacy appendix retained only until post-acceptance deletion.
+Updated MAP, PLAN, and the clone implementation checklist to show Tasks 1–7
+complete and live acceptance pending. Final local checks: `428 passed, 8
+skipped in 3.56s`; `coverage OK: 23 namespaces`; compileall and `git diff
+--check` clean.
+**Decided:** documentation now treats clone as canonical before live acceptance,
+while mirror remains available as a rollback reference. Task 9 deletion still
+cannot happen before the Task 8 live gate required by ADR-0017.
+**Learned:** preserving the legacy contract as an unnumbered appendix avoids a
+false dual-product contract without removing the rollback evidence too early.
+**Next:** execute Task 8 against controlled live demo channels, verify exact
+source order visually, then confirm an idempotent rerun reports zero copied.
+
+
 ## 2026-07-15 — Clone replies and protected reupload implemented (Codex)
 **Did:** implemented Task 6 by TDD. Reply-bearing batches now reconstruct with
 the persisted destination parent and supported quote metadata instead of using

@@ -232,7 +232,12 @@ unparseable credentials for a newly configured account exits 3.
 
 `--plain` emits frozen TSV columns: `alias`, `status`, `config`.
 
-## 11. Lean Channel Mirror (post-v1, ADR-0014)
+## Frozen Legacy Appendix: Channel Mirror (ADR-0014)
+
+This section documents a frozen transitional parser only. `tg mirror` is not
+the canonical channel-copy contract and must not be extended. It remains in
+the tree solely as a rollback reference until clone passes live acceptance;
+Task 9 then removes the parser, implementation, tests, and this appendix.
 
 ```text
 tg mirror init SOURCE [--commit [--retry-create --confirm MIRROR_ID]]
@@ -403,12 +408,12 @@ SIGTERM, and process failure never delete an authorized
 `user_owned_retained` destination; there is no automatic
 mirror-destination deletion path.
 
-## 12. Lean Channel Clone (post-v1, ADR-0017)
+## 11. Channel Clone (ADR-0017)
 
-`tg clone` replaces the frozen `tg mirror` surface after clone passes live
-acceptance. During the transition both parsers exist, but new work targets only
-clone. v1 accepts broadcast channels, not megagroups, forums, or comment
-threads.
+`tg clone` is the canonical channel-copy surface. The frozen `tg mirror`
+parser remains temporarily for rollback verification and is removed only after
+clone passes live acceptance. v1 accepts broadcast channels, not megagroups,
+forums, or comment threads.
 
 ```text
 tg clone status [SOURCE]
@@ -471,7 +476,7 @@ history: the last destination id may not exceed the largest persisted mapping
 (or the fresh-channel service baseline id 1). An unexpected tail exits 2 with
 `unexpected` and requires manual repair; no source scan, audit, or copy occurs.
 
-The Task-5 native slice iterates source history with `reverse=True` and
+Sync iterates source history with `reverse=True` and
 `min_id=cursor`, so confirmed destination messages follow source order. The
 allowlist is unprotected non-reply text/no-media, `MessageMediaWebPage`,
 `MessageMediaPhoto`, and `MessageMediaDocument`; captions remain attached by
