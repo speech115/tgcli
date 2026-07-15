@@ -152,6 +152,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_clone_init = clone_sub.add_parser("init", parents=[global_flags])
     p_clone_init.add_argument("source", help="source broadcast channel")
     p_clone_init.add_argument("--commit", metavar="PREVIEW_ID")
+    p_clone_sync = clone_sub.add_parser("sync", parents=[global_flags])
+    p_clone_sync.add_argument("source", help="source broadcast channel")
+    p_clone_sync.add_argument("--limit", type=int)
 
     return parser
 
@@ -165,8 +168,10 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
         )
     ) or (
         args.command == "clone"
-        and args.clone_command == "init"
-        and args.commit is not None
+        and (
+            args.clone_command == "sync"
+            or (args.clone_command == "init" and args.commit is not None)
+        )
     )
     try:
         async with session.client(account, mutation_safe=mutation_safe) as tg:
@@ -251,6 +256,11 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                 else:
                     data = await clone_cmd.preview_init(tg, args.source)
                 return data, clone_cmd.init_rows(data)
+            if args.command == "clone" and args.clone_command == "sync":
+                data = await clone_cmd.sync_text(
+                    tg, args.source, account.alias, limit=args.limit
+                )
+                return data, clone_cmd.sync_rows(data)
             raise AssertionError(f"unhandled network command: {args.command}")
     except telethon_errors.TakeoutInitDelayError as exc:
         raise RateLimitError(
@@ -272,6 +282,8 @@ def main(argv: list[str] | None = None) -> int:
     timeout_supplied = hasattr(args, "timeout")
     no_default_timeout = args.command == "export" or (
         args.command == "mirror" and args.mirror_command == "sync"
+    ) or (
+        args.command == "clone" and args.clone_command == "sync"
     )
     for name, default in {
         "account": None,
@@ -303,6 +315,10 @@ def main(argv: list[str] | None = None) -> int:
             )
         ):
             safety.enforce_mutation_allowed(args.readonly)
+        if args.command == "clone" and args.clone_command == "sync":
+            safety.enforce_mutation_allowed(args.readonly)
+            if args.limit is not None and args.limit <= 0:
+                raise PolicyError("clone sync --limit must be positive")
         if args.command == "send":
             if args.commit:
                 if args.preview or args.chat is not None or args.text is not None:
@@ -369,6 +385,7 @@ def main(argv: list[str] | None = None) -> int:
                 if (
                     args.command == "media"
                     or (args.command == "mirror" and args.mirror_command == "sync")
+                    or (args.command == "clone" and args.clone_command == "sync")
                 ) and not timeout_supplied:
                     data, rows = asyncio.run(network)
                 else:

@@ -14,6 +14,23 @@ Template:
 ```
 
 
+## 2026-07-15 — Clone text sync implemented (Codex)
+**Did:** implemented Task 4 `tg clone sync` by TDD: oldest-first plain-text
+forwarding, exact confirmation before per-message state save, idempotent cursor
+resume, destination tail verification, service/unsupported skip reporting,
+positive `--limit` with `more`, readonly preflight, mutation-safe sessions,
+fail-closed audit, and persisted FloodWait cooldown. Kept future-supported
+media/albums/replies/protected content behind a controlled block without cursor
+advance until Tasks 5–6, preventing draft-state data loss. Updated CONTRACT,
+MAP, PLAN, and the implementation checklist. Final local checks: `415 passed,
+8 skipped in 3.17s`; `coverage OK: 23 namespaces`; compileall clean.
+**Decided:** Task 4 may permanently skip only content outside the final clone
+allowlist; content awaiting a later planned transport must remain retryable.
+**Learned:** treating all not-yet-implemented media as unsupported would move
+the cursor past content that Task 5 is supposed to copy.
+**Next:** implement Task 5 media and contiguous album batches, preserving their
+source position and treating `grouped_id=0` as a real album id.
+
 ## 2026-07-15 — Clone init implemented; Tasks 1–3 reconciled (Codex)
 **Did:** reconciled the first two clone tasks with their contracts, trimming
 `clone/state.py` to 149 lines and making incomplete JSON state fail closed.

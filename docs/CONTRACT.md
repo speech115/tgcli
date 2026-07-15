@@ -414,7 +414,7 @@ threads.
 tg clone status [SOURCE]
 tg clone init SOURCE
 tg clone init SOURCE --commit PREVIEW_ID
-tg clone sync SOURCE [--limit N]          # planned; not yet available
+tg clone sync SOURCE [--limit N]
 ```
 
 `status` is local and read-only: it never loads config or opens a Telegram
@@ -464,3 +464,41 @@ Every create and title-edit attempt appends a fail-closed shared audit record
 before dispatch. Telegram FloodWait persists `retry_not_before` in clone state;
 later commit attempts exit 5 locally while that deadline is active. Init keeps
 the global 60-second default timeout.
+
+`sync SOURCE` requires initialized state and a private creator-owned broadcast
+destination. It verifies the destination tail before reading new source
+history: the last destination id may not exceed the largest persisted mapping
+(or the fresh-channel service baseline id 1). An unexpected tail exits 2 with
+`unexpected` and requires manual repair; no source scan, audit, or copy occurs.
+
+The Task-4 text slice iterates source history with `reverse=True` and
+`min_id=cursor`, so confirmed destination messages follow source order. Each
+plain unprotected non-reply message is sent by one
+`messages.forwardMessages(drop_author=True)` request. A matching positive
+`UpdateMessageID` must confirm it before the source/destination mapping and
+cursor are atomically saved. Missing or mismatched confirmation exits 2 without
+advancing state; the next run's tail verification detects a send that Telegram
+accepted but tgcli could not confirm.
+
+Service messages advance the cursor and increment `skipped_service` without
+audit or Telegram mutation. Truly unsupported kinds such as polls and dice
+advance the cursor and appear in `skipped_unsupported`; nothing is skipped
+silently. Media, albums, replies, and protected content belong to Tasks 5–6:
+until those transports land, encountering them exits 2 without advancing the
+cursor, so running the draft text slice cannot permanently lose content that a
+later task supports.
+
+`--limit N` must be positive and copies at most N message batches. If another
+source row remains, JSON reports `"more":true`; the next run resumes at the
+saved cursor. Sync has no implicit overall timeout, uses a mutation-safe
+session, and is blocked by all readonly gates before config/session work.
+FloodWait persists the clone cooldown and exits 5 without advancing the current
+message. JSON:
+
+```json
+{"clone":{"id":"hex","source":{"id":123,"title":"Source"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"skipped_service":1,"skipped_unsupported":[{"id":4,"kind":"MessageMediaPoll"}],"cursor":5,"more":false}}
+```
+
+Plain sync columns are `copied`, `skipped_service`,
+`skipped_unsupported_count`, `cursor`, `clone_id`, `source_peer_id`,
+`destination_peer_id`, `more`.

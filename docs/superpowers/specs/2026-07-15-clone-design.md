@@ -239,7 +239,7 @@ over any task from its description alone.
    creates the destination channel, records it, marker-based recovery on a
    half-created channel. Acceptance: preview does not touch network mutation,
    commit path, recovery adopts/creates/blocks correctly, `test_cli_clone_init.py`.
-4. **`clone sync` — text** — cursor iteration oldest→newest, service skip,
+4. ✅ **`clone sync` — text** — cursor iteration oldest→newest, service skip,
    unsupported skip+report, native forward for plain text, tail verification,
    state saved per batch, FloodWait → cooldown + exit 5, `--limit N` + `"more"`.
    Acceptance: order preserved, idempotent rerun, skip counters,
