@@ -1,6 +1,7 @@
 import asyncio
 import json
 import sqlite3
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -245,6 +246,102 @@ class BatchConfirmationFaultClient(MirrorSyncClient):
                 ]
             )
         raise AssertionError(f"unknown confirmation fault: {self.fault}")
+
+
+class ReuploadSyncClient(MirrorSyncClient):
+    """Fake client for the protected download→reupload transport."""
+
+    def __init__(
+        self,
+        messages,
+        *,
+        noforwards=True,
+        short_sent=False,
+        download_result="file",
+    ):
+        super().__init__(messages, noforwards=noforwards)
+        self.short_sent = short_sent
+        self.download_result = download_result
+        self.downloaded_paths = []
+        self.uploaded_media = []
+        self._next_destination_id = 2000
+
+    async def download_media(self, message, file=None):
+        self.download_media_calls.append((message.id, str(file)))
+        if self.download_result is None:
+            return None
+        path = Path(f"{file}.bin")
+        path.write_bytes(b"payload")
+        self.downloaded_paths.append(path)
+        return str(path)
+
+    async def upload_file(self, path):
+        self.upload_file_calls.append(str(path))
+        assert Path(path).exists()
+        return types.InputFile(
+            id=len(self.upload_file_calls),
+            parts=1,
+            name=Path(path).name,
+            md5_checksum="",
+        )
+
+    def _confirmations(self, random_ids):
+        updates = []
+        for random_id in random_ids:
+            self._next_destination_id += 1
+            updates.append(
+                types.UpdateMessageID(
+                    id=self._next_destination_id, random_id=random_id
+                )
+            )
+        return SimpleNamespace(updates=updates)
+
+    async def __call__(self, request):
+        if isinstance(request, functions.messages.SendMessageRequest):
+            self.requests.append(request)
+            self.events.append(f"send-text:{request.message}")
+            if self.short_sent:
+                self._next_destination_id += 1
+                return types.UpdateShortSentMessage(
+                    id=self._next_destination_id,
+                    out=True,
+                    pts=1,
+                    pts_count=1,
+                    date=None,
+                )
+            return self._confirmations([request.random_id])
+        if isinstance(request, functions.messages.SendMediaRequest):
+            self.requests.append(request)
+            self.events.append("send-media")
+            return self._confirmations([request.random_id])
+        if isinstance(request, functions.messages.UploadMediaRequest):
+            self.requests.append(request)
+            self.uploaded_media.append(request.media)
+            index = len(self.uploaded_media)
+            return types.MessageMediaPhoto(
+                photo=types.Photo(
+                    id=index,
+                    access_hash=index * 11,
+                    file_reference=b"ref",
+                    date=None,
+                    sizes=[],
+                    dc_id=2,
+                )
+            )
+        if isinstance(request, functions.messages.SendMultiMediaRequest):
+            self.requests.append(request)
+            self.events.append("send-multi")
+            return self._confirmations(
+                [item.random_id for item in request.multi_media]
+            )
+        return await super().__call__(request)
+
+
+class FloodingReuploadClient(ReuploadSyncClient):
+    async def __call__(self, request):
+        if isinstance(request, functions.messages.SendMessageRequest):
+            raise telethon_errors.FloodWaitError(request=None, capture=600)
+        return await super().__call__(request)
 
 
 class CancellingMirrorSyncClient(MirrorSyncClient):
@@ -530,7 +627,6 @@ def test_mirror_sync_uses_native_forward_for_explicit_single_content_allowlist(
             mirror_message(1, media=SimpleNamespace(kind="unknown-wrapper")),
             id="unknown-wrapper",
         ),
-        pytest.param(mirror_message(1, noforwards=True), id="protected"),
         pytest.param(
             mirror_message(1, reply_to=SimpleNamespace(reply_to_msg_id=9)),
             id="reply",
@@ -574,59 +670,342 @@ def test_mirror_sync_stops_at_media_without_marking_it_copied(
     assert len(safety.audit_path().read_text().splitlines()) == 1
 
 
-def test_mirror_sync_refuses_protected_source_before_destination_write(
+def test_mirror_sync_reuploads_protected_source_text_and_restart_adds_no_duplicates(
     config_env, monkeypatch, capsys
 ):
     store = authorize_mirror()
-    client = MirrorSyncClient([text_message(1, "one")], noforwards=True)
+    client = ReuploadSyncClient(
+        [text_message(1, "one"), text_message(2, "two")]
+    )
     make_session_fake(monkeypatch, client)
 
-    assert main(["mirror", "sync", "@source", "--json"]) == 2
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
 
-    error = json.loads(capsys.readouterr().err)
-    assert "protected" in error["error"]["message"]
-    assert client.input_entity_calls == []
-    assert client.requests == []
-    assert store.last_confirmed_message_id() == 0
-    assert not safety.audit_path().exists()
-
-
-def test_mirror_sync_refuses_protected_new_history_before_prepare_or_write(
-    config_env, monkeypatch, capsys
-):
-    store = authorize_mirror()
-    client = MirrorSyncClient([text_message(1, "one", noforwards=True)])
-    make_session_fake(monkeypatch, client)
-
-    assert main(["mirror", "sync", "@source", "--json"]) == 2
-
-    error = json.loads(capsys.readouterr().err)
-    assert error["error"]["code"] == "BLOCKED"
-    assert "protected" in error["error"]["message"]
-    assert client.requests == []
+    result = json.loads(capsys.readouterr().out)
+    assert result["sync"] == {"copied": 2, "last_confirmed_message_id": 2}
+    assert all(
+        isinstance(request, functions.messages.SendMessageRequest)
+        for request in client.requests
+    )
+    assert [request.message for request in client.requests] == ["one", "two"]
+    assert all(request.no_webpage is True for request in client.requests)
+    assert client.download_media_calls == []
     assert store.pending_copies() == []
-    assert store.last_confirmed_message_id() == 0
-    assert not safety.audit_path().exists()
+    assert store.destination_message_id(1) == 2001
+    assert store.destination_message_id(2) == 2002
+    audits = [
+        json.loads(line) for line in safety.audit_path().read_text().splitlines()
+    ]
+    assert [audit["action"] for audit in audits] == ["mirror-sync-reupload"] * 2
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    second = json.loads(capsys.readouterr().out)
+    assert second["sync"] == {"copied": 0, "last_confirmed_message_id": 2}
+    assert len(client.requests) == 2
 
 
-def test_mirror_sync_keeps_protected_pending_copy_without_replay_or_write(
+def test_mirror_sync_reupload_replays_pending_random_id(
     config_env, monkeypatch, capsys
 ):
     store = authorize_mirror()
-    pending = store.prepare_copy(1, random_id=-321)
-    client = MirrorSyncClient([text_message(1, "one", noforwards=True)])
+    store.prepare_copy(1, random_id=-321)
+    client = ReuploadSyncClient([text_message(1, "one", noforwards=True)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["sync"] == {"copied": 1, "last_confirmed_message_id": 1}
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMessageRequest)
+    assert request.random_id == -321
+    assert store.pending_copies() == []
+    assert store.destination_message_id(1) == 2001
+
+
+def test_mirror_sync_reupload_confirms_short_sent_text(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    client = ReuploadSyncClient([text_message(1, "one")], short_sent=True)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["sync"] == {"copied": 1, "last_confirmed_message_id": 1}
+    assert store.destination_message_id(1) == 2001
+    assert store.pending_copies() == []
+
+
+def test_mirror_sync_reupload_preserves_text_entities(
+    config_env, monkeypatch, capsys
+):
+    authorize_mirror()
+    message = text_message(1, "one")
+    message.entities = [types.MessageEntityBold(offset=0, length=3)]
+    client = ReuploadSyncClient([message])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    [request] = client.requests
+    assert request.entities == message.entities
+
+
+def test_mirror_sync_reupload_regenerates_webpage_preview(
+    config_env, monkeypatch, capsys
+):
+    authorize_mirror()
+    client = ReuploadSyncClient(
+        [
+            mirror_message(
+                1,
+                "look https://example.org",
+                media=types.MessageMediaWebPage(
+                    webpage=types.WebPageEmpty(id=71)
+                ),
+            )
+        ]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMessageRequest)
+    assert request.no_webpage is not True
+    assert client.download_media_calls == []
+
+
+def test_mirror_sync_reuploads_protected_photo_with_caption(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    client = ReuploadSyncClient(
+        [
+            mirror_message(
+                7,
+                "photo caption",
+                media=types.MessageMediaPhoto(photo=SimpleNamespace(id=72)),
+            )
+        ]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["sync"] == {"copied": 1, "last_confirmed_message_id": 7}
+    assert [call[0] for call in client.download_media_calls] == [7]
+    assert len(client.upload_file_calls) == 1
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMediaRequest)
+    assert isinstance(request.media, types.InputMediaUploadedPhoto)
+    assert request.message == "photo caption"
+    assert store.destination_message_id(7) == 2001
+
+
+def test_mirror_sync_reuploads_protected_document_preserving_attributes_and_mime(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    attributes = [types.DocumentAttributeFilename("lab-document.txt")]
+    client = ReuploadSyncClient(
+        [
+            mirror_message(
+                7,
+                "doc caption",
+                media=types.MessageMediaDocument(
+                    document=SimpleNamespace(
+                        attributes=attributes, mime_type="text/plain"
+                    )
+                ),
+            )
+        ]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMediaRequest)
+    assert isinstance(request.media, types.InputMediaUploadedDocument)
+    assert request.media.mime_type == "text/plain"
+    assert request.media.attributes == attributes
+    assert request.message == "doc caption"
+    assert store.destination_message_id(7) == 2001
+
+
+def test_mirror_sync_reuploads_protected_album_with_per_item_captions(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    client = ReuploadSyncClient(
+        [
+            mirror_message(
+                7,
+                "first",
+                media=types.MessageMediaPhoto(photo=SimpleNamespace(id=1)),
+                grouped_id=5,
+            ),
+            mirror_message(
+                8,
+                "second",
+                media=types.MessageMediaPhoto(photo=SimpleNamespace(id=2)),
+                grouped_id=5,
+            ),
+        ]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["sync"] == {"copied": 2, "last_confirmed_message_id": 8}
+    assert [call[0] for call in client.download_media_calls] == [7, 8]
+    uploads = [
+        request
+        for request in client.requests
+        if isinstance(request, functions.messages.UploadMediaRequest)
+    ]
+    assert len(uploads) == 2
+    [multi] = [
+        request
+        for request in client.requests
+        if isinstance(request, functions.messages.SendMultiMediaRequest)
+    ]
+    assert [item.message for item in multi.multi_media] == ["first", "second"]
+    assert len({item.random_id for item in multi.multi_media}) == 2
+    assert store.destination_message_id(7) == 2001
+    assert store.destination_message_id(8) == 2002
+    assert store.pending_batches() == []
+    audits = [
+        json.loads(line) for line in safety.audit_path().read_text().splitlines()
+    ]
+    assert [audit["action"] for audit in audits] == ["mirror-sync-reupload"]
+    assert audits[0]["source_message_ids"] == [7, 8]
+
+
+def test_mirror_sync_reupload_preserves_reply_mapping(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    store.prepare_copy(1, random_id=111)
+    store.confirm_copy(1, destination_message_id=1001)
+    client = ReuploadSyncClient(
+        [mirror_message(2, "child", reply_to=reply_header(1))]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    [request] = client.requests
+    assert request.reply_to.reply_to_msg_id == 1001
+
+
+def test_mirror_sync_reupload_cleans_up_downloaded_files(
+    config_env, monkeypatch, capsys
+):
+    authorize_mirror()
+    client = ReuploadSyncClient(
+        [
+            mirror_message(
+                7,
+                media=types.MessageMediaPhoto(photo=SimpleNamespace(id=72)),
+            )
+        ]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    assert client.downloaded_paths
+    assert all(not path.exists() for path in client.downloaded_paths)
+    assert all(not path.parent.exists() for path in client.downloaded_paths)
+
+
+def test_mirror_sync_reupload_stops_when_download_fails_keeping_batch_pending(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    client = ReuploadSyncClient(
+        [
+            mirror_message(
+                7,
+                media=types.MessageMediaPhoto(photo=SimpleNamespace(id=72)),
+            )
+        ],
+        download_result=None,
+    )
     make_session_fake(monkeypatch, client)
 
     assert main(["mirror", "sync", "@source", "--json"]) == 2
 
     error = json.loads(capsys.readouterr().err)
     assert error["error"]["code"] == "BLOCKED"
-    assert "protected" in error["error"]["message"]
-    assert client.events == ["get:[1]"]
+    assert "download" in error["error"]["message"]
     assert client.requests == []
-    assert store.pending_copies() == [pending]
+    assert len(store.pending_copies()) == 1
     assert store.last_confirmed_message_id() == 0
     assert not safety.audit_path().exists()
+
+
+def test_mirror_sync_reupload_flood_wait_records_cooldown(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    client = FloodingReuploadClient([text_message(1, "one")])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 5
+
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"]["code"] == "FLOOD_WAIT"
+    assert cooldown_deadline(42) is not None
+    [pending] = store.pending_copies()
+    assert pending.destination_message_id is None
+
+
+def test_mirror_sync_open_channel_reuploads_only_protected_message(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    client = ReuploadSyncClient(
+        [
+            text_message(1, "one"),
+            text_message(2, "two", noforwards=True),
+            text_message(3, "three"),
+        ],
+        noforwards=False,
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["sync"] == {"copied": 3, "last_confirmed_message_id": 3}
+    forwards = [
+        request
+        for request in client.requests
+        if isinstance(request, functions.messages.ForwardMessagesRequest)
+    ]
+    sends = [
+        request
+        for request in client.requests
+        if isinstance(request, functions.messages.SendMessageRequest)
+    ]
+    assert [request.id for request in forwards] == [[1], [3]]
+    assert [request.message for request in sends] == ["two"]
+    assert store.destination_message_id(1) == 1001
+    assert store.destination_message_id(2) == 2001
+    assert store.destination_message_id(3) == 1003
 
 
 def test_mirror_sync_refuses_missing_authorization_before_destination_write(

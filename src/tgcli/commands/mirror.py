@@ -1,9 +1,12 @@
 """Lean faithful-mirror command facade (ADR-0014)."""
 
+import tempfile
 from datetime import datetime, timezone
 from math import ceil
+from pathlib import Path
 
 from telethon import errors as telethon_errors
+from telethon import utils as telethon_utils
 from telethon.tl import functions, types
 
 from tgcli import chatref, safety
@@ -235,6 +238,16 @@ def _response_updates(response) -> tuple[object, ...]:
 def _destination_message_ids(
     response, random_ids: list[int]
 ) -> dict[int, int]:
+    if isinstance(response, types.UpdateShortSentMessage):
+        destination_id = response.id
+        if (
+            len(random_ids) != 1
+            or isinstance(destination_id, bool)
+            or not isinstance(destination_id, int)
+            or destination_id <= 0
+        ):
+            raise PolicyError("Telegram did not confirm the complete mirrored batch")
+        return {random_ids[0]: destination_id}
     confirmations: dict[int, int] = {}
     for update in _response_updates(response):
         if not isinstance(update, types.UpdateMessageID):
@@ -265,11 +278,6 @@ _NATIVE_MEDIA_TYPES = (
 
 
 def _require_supported_message(message) -> None:
-    if getattr(message, "noforwards", False):
-        raise PolicyError(
-            f"protected mirror messages require the later reconstruction slice; "
-            f"stopped at source message {message.id}"
-        )
     if getattr(message, "action", None) is not None:
         raise PolicyError(
             f"mirror service messages are not supported; "
@@ -469,6 +477,153 @@ async def _dispatch_prepared_batch(
     return len(operations)
 
 
+def _batch_uses_reupload(source_entity, messages: list[object]) -> bool:
+    return bool(getattr(source_entity, "noforwards", False)) or any(
+        getattr(message, "noforwards", False) for message in messages
+    )
+
+
+def _message_entities(message) -> list | None:
+    entities = getattr(message, "entities", None)
+    return list(entities) if entities else None
+
+
+def _message_caption(message) -> str:
+    return getattr(message, "message", None) or ""
+
+
+async def _download_batch_media(
+    tg, messages: list[object], directory: Path
+) -> dict[int, Path]:
+    downloads: dict[int, Path] = {}
+    for message in messages:
+        media = getattr(message, "media", None)
+        if media is None or isinstance(media, types.MessageMediaWebPage):
+            continue
+        target = directory / f"src-{message.id}"
+        downloaded = await tg.download_media(message, file=target)
+        if downloaded is None:
+            raise PolicyError(
+                f"mirror media download failed; stopped at source message {message.id}"
+            )
+        downloads[message.id] = Path(downloaded)
+    return downloads
+
+
+async def _uploaded_input_media(tg, message, path: Path, account_user_id: int):
+    try:
+        input_file = await tg.upload_file(str(path))
+    except telethon_errors.FloodWaitError as exc:
+        record_cooldown(account_user_id, exc.seconds)
+        raise
+    media = message.media
+    if isinstance(media, types.MessageMediaPhoto):
+        return types.InputMediaUploadedPhoto(file=input_file)
+    document = media.document
+    return types.InputMediaUploadedDocument(
+        file=input_file,
+        mime_type=getattr(document, "mime_type", None)
+        or "application/octet-stream",
+        attributes=list(getattr(document, "attributes", None) or ()),
+    )
+
+
+async def _dispatch_reupload_batch(
+    tg,
+    *,
+    operations: list[CopyOperation],
+    messages: list[object],
+    store: MirrorStore,
+    reply_to,
+    destination_peer,
+    account_user_id: int,
+    account_alias: str,
+    mirror_id: str,
+) -> int:
+    source_message_ids = [operation.source_message_id for operation in operations]
+    random_ids = [operation.random_id for operation in operations]
+    with tempfile.TemporaryDirectory(prefix="tgcli-mirror-reupload-") as workdir:
+        downloads = await _download_batch_media(tg, messages, Path(workdir))
+        safety.append_audit(
+            "mirror-sync-reupload",
+            account_alias,
+            {
+                "mirror_id": mirror_id,
+                "source_message_ids": source_message_ids,
+                "random_ids": random_ids,
+            },
+        )
+        if len(messages) == 1:
+            message = messages[0]
+            media = getattr(message, "media", None)
+            if media is None or isinstance(media, types.MessageMediaWebPage):
+                request = functions.messages.SendMessageRequest(
+                    peer=destination_peer,
+                    message=_message_caption(message),
+                    no_webpage=media is None,
+                    random_id=random_ids[0],
+                    reply_to=reply_to,
+                    entities=_message_entities(message),
+                )
+            else:
+                uploaded = await _uploaded_input_media(
+                    tg, message, downloads[message.id], account_user_id
+                )
+                request = functions.messages.SendMediaRequest(
+                    peer=destination_peer,
+                    media=uploaded,
+                    message=_message_caption(message),
+                    random_id=random_ids[0],
+                    reply_to=reply_to,
+                    entities=_message_entities(message),
+                )
+            response = await _dispatch_mutation(tg, request, account_user_id)
+        else:
+            multi_media = []
+            for message, random_id in zip(messages, random_ids, strict=True):
+                if message.id not in downloads:
+                    raise PolicyError(
+                        f"mirror album item is not reconstructable; "
+                        f"stopped at source message {message.id}"
+                    )
+                uploaded = await _uploaded_input_media(
+                    tg, message, downloads[message.id], account_user_id
+                )
+                stored = await _dispatch_mutation(
+                    tg,
+                    functions.messages.UploadMediaRequest(
+                        peer=destination_peer, media=uploaded
+                    ),
+                    account_user_id,
+                )
+                multi_media.append(
+                    types.InputSingleMedia(
+                        media=telethon_utils.get_input_media(stored),
+                        random_id=random_id,
+                        message=_message_caption(message),
+                        entities=_message_entities(message),
+                    )
+                )
+            response = await _dispatch_mutation(
+                tg,
+                functions.messages.SendMultiMediaRequest(
+                    peer=destination_peer,
+                    multi_media=multi_media,
+                    reply_to=reply_to,
+                ),
+                account_user_id,
+            )
+    confirmations = _destination_message_ids(response, random_ids)
+    _store_call(
+        store.confirm_batch,
+        {
+            operation.source_message_id: confirmations[operation.random_id]
+            for operation in operations
+        },
+    )
+    return len(operations)
+
+
 async def sync_text(tg, source: str, account_alias: str) -> dict:
     entity, me = await _resolve(tg, source)
     with account_mutation_lock(me.id):
@@ -477,10 +632,6 @@ async def sync_text(tg, source: str, account_alias: str) -> dict:
         record = _store_call(store.create, me.id, entity.id, entity.title)
         if not record.authorized:
             raise PolicyError("mirror source is not authorized; run mirror init --commit")
-        if getattr(entity, "noforwards", False):
-            raise PolicyError(
-                "protected mirror sources require the later media sync slice"
-            )
 
         pending_batches = _store_call(store.pending_batches)
         destination = await _destination_entity(tg, record)
@@ -495,17 +646,30 @@ async def sync_text(tg, source: str, account_alias: str) -> dict:
             recovered = await tg.get_messages(entity, ids=source_message_ids)
             messages = _ordered_recovered_messages(recovered, operations)
             reply_to = _validate_batch(messages, store, entity.id)
-            copied += await _dispatch_prepared_batch(
-                tg,
-                operations=operations,
-                store=store,
-                reply_to=reply_to,
-                source_peer=source_peer,
-                destination_peer=destination_peer,
-                account_user_id=me.id,
-                account_alias=account_alias,
-                mirror_id=record.mirror_id,
-            )
+            if _batch_uses_reupload(entity, messages):
+                copied += await _dispatch_reupload_batch(
+                    tg,
+                    operations=operations,
+                    messages=messages,
+                    store=store,
+                    reply_to=reply_to,
+                    destination_peer=destination_peer,
+                    account_user_id=me.id,
+                    account_alias=account_alias,
+                    mirror_id=record.mirror_id,
+                )
+            else:
+                copied += await _dispatch_prepared_batch(
+                    tg,
+                    operations=operations,
+                    store=store,
+                    reply_to=reply_to,
+                    source_peer=source_peer,
+                    destination_peer=destination_peer,
+                    account_user_id=me.id,
+                    account_alias=account_alias,
+                    mirror_id=record.mirror_id,
+                )
 
         cursor = _store_call(store.last_confirmed_message_id)
         active_album: list[object] = []
@@ -525,6 +689,18 @@ async def sync_text(tg, source: str, account_alias: str) -> dict:
                 source_message_ids,
                 batch_key=batch_key,
             )
+            if _batch_uses_reupload(entity, messages):
+                return await _dispatch_reupload_batch(
+                    tg,
+                    operations=operations,
+                    messages=messages,
+                    store=store,
+                    reply_to=reply_to,
+                    destination_peer=destination_peer,
+                    account_user_id=me.id,
+                    account_alias=account_alias,
+                    mirror_id=record.mirror_id,
+                )
             return await _dispatch_prepared_batch(
                 tg,
                 operations=operations,
