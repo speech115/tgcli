@@ -1,5 +1,8 @@
 # Lean Mirror Native Media, Albums, and Replies Implementation Plan
 
+> **SUPERSEDED (2026-07-15) by [ADR-0017](../../decisions/ADR-0017-clone-supersedes-mirror.md) and the [clone design spec](../specs/2026-07-15-clone-design.md).** This plan documents the old `tg mirror` feature, which is being replaced by `tg clone`. It is kept as history — do NOT execute it. Mirror code is frozen in the tree only as a transplant donor for clone.
+
+
 **Status:** completed 2026-07-14. All task reviews and final local gates passed;
 the whole-slice review returned SHIP after local store failures were translated
 to structured policy errors. No live Telegram access or mutation was performed.

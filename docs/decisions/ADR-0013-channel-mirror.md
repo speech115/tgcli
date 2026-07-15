@@ -1,6 +1,8 @@
 # ADR-0013: Crash-safe channel mirror with an explicit foreground watcher
 
 Status: superseded by ADR-0014 (2026-07-13).
+
+> **Note (2026-07-15):** the `tg mirror` feature this ADR concerns is being replaced by `tg clone` — see [ADR-0017](ADR-0017-clone-supersedes-mirror.md). This ADR is retained as history.
 Amended 2026-07-11 after R0 evidence (see DEVLOG): gotd backend removed; copy
 method is capability-based.
 

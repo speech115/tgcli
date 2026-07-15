@@ -38,20 +38,17 @@ not rewritten.
 ## Non-Goals (v1)
 
 - MCP server (agents call `tg ... --json` via shell; revisit only with evidence).
-- General mirror/archive remains outside completed v1. A lean faithful
-  broadcast-channel mirror is new post-v1 product work governed by
-  [ADR-0014](decisions/ADR-0014-lean-faithful-mirror.md) and delivered as small
-  vertical slices beginning with
-  [init + text sync](superpowers/plans/2026-07-13-lean-mirror-init-sync.md).
-  The persistent pre-production visual gate is governed by
-  [ADR-0015](decisions/ADR-0015-truthful-persistent-mirror-showcase.md); it uses
-  only the production mirror path and never independently seeds a destination.
-  Destination-creation recovery is hardened by
-  [the mirror-init safety plan](superpowers/plans/2026-07-14-mirror-init-safety.md).
-  The next completed post-v1 milestone adds
-  [native media, atomic albums, and mapped replies](superpowers/plans/2026-07-14-lean-mirror-native-media-replies.md)
-  through that same production sync path. The earlier ADR-0013/M0-M4 design
-  remains research history and is not the product implementation plan.
+- Channel copy is post-v1 product work, now being rewritten as **`tg clone`**
+  ([ADR-0017](decisions/ADR-0017-clone-supersedes-mirror.md),
+  [clone design spec](superpowers/specs/2026-07-15-clone-design.md)). The clone
+  rewrite supersedes the earlier `tg mirror` feature: mirror reached live
+  parity but its implementation grew disproportionate, so clone rebuilds the
+  same live-proven behavior on core primitives with hard complexity budgets.
+  The mirror code stays in the tree frozen (transplant donor) until clone
+  passes live acceptance, then is deleted. All earlier mirror ADRs (0013–0016)
+  and mirror plans/specs are **history**, not the active plan — ADR-0015
+  (destination retention) and ADR-0016 (live fidelity rules) carry forward into
+  clone unchanged; ADR-0013/0014 are superseded.
 - Multi-user distribution / packaging for strangers.
 - Bot API (this is a user-account MTProto tool).
 - Secret chats (Telethon does not implement them), voice/video calls

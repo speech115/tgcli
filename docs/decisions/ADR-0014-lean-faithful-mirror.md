@@ -2,6 +2,8 @@
 
 Status: accepted (2026-07-13).
 
+> **Note (2026-07-15):** the `tg mirror` feature this ADR concerns is being replaced by `tg clone` — see [ADR-0017](ADR-0017-clone-supersedes-mirror.md). This ADR is retained as history.
+
 Persistent showcase evidence and topology promotion are amended by ADR-0015.
 
 Supersedes ADR-0013 as the production implementation design. ADR-0013 and the

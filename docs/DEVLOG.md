@@ -13,6 +13,37 @@ Template:
 **Next:** the single most useful next step
 ```
 
+
+## 2026-07-15 — Clone rewrite planned; mirror frozen; repo hygiene (Claude Fable 5 / Opus 4.8)
+**Did:** designed `tg clone` to replace the over-built `tg mirror`
+(1,793 prod lines ≈ entire rest of core). Wrote+committed
+[clone design spec](superpowers/specs/2026-07-15-clone-design.md) and
+[ADR-0017](decisions/ADR-0017-clone-supersedes-mirror.md). Fast-forwarded main
+to the completed Stage-2 live demo. Repo cleanup so mirror work can't be
+confused with clone: tagged lab branches `archive/mirror-r1-controlled-lab`
+and `archive/mirror-aggregate-checkpoints` (pushed to origin), deleted all five
+mirror branches locally + the two lab worktrees; superseded banners on the five
+active mirror plans and ADR-0013–0016; frozen banner in `commands/mirror.py`;
+MAP/PLAN updated.
+**Decided (with user):** clean rewrite with organ transplant (transports +
+batch validation move from mirror.py, mirror deleted last after live
+acceptance); v1 = full live-proven parity; JSON state file (no SQLite, no
+migrations, no own locks — session.py flock suffices); safety.py preview→commit
+for init (no custom --confirm); tail-verification crash model (≤1 duplicated
+batch, replaces ~500 lines of random_id/exact-confirm machinery); unsupported
+kinds skip+report (not fatal — fixes mirror's permanent-block bug);
+`clone status` day one; `sync --limit N`; budgets clone.py ≤400 / state.py ≤150
+/ tests ≤~1200. Work on `feature/clone`, PR to main; Claude implements, plan
+self-contained so Codex can take over.
+**Learned:** mirror bloated by building parallel infra instead of reusing core
+(own confirmation, own lock redundant with session.py, own cooldown store) +
+guarantees inappropriate for owner-operated CLI + migrations for its own dev
+history + no status window. The 07-13 showcase sources were unusable because
+mirror fail-closed on unsupported kinds mid-history — clone's skip+report fixes
+this.
+**Next:** delete remote mirror branches on origin, then run
+superpowers:writing-plans to produce the task-by-task clone implementation plan.
+
 ---
 
 ## 2026-07-15 — Stage 2 completed: live open/protected production mirrors (Codex)

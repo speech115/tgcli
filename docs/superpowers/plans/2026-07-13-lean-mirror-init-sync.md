@@ -1,5 +1,8 @@
 # Lean Mirror Init and Text Sync Implementation Plan
 
+> **SUPERSEDED (2026-07-15) by [ADR-0017](../../decisions/ADR-0017-clone-supersedes-mirror.md) and the [clone design spec](../specs/2026-07-15-clone-design.md).** This plan documents the old `tg mirror` feature, which is being replaced by `tg clone`. It is kept as history — do NOT execute it. Mirror code is frozen in the tree only as a transplant donor for clone.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `superpowers:subagent-driven-development` to implement this plan task by task.
 

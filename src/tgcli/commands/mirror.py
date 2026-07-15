@@ -1,4 +1,11 @@
-"""Lean faithful-mirror command facade (ADR-0014)."""
+"""Lean faithful-mirror command facade (ADR-0014).
+
+FROZEN 2026-07-15: this feature is being replaced by ``tg clone``
+(see docs/decisions/ADR-0017-clone-supersedes-mirror.md and
+docs/superpowers/specs/2026-07-15-clone-design.md). Do NOT extend mirror.
+It is kept only as a transplant donor (transports, batch validation) for
+clone and is deleted once clone passes live acceptance.
+"""
 
 import tempfile
 from datetime import datetime, timezone

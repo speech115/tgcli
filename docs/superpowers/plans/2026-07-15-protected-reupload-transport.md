@@ -1,5 +1,8 @@
 # Protected mirror reupload transport (Stage 1 consolidation)
 
+> **SUPERSEDED (2026-07-15) by [ADR-0017](../../decisions/ADR-0017-clone-supersedes-mirror.md) and the [clone design spec](../specs/2026-07-15-clone-design.md).** This plan documents the old `tg mirror` feature, which is being replaced by `tg clone`. It is kept as history — do NOT execute it. Mirror code is frozen in the tree only as a transplant donor for clone.
+
+
 ## Goal
 `tg mirror sync` copies protected (noforwards) sources by reconstruction:
 download media, re-send content — instead of refusing. Lab branch
