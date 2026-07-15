@@ -402,3 +402,65 @@ order and random ids for the next resumable run. `init` retains the normal
 SIGTERM, and process failure never delete an authorized
 `user_owned_retained` destination; there is no automatic
 mirror-destination deletion path.
+
+## 12. Lean Channel Clone (post-v1, ADR-0017)
+
+`tg clone` replaces the frozen `tg mirror` surface after clone passes live
+acceptance. During the transition both parsers exist, but new work targets only
+clone. v1 accepts broadcast channels, not megagroups, forums, or comment
+threads.
+
+```text
+tg clone status [SOURCE]
+tg clone init SOURCE
+tg clone init SOURCE --commit PREVIEW_ID
+tg clone sync SOURCE [--limit N]          # planned; not yet available
+```
+
+`status` is local and read-only: it never loads config or opens a Telegram
+session. Without `SOURCE` it lists every JSON state file; with `SOURCE` it
+filters by exact numeric source id or case-insensitive title substring. JSON:
+
+```json
+{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source"},"destination_id":999,"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null}]}
+```
+
+Plain status columns are `source_peer_id`, `source_title`,
+`destination_peer_id`, `cursor`, `copied`, `last_synced_at`.
+
+`init SOURCE` is a read-only network preview. It resolves the source, verifies
+that it is a broadcast channel, reads the approximate message count and
+protected-content flag, and stores a five-minute single-use preview through the
+shared safety mechanism. It does not create clone state or mutate Telegram.
+JSON:
+
+```json
+{"preview_id":"p_...","expires_at":"...","clone":{"id":"hex","source":{"id":123,"title":"Source"},"destination":null,"status":"planned","commit_required":true},"approximate_message_count":321,"protected":false}
+```
+
+`init SOURCE --commit PREVIEW_ID` requires a matching unexpired clone-init
+preview. `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block before
+preview consumption, config, session, audit, or Telegram work. The commit uses
+a mutation-safe session, verifies that the resolved account/source ids still
+match the preview, then creates or recovers one private creator-owned broadcast
+destination. JSON:
+
+```json
+{"clone":{"id":"hex","source":{"id":123,"title":"Source"},"destination":{"id":999,"title":"Source"},"status":"ready","commit_required":false}}
+```
+
+Plain init columns are `status`, `clone_id`, `source_peer_id`,
+`destination_peer_id`.
+
+Before creation, state with `destination_peer_id:null` and title marker
+`tgcli-clone-<clone-id-prefix>` is atomically saved under
+`TGCLI_STATE_DIR/clones/<clone_id>.json`. Recovery adopts exactly one matching
+private creator-owned broadcast channel, creates when none exists, and exits 2
+without mutation on multiple or wrong-shape matches. Once a destination id is
+recorded, repeated init resolves and reuses it without scanning or creating.
+Destinations are user-owned and never deleted automatically.
+
+Every create and title-edit attempt appends a fail-closed shared audit record
+before dispatch. Telegram FloodWait persists `retry_not_before` in clone state;
+later commit attempts exit 5 locally while that deadline is active. Init keeps
+the global 60-second default timeout.

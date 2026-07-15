@@ -149,14 +149,24 @@ def build_parser() -> argparse.ArgumentParser:
     p_clone_status.add_argument(
         "source", nargs="?", help="filter to one source (id or title substring)"
     )
+    p_clone_init = clone_sub.add_parser("init", parents=[global_flags])
+    p_clone_init.add_argument("source", help="source broadcast channel")
+    p_clone_init.add_argument("--commit", metavar="PREVIEW_ID")
 
     return parser
 
 
 async def _run_network(args, account) -> tuple[dict, list[tuple]]:
-    mutation_safe = args.command == "mirror" and (
-        args.mirror_command == "sync"
-        or (args.mirror_command == "init" and args.commit)
+    mutation_safe = (
+        args.command == "mirror"
+        and (
+            args.mirror_command == "sync"
+            or (args.mirror_command == "init" and args.commit)
+        )
+    ) or (
+        args.command == "clone"
+        and args.clone_command == "init"
+        and args.commit is not None
     )
     try:
         async with session.client(account, mutation_safe=mutation_safe) as tg:
@@ -233,6 +243,14 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
             if args.command == "mirror" and args.mirror_command == "sync":
                 data = await mirror_cmd.sync_text(tg, args.source, account.alias)
                 return data, mirror_cmd.to_rows(data)
+            if args.command == "clone" and args.clone_command == "init":
+                if args.commit:
+                    data = await clone_cmd.commit_init(
+                        tg, args.source, account.alias, args.preview_payload
+                    )
+                else:
+                    data = await clone_cmd.preview_init(tg, args.source)
+                return data, clone_cmd.init_rows(data)
             raise AssertionError(f"unhandled network command: {args.command}")
     except telethon_errors.TakeoutInitDelayError as exc:
         raise RateLimitError(
@@ -299,6 +317,14 @@ def main(argv: list[str] | None = None) -> int:
                     parser.error("send requires CHAT TEXT --preview or --commit PREVIEW_ID")
                 except SystemExit:
                     return 1
+        if args.command == "clone" and args.clone_command == "init" and args.commit:
+            safety.enforce_mutation_allowed(args.readonly)
+            args.preview_payload = safety.consume_preview(args.commit)
+            if (
+                args.preview_payload.get("kind") != "clone-init"
+                or args.preview_payload.get("source") != args.source
+            ):
+                raise PolicyError("clone init preview does not match this source")
         if args.command == "api" and args.write:
             safety.enforce_mutation_allowed(args.readonly)
             args.method = api_cmd.canonical_method(args.method)

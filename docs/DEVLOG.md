@@ -14,6 +14,23 @@ Template:
 ```
 
 
+## 2026-07-15 — Clone init implemented; Tasks 1–3 reconciled (Codex)
+**Did:** reconciled the first two clone tasks with their contracts, trimming
+`clone/state.py` to 149 lines and making incomplete JSON state fail closed.
+Implemented `tg clone init` by TDD: read-only preview, single-use commit,
+mutation-safe destination creation, durable marker recovery, recorded-
+destination reuse, wrong/multiple-marker blocking, fail-closed audit, readonly
+preflight, and persisted FloodWait cooldown. Updated CONTRACT, MAP, PLAN, and
+the approved design status/order. Final local checks: `406 passed, 8 skipped in
+3.26s`; `coverage OK: 23 namespaces`; compileall clean.
+**Decided:** no new architecture; Task 3 follows ADR-0017 and reuses the shared
+preview/audit/session safety primitives. Clone remains broadcast-only in v1.
+**Learned:** recorded destinations must bypass marker recovery or a repeated
+init can create a duplicate; syntactically valid but incomplete state needs the
+same controlled PolicyError as malformed JSON.
+**Next:** implement Task 4, oldest-first text sync with tail verification,
+skip reporting, per-batch state saves, cooldown enforcement, and `--limit`.
+
 ## 2026-07-15 — Clone rewrite planned; mirror frozen; repo hygiene (Claude Fable 5 / Opus 4.8)
 **Did:** designed `tg clone` to replace the over-built `tg mirror`
 (1,793 prod lines ≈ entire rest of core). Wrote+committed

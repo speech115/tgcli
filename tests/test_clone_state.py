@@ -52,6 +52,24 @@ def test_save_writes_private_file():
     assert mode == 0o600
 
 
+def test_failed_atomic_replace_preserves_previous_state(monkeypatch):
+    s = _fresh()
+    s.cursor = 1
+    state.save(s)
+    original_replace = state.os.replace
+
+    def fail_replace(*args):
+        raise OSError("interrupted replace")
+
+    monkeypatch.setattr(state.os, "replace", fail_replace)
+    s.cursor = 2
+    with pytest.raises(OSError, match="interrupted replace"):
+        state.save(s)
+    monkeypatch.setattr(state.os, "replace", original_replace)
+
+    assert state.load(s.clone_id).cursor == 1
+
+
 def test_unknown_version_is_policy_error():
     s = _fresh()
     state.save(s)
@@ -68,6 +86,18 @@ def test_corrupted_file_is_policy_error():
     s = _fresh()
     state.save(s)
     state.path_for(s.clone_id).write_text("{ this is not json")
+
+    with pytest.raises(PolicyError):
+        state.load(s.clone_id)
+
+
+def test_incomplete_state_is_policy_error():
+    s = _fresh()
+    state.save(s)
+    path = state.path_for(s.clone_id)
+    raw = json.loads(path.read_text())
+    del raw["source_title"]
+    path.write_text(json.dumps(raw))
 
     with pytest.raises(PolicyError):
         state.load(s.clone_id)

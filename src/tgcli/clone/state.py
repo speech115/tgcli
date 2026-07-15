@@ -1,10 +1,4 @@
-"""Per-clone state: one JSON file per clone, no SQLite (ADR-0017).
-
-The state file records where a clone stands: destination channel, how far the
-copy has progressed (`cursor`), the source→destination id map used to place
-replies, and a FloodWait cooldown. An unknown ``version`` or a corrupted file
-fails closed with a PolicyError — there are no migrations.
-"""
+"""Per-clone JSON state with fail-closed validation (ADR-0017)."""
 
 import hashlib
 import json
@@ -18,29 +12,23 @@ from tgcli.errors import PolicyError
 
 VERSION = 1
 
-
 def clone_id(account_user_id: int, source_peer_id: int) -> str:
     identity = f"{account_user_id}:{source_peer_id}".encode()
     return hashlib.sha256(identity).hexdigest()
 
-
 def state_dir() -> Path:
     return Path(os.environ.get("TGCLI_STATE_DIR", "~/.local/state/tgcli")).expanduser()
-
 
 def clones_dir() -> Path:
     return state_dir() / "clones"
 
-
 def path_for(clone_id: str) -> Path:
     return clones_dir() / f"{clone_id}.json"
-
 
 def _require_aware(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("datetime must be timezone-aware")
     return value.astimezone(UTC)
-
 
 @dataclass
 class CloneState:
@@ -119,7 +107,6 @@ class CloneState:
             last_synced_at=data.get("last_synced_at"),
         )
 
-
 def load(clone_id: str) -> CloneState | None:
     path = path_for(clone_id)
     try:
@@ -137,7 +124,12 @@ def load(clone_id: str) -> CloneState | None:
             f"clone state {path.name} has unsupported version "
             f"{data.get('version')!r}; expected {VERSION}"
         )
-    return CloneState.from_dict(data)
+    try:
+        return CloneState.from_dict(data)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise PolicyError(
+            f"clone state {path.name} is invalid; manual repair is required"
+        ) from exc
 
 
 def save(state: CloneState) -> None:

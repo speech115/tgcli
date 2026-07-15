@@ -48,7 +48,9 @@ not rewritten.
   passes live acceptance, then is deleted. All earlier mirror ADRs (0013–0016)
   and mirror plans/specs are **history**, not the active plan — ADR-0015
   (destination retention) and ADR-0016 (live fidelity rules) carry forward into
-  clone unchanged; ADR-0013/0014 are superseded.
+  clone unchanged; ADR-0013/0014 are superseded. Clone implementation Tasks 1–3
+  (JSON state, read-only status, preview/commit init with marker recovery) are
+  complete on `feature/clone`; text sync is next.
 - Multi-user distribution / packaging for strangers.
 - Bot API (this is a user-account MTProto tool).
 - Secret chats (Telethon does not implement them), voice/video calls

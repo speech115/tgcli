@@ -1,7 +1,7 @@
 # Clone — Lean Channel Copy (supersedes mirror)
 
 Date: 2026-07-15
-Status: draft, awaiting user approval
+Status: approved (2026-07-15), implementation in progress
 Supersedes: `commands/mirror.py`, `mirror/store.py`, mirror sections of CONTRACT.md §11,
 specs `2026-07-13-lean-mirror-init-sync.md`, `2026-07-14-*`, `2026-07-15-protected-reupload-transport.md`.
 
@@ -228,14 +228,14 @@ TDD throughout: failing test first, then minimal code. Each task is independentl
 verifiable and leaves the suite green. Written self-contained so Codex can take
 over any task from its description alone.
 
-1. **`clone/state.py`** — state file load/save/validate + cooldown field.
+1. ✅ **`clone/state.py`** — state file load/save/validate + cooldown field.
    Pure, no network. Acceptance: `test_clone_state.py` covers round-trip,
    atomic write, unknown `version` → PolicyError, corrupted file → PolicyError,
    cooldown read/write.
-2. **`clone status`** — read-only; lists clones from state files (no SOURCE) or
+2. ✅ **`clone status`** — read-only; lists clones from state files (no SOURCE) or
    one clone's progress (with SOURCE). Wire into `cli.py`. Ships the read window
    first. Acceptance: JSON/TSV shape, empty-state case, `test_cli_clone_status.py`.
-3. **`clone init`** — preview via `safety.create_preview` (no mutation); commit
+3. ✅ **`clone init`** — preview via `safety.create_preview` (no mutation); commit
    creates the destination channel, records it, marker-based recovery on a
    half-created channel. Acceptance: preview does not touch network mutation,
    commit path, recovery adopts/creates/blocks correctly, `test_cli_clone_init.py`.
