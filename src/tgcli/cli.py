@@ -10,6 +10,7 @@ from telethon import errors as telethon_errors
 from tgcli import __version__, invocations, output, safety, session
 from tgcli.commands import accounts as accounts_cmd
 from tgcli.commands import api as api_cmd
+from tgcli.commands import clone as clone_cmd
 from tgcli.commands import dialogs as dialogs_cmd
 from tgcli.commands import export as export_cmd
 from tgcli.commands import info as info_cmd
@@ -141,6 +142,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_mirror_init.add_argument("--confirm", metavar="MIRROR_ID")
     p_mirror_sync = mirror_sub.add_parser("sync", parents=[global_flags])
     p_mirror_sync.add_argument("source", help="source broadcast channel")
+
+    p_clone = sub.add_parser("clone", help="Copy a broadcast channel", parents=[global_flags])
+    clone_sub = p_clone.add_subparsers(dest="clone_command", required=True)
+    p_clone_status = clone_sub.add_parser("status", parents=[global_flags])
+    p_clone_status.add_argument(
+        "source", nargs="?", help="filter to one source (id or title substring)"
+    )
 
     return parser
 
@@ -314,6 +322,9 @@ def main(argv: list[str] | None = None) -> int:
                 args.aliases or None, args.source_root.expanduser(), force=args.force
             )
             rows = accounts_cmd.import_rows(data)
+        elif args.command == "clone" and args.clone_command == "status":
+            data = clone_cmd.list_clones(args.source)
+            rows = clone_cmd.status_rows(data)
         else:
             config = load_config()
             if args.command == "accounts":
