@@ -15,6 +15,30 @@ Template:
 
 ---
 
+## 2026-07-15 — Stage 1: mirror branches consolidated into main (Claude Fable 5)
+**Did:** fast-forwarded `main` to `codex/mirror-showcase-product` (which
+already contained the lean branch) after a green 374-test run; ported the
+lab-proven protected download→reupload transport into `mirror sync`
+(`src/tgcli/commands/mirror.py`): protected batches are reconstructed via
+raw `sendMessage`/`sendMedia`/`uploadMedia`+`sendMultiMedia` with the same
+journaled random ids, strict confirmations, cooldown recording, and a
+`mirror-sync-reupload` audit action; added
+`scripts/seed_demo_channel.py` (manual demo seeding with ffmpeg fixtures,
+owned-private-broadcast guard); updated CONTRACT/FEATURES/MAP. 383 tests
+pass.
+**Decided:** transport is chosen per batch (`noforwards` on the channel or
+any message → reupload), no CLI flag; kept the media allowlist identical
+for both transports; no new ADR per the agreed lean process — the plan doc
+is `docs/superpowers/plans/2026-07-15-protected-reupload-transport.md`.
+Lab branches stay archived, their 25k-line test suites are intentionally
+not ported.
+**Learned:** `messages.sendMessage` can confirm via `UpdateShortSentMessage`
+(no `UpdateMessageID`), which the strict confirmation matcher now handles;
+`sendMultiMedia` requires `uploadMedia` per item first — uploaded media
+cannot go into `InputSingleMedia` directly.
+**Next:** Stage 2 — seed a demo channel pair and run the first visual
+acceptance (channel topology, open + protected) with the user.
+
 ## 2026-07-14 — Native mirror fidelity slice completed (Codex GPT-5)
 **Did:** completed and documented the Telethon-1.44 native mirror slice without
 live Telegram access. Task 1 added strict atomic copy batches and parent lookup:
@@ -161,6 +185,19 @@ must close before the native media/album/reply slice or a live run.
 coverage: `coverage OK: 23 namespaces`; no Telegram mutation performed.
 **Next:** execute `2026-07-14-mirror-init-safety.md` through TDD and independent
 task review, then implement native media, albums, and mapped replies.
+
+## 2026-07-13 — Public-channel analysis workflow verified (Codex)
+**Did:** verified that `@ivankhalilov` resolves through the live `main` account,
+read a bounded five-message sample, and checked the Phase 5 export implementation
+and contract for a complete oldest-first JSONL corpus. No bulk export or Telegram
+mutation was performed.
+**Decided:** use `tg --readonly export messages` for the source corpus, then a
+separate evidence-backed coding pipeline; media inspection is a second pass for
+selected posts rather than part of the initial full export.
+**Learned:** the existing export preserves message ids, dates, text, media type,
+and reply ids, which is sufficient for a text-first longitudinal analysis but
+not for claims about the contents of attached media.
+**Next:** run the full export only after the user asks to execute the analysis.
 
 ## 2026-07-13 — Lean mirror final Telegram edge review (Codex)
 **Did:** added narrow regressions and fixes for all whole-branch review

@@ -278,16 +278,23 @@ Authorized JSON uses `destination:{"id":999,"title":"Source channel"}`,
 status `authorized`, and `commit_required:false`. Plain init columns are
 `status`, `mirror_id`, `source_peer_id`, `destination_peer_id`.
 
-`sync` requires that authorization and copies supported unprotected content
-oldest first through Telethon exactly `1.44.0`, pinned in project metadata and
-the lockfile. The explicit native allowlist is text/no media,
+`sync` requires that authorization and copies supported content oldest first
+through Telethon exactly `1.44.0`, pinned in project metadata and the
+lockfile. The explicit content allowlist is text/no media,
 `MessageMediaWebPage`, `MessageMediaPhoto`, and `MessageMediaDocument`,
 including generic files and Telegram's video, audio, voice, and sticker
-document variants. Each supported item is copied by
-`messages.forwardMessages` with its original source message id,
+document variants. Unprotected batches are copied by
+`messages.forwardMessages` with the original source message ids,
 `drop_author=True`, and `drop_media_captions` unset, so Telegram carries the
-original native media and caption. Mirror sync does not download, render,
-upload, or reupload this content. Its JSON adds:
+original native media and caption without any download or reupload.
+Protected batches — a `noforwards` source channel or message — are
+reconstructed instead: media is downloaded to a temporary directory that is
+removed after the batch, then re-sent through `messages.sendMessage`,
+`messages.sendMedia`, or `messages.uploadMedia` + `messages.sendMultiMedia`
+with the same journaled random ids, preserving text, entities, captions,
+album grouping, mapped replies, and document `mime_type`/attributes; photos
+are re-encoded by Telegram. A failed download exits 2 with the batch left
+pending. Sync JSON adds:
 
 ```json
 {"sync":{"copied":42,"last_confirmed_message_id":73}}
@@ -362,14 +369,15 @@ contender exits 3 before audit or mutation dispatch.
 
 `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block `init --commit`
 and `sync` before config/session/network work. Every create, title edit, and
-copy-batch attempt appends the shared fail-closed audit before dispatch. A
-protected channel or message, service action, paid media, story, poll, or any
-other media wrapper outside the explicit allowlist exits 2 before that batch is
+copy-batch attempt appends the shared fail-closed audit before dispatch
+(`mirror-sync-forward` for native batches, `mirror-sync-reupload` for
+reconstructed ones). A service action, paid media, story, poll, or any other
+media wrapper outside the explicit allowlist exits 2 before that batch is
 prepared, audited, or dispatched. Mixed supported/unsupported albums also fail
 as a whole; already confirmed earlier batches remain committed. Linked
-discussion comments, foreground watch, protected-content reconstruction,
-forum topics, groups, reactions, views, and attribution emulation remain
-explicit later slices, not silently claimed by this contract.
+discussion comments, foreground watch, forum topics, groups, reactions,
+views, and attribution emulation remain explicit later slices, not silently
+claimed by this contract.
 
 An expected local mirror-store migration or invariant failure exits 2 with
 `local mirror state is invalid; manual repair is required`. Detection during

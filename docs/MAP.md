@@ -40,13 +40,14 @@ tgcli/
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
-│   │   └── mirror.py          [wip]     safe init + native text/media/album/mapped-reply sync done; comments|protected|watch/promotion planned
+│   │   └── mirror.py          [wip]     safe init + native text/media/album/mapped-reply sync + protected reupload done; comments|watch/promotion planned
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
     ├── install-link.sh        [done]    symlink tg → PATH (phase 6 cutover)
     ├── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
-    └── bench.py               [done]    live benchmark: every command against a real account
+    ├── bench.py               [done]    live benchmark: every command against a real account
+    └── seed_demo_channel.py   [done]    manual demo-channel seeding for mirror visual acceptance
 ```
 
 ## Module Ownership Rules
