@@ -479,7 +479,9 @@ async def _dispatch_prepared_batch(
 
 def _batch_uses_reupload(source_entity, messages: list[object]) -> bool:
     return bool(getattr(source_entity, "noforwards", False)) or any(
-        getattr(message, "noforwards", False) for message in messages
+        getattr(message, "noforwards", False)
+        or getattr(message, "reply_to", None) is not None
+        for message in messages
     )
 
 
@@ -672,6 +674,7 @@ async def sync_text(tg, source: str, account_alias: str) -> dict:
                 )
 
         cursor = _store_call(store.last_confirmed_message_id)
+        skipped_service = 0
         active_album: list[object] = []
         seen_group_ids: set[int] = set()
 
@@ -714,6 +717,12 @@ async def sync_text(tg, source: str, account_alias: str) -> dict:
             )
 
         async for message in tg.iter_messages(entity, min_id=cursor, reverse=True):
+            if getattr(message, "action", None) is not None:
+                if active_album:
+                    copied += await copy_new_batch(active_album)
+                    active_album = []
+                skipped_service += 1
+                continue
             grouped_id = getattr(message, "grouped_id", None)
             if grouped_id is None:
                 if active_album:
@@ -751,6 +760,7 @@ async def sync_text(tg, source: str, account_alias: str) -> dict:
             )["mirror"],
             "sync": {
                 "copied": copied,
+                "skipped_service": skipped_service,
                 "last_confirmed_message_id": _store_call(
                     store.last_confirmed_message_id
                 ),
@@ -769,6 +779,7 @@ def to_rows(data: dict) -> list[tuple]:
                 mirror["id"],
                 mirror["source"]["id"],
                 destination.get("id"),
+                data["sync"]["skipped_service"],
             )
         ]
     return [

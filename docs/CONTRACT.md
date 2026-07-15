@@ -283,7 +283,7 @@ through Telethon exactly `1.44.0`, pinned in project metadata and the
 lockfile. The explicit content allowlist is text/no media,
 `MessageMediaWebPage`, `MessageMediaPhoto`, and `MessageMediaDocument`,
 including generic files and Telegram's video, audio, voice, and sticker
-document variants. Unprotected batches are copied by
+document variants. Unprotected batches without replies are copied by
 `messages.forwardMessages` with the original source message ids,
 `drop_author=True`, and `drop_media_captions` unset, so Telegram carries the
 original native media and caption without any download or reupload.
@@ -293,19 +293,26 @@ removed after the batch, then re-sent through `messages.sendMessage`,
 `messages.sendMedia`, or `messages.uploadMedia` + `messages.sendMultiMedia`
 with the same journaled random ids, preserving text, entities, captions,
 album grouping, mapped replies, and document `mime_type`/attributes; photos
-are re-encoded by Telegram. A failed download exits 2 with the batch left
-pending. Sync JSON adds:
+are re-encoded by Telegram. Unprotected reply batches use the same
+reconstruction path because Telegram's native forward request does not retain
+the mapped destination reply in a broadcast channel. A failed download exits
+2 with the batch left pending. Sync JSON adds:
 
 ```json
-{"sync":{"copied":42,"last_confirmed_message_id":73}}
+{"sync":{"copied":42,"skipped_service":1,"last_confirmed_message_id":73}}
 ```
 
 Plain sync columns are `copied`, `last_confirmed_message_id`, `mirror_id`,
-`source_peer_id`, `destination_peer_id`.
+`source_peer_id`, `destination_peer_id`, `skipped_service`. The new service
+counter is appended so the five frozen legacy columns do not move.
 The mirror envelope returned by `sync` reports the title read from the resolved
 destination rather than assuming it still matches the source. `copied` counts
 confirmed source messages, including every item in a confirmed album, rather
-than Telegram RPCs or batches.
+than Telegram RPCs or batches. Service messages (any `Message.action`, such as
+the channel-creation notice at message id 1) are never copied: the new-history
+scan skips them and reports the per-run count as `skipped_service`. They do not
+advance the confirmed cursor, so a trailing service message is recounted on the
+next run.
 
 Each mirror has one SQLite database at
 `TGCLI_STATE_DIR/mirrors/<mirror_id>.db`. A singleton message is a one-item
@@ -371,10 +378,11 @@ contender exits 3 before audit or mutation dispatch.
 and `sync` before config/session/network work. Every create, title edit, and
 copy-batch attempt appends the shared fail-closed audit before dispatch
 (`mirror-sync-forward` for native batches, `mirror-sync-reupload` for
-reconstructed ones). A service action, paid media, story, poll, or any other
-media wrapper outside the explicit allowlist exits 2 before that batch is
-prepared, audited, or dispatched. Mixed supported/unsupported albums also fail
-as a whole; already confirmed earlier batches remain committed. Linked
+reconstructed ones). Paid media, stories, polls, or any other media wrapper
+outside the explicit allowlist exits 2 before that batch is prepared, audited,
+or dispatched; service messages are skipped and counted instead of blocking.
+Mixed supported/unsupported albums also fail as a whole; already confirmed
+earlier batches remain committed. Linked
 discussion comments, foreground watch, forum topics, groups, reactions,
 views, and attribution emulation remain explicit later slices, not silently
 claimed by this contract.

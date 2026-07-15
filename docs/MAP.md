@@ -63,9 +63,10 @@ tgcli/
   mutation locks under `TGCLI_STATE_DIR/mirrors/`.
 - `commands/mirror.py` owns init reconciliation, mutation-time cooldown
   enforcement, account-lock scope, the pinned native content allowlist, atomic
-  album orchestration/recovery, and mapped plain intra-channel replies. Linked
-  comments, protected reconstruction, groups/forums, watch, and showcase
-  promotion are not implemented by the current command module.
+  album orchestration/recovery, mapped plain intra-channel replies, and the
+  protected download→reupload transport. Linked comments, groups/forums,
+  watch, and showcase promotion are not implemented by the current command
+  module.
 
 ## ADR Index
 
@@ -86,3 +87,4 @@ tgcli/
 | [0013](decisions/ADR-0013-channel-mirror.md) | Superseded crash-safe mirror research design and R0 evidence |
 | [0014](decisions/ADR-0014-lean-faithful-mirror.md) | Lean faithful channel mirror; supersedes ADR-0013 production architecture |
 | [0015](decisions/ADR-0015-truthful-persistent-mirror-showcase.md) | Production-path-only persistent private showcase and topology promotion gates |
+| [0016](decisions/ADR-0016-live-mirror-fidelity-corrections.md) | Service-message skip, reply reconstruction fallback, and append-only TSV extension |

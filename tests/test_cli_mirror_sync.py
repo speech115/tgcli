@@ -375,7 +375,7 @@ def test_mirror_sync_forwards_text_oldest_first_and_restart_adds_no_duplicates(
     assert main(["mirror", "sync", "@source", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
-    assert result["sync"] == {"copied": 3, "last_confirmed_message_id": 3}
+    assert result["sync"] == {"copied": 3, "skipped_service": 0, "last_confirmed_message_id": 3}
     assert client.session_mutation_safe is True
     assert [request.id for request in client.requests] == [[1], [2], [3]]
     assert all(request.drop_author is True for request in client.requests)
@@ -393,7 +393,7 @@ def test_mirror_sync_forwards_text_oldest_first_and_restart_adds_no_duplicates(
     assert main(["mirror", "sync", "@source", "--json"]) == 0
 
     second = json.loads(capsys.readouterr().out)
-    assert second["sync"] == {"copied": 0, "last_confirmed_message_id": 3}
+    assert second["sync"] == {"copied": 0, "skipped_service": 0, "last_confirmed_message_id": 3}
     assert [request.random_id[0] for request in client.requests] == first_random_ids
     assert client.iter_messages_calls[-1][1:] == (3, True)
 
@@ -411,7 +411,7 @@ def test_mirror_sync_recovers_pending_copy_first_with_the_same_random_id(
     assert main(["mirror", "sync", "@source", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
-    assert result["sync"] == {"copied": 2, "last_confirmed_message_id": 3}
+    assert result["sync"] == {"copied": 2, "skipped_service": 0, "last_confirmed_message_id": 3}
     assert client.events[:3] == ["get:[2]", "forward:2", "iter:2"]
     assert [request.id for request in client.requests] == [[2], [3]]
     assert client.requests[0].random_id == [pending.random_id]
@@ -429,7 +429,7 @@ def test_mirror_sync_correlates_confirmation_across_update_envelopes(
     assert main(["mirror", "sync", "@source", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
-    assert result["sync"] == {"copied": 1, "last_confirmed_message_id": 1}
+    assert result["sync"] == {"copied": 1, "skipped_service": 0, "last_confirmed_message_id": 1}
     assert store.pending_copies() == []
     assert store.prepare_copy(1).destination_message_id == 1001
 
@@ -452,7 +452,7 @@ async def test_mirror_sync_cancellation_reuses_pending_random_id_on_restart(
     restarted = MirrorSyncClient([text_message(1, "one")])
     result = await sync_text(restarted, "@source", "main")
 
-    assert result["sync"] == {"copied": 1, "last_confirmed_message_id": 1}
+    assert result["sync"] == {"copied": 1, "skipped_service": 0, "last_confirmed_message_id": 1}
     assert restarted.requests[0].random_id == [pending.random_id]
     assert store.pending_copies() == []
 
@@ -576,7 +576,7 @@ def test_mirror_sync_uses_native_forward_for_explicit_single_content_allowlist(
     assert main(["mirror", "sync", "@source", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
-    assert result["sync"] == {"copied": 1, "last_confirmed_message_id": 7}
+    assert result["sync"] == {"copied": 1, "skipped_service": 0, "last_confirmed_message_id": 7}
     [request] = client.requests
     assert isinstance(request, functions.messages.ForwardMessagesRequest)
     assert request.id == [7]
@@ -592,10 +592,6 @@ def test_mirror_sync_uses_native_forward_for_explicit_single_content_allowlist(
 @pytest.mark.parametrize(
     "message",
     [
-        pytest.param(
-            mirror_message(1, action=types.MessageActionEmpty()),
-            id="service",
-        ),
         pytest.param(
             mirror_message(
                 1,
@@ -650,6 +646,61 @@ def test_mirror_sync_blocks_non_allowlisted_or_deferred_content_before_prepare_a
     assert not safety.audit_path().exists()
 
 
+def test_mirror_sync_skips_service_messages_and_reports_them(
+    config_env, monkeypatch, capsys
+):
+    store = authorize_mirror()
+    client = MirrorSyncClient(
+        [
+            mirror_message(1, action=types.MessageActionEmpty()),
+            text_message(2, "two"),
+            mirror_message(3, action=types.MessageActionEmpty()),
+        ]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["sync"] == {
+        "copied": 1,
+        "skipped_service": 2,
+        "last_confirmed_message_id": 2,
+    }
+    assert [request.id for request in client.requests] == [[2]]
+    assert store.pending_copies() == []
+    assert store.destination_message_id(2) == 1002
+
+    assert main(["mirror", "sync", "@source", "--json"]) == 0
+
+    second = json.loads(capsys.readouterr().out)
+    assert second["sync"] == {
+        "copied": 0,
+        "skipped_service": 1,
+        "last_confirmed_message_id": 2,
+    }
+    assert [request.id for request in client.requests] == [[2]]
+
+
+def test_mirror_sync_plain_appends_skipped_service_without_shifting_old_columns(
+    config_env, monkeypatch, capsys
+):
+    authorize_mirror()
+    client = MirrorSyncClient(
+        [
+            mirror_message(1, action=types.MessageActionEmpty()),
+            text_message(2, "two"),
+        ]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mirror", "sync", "@source", "--plain"]) == 0
+
+    fields = capsys.readouterr().out.strip().split("\t")
+    assert fields[:2] == ["1", "2"]
+    assert fields[3:] == ["123", "999", "1"]
+
+
 def test_mirror_sync_stops_at_media_without_marking_it_copied(
     config_env, monkeypatch, capsys
 ):
@@ -682,7 +733,7 @@ def test_mirror_sync_reuploads_protected_source_text_and_restart_adds_no_duplica
     assert main(["mirror", "sync", "@source", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
-    assert result["sync"] == {"copied": 2, "last_confirmed_message_id": 2}
+    assert result["sync"] == {"copied": 2, "skipped_service": 0, "last_confirmed_message_id": 2}
     assert all(
         isinstance(request, functions.messages.SendMessageRequest)
         for request in client.requests
@@ -701,7 +752,7 @@ def test_mirror_sync_reuploads_protected_source_text_and_restart_adds_no_duplica
     assert main(["mirror", "sync", "@source", "--json"]) == 0
 
     second = json.loads(capsys.readouterr().out)
-    assert second["sync"] == {"copied": 0, "last_confirmed_message_id": 2}
+    assert second["sync"] == {"copied": 0, "skipped_service": 0, "last_confirmed_message_id": 2}
     assert len(client.requests) == 2
 
 
@@ -716,7 +767,7 @@ def test_mirror_sync_reupload_replays_pending_random_id(
     assert main(["mirror", "sync", "@source", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
-    assert result["sync"] == {"copied": 1, "last_confirmed_message_id": 1}
+    assert result["sync"] == {"copied": 1, "skipped_service": 0, "last_confirmed_message_id": 1}
     [request] = client.requests
     assert isinstance(request, functions.messages.SendMessageRequest)
     assert request.random_id == -321
@@ -734,7 +785,7 @@ def test_mirror_sync_reupload_confirms_short_sent_text(
     assert main(["mirror", "sync", "@source", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
-    assert result["sync"] == {"copied": 1, "last_confirmed_message_id": 1}
+    assert result["sync"] == {"copied": 1, "skipped_service": 0, "last_confirmed_message_id": 1}
     assert store.destination_message_id(1) == 2001
     assert store.pending_copies() == []
 
@@ -799,7 +850,7 @@ def test_mirror_sync_reuploads_protected_photo_with_caption(
     assert main(["mirror", "sync", "@source", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
-    assert result["sync"] == {"copied": 1, "last_confirmed_message_id": 7}
+    assert result["sync"] == {"copied": 1, "skipped_service": 0, "last_confirmed_message_id": 7}
     assert [call[0] for call in client.download_media_calls] == [7]
     assert len(client.upload_file_calls) == 1
     [request] = client.requests
@@ -866,7 +917,7 @@ def test_mirror_sync_reuploads_protected_album_with_per_item_captions(
     assert main(["mirror", "sync", "@source", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
-    assert result["sync"] == {"copied": 2, "last_confirmed_message_id": 8}
+    assert result["sync"] == {"copied": 2, "skipped_service": 0, "last_confirmed_message_id": 8}
     assert [call[0] for call in client.download_media_calls] == [7, 8]
     uploads = [
         request
@@ -990,7 +1041,7 @@ def test_mirror_sync_open_channel_reuploads_only_protected_message(
     assert main(["mirror", "sync", "@source", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
-    assert result["sync"] == {"copied": 3, "last_confirmed_message_id": 3}
+    assert result["sync"] == {"copied": 3, "skipped_service": 0, "last_confirmed_message_id": 3}
     forwards = [
         request
         for request in client.requests
@@ -1067,7 +1118,7 @@ def test_mirror_sync_recovers_shuffled_pending_album_before_new_history(
     assert main(["mirror", "sync", "@source", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
-    assert result["sync"] == {"copied": 3, "last_confirmed_message_id": 4}
+    assert result["sync"] == {"copied": 3, "skipped_service": 0, "last_confirmed_message_id": 4}
     assert client.events[:3] == ["get:[2, 3]", "forward:[2, 3]", "iter:3"]
     assert [request.id for request in client.requests] == [[2, 3], [4]]
     assert client.requests[0].random_id == [item.random_id for item in pending]
@@ -1113,7 +1164,7 @@ def test_mirror_sync_copies_album_once_with_ordered_audit_and_message_count(
     assert main(["mirror", "sync", "@source", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
-    assert result["sync"] == {"copied": 2, "last_confirmed_message_id": 8}
+    assert result["sync"] == {"copied": 2, "skipped_service": 0, "last_confirmed_message_id": 8}
     [request] = client.requests
     assert request.id == [7, 8]
     assert len(request.random_id) == 2
@@ -1139,6 +1190,7 @@ def test_mirror_sync_preserves_non_null_group_id_on_single_observed_item(
 
     assert json.loads(capsys.readouterr().out)["sync"] == {
         "copied": 1,
+        "skipped_service": 0,
         "last_confirmed_message_id": 7,
     }
     assert client.requests[0].id == [7]
@@ -1205,7 +1257,7 @@ async def test_mirror_sync_album_cancellation_replays_same_order_and_random_ids(
     restarted = MirrorSyncClient(messages)
     result = await sync_text(restarted, "@source", "main")
 
-    assert result["sync"] == {"copied": 2, "last_confirmed_message_id": 8}
+    assert result["sync"] == {"copied": 2, "skipped_service": 0, "last_confirmed_message_id": 8}
     assert restarted.requests[0].id == cancelled_request.id
     assert restarted.requests[0].random_id == cancelled_request.random_id
 
@@ -1299,6 +1351,7 @@ def test_mirror_sync_flushes_changed_group_without_merging_albums(
 
     assert json.loads(capsys.readouterr().out)["sync"] == {
         "copied": 4,
+        "skipped_service": 0,
         "last_confirmed_message_id": 4,
     }
     assert [request.id for request in client.requests] == [[1, 2], [3, 4]]
@@ -1387,19 +1440,22 @@ def test_mirror_sync_maps_reply_parent_and_preserves_quote_fields(
         quote_entities=quote_entities,
         quote_offset=2,
     )
-    client = MirrorSyncClient([mirror_message(2, reply_to=header)])
+    client = ReuploadSyncClient(
+        [mirror_message(2, reply_to=header)], noforwards=False
+    )
     make_session_fake(monkeypatch, client)
 
     assert main(["mirror", "sync", "@source", "--json"]) == 0
 
     assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 1
     [request] = client.requests
+    assert isinstance(request, functions.messages.SendMessageRequest)
     assert isinstance(request.reply_to, types.InputReplyToMessage)
     assert request.reply_to.reply_to_msg_id == 1001
     assert request.reply_to.quote_text == "quote"
     assert request.reply_to.quote_entities == quote_entities
     assert request.reply_to.quote_offset == 2
-    assert store.destination_message_id(2) == 1002
+    assert store.destination_message_id(2) == 2001
 
 
 def test_mirror_sync_blocks_reply_without_confirmed_parent_before_prepare_audit_or_write(
@@ -1428,22 +1484,33 @@ def test_mirror_sync_album_uses_leading_reply_and_allows_later_omission_or_match
     store.confirm_copy(1, destination_message_id=1001)
     leading = reply_header(1, quote_text="album quote", quote_offset=1)
     later = reply_header(1, quote_text="album quote", quote_offset=1)
-    client = MirrorSyncClient(
+    client = ReuploadSyncClient(
         [
-            mirror_message(2, grouped_id=44, reply_to=leading),
+            mirror_message(
+                2,
+                media=types.MessageMediaPhoto(photo=SimpleNamespace(id=2)),
+                grouped_id=44,
+                reply_to=leading,
+            ),
             mirror_message(
                 3,
+                media=types.MessageMediaPhoto(photo=SimpleNamespace(id=3)),
                 grouped_id=44,
                 reply_to=later if repeat_header else None,
             ),
-        ]
+        ],
+        noforwards=False,
     )
     make_session_fake(monkeypatch, client)
 
     assert main(["mirror", "sync", "@source", "--json"]) == 0
 
     assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 2
-    [request] = client.requests
+    request = next(
+        item
+        for item in client.requests
+        if isinstance(item, functions.messages.SendMultiMediaRequest)
+    )
     assert request.reply_to.reply_to_msg_id == 1001
     assert request.reply_to.quote_text == "album quote"
 

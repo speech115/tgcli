@@ -15,6 +15,54 @@ Template:
 
 ---
 
+## 2026-07-15 — Stage 2 completed: live open/protected production mirrors (Codex)
+**Did:** finished the two production-path demo syncs and independently read
+source/destination histories. Protected source `4373370262` reached retained
+destination `3978334039` with 12 copied messages, one skipped service row, and
+cursor 13. The first open destination exposed that Telegram accepted native
+`ForwardMessagesRequest(reply_to=...)` but dropped the actual reply link. Added
+a failing regression, routed only reply-bearing open batches through the
+existing reconstruction transport, and documented the correction in ADR-0016.
+Created a fresh open source `3928214505` and retained destination `4331196578`;
+all 12 supported messages arrived, the reply maps to the copied parent, the
+album remains grouped, and cursor reached 13. Immediate reruns copied zero for
+both topologies. The earlier open pair (`4411329645` → `4342979899`) remains a
+retained diagnostic artifact and is not an approval candidate. Preserved the
+five frozen TSV columns by appending `skipped_service`, and removed the
+unshipped one-off channel-creation helper after review found that it lacked the
+durable reconciliation and kill-switch guarantees of `mirror init`.
+**Decided:** service actions skip-and-count; reply-bearing batches reconstruct
+even for open sources; ordinary open content remains native-forwarded. Demo
+source creation remains an operator action rather than a shipped unsafe helper.
+**Learned:** a valid raw request shape is not sufficient live fidelity evidence:
+Telegram can accept `reply_to` on native forwarding while omitting the reply in
+the resulting broadcast message. Source/destination reads are a required gate.
+**Next:** user performs side-by-side visual review of the verified open and
+protected pairs; only then may either topology become `visual_approved`.
+
+## 2026-07-15 — Stage 2: live demo pair + service-message skip (Claude Fable 5)
+**Did:** pushed Stage 1 main to origin; added
+`scripts/create_demo_channel.py` (private broadcast creation with optional
+`--protected` noforwards toggle); created and seeded a fresh demo pair with
+mirror-supported kinds only (`tgcli demo open 07-15` id 4411329645,
+`tgcli demo protected 07-15` id 4373370262, msgs 2–13 each). First real
+`mirror sync` immediately hit the channel-creation service message at id 1
+and blocked — fixed by skipping service messages in the new-history scan and
+reporting a per-run `skipped_service` count in the sync JSON/plain output
+(`src/tgcli/commands/mirror.py`, CONTRACT §11 updated, TDD:
+`test_mirror_sync_skips_service_messages_and_reports_them`).
+**Decided:** service messages are structural noise present in every real
+channel, so they skip-and-count instead of failing closed; all other
+non-allowlisted content still blocks. The 07-13 showcase sources were left
+untouched (they contain unsupported kinds mid-history and reseeding would
+duplicate content), hence the fresh pair.
+**Learned:** every fresh channel starts with a service action at message
+id 1, so the previous fail-closed rule made real-channel sync impossible from
+the very first message; the lab transport had always skipped these, the lean
+product path never did.
+**Next:** run `mirror init --commit` + `sync` for both demo channels and hand
+the two source/clone pairs to the user for side-by-side visual acceptance.
+
 ## 2026-07-15 — Stage 1: mirror branches consolidated into main (Claude Fable 5)
 **Did:** fast-forwarded `main` to `codex/mirror-showcase-product` (which
 already contained the lean branch) after a green 374-test run; ported the
