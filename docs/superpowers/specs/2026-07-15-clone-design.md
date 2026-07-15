@@ -1,7 +1,7 @@
 # Clone — Lean Channel Copy (supersedes mirror)
 
 Date: 2026-07-15
-Status: approved (2026-07-15), implementation in progress
+Status: completed (2026-07-15)
 Supersedes: `commands/mirror.py`, `mirror/store.py`, mirror sections of CONTRACT.md §11,
 specs `2026-07-13-lean-mirror-init-sync.md`, `2026-07-14-*`, `2026-07-15-protected-reupload-transport.md`.
 
@@ -192,7 +192,7 @@ Reused from core: `chatref.parse`, `session.client(mutation_safe=...)`,
 `append_audit`, `errors.py` types, `output.py` emitters, invocation journal
 (automatic). Nothing new is added to core.
 
-Deleted with mirror: `commands/mirror.py`, `src/tgcli/mirror/`,
+Task 9 deleted with mirror: `commands/mirror.py`, `src/tgcli/mirror/`,
 `tests/test_cli_mirror_*.py`, `tests/test_mirror_store.py`, the mirror
 subparser block in `cli.py`, CONTRACT.md mirror sections.
 Kept: `mirror_probe.py` + its script/tests (independent read-only diagnostic),
@@ -254,7 +254,7 @@ over any task from its description alone.
    the same commit as the code they describe.
 8. ✅ **Live acceptance** — re-run the Stage-2 demo pairs via `tg clone`, verify
    order fidelity visually, confirm idempotent rerun (0 copied).
-9. **Delete mirror** — remove `commands/mirror.py`, `mirror/`, mirror tests, the
+9. ✅ **Delete mirror** — remove `commands/mirror.py`, `mirror/`, mirror tests, the
    mirror subparser in `cli.py`, and mirror CONTRACT sections. Only after task 8.
 
 ## Decisions log (2026-07-15, resolved with the user)

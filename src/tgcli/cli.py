@@ -15,7 +15,6 @@ from tgcli.commands import dialogs as dialogs_cmd
 from tgcli.commands import export as export_cmd
 from tgcli.commands import info as info_cmd
 from tgcli.commands import media as media_cmd
-from tgcli.commands import mirror as mirror_cmd
 from tgcli.commands import read as read_cmd
 from tgcli.commands import search as search_cmd
 from tgcli.commands import send as send_cmd
@@ -133,16 +132,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_export_subscribers.add_argument("--output", required=True, type=Path)
     p_export_subscribers.add_argument("--limit", type=int)
 
-    p_mirror = sub.add_parser("mirror", help="Manage a private channel mirror", parents=[global_flags])
-    mirror_sub = p_mirror.add_subparsers(dest="mirror_command", required=True)
-    p_mirror_init = mirror_sub.add_parser("init", parents=[global_flags])
-    p_mirror_init.add_argument("source", help="source broadcast channel")
-    p_mirror_init.add_argument("--commit", action="store_true")
-    p_mirror_init.add_argument("--retry-create", action="store_true")
-    p_mirror_init.add_argument("--confirm", metavar="MIRROR_ID")
-    p_mirror_sync = mirror_sub.add_parser("sync", parents=[global_flags])
-    p_mirror_sync.add_argument("source", help="source broadcast channel")
-
     p_clone = sub.add_parser("clone", help="Copy a broadcast channel", parents=[global_flags])
     clone_sub = p_clone.add_subparsers(dest="clone_command", required=True)
     p_clone_status = clone_sub.add_parser("status", parents=[global_flags])
@@ -161,12 +150,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 async def _run_network(args, account) -> tuple[dict, list[tuple]]:
     mutation_safe = (
-        args.command == "mirror"
-        and (
-            args.mirror_command == "sync"
-            or (args.mirror_command == "init" and args.commit)
-        )
-    ) or (
         args.command == "clone"
         and (
             args.clone_command == "sync"
@@ -233,21 +216,6 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                         tg, args.channel, args.output, limit=args.limit
                     )
                 return data, export_cmd.to_rows(data)
-            if args.command == "mirror" and args.mirror_command == "init":
-                if args.commit:
-                    data = await mirror_cmd.commit_init(
-                        tg,
-                        args.source,
-                        account.alias,
-                        retry_create=args.retry_create,
-                        confirm=args.confirm,
-                    )
-                else:
-                    data = await mirror_cmd.preview_init(tg, args.source, account.alias)
-                return data, mirror_cmd.to_rows(data)
-            if args.command == "mirror" and args.mirror_command == "sync":
-                data = await mirror_cmd.sync_text(tg, args.source, account.alias)
-                return data, mirror_cmd.to_rows(data)
             if args.command == "clone" and args.clone_command == "init":
                 if args.commit:
                     data = await clone_cmd.commit_init(
@@ -281,8 +249,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if err.code == 0 else 1
     timeout_supplied = hasattr(args, "timeout")
     no_default_timeout = args.command == "export" or (
-        args.command == "mirror" and args.mirror_command == "sync"
-    ) or (
         args.command == "clone" and args.clone_command == "sync"
     )
     for name, default in {
@@ -300,21 +266,6 @@ def main(argv: list[str] | None = None) -> int:
     exit_code = 1
     error_code = None
     try:
-        if args.command == "mirror" and args.mirror_command == "init":
-            if args.retry_create != (args.confirm is not None):
-                raise PolicyError(
-                    "retry create requires --confirm with the exact mirror id"
-                )
-            if not args.commit and (args.retry_create or args.confirm is not None):
-                raise PolicyError("mirror init retry flags require --commit")
-        if (
-            args.command == "mirror"
-            and (
-                args.mirror_command == "sync"
-                or (args.mirror_command == "init" and args.commit)
-            )
-        ):
-            safety.enforce_mutation_allowed(args.readonly)
         if args.command == "clone" and args.clone_command == "sync":
             safety.enforce_mutation_allowed(args.readonly)
             if args.limit is not None and args.limit <= 0:
@@ -384,7 +335,6 @@ def main(argv: list[str] | None = None) -> int:
                 network = _run_network(args, account)
                 if (
                     args.command == "media"
-                    or (args.command == "mirror" and args.mirror_command == "sync")
                     or (args.command == "clone" and args.clone_command == "sync")
                 ) and not timeout_supplied:
                     data, rows = asyncio.run(network)

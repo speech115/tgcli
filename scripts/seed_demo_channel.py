@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Seed an owned private demo channel with every supported content kind.
 
-Manual tool for mirror visual acceptance: fills a source channel with
+Manual tool for clone visual acceptance: fills a source channel with
 text, a reply, real media files (ffmpeg/cwebp generated), an album, and
 non-file media (poll, contact, geo, venue, dice). Refuses any peer that
 is not a private broadcast channel owned by the account.

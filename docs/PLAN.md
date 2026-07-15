@@ -38,22 +38,20 @@ not rewritten.
 ## Non-Goals (v1)
 
 - MCP server (agents call `tg ... --json` via shell; revisit only with evidence).
-- Channel copy is post-v1 product work, now being rewritten as **`tg clone`**
+- Channel copy is post-v1 product work delivered as **`tg clone`**
   ([ADR-0017](decisions/ADR-0017-clone-supersedes-mirror.md),
   [clone design spec](superpowers/specs/2026-07-15-clone-design.md)). The clone
   rewrite supersedes the earlier `tg mirror` feature: mirror reached live
-  parity but its implementation grew disproportionate, so clone rebuilds the
+  parity but its implementation grew disproportionate, so clone rebuilt the
   same live-proven behavior on core primitives with hard complexity budgets.
-  The mirror code stays in the tree frozen (transplant donor) until clone
-  passes live acceptance, then is deleted. All earlier mirror ADRs (0013–0016)
-  and mirror plans/specs are **history**, not the active plan — ADR-0015
-  (destination retention) and ADR-0016 (live fidelity rules) carry forward into
-  clone unchanged; ADR-0013/0014 are superseded. Clone Tasks 1–8 are complete
-  on `feature/clone`: JSON state, status, preview/commit init, text and native
-  media/album sync, mapped replies, protected reupload, canonical contract, and
-  controlled open/protected live acceptance. ADR-0018 records the live-found
-  service-only tail correction. Task 9 mirror deletion is the remaining clone
-  cutover step.
+  All clone Tasks 1–9 are complete on `feature/clone`: JSON state, status,
+  preview/commit init, text and native media/album sync, mapped replies,
+  protected reupload, canonical contract, controlled open/protected live
+  acceptance, and final removal of the mirror parser/implementation/tests.
+  Earlier mirror ADRs (0013–0016) and plans/specs remain **history**, not active
+  product surface. ADR-0015 destination retention and ADR-0016 fidelity rules
+  carry forward into clone; ADR-0018 records the live-found service-only tail
+  correction. The independent read-only `mirror_probe.py` diagnostic remains.
 - Multi-user distribution / packaging for strangers.
 - Bot API (this is a user-account MTProto tool).
 - Secret chats (Telethon does not implement them), voice/video calls

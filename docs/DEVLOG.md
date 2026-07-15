@@ -14,6 +14,28 @@ Template:
 ```
 
 
+## 2026-07-15 — Frozen mirror product removed (Codex)
+**Did:** completed Task 9 after the Task-8 live gate. Removed the `tg mirror`
+parser/dispatch, `commands/mirror.py`, the SQLite `mirror/` package, and all
+three product test files. Added a public-CLI regression proving `mirror` is no
+longer a command. Deleted the legacy CONTRACT appendix and synchronized README,
+SKILL, FEATURES, MAP, PLAN, the clone checklist, fixture wording, and
+superseded-document banners. Net change before this entry: 51 insertions and
+5,400 deletions. Final checks: `263 passed, 8 skipped in 2.13s`; `coverage OK:
+23 namespaces`; compileall and `git diff --check` clean. A clean wheel contains
+`commands/clone.py` and the independent `mirror_probe.py`, but no mirror command
+or package.
+**Decided:** historical ADRs/plans/DEVLOG remain as decision evidence. The
+independent read-only protected-content probe and demo-channel seeder remain,
+as required by the clone design. Existing local mirror SQLite files and
+user-owned Telegram destinations are not automatically deleted.
+**Learned:** filename-based deletion would have incorrectly removed the probe;
+the product boundary is the command/store surface, not every path containing
+the word `mirror`.
+**Next:** complete branch review and publish the final Task-9 commit to draft
+PR #8; merging remains a separate user decision.
+
+
 ## 2026-07-15 — Clone live acceptance completed (Codex)
 **Did:** completed Task 8 on account `main` against the controlled Stage-2
 sources. Open source `3928214505` cloned 12/12 content messages to retained

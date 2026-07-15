@@ -63,3 +63,13 @@ def test_status_plain_output(capsys):
     assert code == 0
     assert "Alpha" in out
     assert "222" in out
+
+
+def test_clone_replaces_legacy_mirror_command(capsys):
+    from tgcli.cli import main
+
+    code = main(["mirror", "--help"])
+    captured = capsys.readouterr()
+
+    assert code == 1
+    assert "invalid choice: 'mirror'" in captured.err

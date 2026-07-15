@@ -18,7 +18,7 @@ tgcli/
 │   ├── ISSUES.md              [done]    deliberately deferred product work and re-entry gates
 │   ├── DEVLOG.md              [done]    session-by-session agent log
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── decisions/             [done]    ADR-0001…0017; ADR-0017 clone supersedes mirror
+│   ├── decisions/             [done]    ADR-0001…0018; ADR-0017 clone supersedes mirror
 │   └── superpowers/plans/     [done]    completed v1 plans; mirror plans superseded by clone spec (ADR-0017)
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -30,8 +30,8 @@ tgcli/
 │   ├── session.py             [done]    session locks + normal/mutation-safe TelegramClient factory
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
+│   ├── mirror_probe.py        [done]    independent read-only protected-content diagnostic
 │   ├── clone/                 [done]    live-accepted JSON clone state and progress window (ADR-0017)
-│   ├── mirror/                [frozen]  being replaced by `tg clone` (ADR-0017); transplant donor only, deleted after clone lands
 │   └── commands/
 │   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
@@ -42,15 +42,15 @@ tgcli/
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
-│   │   ├── clone.py           [done]    live-accepted clone status/init/sync surface (ADR-0017/0018)
-│   │   └── mirror.py          [frozen]  replaced by clone (ADR-0017); do not extend — transplant donor
+│   │   └── clone.py           [done]    live-accepted clone status/init/sync surface (ADR-0017/0018)
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
     ├── install-link.sh        [done]    symlink tg → PATH (phase 6 cutover)
     ├── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
     ├── bench.py               [done]    live benchmark: every command against a real account
-    └── seed_demo_channel.py   [done]    manual demo-channel seeding for mirror visual acceptance
+    ├── mirror_probe.py        [done]    operator entrypoint for the retained read-only diagnostic
+    └── seed_demo_channel.py   [done]    manual demo-channel seeding for clone visual acceptance
 ```
 
 ## Module Ownership Rules
@@ -60,13 +60,6 @@ tgcli/
 - `commands/*` never print — they return data structures; `cli.py` passes
   them to `output.emit()`. This is what keeps the stdout contract testable.
 - `errors.py` is the only place exit codes live.
-- `mirror/` and `commands/mirror.py` are **frozen** (ADR-0017): the `tg mirror`
-  feature is being replaced by `tg clone`. No new mirror work; the modules are
-  retained only as a transplant donor (native forward + protected reupload
-  transports, batch validation) for clone and are deleted once clone passes
-  live acceptance. See the
-  [clone design spec](superpowers/specs/2026-07-15-clone-design.md).
-
 ## ADR Index
 
 | ADR | Decision |

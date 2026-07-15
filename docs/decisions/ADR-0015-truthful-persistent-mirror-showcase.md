@@ -2,7 +2,7 @@
 
 Status: accepted (2026-07-14).
 
-> **Note (2026-07-15):** the `tg mirror` feature this ADR concerns is being replaced by `tg clone` — see [ADR-0017](ADR-0017-clone-supersedes-mirror.md). This ADR is retained as history.
+> **Note (2026-07-15):** the `tg mirror` feature this ADR concerns was replaced by `tg clone` — see [ADR-0017](ADR-0017-clone-supersedes-mirror.md). This ADR is retained as history.
 
 Amends ADR-0014 without changing its lean production architecture.
 
