@@ -264,6 +264,41 @@ async def test_create_topic_audit_failure_blocks_direct_mutation_and_state(
     assert state.load(clone_state.clone_id).topic_map == {}
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "returned_topics",
+    [
+        [],
+        [SimpleNamespace(id=2, title="")],
+        [SimpleNamespace(id=2, title=None)],
+        [SimpleNamespace(id=2, title="News"), SimpleNamespace(id=2, title="Duplicate")],
+    ],
+)
+async def test_ensure_topic_rejects_missing_malformed_or_duplicate_lookup(
+    config_env, returned_topics
+):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+    counters = {"topics_created": 0}
+    requests = []
+
+    async def mutate(request):
+        requests.append(request)
+        return SimpleNamespace(topics=returned_topics)
+
+    with pytest.raises(PolicyError, match="exactly one valid topic"):
+        await topics.ensure_topic(
+            mutate, object(), forum_channel(999, "Forum chat", creator=True),
+            clone_state, 2, counters, account_alias="main"
+        )
+
+    assert len(requests) == 1
+    assert isinstance(requests[0], functions.messages.GetForumTopicsByIDRequest)
+    assert counters == {"topics_created": 0}
+    assert clone_state.topic_map == {}
+    assert state.load(clone_state.clone_id).topic_map == {}
+    assert not safety.audit_path().exists()
+
+
 def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
     config_env, monkeypatch, capsys
 ):
@@ -1072,6 +1107,57 @@ def test_clone_sync_accepts_service_only_destination_tail(
     result = json.loads(capsys.readouterr().out)
     assert result["sync"]["copied"] == 1
     assert state.load(clone_state.clone_id).dest_for(2) == 3
+
+
+def test_clone_sync_blocks_unmapped_topic_create_tail_before_retrying_create(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+
+    class AcceptedWithoutConfirmationClient(CloneForumClient):
+        async def __call__(self, request):
+            if isinstance(request, functions.messages.CreateForumTopicRequest):
+                self.requests.append(request)
+                self.destination_last_id += 1
+                self.destination_actions[self.destination_last_id] = (
+                    types.MessageActionTopicCreate(title=request.title, icon_color=0)
+                )
+                return SimpleNamespace(updates=[])
+            return await super().__call__(request)
+
+    client = AcceptedWithoutConfirmationClient([topic_create(2, "News")])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+    assert "did not confirm" in capsys.readouterr().err
+    assert len(client.requests) == 1
+    assert state.load(clone_state.clone_id).topic_map == {}
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    assert "unexpected tail" in capsys.readouterr().err
+    assert len(client.requests) == 1
+    assert client.iter_messages_calls == [(0, True)]
+    assert state.load(clone_state.clone_id).topic_map == {}
+
+
+def test_clone_sync_accepts_mapped_topic_create_destination_tail(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+    clone_state.record_topic(2, 2)
+    state.save(clone_state)
+    client = CloneForumClient([message(3)])
+    client.destination_last_id = 3
+    client.destination_actions[2] = types.MessageActionTopicCreate(
+        title="News", icon_color=0
+    )
+    client.destination_actions[3] = object()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 1
 
 
 def test_clone_sync_skips_service_and_reports_unsupported_messages(

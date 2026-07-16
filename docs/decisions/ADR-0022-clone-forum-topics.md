@@ -35,10 +35,10 @@ Spec: docs/superpowers/specs/2026-07-16-clone-chat-types-2-design.md
   designed fallback — reupload for non-General topic batches — was not needed.
 - Crash model: `create_topic` saves `topic_map` immediately after Telegram
   confirms the topic. A stale cursor after a saved mapping reuses the mapping
-  and does not recreate the topic. Only a hard crash after Telegram accepts
-  topic creation but before the topic-map save can duplicate at most one
-  destination topic; the duplicate is visible and manually deletable, the same
-  accepted trade-off as ADR-0017's batch crash model.
+  and does not recreate the topic. If Telegram accepts creation without a
+  usable confirmation, the resulting unmapped topic-create service row is an
+  unexpected destination tail: the next sync blocks for manual repair before
+  source scanning, audit, or another mutation.
 - Budgets: new `clone/topics.py` ≤ 100 lines (owns forum destination shape,
   topic map, and batch confirmation extraction); `clone/state.py` raised
   150 → 170 for `destination_kind` + `topic_map`. `commands/clone.py`

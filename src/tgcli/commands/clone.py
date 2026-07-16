@@ -14,7 +14,6 @@ def _entry(s: state.CloneState) -> dict:
             "destination_id": s.destination_peer_id,
             "cursor": s.cursor, "copied": len(s.id_map), "cooldown_until": s.retry_not_before,
             "created_at": s.created_at, "last_synced_at": s.last_synced_at}
-
 def _matches(s: state.CloneState, source: str | None) -> bool:
     return source is None or (s.source_peer_id == int(source)
         if source.lstrip("-").isdigit() else source.casefold() in s.source_title.casefold())
@@ -91,7 +90,6 @@ async def _with_cooldown(awaitable, clone_state):
         raise
 async def _mutate(tg, request, clone_state: state.CloneState):
     return await _with_cooldown(tg(request), clone_state)
-
 async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dict:
     entity, source_kind, _ = await _resolve_source(tg, source)
     me = await tg.get_me()
@@ -290,7 +288,10 @@ async def sync_text(tg, source: str, account_alias: str,
     baseline = recorded_last_id or 1
     if destination_last_id > baseline:
         tail = await tg.get_messages(destination, limit=destination_last_id - baseline)
-        unexpected = [item for item in tail if item.id > baseline and getattr(item, "action", None) is None]
+        unexpected = [item for item in tail if item.id > baseline and (
+                       getattr(item, "action", None) is None or
+                       isinstance(item.action, types.MessageActionTopicCreate)
+                       and item.id not in clone_state.topic_map.values())]
         if unexpected:
             raise PolicyError("clone destination has unexpected tail messages; manual repair is required",
                               unexpected=len(unexpected))
@@ -390,7 +391,6 @@ async def sync_text(tg, source: str, account_alias: str,
                  "skipped_unsupported": skipped_unsupported,
                  **transport_counts, **topic_counters, "reply_flattened": reply_flattened,
                  "cursor": clone_state.cursor, "more": more}}
-
 def sync_rows(data: dict) -> list[tuple]:
     clone = data["clone"]
     sync = data["sync"]

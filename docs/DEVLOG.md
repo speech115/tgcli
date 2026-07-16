@@ -14,6 +14,26 @@ Template:
 ```
 
 
+## 2026-07-16 — Forum topic recovery invariants hardened (Codex)
+**Did:** closed three final architecture-review findings with TDD. Persisted
+and runtime topic mappings now exclude General, stay within signed TL-int
+bounds, and remain one-to-one. Topic lookup requires one matching non-empty
+title. Destination-tail verification blocks an accepted-but-unconfirmed topic
+creation before a retry can duplicate it. Final gates passed `377 passed, 8
+skipped`; coverage reports 23 namespaces.
+**Decided:** an unmapped destination `MessageActionTopicCreate` is evidence of
+an ambiguous accepted mutation and requires manual repair. Mapped topic-create
+rows and all other service-only tail rows retain their existing acceptance.
+ADR-0022 now records this stronger crash behavior.
+**Learned:** treating every service row as harmless made the existing
+service-tail exception too broad for lazy topic creation. The narrow action
+classification preserves General/fresh-forum behavior without weakening
+ordinary service-tail recovery. Final budgets are `clone.py 400/400`,
+`topics.py 99/100`, `state.py 170/170`, and `attribution.py 78/80`.
+**Next:** rerun the final architecture review; Task 9 live Telegram acceptance
+remains separate and untouched.
+
+
 ## 2026-07-16 — Forum topic routing complete (Codex)
 **Did:** completed Task 7 of the round-2 clone plan. Forum messages now resolve
 their source topic, recover missing topic mappings from Telegram when needed,

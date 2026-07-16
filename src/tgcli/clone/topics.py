@@ -5,7 +5,6 @@ from tgcli import safety
 from tgcli.clone import state
 from tgcli.errors import PolicyError
 GENERAL_TOPIC_ID = 1
-
 def is_forum_destination(entity, *, title: str | None = None) -> bool:
     active = any(getattr(item, "active", False)
                  for item in (getattr(entity, "usernames", None) or ()))
@@ -55,8 +54,6 @@ async def create_topic(mutate, destination, clone_state, source_topic_id, *,
     clone_state.record_topic(source_topic_id, destination_topic_id)
     state.save(clone_state)
     return destination_topic_id
-
-
 def topic_id_of(message) -> int:
     header = getattr(message, "reply_to", None)
     if header is None or not getattr(header, "forum_topic", False):
@@ -84,11 +81,13 @@ async def ensure_topic(mutate, source, destination, clone_state,
         peer=source, topics=[source_topic_id]))
     found = [item for item in getattr(response, "topics", ())
              if getattr(item, "id", None) == source_topic_id
-             and isinstance(getattr(item, "title", None), str)]
-    title = found[0].title if found else f"topic {source_topic_id}"
+             and isinstance(getattr(item, "title", None), str)
+             and item.title]
+    if len(found) != 1:
+        raise PolicyError("Telegram did not return exactly one valid topic")
     counters["topics_created"] += 1
     return await create_topic(mutate, destination, clone_state, source_topic_id,
-                              account_alias=account_alias, title=title)
+                              account_alias=account_alias, title=found[0].title)
 
 
 def place(reply_to, destination_topic_id: int):

@@ -6,21 +6,17 @@ import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-
 from tgcli.errors import PolicyError
-
 VERSION = 1
 def clone_id(account_user_id: int, source_peer_id: int) -> str:
     identity = f"{account_user_id}:{source_peer_id}".encode()
     return hashlib.sha256(identity).hexdigest()
 def state_dir() -> Path:
     return Path(os.environ.get("TGCLI_STATE_DIR", "~/.local/state/tgcli")).expanduser()
-
 def clones_dir() -> Path:
     return state_dir() / "clones"
 def path_for(clone_id: str) -> Path:
     return clones_dir() / f"{clone_id}.json"
-
 def _require_aware(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("datetime must be timezone-aware")
@@ -41,7 +37,6 @@ class CloneState:
     retry_not_before: str | None = None
     created_at: str = ""
     last_synced_at: str | None = None
-
     @classmethod
     def new(
         cls, *, account_user_id: int, source_peer_id: int, source_title: str,
@@ -55,7 +50,6 @@ class CloneState:
             destination_kind="forum" if source_kind == "forum" else "broadcast",
             created_at=datetime.now(UTC).isoformat(),
         )
-
     @property
     def clone_id(self) -> str:
         return clone_id(self.account_user_id, self.source_peer_id)
@@ -67,6 +61,12 @@ class CloneState:
         return self.id_map.get(str(source_id))
 
     def record_topic(self, source_topic_id: int, destination_topic_id: int) -> None:
+        if (type(source_topic_id) is not int or type(destination_topic_id) is not int
+                or not 2 <= source_topic_id <= 2_147_483_647
+                or not 2 <= destination_topic_id <= 2_147_483_647
+                or any(value == destination_topic_id and key != str(source_topic_id)
+                       for key, value in self.topic_map.items())):
+            raise ValueError("invalid topic mapping")
         self.topic_map[str(source_topic_id)] = destination_topic_id
 
     def topic_dest_for(self, source_topic_id: int) -> int | None:
@@ -109,7 +109,7 @@ class CloneState:
             raise ValueError("invalid source kind")
         destination_kind = data.get("destination_kind", "broadcast")
         topic_map = data.get("topic_map", {})
-        if type(topic_map) is not dict or any(type(k) is not str or not k.isascii() or not k.isdecimal() or k.startswith("0") or int(k) > 2_147_483_647 or type(v) is not int or not 0 < v <= 2_147_483_647 for k, v in topic_map.items()):
+        if type(topic_map) is not dict or any(type(k) is not str or not k.isascii() or not k.isdecimal() or k.startswith("0") or not 2 <= int(k) <= 2_147_483_647 or type(v) is not int or not 2 <= v <= 2_147_483_647 for k, v in topic_map.items()) or len(set(topic_map.values())) != len(topic_map):
             raise ValueError("invalid topic map")
         if destination_kind != ("forum" if source_kind == "forum" else "broadcast") or (topic_map and source_kind != "forum"):
             raise ValueError("inconsistent forum state")

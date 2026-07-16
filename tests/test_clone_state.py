@@ -233,6 +233,53 @@ def test_state_accepts_max_tl_int_topic_ids(tmp_path, monkeypatch):
     assert loaded.topic_dest_for(maximum) == maximum
 
 
+@pytest.mark.parametrize(
+    "topic_map",
+    [
+        {"1": 1001},
+        {"2": 1},
+        {"2": 1001, "3": 1001},
+    ],
+)
+def test_state_rejects_non_bijective_non_general_topic_map(topic_map):
+    data = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="Forum", source_kind="forum"
+    ).to_dict()
+    data["topic_map"] = topic_map
+
+    with pytest.raises(ValueError, match="invalid topic map"):
+        state.CloneState.from_dict(data)
+
+
+@pytest.mark.parametrize(
+    ("source_topic_id", "destination_topic_id"),
+    [(1, 1001), (2, 1), (True, 1001), (2, True), (2_147_483_648, 1001)],
+)
+def test_record_topic_rejects_non_general_or_non_tl_int_ids(
+    source_topic_id, destination_topic_id
+):
+    saved = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="Forum", source_kind="forum"
+    )
+
+    with pytest.raises(ValueError, match="invalid topic mapping"):
+        saved.record_topic(source_topic_id, destination_topic_id)
+
+    assert saved.topic_map == {}
+
+
+def test_record_topic_rejects_duplicate_destination():
+    saved = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="Forum", source_kind="forum"
+    )
+    saved.record_topic(2, 1001)
+
+    with pytest.raises(ValueError, match="invalid topic mapping"):
+        saved.record_topic(3, 1001)
+
+    assert saved.topic_map == {"2": 1001}
+
+
 def test_state_rejects_non_string_topic_key():
     data = _fresh().to_dict()
     data["topic_map"] = {7: 1007}
