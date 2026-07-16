@@ -43,6 +43,17 @@ def channel(channel_id, title, **overrides):
     return SimpleNamespace(**values)
 
 
+def legacy_group():
+    return types.Chat(
+        id=123,
+        title="Legacy group",
+        photo=types.ChatPhotoEmpty(),
+        participants_count=2,
+        date=None,
+        version=1,
+    )
+
+
 def message(message_id, **overrides):
     values = {
         "id": message_id,
@@ -371,6 +382,53 @@ def test_clone_sync_reuploads_private_dialog_reply_with_explicit_source_peer(
     assert isinstance(request, functions.messages.SendMessageRequest)
     assert request.message == "Alex Smith: answer"
     assert request.reply_to.reply_to_msg_id == 1001
+
+
+def test_clone_sync_reuploads_basic_group_reply_with_explicit_source_peer(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="basic", title="Legacy group")
+    clone_state.record_mapping(1, 1001)
+    clone_state.cursor = 1
+    state.save(clone_state)
+    reply = types.MessageReplyHeader(
+        reply_to_msg_id=1, reply_to_peer_id=types.PeerChat(123)
+    )
+    client = CloneReuploadClient([
+        message(2, message="answer", reply_to=reply)
+    ])
+    client.source = legacy_group()
+    client.destination_last_id = 1001
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 1
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMessageRequest)
+    assert request.reply_to.reply_to_msg_id == 1001
+
+
+def test_clone_sync_blocks_basic_group_reply_with_different_source_peer(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="basic", title="Legacy group")
+    clone_state.record_mapping(1, 1001)
+    clone_state.cursor = 1
+    state.save(clone_state)
+    reply = types.MessageReplyHeader(
+        reply_to_msg_id=1, reply_to_peer_id=types.PeerChat(456)
+    )
+    client = CloneReuploadClient([message(2, reply_to=reply)])
+    client.source = legacy_group()
+    client.destination_last_id = 1001
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    assert "cross-peer clone replies" in capsys.readouterr().err
+    assert client.requests == []
+    assert state.load(clone_state.clone_id).dest_for(2) is None
 
 
 def test_clone_sync_reports_attributed_unmapped_reply_forward_fallback(
