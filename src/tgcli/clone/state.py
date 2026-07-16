@@ -108,11 +108,11 @@ class CloneState:
         if source_kind not in {"broadcast", "megagroup", "dialog", "basic", "forum"}:
             raise ValueError("invalid source kind")
         destination_kind = data.get("destination_kind", "broadcast")
-        if destination_kind not in {"broadcast", "forum"}:
-            raise ValueError("invalid destination kind")
         topic_map = data.get("topic_map", {})
-        if type(topic_map) is not dict or any(type(k) is not str or type(v) is not int for k, v in topic_map.items()):
+        if type(topic_map) is not dict or any(type(k) is not str or not k.isascii() or not k.isdecimal() or k.startswith("0") or type(v) is not int or v <= 0 for k, v in topic_map.items()):
             raise ValueError("invalid topic map")
+        if destination_kind != ("forum" if source_kind == "forum" else "broadcast") or (topic_map and source_kind != "forum"):
+            raise ValueError("inconsistent forum state")
         return cls(
             version=data["version"],
             account_user_id=data["account_user_id"],

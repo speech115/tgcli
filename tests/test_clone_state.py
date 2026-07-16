@@ -137,13 +137,81 @@ def test_state_rejects_non_dict_topic_map(tmp_path, monkeypatch):
 @pytest.mark.parametrize("value", [True, "1007"])
 def test_state_rejects_non_int_topic_destination(tmp_path, monkeypatch, value):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    saved = state.CloneState.new(account_user_id=1, source_peer_id=2, source_title="Old")
+    saved = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="Forum", source_kind="forum"
+    )
     data = saved.to_dict()
     data["topic_map"] = {"7": value}
     state.clones_dir().mkdir(parents=True)
     state.path_for(saved.clone_id).write_text(json.dumps(data))
     with pytest.raises(PolicyError):
         state.load(saved.clone_id)
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_state_rejects_nonpositive_topic_destination(tmp_path, monkeypatch, value):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    saved = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="Forum", source_kind="forum"
+    )
+    data = saved.to_dict()
+    data["topic_map"] = {"7": value}
+    state.clones_dir().mkdir(parents=True)
+    state.path_for(saved.clone_id).write_text(json.dumps(data))
+    with pytest.raises(PolicyError):
+        state.load(saved.clone_id)
+
+
+@pytest.mark.parametrize("key", ["", "topic", "01", "0", "-1"])
+def test_state_rejects_noncanonical_topic_key(tmp_path, monkeypatch, key):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    saved = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="Forum", source_kind="forum"
+    )
+    data = saved.to_dict()
+    data["topic_map"] = {key: 1007}
+    state.clones_dir().mkdir(parents=True)
+    state.path_for(saved.clone_id).write_text(json.dumps(data))
+    with pytest.raises(PolicyError):
+        state.load(saved.clone_id)
+
+
+@pytest.mark.parametrize(
+    ("source_kind", "destination_kind", "topic_map"),
+    [
+        ("forum", "broadcast", {}),
+        ("broadcast", "forum", {}),
+        ("broadcast", "broadcast", {"7": 1007}),
+    ],
+)
+def test_state_rejects_inconsistent_forum_fields(
+    tmp_path, monkeypatch, source_kind, destination_kind, topic_map
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    saved = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="Source", source_kind=source_kind
+    )
+    data = saved.to_dict()
+    data["destination_kind"] = destination_kind
+    data["topic_map"] = topic_map
+    state.clones_dir().mkdir(parents=True)
+    state.path_for(saved.clone_id).write_text(json.dumps(data))
+    with pytest.raises(PolicyError):
+        state.load(saved.clone_id)
+
+
+def test_state_accepts_large_positive_topic_ids(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    huge = 10**100
+    saved = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="Forum", source_kind="forum"
+    )
+    data = saved.to_dict()
+    data["topic_map"] = {str(huge): huge}
+    state.clones_dir().mkdir(parents=True)
+    state.path_for(saved.clone_id).write_text(json.dumps(data))
+    loaded = state.load(saved.clone_id)
+    assert loaded.topic_dest_for(huge) == huge
 
 
 def test_state_rejects_non_string_topic_key():
