@@ -57,7 +57,8 @@ not rewritten.
   avatar before message sync begins. ADR-0021 adds non-forum megagroup and
   private-dialog sources with hybrid native/reupload attribution, explicit
   reply-flatten reporting, and live acceptance. The
-  independent read-only `mirror_probe.py` diagnostic remains.
+  independent read-only `mirror_probe.py` diagnostic was archived on
+  2026-07-16 (unused since the clone pivot; recoverable from git history).
 - Multi-user distribution / packaging for strangers.
 - Bot API (this is a user-account MTProto tool).
 - Secret chats (Telethon does not implement them), voice/video calls
