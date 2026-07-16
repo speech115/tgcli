@@ -352,6 +352,38 @@ def test_clone_init_forum_audit_failure_blocks_toggle_on_retry(
     assert client.destination.forum is False
 
 
+@pytest.mark.parametrize(
+    ("stored_kind", "live_forum"),
+    [("megagroup", True), ("forum", False)],
+)
+def test_clone_init_commit_blocks_source_kind_drift_without_state_or_mutation(
+    stored_kind, live_forum, config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.source = channel(
+        123, "Team chat", broadcast=False, megagroup=True, forum=live_forum
+    )
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Team chat",
+        source_kind=stored_kind,
+    )
+    state.save(clone_state)
+    make_session_fake(monkeypatch, client)
+    assert main(["clone", "init", "@source", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+    state_path = state.path_for(clone_state.clone_id)
+    before = state_path.read_bytes()
+
+    assert main([
+        "clone", "init", "@source", "--commit", preview_id, "--json"
+    ]) == 2
+
+    assert "source kind no longer matches" in capsys.readouterr().err
+    assert state_path.read_bytes() == before
+    assert client.requests == []
+    assert not safety.audit_path().exists()
+
+
 def test_clone_init_commit_copies_nonempty_channel_description(
     config_env, monkeypatch, capsys
 ):
@@ -497,6 +529,45 @@ def test_clone_init_commit_adopts_half_created_marker_channel(
         functions.channels.GetFullChannelRequest,
     ]
     assert state.load(clone_state.clone_id).destination_peer_id == 999
+
+
+def test_clone_init_commit_adopts_plain_forum_marker_then_enables_forum(
+    config_env, monkeypatch, capsys
+):
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Forum chat",
+        source_kind="forum",
+    )
+    clone_state.creation_marker = f"tgcli-clone-{clone_state.clone_id[:12]}"
+    state.save(clone_state)
+    client = CloneInitClient()
+    client.source = channel(
+        123, "Forum chat", broadcast=False, megagroup=True, forum=True
+    )
+    client.destination = channel(
+        999, clone_state.creation_marker, creator=True, broadcast=False,
+        megagroup=True, forum=False,
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["clone", "init", "@source", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+
+    assert main([
+        "clone", "init", "@source", "--commit", preview_id, "--json"
+    ]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["status"] == "ready"
+    assert state.load(clone_state.clone_id).destination_peer_id == 999
+    assert not any(isinstance(item, functions.channels.CreateChannelRequest)
+                   for item in client.requests)
+    assert any(isinstance(item, functions.channels.ToggleForumRequest)
+               for item in client.requests)
+    assert client.destination.forum is True
+    audits = [json.loads(line) for line in safety.audit_path().read_text().splitlines()]
+    assert [record["action"] for record in audits] == [
+        "clone-init-forum", "clone-init-title",
+    ]
 
 
 def test_clone_init_commit_reuses_recorded_destination_without_mutation(

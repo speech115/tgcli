@@ -111,6 +111,8 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
         account_user_id=me.id, source_peer_id=entity.id,
         source_title=payload["source_title"],
         source_kind=payload.get("source_kind", source_kind))
+    if clone_state.source_kind != source_kind:
+        raise PolicyError("clone source kind no longer matches initialized state")
     marker = clone_state.creation_marker or f"tgcli-clone-{clone_id[:12]}"
     clone_state.creation_marker = marker
     state.save(clone_state)
@@ -236,7 +238,6 @@ async def _reupload_batch(tg, destination, clone_state, account_alias, messages,
         request = functions.messages.SendMultiMediaRequest(
             peer=destination, multi_media=multi_media, reply_to=reply_to)
         return await _mutate(tg, request, clone_state)
-
 async def _forward_batch(tg, source, destination, clone_state, account_alias,
                          messages, me, author_cache):
     source_ids = [message.id for message in messages]
@@ -280,7 +281,6 @@ async def _forward_batch(tg, source, destination, clone_state, account_alias,
     clone_state.cursor = source_ids[-1]
     state.save(clone_state)
     return len(source_ids), mode, reply_flattened
-
 async def sync_text(tg, source: str, account_alias: str,
                     *, limit: int | None = None) -> dict:
     source_entity, source_kind, _ = await _resolve_source(tg, source)
