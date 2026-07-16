@@ -14,6 +14,245 @@ Template:
 ```
 
 
+## 2026-07-16 — Megagroup and dialog clone sources live-accepted (Codex)
+**Did:** executed the approved chat-types plan and added ADR-0021. Clone now
+accepts non-forum megagroups and non-bot User dialogs, persists `source_kind`,
+copies User bio/avatar during init, preserves native author headers on
+non-replies, and reuploads mapped replies/protected content with an author-name
+prefix and UTF-16-correct entity offsets. JSON/plain output now reports
+`forwarded`, `reuploaded`, `snapshots`, and `reply_flattened`. TTL/view-once
+media is reported unsupported. Reply validation moved to `clone/replies.py`;
+source/author mechanics live in `clone/attribution.py`.
+
+Live acceptance created retained private destinations for an owned 27-message
+megagroup fixture, a 102-message organic megagroup, and two 11/53-message
+dialogs. Readback proved strict order, two authors in the owned fixture and each
+dialog, 30/30 organic-megagroup reply links, 4/4 dialog reply links, 4/4 visible
+author prefixes, and zero-copy reruns. A live `MessageReplyStoryHeader` exposed
+that Story replies have no message id; TDD now flattens and reports that shape
+instead of blocking the remaining history.
+**Decided:** attributed sources use a hybrid transport: native forward for
+non-replies, prefixed reupload for mapped replies/protected content. Missing
+direct parents and Story reply headers are explicit flatten fallbacks; a missing
+top root no longer discards an available direct-parent link. Poll snapshots
+remain the accepted ADR-0019 behavior rather than being rolled back based on a
+stale review snapshot.
+**Learned:** the external review correctly identified missing flatten reporting
+but its poll/contract verdict predated commits `bf7e6f2` and `b4640a0`.
+Telegram trims the trailing space from an empty prefixed caption (`Author: ` →
+`Author:`), which is still a correct visible attribution. Final checks: `290
+passed, 8 skipped in 2.20s`; coverage 23 namespaces; compileall and diff check
+clean. Budgets: `390/150/91/43/74/63` lines for clone/state/fidelity/profile/
+attribution/replies.
+**Next:** commit, push `feature/clone`, and verify PR #8 CI.
+
+
+## 2026-07-16 — Clone init copies channel profile (Codex)
+**Did:** added ADR-0020 and the 37-line `clone/profile.py`. After destination
+creation or recovery, `tg clone init --commit` now copies a non-empty source
+description and a static source avatar before returning ready. All profile
+network operations use persisted cooldown handling; mutations are audited, and
+an avatar-download failure leaves the recorded destination retryable. TDD covers
+description copy, avatar upload and temporary-file cleanup, the empty-profile
+path, destination reuse, and the failure path. Applied the feature to the live
+`@sral_v_nastav` clone: the source description was empty, while its previously
+missing destination avatar was copied successfully.
+**Decided:** title, available description, and static avatar are part of clone
+initialization, not a later sync concern. Animated avatar motion is explicitly
+outside the current fidelity guarantee.
+**Learned:** channel descriptions use `messages.editChatAbout`, while channel
+avatars use `channels.editPhoto`; Telegram re-encoded the live 640×640 JPEG but
+the source/destination comparison remained visually identical (`SSIM 0.999885`).
+Final checks: `271 passed, 8 skipped in 1.88s`; coverage 23 namespaces;
+compileall and diff check clean. Budgets remain `400/149/89`, with the new
+profile helper at 37 lines.
+**Next:** run the final gate, commit, push `feature/clone`, and verify PR #8 CI.
+
+
+## 2026-07-16 — Clone fallbacks made human-readable (Codex)
+**Did:** redesigned ADR-0019 destination messages after user visual review.
+Poll snapshots now use a Russian heading, Unicode progress bars, natural vote
+pluralization, percentages, and a single human total; timestamps and technical
+labels were removed. Story placeholders now contain only `Stories недоступна`
+and `Автор: <name>`, with the author encoded as a clickable Telegram text URL;
+Story IDs were removed. TDD verifies both poll modes, bar output, Russian vote
+forms, UTF-16 entity offsets, user/channel links, and reply continuity.
+Edited the four existing destination messages in place (`659`, `720`, `728`,
+`741`) through the audited mutation path, so their IDs and reply `701 → 659`
+remain unchanged.
+**Decided:** fallback content is a human-facing channel post, not an operational
+report; diagnostics belong in state/audit, never in destination text.
+**Learned:** Telegram text links require UTF-16 offsets, while fractional block
+characters make close results such as 51/49 visually distinct without images.
+Final checks: `268 passed, 8 skipped in 1.99s`; coverage 23 namespaces;
+compileall and diff check clean. Budgets remain `400/149/89` lines.
+**Next:** run the full gate, commit, push `feature/clone`, and verify PR #8 CI.
+
+
+## 2026-07-16 — Poll and Story fallbacks repaired a live clone (Codex)
+**Did:** added ADR-0019 and a 73-line `clone/fidelity.py`. Polls now become
+timestamped static result snapshots; Story references become placeholders with
+resolved author title/name, username, and Story ID. Both are mapped and audited,
+so later replies target them. Added nested reply-root support and a content-first
+fallback when no parent mapping exists. TDD covered single/multiple-choice poll
+snapshots, user/channel Story labels, Story reply mapping, nested roots, and
+missing-parent flattening. A live poll canary proved native copies reset 80 and
+89 voters to zero. For clone `4fa28c…`, backed up state, removed only its mapped
+destination suffix `326…658`, rewound source cursor to `336`, and replayed it.
+The repaired clone reached cursor `682`, 662 mappings, zero unsupported rows,
+and a zero-copy rerun. Readback verified strict order, no forward attribution,
+both poll snapshots, both named Story placeholders, and reply `379` mapped to
+Story placeholder `337`.
+**Decided:** static poll results are more truthful than a native zero-vote copy;
+expired Stories retain an explicit named position instead of disappearing.
+`clone.py` remains exactly 400 lines; the new fidelity helper has a 100-line
+budget.
+**Learned:** `drop_author=True` hides attribution but Telegram still creates a
+fresh poll identity and discards vote counts. A mapped placeholder is sufficient
+to preserve the later reply graph even when the original Story bytes are gone.
+Final checks: `268 passed, 8 skipped in 3.17s`; coverage 23 namespaces;
+compileall and diff check clean.
+**Next:** run the final post-documentation gate, commit, push `feature/clone`,
+and confirm PR #8 CI.
+
+
+## 2026-07-15 — Frozen mirror product removed (Codex)
+**Did:** completed Task 9 after the Task-8 live gate. Removed the `tg mirror`
+parser/dispatch, `commands/mirror.py`, the SQLite `mirror/` package, and all
+three product test files. Added a public-CLI regression proving `mirror` is no
+longer a command. Deleted the legacy CONTRACT appendix and synchronized README,
+SKILL, FEATURES, MAP, PLAN, the clone checklist, fixture wording, and
+superseded-document banners. Net change before this entry: 51 insertions and
+5,400 deletions. Final checks: `263 passed, 8 skipped in 2.13s`; `coverage OK:
+23 namespaces`; compileall and `git diff --check` clean. A clean wheel contains
+`commands/clone.py` and the independent `mirror_probe.py`, but no mirror command
+or package.
+**Decided:** historical ADRs/plans/DEVLOG remain as decision evidence. The
+independent read-only protected-content probe and demo-channel seeder remain,
+as required by the clone design. Existing local mirror SQLite files and
+user-owned Telegram destinations are not automatically deleted.
+**Learned:** filename-based deletion would have incorrectly removed the probe;
+the product boundary is the command/store surface, not every path containing
+the word `mirror`.
+**Next:** complete branch review and publish the final Task-9 commit to draft
+PR #8; merging remains a separate user decision.
+
+
+## 2026-07-15 — Clone live acceptance completed (Codex)
+**Did:** completed Task 8 on account `main` against the controlled Stage-2
+sources. Open source `3928214505` cloned 12/12 content messages to retained
+destination `3837236912`; protected source `4373370262` cloned 12/12 to
+retained destination `4341258020`. Both runs skipped one channel service row,
+reported zero unsupported kinds, reached cursor 13, and immediate reruns copied
+zero. Independent raw history comparison passed for content/media order,
+mapped reply parent, album grouping, and document MIME/attribute shapes.
+**Decided:** accepted ADR-0018 after the first open sync safely exposed a live
+baseline mismatch: channel creation plus init title edit produce two service
+rows. Tail verification now accepts service-only rows but still blocks any
+ordinary unexpected message before source scan, audit, or copy.
+**Learned:** a fixed numeric fresh-channel baseline is not stable across the
+real create-and-title workflow; classifying the visible tail preserves the
+safety boundary without blocking harmless Telegram metadata events. The TDD
+regression failed with the live exit-2 shape before the fix and passed after it.
+Final local checks: `429 passed, 8 skipped in 3.41s`; `coverage OK: 23
+namespaces`; compileall and `git diff --check` clean. Budgets remain
+`clone.py` 400 lines and `clone/state.py` 149.
+**Next:** execute Task 9: delete the frozen mirror parser, implementation,
+tests, and legacy CONTRACT appendix, then run the full cutover gate.
+
+
+## 2026-07-15 — Clone contract made canonical (Codex)
+**Did:** completed Task 7. Reassigned CONTRACT.md §11 to the full `tg clone`
+surface, removed implementation-task wording, and demoted `tg mirror` to an
+explicit frozen legacy appendix retained only until post-acceptance deletion.
+Updated MAP, PLAN, and the clone implementation checklist to show Tasks 1–7
+complete and live acceptance pending. Final local checks: `428 passed, 8
+skipped in 3.56s`; `coverage OK: 23 namespaces`; compileall and `git diff
+--check` clean.
+**Decided:** documentation now treats clone as canonical before live acceptance,
+while mirror remains available as a rollback reference. Task 9 deletion still
+cannot happen before the Task 8 live gate required by ADR-0017.
+**Learned:** preserving the legacy contract as an unnumbered appendix avoids a
+false dual-product contract without removing the rollback evidence too early.
+**Next:** execute Task 8 against controlled live demo channels, verify exact
+source order visually, then confirm an idempotent rerun reports zero copied.
+
+
+## 2026-07-15 — Clone replies and protected reupload implemented (Codex)
+**Did:** implemented Task 6 by TDD. Reply-bearing batches now reconstruct with
+the persisted destination parent and supported quote metadata instead of using
+Telegram's reply-dropping native forward. Protected sources/messages reupload
+text, webpage previews, photos, documents, and albums; captions/entities,
+document MIME/attributes, album order, and per-item confirmation are retained.
+Temporary downloads are cleaned, failed downloads leave state retryable before
+audit/write, and upload/send/download FloodWait persists cooldown. Added the
+live-proven `UpdateShortSentMessage` confirmation path. Updated CONTRACT, MAP,
+PLAN, and the clone checklist. Final local checks: `428 passed, 8 skipped in
+3.53s`; `coverage OK: 23 namespaces`; compileall clean. Budgets: `clone.py`
+399 lines, `clone/state.py` 149, all clone mocked tests 1096.
+**Decided:** Task 6 carries ADR-0016 forward unchanged: every reply batch uses
+reupload even on an open channel; ordinary open non-replies remain native.
+No new module or architecture was introduced.
+**Learned:** reconstruction has two distinct valid confirmation envelopes;
+rejecting `UpdateShortSentMessage` would falsely block protected text after a
+successful Telegram send. Download failure must happen before the mutation
+audit because no upload/send has been attempted yet.
+**Next:** execute Task 7 contract cleanup, then Task 8 controlled live clone
+acceptance before deleting frozen mirror code.
+
+## 2026-07-15 — Clone native media and albums implemented (Codex)
+**Did:** implemented Task 5 by TDD. `tg clone sync` now natively forwards the
+explicit webpage/photo/document media allowlist with captions intact, buffers
+contiguous albums by `grouped_id is not None` (including zero), preserves their
+position, sends each album in one request, and saves the complete mapping only
+after exact unique confirmations for every item. Added `docs/ISSUES.md` with a
+durable post-v1 poll-reconstruction item and live re-entry criteria. Updated
+CONTRACT, MAP, PLAN, and the clone checklist. Final local checks: `419 passed,
+8 skipped in 3.41s`; `coverage OK: 23 namespaces`; `clone.py` is exactly 400
+lines and `clone/state.py` is 149 lines.
+**Decided:** polls stay skip-and-report in v1, but their future reconstruction
+is now explicit rather than buried in the implementation plan. Native album
+confirmation is all-or-nothing in local state.
+**Learned:** a dictionary-based confirmation matcher can hide duplicate
+`UpdateMessageID` rows; counting the raw confirmation envelope first prevents
+partial or ambiguous album acceptance.
+**Next:** implement Task 6 reply mapping and protected-content reupload using
+the frozen mirror transports, then run the full clone contract suite.
+
+## 2026-07-15 — Clone text sync implemented (Codex)
+**Did:** implemented Task 4 `tg clone sync` by TDD: oldest-first plain-text
+forwarding, exact confirmation before per-message state save, idempotent cursor
+resume, destination tail verification, service/unsupported skip reporting,
+positive `--limit` with `more`, readonly preflight, mutation-safe sessions,
+fail-closed audit, and persisted FloodWait cooldown. Kept future-supported
+media/albums/replies/protected content behind a controlled block without cursor
+advance until Tasks 5–6, preventing draft-state data loss. Updated CONTRACT,
+MAP, PLAN, and the implementation checklist. Final local checks: `415 passed,
+8 skipped in 3.17s`; `coverage OK: 23 namespaces`; compileall clean.
+**Decided:** Task 4 may permanently skip only content outside the final clone
+allowlist; content awaiting a later planned transport must remain retryable.
+**Learned:** treating all not-yet-implemented media as unsupported would move
+the cursor past content that Task 5 is supposed to copy.
+**Next:** implement Task 5 media and contiguous album batches, preserving their
+source position and treating `grouped_id=0` as a real album id.
+
+## 2026-07-15 — Clone init implemented; Tasks 1–3 reconciled (Codex)
+**Did:** reconciled the first two clone tasks with their contracts, trimming
+`clone/state.py` to 149 lines and making incomplete JSON state fail closed.
+Implemented `tg clone init` by TDD: read-only preview, single-use commit,
+mutation-safe destination creation, durable marker recovery, recorded-
+destination reuse, wrong/multiple-marker blocking, fail-closed audit, readonly
+preflight, and persisted FloodWait cooldown. Updated CONTRACT, MAP, PLAN, and
+the approved design status/order. Final local checks: `406 passed, 8 skipped in
+3.26s`; `coverage OK: 23 namespaces`; compileall clean.
+**Decided:** no new architecture; Task 3 follows ADR-0017 and reuses the shared
+preview/audit/session safety primitives. Clone remains broadcast-only in v1.
+**Learned:** recorded destinations must bypass marker recovery or a repeated
+init can create a duplicate; syntactically valid but incomplete state needs the
+same controlled PolicyError as malformed JSON.
+**Next:** implement Task 4, oldest-first text sync with tail verification,
+skip reporting, per-batch state saves, cooldown enforcement, and `--limit`.
+
 ## 2026-07-15 — Clone rewrite planned; mirror frozen; repo hygiene (Claude Fable 5 / Opus 4.8)
 **Did:** designed `tg clone` to replace the over-built `tg mirror`
 (1,793 prod lines ≈ entire rest of core). Wrote+committed

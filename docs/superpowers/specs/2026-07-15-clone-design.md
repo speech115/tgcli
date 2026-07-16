@@ -1,7 +1,7 @@
 # Clone — Lean Channel Copy (supersedes mirror)
 
 Date: 2026-07-15
-Status: draft, awaiting user approval
+Status: completed (2026-07-15)
 Supersedes: `commands/mirror.py`, `mirror/store.py`, mirror sections of CONTRACT.md §11,
 specs `2026-07-13-lean-mirror-init-sync.md`, `2026-07-14-*`, `2026-07-15-protected-reupload-transport.md`.
 
@@ -192,7 +192,7 @@ Reused from core: `chatref.parse`, `session.client(mutation_safe=...)`,
 `append_audit`, `errors.py` types, `output.py` emitters, invocation journal
 (automatic). Nothing new is added to core.
 
-Deleted with mirror: `commands/mirror.py`, `src/tgcli/mirror/`,
+Task 9 deleted with mirror: `commands/mirror.py`, `src/tgcli/mirror/`,
 `tests/test_cli_mirror_*.py`, `tests/test_mirror_store.py`, the mirror
 subparser block in `cli.py`, CONTRACT.md mirror sections.
 Kept: `mirror_probe.py` + its script/tests (independent read-only diagnostic),
@@ -221,6 +221,41 @@ Kept: `mirror_probe.py` + its script/tests (independent read-only diagnostic),
 - New ADR-0017: clone supersedes mirror; records the tail-verification crash
   model, the no-migration state policy, and the complexity budgets.
 - MAP.md, PLAN.md, DEVLOG.md updated in the same change.
+
+## Implementation order
+
+TDD throughout: failing test first, then minimal code. Each task is independently
+verifiable and leaves the suite green. Written self-contained so Codex can take
+over any task from its description alone.
+
+1. ✅ **`clone/state.py`** — state file load/save/validate + cooldown field.
+   Pure, no network. Acceptance: `test_clone_state.py` covers round-trip,
+   atomic write, unknown `version` → PolicyError, corrupted file → PolicyError,
+   cooldown read/write.
+2. ✅ **`clone status`** — read-only; lists clones from state files (no SOURCE) or
+   one clone's progress (with SOURCE). Wire into `cli.py`. Ships the read window
+   first. Acceptance: JSON/TSV shape, empty-state case, `test_cli_clone_status.py`.
+3. ✅ **`clone init`** — preview via `safety.create_preview` (no mutation); commit
+   creates the destination channel, records it, marker-based recovery on a
+   half-created channel. Acceptance: preview does not touch network mutation,
+   commit path, recovery adopts/creates/blocks correctly, `test_cli_clone_init.py`.
+4. ✅ **`clone sync` — text** — cursor iteration oldest→newest, service skip,
+   unsupported skip+report, native forward for plain text, tail verification,
+   state saved per batch, FloodWait → cooldown + exit 5, `--limit N` + `"more"`.
+   Acceptance: order preserved, idempotent rerun, skip counters,
+   `test_cli_clone_sync.py`.
+5. ✅ **`clone sync` — media + albums** — extend batches to media; album grouping
+   by `grouped_id is not None`. Acceptance: album stays one unit, position kept.
+6. ✅ **`clone sync` — replies + protected reupload** — transplant both transports
+   from `mirror.py`; reply-bearing or protected batch → reupload; reply mapped
+   via `id_map`. Acceptance: reply lands on the right parent, protected source
+   copied.
+7. ✅ **Docs** — rewrite CONTRACT.md §11 for `tg clone`; update MAP.md/PLAN.md in
+   the same commit as the code they describe.
+8. ✅ **Live acceptance** — re-run the Stage-2 demo pairs via `tg clone`, verify
+   order fidelity visually, confirm idempotent rerun (0 copied).
+9. ✅ **Delete mirror** — remove `commands/mirror.py`, `mirror/`, mirror tests, the
+   mirror subparser in `cli.py`, and mirror CONTRACT sections. Only after task 8.
 
 ## Decisions log (2026-07-15, resolved with the user)
 

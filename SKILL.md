@@ -1,6 +1,6 @@
 ---
 name: tgcli
-description: Stateless Telegram CLI for reading dialogs, searching, downloading media, safely sending messages, and exporting data. Use it for any live Telegram task instead of the old MCP daemons.
+description: Stateless Telegram CLI for reading dialogs, searching, downloading media, safely sending messages, exporting data, and copying channels, non-forum supergroups, and private dialogs. Use it for any live Telegram task instead of the old MCP daemons.
 ---
 
 # tgcli
@@ -44,6 +44,10 @@ selected account session, does one operation, and exits.
 | Commit a preview | `tg --json send --commit p_9f3a` |
 | Export messages | `tg --json export messages @channel --output messages.jsonl` |
 | Export subscribers | `tg --json export subscribers @channel --output subscribers.csv` |
+| List channel clones | `tg --json clone status` |
+| Preview a chat clone | `tg --json clone init SOURCE` |
+| Commit clone destination creation | `tg --json clone init SOURCE --commit p_9f3a` |
+| Copy or catch up a chat | `tg --json clone sync SOURCE` |
 
 Send is deliberately two-step: preview first, then commit its single-use ID.
 Previews expire after five minutes.

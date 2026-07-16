@@ -46,19 +46,17 @@ Rewrite the feature as `tg clone` per
 
 - Work happens on `feature/clone` with a PR to `main`; Claude implements,
   the plan is self-contained so Codex can take over any task.
-- Mirror code stays in the tree, frozen (no new mirror work), as the
-  transplant donor; it is deleted in the final task after clone passes live
-  acceptance (re-run of the Stage-2 demo pairs with visual approval and an
-  idempotent rerun).
+- Mirror code remained in the tree, frozen, as the transplant donor until clone
+  passed live acceptance (re-run of the Stage-2 demo pairs with visual approval
+  and an idempotent rerun); Task 9 then deleted it.
 - Lab branches are preserved as tags `archive/mirror-r1-controlled-lab` and
   `archive/mirror-aggregate-checkpoints`; all mirror branches are deleted.
   Superseded mirror plans/specs carry a banner pointing here.
 
 ## Consequences
 
-- The feature surface users script against becomes `tg clone ...`;
-  `tg mirror ...` disappears when clone lands (CONTRACT.md §11 is rewritten
-  in the same change as the code, per the contract rule).
+- The feature surface users script against is `tg clone ...`; `tg mirror ...`
+  disappeared after live acceptance and CONTRACT.md §11 now documents clone.
 - Existing mirror SQLite state is not migrated; demo pairs are re-inited as
   clones and demo destination channels are retained (ADR-0015).
 - A hard crash can leave one duplicated batch in the destination; tail

@@ -10,11 +10,11 @@ from telethon import errors as telethon_errors
 from tgcli import __version__, invocations, output, safety, session
 from tgcli.commands import accounts as accounts_cmd
 from tgcli.commands import api as api_cmd
+from tgcli.commands import clone as clone_cmd
 from tgcli.commands import dialogs as dialogs_cmd
 from tgcli.commands import export as export_cmd
 from tgcli.commands import info as info_cmd
 from tgcli.commands import media as media_cmd
-from tgcli.commands import mirror as mirror_cmd
 from tgcli.commands import read as read_cmd
 from tgcli.commands import search as search_cmd
 from tgcli.commands import send as send_cmd
@@ -132,23 +132,29 @@ def build_parser() -> argparse.ArgumentParser:
     p_export_subscribers.add_argument("--output", required=True, type=Path)
     p_export_subscribers.add_argument("--limit", type=int)
 
-    p_mirror = sub.add_parser("mirror", help="Manage a private channel mirror", parents=[global_flags])
-    mirror_sub = p_mirror.add_subparsers(dest="mirror_command", required=True)
-    p_mirror_init = mirror_sub.add_parser("init", parents=[global_flags])
-    p_mirror_init.add_argument("source", help="source broadcast channel")
-    p_mirror_init.add_argument("--commit", action="store_true")
-    p_mirror_init.add_argument("--retry-create", action="store_true")
-    p_mirror_init.add_argument("--confirm", metavar="MIRROR_ID")
-    p_mirror_sync = mirror_sub.add_parser("sync", parents=[global_flags])
-    p_mirror_sync.add_argument("source", help="source broadcast channel")
+    p_clone = sub.add_parser("clone", help="Copy a supported chat", parents=[global_flags])
+    clone_sub = p_clone.add_subparsers(dest="clone_command", required=True)
+    p_clone_status = clone_sub.add_parser("status", parents=[global_flags])
+    p_clone_status.add_argument(
+        "source", nargs="?", help="filter to one source (id or title substring)"
+    )
+    p_clone_init = clone_sub.add_parser("init", parents=[global_flags])
+    p_clone_init.add_argument("source", help="source channel, supergroup, or dialog")
+    p_clone_init.add_argument("--commit", metavar="PREVIEW_ID")
+    p_clone_sync = clone_sub.add_parser("sync", parents=[global_flags])
+    p_clone_sync.add_argument("source", help="source channel, supergroup, or dialog")
+    p_clone_sync.add_argument("--limit", type=int)
 
     return parser
 
 
 async def _run_network(args, account) -> tuple[dict, list[tuple]]:
-    mutation_safe = args.command == "mirror" and (
-        args.mirror_command == "sync"
-        or (args.mirror_command == "init" and args.commit)
+    mutation_safe = (
+        args.command == "clone"
+        and (
+            args.clone_command == "sync"
+            or (args.clone_command == "init" and args.commit is not None)
+        )
     )
     try:
         async with session.client(account, mutation_safe=mutation_safe) as tg:
@@ -210,21 +216,19 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                         tg, args.channel, args.output, limit=args.limit
                     )
                 return data, export_cmd.to_rows(data)
-            if args.command == "mirror" and args.mirror_command == "init":
+            if args.command == "clone" and args.clone_command == "init":
                 if args.commit:
-                    data = await mirror_cmd.commit_init(
-                        tg,
-                        args.source,
-                        account.alias,
-                        retry_create=args.retry_create,
-                        confirm=args.confirm,
+                    data = await clone_cmd.commit_init(
+                        tg, args.source, account.alias, args.preview_payload
                     )
                 else:
-                    data = await mirror_cmd.preview_init(tg, args.source, account.alias)
-                return data, mirror_cmd.to_rows(data)
-            if args.command == "mirror" and args.mirror_command == "sync":
-                data = await mirror_cmd.sync_text(tg, args.source, account.alias)
-                return data, mirror_cmd.to_rows(data)
+                    data = await clone_cmd.preview_init(tg, args.source)
+                return data, clone_cmd.init_rows(data)
+            if args.command == "clone" and args.clone_command == "sync":
+                data = await clone_cmd.sync_text(
+                    tg, args.source, account.alias, limit=args.limit
+                )
+                return data, clone_cmd.sync_rows(data)
             raise AssertionError(f"unhandled network command: {args.command}")
     except telethon_errors.TakeoutInitDelayError as exc:
         raise RateLimitError(
@@ -245,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if err.code == 0 else 1
     timeout_supplied = hasattr(args, "timeout")
     no_default_timeout = args.command == "export" or (
-        args.command == "mirror" and args.mirror_command == "sync"
+        args.command == "clone" and args.clone_command == "sync"
     )
     for name, default in {
         "account": None,
@@ -262,21 +266,10 @@ def main(argv: list[str] | None = None) -> int:
     exit_code = 1
     error_code = None
     try:
-        if args.command == "mirror" and args.mirror_command == "init":
-            if args.retry_create != (args.confirm is not None):
-                raise PolicyError(
-                    "retry create requires --confirm with the exact mirror id"
-                )
-            if not args.commit and (args.retry_create or args.confirm is not None):
-                raise PolicyError("mirror init retry flags require --commit")
-        if (
-            args.command == "mirror"
-            and (
-                args.mirror_command == "sync"
-                or (args.mirror_command == "init" and args.commit)
-            )
-        ):
+        if args.command == "clone" and args.clone_command == "sync":
             safety.enforce_mutation_allowed(args.readonly)
+            if args.limit is not None and args.limit <= 0:
+                raise PolicyError("clone sync --limit must be positive")
         if args.command == "send":
             if args.commit:
                 if args.preview or args.chat is not None or args.text is not None:
@@ -291,6 +284,14 @@ def main(argv: list[str] | None = None) -> int:
                     parser.error("send requires CHAT TEXT --preview or --commit PREVIEW_ID")
                 except SystemExit:
                     return 1
+        if args.command == "clone" and args.clone_command == "init" and args.commit:
+            safety.enforce_mutation_allowed(args.readonly)
+            args.preview_payload = safety.consume_preview(args.commit)
+            if (
+                args.preview_payload.get("kind") != "clone-init"
+                or args.preview_payload.get("source") != args.source
+            ):
+                raise PolicyError("clone init preview does not match this source")
         if args.command == "api" and args.write:
             safety.enforce_mutation_allowed(args.readonly)
             args.method = api_cmd.canonical_method(args.method)
@@ -314,6 +315,9 @@ def main(argv: list[str] | None = None) -> int:
                 args.aliases or None, args.source_root.expanduser(), force=args.force
             )
             rows = accounts_cmd.import_rows(data)
+        elif args.command == "clone" and args.clone_command == "status":
+            data = clone_cmd.list_clones(args.source)
+            rows = clone_cmd.status_rows(data)
         else:
             config = load_config()
             if args.command == "accounts":
@@ -331,7 +335,7 @@ def main(argv: list[str] | None = None) -> int:
                 network = _run_network(args, account)
                 if (
                     args.command == "media"
-                    or (args.command == "mirror" and args.mirror_command == "sync")
+                    or (args.command == "clone" and args.clone_command == "sync")
                 ) and not timeout_supplied:
                     data, rows = asyncio.run(network)
                 else:

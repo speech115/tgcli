@@ -232,173 +232,157 @@ unparseable credentials for a newly configured account exits 3.
 
 `--plain` emits frozen TSV columns: `alias`, `status`, `config`.
 
-## 11. Lean Channel Mirror (post-v1, ADR-0014)
+## 11. Chat Clone (ADR-0017, ADR-0021)
+
+`tg clone` is the canonical chat-copy surface. It accepts broadcast channels,
+non-forum megagroup supergroups, and private one-to-one User dialogs. Forum
+supergroups, legacy basic groups, bots, and other peer shapes exit 2 with a
+source-specific policy message. The destination is always a private owned
+broadcast channel.
 
 ```text
-tg mirror init SOURCE [--commit [--retry-create --confirm MIRROR_ID]]
-tg mirror sync SOURCE
+tg clone status [SOURCE]
+tg clone init SOURCE
+tg clone init SOURCE --commit PREVIEW_ID
+tg clone sync SOURCE [--limit N]
 ```
 
-This post-v1 mirror accepts one broadcast channel. `init` without
-`--commit` resolves the configured account and source, creates or reopens only
-local planned state, and performs no Telegram mutation. Its JSON shape is:
+`status` is local and read-only: it never loads config or opens a Telegram
+session. Without `SOURCE` it lists every JSON state file; with `SOURCE` it
+filters by exact numeric source id or case-insensitive title substring. JSON:
 
 ```json
-{"mirror":{"id":"<sha256>",
-           "source":{"id":123,"title":"Source channel"},
-           "destination":null,
-           "status":"planned","commit_required":true}}
+{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"megagroup"},"destination_id":999,"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null}]}
 ```
 
-`init --commit` creates or resumes one private creator-owned broadcast
-destination, restores its visible title to the current source title, and
-persists authorization. Immediately before a create dispatch, tgcli records
-the exact temporary marker, a UTC attempt time, and creation state
-`reconcile_required`. Creation state is one of `planned`,
-`reconcile_required`, `blocked`, or `authorized`; retention class is
-`provisional` until authorization atomically changes it to
-`user_owned_retained` together with the destination id and authorized flag.
+Plain status columns are `source_peer_id`, `source_title`, `source_kind`,
+`destination_peer_id`, `cursor`, `copied`, `last_synced_at`.
 
-Recovery scans every exact-marker dialog before any new create. Exactly one
-private creator-owned broadcast resumes. One wrong-shape exact-marker dialog
-or more than one exact-marker dialog records `blocked` and exits 2 without
-create, edit, or delete. Zero matches after a dispatched create never permits
-an automatic second create: the only retry form is
-`tg mirror init SOURCE --commit --retry-create --confirm MIRROR_ID`, with the
-exact id from that mirror. Either retry flag without `--commit`, a missing
-partner flag, or a non-exact id exits 2. An already authorized mirror resolves
-only its stored destination id and never scans the creation marker or creates
-again. Retry-create flags are inapplicable after authorization: missing,
-unpaired, non-exact, and otherwise valid retry pairs all exit 2 instead of
-being silently accepted. Retry-flag pairing is validated before session
-acquisition; exact mirror identity is validated after source/account
-resolution and before the authorized short-circuit.
-
-Authorized JSON uses `destination:{"id":999,"title":"Source channel"}`,
-status `authorized`, and `commit_required:false`. Plain init columns are
-`status`, `mirror_id`, `source_peer_id`, `destination_peer_id`.
-
-`sync` requires that authorization and copies supported content oldest first
-through Telethon exactly `1.44.0`, pinned in project metadata and the
-lockfile. The explicit content allowlist is text/no media,
-`MessageMediaWebPage`, `MessageMediaPhoto`, and `MessageMediaDocument`,
-including generic files and Telegram's video, audio, voice, and sticker
-document variants. Unprotected batches without replies are copied by
-`messages.forwardMessages` with the original source message ids,
-`drop_author=True`, and `drop_media_captions` unset, so Telegram carries the
-original native media and caption without any download or reupload.
-Protected batches — a `noforwards` source channel or message — are
-reconstructed instead: media is downloaded to a temporary directory that is
-removed after the batch, then re-sent through `messages.sendMessage`,
-`messages.sendMedia`, or `messages.uploadMedia` + `messages.sendMultiMedia`
-with the same journaled random ids, preserving text, entities, captions,
-album grouping, mapped replies, and document `mime_type`/attributes; photos
-are re-encoded by Telegram. Unprotected reply batches use the same
-reconstruction path because Telegram's native forward request does not retain
-the mapped destination reply in a broadcast channel. A failed download exits
-2 with the batch left pending. Sync JSON adds:
+`init SOURCE` is a read-only network preview. It resolves the source, verifies
+that its kind is accepted, reads the approximate message count and
+protected-content flag, and stores `source_kind` in a five-minute single-use
+preview through the shared safety mechanism. It does not create clone state or
+mutate Telegram. JSON:
 
 ```json
-{"sync":{"copied":42,"skipped_service":1,"last_confirmed_message_id":73}}
+{"preview_id":"p_...","expires_at":"...","clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":null,"status":"planned","commit_required":true},"approximate_message_count":321,"protected":false}
 ```
 
-Plain sync columns are `copied`, `last_confirmed_message_id`, `mirror_id`,
-`source_peer_id`, `destination_peer_id`, `skipped_service`. The new service
-counter is appended so the five frozen legacy columns do not move.
-The mirror envelope returned by `sync` reports the title read from the resolved
-destination rather than assuming it still matches the source. `copied` counts
-confirmed source messages, including every item in a confirmed album, rather
-than Telegram RPCs or batches. Service messages (any `Message.action`, such as
-the channel-creation notice at message id 1) are never copied: the new-history
-scan skips them and reports the per-run count as `skipped_service`. They do not
-advance the confirmed cursor, so a trailing service message is recounted on the
-next run.
+`init SOURCE --commit PREVIEW_ID` requires a matching unexpired clone-init
+preview. `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block before
+preview consumption, config, session, audit, or Telegram work. The commit uses
+a mutation-safe session, verifies that the resolved account id, source id, and
+source kind still match the preview, then creates or recovers one private
+creator-owned broadcast destination. JSON:
 
-Each mirror has one SQLite database at
-`TGCLI_STATE_DIR/mirrors/<mirror_id>.db`. A singleton message is a one-item
-batch; every complete contiguous run whose `grouped_id is not None` is one
-album batch. Before audit or dispatch, tgcli atomically persists the complete
-ordered batch. Every item owns a distinct stable signed 64-bit Telegram
-`random_id`, and retry reuses the same ordered source ids and random ids.
+```json
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":{"id":999,"title":"Source"},"status":"ready","commit_required":false}}
+```
 
-One batch attempt appends exactly one fail-closed `mirror-sync-forward` audit
-record containing the ordered source ids and random ids, then issues exactly
-one `ForwardMessagesRequest`. Confirmation must contain exactly one matching
-`UpdateMessageID` for every requested random id and distinct positive
-destination ids. Missing, duplicate, extra, or invalid confirmations leave the
-entire batch pending and do not advance the cursor. A valid complete mapping,
-all source/destination mappings, and the confirmed cursor commit in one SQLite
-transaction; no album item advances alone.
+Plain init columns are `status`, `clone_id`, `source_peer_id`,
+`destination_peer_id`.
 
-Pending batches recover before new history. tgcli requests the exact pending
-source-id set, rejects missing, duplicate, or unexpected returned ids, restores
-request order from persisted `batch_index`, revalidates content and reply
-policy, and replays the original random ids. Sync is streaming and does not
-pre-scan unbounded history: a later non-contiguous reuse of an already completed
-`grouped_id` blocks the reused segment before its prepare, audit, or network
-work, while earlier independently confirmed batches remain committed.
+Before creation, state with `destination_peer_id:null` and title marker
+`tgcli-clone-<clone-id-prefix>` is atomically saved under
+`TGCLI_STATE_DIR/clones/<clone_id>.json`. Recovery adopts exactly one matching
+private creator-owned broadcast channel, creates when none exists, and exits 2
+without mutation on multiple or wrong-shape matches. Once a destination id is
+recorded, repeated init resolves and reuses it without scanning or creating.
+Destinations are user-owned and never deleted automatically.
 
-A plain intra-channel reply is copied only when its
-`MessageReplyHeader.reply_to_msg_id` has an already confirmed destination
-mapping. The child is then forwarded with `InputReplyToMessage` targeting that
-destination parent; supported `quote_text`, `quote_entities`, and
-`quote_offset` are preserved. An album may carry the header on its leading
-item only, or repeat identical reply and quote metadata on later items.
-Unconfirmed parents, a header first appearing after the leading album item,
-conflicting album reply metadata, cross-peer, forum, scheduled, ephemeral,
-todo, poll-option, reply-from, and reply-media shapes exit 2 before the child
-batch is prepared, audited, or dispatched. Source replies are never flattened.
+After creation or recovery, init applies the source title/display name, copies a
+non-empty channel description or User bio, and copies a non-empty static source
+avatar before returning `status: ready`. Empty source fields cause no mutation.
+Avatar bytes use a temporary directory that is removed on success or failure.
+Animated or video avatar motion is not preserved (ADR-0020).
 
-A Telegram `FloodWait` during mirror create, title edit, or message copy writes
-an account-scoped UTC `retry_not_before` to
-`TGCLI_STATE_DIR/mirrors/cooldowns/<sha256-account-id>.json`. The file is mode
-`0600`, is replaced atomically, and the replacement plus parent directory are
-fsynced. Cooldown writers serialize on a private account-scoped lock, so
-concurrent compare-and-max updates never shorten a later deadline. While the
-deadline is active, `init --commit` and `sync` fail
-locally before mirror-store creation, marker scan, audit, or Telegram mutation;
-the existing exit-5 `FLOOD_WAIT` shape reports the ceiling of remaining seconds
-as `retry_after`. tgcli does not sleep or retry internally. `init` preview
-remains read-only and available, and expiry of the cooldown does not relax the
-explicit confirmed-retry rule after an ambiguous create.
+Every create, title-edit, description-edit, and avatar-edit attempt appends a
+fail-closed shared audit record before dispatch. A profile-copy failure exits 2
+while retaining the recorded destination for a new-preview retry; it never
+creates a second channel. Telegram FloodWait during profile reads, downloads,
+uploads, or edits persists `retry_not_before` in clone state; later commit
+attempts exit 5 locally while that deadline is active. Init keeps the global
+60-second default timeout.
 
-Mirror mutation sessions disable Telethon's hidden RPC replay and short-wait
-sleep behavior with exactly `request_retries=0` and
-`flood_sleep_threshold=0`. This mode is used only by `init --commit` and
-`sync`; init preview and unrelated commands keep the normal read-oriented
-Telethon defaults. After source/account resolution, both mutation commands
-hold one non-blocking lock keyed by the resolved Telegram user id across the
-cooldown check, reconciliation, audit, Telegram dispatch, and durable
-confirmation. The private mode-`0600` lock is
-`TGCLI_STATE_DIR/mirrors/locks/<sha256-account-id>.lock`, so different local
-session aliases for the same Telegram user cannot mutate concurrently; a
-contender exits 3 before audit or mutation dispatch.
+`sync SOURCE` requires initialized state and a private creator-owned broadcast
+destination. It verifies the destination tail before reading new source
+history. Rows after the largest persisted mapping (or the fresh-channel id-1
+baseline) are accepted only when every visible tail row is a Telegram service
+action, such as channel creation or the init title change. Any ordinary tail
+message exits 2 with its count in `unexpected` and requires manual repair; no
+source scan, audit, or copy occurs (ADR-0018).
 
-`--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block `init --commit`
-and `sync` before config/session/network work. Every create, title edit, and
-copy-batch attempt appends the shared fail-closed audit before dispatch
-(`mirror-sync-forward` for native batches, `mirror-sync-reupload` for
-reconstructed ones). Paid media, stories, polls, or any other media wrapper
-outside the explicit allowlist exits 2 before that batch is prepared, audited,
-or dispatched; service messages are skipped and counted instead of blocking.
-Mixed supported/unsupported albums also fail as a whole; already confirmed
-earlier batches remain committed. Linked
-discussion comments, foreground watch, forum topics, groups, reactions,
-views, and attribution emulation remain explicit later slices, not silently
-claimed by this contract.
+Sync iterates source history with `reverse=True` and
+`min_id=cursor`, so confirmed destination messages follow source order. The
+allowlist is unprotected non-reply text/no-media, `MessageMediaWebPage`,
+`MessageMediaPhoto`, and `MessageMediaDocument`. TTL/view-once photo or document
+media is reported in `skipped_unsupported` instead of being forwarded or
+downloaded.
 
-An expected local mirror-store migration or invariant failure exits 2 with
-`local mirror state is invalid; manual repair is required`. Detection during
-sync occurs before destination/input-peer preparation, audit, or Telegram
-mutation where the invalid state is already observable. This translation is
-limited to `MirrorStore` operations; unrelated Telegram/client `ValueError`
-exceptions are not mislabeled as local state failures.
+Contiguous messages whose `grouped_id is not None` are one album batch, including
+the valid edge case `grouped_id=0`. The complete ordered album is sent by one
+request with one distinct random id per item. Every requested random id must
+have exactly one unique positive `UpdateMessageID` before all mappings and the
+batch cursor are atomically saved. Missing, duplicate, extra, or invalid
+confirmation exits 2 without partially advancing state; the next run's tail
+verification detects a batch Telegram accepted but tgcli could not confirm.
 
-`sync` has no implicit overall timeout because a serial backfill may
-legitimately run for longer than 60 seconds. An explicit `--timeout` still
-applies; interruption leaves an unconfirmed batch with its persisted source
-order and random ids for the next resumable run. `init` retains the normal
-60-second default timeout. Cancellation, timeout, review expiry, SIGINT,
-SIGTERM, and process failure never delete an authorized
-`user_owned_retained` destination; there is no automatic
-mirror-destination deletion path.
+Service messages advance the cursor and increment `skipped_service` without
+audit or Telegram mutation. Polls become human-readable static result cards with
+a Russian heading, question, options, Unicode progress bars, counts, rounded
+percentages, and total voters; no timestamps or implementation labels are
+shown. Story references become two-line `Stories недоступна` placeholders whose
+resolved author name/title is a clickable `t.me` link when possible; Story IDs
+are not shown. Both use the audited `clone-sync-snapshot` path, receive
+source-to-destination mappings, and count as copied. Truly unsupported kinds
+such as dice advance the cursor and appear in `skipped_unsupported`; nothing is
+skipped silently (ADR-0019).
+
+For broadcast sources, an unprotected non-reply batch uses native forwarding
+with `drop_author=True`; the destination does not expose a source-forward
+header. For attributed megagroup/dialog sources, the same batch uses native
+forwarding with `drop_author=False`, retaining Telegram's author header.
+
+A batch uses download/reupload reconstruction when the source or any message
+has `noforwards`, or when it has a mapped reply. Attributed reuploads prepend
+`<display name>: ` to text or the leading album caption. Original entity
+offsets shift by the prefix's UTF-16 code-unit length, and repeated sender
+lookups are cached for the sync run. This preserves both attribution and the
+mapped destination reply relationship that native forwarding drops.
+
+Ordinary replies preserve the mapped direct parent and, when available, the
+mapped nested top root. If the direct parent is unavailable, content copies in
+order without a reply relation and increments `reply_flattened`; an unprotected
+attributed message uses a native author-preserving forward for this fallback.
+If only the nested top root is unavailable, the mapped direct parent remains
+linked. `MessageReplyStoryHeader` also flattens and reports because it has no
+message id to map. Cross-peer, forum, scheduled, ephemeral, todo, poll-option,
+reply-from, reply-media, malformed quote, and inconsistent album reply shapes
+exit 2 before audit or mutation. Supported quote text, entities, and offset are
+retained.
+
+Reupload sends text and webpage messages with `sendMessage`, photos/documents
+with `sendMedia`, and albums with per-item `uploadMedia` followed by one
+ordered `sendMultiMedia`. Captions and entities are retained; documents retain
+MIME type and Telegram attributes. Downloaded files live only in a temporary
+directory and are removed on success or failure. A download failure leaves the
+batch cursor and mapping unchanged and occurs before the fail-closed
+`clone-sync-reupload` audit/write boundary. Upload/send FloodWait persists the
+clone cooldown. Both `UpdateMessageID` batches and the single-message
+`UpdateShortSentMessage` envelope require exact positive confirmation before
+state advances.
+
+`--limit N` must be positive and copies at most N message batches. If another
+source row remains, JSON reports `"more":true`; the next run resumes at the
+saved cursor. Sync has no implicit overall timeout, uses a mutation-safe
+session, and is blocked by all readonly gates before config/session work.
+FloodWait persists the clone cooldown and exits 5 without advancing the current
+message. JSON:
+
+```json
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"megagroup"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"forwarded":1,"reuploaded":1,"snapshots":0,"reply_flattened":0,"skipped_service":1,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"cursor":5,"more":false}}
+```
+
+Plain sync columns are `copied`, `forwarded`, `reuploaded`, `snapshots`,
+`reply_flattened`, `skipped_service`, `skipped_unsupported_count`, `cursor`,
+`clone_id`, `source_peer_id`, `destination_peer_id`, `more`.

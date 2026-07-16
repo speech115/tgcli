@@ -15,9 +15,10 @@ tgcli/
 │   ├── MAP.md                 [done]    this file
 │   ├── PLAN.md                [done]    master plan, phases 0–7 (all complete)
 │   ├── CONTRACT.md            [done]    CLI automation contract (stdout/exit codes/JSON)
+│   ├── ISSUES.md              [done]    deliberately deferred product work and re-entry gates
 │   ├── DEVLOG.md              [done]    session-by-session agent log
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── decisions/             [done]    ADR-0001…0017; ADR-0017 clone supersedes mirror
+│   ├── decisions/             [done]    ADR-0001…0021; ADR-0017 clone supersedes mirror
 │   └── superpowers/plans/     [done]    completed v1 plans; mirror plans superseded by clone spec (ADR-0017)
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -29,7 +30,13 @@ tgcli/
 │   ├── session.py             [done]    session locks + normal/mutation-safe TelegramClient factory
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
-│   ├── mirror/                [frozen]  being replaced by `tg clone` (ADR-0017); transplant donor only, deleted after clone lands
+│   ├── mirror_probe.py        [done]    independent read-only protected-content diagnostic
+│   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021)
+│   │   ├── state.py           [done]    atomic JSON state, mappings, cooldown
+│   │   ├── fidelity.py        [done]    truthful poll snapshots and named Story placeholders
+│   │   ├── profile.py         [done]    init-time chat description/bio and static avatar copy
+│   │   ├── attribution.py     [done]    source kinds, author cache, UTF-16 prefix shifts
+│   │   └── replies.py         [done]    validated reply mapping and explicit flatten fallback
 │   └── commands/
 │   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
@@ -40,14 +47,15 @@ tgcli/
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
-│   │   └── mirror.py          [frozen]  replaced by clone (ADR-0017); do not extend — transplant donor
+│   │   └── clone.py           [done]    live-accepted clone status/init/sync surface (ADR-0017/0018/0021)
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
     ├── install-link.sh        [done]    symlink tg → PATH (phase 6 cutover)
     ├── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
     ├── bench.py               [done]    live benchmark: every command against a real account
-    └── seed_demo_channel.py   [done]    manual demo-channel seeding for mirror visual acceptance
+    ├── mirror_probe.py        [done]    operator entrypoint for the retained read-only diagnostic
+    └── seed_demo_channel.py   [done]    manual demo-channel seeding for clone visual acceptance
 ```
 
 ## Module Ownership Rules
@@ -57,13 +65,6 @@ tgcli/
 - `commands/*` never print — they return data structures; `cli.py` passes
   them to `output.emit()`. This is what keeps the stdout contract testable.
 - `errors.py` is the only place exit codes live.
-- `mirror/` and `commands/mirror.py` are **frozen** (ADR-0017): the `tg mirror`
-  feature is being replaced by `tg clone`. No new mirror work; the modules are
-  retained only as a transplant donor (native forward + protected reupload
-  transports, batch validation) for clone and are deleted once clone passes
-  live acceptance. See the
-  [clone design spec](superpowers/specs/2026-07-15-clone-design.md).
-
 ## ADR Index
 
 | ADR | Decision |
@@ -85,3 +86,7 @@ tgcli/
 | [0015](decisions/ADR-0015-truthful-persistent-mirror-showcase.md) | Production-path-only persistent private showcase and topology promotion gates |
 | [0016](decisions/ADR-0016-live-mirror-fidelity-corrections.md) | Service-message skip, reply reconstruction fallback, and append-only TSV extension |
 | [0017](decisions/ADR-0017-clone-supersedes-mirror.md) | Clone rewrite supersedes mirror; JSON state, core-primitive reuse, tail-verification crash model, complexity budgets |
+| [0018](decisions/ADR-0018-clone-service-tail.md) | Clone tail verification accepts service-only rows while still blocking ordinary destination content |
+| [0019](decisions/ADR-0019-clone-truthful-fallbacks.md) | Poll snapshots, named Story placeholders, nested replies, and missing-parent continuity |
+| [0020](decisions/ADR-0020-clone-channel-profile.md) | Init-time channel description and static avatar copy with retry-safe recovery |
+| [0021](decisions/ADR-0021-clone-attributed-sources.md) | Megagroup/dialog sources, hybrid attribution transport, and explicit reply flatten reporting |

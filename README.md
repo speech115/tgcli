@@ -13,6 +13,7 @@ tg search @chat "invoice" --json
 tg send @user --preview "text"   # two-step: preview → commit
 tg media download <t.me/link>
 tg export subscribers @channel --output subscribers.csv
+tg clone status --json
 ```
 
 ## Principles (non-negotiable)
@@ -33,7 +34,10 @@ tg export subscribers @channel --output subscribers.csv
 
 ## Status
 
-v1 complete — all phases 0–7 done, project in maintenance mode. Phase 5
+v1 complete — all phases 0–7 done, project in maintenance mode. The post-v1
+`tg clone` chat-copy surface is live-accepted for broadcast channels,
+non-forum supergroups, and private dialogs; its superseded `tg mirror`
+implementation has been removed. Phase 5
 exported 14,296 messages from a public channel through a live Telethon
 takeout session without FloodWait failures; Phase 7 adds a fail-closed
 coverage gate for all 23 namespaces in the pinned Telethon layer.
