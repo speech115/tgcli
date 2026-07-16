@@ -8,7 +8,7 @@ from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
 
 from tgcli import chatref, safety
-from tgcli.clone import attribution, fidelity, profile, replies, state
+from tgcli.clone import attribution, fidelity, profile, replies, state, topics
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
 
 def _entry(s: state.CloneState) -> dict:
@@ -29,12 +29,10 @@ def list_clones(source: str | None = None) -> dict:
                and _matches(loaded, source)] if directory.exists() else []
     entries.sort(key=lambda entry: entry["created_at"])
     return {"clones": entries}
-
 def status_rows(data: dict) -> list[tuple]:
     return [(c["source"]["id"], c["source"]["title"], c["source"]["kind"],
              c["destination_id"], c["cursor"],
              c["copied"], c["last_synced_at"]) for c in data["clones"]]
-
 async def _resolve_source(tg, source: str):
     try:
         entity = await tg.get_entity(chatref.parse(source))
@@ -42,7 +40,6 @@ async def _resolve_source(tg, source: str):
         raise NotFoundError(f"clone source not found: {source!r}") from None
     kind = attribution.source_kind(entity)
     return entity, kind, attribution.display_name(entity)
-
 async def preview_init(tg, source: str) -> dict:
     entity, source_kind, source_title = await _resolve_source(tg, source)
     me = await tg.get_me()
@@ -59,7 +56,6 @@ async def preview_init(tg, source: str) -> dict:
             "destination": None, "status": "planned", "commit_required": True},
             "approximate_message_count": total,
             "protected": preview["protected"]}
-
 def _is_private_owned_broadcast(entity, *, title: str | None = None) -> bool:
     active = any(getattr(item, "active", False)
                  for item in (getattr(entity, "usernames", None) or ()))
@@ -68,15 +64,14 @@ def _is_private_owned_broadcast(entity, *, title: str | None = None) -> bool:
                 and getattr(entity, "broadcast", False)
                 and not getattr(entity, "megagroup", False)
                 and getattr(entity, "username", None) is None and not active)
-
-async def _marker_candidates(tg, marker: str) -> tuple[list[object], list[object]]:
+async def _marker_candidates(tg, marker: str, shape_ok) -> tuple[list[object], list[object]]:
     valid = []
     wrong_shape = []
     async for dialog in tg.iter_dialogs():
         entity = getattr(dialog, "entity", None)
         if getattr(entity, "title", None) != marker:
             continue
-        (valid if _is_private_owned_broadcast(entity, title=marker) else wrong_shape).append(entity)
+        (valid if shape_ok(entity, title=marker) else wrong_shape).append(entity)
     return valid, wrong_shape
 
 def _init_result(clone_state: state.CloneState, destination) -> dict:
@@ -120,16 +115,19 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
     clone_state.creation_marker = marker
     state.save(clone_state)
     _enforce_cooldown(clone_state)
+    forum = clone_state.destination_kind == "forum"
+    shape_ok = topics.is_forum_destination if forum else _is_private_owned_broadcast
+    kind_name = "forum megagroup" if forum else "broadcast channel"
     if clone_state.destination_peer_id is not None:
         try:
             destination = await tg.get_entity(types.PeerChannel(
                 clone_state.destination_peer_id))
         except ValueError:
             raise PolicyError("clone destination is unavailable") from None
-        if not _is_private_owned_broadcast(destination):
-            raise PolicyError("clone destination is not a private owned broadcast channel")
+        if not shape_ok(destination):
+            raise PolicyError(f"clone destination is not a private owned {kind_name}")
     else:
-        valid, wrong_shape = await _marker_candidates(tg, marker)
+        valid, wrong_shape = await _marker_candidates(tg, marker, shape_ok)
         if len(valid) + len(wrong_shape) > 1:
             raise PolicyError("clone destination marker matched multiple channels")
         if wrong_shape:
@@ -140,16 +138,19 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
             safety.append_audit("clone-init-create", account_alias,
                                 {"clone_id": clone_id})
             update = await _mutate(
-                tg, functions.channels.CreateChannelRequest(
+                tg, topics.create_request(marker) if forum else functions.channels.CreateChannelRequest(
                     title=marker, about="", broadcast=True, megagroup=False),
                 clone_state)
             candidates = [item for item in getattr(update, "chats", ())
-                          if _is_private_owned_broadcast(item, title=marker)]
+                          if shape_ok(item, title=marker)]
             if len(candidates) != 1:
                 raise PolicyError("Telegram did not return the created private channel")
             destination = candidates[0]
         clone_state.destination_peer_id = destination.id
         state.save(clone_state)
+    if forum:
+        await topics.ensure_forum(
+            lambda request: _mutate(tg, request, clone_state), destination)
     if getattr(destination, "title", None) != clone_state.source_title:
         safety.append_audit("clone-init-title", account_alias, {"clone_id": clone_id})
         await _mutate(
@@ -294,11 +295,18 @@ async def sync_text(tg, source: str, account_alias: str,
         )
     except ValueError:
         raise PolicyError("clone destination is unavailable") from None
-    if not _is_private_owned_broadcast(destination):
-        raise PolicyError("clone destination is not a private owned broadcast channel")
+    forum = clone_state.destination_kind == "forum"
+    valid_destination = (topics.is_forum_destination(destination)
+                         and getattr(destination, "forum", False)) if forum else _is_private_owned_broadcast(destination)
+    if not valid_destination:
+        kind_name = "forum megagroup" if forum else "broadcast channel"
+        raise PolicyError(f"clone destination is not a private owned {kind_name}")
     latest = await tg.get_messages(destination, limit=1)
     destination_last_id = latest[0].id if latest else 0
-    baseline = clone_state.max_destination_id() or 1
+    recorded_last_id = clone_state.max_destination_id()
+    if recorded_last_id is not None and recorded_last_id > destination_last_id:
+        raise PolicyError("clone destination recorded tail is missing; manual repair is required")
+    baseline = recorded_last_id or 1
     if destination_last_id > baseline:
         tail = await tg.get_messages(destination, limit=destination_last_id - baseline)
         unexpected = [item for item in tail if item.id > baseline and getattr(item, "action", None) is None]

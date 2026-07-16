@@ -20,9 +20,7 @@ def source_kind(entity) -> str:
             raise PolicyError("clone source basic group is deactivated")
         return "basic"
     if getattr(entity, "megagroup", False):
-        if getattr(entity, "forum", False):
-            raise PolicyError("clone source forum topics are not supported")
-        return "megagroup"
+        return "forum" if getattr(entity, "forum", False) else "megagroup"
     if getattr(entity, "broadcast", False):
         return "broadcast"
     raise PolicyError("clone source type is not supported")

@@ -115,8 +115,14 @@ class CloneInitClient:
             pending = state.load(clone_id)
             assert pending.destination_peer_id is None
             assert pending.creation_marker == request.title
-            self.destination = channel(999, request.title, creator=True)
+            self.destination = channel(
+                999, request.title, creator=True,
+                broadcast=request.broadcast, megagroup=request.megagroup, forum=False,
+            )
             return SimpleNamespace(chats=[self.destination])
+        if isinstance(request, functions.channels.ToggleForumRequest):
+            self.destination.forum = True
+            return SimpleNamespace()
         if isinstance(request, functions.channels.EditTitleRequest):
             self.destination.title = request.title
             return SimpleNamespace()
@@ -179,6 +185,21 @@ def test_clone_init_preview_accepts_nonforum_megagroup(
     assert source == {"id": 123, "title": "Team chat", "kind": "megagroup"}
 
 
+def test_clone_init_preview_accepts_forum_megagroup(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.source = channel(
+        123, "Forum chat", broadcast=False, megagroup=True, forum=True
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--json"]) == 0
+
+    source = json.loads(capsys.readouterr().out)["clone"]["source"]
+    assert source == {"id": 123, "title": "Forum chat", "kind": "forum"}
+
+
 def test_clone_init_preview_accepts_private_dialog(
     config_env, monkeypatch, capsys
 ):
@@ -217,8 +238,6 @@ def test_clone_init_preview_accepts_basic_group(config_env, monkeypatch, capsys)
 @pytest.mark.parametrize(
     ("source", "error"),
     [
-        (channel(123, "Forum", broadcast=False, megagroup=True, forum=True),
-         "forum topics are not supported"),
         (legacy_group(
             migrated_to=types.InputChannel(channel_id=555, access_hash=0)
         ), "migrated to a supergroup; clone channel 555 instead"),
@@ -266,6 +285,33 @@ def test_clone_init_commit_creates_and_records_destination(
         "clone-init-create",
         "clone-init-title",
     ]
+
+
+def test_clone_init_commit_creates_forum_destination(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.source = channel(
+        123, "Forum chat", broadcast=False, megagroup=True, forum=True
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["clone", "init", "@source", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+
+    assert main([
+        "clone", "init", "@source", "--commit", preview_id, "--json"
+    ]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    [created] = [item for item in client.requests
+                 if isinstance(item, functions.channels.CreateChannelRequest)]
+    assert created.megagroup is True and created.broadcast is False
+    assert any(isinstance(item, functions.channels.ToggleForumRequest)
+               for item in client.requests)
+    assert client.destination.forum is True
+    saved = state.load(result["clone"]["id"])
+    assert saved.source_kind == "forum"
+    assert saved.destination_kind == "forum"
 
 
 def test_clone_init_commit_copies_nonempty_channel_description(

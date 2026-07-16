@@ -537,6 +537,46 @@ def test_clone_sync_blocks_unexpected_destination_tail_before_copy(
     assert not safety.audit_path().exists()
 
 
+def test_clone_sync_blocks_when_recorded_tail_is_missing(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    clone_state.record_mapping(1, 5)
+    clone_state.cursor = 1
+    state.save(clone_state)
+    client = CloneSyncClient([message(2)])
+    client.destination_last_id = 4
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    assert "recorded tail is missing" in capsys.readouterr().err
+    assert client.requests == []
+    assert client.iter_messages_calls == []
+    assert not safety.audit_path().exists()
+
+
+def test_clone_sync_rejects_recorded_forum_clone_with_nonforum_destination(
+    config_env, monkeypatch, capsys
+):
+    seed_clone(kind="forum", title="Forum chat")
+    client = CloneSyncClient([message(2)])
+    client.source = channel(
+        123, "Forum chat", broadcast=False, megagroup=True, forum=True
+    )
+    client.destination = channel(
+        999, "Forum chat", creator=True, broadcast=False, megagroup=True,
+        forum=False,
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    assert "not a private owned forum megagroup" in capsys.readouterr().err
+    assert client.requests == []
+    assert client.iter_messages_calls == []
+
+
 def test_clone_sync_accepts_service_only_destination_tail(
     config_env, monkeypatch, capsys
 ):
