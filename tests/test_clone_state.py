@@ -162,7 +162,7 @@ def test_state_rejects_nonpositive_topic_destination(tmp_path, monkeypatch, valu
         state.load(saved.clone_id)
 
 
-@pytest.mark.parametrize("key", ["", "topic", "01", "0", "-1"])
+@pytest.mark.parametrize("key", ["", "topic", "01", "0", "-1", "١", "１"])
 def test_state_rejects_noncanonical_topic_key(tmp_path, monkeypatch, key):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     saved = state.CloneState.new(
@@ -200,18 +200,37 @@ def test_state_rejects_inconsistent_forum_fields(
         state.load(saved.clone_id)
 
 
-def test_state_accepts_large_positive_topic_ids(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("source_topic_id", "destination_topic_id"),
+    [("2147483648", 1), ("1", 2147483648)],
+)
+def test_state_rejects_topic_ids_above_tl_int_range(
+    tmp_path, monkeypatch, source_topic_id, destination_topic_id
+):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    huge = 10**100
     saved = state.CloneState.new(
         account_user_id=1, source_peer_id=2, source_title="Forum", source_kind="forum"
     )
     data = saved.to_dict()
-    data["topic_map"] = {str(huge): huge}
+    data["topic_map"] = {source_topic_id: destination_topic_id}
+    state.clones_dir().mkdir(parents=True)
+    state.path_for(saved.clone_id).write_text(json.dumps(data))
+    with pytest.raises(PolicyError):
+        state.load(saved.clone_id)
+
+
+def test_state_accepts_max_tl_int_topic_ids(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    maximum = 2_147_483_647
+    saved = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="Forum", source_kind="forum"
+    )
+    data = saved.to_dict()
+    data["topic_map"] = {str(maximum): maximum}
     state.clones_dir().mkdir(parents=True)
     state.path_for(saved.clone_id).write_text(json.dumps(data))
     loaded = state.load(saved.clone_id)
-    assert loaded.topic_dest_for(huge) == huge
+    assert loaded.topic_dest_for(maximum) == maximum
 
 
 def test_state_rejects_non_string_topic_key():
