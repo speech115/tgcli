@@ -14,6 +14,30 @@ Template:
 ```
 
 
+## 2026-07-16 — Forum topic routing complete (Codex)
+**Did:** completed Task 7 of the round-2 clone plan. Forum messages now resolve
+their source topic, recover missing topic mappings from Telegram when needed,
+and route native forwards, snapshots, protected reuploads, albums, and mapped
+replies into the matching destination topic. General remains a passthrough.
+Added mapped/general/unmapped, audit-failure, copy-retry, album-consistency,
+malformed-header, cross-peer, and TL signed-int boundary regressions. Final
+gates passed `362 passed, 8 skipped`; coverage reports 23 namespaces.
+**Decided:** placement-only forum headers are topic placement, not replies, so
+they stay eligible for native forwarding and do not count as flattened. Real
+in-topic replies map the direct parent through `id_map` and add the mapped topic
+through `topic_map`. All reply/topic IDs must be canonical positive signed TL
+ints in `1..2_147_483_647` before lookup, audit, or mutation. Unsupported media
+retains its established early report-and-skip semantics without reply routing.
+**Learned:** retaining the source topic ID inside the validated reply signature
+is necessary for album consistency; collapsing placement to `None` can hide
+mixed-topic batches. The installed Telethon request supports native
+`top_msg_id`, so the designed forced-reupload fallback was unnecessary. Final
+budgets are `clone.py 400/400`, `topics.py 100/100`, `state.py 170/170`,
+`attribution.py 78/80`, and `replies.py 76`.
+**Next:** execute Task 8: document the shipped behavior in CONTRACT, ADR-0022,
+ISSUES, MAP, and PLAN before live acceptance.
+
+
 ## 2026-07-16 — Lazy forum topic creation complete (Codex)
 **Did:** completed Task 6 of the round-2 clone plan. Forum sync now turns
 `MessageActionTopicCreate` service rows into destination topics, confirms the

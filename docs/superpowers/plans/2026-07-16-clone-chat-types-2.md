@@ -849,7 +849,7 @@ git commit -m "Create destination topics lazily from topic-create messages"
 - Consumes: tasks 4–6.
 - Produces: `topics.topic_id_of(message) -> int` (source topic id; `GENERAL_TOPIC_ID` when no forum header). `async topics.ensure_topic(mutate, source, destination, clone_state, source_topic_id, counters, *, account_alias) -> int` (General passthrough; map hit; else one `GetForumTopicsByIDRequest` lookup + audited `create_topic`, counted in `counters["topics_created"]`). `topics.place(reply_to, destination_topic_id)` merges topic placement into an `InputReplyToMessage` (General → unchanged). `topics.placement_only(header) -> bool`. `replies.target` accepts forum headers only for forum clones: placement-only headers (no `reply_to_top_id`) are not replies; real in-topic replies map the parent via `id_map` with `top_msg_id` left to `place()`.
 
-- [ ] **Step 1: Verify the forward-topic-targeting deferred check (spec open question)**
+- [x] **Step 1: Verify the forward-topic-targeting deferred check (spec open question)**
 
 Run:
 ```bash
@@ -858,7 +858,7 @@ print('top_msg_id' in inspect.signature(functions.messages.ForwardMessagesReques
 ```
 Expected: `True`. If `False`: forum batches with a non-General topic must force the reupload transport instead of passing `top_msg_id` (add `or topic_dest not in (None, topics.GENERAL_TOPIC_ID)` to the `reupload` condition, skip the `top_msg_id=` argument), and record the outcome in ADR-0022 (task 8). All steps below assume `True`.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 In `tests/test_cli_clone_sync.py`:
 
@@ -979,12 +979,12 @@ def test_clone_sync_rejects_forum_reply_header_for_nonforum_clone(
     assert "reply shape is not supported" in capsys.readouterr().err
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run: `pytest tests/test_cli_clone_sync.py -q`
 Expected: forum routing tests FAIL (today `replies._signature` raises "clone reply shape is not supported" on `forum_topic`; the reject regression test may already PASS — keep it as the guard).
 
-- [ ] **Step 4: Write minimal implementation**
+- [x] **Step 4: Write minimal implementation**
 
 `src/tgcli/clone/replies.py` — thread a `forum` flag:
 
@@ -1090,18 +1090,18 @@ In `sync_text`'s `finish_batch`, before calling `_forward_batch`:
 
 and pass `topic_dest=topic_dest` to `_forward_batch`.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `pytest -q`
 Expected: all PASS, including every pre-existing reply/album/transport regression.
 
-- [ ] **Step 6: Budget checkpoint**
+- [x] **Step 6: Budget checkpoint**
 
 Run: `wc -l src/tgcli/commands/clone.py src/tgcli/clone/topics.py src/tgcli/clone/state.py src/tgcli/clone/attribution.py src/tgcli/clone/replies.py`
 
 Caps: clone.py ≤ 400, topics.py ≤ 100, state.py ≤ 170, attribution.py ≤ 80. If clone.py exceeds 400, cut in this order until under: (1) inline `_init_result` into its single call site in `commit_init`; (2) collapse the two `kind_name`/PolicyError pairs into a shared one-line f-string; (3) fold `_entry`'s dict literal formatting tighter. Do NOT move transport code to new modules — the spec fixes the module layout.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/tgcli/clone/replies.py src/tgcli/clone/topics.py \
@@ -1166,11 +1166,10 @@ Spec: docs/superpowers/specs/2026-07-16-clone-chat-types-2-design.md
 - Transport: native forwards target topics via `ForwardMessagesRequest
   .top_msg_id` (verified against the installed Telethon layer at
   implementation time; the designed fallback — reupload for non-General
-  topic batches — was not needed). <adjust this line if task 7 step 1
-  chose the fallback>
+  topic batches — was not needed).
 - Crash model: `create_topic` saves state immediately after confirmation;
   a hard crash between the Telegram call and the save can duplicate at most
-  one destinationation topic, visible and manually deletable — same accepted
+  one destination topic, visible and manually deletable — same accepted
   trade-off as ADR-0017's batch crash model.
 - Budgets: new `clone/topics.py` ≤ 100 lines (owns forum destination shape,
   topic map, and batch confirmation extraction); `clone/state.py` raised
