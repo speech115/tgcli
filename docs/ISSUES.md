@@ -28,10 +28,11 @@ does not block clone.
 
 ## CLONE-002 — Forum topics and legacy groups
 
-**Status:** deferred by ADR-0021.
+**Status:** closed by ADR-0022 (2026-07-16).
 
-Clone accepts non-forum megagroups but deliberately rejects forum topics and
-legacy basic `Chat` groups. Forum support needs a topic-id mapping contract and
-live fixtures for topic roots before implementation. Basic groups need a
-separate feasibility check because their API shape and migration behavior differ
-from megagroups. Bots, group destinations, and secret chats remain out of scope.
+Forum megagroups clone into forum-megagroup destinations with a 1:1 lazy
+topic map; live legacy basic groups clone like megagroups (broadcast
+destination, attributed transport); bot dialogs are accepted dialog sources.
+Migrated or deactivated basic groups are rejected with pointer messages.
+Still out of scope: cloning into pre-existing groups, secret chats,
+topic edit/close propagation.

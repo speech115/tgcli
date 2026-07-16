@@ -56,8 +56,12 @@ not rewritten.
   ADR-0020 makes init copy the source channel's non-empty description and static
   avatar before message sync begins. ADR-0021 adds non-forum megagroup and
   private-dialog sources with hybrid native/reupload attribution, explicit
-  reply-flatten reporting, and live acceptance. The
-  independent read-only `mirror_probe.py` diagnostic remains.
+  reply-flatten reporting, and live acceptance. ADR-0022 accepts bot dialogs,
+  live legacy basic groups, and forum megagroups; the destination invariant is
+  now kind-dependent, with forum sources using private owned forum-megagroup
+  destinations and all other sources using private owned broadcast channels.
+  Forum routing is mock/unit verified; controlled live acceptance remains
+  pending. The independent read-only `mirror_probe.py` diagnostic remains.
 - Multi-user distribution / packaging for strangers.
 - Bot API (this is a user-account MTProto tool).
 - Secret chats (Telethon does not implement them), voice/video calls

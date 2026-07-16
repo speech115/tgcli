@@ -232,14 +232,17 @@ unparseable credentials for a newly configured account exits 3.
 
 `--plain` emits frozen TSV columns: `alias`, `status`, `config`.
 
-## 11. Chat Clone (ADR-0017, ADR-0021)
+## 11. Chat Clone (ADR-0017, ADR-0021, ADR-0022)
 
 `tg clone` is the canonical chat-copy surface. It accepts broadcast channels,
-non-forum megagroup supergroups, live legacy basic groups, and private one-to-one
-User dialogs including dialogs with bots. Forum supergroups, basic groups that
-migrated to a supergroup or were deactivated, and other peer shapes exit 2 with
-a source-specific policy message. The destination is always a private owned
-broadcast channel.
+megagroup supergroups (forum and non-forum), live legacy basic groups, and
+private one-to-one User dialogs including dialogs with bots. Basic groups that
+migrated to a supergroup or were deactivated, and other peer shapes, exit 2 with
+a source-specific policy message. The destination type follows the source kind:
+a forum source clones into a private owned forum megagroup with a 1:1 topic map;
+every other source clones into a private owned broadcast channel. Destinations
+are tool-created and tool-controlled; cloning into pre-existing or shared groups
+is not supported.
 
 ```text
 tg clone status [SOURCE]
@@ -274,7 +277,7 @@ preview. `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block before
 preview consumption, config, session, audit, or Telegram work. The commit uses
 a mutation-safe session, verifies that the resolved account id, source id, and
 source kind still match the preview, then creates or recovers one private
-creator-owned broadcast destination. JSON:
+creator-owned destination of the source-dependent kind. JSON:
 
 ```json
 {"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":{"id":999,"title":"Source"},"status":"ready","commit_required":false}}
@@ -286,10 +289,11 @@ Plain init columns are `status`, `clone_id`, `source_peer_id`,
 Before creation, state with `destination_peer_id:null` and title marker
 `tgcli-clone-<clone-id-prefix>` is atomically saved under
 `TGCLI_STATE_DIR/clones/<clone_id>.json`. Recovery adopts exactly one matching
-private creator-owned broadcast channel, creates when none exists, and exits 2
-without mutation on multiple or wrong-shape matches. Once a destination id is
-recorded, repeated init resolves and reuses it without scanning or creating.
-Destinations are user-owned and never deleted automatically.
+private creator-owned destination of the required kind, creates when none
+exists, and exits 2 without mutation on multiple or wrong-shape matches. Once a
+destination id is recorded, repeated init resolves and reuses it without
+scanning or creating. Destinations are user-owned and never deleted
+automatically.
 
 After creation or recovery, init applies the source title/display name, copies a
 non-empty channel or basic-group description, or User bio, and copies a
@@ -306,13 +310,13 @@ uploads, or edits persists `retry_not_before` in clone state; later commit
 attempts exit 5 locally while that deadline is active. Init keeps the global
 60-second default timeout.
 
-`sync SOURCE` requires initialized state and a private creator-owned broadcast
-destination. It verifies the destination tail before reading new source
-history. Rows after the largest persisted mapping (or the fresh-channel id-1
-baseline) are accepted only when every visible tail row is a Telegram service
-action, such as channel creation or the init title change. Any ordinary tail
-message exits 2 with its count in `unexpected` and requires manual repair; no
-source scan, audit, or copy occurs (ADR-0018).
+`sync SOURCE` requires initialized state and a private creator-owned destination
+of the source-dependent kind. It verifies the destination tail before reading
+new source history. Rows after the largest persisted message or topic mapping
+(or the fresh-destination id-1 baseline) are accepted only when every visible
+tail row is a Telegram service action, such as channel creation or the init
+title change. Any ordinary tail message exits 2 with its count in `unexpected`
+and requires manual repair; no source scan, audit, or copy occurs (ADR-0018).
 
 Sync iterates source history with `reverse=True` and
 `min_id=cursor`, so confirmed destination messages follow source order. The
@@ -340,10 +344,15 @@ source-to-destination mappings, and count as copied. Truly unsupported kinds
 such as dice advance the cursor and appear in `skipped_unsupported`; nothing is
 skipped silently (ADR-0019).
 
+For forum clones, a topic-create service message creates the matching
+destination topic (counted in `topics_created`, not `skipped_service`); messages
+arriving for an unmapped topic recover it from the source topic's current title.
+
 For broadcast sources, an unprotected non-reply batch uses native forwarding
 with `drop_author=True`; the destination does not expose a source-forward
-header. For attributed megagroup/dialog sources, the same batch uses native
-forwarding with `drop_author=False`, retaining Telegram's author header.
+header. For attributed megagroup, forum, basic-group, and dialog sources, the
+same batch uses native forwarding with `drop_author=False`, retaining
+Telegram's author header.
 
 A batch uses download/reupload reconstruction when the source or any message
 has `noforwards`, or when it has a mapped reply. Attributed reuploads prepend
@@ -358,7 +367,9 @@ order without a reply relation and increments `reply_flattened`; an unprotected
 attributed message uses a native author-preserving forward for this fallback.
 If only the nested top root is unavailable, the mapped direct parent remains
 linked. `MessageReplyStoryHeader` also flattens and reports because it has no
-message id to map. Cross-peer, forum, scheduled, ephemeral, todo, poll-option,
+message id to map. In forum clones, placement-only topic headers are not replies;
+real in-topic replies map both their parent and topic. Non-forum clones reject
+forum reply headers. Cross-peer, scheduled, ephemeral, todo, poll-option,
 reply-from, reply-media, malformed quote, and inconsistent album reply shapes
 exit 2 before audit or mutation. Supported quote text, entities, and offset are
 retained.
@@ -382,9 +393,10 @@ FloodWait persists the clone cooldown and exits 5 without advancing the current
 message. JSON:
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"megagroup"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"forwarded":1,"reuploaded":1,"snapshots":0,"reply_flattened":0,"skipped_service":1,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"cursor":5,"more":false}}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"megagroup"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"forwarded":1,"reuploaded":1,"snapshots":0,"reply_flattened":0,"skipped_service":1,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"topics_created":0,"cursor":5,"more":false}}
 ```
 
 Plain sync columns are `copied`, `forwarded`, `reuploaded`, `snapshots`,
-`reply_flattened`, `skipped_service`, `skipped_unsupported_count`, `cursor`,
-`clone_id`, `source_peer_id`, `destination_peer_id`, `more`.
+`reply_flattened`, `skipped_service`, `skipped_unsupported_count`,
+`topics_created`, `cursor`, `clone_id`, `source_peer_id`,
+`destination_peer_id`, `more`.
