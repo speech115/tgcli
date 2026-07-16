@@ -58,6 +58,33 @@ def message(message_id, **overrides):
     return SimpleNamespace(**values)
 
 
+def poll_media(*, multiple_choice=False):
+    answers = [
+        types.PollAnswer(
+            text=types.TextWithEntities(text="First", entities=[]), option=b"a"
+        ),
+        types.PollAnswer(
+            text=types.TextWithEntities(text="Second", entities=[]), option=b"b"
+        ),
+    ]
+    return types.MessageMediaPoll(
+        poll=types.Poll(
+            id=77,
+            question=types.TextWithEntities(text="Choose", entities=[]),
+            answers=answers,
+            hash=0,
+            multiple_choice=multiple_choice,
+        ),
+        results=types.PollResults(
+            results=[
+                types.PollAnswerVoters(option=b"a", voters=4),
+                types.PollAnswerVoters(option=b"b", voters=6),
+            ],
+            total_voters=10,
+        ),
+    )
+
+
 def seed_clone():
     clone_state = state.CloneState.new(
         account_user_id=42, source_peer_id=123, source_title="Source channel"
@@ -266,6 +293,99 @@ def test_clone_sync_skips_service_and_reports_unsupported_messages(
 
 
 @pytest.mark.parametrize(
+    ("multiple_choice", "mode"),
+    [(False, "single choice"), (True, "multiple choice")],
+)
+def test_clone_sync_replaces_poll_with_result_snapshot(
+    multiple_choice, mode, config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    client = CloneReuploadClient([
+        message(2, media=poll_media(multiple_choice=multiple_choice))
+    ])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] == 1
+    assert sync["skipped_unsupported"] == []
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMessageRequest)
+    assert "Poll snapshot" in request.message
+    assert "Choose" in request.message
+    assert "First — 4 (40%)" in request.message
+    assert "Second — 6 (60%)" in request.message
+    assert "Total voters: 10" in request.message
+    assert f"Source poll: {mode}; open at clone time." in request.message
+    assert state.load(clone_state.clone_id).dest_for(2) == 2
+
+
+def test_clone_sync_replaces_unavailable_story_with_named_placeholder(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    story = types.MessageMediaStory(peer=types.PeerUser(88), id=5558)
+
+    class StoryClient(CloneReuploadClient):
+        async def get_entity(self, ref):
+            if isinstance(ref, types.PeerUser):
+                return SimpleNamespace(
+                    id=88,
+                    first_name="Andrey",
+                    last_name="Kozlov",
+                    username="targetdaddy",
+                )
+            return await super().get_entity(ref)
+
+    client = StoryClient([message(2, media=story)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] == 1
+    assert sync["skipped_unsupported"] == []
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMessageRequest)
+    assert "Story unavailable at clone time" in request.message
+    assert "Andrey Kozlov (@targetdaddy)" in request.message
+    assert "Story ID: 5558" in request.message
+    assert state.load(clone_state.clone_id).dest_for(2) == 2
+
+
+def test_clone_sync_maps_reply_to_story_placeholder(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    story = types.MessageMediaStory(peer=types.PeerChannel(77), id=346)
+
+    class StoryReplyClient(CloneReuploadClient):
+        async def get_entity(self, ref):
+            if isinstance(ref, types.PeerChannel) and ref.channel_id == 77:
+                return channel(77, "Story source", username="storysource")
+            return await super().get_entity(ref)
+
+    client = StoryReplyClient([
+        message(2, media=story),
+        message(3, message="Reply", reply_to=types.MessageReplyHeader(
+            reply_to_msg_id=2
+        )),
+    ])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 2
+    assert isinstance(client.requests[0], functions.messages.SendMessageRequest)
+    assert "Story source (@storysource)" in client.requests[0].message
+    assert isinstance(client.requests[1], functions.messages.SendMessageRequest)
+    assert client.requests[1].reply_to.reply_to_msg_id == 2
+    saved = state.load(clone_state.clone_id)
+    assert [saved.dest_for(2), saved.dest_for(3)] == [2, 3]
+
+
+@pytest.mark.parametrize(
     "media",
     [
         types.MessageMediaWebPage(webpage=types.WebPageEmpty(id=6)),
@@ -376,6 +496,27 @@ def test_clone_sync_reuploads_reply_to_mapped_parent_with_quote(
     assert state.load(clone_state.clone_id).dest_for(2) == 1002
 
 
+def test_clone_sync_reuploads_nested_reply_with_mapped_root(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    clone_state.record_mapping(1, 1001)
+    clone_state.record_mapping(2, 1002)
+    clone_state.cursor = 2
+    state.save(clone_state)
+    reply = types.MessageReplyHeader(reply_to_msg_id=2, reply_to_top_id=1)
+    client = CloneReuploadClient([message(3, message="nested", reply_to=reply)])
+    client.destination_last_id = 1002
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 1
+    [request] = client.requests
+    assert request.reply_to.reply_to_msg_id == 1002
+    assert request.reply_to.top_msg_id == 1001
+
+
 def test_clone_sync_blocks_reply_quote_entities_without_quote_text(
     config_env, monkeypatch, capsys
 ):
@@ -399,7 +540,7 @@ def test_clone_sync_blocks_reply_quote_entities_without_quote_text(
     assert not safety.audit_path().exists()
 
 
-def test_clone_sync_blocks_reply_without_mapped_parent_before_audit_or_write(
+def test_clone_sync_flattens_reply_without_mapped_parent(
     config_env, monkeypatch, capsys
 ):
     clone_state = seed_clone()
@@ -408,12 +549,13 @@ def test_clone_sync_blocks_reply_without_mapped_parent_before_audit_or_write(
     ])
     make_session_fake(monkeypatch, client)
 
-    assert main(["clone", "sync", "@source", "--json"]) == 2
+    assert main(["clone", "sync", "@source", "--json"]) == 0
 
-    assert "parent is not confirmed" in capsys.readouterr().err
-    assert state.load(clone_state.clone_id).cursor == 0
-    assert client.requests == []
-    assert not safety.audit_path().exists()
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 1
+    [request] = client.requests
+    assert isinstance(request, functions.messages.ForwardMessagesRequest)
+    assert request.reply_to is None
+    assert state.load(clone_state.clone_id).dest_for(2) == 2
 
 
 def test_clone_sync_reuploads_protected_photo_with_caption_and_cleans_tempfile(

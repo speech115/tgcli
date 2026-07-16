@@ -51,7 +51,9 @@ not rewritten.
   Earlier mirror ADRs (0013–0016) and plans/specs remain **history**, not active
   product surface. ADR-0015 destination retention and ADR-0016 fidelity rules
   carry forward into clone; ADR-0018 records the live-found service-only tail
-  correction. The independent read-only `mirror_probe.py` diagnostic remains.
+  correction. Post-v1 ADR-0019 adds truthful static poll snapshots, named Story
+  placeholders, and reply continuity without changing the CLI surface. The
+  independent read-only `mirror_probe.py` diagnostic remains.
 - Multi-user distribution / packaging for strangers.
 - Bot API (this is a user-account MTProto tool).
 - Secret chats (Telethon does not implement them), voice/video calls

@@ -304,7 +304,8 @@ Sync iterates source history with `reverse=True` and
 `min_id=cursor`, so confirmed destination messages follow source order. The
 allowlist is unprotected non-reply text/no-media, `MessageMediaWebPage`,
 `MessageMediaPhoto`, and `MessageMediaDocument`; captions remain attached by
-native `messages.forwardMessages(drop_author=True)` copying.
+native `messages.forwardMessages(drop_author=True)` copying. The destination
+does not expose source-forward attribution.
 
 Contiguous messages whose `grouped_id is not None` are one album batch, including
 the valid edge case `grouped_id=0`. The complete ordered album is sent by one
@@ -315,19 +316,25 @@ confirmation exits 2 without partially advancing state; the next run's tail
 verification detects a batch Telegram accepted but tgcli could not confirm.
 
 Service messages advance the cursor and increment `skipped_service` without
-audit or Telegram mutation. Truly unsupported kinds such as polls and dice
-advance the cursor and appear in `skipped_unsupported`; nothing is skipped
-silently. Poll reconstruction remains explicitly deferred in `docs/ISSUES.md`.
+audit or Telegram mutation. Polls become static result snapshots containing
+the question, options, counts, rounded percentages, total voters, mode,
+open/closed state, and capture time. Story references become named placeholders
+with the resolved author name/title, optional username, and Story ID. Both use
+the audited `clone-sync-snapshot` path, receive source-to-destination mappings,
+and count as copied. Truly unsupported kinds such as dice advance the cursor
+and appear in `skipped_unsupported`; nothing is skipped silently (ADR-0019).
 
 An unprotected batch without a reply uses native forwarding. A batch uses
 download/reupload reconstruction when the source channel or any message has
 `noforwards`, or when the batch carries a reply. This preserves the mapped
 destination reply relationship that Telegram drops from native forwarding.
-Only ordinary same-source-channel replies to an already mapped parent are
-accepted; cross-peer, forum, scheduled, ephemeral, todo, poll-option,
-reply-from, reply-media, malformed quote, missing-parent, and inconsistent
-album reply shapes exit 2 before audit or mutation. Supported quote text,
-entities, and offset are retained.
+Ordinary same-source-channel replies preserve the mapped direct parent and,
+when present, the mapped nested top root. If either mapping is unavailable,
+the message content still copies in source order without a reply relation.
+Cross-peer, forum, scheduled, ephemeral, todo, poll-option, reply-from,
+reply-media, malformed quote, and inconsistent album reply shapes exit 2
+before audit or mutation. Supported quote text, entities, and offset are
+retained.
 
 Reupload sends text and webpage messages with `sendMessage`, photos/documents
 with `sendMedia`, and albums with per-item `uploadMedia` followed by one
@@ -348,7 +355,7 @@ FloodWait persists the clone cooldown and exits 5 without advancing the current
 message. JSON:
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"skipped_service":1,"skipped_unsupported":[{"id":4,"kind":"MessageMediaPoll"}],"cursor":5,"more":false}}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"skipped_service":1,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"cursor":5,"more":false}}
 ```
 
 Plain sync columns are `copied`, `skipped_service`,

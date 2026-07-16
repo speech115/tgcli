@@ -9,7 +9,7 @@ from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
 
 from tgcli import chatref, safety
-from tgcli.clone import state
+from tgcli.clone import fidelity, state
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
 
 def _entry(s: state.CloneState) -> dict:
@@ -175,22 +175,12 @@ def _confirmed_destination_ids(response, random_ids: list[int]) -> list[int]:
             or len(set(destination_ids)) != len(destination_ids)):
         raise PolicyError("Telegram did not confirm the complete cloned batch")
     return destination_ids
-
-
-_NATIVE_MEDIA_TYPES = (
-    types.MessageMediaWebPage, types.MessageMediaPhoto, types.MessageMediaDocument
-)
-
-def _unsupported_kind(source_entity, message) -> str | None:
-    media = getattr(message, "media", None)
-    return None if media is None or isinstance(media, _NATIVE_MEDIA_TYPES) else type(media).__name__
-
 def _reply_signature(header, source_peer_id):
     if header is None:
         return None
     if not isinstance(header, types.MessageReplyHeader):
         raise PolicyError("clone reply shape is not supported")
-    unsupported = ("reply_to_top_id", "todo_item_id", "poll_option", "reply_from", "reply_media")
+    unsupported = ("todo_item_id", "poll_option", "reply_from", "reply_media")
     if (header.reply_to_scheduled or header.forum_topic or header.reply_to_ephemeral
             or any(getattr(header, field) is not None for field in unsupported)):
         raise PolicyError("clone reply shape is not supported")
@@ -198,9 +188,9 @@ def _reply_signature(header, source_peer_id):
     if peer is not None and (not isinstance(peer, types.PeerChannel)
                              or peer.channel_id != source_peer_id):
         raise PolicyError("cross-peer clone replies are not supported")
-    parent_id = header.reply_to_msg_id
-    if (isinstance(parent_id, bool) or not isinstance(parent_id, int)
-            or parent_id <= 0):
+    parent_id, top_id = header.reply_to_msg_id, header.reply_to_top_id
+    if (parent_id is None or any(isinstance(item, bool) or not isinstance(item, int)
+            or item <= 0 for item in (parent_id, top_id) if item is not None)):
         raise PolicyError("clone reply parent is invalid")
     if (header.quote_text is not None and not isinstance(header.quote_text, str)
             or header.quote_entities and header.quote_text is None
@@ -208,7 +198,7 @@ def _reply_signature(header, source_peer_id):
             or isinstance(header.quote_offset, bool)
             or not isinstance(header.quote_offset, int) or header.quote_offset < 0)):
         raise PolicyError("clone reply quote is invalid")
-    return (parent_id, header.quote_text, tuple(header.quote_entities or ()), header.quote_offset)
+    return (parent_id, top_id, header.quote_text, tuple(header.quote_entities or ()), header.quote_offset)
 
 def _reply_target(messages, clone_state, source_peer_id):
     replies = [_reply_signature(getattr(message, "reply_to", None), source_peer_id)
@@ -220,11 +210,13 @@ def _reply_target(messages, clone_state, source_peer_id):
         raise PolicyError("clone album reply metadata is inconsistent")
     if leading is None:
         return None
-    parent_id, quote_text, quote_entities, quote_offset = leading
+    parent_id, top_id, quote_text, quote_entities, quote_offset = leading
     destination_id = clone_state.dest_for(parent_id)
-    if destination_id is None:
-        raise PolicyError(f"clone reply parent is not confirmed: {parent_id}")
+    top_destination_id = clone_state.dest_for(top_id) if top_id is not None else None
+    if destination_id is None or top_id is not None and top_destination_id is None:
+        return None
     return types.InputReplyToMessage(reply_to_msg_id=destination_id,
+        top_msg_id=top_destination_id,
         quote_text=quote_text, quote_entities=list(quote_entities) or None,
         quote_offset=quote_offset)
 async def _uploaded_media(tg, message, path, clone_state):
@@ -279,9 +271,17 @@ async def _forward_batch(tg, source, destination, clone_state, account_alias, me
     source_ids = [message.id for message in messages]
     random_ids = [secrets.randbelow(2**63 - 1) + 1 for _ in messages]
     reply_to = _reply_target(messages, clone_state, source.id)
+    replacement = await fidelity.replacement_text(tg, messages[0]) if len(messages) == 1 else None
     reupload = (getattr(source, "noforwards", False) or reply_to is not None or
                 any(getattr(message, "noforwards", False) for message in messages))
-    if not reupload:
+    if replacement is not None:
+        safety.append_audit("clone-sync-snapshot", account_alias,
+                            {"clone_id": clone_state.clone_id,
+                             "source_message_ids": source_ids})
+        response = await _mutate(tg, functions.messages.SendMessageRequest(
+            peer=destination, message=replacement, random_id=random_ids[0],
+            reply_to=reply_to, no_webpage=True), clone_state)
+    elif not reupload:
         safety.append_audit("clone-sync-forward", account_alias,
                             {"clone_id": clone_state.clone_id,
                              "source_message_ids": source_ids})
@@ -336,7 +336,7 @@ async def sync_text(tg, source: str, account_alias: str,
         unsupported = [
             {"id": message.id, "kind": kind}
             for message in messages
-            if (kind := _unsupported_kind(source_entity, message)) is not None
+            if (kind := fidelity.unsupported_kind(message)) is not None
         ]
         if unsupported:
             skipped_unsupported.extend(unsupported)

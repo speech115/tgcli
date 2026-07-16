@@ -18,7 +18,7 @@ tgcli/
 │   ├── ISSUES.md              [done]    deliberately deferred product work and re-entry gates
 │   ├── DEVLOG.md              [done]    session-by-session agent log
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── decisions/             [done]    ADR-0001…0018; ADR-0017 clone supersedes mirror
+│   ├── decisions/             [done]    ADR-0001…0019; ADR-0017 clone supersedes mirror
 │   └── superpowers/plans/     [done]    completed v1 plans; mirror plans superseded by clone spec (ADR-0017)
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -31,7 +31,9 @@ tgcli/
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
 │   ├── mirror_probe.py        [done]    independent read-only protected-content diagnostic
-│   ├── clone/                 [done]    live-accepted JSON clone state and progress window (ADR-0017)
+│   ├── clone/                 [done]    clone-owned state/fidelity helpers (ADR-0017/0019)
+│   │   ├── state.py           [done]    atomic JSON state, mappings, cooldown
+│   │   └── fidelity.py        [done]    truthful poll snapshots and named Story placeholders
 │   └── commands/
 │   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
@@ -82,3 +84,4 @@ tgcli/
 | [0016](decisions/ADR-0016-live-mirror-fidelity-corrections.md) | Service-message skip, reply reconstruction fallback, and append-only TSV extension |
 | [0017](decisions/ADR-0017-clone-supersedes-mirror.md) | Clone rewrite supersedes mirror; JSON state, core-primitive reuse, tail-verification crash model, complexity budgets |
 | [0018](decisions/ADR-0018-clone-service-tail.md) | Clone tail verification accepts service-only rows while still blocking ordinary destination content |
+| [0019](decisions/ADR-0019-clone-truthful-fallbacks.md) | Poll snapshots, named Story placeholders, nested replies, and missing-parent continuity |

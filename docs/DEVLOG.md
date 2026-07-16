@@ -14,6 +14,33 @@ Template:
 ```
 
 
+## 2026-07-16 — Poll and Story fallbacks repaired a live clone (Codex)
+**Did:** added ADR-0019 and a 73-line `clone/fidelity.py`. Polls now become
+timestamped static result snapshots; Story references become placeholders with
+resolved author title/name, username, and Story ID. Both are mapped and audited,
+so later replies target them. Added nested reply-root support and a content-first
+fallback when no parent mapping exists. TDD covered single/multiple-choice poll
+snapshots, user/channel Story labels, Story reply mapping, nested roots, and
+missing-parent flattening. A live poll canary proved native copies reset 80 and
+89 voters to zero. For clone `4fa28c…`, backed up state, removed only its mapped
+destination suffix `326…658`, rewound source cursor to `336`, and replayed it.
+The repaired clone reached cursor `682`, 662 mappings, zero unsupported rows,
+and a zero-copy rerun. Readback verified strict order, no forward attribution,
+both poll snapshots, both named Story placeholders, and reply `379` mapped to
+Story placeholder `337`.
+**Decided:** static poll results are more truthful than a native zero-vote copy;
+expired Stories retain an explicit named position instead of disappearing.
+`clone.py` remains exactly 400 lines; the new fidelity helper has a 100-line
+budget.
+**Learned:** `drop_author=True` hides attribution but Telegram still creates a
+fresh poll identity and discards vote counts. A mapped placeholder is sufficient
+to preserve the later reply graph even when the original Story bytes are gone.
+Final checks: `268 passed, 8 skipped in 3.17s`; coverage 23 namespaces;
+compileall and diff check clean.
+**Next:** run the final post-documentation gate, commit, push `feature/clone`,
+and confirm PR #8 CI.
+
+
 ## 2026-07-15 — Frozen mirror product removed (Codex)
 **Did:** completed Task 9 after the Task-8 live gate. Removed the `tg mirror`
 parser/dispatch, `commands/mirror.py`, the SQLite `mirror/` package, and all
