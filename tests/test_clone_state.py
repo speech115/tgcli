@@ -55,6 +55,18 @@ def test_load_legacy_state_defaults_source_kind_to_broadcast():
     assert state.load(s.clone_id).source_kind == "broadcast"
 
 
+def test_state_accepts_basic_source_kind(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    saved = state.CloneState.new(
+        account_user_id=1,
+        source_peer_id=2,
+        source_title="Legacy",
+        source_kind="basic",
+    )
+    state.save(saved)
+    assert state.load(saved.clone_id).source_kind == "basic"
+
+
 def test_invalid_source_kind_is_policy_error():
     s = _fresh()
     state.save(s)

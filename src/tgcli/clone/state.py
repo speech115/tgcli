@@ -93,7 +93,7 @@ class CloneState:
     @classmethod
     def from_dict(cls, data: dict) -> "CloneState":
         source_kind = data.get("source_kind", "broadcast")
-        if source_kind not in {"broadcast", "megagroup", "dialog"}:
+        if source_kind not in {"broadcast", "megagroup", "dialog", "basic"}:
             raise ValueError("invalid source kind")
         return cls(
             version=data["version"],

@@ -49,6 +49,19 @@ def user(user_id=123, *, first_name="Alex", last_name="Smith", bot=False):
     )
 
 
+def legacy_group(**overrides):
+    values = {
+        "id": 123,
+        "title": "Legacy group",
+        "photo": types.ChatPhotoEmpty(),
+        "participants_count": 2,
+        "date": None,
+        "version": 1,
+    }
+    values.update(overrides)
+    return types.Chat(**values)
+
+
 class CloneInitClient:
     def __init__(self):
         self.source = channel(123, "Source channel", noforwards=True)
@@ -188,14 +201,26 @@ def test_clone_init_preview_accepts_bot_dialog(config_env, monkeypatch, capsys):
     assert source == {"id": 123, "title": "Alex Smith", "kind": "dialog"}
 
 
+def test_clone_init_preview_accepts_basic_group(config_env, monkeypatch, capsys):
+    client = CloneInitClient()
+    client.source = legacy_group()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--json"]) == 0
+
+    source = json.loads(capsys.readouterr().out)["clone"]["source"]
+    assert source == {"id": 123, "title": "Legacy group", "kind": "basic"}
+
+
 @pytest.mark.parametrize(
     ("source", "error"),
     [
         (channel(123, "Forum", broadcast=False, megagroup=True, forum=True),
          "forum topics are not supported"),
-        (types.Chat(id=123, title="Legacy group", photo=types.ChatPhotoEmpty(),
-                    participants_count=2, date=None, version=1),
-         "basic groups are not supported"),
+        (legacy_group(
+            migrated_to=types.InputChannel(channel_id=555, access_hash=0)
+        ), "migrated to a supergroup"),
+        (legacy_group(deactivated=True), "deactivated"),
     ],
 )
 def test_clone_init_preview_rejects_unsupported_source_kinds(
