@@ -123,6 +123,36 @@ def test_state_rejects_unknown_destination_kind(tmp_path, monkeypatch):
         state.load(saved.clone_id)
 
 
+def test_state_rejects_non_dict_topic_map(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    saved = state.CloneState.new(account_user_id=1, source_peer_id=2, source_title="Old")
+    data = saved.to_dict()
+    data["topic_map"] = [["7", 1007]]
+    state.clones_dir().mkdir(parents=True)
+    state.path_for(saved.clone_id).write_text(json.dumps(data))
+    with pytest.raises(PolicyError):
+        state.load(saved.clone_id)
+
+
+@pytest.mark.parametrize("value", [True, "1007"])
+def test_state_rejects_non_int_topic_destination(tmp_path, monkeypatch, value):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    saved = state.CloneState.new(account_user_id=1, source_peer_id=2, source_title="Old")
+    data = saved.to_dict()
+    data["topic_map"] = {"7": value}
+    state.clones_dir().mkdir(parents=True)
+    state.path_for(saved.clone_id).write_text(json.dumps(data))
+    with pytest.raises(PolicyError):
+        state.load(saved.clone_id)
+
+
+def test_state_rejects_non_string_topic_key():
+    data = _fresh().to_dict()
+    data["topic_map"] = {7: 1007}
+    with pytest.raises(ValueError, match="invalid topic map"):
+        state.CloneState.from_dict(data)
+
+
 def test_load_missing_returns_none():
     assert state.load(state.clone_id(1, 2)) is None
 
@@ -204,6 +234,7 @@ def test_set_cooldown_requires_timezone_aware():
 def test_record_mapping_and_dest_for():
     s = _fresh()
     s.record_mapping(12, 5)
+    s.record_topic(13, 9)
     assert s.dest_for(12) == 5
     assert s.dest_for(99) is None
-    assert s.max_destination_id() == 5
+    assert s.max_destination_id() == 9
