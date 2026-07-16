@@ -14,6 +14,20 @@ Template:
 ```
 
 
+## 2026-07-16 — Clone chat types Tasks 1–3 final review fixes (Codex)
+**Did:** corrected the init profile contract to include non-empty basic-group
+descriptions and made migrated basic-group policy errors name the available
+target channel id. Strengthened the CLI regression test with target id `555`.
+RED: the focused policy matrix failed `1 failed, 2 passed`; GREEN: init tests
+passed `19 passed`, and the final suite passed `298 passed, 8 skipped`.
+**Decided:** this is a contract/error-detail correction within the approved
+design; no new ADR or module change is required.
+**Learned:** the first full run hit an unrelated timestamp-sensitive
+`test_mirror_probe` redaction assertion because timestamp microseconds happened
+to contain `999`; the isolated test and immediate full rerun passed.
+**Next:** continue the approved round-2 plan from Task 4.
+
+
 ## 2026-07-16 — Clone chat types round 2 prepared (Claude Fable 5 / Codex)
 **Did:** completed and approved the design for bot-dialog, legacy basic-group,
 and forum-megagroup clone sources in

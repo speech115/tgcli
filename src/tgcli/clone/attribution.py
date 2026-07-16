@@ -12,9 +12,9 @@ def source_kind(entity) -> str:
     if isinstance(entity, types.User):
         return "dialog"
     if isinstance(entity, types.Chat):
-        if getattr(entity, "migrated_to", None) is not None:
+        if (target := getattr(entity, "migrated_to", None)) is not None:
             raise PolicyError("clone source basic group migrated to a supergroup; "
-                              "clone the supergroup instead")
+                              f"clone channel {target.channel_id} instead")
         if getattr(entity, "deactivated", False):
             raise PolicyError("clone source basic group is deactivated")
         return "basic"

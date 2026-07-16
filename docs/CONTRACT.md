@@ -292,8 +292,9 @@ recorded, repeated init resolves and reuses it without scanning or creating.
 Destinations are user-owned and never deleted automatically.
 
 After creation or recovery, init applies the source title/display name, copies a
-non-empty channel description or User bio, and copies a non-empty static source
-avatar before returning `status: ready`. Empty source fields cause no mutation.
+non-empty channel or basic-group description, or User bio, and copies a
+non-empty static source avatar before returning `status: ready`. Empty source
+fields cause no mutation.
 Avatar bytes use a temporary directory that is removed on success or failure.
 Animated or video avatar motion is not preserved (ADR-0020).
 
