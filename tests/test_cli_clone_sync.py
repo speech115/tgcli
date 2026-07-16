@@ -261,6 +261,21 @@ def test_clone_sync_forwards_megagroup_nonreply_with_author_header(
     assert client.requests[0].drop_author is False
 
 
+def test_clone_sync_forwards_basic_group_nonreply_with_author_header(
+    config_env, monkeypatch, capsys
+):
+    seed_clone(kind="basic", title="Legacy group")
+    client = CloneSyncClient([message(2)])
+    client.source = legacy_group()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert client.requests[0].drop_author is False
+    assert sync["forwarded"] == 1
+
+
 def test_clone_sync_reuploads_megagroup_reply_with_prefix_and_shifted_entities(
     config_env, monkeypatch, capsys
 ):
@@ -407,6 +422,38 @@ def test_clone_sync_reuploads_basic_group_reply_with_explicit_source_peer(
     [request] = client.requests
     assert isinstance(request, functions.messages.SendMessageRequest)
     assert request.reply_to.reply_to_msg_id == 1001
+
+
+def test_clone_sync_reuploads_basic_group_reply_with_prefix(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="basic", title="Legacy group")
+    clone_state.record_mapping(1, 1001)
+    clone_state.cursor = 1
+    state.save(clone_state)
+    client = CloneReuploadClient([
+        message(2, message="pong", from_id=types.PeerUser(77), sender_id=77,
+                reply_to=types.MessageReplyHeader(reply_to_msg_id=1)),
+    ])
+    client.source = legacy_group()
+    client.destination_last_id = 1001
+
+    async def get_entity(ref):
+        if isinstance(ref, types.PeerUser):
+            return types.User(id=77, first_name="Alex")
+        return await CloneSyncClient.get_entity(client, ref)
+
+    client.get_entity = get_entity
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    [request] = [item for item in client.requests
+                 if isinstance(item, functions.messages.SendMessageRequest)]
+    assert request.message == "Alex: pong"
+    assert request.reply_to.reply_to_msg_id == 1001
+    assert sync["reuploaded"] == 1
 
 
 def test_clone_sync_blocks_basic_group_reply_with_different_source_peer(

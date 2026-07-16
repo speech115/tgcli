@@ -106,6 +106,8 @@ class CloneInitClient:
             return SimpleNamespace(
                 full_chat=SimpleNamespace(about=self.source_about)
             )
+        if isinstance(request, functions.messages.GetFullChatRequest):
+            return SimpleNamespace(full_chat=SimpleNamespace(about=self.source_about))
         if isinstance(request, functions.users.GetFullUserRequest):
             return SimpleNamespace(full_user=SimpleNamespace(about=self.source_about))
         if isinstance(request, functions.channels.CreateChannelRequest):
@@ -311,6 +313,28 @@ def test_clone_init_commit_copies_private_dialog_profile(
     assert any(isinstance(item, functions.channels.EditPhotoRequest)
                for item in client.requests)
     assert state.load(result["clone"]["id"]).source_kind == "dialog"
+
+
+def test_clone_init_commit_copies_basic_group_profile(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.source = legacy_group()
+    client.source_about = "Group description"
+    make_session_fake(monkeypatch, client)
+    assert main(["clone", "init", "@source", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+
+    assert main([
+        "clone", "init", "@source", "--commit", preview_id, "--json"
+    ]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert client.destination.title == "Legacy group"
+    assert client.destination.about == "Group description"
+    assert any(isinstance(item, functions.messages.GetFullChatRequest)
+               for item in client.requests)
+    assert state.load(result["clone"]["id"]).source_kind == "basic"
 
 
 def test_clone_init_commit_copies_channel_avatar_and_cleans_tempfile(
