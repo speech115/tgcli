@@ -379,6 +379,211 @@ def test_clone_sync_topic_audit_failure_blocks_before_mutation(
     assert saved.topic_map == {}
 
 
+def test_clone_sync_forwards_topic_message_into_mapped_topic(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+    clone_state.record_topic(2, 1002)
+    clone_state.cursor = 2
+    state.save(clone_state)
+    client = CloneForumClient([
+        message(3, reply_to=types.MessageReplyHeader(
+            reply_to_msg_id=2, forum_topic=True)),
+    ])
+    client.destination_last_id = 1002
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    [request] = client.requests
+    assert isinstance(request, functions.messages.ForwardMessagesRequest)
+    assert request.top_msg_id == 1002
+    assert request.drop_author is False
+    assert sync["forwarded"] == 1
+    assert sync["reply_flattened"] == 0
+    assert "clone-sync-topic" not in safety.audit_path().read_text()
+
+
+def test_clone_sync_forwards_general_topic_message_without_top_id(
+    config_env, monkeypatch, capsys
+):
+    seed_clone(kind="forum", title="Forum chat")
+    client = CloneForumClient([message(2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    [request] = client.requests
+    assert isinstance(request, functions.messages.ForwardMessagesRequest)
+    assert request.top_msg_id is None
+    assert "clone-sync-topic" not in safety.audit_path().read_text()
+
+
+def test_clone_sync_reuploads_topic_reply_with_prefix_into_topic(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+    clone_state.record_topic(2, 1002)
+    clone_state.record_mapping(3, 1003)
+    clone_state.cursor = 3
+    state.save(clone_state)
+    client = CloneForumClient([
+        message(4, message="pong", from_id=types.PeerUser(77), sender_id=77,
+                reply_to=types.MessageReplyHeader(
+                    reply_to_msg_id=3, reply_to_top_id=2, forum_topic=True)),
+    ])
+    client.destination_last_id = 1003
+
+    async def get_entity(ref):
+        if isinstance(ref, types.PeerUser):
+            return types.User(id=77, first_name="Alex")
+        return await CloneSyncClient.get_entity(client, ref)
+
+    client.get_entity = get_entity
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    [request] = [item for item in client.requests
+                 if isinstance(item, functions.messages.SendMessageRequest)]
+    assert request.message == "Alex: pong"
+    assert request.reply_to.reply_to_msg_id == 1003
+    assert request.reply_to.top_msg_id == 1002
+    assert sync["reuploaded"] == 1
+
+
+def test_clone_sync_recovers_unmapped_topic_from_source_lookup(
+    config_env, monkeypatch, capsys
+):
+    seed_clone(kind="forum", title="Forum chat")
+    client = CloneForumClient([
+        message(5, reply_to=types.MessageReplyHeader(
+            reply_to_msg_id=2, forum_topic=True)),
+    ])
+    client.source_topic_titles = {2: "Old news"}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    lookups = [item for item in client.requests
+               if isinstance(item, functions.messages.GetForumTopicsByIDRequest)]
+    created = [item for item in client.requests
+               if isinstance(item, functions.messages.CreateForumTopicRequest)]
+    assert len(lookups) == 1 and len(created) == 1
+    assert created[0].title == "Old news"
+    assert sync["topics_created"] == 1
+    forward = [item for item in client.requests
+               if isinstance(item, functions.messages.ForwardMessagesRequest)]
+    assert forward[0].top_msg_id == 2
+
+
+def test_clone_sync_topic_recovery_audit_failure_blocks_copy_and_state(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+    client = CloneForumClient([
+        message(5, reply_to=types.MessageReplyHeader(
+            reply_to_msg_id=2, forum_topic=True)),
+    ])
+    client.source_topic_titles = {2: "Old news"}
+    make_session_fake(monkeypatch, client)
+
+    def fail_topic_audit(action, account, details):
+        if action == "clone-sync-topic":
+            raise PolicyError("audit write failed")
+
+    monkeypatch.setattr(safety, "append_audit", fail_topic_audit)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    assert "audit write failed" in capsys.readouterr().err
+    assert [type(item) for item in client.requests] == [
+        functions.messages.GetForumTopicsByIDRequest,
+    ]
+    saved = state.load(clone_state.clone_id)
+    assert saved.cursor == 0 and saved.topic_map == {} and saved.id_map == {}
+
+
+def test_clone_sync_topic_recovery_reuses_mapping_after_copy_failure(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+
+    class FailOnceForumClient(CloneForumClient):
+        failed = False
+
+        async def __call__(self, request):
+            if (isinstance(request, functions.messages.ForwardMessagesRequest)
+                    and not self.failed):
+                self.failed = True
+                self.requests.append(request)
+                raise PolicyError("copy failed")
+            return await super().__call__(request)
+
+    client = FailOnceForumClient([
+        message(5, reply_to=types.MessageReplyHeader(
+            reply_to_msg_id=2, forum_topic=True)),
+    ])
+    client.source_topic_titles = {2: "Old news"}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+    assert "copy failed" in capsys.readouterr().err
+    failed = state.load(clone_state.clone_id)
+    assert failed.topic_dest_for(2) == 2
+    assert failed.cursor == 0 and failed.id_map == {}
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["topics_created"] == 0
+    assert len([item for item in client.requests
+                if isinstance(item, functions.messages.GetForumTopicsByIDRequest)]) == 1
+    assert len([item for item in client.requests
+                if isinstance(item, functions.messages.CreateForumTopicRequest)]) == 1
+    saved = state.load(clone_state.clone_id)
+    assert saved.cursor == 5 and saved.dest_for(5) == 3
+
+
+def test_clone_sync_validates_forum_header_before_topic_recovery(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+    client = CloneForumClient([
+        message(5, reply_to=types.MessageReplyHeader(
+            reply_to_msg_id=2, forum_topic=True,
+            reply_to_peer_id=types.PeerChannel(321))),
+    ])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    assert "cross-peer clone replies are not supported" in capsys.readouterr().err
+    assert client.requests == []
+    assert not safety.audit_path().exists()
+    saved = state.load(clone_state.clone_id)
+    assert saved.cursor == 0 and saved.topic_map == {} and saved.id_map == {}
+
+
+def test_clone_sync_rejects_forum_reply_header_for_nonforum_clone(
+    config_env, monkeypatch, capsys
+):
+    seed_clone(kind="megagroup", title="Team chat")
+    client = CloneSyncClient([
+        message(2, reply_to=types.MessageReplyHeader(
+            reply_to_msg_id=1, forum_topic=True)),
+    ])
+    client.source = channel(123, "Team chat", broadcast=False, megagroup=True,
+                            forum=False)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    assert "reply shape is not supported" in capsys.readouterr().err
+
+
 def test_clone_sync_forwards_megagroup_nonreply_with_author_header(
     config_env, monkeypatch, capsys
 ):

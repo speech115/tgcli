@@ -3,14 +3,11 @@ from datetime import UTC, datetime, timedelta
 from math import ceil
 from pathlib import Path
 import secrets, tempfile
-
 from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
-
 from tgcli import chatref, safety
 from tgcli.clone import attribution, fidelity, profile, replies, state, topics
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
-
 def _entry(s: state.CloneState) -> dict:
     return {"clone_id": s.clone_id, "source": {"id": s.source_peer_id,
             "title": s.source_title, "kind": s.source_kind},
@@ -21,7 +18,6 @@ def _entry(s: state.CloneState) -> dict:
 def _matches(s: state.CloneState, source: str | None) -> bool:
     return source is None or (s.source_peer_id == int(source)
         if source.lstrip("-").isdigit() else source.casefold() in s.source_title.casefold())
-
 def list_clones(source: str | None = None) -> dict:
     directory = state.clones_dir()
     entries = [_entry(loaded) for path in directory.glob("*.json")
@@ -73,7 +69,6 @@ async def _marker_candidates(tg, marker: str, shape_ok) -> tuple[list[object], l
             continue
         (valid if shape_ok(entity, title=marker) else wrong_shape).append(entity)
     return valid, wrong_shape
-
 def _init_result(clone_state: state.CloneState, destination) -> dict:
     return {"clone": {"id": clone_state.clone_id, "source": {
             "id": clone_state.source_peer_id, "title": clone_state.source_title,
@@ -81,14 +76,12 @@ def _init_result(clone_state: state.CloneState, destination) -> dict:
             "destination": {"id": clone_state.destination_peer_id,
             "title": getattr(destination, "title", clone_state.source_title)},
             "status": "ready", "commit_required": False}}
-
 def _enforce_cooldown(clone_state: state.CloneState) -> None:
     deadline = clone_state.cooldown_deadline()
     if deadline is not None:
         retry_after = ceil((deadline - datetime.now(UTC)).total_seconds())
         if retry_after > 0:
             raise RateLimitError(f"rate limited for {retry_after}s", retry_after=retry_after)
-
 async def _with_cooldown(awaitable, clone_state):
     try:
         return await awaitable
@@ -96,7 +89,6 @@ async def _with_cooldown(awaitable, clone_state):
         clone_state.set_cooldown(datetime.now(UTC) + timedelta(seconds=exc.seconds))
         state.save(clone_state)
         raise
-
 async def _mutate(tg, request, clone_state: state.CloneState):
     return await _with_cooldown(tg(request), clone_state)
 
@@ -221,14 +213,18 @@ async def _reupload_batch(tg, destination, clone_state, account_alias, messages,
             peer=destination, multi_media=multi_media, reply_to=reply_to)
         return await _mutate(tg, request, clone_state)
 async def _forward_batch(tg, source, destination, clone_state, account_alias,
-                         messages, me, author_cache):
+                         messages, me, author_cache, reply_to, *, topic_dest=None):
     source_ids = [message.id for message in messages]
     random_ids = [secrets.randbelow(2**63 - 1) + 1 for _ in messages]
-    reply_to = replies.target(messages, clone_state, source)
-    reply_flattened = getattr(messages[0], "reply_to", None) is not None and reply_to is None
+    header = getattr(messages[0], "reply_to", None)
+    reply_flattened = (header is not None and reply_to is None
+                       and not topics.placement_only(header))
     replacement = await fidelity.replacement(tg, messages[0]) if len(messages) == 1 else None
     reupload = (getattr(source, "noforwards", False) or reply_to is not None or
                 any(getattr(message, "noforwards", False) for message in messages))
+    if topic_dest is not None:
+        reply_to = topics.place(reply_to, topic_dest)
+    top_msg_id = None if topic_dest in (None, topics.GENERAL_TOPIC_ID) else topic_dest
     author = None
     if clone_state.source_kind != "broadcast" and (replacement is not None or reupload):
         author = await attribution.author_name(
@@ -251,6 +247,7 @@ async def _forward_batch(tg, source, destination, clone_state, account_alias,
         request = functions.messages.ForwardMessagesRequest(
             from_peer=source, id=source_ids, random_id=random_ids,
             to_peer=destination, drop_author=clone_state.source_kind == "broadcast",
+            top_msg_id=top_msg_id,
         )
         response = await _mutate(tg, request, clone_state)
     else:
@@ -320,9 +317,16 @@ async def sync_text(tg, source: str, account_alias: str,
             clone_state.cursor = messages[-1].id
             state.save(clone_state)
             return
+        reply_to = replies.target(messages, clone_state, source_entity)
+        topic_dest = None
+        if forum:
+            topic_dest = await topics.ensure_topic(
+                mutate, source_entity, destination, clone_state,
+                topics.topic_id_of(messages[0]), topic_counters,
+                account_alias=account_alias)
         batch_copied, mode, flattened = await _forward_batch(
             tg, source_entity, destination, clone_state, account_alias, messages,
-            me, author_cache
+            me, author_cache, reply_to, topic_dest=topic_dest
         )
         copied += batch_copied
         transport_counts[mode] += batch_copied
