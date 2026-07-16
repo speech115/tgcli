@@ -27,7 +27,8 @@ def _signature(header, source, forum=False):
         raise PolicyError("cross-peer clone replies are not supported")
     parent_id, top_id = header.reply_to_msg_id, header.reply_to_top_id
     if (parent_id is None or any(isinstance(item, bool) or not isinstance(item, int)
-            or item <= 0 for item in (parent_id, top_id) if item is not None)):
+            or not 0 < item <= 2_147_483_647
+            for item in (parent_id, top_id) if item is not None)):
         raise PolicyError("clone reply parent is invalid")
     if (header.quote_text is not None and not isinstance(header.quote_text, str)
             or header.quote_entities and header.quote_text is None

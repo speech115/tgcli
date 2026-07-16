@@ -63,7 +63,7 @@ def topic_id_of(message) -> int:
         return GENERAL_TOPIC_ID
     topic_id = header.reply_to_top_id
     topic_id = header.reply_to_msg_id if topic_id is None else topic_id
-    if type(topic_id) is not int or topic_id <= 0:
+    if type(topic_id) is not int or not 0 < topic_id <= 2_147_483_647:
         raise PolicyError("clone topic id is invalid")
     return topic_id
 

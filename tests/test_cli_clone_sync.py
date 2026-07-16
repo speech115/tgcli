@@ -567,7 +567,7 @@ def test_clone_sync_validates_forum_header_before_topic_recovery(
     assert saved.cursor == 0 and saved.topic_map == {} and saved.id_map == {}
 
 
-@pytest.mark.parametrize("topic_id", [True, "2", -2])
+@pytest.mark.parametrize("topic_id", [True, "2", -2, 2_147_483_648])
 def test_clone_sync_rejects_malformed_forum_placement_before_recovery(
     topic_id, config_env, monkeypatch, capsys
 ):
@@ -587,7 +587,7 @@ def test_clone_sync_rejects_malformed_forum_placement_before_recovery(
     assert saved.cursor == 0 and saved.topic_map == {} and saved.id_map == {}
 
 
-@pytest.mark.parametrize("topic_id", [True, "2", -2])
+@pytest.mark.parametrize("topic_id", [True, "2", -2, 2_147_483_648])
 def test_topic_id_of_rejects_malformed_forum_placement(topic_id):
     header = types.MessageReplyHeader(
         reply_to_msg_id=topic_id, forum_topic=True)
@@ -596,7 +596,7 @@ def test_topic_id_of_rejects_malformed_forum_placement(topic_id):
         topics.topic_id_of(message(5, reply_to=header))
 
 
-@pytest.mark.parametrize("topic_id", [True, "2", -2])
+@pytest.mark.parametrize("topic_id", [True, "2", -2, 2_147_483_648])
 def test_topic_id_of_rejects_malformed_forum_reply_topic(topic_id):
     header = types.MessageReplyHeader(
         reply_to_msg_id=3, reply_to_top_id=topic_id, forum_topic=True)
@@ -611,6 +611,7 @@ def test_topic_id_of_rejects_malformed_forum_reply_topic(topic_id):
         ({"reply_to_top_id": True}, "reply parent is invalid"),
         ({"reply_to_top_id": "2"}, "reply parent is invalid"),
         ({"reply_to_top_id": -2}, "reply parent is invalid"),
+        ({"reply_to_top_id": 2_147_483_648}, "reply parent is invalid"),
         ({"reply_to_top_id": 2, "quote_text": 7}, "reply quote is invalid"),
     ],
 )
@@ -631,6 +632,35 @@ def test_clone_sync_rejects_malformed_forum_reply_before_recovery(
     assert not safety.audit_path().exists()
     saved = state.load(clone_state.clone_id)
     assert saved.cursor == 0 and saved.topic_map == {} and saved.id_map == {}
+
+
+def test_clone_sync_rejects_oversized_forum_reply_parent_before_recovery(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+    client = CloneForumClient([
+        message(5, reply_to=types.MessageReplyHeader(
+            reply_to_msg_id=2_147_483_648, reply_to_top_id=2,
+            forum_topic=True)),
+    ])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    assert "reply parent is invalid" in capsys.readouterr().err
+    assert client.requests == []
+    assert not safety.audit_path().exists()
+    saved = state.load(clone_state.clone_id)
+    assert saved.cursor == 0 and saved.topic_map == {} and saved.id_map == {}
+
+
+@pytest.mark.parametrize("top_id", [None, 2_147_483_647])
+def test_topic_id_of_accepts_maximum_tl_int(top_id):
+    header = types.MessageReplyHeader(
+        reply_to_msg_id=2_147_483_647, reply_to_top_id=top_id,
+        forum_topic=True)
+
+    assert topics.topic_id_of(message(5, reply_to=header)) == 2_147_483_647
 
 
 def test_clone_sync_rejects_mixed_topic_placement_album_before_recovery(
