@@ -1,4 +1,4 @@
-"""Copy source-channel profile metadata during clone initialization."""
+"""Copy source-chat profile metadata during clone initialization."""
 
 from pathlib import Path
 import tempfile
@@ -10,8 +10,12 @@ from tgcli.errors import PolicyError
 
 
 async def copy(tg, source, destination, account_alias, clone_id, cooldown) -> None:
-    full = await cooldown(tg(functions.channels.GetFullChannelRequest(source)))
-    about = getattr(full.full_chat, "about", None) or ""
+    if isinstance(source, types.User):
+        full = await cooldown(tg(functions.users.GetFullUserRequest(source)))
+        about = getattr(full.full_user, "about", None) or ""
+    else:
+        full = await cooldown(tg(functions.channels.GetFullChannelRequest(source)))
+        about = getattr(full.full_chat, "about", None) or ""
     if about:
         safety.append_audit("clone-init-about", account_alias, {
             "clone_id": clone_id, "source_peer_id": source.id,
@@ -20,7 +24,9 @@ async def copy(tg, source, destination, account_alias, clone_id, cooldown) -> No
             peer=destination, about=about,
         )))
     photo = getattr(source, "photo", None)
-    if photo is None or isinstance(photo, types.ChatPhotoEmpty):
+    if photo is None or isinstance(
+        photo, (types.ChatPhotoEmpty, types.UserProfilePhotoEmpty)
+    ):
         return
     with tempfile.TemporaryDirectory(prefix="tgcli-clone-avatar-") as workdir:
         downloaded = await cooldown(tg.download_profile_photo(

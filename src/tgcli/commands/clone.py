@@ -1,4 +1,4 @@
-"""Copy broadcast channels into user-owned channels (ADR-0017)."""
+"""Copy supported Telegram chats into user-owned channels (ADR-0017/0021)."""
 from datetime import UTC, datetime, timedelta
 from math import ceil
 from pathlib import Path
@@ -8,12 +8,13 @@ from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
 
 from tgcli import chatref, safety
-from tgcli.clone import fidelity, profile, state
+from tgcli.clone import attribution, fidelity, profile, replies, state
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
 
 def _entry(s: state.CloneState) -> dict:
     return {"clone_id": s.clone_id, "source": {"id": s.source_peer_id,
-            "title": s.source_title}, "destination_id": s.destination_peer_id,
+            "title": s.source_title, "kind": s.source_kind},
+            "destination_id": s.destination_peer_id,
             "cursor": s.cursor, "copied": len(s.id_map), "cooldown_until": s.retry_not_before,
             "created_at": s.created_at, "last_synced_at": s.last_synced_at}
 
@@ -30,29 +31,31 @@ def list_clones(source: str | None = None) -> dict:
     return {"clones": entries}
 
 def status_rows(data: dict) -> list[tuple]:
-    return [(c["source"]["id"], c["source"]["title"], c["destination_id"], c["cursor"],
+    return [(c["source"]["id"], c["source"]["title"], c["source"]["kind"],
+             c["destination_id"], c["cursor"],
              c["copied"], c["last_synced_at"]) for c in data["clones"]]
 
 async def _resolve_source(tg, source: str):
     try:
         entity = await tg.get_entity(chatref.parse(source))
     except ValueError:
-        raise NotFoundError(f"channel not found: {source!r}") from None
-    if not getattr(entity, "broadcast", False) or getattr(entity, "megagroup", False):
-        raise PolicyError("clone source must be a broadcast channel")
-    return entity
+        raise NotFoundError(f"clone source not found: {source!r}") from None
+    kind = attribution.source_kind(entity)
+    return entity, kind, attribution.display_name(entity)
 
 async def preview_init(tg, source: str) -> dict:
-    entity = await _resolve_source(tg, source)
+    entity, source_kind, source_title = await _resolve_source(tg, source)
     me = await tg.get_me()
     total = (await tg.get_messages(entity, limit=0)).total
     clone_id = state.clone_id(me.id, entity.id)
     preview = safety.create_preview({"kind": "clone-init", "source": source,
         "account_user_id": me.id, "source_peer_id": entity.id,
-        "source_title": entity.title, "protected": bool(getattr(entity, "noforwards", False)),
+        "source_title": source_title, "source_kind": source_kind,
+        "protected": bool(getattr(entity, "noforwards", False)),
         "approximate_message_count": total})
     return {"preview_id": preview["preview_id"], "expires_at": preview["expires_at"],
-            "clone": {"id": clone_id, "source": {"id": entity.id, "title": entity.title},
+            "clone": {"id": clone_id, "source": {"id": entity.id,
+            "title": source_title, "kind": source_kind},
             "destination": None, "status": "planned", "commit_required": True},
             "approximate_message_count": total,
             "protected": preview["protected"]}
@@ -78,7 +81,8 @@ async def _marker_candidates(tg, marker: str) -> tuple[list[object], list[object
 
 def _init_result(clone_state: state.CloneState, destination) -> dict:
     return {"clone": {"id": clone_state.clone_id, "source": {
-            "id": clone_state.source_peer_id, "title": clone_state.source_title},
+            "id": clone_state.source_peer_id, "title": clone_state.source_title,
+            "kind": clone_state.source_kind},
             "destination": {"id": clone_state.destination_peer_id,
             "title": getattr(destination, "title", clone_state.source_title)},
             "status": "ready", "commit_required": False}}
@@ -102,14 +106,16 @@ async def _mutate(tg, request, clone_state: state.CloneState):
     return await _with_cooldown(tg(request), clone_state)
 
 async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dict:
-    entity = await _resolve_source(tg, source)
+    entity, source_kind, _ = await _resolve_source(tg, source)
     me = await tg.get_me()
-    if me.id != payload["account_user_id"] or entity.id != payload["source_peer_id"]:
+    if (me.id != payload["account_user_id"] or entity.id != payload["source_peer_id"]
+            or payload.get("source_kind", source_kind) != source_kind):
         raise PolicyError("clone init preview no longer matches the source or account")
     clone_id = state.clone_id(me.id, entity.id)
     clone_state = state.load(clone_id) or state.CloneState.new(
         account_user_id=me.id, source_peer_id=entity.id,
-        source_title=payload["source_title"])
+        source_title=payload["source_title"],
+        source_kind=payload.get("source_kind", source_kind))
     marker = clone_state.creation_marker or f"tgcli-clone-{clone_id[:12]}"
     clone_state.creation_marker = marker
     state.save(clone_state)
@@ -175,50 +181,6 @@ def _confirmed_destination_ids(response, random_ids: list[int]) -> list[int]:
             or len(set(destination_ids)) != len(destination_ids)):
         raise PolicyError("Telegram did not confirm the complete cloned batch")
     return destination_ids
-def _reply_signature(header, source_peer_id):
-    if header is None:
-        return None
-    if not isinstance(header, types.MessageReplyHeader):
-        raise PolicyError("clone reply shape is not supported")
-    unsupported = ("todo_item_id", "poll_option", "reply_from", "reply_media")
-    if (header.reply_to_scheduled or header.forum_topic or header.reply_to_ephemeral
-            or any(getattr(header, field) is not None for field in unsupported)):
-        raise PolicyError("clone reply shape is not supported")
-    peer = header.reply_to_peer_id
-    if peer is not None and (not isinstance(peer, types.PeerChannel)
-                             or peer.channel_id != source_peer_id):
-        raise PolicyError("cross-peer clone replies are not supported")
-    parent_id, top_id = header.reply_to_msg_id, header.reply_to_top_id
-    if (parent_id is None or any(isinstance(item, bool) or not isinstance(item, int)
-            or item <= 0 for item in (parent_id, top_id) if item is not None)):
-        raise PolicyError("clone reply parent is invalid")
-    if (header.quote_text is not None and not isinstance(header.quote_text, str)
-            or header.quote_entities and header.quote_text is None
-            or header.quote_offset is not None and (header.quote_text is None
-            or isinstance(header.quote_offset, bool)
-            or not isinstance(header.quote_offset, int) or header.quote_offset < 0)):
-        raise PolicyError("clone reply quote is invalid")
-    return (parent_id, top_id, header.quote_text, tuple(header.quote_entities or ()), header.quote_offset)
-
-def _reply_target(messages, clone_state, source_peer_id):
-    replies = [_reply_signature(getattr(message, "reply_to", None), source_peer_id)
-               for message in messages]
-    leading = replies[0]
-    if leading is None and any(item is not None for item in replies[1:]):
-        raise PolicyError("clone album reply appears after its leading item")
-    if leading is not None and any(item is not None and item != leading for item in replies[1:]):
-        raise PolicyError("clone album reply metadata is inconsistent")
-    if leading is None:
-        return None
-    parent_id, top_id, quote_text, quote_entities, quote_offset = leading
-    destination_id = clone_state.dest_for(parent_id)
-    top_destination_id = clone_state.dest_for(top_id) if top_id is not None else None
-    if destination_id is None or top_id is not None and top_destination_id is None:
-        return None
-    return types.InputReplyToMessage(reply_to_msg_id=destination_id,
-        top_msg_id=top_destination_id,
-        quote_text=quote_text, quote_entities=list(quote_entities) or None,
-        quote_offset=quote_offset)
 async def _uploaded_media(tg, message, path, clone_state):
     input_file = await _with_cooldown(tg.upload_file(str(path)), clone_state)
     if isinstance(message.media, types.MessageMediaPhoto):
@@ -227,7 +189,8 @@ async def _uploaded_media(tg, message, path, clone_state):
     return types.InputMediaUploadedDocument(file=input_file,
         mime_type=getattr(document, "mime_type", None) or "application/octet-stream",
         attributes=list(getattr(document, "attributes", None) or ()))
-async def _reupload_batch(tg, destination, clone_state, account_alias, messages, random_ids, reply_to):
+async def _reupload_batch(tg, destination, clone_state, account_alias, messages,
+                          random_ids, reply_to, author=None):
     with tempfile.TemporaryDirectory(prefix="tgcli-clone-reupload-") as workdir:
         downloads = {}
         for message in messages:
@@ -244,8 +207,10 @@ async def _reupload_batch(tg, destination, clone_state, account_alias, messages,
         if len(messages) == 1:
             message = messages[0]
             media = getattr(message, "media", None)
-            common = {"peer": destination, "message": message.message or "", "random_id": random_ids[0],
-                      "reply_to": reply_to, "entities": list(message.entities or ()) or None}
+            text, entities = attribution.prefixed(
+                message.message or "", message.entities, author)
+            common = {"peer": destination, "message": text, "random_id": random_ids[0],
+                      "reply_to": reply_to, "entities": entities}
             if media is None or isinstance(media, types.MessageMediaWebPage):
                 request = functions.messages.SendMessageRequest(
                     **common, no_webpage=media is None)
@@ -254,59 +219,74 @@ async def _reupload_batch(tg, destination, clone_state, account_alias, messages,
                     tg, message, downloads[message.id], clone_state))
             return await _mutate(tg, request, clone_state)
         multi_media = []
-        for message, random_id in zip(messages, random_ids, strict=True):
+        for index, (message, random_id) in enumerate(
+                zip(messages, random_ids, strict=True)):
             if message.id not in downloads:
                 raise PolicyError(f"clone album item is not reconstructable: {message.id}")
             uploaded = await _uploaded_media(tg, message, downloads[message.id], clone_state)
             stored = await _mutate(tg, functions.messages.UploadMediaRequest(
                 peer=destination, media=uploaded), clone_state)
+            text, entities = attribution.prefixed(
+                message.message or "", message.entities, author if index == 0 else None)
             multi_media.append(types.InputSingleMedia(media=telethon_utils.get_input_media(stored),
-                random_id=random_id, message=message.message or "",
-                entities=list(message.entities or ()) or None))
+                random_id=random_id, message=text, entities=entities))
         request = functions.messages.SendMultiMediaRequest(
             peer=destination, multi_media=multi_media, reply_to=reply_to)
         return await _mutate(tg, request, clone_state)
 
-async def _forward_batch(tg, source, destination, clone_state, account_alias, messages):
+async def _forward_batch(tg, source, destination, clone_state, account_alias,
+                         messages, me, author_cache):
     source_ids = [message.id for message in messages]
     random_ids = [secrets.randbelow(2**63 - 1) + 1 for _ in messages]
-    reply_to = _reply_target(messages, clone_state, source.id)
+    reply_to = replies.target(messages, clone_state, source)
+    reply_flattened = getattr(messages[0], "reply_to", None) is not None and reply_to is None
     replacement = await fidelity.replacement(tg, messages[0]) if len(messages) == 1 else None
     reupload = (getattr(source, "noforwards", False) or reply_to is not None or
                 any(getattr(message, "noforwards", False) for message in messages))
+    author = None
+    if clone_state.source_kind != "broadcast" and (replacement is not None or reupload):
+        author = await attribution.author_name(
+            tg, source, messages[0], me, author_cache,
+            lambda awaitable: _with_cooldown(awaitable, clone_state))
     if replacement is not None:
+        mode = "snapshots"
+        text, entities = attribution.prefixed(replacement[0], replacement[1], author)
         safety.append_audit("clone-sync-snapshot", account_alias,
                             {"clone_id": clone_state.clone_id,
                              "source_message_ids": source_ids})
         response = await _mutate(tg, functions.messages.SendMessageRequest(
-            peer=destination, message=replacement[0], random_id=random_ids[0],
-            reply_to=reply_to, no_webpage=True, entities=replacement[1] or None), clone_state)
+            peer=destination, message=text, random_id=random_ids[0],
+            reply_to=reply_to, no_webpage=True, entities=entities), clone_state)
     elif not reupload:
+        mode = "forwarded"
         safety.append_audit("clone-sync-forward", account_alias,
                             {"clone_id": clone_state.clone_id,
                              "source_message_ids": source_ids})
         request = functions.messages.ForwardMessagesRequest(
             from_peer=source, id=source_ids, random_id=random_ids,
-            to_peer=destination, drop_author=True,
+            to_peer=destination, drop_author=clone_state.source_kind == "broadcast",
         )
         response = await _mutate(tg, request, clone_state)
     else:
+        mode = "reuploaded"
         response = await _reupload_batch(tg, destination, clone_state, account_alias,
-                                         messages, random_ids, reply_to)
+                                         messages, random_ids, reply_to, author)
     destination_ids = _confirmed_destination_ids(response, random_ids)
     for source_id, destination_id in zip(source_ids, destination_ids, strict=True):
         clone_state.record_mapping(source_id, destination_id)
     clone_state.cursor = source_ids[-1]
     state.save(clone_state)
-    return len(source_ids)
+    return len(source_ids), mode, reply_flattened
 
 async def sync_text(tg, source: str, account_alias: str,
                     *, limit: int | None = None) -> dict:
-    source_entity = await _resolve_source(tg, source)
+    source_entity, source_kind, _ = await _resolve_source(tg, source)
     me = await tg.get_me()
     clone_state = state.load(state.clone_id(me.id, source_entity.id))
     if clone_state is None or clone_state.destination_peer_id is None:
         raise PolicyError("clone is not initialized; run clone init first")
+    if clone_state.source_kind != source_kind:
+        raise PolicyError("clone source kind no longer matches initialized state")
     _enforce_cooldown(clone_state)
     try:
         destination = await tg.get_entity(
@@ -329,10 +309,13 @@ async def sync_text(tg, source: str, account_alias: str,
     copied_batches = 0
     skipped_service = 0
     skipped_unsupported = []
+    transport_counts = {"forwarded": 0, "reuploaded": 0, "snapshots": 0}
+    reply_flattened = 0
+    author_cache = {}
     more = False
     active_album = []
     async def finish_batch(messages) -> None:
-        nonlocal copied, copied_batches
+        nonlocal copied, copied_batches, reply_flattened
         unsupported = [
             {"id": message.id, "kind": kind}
             for message in messages
@@ -343,9 +326,13 @@ async def sync_text(tg, source: str, account_alias: str,
             clone_state.cursor = messages[-1].id
             state.save(clone_state)
             return
-        copied += await _forward_batch(
-            tg, source_entity, destination, clone_state, account_alias, messages
+        batch_copied, mode, flattened = await _forward_batch(
+            tg, source_entity, destination, clone_state, account_alias, messages,
+            me, author_cache
         )
+        copied += batch_copied
+        transport_counts[mode] += batch_copied
+        reply_flattened += int(flattened)
         copied_batches += 1
     async for source_message in tg.iter_messages(
             source_entity, min_id=clone_state.cursor, reverse=True):
@@ -387,14 +374,17 @@ async def sync_text(tg, source: str, account_alias: str,
     clone_state.last_synced_at = datetime.now(UTC).isoformat()
     state.save(clone_state)
     return {"clone": {"id": clone_state.clone_id,
-        "source": {"id": source_entity.id, "title": clone_state.source_title},
+        "source": {"id": source_entity.id, "title": clone_state.source_title,
+                   "kind": clone_state.source_kind},
         "destination": {"id": destination.id, "title": destination.title}},
         "sync": {"copied": copied, "skipped_service": skipped_service,
                  "skipped_unsupported": skipped_unsupported,
+                 **transport_counts, "reply_flattened": reply_flattened,
                  "cursor": clone_state.cursor, "more": more}}
 
 def sync_rows(data: dict) -> list[tuple]:
     clone = data["clone"]
     sync = data["sync"]
-    return [(sync["copied"], sync["skipped_service"], len(sync["skipped_unsupported"]),
+    return [(sync["copied"], sync["forwarded"], sync["reuploaded"], sync["snapshots"],
+             sync["reply_flattened"], sync["skipped_service"], len(sync["skipped_unsupported"]),
              sync["cursor"], clone["id"], clone["source"]["id"], clone["destination"]["id"], sync["more"])]

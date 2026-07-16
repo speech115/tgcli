@@ -53,6 +53,9 @@ def message(message_id, **overrides):
         "grouped_id": None,
         "noforwards": False,
         "entities": None,
+        "from_id": None,
+        "sender_id": None,
+        "out": False,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -85,9 +88,10 @@ def poll_media(*, multiple_choice=False):
     )
 
 
-def seed_clone():
+def seed_clone(*, kind="broadcast", title="Source channel"):
     clone_state = state.CloneState.new(
-        account_user_id=42, source_peer_id=123, source_title="Source channel"
+        account_user_id=42, source_peer_id=123, source_title=title,
+        source_kind=kind,
     )
     clone_state.destination_peer_id = 999
     state.save(clone_state)
@@ -197,6 +201,10 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
     result = json.loads(capsys.readouterr().out)
     assert result["sync"] == {
         "copied": 2,
+        "forwarded": 2,
+        "reuploaded": 0,
+        "snapshots": 0,
+        "reply_flattened": 0,
         "skipped_service": 0,
         "skipped_unsupported": [],
         "cursor": 3,
@@ -221,6 +229,189 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
     assert rerun["sync"]["copied"] == 0
     assert len(client.requests) == 2
     assert client.iter_messages_calls == [(0, True), (3, True)]
+
+
+def test_clone_sync_forwards_megagroup_nonreply_with_author_header(
+    config_env, monkeypatch, capsys
+):
+    seed_clone(kind="megagroup", title="Team chat")
+    client = CloneSyncClient([message(2)])
+    client.source = channel(
+        123, "Team chat", broadcast=False, megagroup=True, forum=False
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["source"]["kind"] == "megagroup"
+    assert result["sync"]["forwarded"] == 1
+    assert result["sync"]["reuploaded"] == 0
+    assert client.requests[0].drop_author is False
+
+
+def test_clone_sync_reuploads_megagroup_reply_with_prefix_and_shifted_entities(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="megagroup", title="Team chat")
+    clone_state.record_mapping(1, 1001)
+    clone_state.cursor = 1
+    state.save(clone_state)
+    original = types.MessageEntityBold(offset=2, length=4)
+    client = CloneReuploadClient([
+        message(2, message="😀bold", entities=[original],
+                from_id=types.PeerUser(77), sender_id=77,
+                reply_to=types.MessageReplyHeader(reply_to_msg_id=1))
+    ])
+    client.source = channel(
+        123, "Team chat", broadcast=False, megagroup=True, forum=False
+    )
+    client.destination_last_id = 1001
+
+    async def get_entity(ref):
+        if isinstance(ref, types.PeerUser):
+            return types.User(id=77, first_name="Zoë 🚀")
+        return await CloneSyncClient.get_entity(client, ref)
+
+    client.get_entity = get_entity
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMessageRequest)
+    assert request.message == "Zoë 🚀: 😀bold"
+    assert request.reply_to.reply_to_msg_id == 1001
+    prefix_units = len("Zoë 🚀: ".encode("utf-16-le")) // 2
+    assert request.entities[0].offset == prefix_units + 2
+    assert original.offset == 2
+    assert sync["reuploaded"] == 1
+    assert sync["reply_flattened"] == 0
+
+
+def test_clone_sync_reuploads_protected_megagroup_with_cached_author_prefix(
+    config_env, monkeypatch, capsys
+):
+    seed_clone(kind="megagroup", title="Team chat")
+    client = CloneReuploadClient([
+        message(2, message="first", from_id=types.PeerUser(77), sender_id=77),
+        message(3, message="second", from_id=types.PeerUser(77), sender_id=77),
+    ], protected=True)
+    client.source = channel(
+        123, "Team chat", broadcast=False, megagroup=True, forum=False,
+        noforwards=True,
+    )
+    author_lookups = 0
+
+    async def get_entity(ref):
+        nonlocal author_lookups
+        if isinstance(ref, types.PeerUser):
+            author_lookups += 1
+            return types.User(id=77, first_name="Alex")
+        return await CloneSyncClient.get_entity(client, ref)
+
+    client.get_entity = get_entity
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    sends = [item for item in client.requests
+             if isinstance(item, functions.messages.SendMessageRequest)]
+    assert [item.message for item in sends] == ["Alex: first", "Alex: second"]
+    assert author_lookups == 1
+    assert sync["reuploaded"] == 2
+
+
+def test_clone_sync_forwards_private_dialog_nonreply_with_author_header(
+    config_env, monkeypatch, capsys
+):
+    seed_clone(kind="dialog", title="Alex Smith")
+    client = CloneSyncClient([message(2)])
+    client.source = types.User(id=123, first_name="Alex", last_name="Smith")
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert client.requests[0].drop_author is False
+    assert sync["forwarded"] == 1
+
+
+def test_clone_sync_reuploads_private_dialog_reply_with_explicit_source_peer(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="dialog", title="Alex Smith")
+    clone_state.record_mapping(1, 1001)
+    clone_state.cursor = 1
+    state.save(clone_state)
+    reply = types.MessageReplyHeader(
+        reply_to_msg_id=1, reply_to_peer_id=types.PeerUser(123)
+    )
+    client = CloneReuploadClient([
+        message(2, message="answer", from_id=types.PeerUser(123),
+                sender_id=123, reply_to=reply)
+    ])
+    client.source = types.User(id=123, first_name="Alex", last_name="Smith")
+    client.destination_last_id = 1001
+
+    async def get_entity(ref):
+        if isinstance(ref, types.PeerUser):
+            return client.source
+        return await CloneSyncClient.get_entity(client, ref)
+
+    client.get_entity = get_entity
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMessageRequest)
+    assert request.message == "Alex Smith: answer"
+    assert request.reply_to.reply_to_msg_id == 1001
+
+
+def test_clone_sync_reports_attributed_unmapped_reply_forward_fallback(
+    config_env, monkeypatch, capsys
+):
+    seed_clone(kind="megagroup", title="Team chat")
+    client = CloneSyncClient([
+        message(2, reply_to=types.MessageReplyHeader(reply_to_msg_id=1))
+    ])
+    client.source = channel(
+        123, "Team chat", broadcast=False, megagroup=True, forum=False
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    [request] = client.requests
+    assert isinstance(request, functions.messages.ForwardMessagesRequest)
+    assert request.drop_author is False
+    assert sync["reply_flattened"] == 1
+
+
+def test_clone_sync_flattens_private_dialog_story_reply_header(
+    config_env, monkeypatch, capsys
+):
+    seed_clone(kind="dialog", title="Alex Smith")
+    story_reply = types.MessageReplyStoryHeader(
+        peer=types.PeerUser(42), story_id=261,
+    )
+    client = CloneSyncClient([message(2, reply_to=story_reply)])
+    client.source = types.User(id=123, first_name="Alex", last_name="Smith")
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    [request] = client.requests
+    assert isinstance(request, functions.messages.ForwardMessagesRequest)
+    assert request.drop_author is False
+    assert sync["reply_flattened"] == 1
 
 
 def test_clone_sync_blocks_unexpected_destination_tail_before_copy(
@@ -278,6 +469,10 @@ def test_clone_sync_skips_service_and_reports_unsupported_messages(
     sync = json.loads(capsys.readouterr().out)["sync"]
     assert sync == {
         "copied": 1,
+        "forwarded": 1,
+        "reuploaded": 0,
+        "snapshots": 0,
+        "reply_flattened": 0,
         "skipped_service": 1,
         "skipped_unsupported": [
             {"id": 2, "kind": "MessageMediaPoll"},
@@ -290,6 +485,31 @@ def test_clone_sync_skips_service_and_reports_unsupported_messages(
     saved = state.load(clone_state.clone_id)
     assert saved.cursor == 4
     assert saved.dest_for(4) == 2
+
+
+@pytest.mark.parametrize(
+    "media",
+    [
+        types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7), ttl_seconds=5),
+        types.MessageMediaDocument(document=types.DocumentEmpty(id=8), ttl_seconds=5),
+    ],
+)
+def test_clone_sync_skips_view_once_media(
+    media, config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    client = CloneSyncClient([message(2, media=media)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] == 0
+    assert sync["skipped_unsupported"] == [{
+        "id": 2, "kind": f"{type(media).__name__}TTL",
+    }]
+    assert client.requests == []
+    assert state.load(clone_state.clone_id).cursor == 2
 
 
 @pytest.mark.parametrize(
@@ -438,6 +658,10 @@ def test_clone_sync_keeps_grouped_id_zero_album_atomic_and_in_position(
     result = json.loads(capsys.readouterr().out)
     assert result["sync"] == {
         "copied": 4,
+        "forwarded": 4,
+        "reuploaded": 0,
+        "snapshots": 0,
+        "reply_flattened": 0,
         "skipped_service": 0,
         "skipped_unsupported": [],
         "cursor": 5,
@@ -523,6 +747,28 @@ def test_clone_sync_reuploads_nested_reply_with_mapped_root(
     assert request.reply_to.top_msg_id == 1001
 
 
+def test_clone_sync_preserves_mapped_parent_when_nested_root_is_unmapped(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    clone_state.record_mapping(2, 1002)
+    clone_state.cursor = 2
+    state.save(clone_state)
+    reply = types.MessageReplyHeader(reply_to_msg_id=2, reply_to_top_id=1)
+    client = CloneReuploadClient([message(3, message="nested", reply_to=reply)])
+    client.destination_last_id = 1002
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMessageRequest)
+    assert request.reply_to.reply_to_msg_id == 1002
+    assert request.reply_to.top_msg_id is None
+    assert sync["reply_flattened"] == 0
+
+
 def test_clone_sync_blocks_reply_quote_entities_without_quote_text(
     config_env, monkeypatch, capsys
 ):
@@ -557,7 +803,9 @@ def test_clone_sync_flattens_reply_without_mapped_parent(
 
     assert main(["clone", "sync", "@source", "--json"]) == 0
 
-    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 1
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] == 1
+    assert sync["reply_flattened"] == 1
     [request] = client.requests
     assert isinstance(request, functions.messages.ForwardMessagesRequest)
     assert request.reply_to is None
@@ -711,6 +959,44 @@ def test_clone_sync_reuploads_open_reply_album_to_mapped_parent(
     assert [saved.dest_for(2), saved.dest_for(3)] == [1002, 1003]
 
 
+def test_clone_sync_prefixes_attributed_reply_album_caption_once(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="megagroup", title="Team chat")
+    clone_state.record_mapping(1, 1001)
+    clone_state.cursor = 1
+    state.save(clone_state)
+    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+    reply = types.MessageReplyHeader(reply_to_msg_id=1)
+    client = CloneReuploadClient([
+        message(2, message="caption", media=photo, grouped_id=44,
+                reply_to=reply, from_id=types.PeerUser(77), sender_id=77),
+        message(3, message="", media=photo, grouped_id=44,
+                from_id=types.PeerUser(77), sender_id=77),
+    ])
+    client.source = channel(
+        123, "Team chat", broadcast=False, megagroup=True, forum=False
+    )
+    client.destination_last_id = 1001
+
+    async def get_entity(ref):
+        if isinstance(ref, types.PeerUser):
+            return types.User(id=77, first_name="Alex")
+        return await CloneSyncClient.get_entity(client, ref)
+
+    client.get_entity = get_entity
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    [request] = [item for item in client.requests
+                 if isinstance(item, functions.messages.SendMultiMediaRequest)]
+    assert [item.message for item in request.multi_media] == [
+        "Alex: caption", "",
+    ]
+
+
 def test_clone_sync_limit_reports_more_and_next_run_resumes(
     config_env, monkeypatch, capsys
 ):
@@ -793,7 +1079,7 @@ def test_clone_sync_unmatched_confirmation_does_not_advance_state(
     assert client.destination_last_id == 2
 
 
-def test_clone_sync_plain_output_has_frozen_columns(config_env, monkeypatch, capsys):
+def test_clone_sync_plain_output_has_contract_columns(config_env, monkeypatch, capsys):
     clone_state = seed_clone()
     client = CloneSyncClient([message(2)])
     make_session_fake(monkeypatch, client)
@@ -801,5 +1087,6 @@ def test_clone_sync_plain_output_has_frozen_columns(config_env, monkeypatch, cap
     assert main(["clone", "sync", "@source", "--plain"]) == 0
 
     assert capsys.readouterr().out.rstrip().split("\t") == [
-        "1", "0", "0", "2", clone_state.clone_id, "123", "999", "False"
+        "1", "1", "0", "0", "0", "0", "0", "2",
+        clone_state.clone_id, "123", "999", "False",
     ]

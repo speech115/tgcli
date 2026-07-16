@@ -25,3 +25,13 @@ Open single-choice and multiple-choice snapshots are covered by mocked tests and
 live evidence from two real polls. Remaining follow-up: controlled closed-poll
 and quiz fixtures, including correct-answer and explanation fidelity. This item
 does not block clone.
+
+## CLONE-002 — Forum topics and legacy groups
+
+**Status:** deferred by ADR-0021.
+
+Clone accepts non-forum megagroups but deliberately rejects forum topics and
+legacy basic `Chat` groups. Forum support needs a topic-id mapping contract and
+live fixtures for topic roots before implementation. Basic groups need a
+separate feasibility check because their API shape and migration behavior differ
+from megagroups. Bots, group destinations, and secret chats remain out of scope.

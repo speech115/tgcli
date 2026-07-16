@@ -19,6 +19,7 @@ def _fresh() -> state.CloneState:
 def test_new_clone_has_expected_defaults():
     s = _fresh()
     assert s.version == state.VERSION
+    assert s.source_kind == "broadcast"
     assert s.destination_peer_id is None
     assert s.cursor == 0
     assert s.id_map == {}
@@ -28,6 +29,7 @@ def test_new_clone_has_expected_defaults():
 
 def test_save_then_load_round_trip():
     s = _fresh()
+    s.source_kind = "megagroup"
     s.destination_peer_id = 1987654321
     s.cursor = 42
     s.record_mapping(7, 3)
@@ -39,6 +41,30 @@ def test_save_then_load_round_trip():
     assert loaded.cursor == 42
     assert loaded.dest_for(7) == 3
     assert loaded.source_title == "Example Channel"
+    assert loaded.source_kind == "megagroup"
+
+
+def test_load_legacy_state_defaults_source_kind_to_broadcast():
+    s = _fresh()
+    state.save(s)
+    path = state.path_for(s.clone_id)
+    raw = json.loads(path.read_text())
+    del raw["source_kind"]
+    path.write_text(json.dumps(raw))
+
+    assert state.load(s.clone_id).source_kind == "broadcast"
+
+
+def test_invalid_source_kind_is_policy_error():
+    s = _fresh()
+    state.save(s)
+    path = state.path_for(s.clone_id)
+    raw = json.loads(path.read_text())
+    raw["source_kind"] = "forum"
+    path.write_text(json.dumps(raw))
+
+    with pytest.raises(PolicyError):
+        state.load(s.clone_id)
 
 
 def test_load_missing_returns_none():

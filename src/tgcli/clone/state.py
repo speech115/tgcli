@@ -1,5 +1,4 @@
 """Per-clone JSON state with fail-closed validation (ADR-0017)."""
-
 import hashlib
 import json
 import os
@@ -11,17 +10,14 @@ from pathlib import Path
 from tgcli.errors import PolicyError
 
 VERSION = 1
-
 def clone_id(account_user_id: int, source_peer_id: int) -> str:
     identity = f"{account_user_id}:{source_peer_id}".encode()
     return hashlib.sha256(identity).hexdigest()
-
 def state_dir() -> Path:
     return Path(os.environ.get("TGCLI_STATE_DIR", "~/.local/state/tgcli")).expanduser()
 
 def clones_dir() -> Path:
     return state_dir() / "clones"
-
 def path_for(clone_id: str) -> Path:
     return clones_dir() / f"{clone_id}.json"
 
@@ -29,12 +25,12 @@ def _require_aware(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("datetime must be timezone-aware")
     return value.astimezone(UTC)
-
 @dataclass
 class CloneState:
     account_user_id: int
     source_peer_id: int
     source_title: str
+    source_kind: str = "broadcast"
     version: int = VERSION
     destination_peer_id: int | None = None
     creation_marker: str | None = None
@@ -46,12 +42,14 @@ class CloneState:
 
     @classmethod
     def new(
-        cls, *, account_user_id: int, source_peer_id: int, source_title: str
+        cls, *, account_user_id: int, source_peer_id: int, source_title: str,
+        source_kind: str = "broadcast"
     ) -> "CloneState":
         return cls(
             account_user_id=account_user_id,
             source_peer_id=source_peer_id,
             source_title=source_title,
+            source_kind=source_kind,
             created_at=datetime.now(UTC).isoformat(),
         )
 
@@ -82,6 +80,7 @@ class CloneState:
             "account_user_id": self.account_user_id,
             "source_peer_id": self.source_peer_id,
             "source_title": self.source_title,
+            "source_kind": self.source_kind,
             "destination_peer_id": self.destination_peer_id,
             "creation_marker": self.creation_marker,
             "cursor": self.cursor,
@@ -93,11 +92,15 @@ class CloneState:
 
     @classmethod
     def from_dict(cls, data: dict) -> "CloneState":
+        source_kind = data.get("source_kind", "broadcast")
+        if source_kind not in {"broadcast", "megagroup", "dialog"}:
+            raise ValueError("invalid source kind")
         return cls(
             version=data["version"],
             account_user_id=data["account_user_id"],
             source_peer_id=data["source_peer_id"],
             source_title=data["source_title"],
+            source_kind=source_kind,
             destination_peer_id=data.get("destination_peer_id"),
             creation_marker=data.get("creation_marker"),
             cursor=data.get("cursor", 0),
@@ -130,8 +133,6 @@ def load(clone_id: str) -> CloneState | None:
         raise PolicyError(
             f"clone state {path.name} is invalid; manual repair is required"
         ) from exc
-
-
 def save(state: CloneState) -> None:
     directory = clones_dir()
     directory.mkdir(parents=True, exist_ok=True)

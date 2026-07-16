@@ -232,10 +232,13 @@ unparseable credentials for a newly configured account exits 3.
 
 `--plain` emits frozen TSV columns: `alias`, `status`, `config`.
 
-## 11. Channel Clone (ADR-0017)
+## 11. Chat Clone (ADR-0017, ADR-0021)
 
-`tg clone` is the canonical channel-copy surface. v1 accepts broadcast
-channels, not megagroups, forums, or comment threads.
+`tg clone` is the canonical chat-copy surface. It accepts broadcast channels,
+non-forum megagroup supergroups, and private one-to-one User dialogs. Forum
+supergroups, legacy basic groups, bots, and other peer shapes exit 2 with a
+source-specific policy message. The destination is always a private owned
+broadcast channel.
 
 ```text
 tg clone status [SOURCE]
@@ -249,31 +252,31 @@ session. Without `SOURCE` it lists every JSON state file; with `SOURCE` it
 filters by exact numeric source id or case-insensitive title substring. JSON:
 
 ```json
-{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source"},"destination_id":999,"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null}]}
+{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"megagroup"},"destination_id":999,"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null}]}
 ```
 
-Plain status columns are `source_peer_id`, `source_title`,
+Plain status columns are `source_peer_id`, `source_title`, `source_kind`,
 `destination_peer_id`, `cursor`, `copied`, `last_synced_at`.
 
 `init SOURCE` is a read-only network preview. It resolves the source, verifies
-that it is a broadcast channel, reads the approximate message count and
-protected-content flag, and stores a five-minute single-use preview through the
-shared safety mechanism. It does not create clone state or mutate Telegram.
-JSON:
+that its kind is accepted, reads the approximate message count and
+protected-content flag, and stores `source_kind` in a five-minute single-use
+preview through the shared safety mechanism. It does not create clone state or
+mutate Telegram. JSON:
 
 ```json
-{"preview_id":"p_...","expires_at":"...","clone":{"id":"hex","source":{"id":123,"title":"Source"},"destination":null,"status":"planned","commit_required":true},"approximate_message_count":321,"protected":false}
+{"preview_id":"p_...","expires_at":"...","clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":null,"status":"planned","commit_required":true},"approximate_message_count":321,"protected":false}
 ```
 
 `init SOURCE --commit PREVIEW_ID` requires a matching unexpired clone-init
 preview. `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block before
 preview consumption, config, session, audit, or Telegram work. The commit uses
-a mutation-safe session, verifies that the resolved account/source ids still
-match the preview, then creates or recovers one private creator-owned broadcast
-destination. JSON:
+a mutation-safe session, verifies that the resolved account id, source id, and
+source kind still match the preview, then creates or recovers one private
+creator-owned broadcast destination. JSON:
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source"},"destination":{"id":999,"title":"Source"},"status":"ready","commit_required":false}}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":{"id":999,"title":"Source"},"status":"ready","commit_required":false}}
 ```
 
 Plain init columns are `status`, `clone_id`, `source_peer_id`,
@@ -287,9 +290,9 @@ without mutation on multiple or wrong-shape matches. Once a destination id is
 recorded, repeated init resolves and reuses it without scanning or creating.
 Destinations are user-owned and never deleted automatically.
 
-After creation or recovery, init applies the source title, copies a non-empty
-channel description, and copies a non-empty static channel avatar before
-returning `status: ready`. Empty source fields cause no destination mutation.
+After creation or recovery, init applies the source title/display name, copies a
+non-empty channel description or User bio, and copies a non-empty static source
+avatar before returning `status: ready`. Empty source fields cause no mutation.
 Avatar bytes use a temporary directory that is removed on success or failure.
 Animated or video avatar motion is not preserved (ADR-0020).
 
@@ -312,9 +315,9 @@ source scan, audit, or copy occurs (ADR-0018).
 Sync iterates source history with `reverse=True` and
 `min_id=cursor`, so confirmed destination messages follow source order. The
 allowlist is unprotected non-reply text/no-media, `MessageMediaWebPage`,
-`MessageMediaPhoto`, and `MessageMediaDocument`; captions remain attached by
-native `messages.forwardMessages(drop_author=True)` copying. The destination
-does not expose source-forward attribution.
+`MessageMediaPhoto`, and `MessageMediaDocument`. TTL/view-once photo or document
+media is reported in `skipped_unsupported` instead of being forwarded or
+downloaded.
 
 Contiguous messages whose `grouped_id is not None` are one album batch, including
 the valid edge case `grouped_id=0`. The complete ordered album is sent by one
@@ -335,16 +338,27 @@ source-to-destination mappings, and count as copied. Truly unsupported kinds
 such as dice advance the cursor and appear in `skipped_unsupported`; nothing is
 skipped silently (ADR-0019).
 
-An unprotected batch without a reply uses native forwarding. A batch uses
-download/reupload reconstruction when the source channel or any message has
-`noforwards`, or when the batch carries a reply. This preserves the mapped
-destination reply relationship that Telegram drops from native forwarding.
-Ordinary same-source-channel replies preserve the mapped direct parent and,
-when present, the mapped nested top root. If either mapping is unavailable,
-the message content still copies in source order without a reply relation.
-Cross-peer, forum, scheduled, ephemeral, todo, poll-option, reply-from,
-reply-media, malformed quote, and inconsistent album reply shapes exit 2
-before audit or mutation. Supported quote text, entities, and offset are
+For broadcast sources, an unprotected non-reply batch uses native forwarding
+with `drop_author=True`; the destination does not expose a source-forward
+header. For attributed megagroup/dialog sources, the same batch uses native
+forwarding with `drop_author=False`, retaining Telegram's author header.
+
+A batch uses download/reupload reconstruction when the source or any message
+has `noforwards`, or when it has a mapped reply. Attributed reuploads prepend
+`<display name>: ` to text or the leading album caption. Original entity
+offsets shift by the prefix's UTF-16 code-unit length, and repeated sender
+lookups are cached for the sync run. This preserves both attribution and the
+mapped destination reply relationship that native forwarding drops.
+
+Ordinary replies preserve the mapped direct parent and, when available, the
+mapped nested top root. If the direct parent is unavailable, content copies in
+order without a reply relation and increments `reply_flattened`; an unprotected
+attributed message uses a native author-preserving forward for this fallback.
+If only the nested top root is unavailable, the mapped direct parent remains
+linked. `MessageReplyStoryHeader` also flattens and reports because it has no
+message id to map. Cross-peer, forum, scheduled, ephemeral, todo, poll-option,
+reply-from, reply-media, malformed quote, and inconsistent album reply shapes
+exit 2 before audit or mutation. Supported quote text, entities, and offset are
 retained.
 
 Reupload sends text and webpage messages with `sendMessage`, photos/documents
@@ -366,9 +380,9 @@ FloodWait persists the clone cooldown and exits 5 without advancing the current
 message. JSON:
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"skipped_service":1,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"cursor":5,"more":false}}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"megagroup"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"forwarded":1,"reuploaded":1,"snapshots":0,"reply_flattened":0,"skipped_service":1,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"cursor":5,"more":false}}
 ```
 
-Plain sync columns are `copied`, `skipped_service`,
-`skipped_unsupported_count`, `cursor`, `clone_id`, `source_peer_id`,
-`destination_peer_id`, `more`.
+Plain sync columns are `copied`, `forwarded`, `reuploaded`, `snapshots`,
+`reply_flattened`, `skipped_service`, `skipped_unsupported_count`, `cursor`,
+`clone_id`, `source_peer_id`, `destination_peer_id`, `more`.

@@ -43,6 +43,12 @@ def channel(channel_id, title, **overrides):
     return SimpleNamespace(**values)
 
 
+def user(user_id=123, *, first_name="Alex", last_name="Smith", bot=False):
+    return types.User(
+        id=user_id, first_name=first_name, last_name=last_name, bot=bot,
+    )
+
+
 class CloneInitClient:
     def __init__(self):
         self.source = channel(123, "Source channel", noforwards=True)
@@ -87,6 +93,8 @@ class CloneInitClient:
             return SimpleNamespace(
                 full_chat=SimpleNamespace(about=self.source_about)
             )
+        if isinstance(request, functions.users.GetFullUserRequest):
+            return SimpleNamespace(full_user=SimpleNamespace(about=self.source_about))
         if isinstance(request, functions.channels.CreateChannelRequest):
             clone_id = state.clone_id(42, 123)
             pending = state.load(clone_id)
@@ -129,7 +137,9 @@ def test_clone_init_preview_reports_plan_without_mutation(
     assert main(["clone", "init", "@source", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
-    assert result["clone"]["source"] == {"id": 123, "title": "Source channel"}
+    assert result["clone"]["source"] == {
+        "id": 123, "title": "Source channel", "kind": "broadcast",
+    }
     assert result["clone"]["status"] == "planned"
     assert result["clone"]["commit_required"] is True
     assert result["approximate_message_count"] == 321
@@ -137,6 +147,57 @@ def test_clone_init_preview_reports_plan_without_mutation(
     assert result["preview_id"].startswith("p_")
     assert client.requests == []
     assert client.session_mutation_safe is False
+
+
+def test_clone_init_preview_accepts_nonforum_megagroup(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.source = channel(
+        123, "Team chat", broadcast=False, megagroup=True, forum=False
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--json"]) == 0
+
+    source = json.loads(capsys.readouterr().out)["clone"]["source"]
+    assert source == {"id": 123, "title": "Team chat", "kind": "megagroup"}
+
+
+def test_clone_init_preview_accepts_private_dialog(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.source = user()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--json"]) == 0
+
+    source = json.loads(capsys.readouterr().out)["clone"]["source"]
+    assert source == {"id": 123, "title": "Alex Smith", "kind": "dialog"}
+
+
+@pytest.mark.parametrize(
+    ("source", "error"),
+    [
+        (channel(123, "Forum", broadcast=False, megagroup=True, forum=True),
+         "forum topics are not supported"),
+        (types.Chat(id=123, title="Legacy group", photo=types.ChatPhotoEmpty(),
+                    participants_count=2, date=None, version=1),
+         "basic groups are not supported"),
+        (user(bot=True), "bots are not supported"),
+    ],
+)
+def test_clone_init_preview_rejects_unsupported_source_kinds(
+    source, error, config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.source = source
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--json"]) == 2
+
+    assert error in capsys.readouterr().err
 
 
 def test_clone_init_commit_creates_and_records_destination(
@@ -187,6 +248,34 @@ def test_clone_init_commit_copies_nonempty_channel_description(
     assert request.about == "Source description"
     audits = [json.loads(line) for line in safety.audit_path().read_text().splitlines()]
     assert audits[-1]["action"] == "clone-init-about"
+
+
+def test_clone_init_commit_copies_private_dialog_profile(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.source = user()
+    client.source.photo = object()
+    client.source_about = "Dialog bio"
+    make_session_fake(monkeypatch, client)
+    assert main(["clone", "init", "@source", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+
+    assert main([
+        "clone", "init", "@source", "--commit", preview_id, "--json"
+    ]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["source"] == {
+        "id": 123, "title": "Alex Smith", "kind": "dialog",
+    }
+    assert client.destination.title == "Alex Smith"
+    assert client.destination.about == "Dialog bio"
+    assert any(isinstance(item, functions.users.GetFullUserRequest)
+               for item in client.requests)
+    assert any(isinstance(item, functions.channels.EditPhotoRequest)
+               for item in client.requests)
+    assert state.load(result["clone"]["id"]).source_kind == "dialog"
 
 
 def test_clone_init_commit_copies_channel_avatar_and_cleans_tempfile(

@@ -31,8 +31,10 @@ available. A completed clone therefore could not recover the original bytes.
 - Both fallbacks are confirmed, mapped, audited as `clone-sync-snapshot`, and
   occupy the source position. Later replies can therefore target the fallback.
 - Same-source nested replies preserve both mapped direct parent and mapped top
-  root. If a reply parent or root is still unavailable, the content is copied
-  in order without a reply relation instead of blocking the channel forever.
+  root. If the direct parent is unavailable, content copies in order without a
+  reply relation and reports `reply_flattened`. If only the optional top root is
+  unavailable, the mapped direct parent remains linked. Story reply headers,
+  which contain no message id, use the same explicit flatten fallback.
 - Formatting and fallback classification live in `clone/fidelity.py`, capped at
   100 lines. The existing `commands/clone.py` 400-line and `clone/state.py`
   150-line budgets remain unchanged.

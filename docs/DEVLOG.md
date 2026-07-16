@@ -14,6 +14,39 @@ Template:
 ```
 
 
+## 2026-07-16 — Megagroup and dialog clone sources live-accepted (Codex)
+**Did:** executed the approved chat-types plan and added ADR-0021. Clone now
+accepts non-forum megagroups and non-bot User dialogs, persists `source_kind`,
+copies User bio/avatar during init, preserves native author headers on
+non-replies, and reuploads mapped replies/protected content with an author-name
+prefix and UTF-16-correct entity offsets. JSON/plain output now reports
+`forwarded`, `reuploaded`, `snapshots`, and `reply_flattened`. TTL/view-once
+media is reported unsupported. Reply validation moved to `clone/replies.py`;
+source/author mechanics live in `clone/attribution.py`.
+
+Live acceptance created retained private destinations for an owned 27-message
+megagroup fixture, a 102-message organic megagroup, and two 11/53-message
+dialogs. Readback proved strict order, two authors in the owned fixture and each
+dialog, 30/30 organic-megagroup reply links, 4/4 dialog reply links, 4/4 visible
+author prefixes, and zero-copy reruns. A live `MessageReplyStoryHeader` exposed
+that Story replies have no message id; TDD now flattens and reports that shape
+instead of blocking the remaining history.
+**Decided:** attributed sources use a hybrid transport: native forward for
+non-replies, prefixed reupload for mapped replies/protected content. Missing
+direct parents and Story reply headers are explicit flatten fallbacks; a missing
+top root no longer discards an available direct-parent link. Poll snapshots
+remain the accepted ADR-0019 behavior rather than being rolled back based on a
+stale review snapshot.
+**Learned:** the external review correctly identified missing flatten reporting
+but its poll/contract verdict predated commits `bf7e6f2` and `b4640a0`.
+Telegram trims the trailing space from an empty prefixed caption (`Author: ` →
+`Author:`), which is still a correct visible attribution. Final checks: `290
+passed, 8 skipped in 2.20s`; coverage 23 namespaces; compileall and diff check
+clean. Budgets: `390/150/91/43/74/63` lines for clone/state/fidelity/profile/
+attribution/replies.
+**Next:** commit, push `feature/clone`, and verify PR #8 CI.
+
+
 ## 2026-07-16 — Clone init copies channel profile (Codex)
 **Did:** added ADR-0020 and the 37-line `clone/profile.py`. After destination
 creation or recovery, `tg clone init --commit` now copies a non-empty source

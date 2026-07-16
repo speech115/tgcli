@@ -132,17 +132,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_export_subscribers.add_argument("--output", required=True, type=Path)
     p_export_subscribers.add_argument("--limit", type=int)
 
-    p_clone = sub.add_parser("clone", help="Copy a broadcast channel", parents=[global_flags])
+    p_clone = sub.add_parser("clone", help="Copy a supported chat", parents=[global_flags])
     clone_sub = p_clone.add_subparsers(dest="clone_command", required=True)
     p_clone_status = clone_sub.add_parser("status", parents=[global_flags])
     p_clone_status.add_argument(
         "source", nargs="?", help="filter to one source (id or title substring)"
     )
     p_clone_init = clone_sub.add_parser("init", parents=[global_flags])
-    p_clone_init.add_argument("source", help="source broadcast channel")
+    p_clone_init.add_argument("source", help="source channel, supergroup, or dialog")
     p_clone_init.add_argument("--commit", metavar="PREVIEW_ID")
     p_clone_sync = clone_sub.add_parser("sync", parents=[global_flags])
-    p_clone_sync.add_argument("source", help="source broadcast channel")
+    p_clone_sync.add_argument("source", help="source channel, supergroup, or dialog")
     p_clone_sync.add_argument("--limit", type=int)
 
     return parser

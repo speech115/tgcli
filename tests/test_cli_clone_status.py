@@ -3,12 +3,14 @@ import json
 from tgcli.clone import state
 
 
-def _seed(account_user_id, source_peer_id, title, *, dest=None, cursor=0, mapped=()):
+def _seed(account_user_id, source_peer_id, title, *, kind="broadcast",
+          dest=None, cursor=0, mapped=()):
     s = state.CloneState.new(
         account_user_id=account_user_id,
         source_peer_id=source_peer_id,
         source_title=title,
     )
+    s.source_kind = kind
     s.destination_peer_id = dest
     s.cursor = cursor
     for src_id, dst_id in mapped:
@@ -27,7 +29,7 @@ def _run(capsys, argv):
 
 def test_status_lists_all_clones_as_json(capsys):
     _seed(100000001, 111, "Alpha", dest=222, cursor=5, mapped=[(2, 3), (4, 5)])
-    _seed(100000001, 333, "Beta")
+    _seed(100000001, 333, "Beta", kind="megagroup")
 
     code, out = _run(capsys, ["clone", "status", "--json"])
     assert code == 0
@@ -38,6 +40,9 @@ def test_status_lists_all_clones_as_json(capsys):
     assert alpha["destination_id"] == 222
     assert alpha["cursor"] == 5
     assert alpha["copied"] == 2
+    beta = next(c for c in payload["clones"] if c["source"]["title"] == "Beta")
+    assert alpha["source"]["kind"] == "broadcast"
+    assert beta["source"]["kind"] == "megagroup"
 
 
 def test_status_empty_when_no_clones(capsys):
@@ -57,11 +62,12 @@ def test_status_filters_by_source_id(capsys):
 
 
 def test_status_plain_output(capsys):
-    _seed(100000001, 111, "Alpha", dest=222, cursor=5)
+    _seed(100000001, 111, "Alpha", kind="megagroup", dest=222, cursor=5)
 
     code, out = _run(capsys, ["clone", "status", "--plain"])
     assert code == 0
     assert "Alpha" in out
+    assert "megagroup" in out
     assert "222" in out
 
 

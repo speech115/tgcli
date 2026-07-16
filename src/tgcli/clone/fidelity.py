@@ -17,6 +17,8 @@ def supports(message) -> bool:
 
 def unsupported_kind(message) -> str | None:
     media = getattr(message, "media", None)
+    if getattr(media, "ttl_seconds", None) is not None:
+        return f"{type(media).__name__}TTL"
     return None if (media is None or isinstance(media, _NATIVE_MEDIA_TYPES)
                     or supports(message)) else type(media).__name__
 

@@ -18,7 +18,7 @@ tgcli/
 │   ├── ISSUES.md              [done]    deliberately deferred product work and re-entry gates
 │   ├── DEVLOG.md              [done]    session-by-session agent log
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── decisions/             [done]    ADR-0001…0020; ADR-0017 clone supersedes mirror
+│   ├── decisions/             [done]    ADR-0001…0021; ADR-0017 clone supersedes mirror
 │   └── superpowers/plans/     [done]    completed v1 plans; mirror plans superseded by clone spec (ADR-0017)
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -31,10 +31,12 @@ tgcli/
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
 │   ├── mirror_probe.py        [done]    independent read-only protected-content diagnostic
-│   ├── clone/                 [done]    clone-owned state/fidelity/profile helpers (ADR-0017/0019/0020)
+│   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021)
 │   │   ├── state.py           [done]    atomic JSON state, mappings, cooldown
 │   │   ├── fidelity.py        [done]    truthful poll snapshots and named Story placeholders
-│   │   └── profile.py         [done]    init-time channel description and static avatar copy
+│   │   ├── profile.py         [done]    init-time chat description/bio and static avatar copy
+│   │   ├── attribution.py     [done]    source kinds, author cache, UTF-16 prefix shifts
+│   │   └── replies.py         [done]    validated reply mapping and explicit flatten fallback
 │   └── commands/
 │   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
@@ -45,7 +47,7 @@ tgcli/
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
-│   │   └── clone.py           [done]    live-accepted clone status/init/sync surface (ADR-0017/0018)
+│   │   └── clone.py           [done]    live-accepted clone status/init/sync surface (ADR-0017/0018/0021)
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
@@ -87,3 +89,4 @@ tgcli/
 | [0018](decisions/ADR-0018-clone-service-tail.md) | Clone tail verification accepts service-only rows while still blocking ordinary destination content |
 | [0019](decisions/ADR-0019-clone-truthful-fallbacks.md) | Poll snapshots, named Story placeholders, nested replies, and missing-parent continuity |
 | [0020](decisions/ADR-0020-clone-channel-profile.md) | Init-time channel description and static avatar copy with retry-safe recovery |
+| [0021](decisions/ADR-0021-clone-attributed-sources.md) | Megagroup/dialog sources, hybrid attribution transport, and explicit reply flatten reporting |

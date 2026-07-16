@@ -54,7 +54,9 @@ not rewritten.
   correction. Post-v1 ADR-0019 adds truthful static poll snapshots, named Story
   placeholders, and reply continuity without changing the CLI surface.
   ADR-0020 makes init copy the source channel's non-empty description and static
-  avatar before message sync begins. The
+  avatar before message sync begins. ADR-0021 adds non-forum megagroup and
+  private-dialog sources with hybrid native/reupload attribution, explicit
+  reply-flatten reporting, and live acceptance. The
   independent read-only `mirror_probe.py` diagnostic remains.
 - Multi-user distribution / packaging for strangers.
 - Bot API (this is a user-account MTProto tool).
