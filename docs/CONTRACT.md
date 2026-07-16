@@ -305,7 +305,7 @@ Animated or video avatar motion is not preserved (ADR-0020).
 Every create, title-edit, description-edit, and avatar-edit attempt appends a
 fail-closed shared audit record before dispatch. A profile-copy failure exits 2
 while retaining the recorded destination for a new-preview retry; it never
-creates a second channel. Telegram FloodWait during profile reads, downloads,
+creates a second destination. Telegram FloodWait during profile reads, downloads,
 uploads, or edits persists `retry_not_before` in clone state; later commit
 attempts exit 5 locally while that deadline is active. Init keeps the global
 60-second default timeout.
