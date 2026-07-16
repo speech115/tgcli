@@ -567,6 +567,115 @@ def test_clone_sync_validates_forum_header_before_topic_recovery(
     assert saved.cursor == 0 and saved.topic_map == {} and saved.id_map == {}
 
 
+@pytest.mark.parametrize("topic_id", [True, "2", -2])
+def test_clone_sync_rejects_malformed_forum_placement_before_recovery(
+    topic_id, config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+    client = CloneForumClient([
+        message(5, reply_to=types.MessageReplyHeader(
+            reply_to_msg_id=topic_id, forum_topic=True)),
+    ])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    assert "reply parent is invalid" in capsys.readouterr().err
+    assert client.requests == []
+    assert not safety.audit_path().exists()
+    saved = state.load(clone_state.clone_id)
+    assert saved.cursor == 0 and saved.topic_map == {} and saved.id_map == {}
+
+
+@pytest.mark.parametrize("topic_id", [True, "2", -2])
+def test_topic_id_of_rejects_malformed_forum_placement(topic_id):
+    header = types.MessageReplyHeader(
+        reply_to_msg_id=topic_id, forum_topic=True)
+
+    with pytest.raises(PolicyError, match="topic id is invalid"):
+        topics.topic_id_of(message(5, reply_to=header))
+
+
+@pytest.mark.parametrize("topic_id", [True, "2", -2])
+def test_topic_id_of_rejects_malformed_forum_reply_topic(topic_id):
+    header = types.MessageReplyHeader(
+        reply_to_msg_id=3, reply_to_top_id=topic_id, forum_topic=True)
+
+    with pytest.raises(PolicyError, match="topic id is invalid"):
+        topics.topic_id_of(message(5, reply_to=header))
+
+
+@pytest.mark.parametrize(
+    "overrides,error",
+    [
+        ({"reply_to_top_id": True}, "reply parent is invalid"),
+        ({"reply_to_top_id": "2"}, "reply parent is invalid"),
+        ({"reply_to_top_id": -2}, "reply parent is invalid"),
+        ({"reply_to_top_id": 2, "quote_text": 7}, "reply quote is invalid"),
+    ],
+)
+def test_clone_sync_rejects_malformed_forum_reply_before_recovery(
+    overrides, error, config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+    client = CloneForumClient([
+        message(5, reply_to=types.MessageReplyHeader(
+            reply_to_msg_id=3, forum_topic=True, **overrides)),
+    ])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    assert error in capsys.readouterr().err
+    assert client.requests == []
+    assert not safety.audit_path().exists()
+    saved = state.load(clone_state.clone_id)
+    assert saved.cursor == 0 and saved.topic_map == {} and saved.id_map == {}
+
+
+def test_clone_sync_rejects_mixed_topic_placement_album_before_recovery(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+    client = CloneForumClient([
+        message(5, grouped_id=44, reply_to=types.MessageReplyHeader(
+            reply_to_msg_id=2, forum_topic=True)),
+        message(6, grouped_id=44, reply_to=types.MessageReplyHeader(
+            reply_to_msg_id=3, forum_topic=True)),
+    ])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    assert "album reply metadata is inconsistent" in capsys.readouterr().err
+    assert client.requests == []
+    assert not safety.audit_path().exists()
+    saved = state.load(clone_state.clone_id)
+    assert saved.cursor == 0 and saved.topic_map == {} and saved.id_map == {}
+
+
+def test_clone_sync_forwards_same_topic_placement_album(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+    clone_state.record_topic(2, 1002)
+    clone_state.cursor = 2
+    state.save(clone_state)
+    header = types.MessageReplyHeader(reply_to_msg_id=2, forum_topic=True)
+    client = CloneForumClient([
+        message(3, grouped_id=44, reply_to=header),
+        message(4, grouped_id=44),
+    ])
+    client.destination_last_id = 1002
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["forwarded"] == 2
+    [request] = client.requests
+    assert request.id == [3, 4] and request.top_msg_id == 1002
+
+
 def test_clone_sync_rejects_forum_reply_header_for_nonforum_clone(
     config_env, monkeypatch, capsys
 ):

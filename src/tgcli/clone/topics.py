@@ -61,8 +61,11 @@ def topic_id_of(message) -> int:
     header = getattr(message, "reply_to", None)
     if header is None or not getattr(header, "forum_topic", False):
         return GENERAL_TOPIC_ID
-    return header.reply_to_top_id or header.reply_to_msg_id
-
+    topic_id = header.reply_to_top_id
+    topic_id = header.reply_to_msg_id if topic_id is None else topic_id
+    if type(topic_id) is not int or topic_id <= 0:
+        raise PolicyError("clone topic id is invalid")
+    return topic_id
 
 def placement_only(header) -> bool:
     return bool(header is not None and getattr(header, "forum_topic", False)
