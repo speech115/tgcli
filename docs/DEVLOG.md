@@ -14,6 +14,36 @@ Template:
 ```
 
 
+## 2026-07-16 — Clone chat types round 2 live-accepted (Claude Fable 5)
+**Did:** executed Task 9, the live acceptance gate for the round-2 clone plan.
+Bot dialog `AnonAskBot` (39 messages): 34 native forwards + 5 prefixed reply
+reuploads, order 1:1, both authors in forward headers, rerun 0. Owned legacy
+basic group «ебка ютуба» (266 messages + 2 service): broadcast destination,
+266/266 mapped ids strictly increasing, 40/40 reply links, 33 author-prefixed
+reuploads, rerun 0. Forum gate ran on a purpose-built owned fixture
+(«tgcli demo forum 07-16»: General + two named topics + in-topic reply):
+forum-megagroup destination, `topics_created 2`, topics 1:1 with exact titles,
+every message under its mirrored topic, the in-topic reply prefixed with the
+right parent in the right topic, rerun 0 copies / 0 topics. Full numbers are
+recorded under `### Live results` in the plan. Suite before acceptance:
+`377 passed, 8 skipped`; compileall clean.
+**Decided:** the task-7 forward-targeting question is closed on live data:
+`ForwardMessagesRequest.top_msg_id` routes forwards into the correct
+destination topics, so the designed reupload fallback stays unused and
+ADR-0022 stands as written. All four retained destinations stay user-owned.
+**Learned:** a SIGKILL between Telegram's send confirmation and the state
+save reproduced the ADR-0022 crash model in the wild: the next sync blocked
+fail-closed with `unexpected tail (1)`, and the documented manual repair
+(delete the single unmapped destination message, rerun) resumed cleanly from
+the saved cursor. Telethon's high-level `send_message(reply_to=<topic root>)`
+is the working way to place fixture messages into forum topics
+(`InputReplyToMessage` is rejected by `utils.get_message_id`), and
+`GetForumTopicsRequest` lives under `functions.messages`, not
+`functions.channels`.
+**Next:** merge the round-2 branch (PR against main) — clone now covers
+broadcast, megagroup, forum, basic, and dialog sources end to end.
+
+
 ## 2026-07-16 — Clone chat types round 2 documented (Codex)
 **Did:** completed Task 8 of the round-2 clone plan. CONTRACT now records the
 kind-dependent destination rule and `topics_created` output; ADR-0022 records

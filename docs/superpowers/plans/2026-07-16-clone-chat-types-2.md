@@ -1229,7 +1229,7 @@ git commit -m "Document clone chat types round 2 (ADR-0022)"
 
 Live fixtures are user-provided — coordinate before running: a real bot dialog, a small owned legacy basic group, and an owned forum with ≥3 topics (messages in General, in two named topics, and at least one in-topic reply). Reuse existing demo peers where possible — creating many channels triggers ~15h FLOOD_WAIT (live gotcha from DEVLOG 2026-07-15). Sessions/accounts per `tg accounts`.
 
-- [ ] **Step 1: Bot dialog (slice 1 gate)**
+- [x] **Step 1: Bot dialog (slice 1 gate)**
 
 ```bash
 tg clone init <bot-ref> --json           # expect kind "dialog", exit 0
@@ -1239,15 +1239,15 @@ tg clone sync <bot-ref> --json           # rerun: copied 0
 ```
 Visually verify in Telegram: order matches, both authors visible (forward headers / prefixes).
 
-- [ ] **Step 2: Basic group (slice 2 gate)**
+- [x] **Step 2: Basic group (slice 2 gate)**
 
 Same four commands with the basic-group ref; expect kind `"basic"`, destination is a broadcast channel, attribution prefixes on reply reuploads, rerun copies 0.
 
-- [ ] **Step 3: Forum (slice 3 gate)**
+- [x] **Step 3: Forum (slice 3 gate)**
 
 Same four commands with the forum ref; expect kind `"forum"`. Visually verify: destination is a forum; topics exist 1:1 with correct titles; every message sits in the topic mirroring its source topic; General content is in General; the in-topic reply links to the right parent; `topics_created` matches; rerun copies 0 and creates 0 topics. **This step also confirms the task 7 step 1 forward-targeting decision on live data — if forwards misroute topics, switch to the designed reupload fallback, update ADR-0022, and re-run.**
 
-- [ ] **Step 4: Record results**
+- [x] **Step 4: Record results**
 
 Append the observed numbers (mapped counts, topics created, rerun zeros, any live discoveries) to this plan under a `### Live results` heading, add the DEVLOG entry for the session, and commit:
 
@@ -1255,3 +1255,47 @@ Append the observed numbers (mapped counts, topics created, rerun zeros, any liv
 git add docs/DEVLOG.md docs/superpowers/plans/2026-07-16-clone-chat-types-2.md
 git commit -m "Record clone chat types round 2 live acceptance"
 ```
+
+---
+
+### Live results (2026-07-16)
+
+All three gates ran on account `main` from this branch's worktree.
+Suite before acceptance: `377 passed, 8 skipped`; compileall clean.
+
+**Slice 1 — bot dialog** (`AnonAskBot` id 1602683344, 39 messages, 5 replies):
+init preview kind `"dialog"`, exit 0; commit created destination 3851501462;
+sync `copied 39` (`forwarded 34`, `reuploaded 5`, `reply_flattened 0`);
+rerun `copied 0`. Readback: order 1:1 with source, both authors present in
+native forward headers (user 7091037467 and bot 1602683344), all 5 reuploaded
+replies carry the `Анонимные сообщения: ` author prefix and link the mapped
+parent.
+
+**Slice 2 — legacy basic group** («ебка ютуба» id 5196088920, owned,
+268 rows = 266 messages + 2 service):
+init preview kind `"basic"`, commit created broadcast destination 4446601094;
+syncs copied 64 + 202 = 266 (`forwarded` 169 in the resumed run,
+`reuploaded 33`); rerun `copied 0`. Readback: 266/266 mapped destination ids
+strictly increasing in source order, 40/40 reply links target the mapped
+parents, 33 author-prefixed reupload rows, the two unmapped source rows are
+`MessageActionChatCreate` + a join service action (correctly skipped).
+Live discovery: the first sync was SIGKILLed mid-run between Telegram's
+confirmation and the state save; the next sync blocked fail-closed with
+`unexpected tail (1)` exactly per the ADR-0022 crash model. Manual repair =
+delete the single unmapped destination message, rerun — resumed cleanly from
+the saved cursor.
+
+**Slice 3 — forum** («tgcli demo forum 07-16» id 4370905025, created for the
+gate: General + «Тема Альфа» + «Тема Бета», in-topic reply, 10 rows):
+init preview kind `"forum"`, commit created forum-megagroup destination
+3841465588; sync `copied 7` (`forwarded 6`, `reuploaded 1`),
+`skipped_service 1` (creation), `topics_created 2`; rerun `copied 0`,
+`topics_created 0`. Readback: destination topics 1:1 with exact titles
+(`topic_map {4: 5, 5: 6}`), General content in General (including the tail
+message after topic traffic), every topic message under its mirrored topic
+root, and the in-topic reply landed as a prefixed reupload with the correct
+parent (`reply 7`) inside the correct topic (`top 5`).
+**Forward-targeting decision confirmed live:** native
+`ForwardMessagesRequest.top_msg_id` routed every forwarded message into the
+right topic — the designed reupload fallback stays unused; ADR-0022 stands
+as written.
