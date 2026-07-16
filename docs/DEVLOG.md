@@ -14,6 +14,25 @@ Template:
 ```
 
 
+## 2026-07-16 — Clone chat types round 2 documented (Codex)
+**Did:** completed Task 8 of the round-2 clone plan. CONTRACT now records the
+kind-dependent destination rule and `topics_created` output; ADR-0022 records
+forum destination, topic-map, routing, recovery, and crash semantics; CLONE-002
+is closed; MAP and PLAN match the implemented source kinds and module tree.
+Task-level review passed after clarifying the original-plan wording and the
+kind-neutral retry guarantee. A whole-branch architecture review then found and
+TDD closed three prerequisite recovery-invariant gaps. Final verification is
+recorded in the Task 8 completion commit.
+**Decided:** forum live acceptance remains Task 9. Task 8 may claim mock/unit
+support and an accepted contract, but not live Telegram routing evidence.
+**Learned:** documentation review exposed broader implementation assumptions:
+1:1 topic maps require destination-value uniqueness, source lookup must not
+fabricate titles, and accepted-but-unconfirmed topic creation must turn an
+unmapped destination service tail into a manual-repair gate.
+**Next:** execute Task 9 live acceptance for bot, basic-group, and forum
+fixtures; verify forum topic placement and a zero-copy rerun on Telegram.
+
+
 ## 2026-07-16 — Forum topic recovery invariants hardened (Codex)
 **Did:** closed three final architecture-review findings with TDD. Persisted
 and runtime topic mappings now exclude General, stay within signed TL-int

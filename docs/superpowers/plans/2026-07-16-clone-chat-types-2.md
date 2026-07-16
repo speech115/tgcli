@@ -1121,7 +1121,7 @@ git commit -m "Route forum clone messages into mapped destination topics"
 
 **Interfaces:** none (docs describe tasks 1–7 exactly as committed).
 
-- [ ] **Step 1: Rewrite CONTRACT.md §11 header paragraph**
+- [x] **Step 1: Rewrite CONTRACT.md §11 header paragraph**
 
 Replace the opening paragraph (through "…private owned broadcast channel.") with:
 
@@ -1129,7 +1129,7 @@ Replace the opening paragraph (through "…private owned broadcast channel.") wi
 
 Also in §11: update the sync JSON example and plain-column list to include `topics_created` (position matches `sync_rows`: after the unsupported count, before `cursor`), and add one sentence to the sync semantics: *"For forum clones, a topic-create service message creates the matching destination topic (counted in `topics_created`, not `skipped_service`); messages arriving for an unmapped topic recover it from the source topic's current title."*
 
-- [ ] **Step 2: Write ADR-0022**
+- [x] **Step 2: Write ADR-0022**
 
 Create `docs/decisions/ADR-0022-clone-forum-topics.md`:
 
@@ -1185,7 +1185,7 @@ cloning into existing groups, comments/watch.
 
 (Fix the typo "destination ation" when writing the file; adjust the transport line per task 7 step 1's outcome.)
 
-- [ ] **Step 3: Close CLONE-002 in docs/ISSUES.md**
+- [x] **Step 3: Close CLONE-002 in docs/ISSUES.md**
 
 Replace the CLONE-002 body with:
 
@@ -1202,12 +1202,12 @@ Still out of scope: cloning into pre-existing groups, secret chats,
 topic edit/close propagation.
 ```
 
-- [ ] **Step 4: Update MAP.md and PLAN.md**
+- [x] **Step 4: Update MAP.md and PLAN.md**
 
 - MAP.md: add a one-line entry for `src/tgcli/clone/topics.py` next to the other `clone/` modules, matching the file's existing format: "forum destination shape, lazy topic map, batch confirmation (ADR-0022)".
 - PLAN.md: in the current-phase section, note that clone accepts bots/basic groups/forums per ADR-0022 and that the destination invariant is now kind-dependent.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run: `pytest -q` (docs only — suite must still be green).
 
