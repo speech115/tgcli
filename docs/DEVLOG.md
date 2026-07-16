@@ -14,6 +14,29 @@ Template:
 ```
 
 
+## 2026-07-16 — Architecture review, deepening plan, mirror_probe archived (Claude Fable 5)
+**Did:** ran an architecture review over the clone hot spot (report:
+scratchpad HTML, not committed). Wrote
+`docs/superpowers/plans/2026-07-16-clone-deepening-refactor.md` — behavior-
+frozen refactor extracting `clone/batching.py` (pure batch planner) and
+`clone/transport.py` (pure TransportPlan decision), splitting
+`clone/snapshot.py` out of `fidelity.py`, inlining `profile.py`, and
+backfilling direct unit tests for `attribution`/`replies`. Archived the
+mirror-era diagnostic: deleted `src/tgcli/mirror_probe.py`,
+`scripts/mirror_probe.py`, both probe test files; updated MAP.md and PLAN.md.
+`pytest -q`: 274 passed, 8 skipped; `scripts/check-coverage.py`: OK.
+**Decided:** deepen before round 3 — the comments loop must consume
+`batching.plan`/`transport.decide` instead of duplicating the sync loop.
+Refactor executes only after the round-2 chat-types branch merges (plan
+Task 0 gates on it). CLI command-registration seam deferred to its own plan.
+**Learned:** the three duplicated `limit` checks in `sync_text` are provably
+one check (copied_batches only changes inside finish_batch);
+`fidelity.replacement` non-None is exactly `fidelity.supports`, so the
+transport decision is pure. attribution/replies/fidelity had zero direct
+unit tests — everything ran through the 1092-line CLI fake.
+**Next:** merge round 2 (`codex/clone-chat-types-round-2-tasks-1-3`), then
+execute the deepening plan, then implement clone comments round 3.
+
 ## 2026-07-16 — Comments cloning designed as round 3 (Claude Fable 5)
 **Did:** grilled the "clone channel comments" request end-to-end; wrote
 `docs/superpowers/specs/2026-07-16-clone-comments-design.md` (approved design,
