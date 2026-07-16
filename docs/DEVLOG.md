@@ -14,6 +14,27 @@ Template:
 ```
 
 
+## 2026-07-16 — Forum clone destinations complete (Codex)
+**Did:** completed Task 5 of the round-2 clone plan. Forum megagroups are now
+accepted as sources; init creates or recovers one private creator-owned
+megagroup, enables forum mode idempotently, and records the destination before
+the toggle so interrupted initialization is retryable. Sync requires an
+enabled forum destination and now fails closed when the persisted destination
+tail points past Telegram's current latest message. Added create, marker
+recovery, audit-failure, source-kind drift, destination-shape, and tail-deletion
+regressions. Final gates passed `328 passed, 8 skipped`; coverage reports 23
+namespaces.
+**Decided:** init may adopt a matching private owned plain megagroup and then
+enable forum mode, while sync requires `forum=True`. Forum enablement has its
+own fail-closed `clone-init-forum` audit record. A live source changing between
+megagroup and forum is rejected before state writes, audit, or mutation.
+**Learned:** Telethon 1.44 requires the `tabs` argument on
+`ToggleForumRequest`; `tabs=False` preserves the default topic-list view. The
+Task 5 safety additions consumed the remaining `commands/clone.py` budget, now
+exactly `400/400`, so Task 6 must extract or compress before adding logic.
+**Next:** execute Task 6: lazy destination-topic creation during forum sync.
+
+
 ## 2026-07-16 — Forum clone state foundation complete (Codex)
 **Did:** completed Task 4 of the round-2 clone plan. `CloneState` now persists
 `destination_kind` and a lazy `topic_map`, derives forum destinations from

@@ -481,7 +481,7 @@ git commit -m "Add destination kind and topic map to clone state"
 - Consumes: task 4 state fields.
 - Produces: `attribution.source_kind()` returns `"forum"` for `megagroup=True, forum=True`. `topics.GENERAL_TOPIC_ID = 1`; `topics.is_forum_destination(entity, *, title=None) -> bool`; `topics.create_request(marker) -> CreateChannelRequest` (megagroup); `async topics.ensure_forum(mutate, destination)` toggles the forum flag idempotently. `commit_init` creates/adopts the destination by kind and `sync_text` validates it by kind.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/test_cli_clone_init.py`:
 
@@ -546,12 +546,12 @@ def test_clone_init_commit_creates_forum_destination(config_env, monkeypatch, ca
     assert saved.destination_kind == "forum"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_cli_clone_init.py -q`
 Expected: both new tests FAIL (exit 2, "forum topics are not supported").
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 `src/tgcli/clone/attribution.py` — replace the megagroup branch:
 
@@ -655,12 +655,12 @@ In `sync_text`, replace the destination shape check:
         raise PolicyError(f"clone destination is not a private owned {kind_name}")
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest -q`
 Expected: all PASS (existing broadcast-shape error-message tests still match).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tgcli/clone/topics.py src/tgcli/clone/attribution.py \
