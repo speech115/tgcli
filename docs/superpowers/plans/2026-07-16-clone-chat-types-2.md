@@ -33,7 +33,7 @@
 - Consumes: nothing new.
 - Produces: `attribution.source_kind(entity)` returns `"dialog"` for any `types.User`, including `bot=True`. Downstream (state allowlist, hybrid transport, `GetFullUserRequest` profile copy) is already generic over `"dialog"`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `tests/test_cli_clone_init.py`, remove the bot line from the reject parametrize and add an accept test:
 
@@ -53,12 +53,12 @@ def test_clone_init_preview_accepts_bot_dialog(config_env, monkeypatch, capsys):
     assert source == {"id": 123, "title": "Alex Smith", "kind": "dialog"}
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_cli_clone_init.py::test_clone_init_preview_accepts_bot_dialog -q`
 Expected: FAIL — exit code 2 instead of 0 ("clone source bots are not supported").
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `src/tgcli/clone/attribution.py`, replace:
 
@@ -76,12 +76,12 @@ with:
         return "dialog"
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/test_cli_clone_init.py -q && pytest -q`
 Expected: all PASS.
 
-- [ ] **Step 5: Update CONTRACT.md §11**
+- [x] **Step 5: Update CONTRACT.md §11**
 
 In the §11 opening paragraph, change the two sentences:
 
@@ -93,7 +93,7 @@ to:
 
 (Tasks 3 and 8 rewrite this paragraph further; keep each edit truthful for the code as committed.)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/tgcli/clone/attribution.py tests/test_cli_clone_init.py docs/CONTRACT.md
@@ -112,7 +112,7 @@ git commit -m "Accept bot dialogs as clone sources"
 **Interfaces:**
 - Produces: `source_kind()` returns `"basic"` for a live `types.Chat`; raises `PolicyError` for migrated (`migrated_to` set) or `deactivated` chats. `same_peer(peer, source)` matches `types.PeerChat` against a `types.Chat` source (used by reply validation). `CloneState` round-trips `source_kind="basic"`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `tests/test_cli_clone_init.py`, add a helper next to `user()` and update the matrix:
 
@@ -157,12 +157,12 @@ def test_state_accepts_basic_source_kind(tmp_path, monkeypatch):
     assert state.load(saved.clone_id).source_kind == "basic"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_cli_clone_init.py tests/test_clone_state.py -q`
 Expected: new accept tests FAIL (policy error / `PolicyError: clone state ... is invalid`); migrated/deactivated entries FAIL because the current message is "basic groups are not supported".
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 `src/tgcli/clone/attribution.py` — replace the `types.Chat` branch:
 
@@ -193,12 +193,12 @@ def same_peer(peer, source) -> bool:
         if source_kind not in {"broadcast", "megagroup", "dialog", "basic"}:
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest -q`
 Expected: all PASS. Also check the attribution budget: `wc -l src/tgcli/clone/attribution.py` must be ≤ 80.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tgcli/clone/attribution.py src/tgcli/clone/state.py \
@@ -219,7 +219,7 @@ git commit -m "Accept live basic groups as clone sources"
 - Consumes: `source_kind() == "basic"` from task 2.
 - Produces: `profile.copy` handles `types.Chat` via `functions.messages.GetFullChatRequest(chat_id=...)`. Sync of a `"basic"` clone uses the existing attributed hybrid transport unchanged (it keys off `source_kind != "broadcast"`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/test_cli_clone_init.py` — teach the fake client the new request (inside `CloneInitClient.__call__`, next to the GetFull* branches):
 
@@ -299,12 +299,12 @@ def test_clone_sync_reuploads_basic_group_reply_with_prefix(
     assert sync["reuploaded"] == 1
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_cli_clone_init.py::test_clone_init_commit_copies_basic_group_profile tests/test_cli_clone_sync.py -q`
 Expected: the commit test FAILS inside `profile.copy` (a `types.Chat` falls into the `GetFullChannelRequest` branch and the fake client raises "unexpected request"). The two sync tests are expected to PASS already (the transport is generic) — if they pass on first run, that is the regression guard, keep them.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 `src/tgcli/clone/profile.py` — replace the about-fetch block:
 
@@ -321,18 +321,18 @@ Expected: the commit test FAILS inside `profile.copy` (a `types.Chat` falls into
         about = getattr(full.full_chat, "about", None) or ""
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest -q`
 Expected: all PASS.
 
-- [ ] **Step 5: Update CONTRACT.md §11**
+- [x] **Step 5: Update CONTRACT.md §11**
 
 Change the accepted-sources sentence to:
 
 > `It accepts broadcast channels, non-forum megagroup supergroups, live legacy basic groups, and private one-to-one User dialogs including dialogs with bots. Forum supergroups, basic groups that migrated to a supergroup or were deactivated, and other peer shapes exit 2 with a source-specific policy message.`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/tgcli/clone/profile.py tests/test_cli_clone_init.py \
