@@ -14,6 +14,29 @@ Template:
 ```
 
 
+## 2026-07-16 — Clone chat types round 2 prepared (Claude Fable 5 / Codex)
+**Did:** completed and approved the design for bot-dialog, legacy basic-group,
+and forum-megagroup clone sources in
+`docs/superpowers/specs/2026-07-16-clone-chat-types-2-design.md`, then wrote the
+nine-task TDD implementation plan in
+`docs/superpowers/plans/2026-07-16-clone-chat-types-2.md`. Codex recovered the
+finished but untracked plan after Claude hit its usage limit, moved the design
+commit off local `main` onto `codex/clone-chat-types-round-2-plan`, and restored
+local `main` to `origin/main`.
+**Decided:** bot dialogs follow the existing dialog path; live legacy basic
+groups follow the attributed megagroup path into broadcast destinations; forum
+sources create private owned forum-megagroup destinations with a lazy 1:1 topic
+map. ADR-0022, CONTRACT, ISSUES, MAP, and PLAN changes remain Task 8 so project
+documentation does not claim support before the implementation exists.
+**Learned:** Claude's plan file was complete despite the interrupted response,
+but it was not tracked and the design commit had been made directly on local
+`main`. The implementation remains intentionally untouched at this preparation
+checkpoint.
+**Next:** execute tasks 1–9 in
+`docs/superpowers/plans/2026-07-16-clone-chat-types-2.md`, preserving TDD and the
+live Telegram acceptance gate.
+
+
 ## 2026-07-16 — Megagroup and dialog clone sources live-accepted (Codex)
 **Did:** executed the approved chat-types plan and added ADR-0021. Clone now
 accepts non-forum megagroups and non-bot User dialogs, persists `source_kind`,
