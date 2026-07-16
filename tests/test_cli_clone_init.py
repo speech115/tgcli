@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -45,8 +46,11 @@ def channel(channel_id, title, **overrides):
 class CloneInitClient:
     def __init__(self):
         self.source = channel(123, "Source channel", noforwards=True)
+        self.source_about = ""
         self.requests = []
         self.destination = None
+        self.downloads = []
+        self.uploads = []
 
     async def get_entity(self, ref):
         if isinstance(ref, types.PeerChannel) and self.destination is not None:
@@ -66,8 +70,23 @@ class CloneInitClient:
         if self.destination is not None:
             yield SimpleNamespace(entity=self.destination)
 
+    async def download_profile_photo(self, entity, file=None):
+        assert entity is self.source
+        path = Path(file).with_suffix(".jpg")
+        path.write_bytes(b"avatar")
+        self.downloads.append(path)
+        return str(path)
+
+    async def upload_file(self, path):
+        self.uploads.append(Path(path))
+        return types.InputFile(id=1, parts=1, name=Path(path).name, md5_checksum="")
+
     async def __call__(self, request):
         self.requests.append(request)
+        if isinstance(request, functions.channels.GetFullChannelRequest):
+            return SimpleNamespace(
+                full_chat=SimpleNamespace(about=self.source_about)
+            )
         if isinstance(request, functions.channels.CreateChannelRequest):
             clone_id = state.clone_id(42, 123)
             pending = state.load(clone_id)
@@ -77,6 +96,12 @@ class CloneInitClient:
             return SimpleNamespace(chats=[self.destination])
         if isinstance(request, functions.channels.EditTitleRequest):
             self.destination.title = request.title
+            return SimpleNamespace()
+        if isinstance(request, functions.messages.EditChatAboutRequest):
+            self.destination.about = request.about
+            return True
+        if isinstance(request, functions.channels.EditPhotoRequest):
+            self.destination.photo = request.photo
             return SimpleNamespace()
         raise AssertionError(f"unexpected request: {request!r}")
 
@@ -134,12 +159,84 @@ def test_clone_init_commit_creates_and_records_destination(
     assert [type(request) for request in client.requests] == [
         functions.channels.CreateChannelRequest,
         functions.channels.EditTitleRequest,
+        functions.channels.GetFullChannelRequest,
     ]
     audits = [json.loads(line) for line in safety.audit_path().read_text().splitlines()]
     assert [record["action"] for record in audits] == [
         "clone-init-create",
         "clone-init-title",
     ]
+
+
+def test_clone_init_commit_copies_nonempty_channel_description(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.source_about = "Source description"
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert main(
+        ["clone", "init", "@source", "--commit", preview["preview_id"], "--json"]
+    ) == 0
+
+    capsys.readouterr()
+    [request] = [item for item in client.requests
+                 if isinstance(item, functions.messages.EditChatAboutRequest)]
+    assert request.peer is client.destination
+    assert request.about == "Source description"
+    audits = [json.loads(line) for line in safety.audit_path().read_text().splitlines()]
+    assert audits[-1]["action"] == "clone-init-about"
+
+
+def test_clone_init_commit_copies_channel_avatar_and_cleans_tempfile(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.source.photo = object()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert main(
+        ["clone", "init", "@source", "--commit", preview["preview_id"], "--json"]
+    ) == 0
+
+    capsys.readouterr()
+    [request] = [item for item in client.requests
+                 if isinstance(item, functions.channels.EditPhotoRequest)]
+    assert request.channel is client.destination
+    assert isinstance(request.photo, types.InputChatUploadedPhoto)
+    assert isinstance(request.photo.file, types.InputFile)
+    assert len(client.uploads) == 1
+    assert all(not path.exists() and not path.parent.exists()
+               for path in client.downloads)
+    audits = [json.loads(line) for line in safety.audit_path().read_text().splitlines()]
+    assert audits[-1]["action"] == "clone-init-avatar"
+
+
+def test_clone_init_avatar_download_failure_keeps_destination_retryable(
+    config_env, monkeypatch, capsys
+):
+    class MissingAvatarClient(CloneInitClient):
+        async def download_profile_photo(self, entity, file=None):
+            return None
+
+    client = MissingAvatarClient()
+    client.source.photo = object()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert main(
+        ["clone", "init", "@source", "--commit", preview["preview_id"], "--json"]
+    ) == 2
+
+    assert "avatar download failed" in capsys.readouterr().err
+    saved = state.load(state.clone_id(42, 123))
+    assert saved.destination_peer_id == 999
+    assert not any(isinstance(item, functions.channels.EditPhotoRequest)
+                   for item in client.requests)
+    audits = [json.loads(line) for line in safety.audit_path().read_text().splitlines()]
+    assert "clone-init-avatar" not in [record["action"] for record in audits]
 
 
 def test_clone_init_commit_adopts_half_created_marker_channel(
@@ -162,7 +259,8 @@ def test_clone_init_commit_adopts_half_created_marker_channel(
     result = json.loads(capsys.readouterr().out)
     assert result["clone"]["destination"]["id"] == 999
     assert [type(request) for request in client.requests] == [
-        functions.channels.EditTitleRequest
+        functions.channels.EditTitleRequest,
+        functions.channels.GetFullChannelRequest,
     ]
     assert state.load(clone_state.clone_id).destination_peer_id == 999
 
@@ -187,7 +285,9 @@ def test_clone_init_commit_reuses_recorded_destination_without_mutation(
 
     result = json.loads(capsys.readouterr().out)
     assert result["clone"]["destination"] == {"id": 999, "title": "Source channel"}
-    assert client.requests == []
+    assert [type(request) for request in client.requests] == [
+        functions.channels.GetFullChannelRequest,
+    ]
 
 
 def test_clone_init_create_flood_wait_persists_cooldown(

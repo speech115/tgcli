@@ -52,7 +52,9 @@ not rewritten.
   product surface. ADR-0015 destination retention and ADR-0016 fidelity rules
   carry forward into clone; ADR-0018 records the live-found service-only tail
   correction. Post-v1 ADR-0019 adds truthful static poll snapshots, named Story
-  placeholders, and reply continuity without changing the CLI surface. The
+  placeholders, and reply continuity without changing the CLI surface.
+  ADR-0020 makes init copy the source channel's non-empty description and static
+  avatar before message sync begins. The
   independent read-only `mirror_probe.py` diagnostic remains.
 - Multi-user distribution / packaging for strangers.
 - Bot API (this is a user-account MTProto tool).

@@ -287,10 +287,19 @@ without mutation on multiple or wrong-shape matches. Once a destination id is
 recorded, repeated init resolves and reuses it without scanning or creating.
 Destinations are user-owned and never deleted automatically.
 
-Every create and title-edit attempt appends a fail-closed shared audit record
-before dispatch. Telegram FloodWait persists `retry_not_before` in clone state;
-later commit attempts exit 5 locally while that deadline is active. Init keeps
-the global 60-second default timeout.
+After creation or recovery, init applies the source title, copies a non-empty
+channel description, and copies a non-empty static channel avatar before
+returning `status: ready`. Empty source fields cause no destination mutation.
+Avatar bytes use a temporary directory that is removed on success or failure.
+Animated or video avatar motion is not preserved (ADR-0020).
+
+Every create, title-edit, description-edit, and avatar-edit attempt appends a
+fail-closed shared audit record before dispatch. A profile-copy failure exits 2
+while retaining the recorded destination for a new-preview retry; it never
+creates a second channel. Telegram FloodWait during profile reads, downloads,
+uploads, or edits persists `retry_not_before` in clone state; later commit
+attempts exit 5 locally while that deadline is active. Init keeps the global
+60-second default timeout.
 
 `sync SOURCE` requires initialized state and a private creator-owned broadcast
 destination. It verifies the destination tail before reading new source

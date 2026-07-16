@@ -1,5 +1,4 @@
 """Copy broadcast channels into user-owned channels (ADR-0017)."""
-
 from datetime import UTC, datetime, timedelta
 from math import ceil
 from pathlib import Path
@@ -9,7 +8,7 @@ from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
 
 from tgcli import chatref, safety
-from tgcli.clone import fidelity, state
+from tgcli.clone import fidelity, profile, state
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
 
 def _entry(s: state.CloneState) -> dict:
@@ -115,7 +114,6 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
     clone_state.creation_marker = marker
     state.save(clone_state)
     _enforce_cooldown(clone_state)
-
     if clone_state.destination_peer_id is not None:
         try:
             destination = await tg.get_entity(types.PeerChannel(
@@ -152,6 +150,8 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
             tg, functions.channels.EditTitleRequest(
                 channel=destination, title=clone_state.source_title), clone_state)
         destination.title = clone_state.source_title
+    await profile.copy(tg, entity, destination, account_alias, clone_id,
+                       lambda awaitable: _with_cooldown(awaitable, clone_state))
     return _init_result(clone_state, destination)
 def init_rows(data: dict) -> list[tuple]:
     clone = data["clone"]

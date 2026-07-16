@@ -14,6 +14,28 @@ Template:
 ```
 
 
+## 2026-07-16 — Clone init copies channel profile (Codex)
+**Did:** added ADR-0020 and the 37-line `clone/profile.py`. After destination
+creation or recovery, `tg clone init --commit` now copies a non-empty source
+description and a static source avatar before returning ready. All profile
+network operations use persisted cooldown handling; mutations are audited, and
+an avatar-download failure leaves the recorded destination retryable. TDD covers
+description copy, avatar upload and temporary-file cleanup, the empty-profile
+path, destination reuse, and the failure path. Applied the feature to the live
+`@sral_v_nastav` clone: the source description was empty, while its previously
+missing destination avatar was copied successfully.
+**Decided:** title, available description, and static avatar are part of clone
+initialization, not a later sync concern. Animated avatar motion is explicitly
+outside the current fidelity guarantee.
+**Learned:** channel descriptions use `messages.editChatAbout`, while channel
+avatars use `channels.editPhoto`; Telegram re-encoded the live 640×640 JPEG but
+the source/destination comparison remained visually identical (`SSIM 0.999885`).
+Final checks: `271 passed, 8 skipped in 1.88s`; coverage 23 namespaces;
+compileall and diff check clean. Budgets remain `400/149/89`, with the new
+profile helper at 37 lines.
+**Next:** run the final gate, commit, push `feature/clone`, and verify PR #8 CI.
+
+
 ## 2026-07-16 — Clone fallbacks made human-readable (Codex)
 **Did:** redesigned ADR-0019 destination messages after user visual review.
 Poll snapshots now use a Russian heading, Unicode progress bars, natural vote
