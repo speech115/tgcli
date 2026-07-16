@@ -679,9 +679,9 @@ git commit -m "Create forum megagroup destinations for forum clones"
 
 **Interfaces:**
 - Consumes: task 4 `record_topic`/`topic_dest_for`, task 5 `topics.py`.
-- Produces: `topics.confirmed_destination_ids(response, random_ids)` (moved verbatim from `commands/clone.py`; clone.py now calls `topics.confirmed_destination_ids(...)`). `async topics.create_topic(mutate, destination, clone_state, source_topic_id, *, title, icon_color=None, icon_emoji_id=None) -> int` — sends `CreateForumTopicRequest`, confirms the new topic root id, records the mapping, and saves state. Sync report gains `"topics_created": <int>` (always present, 0 for non-forum clones); `sync_rows` gains the column after the unsupported count.
+- Produces: `topics.confirmed_destination_ids(response, random_ids)` (moved verbatim from `commands/clone.py`; clone.py now calls `topics.confirmed_destination_ids(...)`). `async topics.create_topic(mutate, destination, clone_state, source_topic_id, *, account_alias, title, icon_color=None, icon_emoji_id=None) -> int` — audits fail-closed, sends `messages.CreateForumTopicRequest`, confirms the new topic root id, records the mapping, and saves state. Sync report gains `"topics_created": <int>` (always present, 0 for non-forum clones); `sync_rows` gains the column after the unsupported count.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `tests/test_cli_clone_sync.py` add helpers (module level, after `CloneReuploadClient`):
 
@@ -704,14 +704,14 @@ class CloneForumClient(CloneReuploadClient):
         self.source_topic_titles = {}
 
     async def __call__(self, request):
-        if isinstance(request, functions.channels.CreateForumTopicRequest):
+        if isinstance(request, functions.messages.CreateForumTopicRequest):
             self.requests.append(request)
             self.destination_last_id += 1
             self.destination_actions[self.destination_last_id] = (
                 types.MessageActionTopicCreate(title=request.title, icon_color=0))
             return SimpleNamespace(updates=[types.UpdateMessageID(
                 id=self.destination_last_id, random_id=request.random_id)])
-        if isinstance(request, functions.channels.GetForumTopicsByIDRequest):
+        if isinstance(request, functions.messages.GetForumTopicsByIDRequest):
             self.requests.append(request)
             return SimpleNamespace(topics=[
                 SimpleNamespace(id=topic_id, title=self.source_topic_titles[topic_id])
@@ -734,7 +734,7 @@ def test_clone_sync_creates_destination_topic_from_topic_create_service(
 
     sync = json.loads(capsys.readouterr().out)["sync"]
     [request] = client.requests
-    assert isinstance(request, functions.channels.CreateForumTopicRequest)
+    assert isinstance(request, functions.messages.CreateForumTopicRequest)
     assert request.title == "News"
     assert sync["topics_created"] == 1
     assert sync["skipped_service"] == 0
@@ -753,14 +753,14 @@ Update the two existing full-shape assertions:
 - `test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently`: add `"topics_created": 0,` to the expected `result["sync"]` dict.
 - `test_clone_sync_plain_output_has_contract_columns`: add the `topics_created` column value (`0`) at the position matching `sync_rows` below.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_cli_clone_sync.py -q`
 Expected: new test FAILS (`KeyError: 'topics_created'` or unexpected-request assertion); the two updated tests FAIL on the missing key/column.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
-Move `_confirmed_destination_ids` (clone.py:166-183) verbatim into `topics.py` as `confirmed_destination_ids` (add `from telethon.tl import functions, types` and `from tgcli.errors import PolicyError` to topics.py imports); in clone.py replace its two call sites with `topics.confirmed_destination_ids(...)` and delete the function.
+Move `_confirmed_destination_ids` (clone.py:166-183) verbatim into `topics.py` as `confirmed_destination_ids` (add `from telethon.tl import functions, types`, `from tgcli import safety`, and `from tgcli.errors import PolicyError` to topics.py imports); in clone.py replace its two call sites with `topics.confirmed_destination_ids(...)` and delete the function.
 
 Append to `topics.py`:
 
@@ -771,10 +771,13 @@ from tgcli.clone import state
 
 
 async def create_topic(mutate, destination, clone_state, source_topic_id, *,
-                       title: str, icon_color=None, icon_emoji_id=None) -> int:
+                       account_alias: str, title: str, icon_color=None,
+                       icon_emoji_id=None) -> int:
     random_id = secrets.randbelow(2**63 - 1) + 1
-    response = await mutate(functions.channels.CreateForumTopicRequest(
-        channel=destination, title=title, random_id=random_id,
+    safety.append_audit("clone-sync-topic", account_alias, {
+        "clone_id": clone_state.clone_id, "source_topic_id": source_topic_id})
+    response = await mutate(functions.messages.CreateForumTopicRequest(
+        peer=destination, title=title, random_id=random_id,
         icon_color=icon_color, icon_emoji_id=icon_emoji_id))
     [destination_topic_id] = confirmed_destination_ids(response, [random_id])
     clone_state.record_topic(source_topic_id, destination_topic_id)
@@ -796,12 +799,14 @@ and replace the service-message branch body (after the album-flush and limit che
 ```python
             if forum and isinstance(source_message.action,
                                     types.MessageActionTopicCreate):
-                await topics.create_topic(
-                    mutate, destination, clone_state, source_message.id,
-                    title=source_message.action.title,
-                    icon_color=getattr(source_message.action, "icon_color", None),
-                    icon_emoji_id=getattr(source_message.action, "icon_emoji_id", None))
-                topic_counters["topics_created"] += 1
+                if clone_state.topic_dest_for(source_message.id) is None:
+                    await topics.create_topic(
+                        mutate, destination, clone_state, source_message.id,
+                        account_alias=account_alias,
+                        title=source_message.action.title,
+                        icon_color=getattr(source_message.action, "icon_color", None),
+                        icon_emoji_id=getattr(source_message.action, "icon_emoji_id", None))
+                    topic_counters["topics_created"] += 1
             else:
                 skipped_service += 1
             clone_state.cursor = source_message.id
@@ -818,12 +823,12 @@ Add `**topic_counters,` to the returned `"sync"` dict (next to `**transport_coun
              clone["destination"]["id"], sync["more"])]
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest -q && wc -l src/tgcli/commands/clone.py src/tgcli/clone/topics.py`
 Expected: all PASS; clone.py shrinks (function moved out), topics.py ≤ 100.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tgcli/clone/topics.py src/tgcli/commands/clone.py tests/test_cli_clone_sync.py
@@ -842,7 +847,7 @@ git commit -m "Create destination topics lazily from topic-create messages"
 
 **Interfaces:**
 - Consumes: tasks 4–6.
-- Produces: `topics.topic_id_of(message) -> int` (source topic id; `GENERAL_TOPIC_ID` when no forum header). `async topics.ensure_topic(mutate, source, destination, clone_state, source_topic_id, counters) -> int` (General passthrough; map hit; else one `GetForumTopicsByIDRequest` lookup + `create_topic`, counted in `counters["topics_created"]`). `topics.place(reply_to, destination_topic_id)` merges topic placement into an `InputReplyToMessage` (General → unchanged). `topics.placement_only(header) -> bool`. `replies.target` accepts forum headers only for forum clones: placement-only headers (no `reply_to_top_id`) are not replies; real in-topic replies map the parent via `id_map` with `top_msg_id` left to `place()`.
+- Produces: `topics.topic_id_of(message) -> int` (source topic id; `GENERAL_TOPIC_ID` when no forum header). `async topics.ensure_topic(mutate, source, destination, clone_state, source_topic_id, counters, *, account_alias) -> int` (General passthrough; map hit; else one `GetForumTopicsByIDRequest` lookup + audited `create_topic`, counted in `counters["topics_created"]`). `topics.place(reply_to, destination_topic_id)` merges topic placement into an `InputReplyToMessage` (General → unchanged). `topics.placement_only(header) -> bool`. `replies.target` accepts forum headers only for forum clones: placement-only headers (no `reply_to_top_id`) are not replies; real in-topic replies map the parent via `id_map` with `top_msg_id` left to `place()`.
 
 - [ ] **Step 1: Verify the forward-topic-targeting deferred check (spec open question)**
 
@@ -946,9 +951,9 @@ def test_clone_sync_recovers_unmapped_topic_from_source_lookup(
 
     sync = json.loads(capsys.readouterr().out)["sync"]
     lookups = [item for item in client.requests
-               if isinstance(item, functions.channels.GetForumTopicsByIDRequest)]
+               if isinstance(item, functions.messages.GetForumTopicsByIDRequest)]
     created = [item for item in client.requests
-               if isinstance(item, functions.channels.CreateForumTopicRequest)]
+               if isinstance(item, functions.messages.CreateForumTopicRequest)]
     assert len(lookups) == 1 and len(created) == 1
     assert created[0].title == "Old news"
     assert sync["topics_created"] == 1
@@ -1025,21 +1030,22 @@ def placement_only(header) -> bool:
 
 
 async def ensure_topic(mutate, source, destination, clone_state,
-                       source_topic_id: int, counters: dict) -> int:
+                       source_topic_id: int, counters: dict, *,
+                       account_alias: str) -> int:
     if source_topic_id == GENERAL_TOPIC_ID:
         return GENERAL_TOPIC_ID
     known = clone_state.topic_dest_for(source_topic_id)
     if known is not None:
         return known
-    response = await mutate(functions.channels.GetForumTopicsByIDRequest(
-        channel=source, topics=[source_topic_id]))
+    response = await mutate(functions.messages.GetForumTopicsByIDRequest(
+        peer=source, topics=[source_topic_id]))
     found = [item for item in getattr(response, "topics", ())
              if getattr(item, "id", None) == source_topic_id
              and isinstance(getattr(item, "title", None), str)]
     title = found[0].title if found else f"topic {source_topic_id}"
     counters["topics_created"] += 1
     return await create_topic(mutate, destination, clone_state, source_topic_id,
-                              title=title)
+                              account_alias=account_alias, title=title)
 
 
 def place(reply_to, destination_topic_id: int):
@@ -1078,7 +1084,8 @@ In `sync_text`'s `finish_batch`, before calling `_forward_batch`:
         if forum:
             topic_dest = await topics.ensure_topic(
                 mutate, source_entity, destination, clone_state,
-                topics.topic_id_of(messages[0]), topic_counters)
+                topics.topic_id_of(messages[0]), topic_counters,
+                account_alias=account_alias)
 ```
 
 and pass `topic_dest=topic_dest` to `_forward_batch`.

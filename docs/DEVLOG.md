@@ -14,6 +14,27 @@ Template:
 ```
 
 
+## 2026-07-16 — Lazy forum topic creation complete (Codex)
+**Did:** completed Task 6 of the round-2 clone plan. Forum sync now turns
+`MessageActionTopicCreate` service rows into destination topics, confirms the
+Telegram-assigned root ID through `UpdateMessageID`, persists the topic map
+before advancing the cursor, and reports `topics_created` in JSON and plain
+output. The shared batch-confirmation parser moved into `clone/topics.py`.
+Final gates passed `332 passed, 8 skipped`; coverage reports 23 namespaces.
+**Decided:** topic creation is safe by construction: `create_topic` requires an
+account alias and writes the fail-closed `clone-sync-topic` audit immediately
+before dispatch. A replay with a saved topic mapping but stale cursor advances
+without a duplicate audit or mutation. Only a hard crash after Telegram
+creates the topic but before mapping persistence may duplicate one topic, as
+accepted by the approved forum crash model.
+**Learned:** pinned Telethon 1.44 exposes forum topic creation and lookup under
+`functions.messages` with `peer=`, not the draft plan's `functions.channels`
+spelling. The plan's Task 6/7 internal interfaces were corrected accordingly.
+Final budgets are `clone.py 396/400`, `topics.py 70/100`,
+`attribution.py 78/80`, and `state.py 170/170`.
+**Next:** execute Task 7: route forum messages and replies into mapped topics.
+
+
 ## 2026-07-16 — Forum clone destinations complete (Codex)
 **Did:** completed Task 5 of the round-2 clone plan. Forum megagroups are now
 accepted as sources; init creates or recovers one private creator-owned
