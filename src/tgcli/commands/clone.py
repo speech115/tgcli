@@ -148,6 +148,8 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
             destination = candidates[0]
         clone_state.destination_peer_id = destination.id
         state.save(clone_state)
+    if forum and not getattr(destination, "forum", False):
+        safety.append_audit("clone-init-forum", account_alias, {"clone_id": clone_id})
     if forum:
         await topics.ensure_forum(
             lambda request: _mutate(tg, request, clone_state), destination)

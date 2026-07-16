@@ -10,6 +10,7 @@ from tests.conftest import make_session_fake
 from tgcli import safety
 from tgcli.cli import main
 from tgcli.clone import state
+from tgcli.errors import PolicyError
 
 
 SAMPLE = '''
@@ -312,6 +313,43 @@ def test_clone_init_commit_creates_forum_destination(
     saved = state.load(result["clone"]["id"])
     assert saved.source_kind == "forum"
     assert saved.destination_kind == "forum"
+
+
+def test_clone_init_forum_audit_failure_blocks_toggle_on_retry(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.source = channel(
+        123, "Forum chat", broadcast=False, megagroup=True, forum=True
+    )
+    client.destination = channel(
+        999, "Forum chat", creator=True, broadcast=False, megagroup=True,
+        forum=False,
+    )
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Forum chat",
+        source_kind="forum",
+    )
+    clone_state.destination_peer_id = 999
+    state.save(clone_state)
+    make_session_fake(monkeypatch, client)
+    assert main(["clone", "init", "@source", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+
+    def fail_audit(action, account, details):
+        assert (action, account, details) == (
+            "clone-init-forum", "main", {"clone_id": clone_state.clone_id}
+        )
+        raise PolicyError("audit write failed")
+
+    monkeypatch.setattr(safety, "append_audit", fail_audit)
+    assert main([
+        "clone", "init", "@source", "--commit", preview_id, "--json"
+    ]) == 2
+
+    assert "audit write failed" in capsys.readouterr().err
+    assert client.requests == []
+    assert client.destination.forum is False
 
 
 def test_clone_init_commit_copies_nonempty_channel_description(
