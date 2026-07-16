@@ -177,6 +177,17 @@ def test_clone_init_preview_accepts_private_dialog(
     assert source == {"id": 123, "title": "Alex Smith", "kind": "dialog"}
 
 
+def test_clone_init_preview_accepts_bot_dialog(config_env, monkeypatch, capsys):
+    client = CloneInitClient()
+    client.source = user(bot=True)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--json"]) == 0
+
+    source = json.loads(capsys.readouterr().out)["clone"]["source"]
+    assert source == {"id": 123, "title": "Alex Smith", "kind": "dialog"}
+
+
 @pytest.mark.parametrize(
     ("source", "error"),
     [
@@ -185,7 +196,6 @@ def test_clone_init_preview_accepts_private_dialog(
         (types.Chat(id=123, title="Legacy group", photo=types.ChatPhotoEmpty(),
                     participants_count=2, date=None, version=1),
          "basic groups are not supported"),
-        (user(bot=True), "bots are not supported"),
     ],
 )
 def test_clone_init_preview_rejects_unsupported_source_kinds(

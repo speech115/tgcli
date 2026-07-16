@@ -235,10 +235,10 @@ unparseable credentials for a newly configured account exits 3.
 ## 11. Chat Clone (ADR-0017, ADR-0021)
 
 `tg clone` is the canonical chat-copy surface. It accepts broadcast channels,
-non-forum megagroup supergroups, and private one-to-one User dialogs. Forum
-supergroups, legacy basic groups, bots, and other peer shapes exit 2 with a
-source-specific policy message. The destination is always a private owned
-broadcast channel.
+non-forum megagroup supergroups, and private one-to-one User dialogs including
+dialogs with bots. Forum supergroups, legacy basic groups, and other peer shapes
+exit 2 with a source-specific policy message. The destination is always a
+private owned broadcast channel.
 
 ```text
 tg clone status [SOURCE]

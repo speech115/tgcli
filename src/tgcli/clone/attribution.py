@@ -10,8 +10,6 @@ from tgcli.errors import PolicyError
 
 def source_kind(entity) -> str:
     if isinstance(entity, types.User):
-        if entity.bot:
-            raise PolicyError("clone source bots are not supported")
         return "dialog"
     if isinstance(entity, types.Chat):
         raise PolicyError("clone source basic groups are not supported")
