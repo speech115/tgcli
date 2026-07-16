@@ -14,6 +14,32 @@ Template:
 ```
 
 
+## 2026-07-16 — Comments cloning designed as round 3 (Claude Fable 5)
+**Did:** grilled the "clone channel comments" request end-to-end; wrote
+`docs/superpowers/specs/2026-07-16-clone-comments-design.md` (approved design,
+not implemented). Ran a read-only live probe (`channels.getFullChannel`,
+`messages.getDiscussionMessage`, `messages.getReplies` via `tg api`) against a
+real commented channel; findings recorded in the spec. No code changes.
+**Decided:** scope = broadcast channel + linked discussion group, full-fidelity
+(real linked megagroup with real threads, not snapshots); automatic when the
+source has one, no flags; new clones only (auto-forward anchors cannot be
+backfilled — existing clones re-init to opt in); two-phase sync with a second
+(cursor, id_map) pair; unreadable source group → posts-only +
+persistent `comments: unavailable` marker; attribution prefix amended globally
+to an identify-the-author ladder (`"Name (@username): "` → text_mention on the
+name → `"id N: "` → post_author → `"id unknown"`). Implementation sequenced as
+round 3 after the round-2 branches merge (same files touched).
+**Learned:** the anchor-timing constraint is the whole design: Telegram creates
+the discussion auto-forward only if the group is linked *before* the post is
+sent, so `setDiscussionGroup` must run at init, and retroactive comments are
+impossible by construction. ADR-0015's live finding (forum ≠ discussion group)
+cleanly separates this from round 2's topics work. Live probe gotchas: direct
+comments carry `reply_to_top_id = null` (only nested replies set it); anchors
+are recognized by `fwd_from.saved_from_peer + saved_from_msg_id`; channels
+with direct messages expose `linked_monoforum_id`, which must not be mistaken
+for `linked_chat_id`; comments with `from_id = null` occur in the wild.
+**Next:** merge round 2 to main, then run writing-plans on the comments spec.
+
 ## 2026-07-16 — Megagroup and dialog clone sources live-accepted (Codex)
 **Did:** executed the approved chat-types plan and added ADR-0021. Clone now
 accepts non-forum megagroups and non-bot User dialogs, persists `source_kind`,
