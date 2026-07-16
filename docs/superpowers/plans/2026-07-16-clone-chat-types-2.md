@@ -351,7 +351,7 @@ git commit -m "Copy basic-group profiles and cover attributed sync"
 **Interfaces:**
 - Produces (used by tasks 5–7): `CloneState.destination_kind` (`"broadcast" | "forum"`, derived in `new()` from `source_kind`), `CloneState.topic_map: dict[str, int]`, `record_topic(source_topic_id, destination_topic_id)`, `topic_dest_for(source_topic_id) -> int | None`, and `max_destination_id()` covering both `id_map` and `topic_map` values (keeps tail verification quiet for forum destinations). `from_dict` allowlists add `"forum"` (source) and validate `destination_kind`; legacy files default to `"broadcast"` / `{}`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `tests/test_clone_state.py`:
 
@@ -396,12 +396,12 @@ def test_state_rejects_unknown_destination_kind(tmp_path, monkeypatch):
 
 (Import `json`, `pytest`, `PolicyError` per the file's existing imports.)
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_clone_state.py -q`
 Expected: FAIL — `TypeError` on `record_topic` / `KeyError: 'destination_kind'` / no `PolicyError`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `src/tgcli/clone/state.py`:
 
@@ -455,12 +455,12 @@ Extend `from_dict()` validation and constructor:
 
 and pass `destination_kind=destination_kind, topic_map=dict(data.get("topic_map", {}))` to `cls(...)`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest -q && wc -l src/tgcli/clone/state.py`
 Expected: all PASS; state.py ≤ 170 lines.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tgcli/clone/state.py tests/test_clone_state.py

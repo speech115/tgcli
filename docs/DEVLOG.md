@@ -14,6 +14,25 @@ Template:
 ```
 
 
+## 2026-07-16 — Forum clone state foundation complete (Codex)
+**Did:** completed Task 4 of the round-2 clone plan. `CloneState` now persists
+`destination_kind` and a lazy `topic_map`, derives forum destinations from
+forum sources, exposes topic mapping helpers, and includes topic IDs in the
+destination-tail baseline. Added round-trip, legacy-default, malformed-state,
+cross-field, mixed-map, Unicode-digit, and TL signed-int boundary regressions.
+**Decided:** persisted forum state is fail-closed: source/destination kinds must
+agree, only forum clones may have topics, and source/destination topic IDs must
+be canonical positive ASCII decimal TL ints in `1..2_147_483_647`. This follows
+the installed Telethon schema's signed `<i` serialization and prevents corrupt
+state from disabling tail safety.
+**Learned:** validating only `dict[str, int]` was insufficient: Python accepts
+booleans as ints and Unicode decimal strings as numeric, while oversized values
+cannot be serialized by Telegram. Three review loops converted those implicit
+assumptions into tested state invariants. Final implementation budget is
+`state.py 170/170`.
+**Next:** execute Task 5: forum source gate and forum destination creation.
+
+
 ## 2026-07-16 — Clone chat types Tasks 1–3 final review fixes (Codex)
 **Did:** corrected the init profile contract to include non-empty basic-group
 descriptions and made migrated basic-group policy errors name the available
