@@ -168,24 +168,6 @@ def init_rows(data: dict) -> list[tuple]:
     clone = data["clone"]
     destination = clone["destination"]
     return [(clone["status"], clone["id"], clone["source"]["id"], None if destination is None else destination["id"])]
-def _confirmed_destination_ids(response, random_ids: list[int]) -> list[int]:
-    if isinstance(response, types.UpdateShortSentMessage):
-        destination_id = response.id
-        if (len(random_ids) == 1 and isinstance(destination_id, int)
-                and not isinstance(destination_id, bool) and destination_id > 0):
-            return [destination_id]
-        raise PolicyError("Telegram did not confirm the complete cloned batch")
-    updates = getattr(response, "updates", ())
-    confirmations = [(update.random_id, update.id) for update in updates
-                     if isinstance(update, types.UpdateMessageID)]
-    matches = dict(confirmations)
-    destination_ids = [matches.get(random_id) for random_id in random_ids]
-    if (len(confirmations) != len(random_ids) or set(matches) != set(random_ids)
-            or any(isinstance(item, bool) or not isinstance(item, int) or item <= 0
-                   for item in destination_ids)
-            or len(set(destination_ids)) != len(destination_ids)):
-        raise PolicyError("Telegram did not confirm the complete cloned batch")
-    return destination_ids
 async def _uploaded_media(tg, message, path, clone_state):
     input_file = await _with_cooldown(tg.upload_file(str(path)), clone_state)
     if isinstance(message.media, types.MessageMediaPhoto):
@@ -275,7 +257,7 @@ async def _forward_batch(tg, source, destination, clone_state, account_alias,
         mode = "reuploaded"
         response = await _reupload_batch(tg, destination, clone_state, account_alias,
                                          messages, random_ids, reply_to, author)
-    destination_ids = _confirmed_destination_ids(response, random_ids)
+    destination_ids = topics.confirmed_destination_ids(response, random_ids)
     for source_id, destination_id in zip(source_ids, destination_ids, strict=True):
         clone_state.record_mapping(source_id, destination_id)
     clone_state.cursor = source_ids[-1]
@@ -320,6 +302,8 @@ async def sync_text(tg, source: str, account_alias: str,
     skipped_service = 0
     skipped_unsupported = []
     transport_counts = {"forwarded": 0, "reuploaded": 0, "snapshots": 0}
+    topic_counters = {"topics_created": 0}
+    mutate = lambda request: _mutate(tg, request, clone_state)
     reply_flattened = 0
     author_cache = {}
     more = False
@@ -353,7 +337,20 @@ async def sync_text(tg, source: str, account_alias: str,
             if limit is not None and copied_batches >= limit:
                 more = True
                 break
-            skipped_service += 1
+            if forum and isinstance(source_message.action,
+                                    types.MessageActionTopicCreate):
+                safety.append_audit("clone-sync-topic", account_alias, {
+                    "clone_id": clone_state.clone_id,
+                    "source_topic_id": source_message.id,
+                })
+                await topics.create_topic(
+                    mutate, destination, clone_state, source_message.id,
+                    title=source_message.action.title,
+                    icon_color=getattr(source_message.action, "icon_color", None),
+                    icon_emoji_id=getattr(source_message.action, "icon_emoji_id", None))
+                topic_counters["topics_created"] += 1
+            else:
+                skipped_service += 1
             clone_state.cursor = source_message.id
             state.save(clone_state)
             continue
@@ -389,7 +386,7 @@ async def sync_text(tg, source: str, account_alias: str,
         "destination": {"id": destination.id, "title": destination.title}},
         "sync": {"copied": copied, "skipped_service": skipped_service,
                  "skipped_unsupported": skipped_unsupported,
-                 **transport_counts, "reply_flattened": reply_flattened,
+                 **transport_counts, **topic_counters, "reply_flattened": reply_flattened,
                  "cursor": clone_state.cursor, "more": more}}
 
 def sync_rows(data: dict) -> list[tuple]:
@@ -397,4 +394,5 @@ def sync_rows(data: dict) -> list[tuple]:
     sync = data["sync"]
     return [(sync["copied"], sync["forwarded"], sync["reuploaded"], sync["snapshots"],
              sync["reply_flattened"], sync["skipped_service"], len(sync["skipped_unsupported"]),
-             sync["cursor"], clone["id"], clone["source"]["id"], clone["destination"]["id"], sync["more"])]
+             sync["topics_created"], sync["cursor"], clone["id"], clone["source"]["id"],
+             clone["destination"]["id"], sync["more"])]

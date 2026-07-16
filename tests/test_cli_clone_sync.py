@@ -10,6 +10,7 @@ from tests.conftest import make_session_fake
 from tgcli import safety
 from tgcli.cli import main
 from tgcli.clone import state
+from tgcli.errors import PolicyError
 
 
 SAMPLE = '''
@@ -200,6 +201,40 @@ class CloneReuploadClient(CloneSyncClient):
         return await super().__call__(request)
 
 
+def forum_channel(channel_id, title, **overrides):
+    return channel(channel_id, title, broadcast=False, megagroup=True,
+                   forum=True, **overrides)
+
+
+def topic_create(message_id, title):
+    return message(message_id, message=None,
+                   action=types.MessageActionTopicCreate(title=title, icon_color=0))
+
+
+class CloneForumClient(CloneReuploadClient):
+    def __init__(self, messages):
+        super().__init__(messages)
+        self.source = forum_channel(123, "Forum chat")
+        self.destination = forum_channel(999, "Forum chat", creator=True)
+        self.source_topic_titles = {}
+
+    async def __call__(self, request):
+        if isinstance(request, functions.messages.CreateForumTopicRequest):
+            self.requests.append(request)
+            self.destination_last_id += 1
+            self.destination_actions[self.destination_last_id] = (
+                types.MessageActionTopicCreate(title=request.title, icon_color=0))
+            return SimpleNamespace(updates=[types.UpdateMessageID(
+                id=self.destination_last_id, random_id=request.random_id)])
+        if isinstance(request, functions.messages.GetForumTopicsByIDRequest):
+            self.requests.append(request)
+            return SimpleNamespace(topics=[
+                SimpleNamespace(id=topic_id, title=self.source_topic_titles[topic_id])
+                for topic_id in request.topics
+                if topic_id in self.source_topic_titles])
+        return await super().__call__(request)
+
+
 def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
     config_env, monkeypatch, capsys
 ):
@@ -218,6 +253,7 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
         "reply_flattened": 0,
         "skipped_service": 0,
         "skipped_unsupported": [],
+        "topics_created": 0,
         "cursor": 3,
         "more": False,
     }
@@ -240,6 +276,58 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
     assert rerun["sync"]["copied"] == 0
     assert len(client.requests) == 2
     assert client.iter_messages_calls == [(0, True), (3, True)]
+
+
+def test_clone_sync_creates_destination_topic_from_topic_create_service(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+    client = CloneForumClient([topic_create(2, "News")])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    [request] = client.requests
+    assert isinstance(request, functions.messages.CreateForumTopicRequest)
+    assert request.title == "News"
+    assert sync["topics_created"] == 1
+    assert sync["skipped_service"] == 0
+    assert sync["copied"] == 0
+    saved = state.load(clone_state.clone_id)
+    assert saved.topic_dest_for(2) == 2
+    assert saved.cursor == 2
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    rerun = json.loads(capsys.readouterr().out)["sync"]
+    assert rerun["topics_created"] == 0
+    assert len(client.requests) == 1
+
+
+def test_clone_sync_topic_audit_failure_blocks_before_mutation(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+    client = CloneForumClient([topic_create(2, "News")])
+    make_session_fake(monkeypatch, client)
+    audit_calls = []
+
+    def fail_audit(action, account, details):
+        audit_calls.append((action, account, details))
+        raise PolicyError("audit write failed")
+
+    monkeypatch.setattr(safety, "append_audit", fail_audit)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    assert "audit write failed" in capsys.readouterr().err
+    assert audit_calls == [("clone-sync-topic", "main", {
+        "clone_id": clone_state.clone_id, "source_topic_id": 2,
+    })]
+    assert client.requests == []
+    saved = state.load(clone_state.clone_id)
+    assert saved.cursor == 0
+    assert saved.topic_map == {}
 
 
 def test_clone_sync_forwards_megagroup_nonreply_with_author_header(
@@ -623,6 +711,7 @@ def test_clone_sync_skips_service_and_reports_unsupported_messages(
             {"id": 2, "kind": "MessageMediaPoll"},
             {"id": 3, "kind": "MessageMediaDice"},
         ],
+        "topics_created": 0,
         "cursor": 4,
         "more": False,
     }
@@ -809,6 +898,7 @@ def test_clone_sync_keeps_grouped_id_zero_album_atomic_and_in_position(
         "reply_flattened": 0,
         "skipped_service": 0,
         "skipped_unsupported": [],
+        "topics_created": 0,
         "cursor": 5,
         "more": False,
     }
@@ -1232,6 +1322,6 @@ def test_clone_sync_plain_output_has_contract_columns(config_env, monkeypatch, c
     assert main(["clone", "sync", "@source", "--plain"]) == 0
 
     assert capsys.readouterr().out.rstrip().split("\t") == [
-        "1", "1", "0", "0", "0", "0", "0", "2",
+        "1", "1", "0", "0", "0", "0", "0", "0", "2",
         clone_state.clone_id, "123", "999", "False",
     ]
