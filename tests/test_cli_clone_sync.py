@@ -9,7 +9,7 @@ from telethon.tl import functions, types
 from tests.conftest import make_session_fake
 from tgcli import safety
 from tgcli.cli import main
-from tgcli.clone import state
+from tgcli.clone import state, topics
 from tgcli.errors import PolicyError
 
 
@@ -233,6 +233,35 @@ class CloneForumClient(CloneReuploadClient):
                 for topic_id in request.topics
                 if topic_id in self.source_topic_titles])
         return await super().__call__(request)
+
+
+@pytest.mark.asyncio
+async def test_create_topic_audit_failure_blocks_direct_mutation_and_state(
+    config_env, monkeypatch
+):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+    mutate_calls = []
+
+    async def mutate(request):
+        mutate_calls.append(request)
+        pytest.fail("topic mutation dispatched")
+
+    def fail_audit(action, account, details):
+        assert (action, account, details) == ("clone-sync-topic", "main", {
+            "clone_id": clone_state.clone_id, "source_topic_id": 2,
+        })
+        raise PolicyError("audit write failed")
+
+    monkeypatch.setattr(safety, "append_audit", fail_audit)
+
+    with pytest.raises(PolicyError, match="audit write failed"):
+        await topics.create_topic(
+            mutate, forum_channel(999, "Forum chat", creator=True), clone_state, 2,
+            account_alias="main", title="News", icon_color=0)
+
+    assert mutate_calls == []
+    assert clone_state.topic_map == {}
+    assert state.load(clone_state.clone_id).topic_map == {}
 
 
 def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(

@@ -4,6 +4,7 @@ import secrets
 
 from telethon.tl import functions, types
 
+from tgcli import safety
 from tgcli.clone import state
 from tgcli.errors import PolicyError
 
@@ -53,11 +54,16 @@ def confirmed_destination_ids(response, random_ids: list[int]) -> list[int]:
 
 
 async def create_topic(mutate, destination, clone_state, source_topic_id, *,
-                       title: str, icon_color=None, icon_emoji_id=None) -> int:
+                       account_alias: str, title: str, icon_color=None,
+                       icon_emoji_id=None) -> int:
     random_id = secrets.randbelow(2**63 - 1) + 1
-    response = await mutate(functions.messages.CreateForumTopicRequest(
+    request = functions.messages.CreateForumTopicRequest(
         peer=destination, title=title, random_id=random_id,
-        icon_color=icon_color, icon_emoji_id=icon_emoji_id))
+        icon_color=icon_color, icon_emoji_id=icon_emoji_id)
+    safety.append_audit("clone-sync-topic", account_alias, {
+        "clone_id": clone_state.clone_id, "source_topic_id": source_topic_id,
+    })
+    response = await mutate(request)
     [destination_topic_id] = confirmed_destination_ids(response, [random_id])
     clone_state.record_topic(source_topic_id, destination_topic_id)
     state.save(clone_state)

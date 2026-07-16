@@ -340,12 +340,9 @@ async def sync_text(tg, source: str, account_alias: str,
             if forum and isinstance(source_message.action,
                                     types.MessageActionTopicCreate):
                 if clone_state.topic_dest_for(source_message.id) is None:
-                    safety.append_audit("clone-sync-topic", account_alias, {
-                        "clone_id": clone_state.clone_id,
-                        "source_topic_id": source_message.id,
-                    })
                     await topics.create_topic(
                         mutate, destination, clone_state, source_message.id,
+                        account_alias=account_alias,
                         title=source_message.action.title,
                         icon_color=getattr(source_message.action, "icon_color", None),
                         icon_emoji_id=getattr(source_message.action, "icon_emoji_id", None))
