@@ -72,11 +72,55 @@ def test_invalid_source_kind_is_policy_error():
     state.save(s)
     path = state.path_for(s.clone_id)
     raw = json.loads(path.read_text())
-    raw["source_kind"] = "forum"
+    raw["source_kind"] = "unknown"
     path.write_text(json.dumps(raw))
 
     with pytest.raises(PolicyError):
         state.load(s.clone_id)
+
+
+def test_state_round_trips_forum_fields(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    saved = state.CloneState.new(
+        account_user_id=1,
+        source_peer_id=2,
+        source_title="Forum",
+        source_kind="forum",
+    )
+    saved.record_topic(7, 1007)
+    state.save(saved)
+    loaded = state.load(saved.clone_id)
+    assert loaded.source_kind == "forum"
+    assert loaded.destination_kind == "forum"
+    assert loaded.topic_dest_for(7) == 1007
+    assert loaded.max_destination_id() == 1007
+
+
+def test_state_defaults_forum_fields_for_legacy_files(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    saved = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="Old"
+    )
+    data = saved.to_dict()
+    del data["destination_kind"], data["topic_map"]
+    state.clones_dir().mkdir(parents=True)
+    state.path_for(saved.clone_id).write_text(json.dumps(data))
+    loaded = state.load(saved.clone_id)
+    assert loaded.destination_kind == "broadcast"
+    assert loaded.topic_map == {}
+
+
+def test_state_rejects_unknown_destination_kind(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    saved = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="Old"
+    )
+    data = saved.to_dict()
+    data["destination_kind"] = "group"
+    state.clones_dir().mkdir(parents=True)
+    state.path_for(saved.clone_id).write_text(json.dumps(data))
+    with pytest.raises(PolicyError):
+        state.load(saved.clone_id)
 
 
 def test_load_missing_returns_none():

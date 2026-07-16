@@ -31,6 +31,8 @@ class CloneState:
     source_peer_id: int
     source_title: str
     source_kind: str = "broadcast"
+    destination_kind: str = "broadcast"
+    topic_map: dict[str, int] = field(default_factory=dict)
     version: int = VERSION
     destination_peer_id: int | None = None
     creation_marker: str | None = None
@@ -50,6 +52,7 @@ class CloneState:
             source_peer_id=source_peer_id,
             source_title=source_title,
             source_kind=source_kind,
+            destination_kind="forum" if source_kind == "forum" else "broadcast",
             created_at=datetime.now(UTC).isoformat(),
         )
 
@@ -63,8 +66,15 @@ class CloneState:
     def dest_for(self, source_id: int) -> int | None:
         return self.id_map.get(str(source_id))
 
+    def record_topic(self, source_topic_id: int, destination_topic_id: int) -> None:
+        self.topic_map[str(source_topic_id)] = destination_topic_id
+
+    def topic_dest_for(self, source_topic_id: int) -> int | None:
+        return self.topic_map.get(str(source_topic_id))
+
     def max_destination_id(self) -> int | None:
-        return max(self.id_map.values()) if self.id_map else None
+        values = [*self.id_map.values(), *self.topic_map.values()]
+        return max(values) if values else None
 
     def set_cooldown(self, deadline: datetime) -> None:
         self.retry_not_before = _require_aware(deadline).isoformat()
@@ -81,6 +91,8 @@ class CloneState:
             "source_peer_id": self.source_peer_id,
             "source_title": self.source_title,
             "source_kind": self.source_kind,
+            "destination_kind": self.destination_kind,
+            "topic_map": self.topic_map,
             "destination_peer_id": self.destination_peer_id,
             "creation_marker": self.creation_marker,
             "cursor": self.cursor,
@@ -93,14 +105,19 @@ class CloneState:
     @classmethod
     def from_dict(cls, data: dict) -> "CloneState":
         source_kind = data.get("source_kind", "broadcast")
-        if source_kind not in {"broadcast", "megagroup", "dialog", "basic"}:
+        if source_kind not in {"broadcast", "megagroup", "dialog", "basic", "forum"}:
             raise ValueError("invalid source kind")
+        destination_kind = data.get("destination_kind", "broadcast")
+        if destination_kind not in {"broadcast", "forum"}:
+            raise ValueError("invalid destination kind")
         return cls(
             version=data["version"],
             account_user_id=data["account_user_id"],
             source_peer_id=data["source_peer_id"],
             source_title=data["source_title"],
             source_kind=source_kind,
+            destination_kind=destination_kind,
+            topic_map=dict(data.get("topic_map", {})),
             destination_peer_id=data.get("destination_peer_id"),
             creation_marker=data.get("creation_marker"),
             cursor=data.get("cursor", 0),
