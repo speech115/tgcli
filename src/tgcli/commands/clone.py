@@ -271,7 +271,7 @@ async def _forward_batch(tg, source, destination, clone_state, account_alias, me
     source_ids = [message.id for message in messages]
     random_ids = [secrets.randbelow(2**63 - 1) + 1 for _ in messages]
     reply_to = _reply_target(messages, clone_state, source.id)
-    replacement = await fidelity.replacement_text(tg, messages[0]) if len(messages) == 1 else None
+    replacement = await fidelity.replacement(tg, messages[0]) if len(messages) == 1 else None
     reupload = (getattr(source, "noforwards", False) or reply_to is not None or
                 any(getattr(message, "noforwards", False) for message in messages))
     if replacement is not None:
@@ -279,8 +279,8 @@ async def _forward_batch(tg, source, destination, clone_state, account_alias, me
                             {"clone_id": clone_state.clone_id,
                              "source_message_ids": source_ids})
         response = await _mutate(tg, functions.messages.SendMessageRequest(
-            peer=destination, message=replacement, random_id=random_ids[0],
-            reply_to=reply_to, no_webpage=True), clone_state)
+            peer=destination, message=replacement[0], random_id=random_ids[0],
+            reply_to=reply_to, no_webpage=True, entities=replacement[1] or None), clone_state)
     elif not reupload:
         safety.append_audit("clone-sync-forward", account_alias,
                             {"clone_id": clone_state.clone_id,

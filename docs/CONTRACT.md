@@ -316,13 +316,15 @@ confirmation exits 2 without partially advancing state; the next run's tail
 verification detects a batch Telegram accepted but tgcli could not confirm.
 
 Service messages advance the cursor and increment `skipped_service` without
-audit or Telegram mutation. Polls become static result snapshots containing
-the question, options, counts, rounded percentages, total voters, mode,
-open/closed state, and capture time. Story references become named placeholders
-with the resolved author name/title, optional username, and Story ID. Both use
-the audited `clone-sync-snapshot` path, receive source-to-destination mappings,
-and count as copied. Truly unsupported kinds such as dice advance the cursor
-and appear in `skipped_unsupported`; nothing is skipped silently (ADR-0019).
+audit or Telegram mutation. Polls become human-readable static result cards with
+a Russian heading, question, options, Unicode progress bars, counts, rounded
+percentages, and total voters; no timestamps or implementation labels are
+shown. Story references become two-line `Stories недоступна` placeholders whose
+resolved author name/title is a clickable `t.me` link when possible; Story IDs
+are not shown. Both use the audited `clone-sync-snapshot` path, receive
+source-to-destination mappings, and count as copied. Truly unsupported kinds
+such as dice advance the cursor and appear in `skipped_unsupported`; nothing is
+skipped silently (ADR-0019).
 
 An unprotected batch without a reply uses native forwarding. A batch uses
 download/reupload reconstruction when the source channel or any message has

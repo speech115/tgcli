@@ -14,6 +14,26 @@ Template:
 ```
 
 
+## 2026-07-16 — Clone fallbacks made human-readable (Codex)
+**Did:** redesigned ADR-0019 destination messages after user visual review.
+Poll snapshots now use a Russian heading, Unicode progress bars, natural vote
+pluralization, percentages, and a single human total; timestamps and technical
+labels were removed. Story placeholders now contain only `Stories недоступна`
+and `Автор: <name>`, with the author encoded as a clickable Telegram text URL;
+Story IDs were removed. TDD verifies both poll modes, bar output, Russian vote
+forms, UTF-16 entity offsets, user/channel links, and reply continuity.
+Edited the four existing destination messages in place (`659`, `720`, `728`,
+`741`) through the audited mutation path, so their IDs and reply `701 → 659`
+remain unchanged.
+**Decided:** fallback content is a human-facing channel post, not an operational
+report; diagnostics belong in state/audit, never in destination text.
+**Learned:** Telegram text links require UTF-16 offsets, while fractional block
+characters make close results such as 51/49 visually distinct without images.
+Final checks: `268 passed, 8 skipped in 1.99s`; coverage 23 namespaces;
+compileall and diff check clean. Budgets remain `400/149/89` lines.
+**Next:** run the full gate, commit, push `feature/clone`, and verify PR #8 CI.
+
+
 ## 2026-07-16 — Poll and Story fallbacks repaired a live clone (Codex)
 **Did:** added ADR-0019 and a 73-line `clone/fidelity.py`. Polls now become
 timestamped static result snapshots; Story references become placeholders with

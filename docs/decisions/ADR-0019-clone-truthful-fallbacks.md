@@ -20,14 +20,14 @@ available. A completed clone therefore could not recover the original bytes.
 
 ## Decision
 
-- `MessageMediaPoll` becomes a static text snapshot captured at sync time:
-  question, answer labels, per-answer counts and rounded percentages, total
-  voters, single/multiple-choice mode, open/closed state, and UTC timestamp.
-  It is explicitly labelled a snapshot and never presented as an interactive
-  poll.
-- `MessageMediaStory` becomes a text placeholder containing the resolved
-  author name/title, optional username, and Story ID. It never claims to contain
-  unavailable Story media.
+- `MessageMediaPoll` becomes a static human-readable result card: a Russian
+  heading, question, answer labels, Unicode progress bars, per-answer counts and
+  rounded percentages, and total voters. It is never presented as an
+  interactive poll and contains no implementation metadata or timestamps.
+- `MessageMediaStory` becomes the two-line placeholder `Stories недоступна` /
+  `Автор: <name>`. The resolved author name/title is a clickable `t.me` link
+  when a username is available. Story IDs and implementation metadata are not
+  exposed in the destination chat.
 - Both fallbacks are confirmed, mapped, audited as `clone-sync-snapshot`, and
   occupy the source position. Later replies can therefore target the fallback.
 - Same-source nested replies preserve both mapped direct parent and mapped top
@@ -40,8 +40,7 @@ available. A completed clone therefore could not recover the original bytes.
 ## Consequences
 
 Poll votes are a point-in-time display and do not update after cloning. Voter
-identities and native poll interactivity are not cloned. Story media cannot be
-reconstructed from an expired reference without an external copy. The fallback
-is truthful about those losses while preserving order, mapping, and reply
-continuity.
-
+identities, native poll interactivity, and source open/closed mode are not
+cloned. Story media cannot be reconstructed from an expired reference without
+an external copy. The fallback is truthful about those losses while preserving
+order, mapping, and reply continuity.

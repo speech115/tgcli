@@ -1,7 +1,5 @@
 """Truthful text fallbacks for Telegram media that cannot be cloned exactly."""
 
-from datetime import UTC, datetime
-
 from telethon.tl import types
 
 
@@ -23,7 +21,23 @@ def unsupported_kind(message) -> str | None:
                     or supports(message)) else type(media).__name__
 
 
-def _poll_snapshot(media: types.MessageMediaPoll) -> str:
+def _vote_word(value: int) -> str:
+    if value % 10 == 1 and value % 100 != 11:
+        return "голос"
+    if value % 10 in (2, 3, 4) and value % 100 not in (12, 13, 14):
+        return "голоса"
+    return "голосов"
+
+
+def _bar(percent: int, width: int = 10) -> str:
+    eighths = round(percent * width * 8 / 100)
+    full, remainder = divmod(eighths, 8)
+    partial = ("", "▏", "▎", "▍", "▌", "▋", "▊", "▉")[remainder]
+    empty = width - full - bool(remainder)
+    return "█" * full + partial + "░" * empty
+
+
+def _poll_snapshot(media: types.MessageMediaPoll) -> tuple[str, list]:
     total = media.results.total_voters or 0
     counts = {
         result.option: result.voters or 0
@@ -33,20 +47,22 @@ def _poll_snapshot(media: types.MessageMediaPoll) -> str:
     for answer in media.poll.answers:
         voters = counts.get(answer.option, 0)
         percent = round(voters * 100 / total) if total else 0
-        options.append(f"- {answer.text.text} — {voters} ({percent}%)")
-    mode = "multiple choice" if media.poll.multiple_choice else "single choice"
-    status = "closed" if media.poll.closed else "open at clone time"
-    captured = datetime.now(UTC).isoformat(timespec="seconds")
-    return "\n".join([
-        f"Poll snapshot ({captured})",
-        media.poll.question.text,
-        *options,
-        f"Total voters: {total}",
-        f"Source poll: {mode}; {status}.",
+        options.append(
+            f"{answer.text.text}\n{_bar(percent)} {percent}% · "
+            f"{voters} {_vote_word(voters)}"
+        )
+    text = "\n\n".join([
+        "📊 Результаты опроса", media.poll.question.text,
+        *options, f"Проголосовало: {total}",
     ])
+    return text, []
 
 
-async def replacement_text(tg, message) -> str | None:
+def _utf16_length(value: str) -> int:
+    return len(value.encode("utf-16-le")) // 2
+
+
+async def replacement(tg, message) -> tuple[str, list] | None:
     media = getattr(message, "media", None)
     if isinstance(media, types.MessageMediaPoll):
         return _poll_snapshot(media)
@@ -63,11 +79,11 @@ async def replacement_text(tg, message) -> str | None:
         ) if item
     )
     username = getattr(peer, "username", None)
-    label = title or name or (f"@{username}" if username else str(media.peer))
-    if username and label != f"@{username}":
-        label += f" (@{username})"
-    return "\n".join([
-        "Story unavailable at clone time.",
-        f"Story author: {label}",
-        f"Story ID: {media.id}",
-    ])
+    label = title or name or (f"@{username}" if username else "неизвестен")
+    prefix = "Stories недоступна\nАвтор: "
+    text = prefix + label
+    entities = [types.MessageEntityTextUrl(
+        offset=_utf16_length(prefix), length=_utf16_length(label),
+        url=f"https://t.me/{username}",
+    )] if username else []
+    return text, entities

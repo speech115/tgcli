@@ -293,11 +293,11 @@ def test_clone_sync_skips_service_and_reports_unsupported_messages(
 
 
 @pytest.mark.parametrize(
-    ("multiple_choice", "mode"),
-    [(False, "single choice"), (True, "multiple choice")],
+    "multiple_choice",
+    [False, True],
 )
 def test_clone_sync_replaces_poll_with_result_snapshot(
-    multiple_choice, mode, config_env, monkeypatch, capsys
+    multiple_choice, config_env, monkeypatch, capsys
 ):
     clone_state = seed_clone()
     client = CloneReuploadClient([
@@ -312,12 +312,13 @@ def test_clone_sync_replaces_poll_with_result_snapshot(
     assert sync["skipped_unsupported"] == []
     [request] = client.requests
     assert isinstance(request, functions.messages.SendMessageRequest)
-    assert "Poll snapshot" in request.message
+    assert request.message.startswith("📊 Результаты опроса\n\nChoose\n\n")
     assert "Choose" in request.message
-    assert "First — 4 (40%)" in request.message
-    assert "Second — 6 (60%)" in request.message
-    assert "Total voters: 10" in request.message
-    assert f"Source poll: {mode}; open at clone time." in request.message
+    assert "First\n████░░░░░░ 40% · 4 голоса" in request.message
+    assert "Second\n██████░░░░ 60% · 6 голосов" in request.message
+    assert request.message.endswith("Проголосовало: 10")
+    assert "snapshot" not in request.message.casefold()
+    assert "clone" not in request.message.casefold()
     assert state.load(clone_state.clone_id).dest_for(2) == 2
 
 
@@ -348,9 +349,13 @@ def test_clone_sync_replaces_unavailable_story_with_named_placeholder(
     assert sync["skipped_unsupported"] == []
     [request] = client.requests
     assert isinstance(request, functions.messages.SendMessageRequest)
-    assert "Story unavailable at clone time" in request.message
-    assert "Andrey Kozlov (@targetdaddy)" in request.message
-    assert "Story ID: 5558" in request.message
+    assert request.message == "Stories недоступна\nАвтор: Andrey Kozlov"
+    [entity] = request.entities
+    prefix = "Stories недоступна\nАвтор: "
+    assert isinstance(entity, types.MessageEntityTextUrl)
+    assert entity.offset == len(prefix.encode("utf-16-le")) // 2
+    assert entity.length == len("Andrey Kozlov".encode("utf-16-le")) // 2
+    assert entity.url == "https://t.me/targetdaddy"
     assert state.load(clone_state.clone_id).dest_for(2) == 2
 
 
@@ -378,7 +383,8 @@ def test_clone_sync_maps_reply_to_story_placeholder(
 
     assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 2
     assert isinstance(client.requests[0], functions.messages.SendMessageRequest)
-    assert "Story source (@storysource)" in client.requests[0].message
+    assert client.requests[0].message == "Stories недоступна\nАвтор: Story source"
+    assert client.requests[0].entities[0].url == "https://t.me/storysource"
     assert isinstance(client.requests[1], functions.messages.SendMessageRequest)
     assert client.requests[1].reply_to.reply_to_msg_id == 2
     saved = state.load(clone_state.clone_id)
