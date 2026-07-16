@@ -222,6 +222,8 @@ def test_clone_init_preview_accepts_basic_group(config_env, monkeypatch, capsys)
         (legacy_group(
             migrated_to=types.InputChannel(channel_id=555, access_hash=0)
         ), "migrated to a supergroup; clone channel 555 instead"),
+        (legacy_group(migrated_to=types.InputChannelEmpty()),
+         "migrated to a supergroup; clone the supergroup instead"),
         (legacy_group(deactivated=True), "deactivated"),
     ],
 )
