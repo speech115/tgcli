@@ -339,16 +339,17 @@ async def sync_text(tg, source: str, account_alias: str,
                 break
             if forum and isinstance(source_message.action,
                                     types.MessageActionTopicCreate):
-                safety.append_audit("clone-sync-topic", account_alias, {
-                    "clone_id": clone_state.clone_id,
-                    "source_topic_id": source_message.id,
-                })
-                await topics.create_topic(
-                    mutate, destination, clone_state, source_message.id,
-                    title=source_message.action.title,
-                    icon_color=getattr(source_message.action, "icon_color", None),
-                    icon_emoji_id=getattr(source_message.action, "icon_emoji_id", None))
-                topic_counters["topics_created"] += 1
+                if clone_state.topic_dest_for(source_message.id) is None:
+                    safety.append_audit("clone-sync-topic", account_alias, {
+                        "clone_id": clone_state.clone_id,
+                        "source_topic_id": source_message.id,
+                    })
+                    await topics.create_topic(
+                        mutate, destination, clone_state, source_message.id,
+                        title=source_message.action.title,
+                        icon_color=getattr(source_message.action, "icon_color", None),
+                        icon_emoji_id=getattr(source_message.action, "icon_emoji_id", None))
+                    topic_counters["topics_created"] += 1
             else:
                 skipped_service += 1
             clone_state.cursor = source_message.id

@@ -304,6 +304,26 @@ def test_clone_sync_creates_destination_topic_from_topic_create_service(
     assert len(client.requests) == 1
 
 
+def test_clone_sync_replayed_mapped_topic_advances_without_duplicate_mutation(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+    clone_state.record_topic(2, 2)
+    state.save(clone_state)
+    client = CloneForumClient([topic_create(2, "News")])
+    client.destination_last_id = 2
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["topics_created"] == 0
+    assert sync["skipped_service"] == 0
+    assert client.requests == []
+    assert state.load(clone_state.clone_id).cursor == 2
+    assert not safety.audit_path().exists()
+
+
 def test_clone_sync_topic_audit_failure_blocks_before_mutation(
     config_env, monkeypatch, capsys
 ):
