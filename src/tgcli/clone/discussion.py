@@ -1,4 +1,5 @@
 """Discussion groups: detection, linking and anchors for comment clones."""
+from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 from tgcli.clone import topics
 from tgcli.errors import PolicyError
@@ -81,11 +82,21 @@ async def adopt(tg, mutate, marker_candidates, marker, recorded_peer_id, on_crea
 
 
 async def ensure_linked(mutate, channel, group) -> None:
-    """Idempotent: unhide pre-history, then SetDiscussionGroupRequest."""
-    await mutate(functions.channels.TogglePreHistoryHiddenRequest(
-        channel=group, enabled=False))
-    await mutate(functions.channels.SetDiscussionGroupRequest(
-        broadcast=channel, group=group))
+    """Idempotent: unhide pre-history, then SetDiscussionGroupRequest. Telegram
+    answers a no-op with an error rather than silence, and both no-ops are the
+    normal path (live-proven): a megagroup it just created already shows its
+    history, and crash recovery re-links an already-linked pair."""
+    for request, benign in (
+            (functions.channels.TogglePreHistoryHiddenRequest(
+                channel=group, enabled=False),
+             telethon_errors.ChatNotModifiedError),
+            (functions.channels.SetDiscussionGroupRequest(
+                broadcast=channel, group=group),
+             telethon_errors.LinkNotModifiedError)):
+        try:
+            await mutate(request)
+        except benign:
+            pass
 
 
 async def anchor_for(mutate, destination_channel, destination_post_id: int,

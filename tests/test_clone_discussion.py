@@ -2,6 +2,7 @@
 import asyncio
 from types import SimpleNamespace
 
+from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
 from tgcli.clone import discussion
@@ -68,6 +69,30 @@ def test_ensure_linked_unhides_history_then_links():
     assert requests[0].enabled is False
     assert isinstance(requests[1], functions.channels.SetDiscussionGroupRequest)
     assert requests[1].broadcast == "channel" and requests[1].group == "group"
+
+
+def test_ensure_linked_tolerates_an_already_visible_history():
+    """A megagroup Telegram just created already shows its history, and answers
+    the unhide with ChatNotModified. The link must still happen (live-proven)."""
+    requests = []
+
+    async def mutate(request):
+        requests.append(request)
+        if isinstance(request, functions.channels.TogglePreHistoryHiddenRequest):
+            raise telethon_errors.ChatNotModifiedError(request)
+
+    asyncio.run(discussion.ensure_linked(mutate, "channel", "group"))
+    assert isinstance(requests[1], functions.channels.SetDiscussionGroupRequest)
+
+
+def test_ensure_linked_tolerates_an_existing_link():
+    """Crash recovery re-runs the link on an already-linked pair; Telegram
+    answers LinkNotModified and that is a success, not a failure."""
+    async def mutate(request):
+        if isinstance(request, functions.channels.SetDiscussionGroupRequest):
+            raise telethon_errors.LinkNotModifiedError(request)
+
+    asyncio.run(discussion.ensure_linked(mutate, "channel", "group"))
 
 
 def test_anchor_for_caches_lookups():
