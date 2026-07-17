@@ -143,6 +143,11 @@ class CloneSyncClient:
             if item.id > min_id:
                 yield item
 
+    async def iter_participants(self, entity, limit=None):
+        # a broadcast source the account does not administer refuses its roster
+        raise telethon_errors.ChatAdminRequiredError(request=None)
+        yield  # pragma: no cover - marks this coroutine as an async generator
+
     async def __call__(self, request):
         assert isinstance(request, functions.messages.ForwardMessagesRequest)
         self.requests.append(request)
@@ -277,6 +282,16 @@ class CloneCommentsClient(CloneReuploadClient):
         self.group_last_id = 1
         self.group_tail = {}
         self.anchor_ids = {}
+        self.group_members = [SimpleNamespace(
+            id=701, username="member", first_name="Group", last_name=None,
+            phone=None, bot=False)]
+
+    async def iter_participants(self, entity, limit=None):
+        if entity is self.source_group:
+            for member in self.group_members:
+                yield member
+            return
+        raise telethon_errors.ChatAdminRequiredError(request=None)
 
     async def get_entity(self, ref):
         if isinstance(ref, types.PeerChannel):
@@ -351,6 +366,29 @@ def test_sync_copies_posts_before_comments(config_env, monkeypatch, capsys):
              for item in sends]
     assert peers == [client.destination, client.destination,
                      client.destination_group]
+
+
+def test_sync_snapshots_discussion_roster_when_comments_enabled(
+    config_env, monkeypatch, capsys):
+    """The source channel refuses its roster (not admin) but its readable
+    discussion group is snapshotted to the participant sidecar."""
+    from tgcli.clone import roster
+
+    clone_state = seed_comments_clone()
+    client = CloneCommentsClient([message(2)], [anchor(10, 2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    participants = json.loads(capsys.readouterr().out)["sync"]["participants"]
+    assert participants["source"]["status"] == "unavailable"
+    assert participants["discussion"]["status"] == "collected"
+    assert participants["discussion"]["count"] == 1
+    lines = [json.loads(line) for line
+             in roster.path_for(clone_state.clone_id).read_text().splitlines()]
+    assert lines == [{"peer": "discussion", "id": 701, "username": "member",
+                      "first_name": "Group", "last_name": None, "phone": None,
+                      "is_bot": False}]
 
 
 def test_sync_skips_source_autoforwards(config_env, monkeypatch, capsys):
@@ -746,6 +784,7 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
     assert main(["clone", "sync", "@source", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
+    participants = result["sync"].pop("participants")
     assert result["sync"] == {
         "copied": 2,
         "forwarded": 2,
@@ -760,6 +799,9 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
         "discussion_cursor": 0,
         "more": False,
     }
+    # a broadcast source the account does not administer reports no roster
+    assert participants["source"]["status"] == "unavailable"
+    assert participants["discussion"]["status"] == "none"
     assert [request.id for request in client.requests] == [[2], [3]]
     assert all(request.drop_author is True for request in client.requests)
     saved = state.load(clone_state.clone_id)
@@ -1621,6 +1663,7 @@ def test_clone_sync_skips_service_and_reports_unsupported_messages(
     assert main(["clone", "sync", "@source", "--json"]) == 0
 
     sync = json.loads(capsys.readouterr().out)["sync"]
+    sync.pop("participants")
     assert sync == {
         "copied": 1,
         "forwarded": 1,
@@ -1813,6 +1856,7 @@ def test_clone_sync_keeps_grouped_id_zero_album_atomic_and_in_position(
     assert main(["clone", "sync", "@source", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
+    result["sync"].pop("participants")
     assert result["sync"] == {
         "copied": 4,
         "forwarded": 4,

@@ -14,6 +14,35 @@ Template:
 ```
 
 
+## 2026-07-17 — clone snapshots the source-side participant roster (Claude Opus 4.8)
+**Did:** new `clone/roster.py` + ADR-0024. After both sync phases, `clone
+sync` snapshots participants of the source channel and (when
+`comments == "enabled"`) its linked discussion group into
+`clones/<clone_id>-participants.jsonl` (atomic temp+replace, 0o600, JSONL with
+`export subscribers` columns tagged by `peer`). The `sync` JSON gains a
+`participants` object: per-peer `{peer_id, status, count, reason}` where status
+is `collected`/`unavailable`/`deferred`/`none`. Best-effort: `ChatAdminRequired`
+/`ChannelPrivate`/`ChatForbidden`/`ValueError` → `unavailable`; FloodWait →
+`deferred` with partial discarded and the **main clone cooldown left unset** so
+a roster flood never blocks the next message sync. Source-side only — collected
+users are never added to the destination. TDD: 6 unit tests
+(`test_clone_roster.py`) + 1 integration test; updated 3 full-`sync`-dict
+asserts to pop `participants`; base sync fake now refuses its roster
+(non-admin broadcast) and the comments fake serves group members. CONTRACT
+updated; coverage OK (no new TL namespace — `iter_participants` already
+`wrapped` via export). Full suite 469 / 8. Live-demoed the exact JSON + sidecar
+via a fake client (source `unavailable`, discussion `collected`).
+**Decided:** roster is automatic (user choice) but best-effort and honest, on
+the ADR-0023 `unavailable`-marker footing; a channel you do not own always
+reports `source: unavailable` — a Telegram limit, not a defect. Cadence gate /
+`--no-roster` opt-out deferred until demonstrated pain.
+**Learned:** wiring a per-sync read into the pipeline meant every existing sync
+fake suddenly needed `iter_participants`; giving the base fake a
+`ChatAdminRequiredError` default kept the blast radius to the three tests that
+pinned the whole `sync` dict.
+**Next:** live-accept the roster on a real channel-with-comments (reuse the
+`tgcli comments demo 07-17` fixture) before considering it proven.
+
 ## 2026-07-17 — attribution header sits on its own line (Claude Opus 4.8)
 **Did:** the reuploaded-attribution prefix now puts the author header on its
 own line above the message body: `"{author}: \n\n{text}"` instead of

@@ -74,6 +74,11 @@ not rewritten.
   mention, then bare id, then post signature). Mocked suite: 454 passed, 8
   skipped. The live acceptance gate (real channel with an active comment
   section) is user-run and not yet reported.
+  ADR-0024 adds a best-effort source-side participant roster: after message
+  copying, `sync` snapshots the source channel and its discussion group's
+  members (where Telegram permits) into a per-clone JSONL sidecar and a
+  `participants` field on the `sync` response, using the same honest
+  `collected`/`unavailable`/`deferred`/`none` markers.
 - Multi-user distribution / packaging for strangers.
 - Bot API (this is a user-account MTProto tool).
 - Secret chats (Telethon does not implement them), voice/video calls

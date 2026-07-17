@@ -6,7 +6,7 @@ import secrets, tempfile
 from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
 from tgcli import chatref, safety
-from tgcli.clone import attribution, batching, comments, discussion, fidelity, legs, snapshot, state, topics, transport
+from tgcli.clone import attribution, batching, comments, discussion, fidelity, legs, roster, snapshot, state, topics, transport
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
 def _entry(s: state.CloneState) -> dict:
     return {"clone_id": s.clone_id, "source": {"id": s.source_peer_id,
@@ -451,6 +451,7 @@ async def sync_text(tg, source: str, account_alias: str,
         more = await comments.sync_phase(
             tg, clone_state, source_entity, destination, mutate, copy_batch,
             counters, lambda: limit is not None and copied_batches >= limit)
+    participants = await roster.collect(tg, clone_state, source_entity)
     clone_state.last_synced_at = datetime.now(UTC).isoformat()
     state.save(clone_state)
     return {"clone": {"id": clone_state.clone_id,
@@ -460,7 +461,8 @@ async def sync_text(tg, source: str, account_alias: str,
         "sync": {"copied": copied, "skipped_unsupported": skipped_unsupported,
                  **transport_counts, **counters, "reply_flattened": reply_flattened,
                  "cursor": clone_state.cursor,
-                 "discussion_cursor": clone_state.discussion_cursor, "more": more}}
+                 "discussion_cursor": clone_state.discussion_cursor, "more": more,
+                 "participants": participants}}
 def sync_rows(data: dict) -> list[tuple]:
     clone = data["clone"]
     sync = data["sync"]

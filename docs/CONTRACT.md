@@ -453,10 +453,24 @@ FloodWait persists the clone cooldown and exits 5 without advancing the current
 message. JSON:
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"cursor":5,"discussion_cursor":0,"more":false}}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"cursor":5,"discussion_cursor":0,"more":false,"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}}}
 ```
+
+After message copying, `sync` snapshots the source's audience (ADR-0024). The
+`participants` object reports, per source-side peer (`source` = the cloned
+channel/chat, `discussion` = its linked comment group when
+`comments == "enabled"`), a `status` of `"collected"`, `"unavailable"`
+(Telegram refused — a broadcast channel you do not administer always refuses),
+`"deferred"` (FloodWait; retried next run, partial results discarded, and the
+main clone cooldown is left unset so it never blocks message sync), or `"none"`
+(no discussion group). Collected participants are rewritten atomically to the
+JSONL sidecar at `participants.path` (one object per line, tagged `peer` plus
+the `export subscribers` columns). This snapshot is source-side only; the
+destination is never populated with collected users. Roster collection is
+best-effort and never fails a sync whose messages already copied.
 
 Plain sync columns are `copied`, `forwarded`, `reuploaded`, `snapshots`,
 `reply_flattened`, `skipped_service`, `skipped_unsupported_count`,
 `topics_created`, `cursor`, `clone_id`, `source_peer_id`,
-`destination_peer_id`, `more`, `skipped_autoforward`, `discussion_cursor`.
+`destination_peer_id`, `more`, `skipped_autoforward`, `discussion_cursor`. The
+`participants` roster is JSON-only; the plain row does not carry it.
