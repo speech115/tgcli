@@ -4,13 +4,13 @@ import pytest
 
 from tgcli.cli import main
 
-SAMPLE = '''
+SAMPLE = """
 default_account = "main"
 
 [accounts.main]
 api_id = 12345
 api_hash = "abcdef0123456789"
-'''
+"""
 
 
 @pytest.fixture
@@ -45,12 +45,17 @@ def test_missing_config_exits_3(tmp_path, monkeypatch, capsys):
     assert json.loads(captured.err)["error"]["code"] == "CONFIG"
 
 
-def test_accounts_list_verbose_keeps_data_on_stdout_and_writes_debug_to_stderr(config_env, capsys):
+def test_accounts_list_verbose_keeps_data_on_stdout_and_writes_debug_to_stderr(
+    config_env, capsys
+):
     code = main(["accounts", "list", "--readonly", "-v"])
 
     assert code == 0
     captured = capsys.readouterr()
-    assert "DEBUG tgcli.cli: completed command=accounts exit_code=0 duration_ms=" in captured.err
+    assert (
+        "DEBUG tgcli.cli: completed command=accounts exit_code=0 duration_ms="
+        in captured.err
+    )
     assert captured.out == "main | main\n"
 
 

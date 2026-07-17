@@ -22,7 +22,9 @@ def config_env(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_CONFIG", str(path))
 
 
-def test_info_json_projects_channel_without_access_hash(config_env, monkeypatch, capsys):
+def test_info_json_projects_channel_without_access_hash(
+    config_env, monkeypatch, capsys
+):
     entity = ns(
         id=-1001234,
         title="Channel",

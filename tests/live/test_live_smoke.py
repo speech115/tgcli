@@ -110,9 +110,7 @@ def test_live_bounded_search_saved_messages_has_json_shape():
 
 
 def test_live_raw_api_get_full_user_has_envelope():
-    result = run_tg(
-        "--json", "api", "users.getFullUser", "--params", '{"id":"@self"}'
-    )
+    result = run_tg("--json", "api", "users.getFullUser", "--params", '{"id":"@self"}')
     assert result.returncode == 0, result.stderr
     data = json.loads(result.stdout)
     assert data["method"] == "users.getFullUser"

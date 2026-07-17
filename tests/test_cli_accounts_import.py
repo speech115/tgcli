@@ -31,8 +31,7 @@ def make_old_stack(
 def import_env(tmp_path, monkeypatch):
     config = tmp_path / "config.toml"
     config.write_text(
-        'default_account = "main"\n[accounts.main]\n'
-        'api_id = 1\napi_hash = "existing"\n'
+        'default_account = "main"\n[accounts.main]\napi_id = 1\napi_hash = "existing"\n'
     )
     monkeypatch.setenv("TGCLI_CONFIG", str(config))
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
@@ -47,11 +46,16 @@ def test_import_copies_sessions_and_appends_config(import_env, capsys):
     code = main(["--json", "accounts", "import", "--source-root", str(old_root)])
 
     assert code == 0
-    report = {entry["alias"]: entry for entry in json.loads(capsys.readouterr().out)["imported"]}
+    report = {
+        entry["alias"]: entry
+        for entry in json.loads(capsys.readouterr().out)["imported"]
+    }
     assert report["recklessou"]["status"] == "imported"
     assert report["recklessou"]["config"] == "added"
     copied = sqlite3.connect(tmp_path / "state" / "sessions" / "recklessou.session")
-    assert copied.execute("SELECT auth_key FROM sessions").fetchone() == (b"recklessou",)
+    assert copied.execute("SELECT auth_key FROM sessions").fetchone() == (
+        b"recklessou",
+    )
     assert "[accounts.recklessou]" in config.read_text()
     assert 'api_hash = "existing"' in config.read_text()
 
@@ -65,7 +69,10 @@ def test_import_skips_existing_session_without_force(import_env, capsys):
     code = main(["--json", "accounts", "import", "--source-root", str(old_root)])
 
     assert code == 0
-    report = {entry["alias"]: entry for entry in json.loads(capsys.readouterr().out)["imported"]}
+    report = {
+        entry["alias"]: entry
+        for entry in json.loads(capsys.readouterr().out)["imported"]
+    }
     assert report["main"]["status"] == "skipped_existing"
     assert (destination / "main.session").read_bytes() == b"warm"
 
@@ -89,7 +96,9 @@ def test_import_default_excludes_retired_pl_alias(import_env, capsys):
     code = main(["--json", "accounts", "import", "--source-root", str(old_root)])
 
     assert code == 0
-    report = {entry["alias"] for entry in json.loads(capsys.readouterr().out)["imported"]}
+    report = {
+        entry["alias"] for entry in json.loads(capsys.readouterr().out)["imported"]
+    }
     assert "pl" not in report
     assert not (tmp_path / "state" / "sessions" / "pl.session").exists()
     assert "[accounts.pl]" not in config.read_text()
@@ -98,7 +107,9 @@ def test_import_default_excludes_retired_pl_alias(import_env, capsys):
 def test_import_explicit_missing_alias_exits_4(import_env):
     _, old_root, _ = import_env
 
-    code = main(["--json", "accounts", "import", "ghost", "--source-root", str(old_root)])
+    code = main(
+        ["--json", "accounts", "import", "ghost", "--source-root", str(old_root)]
+    )
 
     assert code == 4
 

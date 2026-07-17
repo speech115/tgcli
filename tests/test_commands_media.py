@@ -125,7 +125,9 @@ async def test_download_resumes_from_existing_partial_transfer(tmp_path):
     }
 
 
-async def test_download_throttles_state_writes_and_progress_updates(tmp_path, monkeypatch):
+async def test_download_throttles_state_writes_and_progress_updates(
+    tmp_path, monkeypatch
+):
     source = MediaSource("@channel", 42, None)
     target = tmp_path / "out.bin"
     fake = FakeDownloadTelegram([b"x"] * 17)
@@ -142,7 +144,11 @@ async def test_download_throttles_state_writes_and_progress_updates(tmp_path, mo
     monkeypatch.setattr(media, "_write_state", record_state)
 
     await download_media(
-        fake, source, "main", output=str(target), progress=lambda current, total: progress_updates.append(current)
+        fake,
+        source,
+        "main",
+        output=str(target),
+        progress=lambda current, total: progress_updates.append(current),
     )
 
     assert state_writes == [0, 16, 17]
@@ -196,7 +202,9 @@ async def test_parallel_download_refuses_resuming_partial_transfer(tmp_path):
         await download_media(interrupted, source, "main", output=str(target))
 
     with pytest.raises(PolicyError, match="cannot resume"):
-        await download_media(FakeParallelTelegram(), source, "main", output=str(target), parallel=2)
+        await download_media(
+            FakeParallelTelegram(), source, "main", output=str(target), parallel=2
+        )
 
 
 def test_resume_offset_raises_policy_error_when_part_file_missing(tmp_path):
@@ -224,13 +232,19 @@ def test_resume_offset_discards_uncheckpointed_bytes(tmp_path):
     state_path = tmp_path / "state.json"
     part_path = tmp_path / "out.part"
     part_path.write_bytes(b"checkpointed-extra")
-    state_path.write_text(json.dumps({
-        "source": _source_label(source),
-        "destination": str(destination),
-        "offset": len(b"checkpointed"),
-    }))
+    state_path.write_text(
+        json.dumps(
+            {
+                "source": _source_label(source),
+                "destination": str(destination),
+                "offset": len(b"checkpointed"),
+            }
+        )
+    )
 
-    assert _resume_offset(state_path, part_path, source, destination) == len(b"checkpointed")
+    assert _resume_offset(state_path, part_path, source, destination) == len(
+        b"checkpointed"
+    )
     assert part_path.read_bytes() == b"checkpointed"
 
 
@@ -317,6 +331,4 @@ async def test_resolve_message_rejects_missing_media():
             return message
 
     with pytest.raises(NotFoundError, match="downloadable media"):
-        await resolve_message(
-            FakeTelegram(), MediaSource("@channel", 42, None), "main"
-        )
+        await resolve_message(FakeTelegram(), MediaSource("@channel", 42, None), "main")

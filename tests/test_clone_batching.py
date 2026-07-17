@@ -1,4 +1,5 @@
 """Unit tests for the pure clone batch planner."""
+
 import asyncio
 from types import SimpleNamespace
 
@@ -25,9 +26,12 @@ def _events(messages):
 
 def _shape(events):
     return [
-        (type(event).__name__,
-         event.message_id if isinstance(event, batching.ServiceSkip)
-         else [message.id for message in event.messages])
+        (
+            type(event).__name__,
+            event.message_id
+            if isinstance(event, batching.ServiceSkip)
+            else [message.id for message in event.messages],
+        )
         for event in events
     ]
 

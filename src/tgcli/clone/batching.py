@@ -1,6 +1,7 @@
 """Pure batch planning for clone sync: albums and service skips, no Telethon."""
 
 from dataclasses import dataclass
+from typing import Any
 
 from tgcli.errors import PolicyError
 
@@ -8,7 +9,7 @@ from tgcli.errors import PolicyError
 @dataclass(frozen=True)
 class ServiceSkip:
     message_id: int
-    message: object
+    message: Any
 
 
 @dataclass(frozen=True)

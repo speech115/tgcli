@@ -24,6 +24,12 @@ async def fetch_dialogs(tg, limit: int = 50) -> dict:
 
 def to_rows(data: dict) -> list[tuple]:
     return [
-        (dialog["id"], dialog["kind"], dialog["username"], dialog["name"], dialog["unread"])
+        (
+            dialog["id"],
+            dialog["kind"],
+            dialog["username"],
+            dialog["name"],
+            dialog["unread"],
+        )
         for dialog in data["dialogs"]
     ]

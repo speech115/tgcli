@@ -9,7 +9,7 @@ dependencies = ["telethon==1.44.0"]
 tg = "tgcli.cli:entrypoint"
 
 [dependency-groups]
-dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.8", "pyright>=1.1.390"]
 
 [build-system]
 requires = ["hatchling"]
@@ -21,3 +21,11 @@ packages = ["src/tgcli"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+src = ["src", "tests"]
+
+[tool.pyright]
+include = ["src"]
+typeCheckingMode = "basic"

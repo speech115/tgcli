@@ -6,7 +6,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def load_bench():
-    spec = importlib.util.spec_from_file_location("bench", ROOT / "scripts" / "bench.py")
+    spec = importlib.util.spec_from_file_location(
+        "bench", ROOT / "scripts" / "bench.py"
+    )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -43,15 +45,23 @@ def test_format_table_shows_step_status_and_duration():
     bench = load_bench()
     results = [
         {"step": "dialogs", "status": "PASS", "duration_ms": 1234, "detail": ""},
-        {"step": "export-subscribers", "status": "SKIP", "duration_ms": 5,
-         "detail": "takeout delay"},
+        {
+            "step": "export-subscribers",
+            "status": "SKIP",
+            "duration_ms": 5,
+            "detail": "takeout delay",
+        },
     ]
 
     lines = bench.format_table(results).splitlines()
 
-    assert any("dialogs" in line and "PASS" in line and "1234" in line for line in lines)
-    assert any("export-subscribers" in line and "SKIP" in line and "takeout delay" in line
-               for line in lines)
+    assert any(
+        "dialogs" in line and "PASS" in line and "1234" in line for line in lines
+    )
+    assert any(
+        "export-subscribers" in line and "SKIP" in line and "takeout delay" in line
+        for line in lines
+    )
 
 
 def test_build_report_counts_statuses():

@@ -60,13 +60,15 @@ def _backup_sqlite(source_path: Path, destination_path: Path) -> None:
         source.close()
 
 
-def _append_config_block(config_path: Path, alias: str, api_id: int, api_hash: str) -> None:
+def _append_config_block(
+    config_path: Path, alias: str, api_id: int, api_hash: str
+) -> None:
     config_path.parent.mkdir(parents=True, exist_ok=True)
     if not config_path.exists():
         config_path.touch(mode=0o600)
     with config_path.open("a") as config_file:
         config_file.write(
-            f'\n[accounts.{alias}]\napi_id = {api_id}\n'
+            f"\n[accounts.{alias}]\napi_id = {api_id}\n"
             f"api_hash = {json.dumps(api_hash)}\nsession = {json.dumps(alias)}\n"
         )
     config_path.chmod(0o600)
@@ -101,7 +103,9 @@ def import_accounts(aliases: list[str] | None, source_root: Path, force: bool) -
         source_path = source_dir / "session.session"
         if not source_path.exists():
             if explicit:
-                raise NotFoundError(f"no old-stack session for {alias!r} at {source_dir}")
+                raise NotFoundError(
+                    f"no old-stack session for {alias!r} at {source_dir}"
+                )
             note(f"warning: no old-stack session for {alias!r} at {source_dir}")
             imported.append(
                 {
@@ -138,6 +142,5 @@ def import_accounts(aliases: list[str] | None, source_root: Path, force: bool) -
 
 def import_rows(data: dict) -> list[tuple]:
     return [
-        (entry["alias"], entry["status"], entry["config"])
-        for entry in data["imported"]
+        (entry["alias"], entry["status"], entry["config"]) for entry in data["imported"]
     ]

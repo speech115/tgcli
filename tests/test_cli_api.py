@@ -43,9 +43,9 @@ class ApiClient:
 def test_api_json_emits_raw_tl_envelope(config_env, monkeypatch, capsys):
     make_session_fake(monkeypatch, ApiClient())
 
-    assert main([
-        "api", "users.getFullUser", "--params", '{"id":"@self"}', "--json"
-    ]) == 0
+    assert (
+        main(["api", "users.getFullUser", "--params", '{"id":"@self"}', "--json"]) == 0
+    )
 
     assert json.loads(capsys.readouterr().out) == {
         "method": "users.getFullUser",
@@ -60,9 +60,9 @@ def test_api_floodwait_maps_to_exit_5(config_env, monkeypatch, capsys):
 
     make_session_fake(monkeypatch, FloodClient())
 
-    assert main([
-        "api", "users.getFullUser", "--params", '{"id":"@self"}', "--json"
-    ]) == 5
+    assert (
+        main(["api", "users.getFullUser", "--params", '{"id":"@self"}', "--json"]) == 5
+    )
 
     assert json.loads(capsys.readouterr().err)["error"] == {
         "code": "FLOOD_WAIT",
@@ -79,6 +79,4 @@ def test_api_write_kill_switch_blocks_without_opening_a_session(monkeypatch):
     )
     monkeypatch.setenv("TGCLI_NO_SEND", "1")
 
-    assert main([
-        "api", "messages.sendMessage", "--params", "{}", "--write"
-    ]) == 2
+    assert main(["api", "messages.sendMessage", "--params", "{}", "--write"]) == 2

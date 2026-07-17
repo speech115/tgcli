@@ -1,5 +1,6 @@
 # tests/test_clone_replies.py
 """Direct unit tests for clone reply mapping."""
+
 from types import SimpleNamespace
 
 import pytest
@@ -12,7 +13,8 @@ from tgcli.errors import PolicyError
 
 def _clone_state(id_map=None):
     clone_state = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="src")
+        account_user_id=1, source_peer_id=2, source_title="src"
+    )
     for source_id, destination_id in (id_map or {}).items():
         clone_state.record_mapping(source_id, destination_id)
     return legs.posts(clone_state)
@@ -42,14 +44,14 @@ def test_unmapped_parent_flattens_to_none():
 
 
 def test_story_reply_flattens_to_none():
-    header = types.MessageReplyStoryHeader(
-        peer=types.PeerUser(user_id=7), story_id=3)
+    header = types.MessageReplyStoryHeader(peer=types.PeerUser(user_id=7), story_id=3)
     assert replies.target([_msg(header)], _clone_state(), SOURCE) is None
 
 
 def test_cross_peer_reply_is_rejected():
     header = types.MessageReplyHeader(
-        reply_to_msg_id=5, reply_to_peer_id=types.PeerChannel(channel_id=999))
+        reply_to_msg_id=5, reply_to_peer_id=types.PeerChannel(channel_id=999)
+    )
     with pytest.raises(PolicyError, match="cross-peer"):
         replies.target([_msg(header)], _clone_state(), SOURCE)
 
