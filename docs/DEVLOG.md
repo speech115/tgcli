@@ -14,6 +14,32 @@ Template:
 ```
 
 
+## 2026-07-17 — live acceptance of roster + newline attribution (Claude Opus 4.8)
+**Did:** ran the round-3.5 live gate on real channel `@sral_v_nastav`
+(4301599563, 677 posts, `comments: enabled`). Full clone: destination channel
+4373611234 + discussion group «Злой чат» 4477659916; 676 posts, 523 comments
+reuploaded, `more:false`. **Both new features proven live, non-tautologically:**
+- **Newline attribution** — real copied comments render `"<author>: \n\n<body>"`,
+  e.g. `BOGDAN PLABEK (@b_b_plabek): ` then a blank line then the body. Read
+  back straight from the clone discussion group.
+- **Roster (ADR-0024)** — 196 real participants collected (source 194 +
+  discussion 2) with genuine ids/usernames/names/bot flags into the JSONL
+  sidecar. Source came back `collected` (the account can list this channel),
+  not `unavailable` — the honest marker adapts to real rights.
+FLOOD_WAIT ladder as predicted; per-batch cursor made every interrupted resume
+safe. Also incidentally reconfirmed live: `clone status` lists all 10 legacy v1
+states without crashing (the earlier fix).
+**Found — new gap, not fixed:** `clone init` cannot re-create a clone over a
+stale v1 state. `commit_init` calls `state.load()`, which fail-closes on
+`version 1`, so ADR-0023's "run a fresh init to get comments" is impossible on
+any pre-round-3 clone without manually removing the state file. The gate had to
+archive `<clone_id>.json` → `.json.v1bak` by hand to proceed. Distinct from the
+`status` listing fix (that tolerates v1 for *reading*; this blocks *writing* a
+new clone). Candidate follow-up: an explicit `init --replace`/supersede path or
+a documented v1-eviction step. Flagged as a background task.
+**Artifacts:** new clone pair kept as a reusable gate fixture; old v1 clone
+channel 4448680162 orphaned (state archived, restorable via `mv`).
+
 ## 2026-07-17 — clone snapshots the source-side participant roster (Claude Opus 4.8)
 **Did:** new `clone/roster.py` + ADR-0024. After both sync phases, `clone
 sync` snapshots participants of the source channel and (when
