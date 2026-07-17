@@ -6,7 +6,7 @@ import secrets, tempfile
 from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
 from tgcli import chatref, safety
-from tgcli.clone import attribution, batching, fidelity, profile, replies, state, topics
+from tgcli.clone import attribution, batching, fidelity, profile, snapshot, state, topics, transport
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
 def _entry(s: state.CloneState) -> dict:
     return {"clone_id": s.clone_id, "source": {"id": s.source_peer_id,
@@ -211,34 +211,28 @@ async def _reupload_batch(tg, destination, clone_state, account_alias, messages,
             peer=destination, multi_media=multi_media, reply_to=reply_to)
         return await _mutate(tg, request, clone_state)
 async def _forward_batch(tg, source, destination, clone_state, account_alias,
-                         messages, me, author_cache, reply_to, *, topic_dest=None):
+                         messages, me, author_cache, plan, *, topic_dest=None):
     source_ids = [message.id for message in messages]
     random_ids = [secrets.randbelow(2**63 - 1) + 1 for _ in messages]
-    header = getattr(messages[0], "reply_to", None)
-    reply_flattened = (header is not None and reply_to is None
-                       and not topics.placement_only(header))
-    replacement = await fidelity.replacement(tg, messages[0]) if len(messages) == 1 else None
-    reupload = (getattr(source, "noforwards", False) or reply_to is not None or
-                any(getattr(message, "noforwards", False) for message in messages))
+    reply_to = plan.reply_to
     if topic_dest is not None:
         reply_to = topics.place(reply_to, topic_dest)
     top_msg_id = None if topic_dest in (None, topics.GENERAL_TOPIC_ID) else topic_dest
     author = None
-    if clone_state.source_kind != "broadcast" and (replacement is not None or reupload):
+    if plan.needs_author:
         author = await attribution.author_name(
             tg, source, messages[0], me, author_cache,
             lambda awaitable: _with_cooldown(awaitable, clone_state))
-    if replacement is not None:
-        mode = "snapshots"
-        text, entities = attribution.prefixed(replacement[0], replacement[1], author)
+    if plan.mode == "snapshots":
+        rendered_text, rendered_entities = await snapshot.render(tg, messages[0])
+        text, entities = attribution.prefixed(rendered_text, rendered_entities, author)
         safety.append_audit("clone-sync-snapshot", account_alias,
                             {"clone_id": clone_state.clone_id,
                              "source_message_ids": source_ids})
         response = await _mutate(tg, functions.messages.SendMessageRequest(
             peer=destination, message=text, random_id=random_ids[0],
             reply_to=reply_to, no_webpage=True, entities=entities), clone_state)
-    elif not reupload:
-        mode = "forwarded"
+    elif plan.mode == "forwarded":
         safety.append_audit("clone-sync-forward", account_alias,
                             {"clone_id": clone_state.clone_id,
                              "source_message_ids": source_ids})
@@ -249,7 +243,6 @@ async def _forward_batch(tg, source, destination, clone_state, account_alias,
         )
         response = await _mutate(tg, request, clone_state)
     else:
-        mode = "reuploaded"
         response = await _reupload_batch(tg, destination, clone_state, account_alias,
                                          messages, random_ids, reply_to, author)
     destination_ids = topics.confirmed_destination_ids(response, random_ids)
@@ -257,7 +250,7 @@ async def _forward_batch(tg, source, destination, clone_state, account_alias,
         clone_state.record_mapping(source_id, destination_id)
     clone_state.cursor = source_ids[-1]
     state.save(clone_state)
-    return len(source_ids), mode, reply_flattened
+    return len(source_ids), plan.mode, plan.reply_flattened
 async def sync_text(tg, source: str, account_alias: str,
                     *, limit: int | None = None) -> dict:
     source_entity, source_kind, _ = await _resolve_source(tg, source)
@@ -318,7 +311,7 @@ async def sync_text(tg, source: str, account_alias: str,
             clone_state.cursor = messages[-1].id
             state.save(clone_state)
             return
-        reply_to = replies.target(messages, clone_state, source_entity)
+        plan = transport.decide(messages, clone_state, source_entity)
         topic_dest = None
         if forum:
             topic_dest = await topics.ensure_topic(
@@ -327,7 +320,7 @@ async def sync_text(tg, source: str, account_alias: str,
                 account_alias=account_alias)
         batch_copied, mode, flattened = await _forward_batch(
             tg, source_entity, destination, clone_state, account_alias,
-            list(messages), me, author_cache, reply_to, topic_dest=topic_dest
+            list(messages), me, author_cache, plan, topic_dest=topic_dest
         )
         copied += batch_copied
         transport_counts[mode] += batch_copied
