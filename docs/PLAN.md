@@ -61,8 +61,9 @@ not rewritten.
   live legacy basic groups, and forum megagroups; the destination invariant is
   now kind-dependent, with forum sources using private owned forum-megagroup
   destinations and all other sources using private owned broadcast channels.
-  Forum routing is mock/unit verified; controlled live acceptance remains
-  pending. The independent read-only `mirror_probe.py` diagnostic remains.
+  Forum routing passed controlled live acceptance on 2026-07-16. The
+  independent read-only `mirror_probe.py` diagnostic was archived on
+  2026-07-16 (unused since the clone pivot; recoverable from git history).
 - Multi-user distribution / packaging for strangers.
 - Bot API (this is a user-account MTProto tool).
 - Secret chats (Telethon does not implement them), voice/video calls

@@ -30,7 +30,6 @@ tgcli/
 │   ├── session.py             [done]    session locks + normal/mutation-safe TelegramClient factory
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
-│   ├── mirror_probe.py        [done]    independent read-only protected-content diagnostic
 │   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022)
 │   │   ├── state.py           [done]    atomic JSON state, mappings, cooldown
 │   │   ├── fidelity.py        [done]    truthful poll snapshots and named Story placeholders
@@ -55,7 +54,6 @@ tgcli/
     ├── install-link.sh        [done]    symlink tg → PATH (phase 6 cutover)
     ├── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
     ├── bench.py               [done]    live benchmark: every command against a real account
-    ├── mirror_probe.py        [done]    operator entrypoint for the retained read-only diagnostic
     └── seed_demo_channel.py   [done]    manual demo-channel seeding for clone visual acceptance
 ```
 
