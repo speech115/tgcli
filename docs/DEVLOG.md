@@ -14,6 +14,34 @@ Template:
 ```
 
 
+## 2026-07-17 — Clone deepening refactor (Claude Opus 4.8)
+**Did:** executed the behavior-frozen clone deepening refactor plan
+(`docs/superpowers/plans/2026-07-16-clone-deepening-refactor.md`). Extracted
+`clone/batching.py` (pure batch planner: albums, service skips) and
+`clone/transport.py` (pure forward/reupload/snapshot `decide()` →
+`TransportPlan`) out of `commands/clone.py`'s `sync_text`; split poll/story
+text rendering out of `fidelity.py` into `clone/snapshot.py`, leaving
+`fidelity.py` with only media capability classification; deleted
+`clone/profile.py` and inlined it as `_copy_profile` in `commands/clone.py`.
+Added `tests/test_clone_attribution.py` and `tests/test_clone_replies.py` as
+direct unit tests for the pure clone helpers. Full suite: 399 passed, 8
+skipped. No changes to JSON output, exit codes, audit events, or the state
+file schema.
+**Decided:** do this deepening before starting round 3 (clone comments,
+`docs/superpowers/specs/2026-07-16-clone-comments-design.md`) so the
+discussion-loop work in round 3 can consume `batching.plan` and
+`transport.decide` instead of duplicating the sync loop.
+**Learned:** `commands/clone.py` has a hard 400-line budget; inlining
+`_copy_profile` pushed it to 405, recovered by folding the single-caller
+`_init_result` helper directly into `commit_init` and tightening
+`_copy_profile`'s formatting. Round-2 topic-routing parameters (per-batch
+destination topic / `reply_to` top id) threaded through the batch path
+unchanged — `batching.Batch` stayed a plain message container, with topic
+resolution left to orchestration in `commands/clone.py`.
+**Next:** implement clone comments round 3 on top of the new
+`batching`/`transport` interfaces.
+
+
 ## 2026-07-16 — Clone chat types round 2 live-accepted (Claude Fable 5)
 **Did:** executed Task 9, the live acceptance gate for the round-2 clone plan.
 Bot dialog `AnonAskBot` (39 messages): 34 native forwards + 5 prefixed reply

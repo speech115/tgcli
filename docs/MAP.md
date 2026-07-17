@@ -32,8 +32,10 @@ tgcli/
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
 │   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022)
 │   │   ├── state.py           [done]    atomic JSON state, mappings, cooldown
-│   │   ├── fidelity.py        [done]    truthful poll snapshots and named Story placeholders
-│   │   ├── profile.py         [done]    init-time chat description/bio and static avatar copy
+│   │   ├── fidelity.py        [done]    media capability classification
+│   │   ├── batching.py        [done]    pure batch planner: albums, service skips
+│   │   ├── transport.py       [done]    pure forward/reupload/snapshot decision
+│   │   ├── snapshot.py        [done]    truthful poll/story text rendering
 │   │   ├── attribution.py     [done]    source kinds, author cache, UTF-16 prefix shifts
 │   │   ├── replies.py         [done]    validated reply mapping and explicit flatten fallback
 │   │   └── topics.py          [done]    forum destination shape, lazy topic map, batch confirmation (ADR-0022)

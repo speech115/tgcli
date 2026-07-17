@@ -122,6 +122,12 @@ policy: version bump, old files rejected with a clear message.
 
 ## Module layout & budgets
 
+> Layout note (2026-07-16 deepening refactor): the phase-1 batch machinery is
+> now `clone/batching.plan` (pure event generator) + `clone/transport.decide`
+> (pure TransportPlan). The phase-2 discussion loop should consume these
+> interfaces instead of duplicating the sync loop; file budgets in this
+> section predate the refactor.
+
 - `src/tgcli/clone/discussion.py` (new, ≤120 lines): linked-chat detection,
   destination group create/link/recover, anchor resolution + cache,
   auto-forward recognition.

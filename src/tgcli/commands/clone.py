@@ -6,7 +6,7 @@ import secrets, tempfile
 from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
 from tgcli import chatref, safety
-from tgcli.clone import attribution, fidelity, profile, replies, state, topics
+from tgcli.clone import attribution, batching, fidelity, snapshot, state, topics, transport
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
 def _entry(s: state.CloneState) -> dict:
     return {"clone_id": s.clone_id, "source": {"id": s.source_peer_id,
@@ -68,13 +68,6 @@ async def _marker_candidates(tg, marker: str, shape_ok) -> tuple[list[object], l
             continue
         (valid if shape_ok(entity, title=marker) else wrong_shape).append(entity)
     return valid, wrong_shape
-def _init_result(clone_state: state.CloneState, destination) -> dict:
-    return {"clone": {"id": clone_state.clone_id, "source": {
-            "id": clone_state.source_peer_id, "title": clone_state.source_title,
-            "kind": clone_state.source_kind},
-            "destination": {"id": clone_state.destination_peer_id,
-            "title": getattr(destination, "title", clone_state.source_title)},
-            "status": "ready", "commit_required": False}}
 def _enforce_cooldown(clone_state: state.CloneState) -> None:
     deadline = clone_state.cooldown_deadline()
     if deadline is not None:
@@ -90,6 +83,39 @@ async def _with_cooldown(awaitable, clone_state):
         raise
 async def _mutate(tg, request, clone_state: state.CloneState):
     return await _with_cooldown(tg(request), clone_state)
+async def _copy_profile(tg, source, destination, account_alias, clone_id, cooldown) -> None:
+    if isinstance(source, types.User):
+        full = await cooldown(tg(functions.users.GetFullUserRequest(source)))
+        about = getattr(full.full_user, "about", None) or ""
+    elif isinstance(source, types.Chat):
+        full = await cooldown(tg(functions.messages.GetFullChatRequest(
+            chat_id=source.id)))
+        about = getattr(full.full_chat, "about", None) or ""
+    else:
+        full = await cooldown(tg(functions.channels.GetFullChannelRequest(source)))
+        about = getattr(full.full_chat, "about", None) or ""
+    if about:
+        safety.append_audit("clone-init-about", account_alias, {
+            "clone_id": clone_id, "source_peer_id": source.id,
+        })
+        await cooldown(tg(functions.messages.EditChatAboutRequest(
+            peer=destination, about=about)))
+    photo = getattr(source, "photo", None)
+    if photo is None or isinstance(photo, (types.ChatPhotoEmpty,
+                                           types.UserProfilePhotoEmpty)):
+        return
+    with tempfile.TemporaryDirectory(prefix="tgcli-clone-avatar-") as workdir:
+        downloaded = await cooldown(tg.download_profile_photo(
+            source, file=Path(workdir) / "avatar"))
+        if downloaded is None:
+            raise PolicyError("clone source avatar download failed")
+        uploaded = await cooldown(tg.upload_file(downloaded))
+        safety.append_audit("clone-init-avatar", account_alias, {
+            "clone_id": clone_id, "source_peer_id": source.id,
+        })
+        await cooldown(tg(functions.channels.EditPhotoRequest(
+            channel=destination,
+            photo=types.InputChatUploadedPhoto(file=uploaded))))
 async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dict:
     entity, source_kind, _ = await _resolve_source(tg, source)
     me = await tg.get_me()
@@ -151,9 +177,14 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
             tg, functions.channels.EditTitleRequest(
                 channel=destination, title=clone_state.source_title), clone_state)
         destination.title = clone_state.source_title
-    await profile.copy(tg, entity, destination, account_alias, clone_id,
-                       lambda awaitable: _with_cooldown(awaitable, clone_state))
-    return _init_result(clone_state, destination)
+    await _copy_profile(tg, entity, destination, account_alias, clone_id,
+                        lambda awaitable: _with_cooldown(awaitable, clone_state))
+    return {"clone": {"id": clone_state.clone_id, "source": {
+            "id": clone_state.source_peer_id, "title": clone_state.source_title,
+            "kind": clone_state.source_kind},
+            "destination": {"id": clone_state.destination_peer_id,
+            "title": getattr(destination, "title", clone_state.source_title)},
+            "status": "ready", "commit_required": False}}
 def init_rows(data: dict) -> list[tuple]:
     clone = data["clone"]
     destination = clone["destination"]
@@ -211,34 +242,28 @@ async def _reupload_batch(tg, destination, clone_state, account_alias, messages,
             peer=destination, multi_media=multi_media, reply_to=reply_to)
         return await _mutate(tg, request, clone_state)
 async def _forward_batch(tg, source, destination, clone_state, account_alias,
-                         messages, me, author_cache, reply_to, *, topic_dest=None):
+                         messages, me, author_cache, plan, *, topic_dest=None):
     source_ids = [message.id for message in messages]
     random_ids = [secrets.randbelow(2**63 - 1) + 1 for _ in messages]
-    header = getattr(messages[0], "reply_to", None)
-    reply_flattened = (header is not None and reply_to is None
-                       and not topics.placement_only(header))
-    replacement = await fidelity.replacement(tg, messages[0]) if len(messages) == 1 else None
-    reupload = (getattr(source, "noforwards", False) or reply_to is not None or
-                any(getattr(message, "noforwards", False) for message in messages))
+    reply_to = plan.reply_to
     if topic_dest is not None:
         reply_to = topics.place(reply_to, topic_dest)
     top_msg_id = None if topic_dest in (None, topics.GENERAL_TOPIC_ID) else topic_dest
     author = None
-    if clone_state.source_kind != "broadcast" and (replacement is not None or reupload):
+    if plan.needs_author:
         author = await attribution.author_name(
             tg, source, messages[0], me, author_cache,
             lambda awaitable: _with_cooldown(awaitable, clone_state))
-    if replacement is not None:
-        mode = "snapshots"
-        text, entities = attribution.prefixed(replacement[0], replacement[1], author)
+    if plan.mode == "snapshots":
+        rendered_text, rendered_entities = await snapshot.render(tg, messages[0])
+        text, entities = attribution.prefixed(rendered_text, rendered_entities, author)
         safety.append_audit("clone-sync-snapshot", account_alias,
                             {"clone_id": clone_state.clone_id,
                              "source_message_ids": source_ids})
         response = await _mutate(tg, functions.messages.SendMessageRequest(
             peer=destination, message=text, random_id=random_ids[0],
             reply_to=reply_to, no_webpage=True, entities=entities), clone_state)
-    elif not reupload:
-        mode = "forwarded"
+    elif plan.mode == "forwarded":
         safety.append_audit("clone-sync-forward", account_alias,
                             {"clone_id": clone_state.clone_id,
                              "source_message_ids": source_ids})
@@ -249,7 +274,6 @@ async def _forward_batch(tg, source, destination, clone_state, account_alias,
         )
         response = await _mutate(tg, request, clone_state)
     else:
-        mode = "reuploaded"
         response = await _reupload_batch(tg, destination, clone_state, account_alias,
                                          messages, random_ids, reply_to, author)
     destination_ids = topics.confirmed_destination_ids(response, random_ids)
@@ -257,7 +281,7 @@ async def _forward_batch(tg, source, destination, clone_state, account_alias,
         clone_state.record_mapping(source_id, destination_id)
     clone_state.cursor = source_ids[-1]
     state.save(clone_state)
-    return len(source_ids), mode, reply_flattened
+    return len(source_ids), plan.mode, plan.reply_flattened
 async def sync_text(tg, source: str, account_alias: str,
                     *, limit: int | None = None) -> dict:
     source_entity, source_kind, _ = await _resolve_source(tg, source)
@@ -305,8 +329,8 @@ async def sync_text(tg, source: str, account_alias: str,
     reply_flattened = 0
     author_cache = {}
     more = False
-    active_album = []
-    async def finish_batch(messages) -> None:
+
+    async def copy_batch(messages) -> None:
         nonlocal copied, copied_batches, reply_flattened
         unsupported = [
             {"id": message.id, "kind": kind}
@@ -318,7 +342,7 @@ async def sync_text(tg, source: str, account_alias: str,
             clone_state.cursor = messages[-1].id
             state.save(clone_state)
             return
-        reply_to = replies.target(messages, clone_state, source_entity)
+        plan = transport.decide(messages, clone_state, source_entity)
         topic_dest = None
         if forum:
             topic_dest = await topics.ensure_topic(
@@ -326,22 +350,21 @@ async def sync_text(tg, source: str, account_alias: str,
                 topics.topic_id_of(messages[0]), topic_counters,
                 account_alias=account_alias)
         batch_copied, mode, flattened = await _forward_batch(
-            tg, source_entity, destination, clone_state, account_alias, messages,
-            me, author_cache, reply_to, topic_dest=topic_dest
+            tg, source_entity, destination, clone_state, account_alias,
+            list(messages), me, author_cache, plan, topic_dest=topic_dest
         )
         copied += batch_copied
         transport_counts[mode] += batch_copied
         reply_flattened += int(flattened)
         copied_batches += 1
-    async for source_message in tg.iter_messages(
-            source_entity, min_id=clone_state.cursor, reverse=True):
-        if getattr(source_message, "action", None) is not None:
-            if active_album:
-                await finish_batch(active_album)
-                active_album = []
-            if limit is not None and copied_batches >= limit:
-                more = True
-                break
+
+    async for event in batching.plan(tg.iter_messages(
+            source_entity, min_id=clone_state.cursor, reverse=True)):
+        if limit is not None and copied_batches >= limit:
+            more = True
+            break
+        if isinstance(event, batching.ServiceSkip):
+            source_message = event.message
             if forum and isinstance(source_message.action,
                                     types.MessageActionTopicCreate):
                 if clone_state.topic_dest_for(source_message.id) is None:
@@ -354,33 +377,10 @@ async def sync_text(tg, source: str, account_alias: str,
                     topic_counters["topics_created"] += 1
             else:
                 skipped_service += 1
-            clone_state.cursor = source_message.id
+            clone_state.cursor = event.message_id
             state.save(clone_state)
             continue
-        grouped_id = getattr(source_message, "grouped_id", None)
-        if grouped_id is not None:
-            if isinstance(grouped_id, bool) or not isinstance(grouped_id, int):
-                raise PolicyError("clone album group id is invalid")
-            if active_album and active_album[0].grouped_id == grouped_id:
-                active_album.append(source_message)
-                continue
-            if active_album:
-                await finish_batch(active_album)
-                active_album = []
-            if limit is not None and copied_batches >= limit:
-                more = True
-                break
-            active_album = [source_message]
-            continue
-        if active_album:
-            await finish_batch(active_album)
-            active_album = []
-        if limit is not None and copied_batches >= limit:
-            more = True
-            break
-        await finish_batch([source_message])
-    if active_album:
-        await finish_batch(active_album)
+        await copy_batch(event.messages)
     clone_state.last_synced_at = datetime.now(UTC).isoformat()
     state.save(clone_state)
     return {"clone": {"id": clone_state.clone_id,
