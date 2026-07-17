@@ -68,13 +68,6 @@ async def _marker_candidates(tg, marker: str, shape_ok) -> tuple[list[object], l
             continue
         (valid if shape_ok(entity, title=marker) else wrong_shape).append(entity)
     return valid, wrong_shape
-def _init_result(clone_state: state.CloneState, destination) -> dict:
-    return {"clone": {"id": clone_state.clone_id, "source": {
-            "id": clone_state.source_peer_id, "title": clone_state.source_title,
-            "kind": clone_state.source_kind},
-            "destination": {"id": clone_state.destination_peer_id,
-            "title": getattr(destination, "title", clone_state.source_title)},
-            "status": "ready", "commit_required": False}}
 def _enforce_cooldown(clone_state: state.CloneState) -> None:
     deadline = clone_state.cooldown_deadline()
     if deadline is not None:
@@ -106,17 +99,14 @@ async def _copy_profile(tg, source, destination, account_alias, clone_id, cooldo
             "clone_id": clone_id, "source_peer_id": source.id,
         })
         await cooldown(tg(functions.messages.EditChatAboutRequest(
-            peer=destination, about=about,
-        )))
+            peer=destination, about=about)))
     photo = getattr(source, "photo", None)
-    if photo is None or isinstance(
-        photo, (types.ChatPhotoEmpty, types.UserProfilePhotoEmpty)
-    ):
+    if photo is None or isinstance(photo, (types.ChatPhotoEmpty,
+                                           types.UserProfilePhotoEmpty)):
         return
     with tempfile.TemporaryDirectory(prefix="tgcli-clone-avatar-") as workdir:
         downloaded = await cooldown(tg.download_profile_photo(
-            source, file=Path(workdir) / "avatar",
-        ))
+            source, file=Path(workdir) / "avatar"))
         if downloaded is None:
             raise PolicyError("clone source avatar download failed")
         uploaded = await cooldown(tg.upload_file(downloaded))
@@ -124,8 +114,8 @@ async def _copy_profile(tg, source, destination, account_alias, clone_id, cooldo
             "clone_id": clone_id, "source_peer_id": source.id,
         })
         await cooldown(tg(functions.channels.EditPhotoRequest(
-            channel=destination, photo=types.InputChatUploadedPhoto(file=uploaded),
-        )))
+            channel=destination,
+            photo=types.InputChatUploadedPhoto(file=uploaded))))
 async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dict:
     entity, source_kind, _ = await _resolve_source(tg, source)
     me = await tg.get_me()
@@ -189,7 +179,12 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
         destination.title = clone_state.source_title
     await _copy_profile(tg, entity, destination, account_alias, clone_id,
                         lambda awaitable: _with_cooldown(awaitable, clone_state))
-    return _init_result(clone_state, destination)
+    return {"clone": {"id": clone_state.clone_id, "source": {
+            "id": clone_state.source_peer_id, "title": clone_state.source_title,
+            "kind": clone_state.source_kind},
+            "destination": {"id": clone_state.destination_peer_id,
+            "title": getattr(destination, "title", clone_state.source_title)},
+            "status": "ready", "commit_required": False}}
 def init_rows(data: dict) -> list[tuple]:
     clone = data["clone"]
     destination = clone["destination"]
