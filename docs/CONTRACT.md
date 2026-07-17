@@ -274,6 +274,13 @@ filters by exact numeric source id or case-insensitive title substring. JSON:
 Plain status columns are `source_peer_id`, `source_title`, `source_kind`,
 `destination_peer_id`, `cursor`, `copied`, `last_synced_at`, `comments`.
 
+A corrupt or legacy (unsupported-version) state file never aborts the listing:
+without `SOURCE` it appears as a marked entry `{"clone_id":"hex","unreadable":
+true,...}` with every other field null, and in plain output its `source_title`
+column carries the `clone_id` and its `comments` column reads `unreadable`.
+Because an unreadable file's identity cannot be matched, it is omitted from
+`SOURCE`-filtered listings. Readable entries never carry the `unreadable` key.
+
 `init SOURCE` is a read-only network preview. It resolves the source, verifies
 that its kind is accepted, reads the approximate message count and
 protected-content flag, and stores `source_kind` in a five-minute single-use

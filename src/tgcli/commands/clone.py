@@ -18,17 +18,33 @@ def _entry(s: state.CloneState) -> dict:
 def _matches(s: state.CloneState, source: str | None) -> bool:
     return source is None or (s.source_peer_id == int(source)
         if source.lstrip("-").isdigit() else source.casefold() in s.source_title.casefold())
+def _unreadable_entry(clone_id: str) -> dict:
+    return {"clone_id": clone_id, "source": {"id": None, "title": None, "kind": None},
+            "destination_id": None, "cursor": None, "copied": None, "cooldown_until": None,
+            "created_at": "", "last_synced_at": None, "comments": None, "unreadable": True}
+def _load_entry(path, source: str | None) -> dict | None:
+    """One clone-state file as a status entry, or None if it should be skipped.
+    An unreadable file (corrupt/legacy) becomes a marked entry instead of
+    crashing the whole listing; it is dropped from filtered listings because its
+    identity cannot be matched against SOURCE."""
+    try:
+        loaded = state.load(path.stem)
+    except PolicyError:
+        return None if source is not None else _unreadable_entry(path.stem)
+    if loaded is None or not _matches(loaded, source):
+        return None
+    return _entry(loaded)
 def list_clones(source: str | None = None) -> dict:
     directory = state.clones_dir()
-    entries = [_entry(loaded) for path in directory.glob("*.json")
-               if (loaded := state.load(path.stem)) is not None
-               and _matches(loaded, source)] if directory.exists() else []
+    entries = [entry for path in directory.glob("*.json")
+               if (entry := _load_entry(path, source)) is not None] if directory.exists() else []
     entries.sort(key=lambda entry: entry["created_at"])
     return {"clones": entries}
 def status_rows(data: dict) -> list[tuple]:
-    return [(c["source"]["id"], c["source"]["title"], c["source"]["kind"],
-             c["destination_id"], c["cursor"],
-             c["copied"], c["last_synced_at"], c["comments"]) for c in data["clones"]]
+    return [(c["source"]["id"], c["clone_id"] if c.get("unreadable") else c["source"]["title"],
+             c["source"]["kind"], c["destination_id"], c["cursor"], c["copied"],
+             c["last_synced_at"], "unreadable" if c.get("unreadable") else c["comments"])
+            for c in data["clones"]]
 async def _resolve_source(tg, source: str):
     try:
         entity = await tg.get_entity(chatref.parse(source))

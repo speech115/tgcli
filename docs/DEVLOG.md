@@ -14,6 +14,27 @@ Template:
 ```
 
 
+## 2026-07-17 — clone status survives unreadable state files (Claude Opus 4.8)
+**Did:** `clone status` no longer aborts the whole listing when one
+`clones/*.json` is corrupt or a legacy (pre-round-3) version. TDD: 4 new
+tests in `test_cli_clone_status.py` (legacy version-1, corrupt JSON, plain
+marker, filter exclusion). Added `_load_entry`/`_unreadable_entry` in
+`commands/clone.py` (catch `PolicyError` per file → marked entry
+`{"unreadable": true, ...}` with null fields; plain row shows `clone_id` in
+the title column and `unreadable` in the comments column). Filtered
+(`SOURCE`) listings drop unreadable files since their identity can't be
+matched. Contract updated. Full suite 462 passed / 8 skipped. Live-verified
+on a scratch state dir mixing legacy + corrupt files across `--json`,
+`--plain`, and default renders — all exit 0 (was exit 2 / crash before).
+**Decided:** unreadable = honest marker, not a listing-killer — same
+philosophy as round-3's `comments: unavailable`. Rejecting the file's
+*contents* stays fail-closed (state.load still raises); only the *listing*
+degrades gracefully.
+**Learned:** the crash was one `state.load()` inside a list comprehension —
+any per-file `PolicyError` propagated out and killed the command. Moving the
+try/except to a per-file helper isolates the blast radius.
+**Next:** none required; slice is self-contained.
+
 ## 2026-07-17 — Clone channel comments: live acceptance passed (Claude Opus 4.8)
 **Did:** ran the round-3 live acceptance gate on account `main` against a
 hand-built fixture (no reusable comments fixture existed; a forum megagroup
