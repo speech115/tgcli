@@ -14,6 +14,19 @@ Template:
 ```
 
 
+## 2026-07-17 — attribution header sits on its own line (Claude Opus 4.8)
+**Did:** the reuploaded-attribution prefix now puts the author header on its
+own line above the message body: `"{author}: \n\n{text}"` instead of
+`"{author}: {text}"`. One-line change in `clone/attribution.py::prefixed`;
+UTF-16 shift and mention-entity length follow automatically. Updated the 12
+tests that pinned the old inline format (offsets shift +2 units) and the
+CONTRACT reupload paragraph. Live-rendered the exact requested example
+(`Сергей Иванов (@CrwDdy): ` + blank line + body). Full suite 462 / 8.
+**Decided:** user-facing formatting choice; native forwards (non-attributed
+broadcast/megagroup paths) are unaffected — only reupload attribution.
+**Next:** scope the requested participant-collection feature (who is in the
+source chat/channel) as its own slice.
+
 ## 2026-07-17 — clone status survives unreadable state files (Claude Opus 4.8)
 **Did:** `clone status` no longer aborts the whole listing when one
 `clones/*.json` is corrupt or a legacy (pre-round-3) version. TDD: 4 new

@@ -19,29 +19,29 @@ def test_prefixed_shifts_entity_offsets_by_utf16_prefix():
     entity = types.MessageEntityBold(offset=0, length=4)
     text, entities = attribution.prefixed(
         "текст", [entity], attribution.Author(text="Иван"))
-    assert text == "Иван: текст"
-    assert entities[0].offset == 6  # len("Иван: ") in UTF-16 units
+    assert text == "Иван: \n\nтекст"
+    assert entities[0].offset == 8  # len("Иван: \n\n") in UTF-16 units
     assert entities[0] is not entity  # original must not be mutated
 
 
 def test_prefixed_handles_surrogate_pair_author():
     text, entities = attribution.prefixed(
         "hi", None, attribution.Author(text="😀"))
-    assert text == "😀: hi"
+    assert text == "😀: \n\nhi"
     assert entities is None
 
 
 def test_prefixed_with_username_author_adds_no_mention_entity():
     text, entities = attribution.prefixed(
         "hi", None, attribution.Author(text="Ivan (@ivan)"))
-    assert text == "Ivan (@ivan): hi"
+    assert text == "Ivan (@ivan): \n\nhi"
     assert entities is None
 
 
 def test_prefixed_mentions_author_without_username():
     text, entities = attribution.prefixed(
         "текст", None, attribution.Author(text="Иван", mention_user_id=7))
-    assert text == "Иван: текст"
+    assert text == "Иван: \n\nтекст"
     assert entities == [types.MessageEntityMentionName(
         offset=0, length=4, user_id=7)]
 
@@ -49,7 +49,7 @@ def test_prefixed_mentions_author_without_username():
 def test_prefixed_mention_length_counts_utf16_units():
     text, entities = attribution.prefixed(
         "hi", None, attribution.Author(text="😀 Ann", mention_user_id=7))
-    assert text == "😀 Ann: hi"
+    assert text == "😀 Ann: \n\nhi"
     assert entities[0].length == 6  # surrogate pair counts as 2
 
 
@@ -57,9 +57,9 @@ def test_prefixed_mention_coexists_with_shifted_entities():
     bold = types.MessageEntityBold(offset=0, length=2)
     text, entities = attribution.prefixed(
         "hi", [bold], attribution.Author(text="Ann", mention_user_id=7))
-    assert text == "Ann: hi"
+    assert text == "Ann: \n\nhi"
     assert entities == [types.MessageEntityMentionName(offset=0, length=3, user_id=7),
-                        types.MessageEntityBold(offset=5, length=2)]
+                        types.MessageEntityBold(offset=7, length=2)]
     assert bold.offset == 0  # original must not be mutated
 
 

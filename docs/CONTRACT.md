@@ -414,7 +414,9 @@ Telegram's author header.
 
 A batch uses download/reupload reconstruction when the source or any message
 has `noforwards`, or when it has a mapped reply. Attributed reuploads prepend
-`<display name>: ` to text or the leading album caption. Original entity
+`<display name>: ` followed by a blank line to text or the leading album
+caption, so the author header sits on its own line above the message body.
+Original entity
 offsets shift by the prefix's UTF-16 code-unit length, and repeated sender
 lookups are cached for the sync run. This preserves both attribution and the
 mapped destination reply relationship that native forwarding drops.

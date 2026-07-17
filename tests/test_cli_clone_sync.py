@@ -473,7 +473,7 @@ def test_sync_attaches_a_comment_to_its_post_thread(
     assert lookup.peer is client.destination and lookup.msg_id == 2
     [send] = group_sends(client)
     assert isinstance(send, functions.messages.SendMessageRequest)
-    assert send.message == "Alex (@alex): nice"
+    assert send.message == "Alex (@alex): \n\nnice"
     assert send.reply_to.reply_to_msg_id == 500
     assert send.reply_to.top_msg_id is None
     assert sync["reply_flattened"] == 0
@@ -922,7 +922,7 @@ def test_clone_sync_reuploads_topic_reply_with_prefix_into_topic(
     sync = json.loads(capsys.readouterr().out)["sync"]
     [request] = [item for item in client.requests
                  if isinstance(item, functions.messages.SendMessageRequest)]
-    assert request.message == "Alex: pong"
+    assert request.message == "Alex: \n\npong"
     assert request.reply_to.reply_to_msg_id == 1003
     assert request.reply_to.top_msg_id == 1002
     assert sync["reuploaded"] == 1
@@ -1262,9 +1262,9 @@ def test_clone_sync_reuploads_megagroup_reply_with_prefix_and_shifted_entities(
     sync = json.loads(capsys.readouterr().out)["sync"]
     [request] = client.requests
     assert isinstance(request, functions.messages.SendMessageRequest)
-    assert request.message == "Zoë 🚀: 😀bold"
+    assert request.message == "Zoë 🚀: \n\n😀bold"
     assert request.reply_to.reply_to_msg_id == 1001
-    prefix_units = len("Zoë 🚀: ".encode("utf-16-le")) // 2
+    prefix_units = len("Zoë 🚀: \n\n".encode("utf-16-le")) // 2
     mention, shifted = request.entities
     assert mention == types.MessageEntityMentionName(
         offset=0, length=len("Zoë 🚀".encode("utf-16-le")) // 2, user_id=77)
@@ -1303,7 +1303,7 @@ def test_clone_sync_reuploads_protected_megagroup_with_cached_author_prefix(
     sync = json.loads(capsys.readouterr().out)["sync"]
     sends = [item for item in client.requests
              if isinstance(item, functions.messages.SendMessageRequest)]
-    assert [item.message for item in sends] == ["Alex: first", "Alex: second"]
+    assert [item.message for item in sends] == ["Alex: \n\nfirst", "Alex: \n\nsecond"]
     assert author_lookups == 1
     assert sync["reuploaded"] == 2
 
@@ -1353,7 +1353,7 @@ def test_clone_sync_reuploads_private_dialog_reply_with_explicit_source_peer(
     capsys.readouterr()
     [request] = client.requests
     assert isinstance(request, functions.messages.SendMessageRequest)
-    assert request.message == "Alex Smith: answer"
+    assert request.message == "Alex Smith: \n\nanswer"
     assert request.reply_to.reply_to_msg_id == 1001
 
 
@@ -1409,7 +1409,7 @@ def test_clone_sync_reuploads_basic_group_reply_with_prefix(
     sync = json.loads(capsys.readouterr().out)["sync"]
     [request] = [item for item in client.requests
                  if isinstance(item, functions.messages.SendMessageRequest)]
-    assert request.message == "Alex: pong"
+    assert request.message == "Alex: \n\npong"
     assert request.reply_to.reply_to_msg_id == 1001
     assert sync["reuploaded"] == 1
 
@@ -2153,7 +2153,7 @@ def test_clone_sync_prefixes_attributed_reply_album_caption_once(
     [request] = [item for item in client.requests
                  if isinstance(item, functions.messages.SendMultiMediaRequest)]
     assert [item.message for item in request.multi_media] == [
-        "Alex: caption", "",
+        "Alex: \n\ncaption", "",
     ]
 
 

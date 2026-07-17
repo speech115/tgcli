@@ -96,7 +96,7 @@ def prefixed(text: str, entities, author: Author | None) -> tuple[str, list | No
     original = list(entities or ())
     if author is None:
         return text, original or None
-    prefix = f"{author.text}: "
+    prefix = f"{author.text}: \n\n"
     shift = len(prefix.encode("utf-16-le")) // 2
     result = []
     if author.mention_user_id is not None:
