@@ -52,14 +52,26 @@ async def _resolve_source(tg, source: str):
         raise NotFoundError(f"clone source not found: {source!r}") from None
     kind = attribution.source_kind(entity)
     return entity, kind, attribution.display_name(entity)
-async def preview_init(tg, source: str) -> dict:
+def _supersede_status(clone_id: str, replace: bool) -> dict:
+    """Read-only view of the state slot for the preview, without fail-closing on
+    an unreadable (legacy/corrupt) file the way commit does."""
+    existing = state.path_for(clone_id).exists()
+    readable: bool | None = None
+    if existing:
+        try:
+            state.load(clone_id)
+            readable = True
+        except PolicyError:
+            readable = False
+    return {"existing": existing, "readable": readable, "replace": replace}
+async def preview_init(tg, source: str, *, replace: bool = False) -> dict:
     entity, source_kind, source_title = await _resolve_source(tg, source)
     me = await tg.get_me()
     total = (await tg.get_messages(entity, limit=0)).total
     clone_id = state.clone_id(me.id, entity.id)
     preview = safety.create_preview({"kind": "clone-init", "source": source,
         "account_user_id": me.id, "source_peer_id": entity.id,
-        "source_title": source_title, "source_kind": source_kind,
+        "source_title": source_title, "source_kind": source_kind, "replace": replace,
         "protected": bool(getattr(entity, "noforwards", False)),
         "approximate_message_count": total})
     return {"preview_id": preview["preview_id"], "expires_at": preview["expires_at"],
@@ -67,7 +79,8 @@ async def preview_init(tg, source: str) -> dict:
             "title": source_title, "kind": source_kind},
             "destination": None, "status": "planned", "commit_required": True},
             "approximate_message_count": total,
-            "protected": preview["protected"]}
+            "protected": preview["protected"],
+            "supersede": _supersede_status(clone_id, replace)}
 def _is_private_owned_broadcast(entity, *, title: str | None = None) -> bool:
     active = any(getattr(item, "active", False)
                  for item in (getattr(entity, "usernames", None) or ()))
@@ -189,14 +202,26 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
             or payload.get("source_kind", source_kind) != source_kind):
         raise PolicyError("clone init preview no longer matches the source or account")
     clone_id = state.clone_id(me.id, entity.id)
-    clone_state = state.load(clone_id) or state.CloneState.new(
+    replace = bool(payload.get("replace"))
+    if replace and (archived := state.supersede(clone_id)):
+        safety.append_audit("clone-init-replace", account_alias,
+                            {"clone_id": clone_id,
+                             "archived": [path.name for path in archived]})
+    try:
+        existing = state.load(clone_id)
+    except PolicyError as exc:
+        raise PolicyError(
+            f"{exc}; re-run clone init --replace to supersede it") from exc
+    clone_state = existing or state.CloneState.new(
         account_user_id=me.id, source_peer_id=entity.id,
         source_title=payload["source_title"],
         source_kind=payload.get("source_kind", source_kind))
     if clone_state.source_kind != source_kind:
         raise PolicyError("clone source kind no longer matches initialized state")
-    marker = clone_state.creation_marker or f"tgcli-clone-{clone_id[:12]}"
-    clone_state.creation_marker = marker
+    if clone_state.creation_marker is None:
+        nonce = f"-{secrets.token_hex(3)}" if replace else ""
+        clone_state.creation_marker = f"tgcli-clone-{clone_id[:12]}{nonce}"
+    marker = clone_state.creation_marker
     state.save(clone_state)
     _enforce_cooldown(clone_state)
     forum = clone_state.destination_kind == "forum"

@@ -447,3 +447,49 @@ def test_from_dict_rejects_duplicate_discussion_destinations():
         state.CloneState.from_dict(_valid_payload(
             comments="enabled", discussion_source_peer_id=55,
             discussion_id_map={"1": 2, "3": 2}))
+
+
+def test_supersede_missing_slot_is_noop():
+    assert state.supersede("b" * 64) == []
+    assert not state.path_for("b" * 64).exists()
+
+
+def test_supersede_archives_state_and_sidecar():
+    s = _fresh()
+    state.save(s)
+    cid = s.clone_id
+    sidecar = state.clones_dir() / f"{cid}-participants.jsonl"
+    sidecar.write_text('{"peer":"source"}\n')
+
+    archived = state.supersede(cid)
+
+    assert not state.path_for(cid).exists()
+    assert not sidecar.exists()
+    names = sorted(p.name for p in archived)
+    assert len(names) == 2
+    assert all(".superseded-" in n for n in names)
+    assert any(n.startswith(f"{cid}.json.superseded-") for n in names)
+    assert any(n.startswith(f"{cid}-participants.jsonl.superseded-") for n in names)
+    state_archive = next(p for p in archived if p.name.startswith(f"{cid}.json"))
+    assert json.loads(state_archive.read_text())["version"] == state.VERSION
+
+
+def test_supersede_state_only_when_no_sidecar():
+    s = _fresh()
+    state.save(s)
+    archived = state.supersede(s.clone_id)
+    assert len(archived) == 1
+    assert archived[0].name.startswith(f"{s.clone_id}.json.superseded-")
+    assert not state.path_for(s.clone_id).exists()
+
+
+def test_supersede_preserves_unreadable_v1_file():
+    cid = "c" * 64
+    path = state.path_for(cid)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"version": 1, "account_user_id": 1,
+                                "source_peer_id": 2, "source_title": "S"}))
+    archived = state.supersede(cid)
+    assert len(archived) == 1
+    assert not path.exists()
+    assert json.loads(archived[0].read_text())["version"] == 1

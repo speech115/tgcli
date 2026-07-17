@@ -21,16 +21,20 @@ Spec: docs/superpowers/specs/2026-07-16-clone-comments-design.md
   auto-forward anchor only at post-send time with the link already in place.
   There is no API to backfill anchors for a clone that already has posts, so
   existing posts-only clones stay posts-only forever; the only way to get
-  comments is a fresh `init` against a new destination pair (new
-  `clone_id`, since `clone_id` is a hash of account + source peer, not of the
-  destination).
+  comments is a fresh `init` against a new destination pair. Because `clone_id`
+  is a hash of account + source peer (not of the destination), that fresh init
+  reuses the *same* `clone_id` slot — so "a fresh init" is not automatic: the
+  old slot must first be explicitly superseded. See the 2026-07-17 amendment
+  (`clone init --replace`) below; the original wording here claimed a bare
+  re-`init` would suffice, which the deterministic slot makes false.
 - **`comments: "unavailable"` is a permanent honest marker, not a
   `PolicyError`.** A linked group that exists but is unreadable (private,
   not a member) does not fail init — it clones the channel posts-only and
   records the marker forever in state, `clone status`, and every `init`/
-  `sync` response. Joining the source group and re-initing later is the only
-  way to upgrade it; tgcli never joins on the user's behalf (never acts on
-  the source side).
+  `sync` response. Joining the source group and re-initing with
+  `clone init --replace` (see the 2026-07-17 amendment) is the only way to
+  upgrade it; tgcli never joins on the user's behalf (never acts on the source
+  side).
 - **Two-phase sync, sequential, phase 1 first.** `sync` now runs phase 1
   (channel posts, unchanged) to exhaustion, then, only if it did not stop on
   `--limit` and `comments == "enabled"`, runs phase 2 (the discussion group)
@@ -139,7 +143,60 @@ comments. The cost is a second peer per comments-enabled clone (double
 exposure to the live ~15h FLOOD_WAIT on rapid peer creation — init now
 creates up to two channels/groups per run) and a second cursor/tail to
 verify every sync. Existing posts-only clones cannot be upgraded in place;
-users who want comments re-init against a fresh destination.
+users who want comments supersede the old clone with `clone init --replace`
+(2026-07-17 amendment) and re-init against a fresh destination.
+
+## Amendment (2026-07-17): `clone init --replace` supersedes a stale clone
+
+This ADR's original text told users to "re-init against a fresh destination"
+to get comments, but the state slot is `TGCLI_STATE_DIR/clones/<clone_id>.json`
+where `clone_id = sha256("<account_user_id>:<source_peer_id>")` — deterministic
+per source. `commit_init` opens that slot with `state.load`, which fail-closes
+(`PolicyError`) on any file whose `version` != `VERSION`. So a bare re-`init`
+does **not** work:
+
+- A **pre-round-3 v1** file makes `state.load` raise before any work — commit
+  aborts and cannot re-create the clone. (Live 2026-07-17: the @sral_v_nastav
+  gate had to `mv <clone_id>.json{,.v1bak}` by hand first.)
+- A readable **v2 posts-only** file is loaded and its recorded
+  `destination_peer_id` is *reused*, adopting the same anchor-less destination
+  — still no comments.
+
+The documented upgrade path was therefore impossible without a hidden manual
+`mv`/`rm`. This amendment adds an explicit, safe one:
+
+- **`clone init SOURCE --replace`** archives the clone's on-disk artifacts out
+  of the slot and starts a fresh v2 clone against a brand-new destination pair.
+  `--replace` is declared at *preview* time (the read-only step where the human
+  sees the plan) and carried in the single-use preview payload; `--commit`
+  executes it.
+- **Archive, never delete.** `state.supersede(clone_id)` renames (via `os.
+  replace`) `<clone_id>.json` and, if present, the ADR-0024 roster sidecar
+  `<clone_id>-participants.jsonl` to `*.superseded-<UTC>`. The old state and
+  roster stay recoverable and the old Telegram destination is never touched —
+  the user retires it manually. An empty slot makes `--replace` a no-op fresh
+  init.
+- **Fresh pair guaranteed by a nonce marker.** The base creation marker is
+  deterministic from `clone_id`, so an init interrupted by FLOOD_WAIT before its
+  retitle step (this ADR's Consequences already flags two-peer inits as doubly
+  flood-prone) leaves the old destination still bearing that marker — which the
+  marker-scan would re-adopt, re-entering the posts-only trap. A `--replace`
+  fresh init therefore sets `creation_marker = tgcli-clone-<id12>-<hex nonce>`
+  (persisted, so crash recovery within the same `--replace` init re-adopts the
+  new pair rather than creating a third).
+- **Fail-closed preserved.** Without `--replace`, a v1/unreadable slot still
+  refuses to start, and a v2 destination is never silently reused as v2. The
+  only change to the no-flag path is a clearer error — the version `PolicyError`
+  now ends `; re-run clone init --replace to supersede it`.
+- **Preview transparency.** `init`'s preview response gains a `supersede`
+  object — `{"existing", "readable", "replace"}` — computed without
+  fail-closing, so an agent sees before committing whether a slot is occupied
+  and whether it is readable.
+- **Audit.** When `--replace` archives anything, a `clone-init-replace` record
+  (`clone_id`, archived basenames) is appended before the fresh state is
+  written.
+
+Spec: `docs/superpowers/specs/2026-07-17-clone-replace-stale-design.md`.
 
 ## Out of scope
 

@@ -172,6 +172,21 @@ def load(clone_id: str) -> CloneState | None:
         raise PolicyError(
             f"clone state {path.name} is invalid; manual repair is required"
         ) from exc
+def supersede(clone_id: str) -> list[Path]:
+    """Archive a clone's active state (and its ADR-0024 roster sidecar) out of
+    the slot so a fresh `init --replace` can start clean. Renames, never
+    deletes: the old clone stays recoverable and its Telegram destination is
+    untouched. The sidecar name mirrors ``roster.path_for`` (kept inline to
+    avoid a state→roster import cycle). Returns the archived paths ([] if the
+    slot was empty)."""
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    archived = []
+    for path in (path_for(clone_id), clones_dir() / f"{clone_id}-participants.jsonl"):
+        if path.exists():
+            target = path.with_name(f"{path.name}.superseded-{stamp}")
+            os.replace(path, target)
+            archived.append(target)
+    return archived
 def save(state: CloneState) -> None:
     directory = clones_dir()
     directory.mkdir(parents=True, exist_ok=True)

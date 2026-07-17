@@ -912,3 +912,132 @@ def test_clone_init_commit_readonly_blocks_before_config_session_and_preview_use
     ) == 2
 
     assert safety.consume_preview(preview["preview_id"])["kind"] == "clone-init"
+
+
+def _write_v1_state(source_title="Old", extra=None):
+    cid = state.clone_id(42, 123)
+    path = state.path_for(cid)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {"version": 1, "account_user_id": 42, "source_peer_id": 123,
+            "source_title": source_title}
+    if extra:
+        data.update(extra)
+    path.write_text(json.dumps(data))
+    return cid, path
+
+
+def test_clone_init_commit_without_replace_hints_replace_on_unreadable_state(
+    config_env, monkeypatch, capsys
+):
+    _, path = _write_v1_state()
+    client = CloneInitClient()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert main(
+        ["clone", "init", "@source", "--commit", preview["preview_id"], "--json"]
+    ) == 2
+
+    err = capsys.readouterr().err
+    assert "--replace" in err
+    assert json.loads(path.read_text())["version"] == 1
+    assert client.requests == []
+
+
+def test_clone_init_preview_reports_supersede_for_unreadable_state(
+    config_env, monkeypatch, capsys
+):
+    _write_v1_state()
+    client = CloneInitClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--replace", "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["supersede"] == {"existing": True, "readable": False, "replace": True}
+    assert client.requests == []
+
+
+def test_clone_init_replace_supersedes_unreadable_state_and_creates_fresh(
+    config_env, monkeypatch, capsys
+):
+    cid, _ = _write_v1_state()
+    sidecar = state.clones_dir() / f"{cid}-participants.jsonl"
+    sidecar.write_text('{"peer":"source"}\n')
+    client = CloneInitClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--replace", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+
+    assert main(["clone", "init", "@source", "--commit", preview_id, "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["status"] == "ready"
+    assert result["clone"]["destination"]["id"] == 999
+
+    saved = state.load(cid)
+    assert saved.version == state.VERSION
+    assert saved.destination_peer_id == 999
+
+    state_archive = list(state.clones_dir().glob(f"{cid}.json.superseded-*"))
+    sidecar_archive = list(
+        state.clones_dir().glob(f"{cid}-participants.jsonl.superseded-*"))
+    assert len(state_archive) == 1
+    assert json.loads(state_archive[0].read_text())["version"] == 1
+    assert len(sidecar_archive) == 1
+    assert not sidecar.exists()
+
+    actions = [json.loads(line)["action"]
+               for line in safety.audit_path().read_text().splitlines()]
+    assert "clone-init-replace" in actions
+
+
+def test_clone_init_replace_does_not_reuse_recorded_destination(
+    config_env, monkeypatch, capsys
+):
+    old = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel")
+    old.creation_marker = f"tgcli-clone-{old.clone_id[:12]}"
+    old.destination_peer_id = 555
+    state.save(old)
+    client = CloneInitClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--replace", "--json"]) == 0
+    preview = json.loads(capsys.readouterr().out)
+    assert preview["supersede"] == {"existing": True, "readable": True, "replace": True}
+    preview_id = preview["preview_id"]
+
+    assert main(["clone", "init", "@source", "--commit", preview_id, "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["destination"]["id"] == 999
+
+    saved = state.load(old.clone_id)
+    assert saved.destination_peer_id == 999
+    assert saved.creation_marker.startswith(f"tgcli-clone-{old.clone_id[:12]}-")
+    assert saved.creation_marker != f"tgcli-clone-{old.clone_id[:12]}"
+    assert any(isinstance(r, functions.channels.CreateChannelRequest)
+               for r in client.requests)
+
+
+def test_clone_init_replace_without_existing_state_is_plain_init(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--replace", "--json"]) == 0
+    preview = json.loads(capsys.readouterr().out)
+    assert preview["supersede"] == {"existing": False, "readable": None, "replace": True}
+    preview_id = preview["preview_id"]
+
+    assert main(["clone", "init", "@source", "--commit", preview_id, "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["destination"]["id"] == 999
+
+    actions = [json.loads(line)["action"]
+               for line in safety.audit_path().read_text().splitlines()]
+    assert "clone-init-replace" not in actions
+    saved = state.load(state.clone_id(42, 123))
+    assert saved.creation_marker.startswith(
+        f"tgcli-clone-{state.clone_id(42, 123)[:12]}-")
