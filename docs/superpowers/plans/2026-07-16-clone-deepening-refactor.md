@@ -49,18 +49,18 @@ acceptance net and must stay green untouched.
 - Consumes: merged main containing round-2 (chat types) work.
 - Produces: a confirmed snippet-drift assessment for Tasks 1–7.
 
-- [ ] **Step 1: Confirm round-2 is merged**
+- [x] **Step 1: Confirm round-2 is merged**
 
 Run: `git log --oneline -10`
 Expected: a merge/squash commit for `clone-chat-types` round 2 is present on
 main. If it is not, STOP — this plan is blocked (Global Constraints).
 
-- [ ] **Step 2: Baseline test run**
+- [x] **Step 2: Baseline test run**
 
 Run: `pytest -q`
 Expected: PASS (all tests green before any change).
 
-- [ ] **Step 3: Review drift against snippet base**
+- [x] **Step 3: Review drift against snippet base**
 
 Run: `git diff 62866d3..HEAD --stat -- src/tgcli/commands/clone.py src/tgcli/clone/`
 Then read the changed regions of `sync_text`, `_forward_batch`, and
@@ -105,7 +105,7 @@ Event contract (must match today's `sync_text` loop exactly):
 - a `grouped_id` that is a `bool` or not an `int` raises
   `PolicyError("clone album group id is invalid")`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_clone_batching.py
@@ -183,12 +183,12 @@ def test_invalid_grouped_id_raises_policy_error(bad):
         _events([_msg(1, grouped_id=bad)])
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_clone_batching.py -q`
 Expected: FAIL — `ModuleNotFoundError: No module named 'tgcli.clone.batching'`
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```python
 # src/tgcli/clone/batching.py
@@ -245,12 +245,12 @@ async def plan(messages):
         yield Batch(tuple(album))
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/test_clone_batching.py -q`
 Expected: PASS (8 tests)
 
-- [ ] **Step 5: Full suite + commit**
+- [x] **Step 5: Full suite + commit**
 
 Run: `pytest -q`
 Expected: PASS
@@ -274,13 +274,13 @@ git commit -m "Add pure clone batch planner"
   `limit` check; the `active_album` state machine and all three duplicated
   `limit` checks deleted.
 
-- [ ] **Step 1: Confirm the acceptance net is green before touching the loop**
+- [x] **Step 1: Confirm the acceptance net is green before touching the loop**
 
 Run: `pytest tests/test_cli_clone_sync.py -q`
 Expected: PASS. These tests are the spec for this task — they must pass
 after the rewire **without modification**.
 
-- [ ] **Step 2: Replace the loop**
+- [x] **Step 2: Replace the loop**
 
 Add `batching` to the clone package import in `src/tgcli/commands/clone.py`:
 
@@ -342,13 +342,13 @@ unchanged. Note the equivalence argument for reviewers: the original checked
 including the trailing-album case, where the count cannot have changed since
 the album's first item passed the check.
 
-- [ ] **Step 3: Run the acceptance net**
+- [x] **Step 3: Run the acceptance net**
 
 Run: `pytest tests/test_cli_clone_sync.py -q`
 Expected: PASS with zero test-file changes. If any test fails, the rewire
 changed behavior — fix the rewire, never the test.
 
-- [ ] **Step 4: Full suite + commit**
+- [x] **Step 4: Full suite + commit**
 
 Run: `pytest -q`
 Expected: PASS
@@ -390,7 +390,7 @@ Decision contract (copied from `_forward_batch` at 62866d3, lines 241–250):
   `mode != "forwarded"` (equivalent to the original
   `replacement is not None or reupload`)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_clone_transport.py
@@ -484,12 +484,12 @@ def test_megagroup_forward_needs_no_author():
     assert plan.needs_author is False
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_clone_transport.py -q`
 Expected: FAIL — `ModuleNotFoundError: No module named 'tgcli.clone.transport'`
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```python
 # src/tgcli/clone/transport.py
@@ -527,12 +527,12 @@ def decide(messages, clone_state, source) -> TransportPlan:
                          needs_author=needs_author)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/test_clone_transport.py -q`
 Expected: PASS (9 tests)
 
-- [ ] **Step 5: Full suite + commit**
+- [x] **Step 5: Full suite + commit**
 
 Run: `pytest -q`
 Expected: PASS
@@ -561,7 +561,7 @@ git commit -m "Add pure clone transport decision"
   - `fidelity.py` keeps only `supports` / `unsupported_kind` and
     `_NATIVE_MEDIA_TYPES` (capability classification).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_clone_snapshot.py
@@ -627,12 +627,12 @@ def test_story_render_links_known_username():
     assert entities[0].url == "https://t.me/ann"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_clone_snapshot.py -q`
 Expected: FAIL — `ModuleNotFoundError: No module named 'tgcli.clone.snapshot'`
 
-- [ ] **Step 3: Move the code**
+- [x] **Step 3: Move the code**
 
 Create `src/tgcli/clone/snapshot.py` with the module docstring
 `"""Render truthful text snapshots for polls and stories (ADR-0019)."""` and
@@ -680,12 +680,12 @@ bottom of `fidelity.py`:
 from tgcli.clone.snapshot import render as replacement  # removed in Task 5
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/test_clone_snapshot.py -q && pytest -q`
 Expected: PASS (new tests and full suite — the alias keeps clone.py working)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tgcli/clone/snapshot.py src/tgcli/clone/fidelity.py tests/test_clone_snapshot.py
@@ -706,12 +706,12 @@ git commit -m "Split snapshot rendering out of fidelity classification"
 - Produces: `_forward_batch` as a thin executor: one `decide()` call, then a
   three-way dispatch to the existing adapters. No decision logic left inline.
 
-- [ ] **Step 1: Acceptance net green**
+- [x] **Step 1: Acceptance net green**
 
 Run: `pytest tests/test_cli_clone_sync.py -q`
 Expected: PASS (pre-change baseline).
 
-- [ ] **Step 2: Rewire**
+- [x] **Step 2: Rewire**
 
 Update the clone package import in `src/tgcli/commands/clone.py` (also remove
 `fidelity` if the rewired file no longer references it — `copy_batch` in
@@ -773,12 +773,12 @@ it added ordering-sensitive audit records between them.
 
 Then delete the temporary alias line from `src/tgcli/clone/fidelity.py`.
 
-- [ ] **Step 3: Acceptance net + full suite**
+- [x] **Step 3: Acceptance net + full suite**
 
 Run: `pytest tests/test_cli_clone_sync.py -q && pytest -q`
 Expected: PASS, zero test-file changes.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/tgcli/commands/clone.py src/tgcli/clone/fidelity.py
@@ -843,7 +843,7 @@ git commit -m "Inline profile copy into clone init"
   merged reality changed these signatures, mirror the merged code, not this
   snippet.
 
-- [ ] **Step 1: Write the tests (they should pass immediately)**
+- [x] **Step 1: Write the tests (they should pass immediately)**
 
 ```python
 # tests/test_clone_attribution.py
@@ -1000,14 +1000,14 @@ topics (round-2 tasks 6–7 route topics through `reply_to_top_id`), the
 `forum_topic` rejection test above may contradict merged behavior — mirror
 the merged code's contract and keep the rest.
 
-- [ ] **Step 2: Run the new tests**
+- [x] **Step 2: Run the new tests**
 
 Run: `pytest tests/test_clone_attribution.py tests/test_clone_replies.py -q`
 Expected: PASS. A failure here means the test encodes the contract wrong —
 read the production function and fix the test (production is frozen in this
 task).
 
-- [ ] **Step 3: Full suite + commit**
+- [x] **Step 3: Full suite + commit**
 
 Run: `pytest -q`
 Expected: PASS
@@ -1026,7 +1026,7 @@ git commit -m "Backfill direct unit tests for clone attribution and replies"
 - Modify: `docs/superpowers/specs/2026-07-16-clone-comments-design.md`
 - Modify: `docs/DEVLOG.md`
 
-- [ ] **Step 1: Update MAP.md clone rows**
+- [x] **Step 1: Update MAP.md clone rows**
 
 In the `src/tgcli/clone/` block: add rows for `batching.py`
 (`pure batch planner: albums, service skips`), `transport.py`
@@ -1034,7 +1034,7 @@ In the `src/tgcli/clone/` block: add rows for `batching.py`
 (`truthful poll/story text rendering`); change the `fidelity.py` note to
 `media capability classification`; delete the `profile.py` row.
 
-- [ ] **Step 2: Add a layout note to the comments spec**
+- [x] **Step 2: Add a layout note to the comments spec**
 
 At the top of the "module layout & budgets" section of
 `docs/superpowers/specs/2026-07-16-clone-comments-design.md`, add:
@@ -1047,14 +1047,14 @@ At the top of the "module layout & budgets" section of
 > section predate the refactor.
 ```
 
-- [ ] **Step 3: DEVLOG entry**
+- [x] **Step 3: DEVLOG entry**
 
 Prepend a DEVLOG entry using the repo template: Did (modules created/moved,
 tests added, suites green), Decided (deepening before round 3; reference this
 plan file), Learned (anything found during Task 0 drift review), Next
 (implement clone comments round 3 on top of the new interfaces).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/MAP.md docs/superpowers/specs/2026-07-16-clone-comments-design.md docs/DEVLOG.md
