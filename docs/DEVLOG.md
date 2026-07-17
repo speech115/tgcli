@@ -14,6 +14,27 @@ Template:
 ```
 
 
+## 2026-07-17 — Maintenance mode: coordination docs realigned (Claude Fable 5)
+**Did:** wrote ADR-0026 (maintenance mode); AGENTS.md gained a Maintenance
+Mode section and a corrected Read First (current scope → ISSUES.md, ADRs
+via index); moved the ADR index from MAP.md to docs/decisions/README.md
+with a Status column and rows for 0024–0026; extracted the clone chronicle
+from PLAN.md's Non-Goals bullet into docs/CLONE.md. Fixed drift found on
+the way: PLAN.md still claimed the ADR-0023 comments live gate was pending
+(it passed 2026-07-17 per the ADR), MAP said "forum live gate pending" and
+"ADR-0001…0023", and MAP's tree was missing clone/roster.py. `pytest -q`:
+480 passed, 8 skipped.
+**Decided:** ADR-0026 — default posture is no new features; a bug fix
+starts from a reproducing test; a feature needs owner request + ADR +
+scoped plan. One canonical ADR index (decisions/README.md), updated in the
+same commit as any new ADR.
+**Learned:** two documents drifted from reality within one week of
+maintenance (PLAN's gate claim, MAP's index and roster row) — duplicated
+indexes and chronicle-in-plan are exactly the structures that drift; one
+canonical home per fact plus pointers is the fix.
+**Next:** add ruff + pyright to CI (agreed improvement #1 from this
+session's audit).
+
 ## 2026-07-17 — /simplify pass over PR #12 (Claude Fable 5)
 **Did:** quality-only review of the `clone init --replace` diff via four
 parallel review agents (reuse/simplification/efficiency/altitude), then two

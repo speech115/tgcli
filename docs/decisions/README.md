@@ -1,0 +1,46 @@
+# ADR Index
+
+One row per ADR; this is the canonical index (moved from MAP.md by
+[ADR-0026](ADR-0026-maintenance-mode.md)). Adding an ADR means adding its
+row here in the same commit (AGENTS.md rule, extending
+[ADR-0007](ADR-0007-docs-discipline.md)).
+
+| ADR | Decision | Status |
+|-----|----------|--------|
+| [0001](ADR-0001-python-telethon.md) | Python 3.12 + Telethon, not Go/gotd, not TDLib-first | accepted |
+| [0002](ADR-0002-cli-first-stateless.md) | Stateless CLI core; no daemons; MCP is a v1 non-goal | accepted |
+| [0003](ADR-0003-output-contract.md) | stdout=data, stderr=human, fixed exit codes | accepted |
+| [0004](ADR-0004-accounts-and-sessions.md) | SQLiteSession per account + file lock; import from old stack | accepted |
+| [0005](ADR-0005-safety-model.md) | Reads free; writes preview→commit + audit; runtime flags not baked profiles | accepted |
+| [0006](ADR-0006-media-tdlib-fallback.md) | TDLib as optional fallback backend | superseded by ADR-0009 |
+| [0007](ADR-0007-docs-discipline.md) | MAP + ADR + DEVLOG as mandatory agent workflow | accepted |
+| [0008](ADR-0008-raw-api-passthrough.md) | `tg api` raw TL passthrough and write-path safety | superseded in part by ADR-0010 (read classification only) |
+| [0009](ADR-0009-tdlib-deferred.md) | TDLib deferred: no backend in v1; phase 3 Telethon-only; evidence-gated PoC re-entry | accepted |
+| [0010](ADR-0010-raw-api-read-allowlist.md) | `tg api` phase-2 explicit default-deny read allowlist | accepted |
+| [0011](ADR-0011-audit-write-failure-policy.md) | Audit persistence fails closed before any mutation | accepted |
+| [0012](ADR-0012-invocation-journal-and-verbose-diagnostics.md) | Local invocation journal and opt-in stderr diagnostics | accepted |
+| [0013](ADR-0013-channel-mirror.md) | Crash-safe mirror research design and R0 evidence | superseded by ADR-0014 |
+| [0014](ADR-0014-lean-faithful-mirror.md) | Lean faithful channel mirror | accepted (feature replaced by ADR-0017) |
+| [0015](ADR-0015-truthful-persistent-mirror-showcase.md) | Persistent private showcase and topology promotion gates | accepted (retention rules carry into clone) |
+| [0016](ADR-0016-live-mirror-fidelity-corrections.md) | Service-message skip, reply reconstruction fallback, append-only TSV | accepted (fidelity rules carry into clone) |
+| [0017](ADR-0017-clone-supersedes-mirror.md) | Clone rewrite supersedes mirror; JSON state, core-primitive reuse, complexity budgets | accepted |
+| [0018](ADR-0018-clone-service-tail.md) | Clone tail verification accepts service-only rows | accepted |
+| [0019](ADR-0019-clone-truthful-fallbacks.md) | Poll snapshots, named Story placeholders, reply continuity | accepted |
+| [0020](ADR-0020-clone-channel-profile.md) | Init-time channel description and static avatar copy | accepted |
+| [0021](ADR-0021-clone-attributed-sources.md) | Megagroup/dialog sources, hybrid attribution transport, reply-flatten reporting | accepted |
+| [0022](ADR-0022-clone-forum-topics.md) | Forum destinations, lazy topic mapping, in-topic routing | accepted |
+| [0023](ADR-0023-clone-channel-comments.md) | Comments via a linked discussion group; author-identity ladder; `init --replace` | accepted |
+| [0024](ADR-0024-clone-source-roster.md) | Best-effort source-side participant roster snapshot during sync | accepted |
+| [0025](ADR-0025-clone-preserve-reforward-header.md) | Per-batch `drop_author` keeps the native forward header on re-forwarded posts | accepted |
+| [0026](ADR-0026-maintenance-mode.md) | Maintenance mode: fixes need a reproducing test; features need an ADR + scoped plan | accepted |
+
+Notes on supersessions:
+
+- ADR-0009 supersedes ADR-0006 entirely (no TDLib in v1).
+- ADR-0010 supersedes only ADR-0008's phase-2 read-classification rule;
+  the rest of ADR-0008 (write gating, denylist, audit) remains in force.
+- ADR-0014 supersedes ADR-0013. The mirror feature itself (ADR-0013…0016)
+  was replaced wholesale by clone (ADR-0017); ADR-0015 destination
+  retention and ADR-0016 fidelity rules carry forward into clone, which is
+  why 0014–0016 stay "accepted" as rule sources while the mirror surface
+  is gone.
