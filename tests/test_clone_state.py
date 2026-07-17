@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from tgcli.clone import state
+from tgcli.clone import roster, state
 from tgcli.errors import PolicyError
 
 
@@ -458,10 +458,10 @@ def test_supersede_archives_state_and_sidecar():
     s = _fresh()
     state.save(s)
     cid = s.clone_id
-    sidecar = state.clones_dir() / f"{cid}-participants.jsonl"
+    sidecar = roster.path_for(cid)
     sidecar.write_text('{"peer":"source"}\n')
 
-    archived = state.supersede(cid)
+    archived = state.supersede(cid, (sidecar,))
 
     assert not state.path_for(cid).exists()
     assert not sidecar.exists()
@@ -477,7 +477,7 @@ def test_supersede_archives_state_and_sidecar():
 def test_supersede_state_only_when_no_sidecar():
     s = _fresh()
     state.save(s)
-    archived = state.supersede(s.clone_id)
+    archived = state.supersede(s.clone_id, (roster.path_for(s.clone_id),))
     assert len(archived) == 1
     assert archived[0].name.startswith(f"{s.clone_id}.json.superseded-")
     assert not state.path_for(s.clone_id).exists()

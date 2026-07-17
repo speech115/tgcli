@@ -14,6 +14,24 @@ Template:
 ```
 
 
+## 2026-07-17 — /simplify pass over PR #12 (Claude Fable 5)
+**Did:** quality-only review of the `clone init --replace` diff via four
+parallel review agents (reuse/simplification/efficiency/altitude), then two
+fixes: `state.supersede` no longer hardcodes the roster sidecar filename —
+it takes a `sidecars` tuple and `commit_init` passes `roster.path_for(clone_id)`,
+so ADR-0024's naming lives only in roster.py; `_supersede_status` collapsed to
+a single `state.load` probe (dropped the redundant `.exists()` pre-check).
+Full suite: 480 passed, 8 skipped.
+**Decided:** skipped erroring on `--replace --commit` (spec explicitly says the
+flag is ignored at commit); skipped merging `_load_entry`/`_supersede_status`
+try/except and unifying test helpers `_write_v1_state`/`_write_raw` — the
+shapes differ enough that shared abstractions would cost more than the
+three-line duplication.
+**Learned:** the "state→roster import cycle" the old docstring dodged was real
+(roster imports state), but the right fix was inverting ownership — the caller
+that already imports both modules coordinates cross-module archiving.
+**Next:** commit this cleanup (working tree left uncommitted for review).
+
 ## 2026-07-17 — clone init --replace: supersede a stale/legacy clone (Claude Opus 4.8)
 **Did:** closed the gap where a deterministic `clone_id` slot with a pre-round-3
 **v1** state file could never be re-created — `commit_init` → `state.load`

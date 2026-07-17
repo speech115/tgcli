@@ -55,14 +55,11 @@ async def _resolve_source(tg, source: str):
 def _supersede_status(clone_id: str, replace: bool) -> dict:
     """Read-only view of the state slot for the preview, without fail-closing on
     an unreadable (legacy/corrupt) file the way commit does."""
-    existing = state.path_for(clone_id).exists()
-    readable: bool | None = None
-    if existing:
-        try:
-            state.load(clone_id)
-            readable = True
-        except PolicyError:
-            readable = False
+    try:
+        existing = state.load(clone_id) is not None
+        readable = True if existing else None
+    except PolicyError:
+        existing, readable = True, False
     return {"existing": existing, "readable": readable, "replace": replace}
 async def preview_init(tg, source: str, *, replace: bool = False) -> dict:
     entity, source_kind, source_title = await _resolve_source(tg, source)
@@ -203,7 +200,8 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
         raise PolicyError("clone init preview no longer matches the source or account")
     clone_id = state.clone_id(me.id, entity.id)
     replace = bool(payload.get("replace"))
-    if replace and (archived := state.supersede(clone_id)):
+    if replace and (archived := state.supersede(
+            clone_id, (roster.path_for(clone_id),))):
         safety.append_audit("clone-init-replace", account_alias,
                             {"clone_id": clone_id,
                              "archived": [path.name for path in archived]})
