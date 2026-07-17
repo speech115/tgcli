@@ -800,7 +800,7 @@ git commit -m "Execute clone batches from an explicit transport plan"
   (deletion test: single caller, straight-line script, no complexity
   concentrated).
 
-- [ ] **Step 1: Move the function**
+- [x] **Step 1: Move the function**
 
 Copy the body of `profile.copy` into `src/tgcli/commands/clone.py` as
 `_copy_profile` (same parameters, placed directly above `commit_init`), moving
@@ -815,14 +815,14 @@ keeping the audit calls byte-identical. Update the call site in `commit_init`:
 Remove `profile` from the clone package import. Delete
 `src/tgcli/clone/profile.py`.
 
-- [ ] **Step 2: Full suite**
+- [x] **Step 2: Full suite**
 
 Run: `pytest -q`
 Expected: PASS — `tests/test_cli_clone_init.py` covers profile copy through
 the CLI; if any test imports `tgcli.clone.profile` directly, the run will
 say so (none do at snippet base).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add -A src/tgcli/clone/profile.py src/tgcli/commands/clone.py
