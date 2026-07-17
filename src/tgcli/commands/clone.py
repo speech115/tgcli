@@ -251,7 +251,7 @@ async def _forward_batch(tg, source, destination, clone_state, account_alias,
     top_msg_id = None if topic_dest in (None, topics.GENERAL_TOPIC_ID) else topic_dest
     author = None
     if plan.needs_author:
-        author = await attribution.author_name(
+        author = await attribution.author_of(
             tg, source, messages[0], me, author_cache,
             lambda awaitable: _with_cooldown(awaitable, clone_state))
     if plan.mode == "snapshots":

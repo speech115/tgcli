@@ -1,11 +1,19 @@
 """Source-kind and author attribution rules for channel clones (ADR-0021)."""
 
 from copy import copy
+from dataclasses import dataclass
 
 from telethon import utils
 from telethon.tl import types
 
 from tgcli.errors import PolicyError
+
+
+@dataclass(frozen=True)
+class Author:
+    """Author label; mention_user_id set → render it as a profile mention."""
+    text: str
+    mention_user_id: int | None = None
 
 
 def source_kind(entity) -> str:
@@ -42,7 +50,27 @@ def _peer_key(peer) -> tuple[str, int | None]:
     return type(peer).__name__, utils.get_peer_id(peer) if peer is not None else None
 
 
-async def author_name(tg, source, message, me, cache: dict, cooldown) -> str:
+def _active_username(entity) -> str | None:
+    if username := getattr(entity, "username", None):
+        return username
+    for item in getattr(entity, "usernames", None) or ():
+        if getattr(item, "active", False) and getattr(item, "username", None):
+            return item.username
+    return None
+
+
+def _identify(entity, sender_id) -> Author:
+    if entity is None:
+        return Author(text=f"id {sender_id or 'unknown'}")
+    name = display_name(entity)
+    if (username := _active_username(entity)) is not None:
+        return Author(text=f"{name} (@{username})")
+    if isinstance(entity, types.User):
+        return Author(text=name, mention_user_id=entity.id)
+    return Author(text=name)
+
+
+async def author_of(tg, source, message, me, cache: dict, cooldown) -> Author:
     peer = getattr(message, "from_id", None)
     if (isinstance(peer, types.PeerUser) and peer.user_id == me.id
             or peer is None and getattr(message, "out", False)):
@@ -50,8 +78,9 @@ async def author_name(tg, source, message, me, cache: dict, cooldown) -> str:
     elif peer is None and isinstance(source, types.User):
         entity = source
     elif peer is None:
-        sender_id = getattr(message, "sender_id", None)
-        return getattr(message, "post_author", None) or f"id {sender_id or 'unknown'}"
+        signature = getattr(message, "post_author", None)
+        return (Author(text=signature) if isinstance(signature, str) and signature
+                else _identify(None, getattr(message, "sender_id", None)))
     else:
         key = _peer_key(peer)
         if key not in cache:
@@ -60,19 +89,22 @@ async def author_name(tg, source, message, me, cache: dict, cooldown) -> str:
             except ValueError:
                 cache[key] = None
         entity = cache[key]
-    sender_id = getattr(message, "sender_id", None)
-    return display_name(entity) if entity is not None else f"id {sender_id or 'unknown'}"
+    return _identify(entity, getattr(message, "sender_id", None))
 
 
-def prefixed(text: str, entities, author: str | None) -> tuple[str, list | None]:
+def prefixed(text: str, entities, author: Author | None) -> tuple[str, list | None]:
     original = list(entities or ())
     if author is None:
         return text, original or None
-    prefix = f"{author}: "
+    prefix = f"{author.text}: "
     shift = len(prefix.encode("utf-16-le")) // 2
-    shifted = []
+    result = []
+    if author.mention_user_id is not None:
+        result.append(types.MessageEntityMentionName(offset=0,
+            length=len(author.text.encode("utf-16-le")) // 2,
+            user_id=author.mention_user_id))
     for entity in original:
         shifted_entity = copy(entity)
         shifted_entity.offset += shift
-        shifted.append(shifted_entity)
-    return prefix + text, shifted or None
+        result.append(shifted_entity)
+    return prefix + text, result or None

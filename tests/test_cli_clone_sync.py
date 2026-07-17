@@ -826,7 +826,10 @@ def test_clone_sync_reuploads_megagroup_reply_with_prefix_and_shifted_entities(
     assert request.message == "Zoë 🚀: 😀bold"
     assert request.reply_to.reply_to_msg_id == 1001
     prefix_units = len("Zoë 🚀: ".encode("utf-16-le")) // 2
-    assert request.entities[0].offset == prefix_units + 2
+    mention, shifted = request.entities
+    assert mention == types.MessageEntityMentionName(
+        offset=0, length=len("Zoë 🚀".encode("utf-16-le")) // 2, user_id=77)
+    assert shifted.offset == prefix_units + 2
     assert original.offset == 2
     assert sync["reuploaded"] == 1
     assert sync["reply_flattened"] == 0
