@@ -371,6 +371,26 @@ def test_sync_skips_source_autoforwards(config_env, monkeypatch, capsys):
     assert state.load(clone_state.clone_id).discussion_id_map == {}
 
 
+def test_sync_refuses_to_post_before_the_discussion_group_is_linked(
+    config_env, monkeypatch, capsys
+):
+    """Init created the channel and enabled comments, then died before linking
+    the group (a FLOOD_WAIT on the second peer does exactly this, live-proven).
+    Posting now would burn every anchor: Telegram only creates them at send
+    time with the link already in place, and they cannot be backfilled. Refuse
+    instead, and send the user back to init."""
+    seed_comments_clone(discussion_destination_peer_id=None,
+                        discussion_linked=False)
+    client = CloneCommentsClient([message(2), message(3)], [])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    error = json.loads(capsys.readouterr().err)["error"]
+    assert "not linked" in error["message"]
+    assert client.requests == []
+
+
 def test_sync_skips_album_autoforward_anchors(config_env, monkeypatch, capsys):
     """Telegram auto-forwards an album post as an album, so its anchor arrives
     as a multi-message batch. It is still an anchor and must not be copied."""

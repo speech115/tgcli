@@ -342,6 +342,9 @@ async def sync_text(tg, source: str, account_alias: str,
         raise PolicyError("clone is not initialized; run clone init first")
     if clone_state.source_kind != source_kind:
         raise PolicyError("clone source kind no longer matches initialized state")
+    if clone_state.comments == "enabled" and not clone_state.discussion_linked:
+        raise PolicyError("clone discussion group is not linked yet; "
+                          "re-run clone init before syncing")
     _enforce_cooldown(clone_state)
     try:
         destination = await tg.get_entity(
