@@ -1,0 +1,61 @@
+"""Discussion groups: detection, linking and anchors for comment clones."""
+from telethon.tl import functions, types
+from tgcli.clone import topics
+
+
+def linked_chat_id(full_channel) -> int | None:
+    """ChannelFull.linked_chat_id only. linked_monoforum_id is a monoforum,
+    not a comment section (live-proven on @groks) — never read it."""
+    chat_id = getattr(full_channel, "linked_chat_id", None)
+    if type(chat_id) is not int or chat_id <= 0:
+        return None
+    return chat_id
+
+
+def is_discussion_destination(entity, *, title: str | None = None) -> bool:
+    """Private owned megagroup that is not a forum."""
+    return (topics.is_forum_destination(entity, title=title)
+            and not getattr(entity, "forum", False))
+
+
+def autoforward_post_id(message, source_channel_id: int) -> int | None:
+    """Source post id if message is Telegram's auto-forward anchor for
+    source_channel_id, else None. Matches fwd_from.saved_from_peer +
+    saved_from_msg_id (live-proven)."""
+    header = getattr(message, "fwd_from", None)
+    if not isinstance(header, types.MessageFwdHeader):
+        return None
+    peer = header.saved_from_peer
+    if (not isinstance(peer, types.PeerChannel)
+            or peer.channel_id != source_channel_id):
+        return None
+    post_id = header.saved_from_msg_id
+    if type(post_id) is not int or not 0 < post_id <= 2_147_483_647:
+        return None
+    return post_id
+
+
+async def ensure_linked(mutate, channel, group) -> None:
+    """Idempotent: unhide pre-history, then SetDiscussionGroupRequest."""
+    await mutate(functions.channels.TogglePreHistoryHiddenRequest(
+        channel=group, enabled=False))
+    await mutate(functions.channels.SetDiscussionGroupRequest(
+        broadcast=channel, group=group))
+
+
+async def anchor_for(mutate, destination_channel, destination_post_id: int,
+                     cache: dict) -> int | None:
+    """Destination anchor message id in the discussion group, via
+    messages.getDiscussionMessage. Cached per run; None when Telegram
+    returns no anchor."""
+    if destination_post_id in cache:
+        return cache[destination_post_id]
+    response = await mutate(functions.messages.GetDiscussionMessageRequest(
+        peer=destination_channel, msg_id=destination_post_id))
+    anchors = [getattr(item, "id", None)
+               for item in (getattr(response, "messages", None) or ())]
+    found = [item for item in anchors
+             if type(item) is int and 0 < item <= 2_147_483_647]
+    anchor = found[0] if found else None
+    cache[destination_post_id] = anchor
+    return anchor
