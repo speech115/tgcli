@@ -71,6 +71,82 @@ def test_status_plain_output(capsys):
     assert "222" in out
 
 
+def test_status_reports_comments_state(capsys):
+    alpha = _seed(100000001, 111, "Alpha", dest=222)
+    alpha.comments = "enabled"
+    alpha.discussion_source_peer_id = 777
+    state.save(alpha)
+    _seed(100000001, 333, "Beta")
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    by_title = {c["source"]["title"]: c["comments"] for c in payload["clones"]}
+    assert by_title == {"Alpha": "enabled", "Beta": "none"}
+
+
+def test_status_plain_output_includes_comments(capsys):
+    seeded = _seed(100000001, 111, "Alpha", dest=222)
+    seeded.comments = "unavailable"
+    seeded.discussion_source_peer_id = 777
+    state.save(seeded)
+
+    code, out = _run(capsys, ["clone", "status", "--plain"])
+    assert code == 0
+    assert "unavailable" in out
+
+
+def _write_raw(clone_id, payload):
+    directory = state.clones_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{clone_id}.json").write_text(json.dumps(payload))
+
+
+def test_status_marks_unreadable_state_instead_of_crashing(capsys):
+    _seed(100000001, 111, "Alpha", dest=222)
+    legacy = "a" * 64
+    _write_raw(legacy, {"version": 1, "account_user_id": 1, "source_peer_id": 9})
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    by_id = {c["clone_id"]: c for c in payload["clones"]}
+    assert by_id[legacy]["unreadable"] is True
+    alpha = next(c for c in payload["clones"] if c["source"]["title"] == "Alpha")
+    assert alpha.get("unreadable", False) is False
+
+
+def test_status_marks_corrupt_state_instead_of_crashing(capsys):
+    directory = state.clones_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{'b' * 64}.json").write_text("{not json")
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    assert payload["clones"][0]["unreadable"] is True
+
+
+def test_status_plain_output_flags_unreadable(capsys):
+    legacy = "c" * 64
+    _write_raw(legacy, {"version": 1})
+
+    code, out = _run(capsys, ["clone", "status", "--plain"])
+    assert code == 0
+    assert "unreadable" in out
+    assert legacy[:12] in out
+
+
+def test_status_filter_excludes_unreadable(capsys):
+    _seed(100000001, 111, "Alpha")
+    _write_raw("d" * 64, {"version": 1})
+
+    code, out = _run(capsys, ["clone", "status", "111", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    assert [c["source"]["title"] for c in payload["clones"]] == ["Alpha"]
+
+
 def test_clone_replaces_legacy_mirror_command(capsys):
     from tgcli.cli import main
 

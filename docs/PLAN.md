@@ -64,6 +64,21 @@ not rewritten.
   Forum routing passed controlled live acceptance on 2026-07-16. The
   independent read-only `mirror_probe.py` diagnostic was archived on
   2026-07-16 (unused since the clone pivot; recoverable from git history).
+  ADR-0023 (round 3, `docs/superpowers/specs/2026-07-16-clone-comments-design.md`)
+  adds comments: a broadcast source's readable linked discussion group gets
+  its own tool-created, tool-linked megagroup, synced as a second sequential
+  phase per run with its own cursor and comment-thread anchor remap; state
+  and `status`/`init`/`sync` output carry a permanent `comments` field
+  (`enabled`/`unavailable`/`none`). Round 3 also amends ADR-0021's author
+  prefix globally to an identify-the-author ladder (username, then profile
+  mention, then bare id, then post signature). Mocked suite: 454 passed, 8
+  skipped. The live acceptance gate (real channel with an active comment
+  section) is user-run and not yet reported.
+  ADR-0024 adds a best-effort source-side participant roster: after message
+  copying, `sync` snapshots the source channel and its discussion group's
+  members (where Telegram permits) into a per-clone JSONL sidecar and a
+  `participants` field on the `sync` response, using the same honest
+  `collected`/`unavailable`/`deferred`/`none` markers.
 - Multi-user distribution / packaging for strangers.
 - Bot API (this is a user-account MTProto tool).
 - Secret chats (Telethon does not implement them), voice/video calls

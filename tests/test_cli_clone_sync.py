@@ -143,6 +143,11 @@ class CloneSyncClient:
             if item.id > min_id:
                 yield item
 
+    async def iter_participants(self, entity, limit=None):
+        # a broadcast source the account does not administer refuses its roster
+        raise telethon_errors.ChatAdminRequiredError(request=None)
+        yield  # pragma: no cover - marks this coroutine as an async generator
+
     async def __call__(self, request):
         assert isinstance(request, functions.messages.ForwardMessagesRequest)
         self.requests.append(request)
@@ -235,6 +240,476 @@ class CloneForumClient(CloneReuploadClient):
         return await super().__call__(request)
 
 
+def seed_comments_clone(**overrides):
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel")
+    clone_state.destination_peer_id = 999
+    clone_state.comments = "enabled"
+    clone_state.discussion_source_peer_id = 55
+    clone_state.discussion_destination_peer_id = 888
+    clone_state.discussion_linked = True
+    for key, value in overrides.items():
+        setattr(clone_state, key, value)
+    state.save(clone_state)
+    return clone_state
+
+
+def anchor(message_id, post_id, *, source_channel_id=123):
+    """Telegram's own auto-forward of a channel post into its linked group."""
+    return message(message_id, message=f"post {post_id}",
+                   fwd_from=types.MessageFwdHeader(
+                       date=None, channel_post=post_id,
+                       saved_from_peer=types.PeerChannel(
+                           channel_id=source_channel_id),
+                       saved_from_msg_id=post_id))
+
+
+def group_sends(client):
+    return [item for item in client.requests
+            if getattr(item, "peer", None) is client.destination_group
+            or getattr(item, "to_peer", None) is client.destination_group]
+
+
+class CloneCommentsClient(CloneReuploadClient):
+    def __init__(self, messages, comments=()):
+        super().__init__(messages)
+        self.source_group = channel(55, "Source chat", broadcast=False,
+                                    megagroup=True, forum=False)
+        self.destination_group = channel(888, "Source chat", creator=True,
+                                         broadcast=False, megagroup=True,
+                                         forum=False)
+        self.comments = list(comments)
+        self.group_last_id = 1
+        self.group_tail = {}
+        self.anchor_ids = {}
+        self.group_members = [SimpleNamespace(
+            id=701, username="member", first_name="Group", last_name=None,
+            phone=None, bot=False)]
+
+    async def iter_participants(self, entity, limit=None):
+        if entity is self.source_group:
+            for member in self.group_members:
+                yield member
+            return
+        raise telethon_errors.ChatAdminRequiredError(request=None)
+
+    async def get_entity(self, ref):
+        if isinstance(ref, types.PeerChannel):
+            if ref.channel_id == 55:
+                return self.source_group
+            if ref.channel_id == 888:
+                return self.destination_group
+        return await super().get_entity(ref)
+
+    async def get_messages(self, entity, limit=None, ids=None):
+        if ids is not None:
+            assert entity is self.source_group
+            found = [item for item in self.comments if item.id == ids]
+            return found[0] if found else None
+        if entity is self.destination_group:
+            # Telegram fills a live discussion group with its own anchors for
+            # our posts; anything else must be planted explicitly.
+            return [self.group_tail.get(
+                        item_id, anchor(item_id, 2, source_channel_id=999))
+                    for item_id in range(self.group_last_id,
+                                         max(self.group_last_id - limit, 0), -1)]
+        return await super().get_messages(entity, limit=limit)
+
+    async def iter_messages(self, entity, *, min_id=0, reverse=False):
+        if entity is not self.source_group:
+            async for item in super().iter_messages(
+                    entity, min_id=min_id, reverse=reverse):
+                yield item
+            return
+        self.iter_messages_calls.append(("group", min_id, reverse))
+        for item in sorted(self.comments, key=lambda value: value.id):
+            if item.id > min_id:
+                yield item
+
+    async def __call__(self, request):
+        if isinstance(request, functions.messages.GetDiscussionMessageRequest):
+            self.requests.append(request)
+            found = self.anchor_ids.get(request.msg_id)
+            return SimpleNamespace(
+                messages=[] if found is None else [SimpleNamespace(id=found)])
+        peer = (getattr(request, "peer", None)
+                or getattr(request, "to_peer", None))
+        if peer is not self.destination_group:
+            return await super().__call__(request)
+        channel_last_id = self.destination_last_id
+        self.destination_last_id = self.group_last_id
+        try:
+            return await super().__call__(request)
+        finally:
+            self.group_last_id = self.destination_last_id
+            self.destination_last_id = channel_last_id
+
+
+def test_sync_copies_posts_before_comments(config_env, monkeypatch, capsys):
+    """Phase 1 sends every post before phase 2 sends any comment."""
+    seed_comments_clone()
+    client = CloneCommentsClient(
+        [message(2), message(3)],
+        [anchor(10, 2), anchor(11, 3),
+         message(12, message="nice",
+                 reply_to=types.MessageReplyHeader(reply_to_msg_id=10))])
+    client.anchor_ids = {2: 500, 3: 600}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 3
+    sends = [item for item in client.requests
+             if isinstance(item, (functions.messages.ForwardMessagesRequest,
+                                  functions.messages.SendMessageRequest))]
+    peers = [item.to_peer if hasattr(item, "to_peer") else item.peer
+             for item in sends]
+    assert peers == [client.destination, client.destination,
+                     client.destination_group]
+
+
+def test_sync_snapshots_discussion_roster_when_comments_enabled(
+    config_env, monkeypatch, capsys):
+    """The source channel refuses its roster (not admin) but its readable
+    discussion group is snapshotted to the participant sidecar."""
+    from tgcli.clone import roster
+
+    clone_state = seed_comments_clone()
+    client = CloneCommentsClient([message(2)], [anchor(10, 2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    participants = json.loads(capsys.readouterr().out)["sync"]["participants"]
+    assert participants["source"]["status"] == "unavailable"
+    assert participants["discussion"]["status"] == "collected"
+    assert participants["discussion"]["count"] == 1
+    lines = [json.loads(line) for line
+             in roster.path_for(clone_state.clone_id).read_text().splitlines()]
+    assert lines == [{"peer": "discussion", "id": 701, "username": "member",
+                      "first_name": "Group", "last_name": None, "phone": None,
+                      "is_bot": False}]
+
+
+def test_sync_skips_source_autoforwards(config_env, monkeypatch, capsys):
+    """Anchors in the source discussion group are not copied;
+    sync["skipped_autoforward"] counts them."""
+    clone_state = seed_comments_clone()
+    client = CloneCommentsClient([message(2), message(3)],
+                                 [anchor(10, 2), anchor(11, 3)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["skipped_autoforward"] == 2
+    assert sync["copied"] == 2
+    assert sync["discussion_cursor"] == 11
+    assert group_sends(client) == []
+    assert state.load(clone_state.clone_id).discussion_id_map == {}
+
+
+def test_sync_refuses_to_post_before_the_discussion_group_is_linked(
+    config_env, monkeypatch, capsys
+):
+    """Init created the channel and enabled comments, then died before linking
+    the group (a FLOOD_WAIT on the second peer does exactly this, live-proven).
+    Posting now would burn every anchor: Telegram only creates them at send
+    time with the link already in place, and they cannot be backfilled. Refuse
+    instead, and send the user back to init."""
+    seed_comments_clone(discussion_destination_peer_id=None,
+                        discussion_linked=False)
+    client = CloneCommentsClient([message(2), message(3)], [])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    error = json.loads(capsys.readouterr().err)["error"]
+    assert "not linked" in error["message"]
+    assert client.requests == []
+
+
+def test_sync_skips_album_autoforward_anchors(config_env, monkeypatch, capsys):
+    """Telegram auto-forwards an album post as an album, so its anchor arrives
+    as a multi-message batch. It is still an anchor and must not be copied."""
+    clone_state = seed_comments_clone()
+    album = [message(2, grouped_id=7, media=types.MessageMediaPhoto(
+                photo=types.Photo(id=1, access_hash=1, file_reference=b"r",
+                                  date=None, sizes=[], dc_id=2))),
+             message(3, grouped_id=7, media=types.MessageMediaPhoto(
+                photo=types.Photo(id=2, access_hash=2, file_reference=b"r",
+                                  date=None, sizes=[], dc_id=2)))]
+    anchors = [anchor(10, 2), anchor(11, 3)]
+    for item in anchors:
+        item.grouped_id = 7
+    client = CloneCommentsClient(album, anchors)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["skipped_autoforward"] == 2
+    assert sync["discussion_cursor"] == 11
+    assert group_sends(client) == []
+    assert state.load(clone_state.clone_id).discussion_id_map == {}
+
+
+def test_sync_keeps_the_quote_of_a_direct_comment(config_env, monkeypatch, capsys):
+    """A comment replying straight to the anchor gets a rebuilt reply header;
+    its quote must survive the rebuild."""
+    seed_comments_clone()
+    client = CloneCommentsClient(
+        [message(2)],
+        [anchor(10, 2),
+         message(12, message="agreed", reply_to=types.MessageReplyHeader(
+             reply_to_msg_id=10, quote=True, quote_text="the claim",
+             quote_offset=4,
+             quote_entities=[types.MessageEntityBold(offset=0, length=3)]))])
+    client.anchor_ids = {2: 500}
+    client.group_last_id = 500
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    [send] = group_sends(client)
+    assert send.reply_to.reply_to_msg_id == 500
+    assert send.reply_to.quote_text == "the claim"
+    assert send.reply_to.quote_offset == 4
+    assert send.reply_to.quote_entities == [
+        types.MessageEntityBold(offset=0, length=3)]
+
+
+def test_sync_attaches_a_comment_to_its_post_thread(
+    config_env, monkeypatch, capsys
+):
+    """Comment replying to the source anchor is sent into the destination
+    group with reply_to.reply_to_msg_id == the destination anchor id from
+    getDiscussionMessage(dest_channel, dest_post_id)."""
+    clone_state = seed_comments_clone()
+    client = CloneCommentsClient(
+        [message(2)],
+        [anchor(10, 2),
+         message(12, message="nice", from_id=types.PeerUser(77), sender_id=77,
+                 reply_to=types.MessageReplyHeader(reply_to_msg_id=10))])
+    client.anchor_ids = {2: 500}
+    client.group_last_id = 500
+
+    async def get_entity(ref):
+        if isinstance(ref, types.PeerUser):
+            return types.User(id=77, first_name="Alex", username="alex")
+        return await CloneCommentsClient.get_entity(client, ref)
+
+    client.get_entity = get_entity
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    [lookup] = [item for item in client.requests
+                if isinstance(item, functions.messages.GetDiscussionMessageRequest)]
+    assert lookup.peer is client.destination and lookup.msg_id == 2
+    [send] = group_sends(client)
+    assert isinstance(send, functions.messages.SendMessageRequest)
+    assert send.message == "Alex (@alex): \n\nnice"
+    assert send.reply_to.reply_to_msg_id == 500
+    assert send.reply_to.top_msg_id is None
+    assert sync["reply_flattened"] == 0
+    assert state.load(clone_state.clone_id).discussion_dest_for(12) == 501
+
+
+def test_sync_maps_comment_on_comment_replies(config_env, monkeypatch, capsys):
+    """Nested comment: reply_to_msg_id maps through discussion_id_map,
+    top_msg_id through the anchor path."""
+    seed_comments_clone()
+    client = CloneCommentsClient(
+        [message(2)],
+        [anchor(10, 2),
+         message(12, message="root",
+                 reply_to=types.MessageReplyHeader(reply_to_msg_id=10)),
+         message(13, message="nested", reply_to=types.MessageReplyHeader(
+             reply_to_msg_id=12, reply_to_top_id=10))])
+    client.anchor_ids = {2: 500}
+    client.group_last_id = 500
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    root, nested = group_sends(client)
+    assert root.reply_to.reply_to_msg_id == 500
+    assert nested.reply_to.reply_to_msg_id == 501
+    assert nested.reply_to.top_msg_id == 500
+
+
+def test_sync_flattens_comments_with_unmapped_anchors(
+    config_env, monkeypatch, capsys
+):
+    """Anchor that maps to no destination post: message is still copied,
+    sync["reply_flattened"] == 1."""
+    clone_state = seed_comments_clone()
+    client = CloneCommentsClient(
+        [message(2)],
+        [anchor(10, 99),
+         message(12, message="orphan",
+                 reply_to=types.MessageReplyHeader(reply_to_msg_id=10))])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["reply_flattened"] == 1
+    assert sync["copied"] == 2
+    [send] = group_sends(client)
+    assert send.reply_to is None
+    assert state.load(clone_state.clone_id).discussion_dest_for(12) is not None
+
+
+def test_sync_copies_off_thread_group_messages(config_env, monkeypatch, capsys):
+    """A plain group message with no reply header clones into the destination
+    group through the megagroup transport rules, keeping its author header."""
+    seed_comments_clone()
+    client = CloneCommentsClient(
+        [message(2)],
+        [message(12, message="hello", from_id=types.PeerUser(77), sender_id=77)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 2
+    [send] = group_sends(client)
+    assert isinstance(send, functions.messages.ForwardMessagesRequest)
+    assert send.from_peer is client.source_group
+    assert send.id == [12]
+    assert send.drop_author is False
+
+
+def test_sync_advances_the_discussion_cursor_per_batch(
+    config_env, monkeypatch, capsys
+):
+    """discussion_cursor is saved after each confirmed batch and a rerun
+    copies nothing."""
+    clone_state = seed_comments_clone()
+    client = CloneCommentsClient(
+        [message(2)],
+        [anchor(10, 2),
+         message(12, message="one",
+                 reply_to=types.MessageReplyHeader(reply_to_msg_id=10)),
+         message(13, message="two",
+                 reply_to=types.MessageReplyHeader(reply_to_msg_id=10))])
+    client.anchor_ids = {2: 500}
+    client.group_last_id = 500
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    first = json.loads(capsys.readouterr().out)["sync"]
+    assert first["discussion_cursor"] == 13
+    saved = state.load(clone_state.clone_id)
+    assert saved.discussion_cursor == 13
+    assert [saved.discussion_dest_for(12), saved.discussion_dest_for(13)] == [501, 502]
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    rerun = json.loads(capsys.readouterr().out)["sync"]
+    assert rerun["copied"] == 0
+    assert rerun["skipped_autoforward"] == 0
+    assert len(group_sends(client)) == 2
+    assert client.iter_messages_calls == [(0, True), ("group", 0, True),
+                                          (2, True), ("group", 13, True)]
+
+
+def test_sync_limit_spends_phase_one_first(config_env, monkeypatch, capsys):
+    """--limit 1 with pending posts and comments: only a post batch is
+    copied, more is True, discussion_cursor unchanged."""
+    clone_state = seed_comments_clone()
+    client = CloneCommentsClient(
+        [message(2), message(3)],
+        [anchor(10, 2),
+         message(12, message="nice",
+                 reply_to=types.MessageReplyHeader(reply_to_msg_id=10))])
+    client.anchor_ids = {2: 500}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--limit", "1", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] == 1
+    assert sync["more"] is True
+    assert sync["discussion_cursor"] == 0
+    assert sync["skipped_autoforward"] == 0
+    assert group_sends(client) == []
+    assert client.iter_messages_calls == [(0, True)]
+    assert state.load(clone_state.clone_id).discussion_cursor == 0
+
+
+def test_sync_tolerates_destination_autoforwards_in_the_tail(
+    config_env, monkeypatch, capsys
+):
+    """Telegram's anchors in the destination group are not 'unexpected
+    tail messages'."""
+    clone_state = seed_comments_clone(discussion_cursor=12)
+    clone_state.record_mapping(2, 2)
+    clone_state.record_discussion_mapping(12, 3)
+    clone_state.cursor = 2
+    state.save(clone_state)
+    client = CloneCommentsClient([message(2)], [anchor(10, 2), message(12)])
+    client.destination_last_id = 2
+    client.group_last_id = 5
+    client.group_tail = {
+        4: anchor(4, 2, source_channel_id=999),
+        5: anchor(5, 2, source_channel_id=999),
+    }
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] == 0
+    assert group_sends(client) == []
+
+
+def test_sync_blocks_unexpected_discussion_destination_tail(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_comments_clone(discussion_cursor=12)
+    clone_state.record_mapping(2, 2)
+    clone_state.record_discussion_mapping(12, 3)
+    clone_state.cursor = 2
+    state.save(clone_state)
+    client = CloneCommentsClient([message(2)], [anchor(10, 2), message(12)])
+    client.destination_last_id = 2
+    client.group_last_id = 4
+    client.group_tail = {4: message(4, message="stray")}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    error = json.loads(capsys.readouterr().err)["error"]
+    assert "discussion destination has unexpected tail" in error["message"]
+    assert error["unexpected"] == 1
+
+
+def test_sync_skips_phase_two_when_comments_are_unavailable(
+    config_env, monkeypatch, capsys
+):
+    """comments == "unavailable": posts copy, no discussion requests,
+    skipped_autoforward == 0."""
+    seed_comments_clone(comments="unavailable",
+                        discussion_destination_peer_id=None,
+                        discussion_linked=False)
+    client = CloneCommentsClient([message(2)], [anchor(10, 2), message(12)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] == 1
+    assert sync["skipped_autoforward"] == 0
+    assert sync["discussion_cursor"] == 0
+    assert group_sends(client) == []
+    assert client.iter_messages_calls == [(0, True)]
+
+
 @pytest.mark.asyncio
 async def test_create_topic_audit_failure_blocks_direct_mutation_and_state(
     config_env, monkeypatch
@@ -309,6 +784,7 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
     assert main(["clone", "sync", "@source", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
+    participants = result["sync"].pop("participants")
     assert result["sync"] == {
         "copied": 2,
         "forwarded": 2,
@@ -317,10 +793,15 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
         "reply_flattened": 0,
         "skipped_service": 0,
         "skipped_unsupported": [],
+        "skipped_autoforward": 0,
         "topics_created": 0,
         "cursor": 3,
+        "discussion_cursor": 0,
         "more": False,
     }
+    # a broadcast source the account does not administer reports no roster
+    assert participants["source"]["status"] == "unavailable"
+    assert participants["discussion"]["status"] == "none"
     assert [request.id for request in client.requests] == [[2], [3]]
     assert all(request.drop_author is True for request in client.requests)
     saved = state.load(clone_state.clone_id)
@@ -340,6 +821,47 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
     assert rerun["sync"]["copied"] == 0
     assert len(client.requests) == 2
     assert client.iter_messages_calls == [(0, True), (3, True)]
+
+
+def test_clone_sync_keeps_native_forward_header_for_reforwarded_broadcast_post(
+    config_env, monkeypatch, capsys
+):
+    """A broadcast source's own post drops its author (clone looks native), but a
+    post that is itself a forward keeps drop_author=False so Telegram restores
+    the original forward header instead of erasing the re-forward's origin."""
+    seed_clone()
+    own = message(2)
+    reforward = message(3, fwd_from=types.MessageFwdHeader(
+        date=None, from_name="Original Author"))
+    client = CloneSyncClient([own, reforward])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    by_id = {tuple(request.id): request.drop_author
+             for request in client.requests
+             if isinstance(request, functions.messages.ForwardMessagesRequest)}
+    assert by_id == {(2,): True, (3,): False}
+
+
+def test_clone_sync_keeps_native_forward_header_for_reforwarded_album(
+    config_env, monkeypatch, capsys
+):
+    """A forwarded album carries fwd_from on every item, so the whole batch
+    forwards with drop_author=False and keeps its origin header."""
+    seed_clone()
+    header = types.MessageFwdHeader(date=None, from_name="Original Author")
+    album = [message(2, grouped_id=77, fwd_from=header),
+             message(3, grouped_id=77, fwd_from=header)]
+    client = CloneSyncClient(album)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    [request] = [item for item in client.requests
+                 if isinstance(item, functions.messages.ForwardMessagesRequest)]
+    assert request.id == [2, 3]
+    assert request.drop_author is False
 
 
 def test_clone_sync_creates_destination_topic_from_topic_create_service(
@@ -483,7 +1005,7 @@ def test_clone_sync_reuploads_topic_reply_with_prefix_into_topic(
     sync = json.loads(capsys.readouterr().out)["sync"]
     [request] = [item for item in client.requests
                  if isinstance(item, functions.messages.SendMessageRequest)]
-    assert request.message == "Alex: pong"
+    assert request.message == "Alex: \n\npong"
     assert request.reply_to.reply_to_msg_id == 1003
     assert request.reply_to.top_msg_id == 1002
     assert sync["reuploaded"] == 1
@@ -823,10 +1345,13 @@ def test_clone_sync_reuploads_megagroup_reply_with_prefix_and_shifted_entities(
     sync = json.loads(capsys.readouterr().out)["sync"]
     [request] = client.requests
     assert isinstance(request, functions.messages.SendMessageRequest)
-    assert request.message == "Zoë 🚀: 😀bold"
+    assert request.message == "Zoë 🚀: \n\n😀bold"
     assert request.reply_to.reply_to_msg_id == 1001
-    prefix_units = len("Zoë 🚀: ".encode("utf-16-le")) // 2
-    assert request.entities[0].offset == prefix_units + 2
+    prefix_units = len("Zoë 🚀: \n\n".encode("utf-16-le")) // 2
+    mention, shifted = request.entities
+    assert mention == types.MessageEntityMentionName(
+        offset=0, length=len("Zoë 🚀".encode("utf-16-le")) // 2, user_id=77)
+    assert shifted.offset == prefix_units + 2
     assert original.offset == 2
     assert sync["reuploaded"] == 1
     assert sync["reply_flattened"] == 0
@@ -861,7 +1386,7 @@ def test_clone_sync_reuploads_protected_megagroup_with_cached_author_prefix(
     sync = json.loads(capsys.readouterr().out)["sync"]
     sends = [item for item in client.requests
              if isinstance(item, functions.messages.SendMessageRequest)]
-    assert [item.message for item in sends] == ["Alex: first", "Alex: second"]
+    assert [item.message for item in sends] == ["Alex: \n\nfirst", "Alex: \n\nsecond"]
     assert author_lookups == 1
     assert sync["reuploaded"] == 2
 
@@ -911,7 +1436,7 @@ def test_clone_sync_reuploads_private_dialog_reply_with_explicit_source_peer(
     capsys.readouterr()
     [request] = client.requests
     assert isinstance(request, functions.messages.SendMessageRequest)
-    assert request.message == "Alex Smith: answer"
+    assert request.message == "Alex Smith: \n\nanswer"
     assert request.reply_to.reply_to_msg_id == 1001
 
 
@@ -967,7 +1492,7 @@ def test_clone_sync_reuploads_basic_group_reply_with_prefix(
     sync = json.loads(capsys.readouterr().out)["sync"]
     [request] = [item for item in client.requests
                  if isinstance(item, functions.messages.SendMessageRequest)]
-    assert request.message == "Alex: pong"
+    assert request.message == "Alex: \n\npong"
     assert request.reply_to.reply_to_msg_id == 1001
     assert sync["reuploaded"] == 1
 
@@ -1179,6 +1704,7 @@ def test_clone_sync_skips_service_and_reports_unsupported_messages(
     assert main(["clone", "sync", "@source", "--json"]) == 0
 
     sync = json.loads(capsys.readouterr().out)["sync"]
+    sync.pop("participants")
     assert sync == {
         "copied": 1,
         "forwarded": 1,
@@ -1190,8 +1716,10 @@ def test_clone_sync_skips_service_and_reports_unsupported_messages(
             {"id": 2, "kind": "MessageMediaPoll"},
             {"id": 3, "kind": "MessageMediaDice"},
         ],
+        "skipped_autoforward": 0,
         "topics_created": 0,
         "cursor": 4,
+        "discussion_cursor": 0,
         "more": False,
     }
     assert [request.id for request in client.requests] == [[4]]
@@ -1369,6 +1897,7 @@ def test_clone_sync_keeps_grouped_id_zero_album_atomic_and_in_position(
     assert main(["clone", "sync", "@source", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
+    result["sync"].pop("participants")
     assert result["sync"] == {
         "copied": 4,
         "forwarded": 4,
@@ -1377,8 +1906,10 @@ def test_clone_sync_keeps_grouped_id_zero_album_atomic_and_in_position(
         "reply_flattened": 0,
         "skipped_service": 0,
         "skipped_unsupported": [],
+        "skipped_autoforward": 0,
         "topics_created": 0,
         "cursor": 5,
+        "discussion_cursor": 0,
         "more": False,
     }
     assert [request.id for request in client.requests] == [[2], [3, 4], [5]]
@@ -1707,7 +2238,7 @@ def test_clone_sync_prefixes_attributed_reply_album_caption_once(
     [request] = [item for item in client.requests
                  if isinstance(item, functions.messages.SendMultiMediaRequest)]
     assert [item.message for item in request.multi_media] == [
-        "Alex: caption", "",
+        "Alex: \n\ncaption", "",
     ]
 
 
@@ -1802,5 +2333,5 @@ def test_clone_sync_plain_output_has_contract_columns(config_env, monkeypatch, c
 
     assert capsys.readouterr().out.rstrip().split("\t") == [
         "1", "1", "0", "0", "0", "0", "0", "0", "2",
-        clone_state.clone_id, "123", "999", "False",
+        clone_state.clone_id, "123", "999", "False", "0", "0",
     ]

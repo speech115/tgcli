@@ -47,8 +47,8 @@ def _signature(header, source, forum=False):
             tuple(header.quote_entities or ()), header.quote_offset)
 
 
-def target(messages, clone_state, source):
-    forum = clone_state.destination_kind == "forum"
+def target(messages, leg, source):
+    forum = leg.destination_kind == "forum"
     signatures = [_signature(getattr(message, "reply_to", None), source, forum)
                   for message in messages]
     leading = signatures[0]
@@ -66,10 +66,10 @@ def target(messages, clone_state, source):
         top_id = None
     else:
         parent_id, top_id, quote_text, quote_entities, quote_offset = leading
-    destination_id = clone_state.dest_for(parent_id)
+    destination_id = leg.dest_for(parent_id)
     if destination_id is None:
         return None
-    top_destination_id = clone_state.dest_for(top_id) if top_id is not None else None
+    top_destination_id = leg.dest_for(top_id) if top_id is not None else None
     return types.InputReplyToMessage(
         reply_to_msg_id=destination_id, top_msg_id=top_destination_id,
         quote_text=quote_text, quote_entities=list(quote_entities) or None,

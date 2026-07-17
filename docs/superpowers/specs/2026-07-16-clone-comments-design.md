@@ -1,7 +1,7 @@
 # Clone — Channel Comments (linked discussion group), round 3
 
 Date: 2026-07-16
-Status: approved (design), not yet implemented
+Status: implemented (2026-07-17)
 Sequenced after: round 2 (`2026-07-16-clone-chat-types-2-design.md`, currently on
 `codex/clone-chat-types-round-2-*` branches) merges to main. Round 2's
 `destination_kind` + `topic_map` establish the "second mapping structure in
@@ -147,7 +147,12 @@ policy: version bump, old files rejected with a clear message.
 - Live acceptance gate (visual, as always): clone a real channel with an
   active comment section; verify the comments button appears, thread contents
   and order match, author prefixes are clickable where promised, rerun is
-  idempotent (0 copied).
+  idempotent (0 copied). **Passed 2026-07-17** on account `main` against a
+  hand-built fixture (posts 10/10, 10 anchors skipped, 5 group messages
+  copied, idempotent rerun); four live-only bugs found and fixed during the
+  run. Full results: `docs/superpowers/plans/2026-07-17-clone-comments.md`
+  ("Live results (2026-07-17)"), `docs/decisions/ADR-0023-clone-channel-comments.md`
+  ("Live findings").
 
 ## Documentation
 
@@ -213,5 +218,8 @@ Raw `channels.getFullChannel` / `messages.getDiscussionMessage` /
 ## Open questions
 
 - Whether `--limit` should split its budget between phases or run phase 1 to
-  exhaustion first — decide in the plan; default assumption: sequential,
-  phase 1 first.
+  exhaustion first — **resolved**: sequential, phase 1 first. `--limit N`
+  counts batches across both phases; phase 1 runs to exhaustion before phase
+  2 starts, and a run that stops inside phase 2 leaves comments lagging
+  posts until the next invocation (`docs/superpowers/plans/2026-07-17-clone-comments.md`,
+  ADR-0023).

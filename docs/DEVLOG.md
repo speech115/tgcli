@@ -14,6 +14,206 @@ Template:
 ```
 
 
+## 2026-07-17 — preserve native forward header on re-forwarded posts (Claude Opus 4.8)
+**Did:** ADR-0025. User noticed cloned posts that were themselves forwards lost
+any "forwarded from" marking. Root-caused live: on `@sral_v_nastav` **32/100**
+posts carry `fwd_from`, and broadcast's blanket `drop_author=True` erased their
+original header — the clone showed 0 posts with a forward header. Fix: per-batch
+`drop_author` via new `_drops_author(leg, messages)` in `commands/clone.py` —
+own posts (no `fwd_from`) keep `drop_author=True` (clone stays native, no source
+leak); re-forwards (any item has `fwd_from`) forward with `drop_author=False` so
+Telegram restores the true origin header. Albums decide as one batch.
+**Verified live (the load-bearing semantic):** forwarded source posts 691/679
+into the clone with `drop_author=False` → headers resolved to "Иван Якунин" and
+channel `1732547702/4497`, never the source channel `4301599563`. Telegram
+preserves the *original* origin across a re-forward, so no source leak. TDD: 2
+new tests (single re-forward + forwarded album); existing own-post drop_author
+tests unchanged. CONTRACT updated. Full suite 471 / 8.
+**Decided:** native header only (user choice) — cheap, truthful, clickable.
+**Limitation:** reupload paths (re-forward + mapped reply, or protected source)
+still can't carry `fwd_from`; text-marker fallback deferred until needed.
+**Left 2 experiment messages (681/682) in the clone fixture** — duplicates,
+harmless; deleting messages is a user action, not mine.
+
+## 2026-07-17 — live acceptance of roster + newline attribution (Claude Opus 4.8)
+**Did:** ran the round-3.5 live gate on real channel `@sral_v_nastav`
+(4301599563, 677 posts, `comments: enabled`). Full clone: destination channel
+4373611234 + discussion group «Злой чат» 4477659916; 676 posts, 523 comments
+reuploaded, `more:false`. **Both new features proven live, non-tautologically:**
+- **Newline attribution** — real copied comments render `"<author>: \n\n<body>"`,
+  e.g. `BOGDAN PLABEK (@b_b_plabek): ` then a blank line then the body. Read
+  back straight from the clone discussion group.
+- **Roster (ADR-0024)** — 196 real participants collected (source 194 +
+  discussion 2) with genuine ids/usernames/names/bot flags into the JSONL
+  sidecar. Source came back `collected` (the account can list this channel),
+  not `unavailable` — the honest marker adapts to real rights.
+FLOOD_WAIT ladder as predicted; per-batch cursor made every interrupted resume
+safe. Also incidentally reconfirmed live: `clone status` lists all 10 legacy v1
+states without crashing (the earlier fix).
+**Found — new gap, not fixed:** `clone init` cannot re-create a clone over a
+stale v1 state. `commit_init` calls `state.load()`, which fail-closes on
+`version 1`, so ADR-0023's "run a fresh init to get comments" is impossible on
+any pre-round-3 clone without manually removing the state file. The gate had to
+archive `<clone_id>.json` → `.json.v1bak` by hand to proceed. Distinct from the
+`status` listing fix (that tolerates v1 for *reading*; this blocks *writing* a
+new clone). Candidate follow-up: an explicit `init --replace`/supersede path or
+a documented v1-eviction step. Flagged as a background task.
+**Artifacts:** new clone pair kept as a reusable gate fixture; old v1 clone
+channel 4448680162 orphaned (state archived, restorable via `mv`).
+
+## 2026-07-17 — clone snapshots the source-side participant roster (Claude Opus 4.8)
+**Did:** new `clone/roster.py` + ADR-0024. After both sync phases, `clone
+sync` snapshots participants of the source channel and (when
+`comments == "enabled"`) its linked discussion group into
+`clones/<clone_id>-participants.jsonl` (atomic temp+replace, 0o600, JSONL with
+`export subscribers` columns tagged by `peer`). The `sync` JSON gains a
+`participants` object: per-peer `{peer_id, status, count, reason}` where status
+is `collected`/`unavailable`/`deferred`/`none`. Best-effort: `ChatAdminRequired`
+/`ChannelPrivate`/`ChatForbidden`/`ValueError` → `unavailable`; FloodWait →
+`deferred` with partial discarded and the **main clone cooldown left unset** so
+a roster flood never blocks the next message sync. Source-side only — collected
+users are never added to the destination. TDD: 6 unit tests
+(`test_clone_roster.py`) + 1 integration test; updated 3 full-`sync`-dict
+asserts to pop `participants`; base sync fake now refuses its roster
+(non-admin broadcast) and the comments fake serves group members. CONTRACT
+updated; coverage OK (no new TL namespace — `iter_participants` already
+`wrapped` via export). Full suite 469 / 8. Live-demoed the exact JSON + sidecar
+via a fake client (source `unavailable`, discussion `collected`).
+**Decided:** roster is automatic (user choice) but best-effort and honest, on
+the ADR-0023 `unavailable`-marker footing; a channel you do not own always
+reports `source: unavailable` — a Telegram limit, not a defect. Cadence gate /
+`--no-roster` opt-out deferred until demonstrated pain.
+**Learned:** wiring a per-sync read into the pipeline meant every existing sync
+fake suddenly needed `iter_participants`; giving the base fake a
+`ChatAdminRequiredError` default kept the blast radius to the three tests that
+pinned the whole `sync` dict.
+**Next:** live-accept the roster on a real channel-with-comments (reuse the
+`tgcli comments demo 07-17` fixture) before considering it proven.
+
+## 2026-07-17 — attribution header sits on its own line (Claude Opus 4.8)
+**Did:** the reuploaded-attribution prefix now puts the author header on its
+own line above the message body: `"{author}: \n\n{text}"` instead of
+`"{author}: {text}"`. One-line change in `clone/attribution.py::prefixed`;
+UTF-16 shift and mention-entity length follow automatically. Updated the 12
+tests that pinned the old inline format (offsets shift +2 units) and the
+CONTRACT reupload paragraph. Live-rendered the exact requested example
+(`Сергей Иванов (@CrwDdy): ` + blank line + body). Full suite 462 / 8.
+**Decided:** user-facing formatting choice; native forwards (non-attributed
+broadcast/megagroup paths) are unaffected — only reupload attribution.
+**Next:** scope the requested participant-collection feature (who is in the
+source chat/channel) as its own slice.
+
+## 2026-07-17 — clone status survives unreadable state files (Claude Opus 4.8)
+**Did:** `clone status` no longer aborts the whole listing when one
+`clones/*.json` is corrupt or a legacy (pre-round-3) version. TDD: 4 new
+tests in `test_cli_clone_status.py` (legacy version-1, corrupt JSON, plain
+marker, filter exclusion). Added `_load_entry`/`_unreadable_entry` in
+`commands/clone.py` (catch `PolicyError` per file → marked entry
+`{"unreadable": true, ...}` with null fields; plain row shows `clone_id` in
+the title column and `unreadable` in the comments column). Filtered
+(`SOURCE`) listings drop unreadable files since their identity can't be
+matched. Contract updated. Full suite 462 passed / 8 skipped. Live-verified
+on a scratch state dir mixing legacy + corrupt files across `--json`,
+`--plain`, and default renders — all exit 0 (was exit 2 / crash before).
+**Decided:** unreadable = honest marker, not a listing-killer — same
+philosophy as round-3's `comments: unavailable`. Rejecting the file's
+*contents* stays fail-closed (state.load still raises); only the *listing*
+degrades gracefully.
+**Learned:** the crash was one `state.load()` inside a list comprehension —
+any per-file `PolicyError` propagated out and killed the command. Moving the
+try/except to a per-file helper isolates the blast radius.
+**Next:** none required; slice is self-contained.
+
+## 2026-07-17 — Clone channel comments: live acceptance passed (Claude Opus 4.8)
+**Did:** ran the round-3 live acceptance gate on account `main` against a
+hand-built fixture (no reusable comments fixture existed; a forum megagroup
+cannot be a discussion group per ADR-0015): source channel `tgcli comments
+demo 07-17` (10 posts) + linked source discussion group `tgcli comments demo
+chat 07-17` (10 auto-forward anchors + 5 hand-added messages: direct
+comment, nested comment-on-comment, comment with a quote, off-thread
+chatter, comment on the last post). `clone init` created and linked the
+clone discussion group; `clone sync` copied posts `10/10`, skipped all 10
+Telegram auto-forward anchors (`skipped_autoforward: 10`), copied the 5
+group messages (`reply_flattened: 0`); rerun of both phases reported
+`copied: 0`. The gate was non-tautological: the clone group carries one
+extra service message versus the source, so every anchor id shifts by `+1`
+and the remap had to do real work (verified id-by-id in the plan). Found
+and fixed four live-only bugs along the way (`7b8cb6c`, `8a4a59e`,
+`2438940`, `1722b5b`) — recorded in full in
+`docs/superpowers/plans/2026-07-17-clone-comments.md` ("Live results
+(2026-07-17)") and `docs/decisions/ADR-0023-clone-channel-comments.md`
+("Live findings"); updated the spec's live-acceptance line to match.
+**Decided:** the gate is accepted — round 3 is done. The four fixes stay as
+already-committed hotfixes rather than a plan rewrite; the plan and ADR now
+carry the live evidence instead of leaving it "not yet reported".
+**Learned:** the whole bug class this gate found is one shape — Telegram
+answers a no-op mutation (`ChatNotModified`, `LinkNotModified`,
+`ChatAboutNotModified`) with an error, not silence, which mocks can never
+catch because they record a request and never object. The most costly
+instance (`2438940`: syncing before the discussion group is linked
+permanently and silently loses comments, since there is no backfill API)
+was rated ~60% confidence by the code review that preceded the gate and was
+not reported as a finding — it occurred on the very first live run, not as
+a rare edge case. Init creating two peers hit real FLOOD_WAIT four times
+(23s, 5s, 349s, 335s) in one gate; each retry needed a fresh `clone init`
+preview, but progress and adopted peers survived every retry with no
+duplicates.
+**Next:** decide whether to fix `tg clone status`, which is dead for any
+account holding pre-round-3 (v1) clone state — `list_clones` calls
+`state.load` per file and one `PolicyError` kills the whole listing (all 10
+clone states on `main` are v1). Rejecting old state is the agreed policy,
+but taking down the whole command contradicts round 3's own truthfulness
+principle. Proposed, not implemented: report unreadable states as marked
+entries instead of dying — a `CONTRACT.md` change, awaiting the user's
+decision.
+
+## 2026-07-17 — Clone channel comments shipped, round 3 (Claude Opus 4.8)
+**Did:** executed `docs/superpowers/plans/2026-07-17-clone-comments.md` task by
+task (7 commits, `557ab52`…`7b8cb6c`): amended the ADR-0021 attribution ladder
+globally to identify authors (`attribution.author_of` → `Author(text,
+mention_user_id)`, username → profile mention → id → post signature → "id
+unknown"); added `comments`/`discussion_*` fields to `CloneState` with
+fail-closed validation and bumped `state.VERSION` to 2 (no migration, old
+files rejected); added `clone/legs.py` (the `Leg` seam so `batching.plan` /
+`transport.decide` / `replies.target` read either the post fields or the
+discussion fields of `CloneState` without a duplicated sync loop); added
+`clone/discussion.py` (linked-chat detection via `linked_chat_id` only —
+`linked_monoforum_id` is never read — destination group create/adopt/link,
+anchor lookup, shared tail-verify) and `clone/comments.py` (phase-2 sync
+leg: skip Telegram's own auto-forward anchors, remap a comment's thread
+root from source anchor → source post → destination post → destination
+anchor, carrying the quote explicitly); wired `commands/clone.py` so `init`
+creates/links a second `<marker>-discussion` megagroup before the first post
+syncs, and `sync` runs phase 2 after phase 1 exhausts (or after `--limit`
+budget remains) reporting `skipped_autoforward`/`discussion_cursor`. Wrote
+ADR-0023, updated CONTRACT.md §11 (verified every sample JSON key and plain
+column order against the actual code and `tests/test_cli_clone_status.py` /
+`tests/test_cli_clone_sync.py`), MAP.md, PLAN.md, and the spec header/open
+question. Full suite: `454 passed, 8 skipped`.
+**Decided:** module layout deviates from the spec's single `discussion.py` —
+split into `discussion.py` (detection/anchors/linking, ≤120 lines),
+`comments.py` (the phase-2 loop), and `legs.py` (≤60 lines) to keep every
+file inside budget and `state.py` a pure data module. `comments:
+"unavailable"` (unreadable linked group) is a permanent honest marker, not a
+`PolicyError` — no retroactive backfill exists server-side, so existing
+clones re-init against a fresh destination to opt in. `--limit` spends phase
+1 to exhaustion before phase 2 starts (the spec's one open question,
+resolved sequential-first).
+**Learned:** direct comments carry `reply_to_top_id = null` (only nested
+comment-on-comment replies set it) so thread-root detection must key off
+`reply_to_msg_id == known anchor`, not `top_id` presence; `from_id = null`
+happens on real comments in the wild, exercising the post-signature/`id
+unknown` ladder rungs for real; a channel ALBUM post auto-forwards into the
+linked group as an album too, so anchor recognition is per-batch
+(`_anchor_posts`), and a batch mixing anchors with real content is a
+`PolicyError` rather than a silent partial skip; a destination comment's
+reply header is rebuilt from scratch against the destination anchor, so the
+source quote has to be carried across explicitly instead of riding along.
+**Next:** run the live acceptance gate — `tg clone init` on a real
+comments-active channel, `tg clone sync` to completion, verify the comments
+button/thread order/clickable prefixes in a client, rerun for idempotency —
+and report the double FLOOD_WAIT exposure from creating two peers per init.
+
 ## 2026-07-17 — Clone deepening refactor (Claude Opus 4.8)
 **Did:** executed the behavior-frozen clone deepening refactor plan
 (`docs/superpowers/plans/2026-07-16-clone-deepening-refactor.md`). Extracted

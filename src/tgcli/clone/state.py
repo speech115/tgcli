@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from tgcli.errors import PolicyError
-VERSION = 1
+VERSION = 2
 def clone_id(account_user_id: int, source_peer_id: int) -> str:
     identity = f"{account_user_id}:{source_peer_id}".encode()
     return hashlib.sha256(identity).hexdigest()
@@ -37,6 +37,12 @@ class CloneState:
     retry_not_before: str | None = None
     created_at: str = ""
     last_synced_at: str | None = None
+    discussion_source_peer_id: int | None = None
+    discussion_destination_peer_id: int | None = None
+    discussion_linked: bool = False
+    discussion_cursor: int = 0
+    discussion_id_map: dict[str, int] = field(default_factory=dict)
+    comments: str = "none"
     @classmethod
     def new(
         cls, *, account_user_id: int, source_peer_id: int, source_title: str,
@@ -53,13 +59,10 @@ class CloneState:
     @property
     def clone_id(self) -> str:
         return clone_id(self.account_user_id, self.source_peer_id)
-
     def record_mapping(self, source_id: int, destination_id: int) -> None:
         self.id_map[str(source_id)] = destination_id
-
     def dest_for(self, source_id: int) -> int | None:
         return self.id_map.get(str(source_id))
-
     def record_topic(self, source_topic_id: int, destination_topic_id: int) -> None:
         if (type(source_topic_id) is not int or type(destination_topic_id) is not int
                 or not 2 <= source_topic_id <= 2_147_483_647
@@ -68,22 +71,20 @@ class CloneState:
                        for key, value in self.topic_map.items())):
             raise ValueError("invalid topic mapping")
         self.topic_map[str(source_topic_id)] = destination_topic_id
-
     def topic_dest_for(self, source_topic_id: int) -> int | None:
         return self.topic_map.get(str(source_topic_id))
-
+    def record_discussion_mapping(self, source_id: int, destination_id: int) -> None:
+        self.discussion_id_map[str(source_id)] = destination_id
+    def discussion_dest_for(self, source_id: int) -> int | None:
+        return self.discussion_id_map.get(str(source_id))
     def max_destination_id(self) -> int | None:
-        values = [*self.id_map.values(), *self.topic_map.values()]
-        return max(values) if values else None
-
+        return max([*self.id_map.values(), *self.topic_map.values()], default=None)
+    def max_discussion_destination_id(self) -> int | None:
+        return max(self.discussion_id_map.values(), default=None)
     def set_cooldown(self, deadline: datetime) -> None:
         self.retry_not_before = _require_aware(deadline).isoformat()
-
     def cooldown_deadline(self) -> datetime | None:
-        if self.retry_not_before is None:
-            return None
-        return datetime.fromisoformat(self.retry_not_before)
-
+        return None if self.retry_not_before is None else datetime.fromisoformat(self.retry_not_before)
     def to_dict(self) -> dict:
         return {
             "version": self.version,
@@ -100,8 +101,13 @@ class CloneState:
             "retry_not_before": self.retry_not_before,
             "created_at": self.created_at,
             "last_synced_at": self.last_synced_at,
+            "discussion_source_peer_id": self.discussion_source_peer_id,
+            "discussion_destination_peer_id": self.discussion_destination_peer_id,
+            "discussion_linked": self.discussion_linked,
+            "discussion_cursor": self.discussion_cursor,
+            "discussion_id_map": self.discussion_id_map,
+            "comments": self.comments,
         }
-
     @classmethod
     def from_dict(cls, data: dict) -> "CloneState":
         source_kind = data.get("source_kind", "broadcast")
@@ -113,6 +119,14 @@ class CloneState:
             raise ValueError("invalid topic map")
         if destination_kind != ("forum" if source_kind == "forum" else "broadcast") or (topic_map and source_kind != "forum"):
             raise ValueError("inconsistent forum state")
+        comments = data.get("comments", "none")
+        discussion_id_map = data.get("discussion_id_map", {})
+        discussion_cursor = data.get("discussion_cursor", 0)
+        discussion_linked = data.get("discussion_linked", False)
+        discussion_source_peer_id = data.get("discussion_source_peer_id")
+        discussion_destination_peer_id = data.get("discussion_destination_peer_id")
+        if comments not in {"enabled", "unavailable", "none"} or type(discussion_id_map) is not dict or any(type(k) is not str or not k.isascii() or not k.isdecimal() or k.startswith("0") or not 1 <= int(k) <= 2_147_483_647 or type(v) is not int or not 1 <= v <= 2_147_483_647 for k, v in discussion_id_map.items()) or len(set(discussion_id_map.values())) != len(discussion_id_map) or type(discussion_cursor) is not int or discussion_cursor < 0 or type(discussion_linked) is not bool or (comments == "enabled" and (discussion_source_peer_id is None or source_kind != "broadcast")) or (comments != "enabled" and (discussion_id_map or discussion_cursor)) or (discussion_linked and discussion_destination_peer_id is None):
+            raise ValueError("inconsistent discussion state")
         return cls(
             version=data["version"],
             account_user_id=data["account_user_id"],
@@ -128,8 +142,13 @@ class CloneState:
             retry_not_before=data.get("retry_not_before"),
             created_at=data.get("created_at", ""),
             last_synced_at=data.get("last_synced_at"),
+            discussion_source_peer_id=discussion_source_peer_id,
+            discussion_destination_peer_id=discussion_destination_peer_id,
+            discussion_linked=discussion_linked,
+            discussion_cursor=discussion_cursor,
+            discussion_id_map=dict(discussion_id_map),
+            comments=comments,
         )
-
 def load(clone_id: str) -> CloneState | None:
     path = path_for(clone_id)
     try:
