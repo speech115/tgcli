@@ -13,12 +13,13 @@ tgcli/
 ├── pyproject.toml             [done]    uv-managed; telethon==1.44.0; dev: pytest
 ├── docs/
 │   ├── MAP.md                 [done]    this file
-│   ├── PLAN.md                [done]    master plan, phases 0–7 (all complete)
+│   ├── PLAN.md                [done]    completed master plan (historical; current scope → ISSUES.md)
+│   ├── CLONE.md               [done]    tg clone chronicle: capability, history, acceptance status (ADR-0026)
 │   ├── CONTRACT.md            [done]    CLI automation contract (stdout/exit codes/JSON)
 │   ├── ISSUES.md              [done]    deliberately deferred product work and re-entry gates
 │   ├── DEVLOG.md              [done]    session-by-session agent log
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── decisions/             [done]    ADR-0001…0023; ADR-0017 clone supersedes mirror
+│   ├── decisions/             [done]    ADR-0001…0026 + README.md index (ADR-0026 maintenance mode)
 │   └── superpowers/plans/     [done]    completed v1 plans; mirror plans superseded by clone spec (ADR-0017)
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -41,6 +42,7 @@ tgcli/
 │   │   ├── topics.py          [done]    forum destination shape, lazy topic map, batch confirmation (ADR-0022)
 │   │   ├── discussion.py      [done]    linked-chat detection, discussion group create/link/recover, anchor lookup (ADR-0023)
 │   │   ├── comments.py        [done]    phase-2 sync leg: copies the discussion group, remaps comment threads (ADR-0023)
+│   │   ├── roster.py          [done]    best-effort source participant snapshot → JSONL sidecar (ADR-0024)
 │   │   └── legs.py            [done]    Leg seam sharing the batch path between the posts and discussion legs (ADR-0023)
 │   └── commands/
 │   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)
@@ -52,7 +54,7 @@ tgcli/
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
-│   │   └── clone.py           [done]    clone status/init/sync surface (ADR-0017/0018/0021/0022/0023; forum live gate pending)
+│   │   └── clone.py           [done]    clone status/init/sync surface (ADR-0017…0025; all live gates passed)
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
@@ -71,28 +73,5 @@ tgcli/
 - `errors.py` is the only place exit codes live.
 ## ADR Index
 
-| ADR | Decision |
-|-----|----------|
-| [0001](decisions/ADR-0001-python-telethon.md) | Python 3.12 + Telethon, not Go/gotd, not TDLib-first |
-| [0002](decisions/ADR-0002-cli-first-stateless.md) | Stateless CLI core; no daemons; MCP is a v1 non-goal |
-| [0003](decisions/ADR-0003-output-contract.md) | stdout=data, stderr=human, fixed exit codes |
-| [0004](decisions/ADR-0004-accounts-and-sessions.md) | SQLiteSession per account + file lock; import from old stack |
-| [0005](decisions/ADR-0005-safety-model.md) | Reads free; writes preview→commit + audit; runtime flags not baked profiles |
-| [0006](decisions/ADR-0006-media-tdlib-fallback.md) | ~~TDLib as optional fallback backend~~ superseded by 0009 |
-| [0007](decisions/ADR-0007-docs-discipline.md) | MAP + ADR + DEVLOG as mandatory agent workflow |
-| [0008](decisions/ADR-0008-raw-api-passthrough.md) | `tg api` raw TL passthrough and write-path safety; read policy superseded by ADR-0010 |
-| [0009](decisions/ADR-0009-tdlib-deferred.md) | TDLib deferred: no backend in v1; phase 3 Telethon-only; evidence-gated PoC re-entry |
-| [0010](decisions/ADR-0010-raw-api-read-allowlist.md) | `tg api` phase-2 explicit default-deny read allowlist |
-| [0011](decisions/ADR-0011-audit-write-failure-policy.md) | Audit persistence fails closed before any mutation |
-| [0012](decisions/ADR-0012-invocation-journal-and-verbose-diagnostics.md) | Local invocation journal and opt-in stderr diagnostics |
-| [0013](decisions/ADR-0013-channel-mirror.md) | Superseded crash-safe mirror research design and R0 evidence |
-| [0014](decisions/ADR-0014-lean-faithful-mirror.md) | Lean faithful channel mirror; supersedes ADR-0013 production architecture |
-| [0015](decisions/ADR-0015-truthful-persistent-mirror-showcase.md) | Production-path-only persistent private showcase and topology promotion gates |
-| [0016](decisions/ADR-0016-live-mirror-fidelity-corrections.md) | Service-message skip, reply reconstruction fallback, and append-only TSV extension |
-| [0017](decisions/ADR-0017-clone-supersedes-mirror.md) | Clone rewrite supersedes mirror; JSON state, core-primitive reuse, tail-verification crash model, complexity budgets |
-| [0018](decisions/ADR-0018-clone-service-tail.md) | Clone tail verification accepts service-only rows while still blocking ordinary destination content |
-| [0019](decisions/ADR-0019-clone-truthful-fallbacks.md) | Poll snapshots, named Story placeholders, nested replies, and missing-parent continuity |
-| [0020](decisions/ADR-0020-clone-channel-profile.md) | Init-time channel description and static avatar copy with retry-safe recovery |
-| [0021](decisions/ADR-0021-clone-attributed-sources.md) | Megagroup/dialog sources, hybrid attribution transport, and explicit reply flatten reporting |
-| [0022](decisions/ADR-0022-clone-forum-topics.md) | Forum destinations, lazy topic mapping, and in-topic routing |
-| [0023](decisions/ADR-0023-clone-channel-comments.md) | Clone channel comments via a linked discussion group; global author-identity attribution amendment |
+Moved to [decisions/README.md](decisions/README.md) — the canonical index
+with per-ADR status (ADR-0026).

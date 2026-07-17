@@ -40,45 +40,9 @@ not rewritten.
 - MCP server (agents call `tg ... --json` via shell; revisit only with evidence).
 - Channel copy is post-v1 product work delivered as **`tg clone`**
   ([ADR-0017](decisions/ADR-0017-clone-supersedes-mirror.md),
-  [clone design spec](superpowers/specs/2026-07-15-clone-design.md)). The clone
-  rewrite supersedes the earlier `tg mirror` feature: mirror reached live
-  parity but its implementation grew disproportionate, so clone rebuilt the
-  same live-proven behavior on core primitives with hard complexity budgets.
-  All original 2026-07-15 clone Tasks 1–9 are complete on `feature/clone`:
-  JSON state, status, preview/commit init, text and native media/album sync,
-  mapped replies, protected reupload, canonical contract, controlled
-  open/protected live acceptance, and final removal of the mirror
-  parser/implementation/tests.
-  Earlier mirror ADRs (0013–0016) and plans/specs remain **history**, not active
-  product surface. ADR-0015 destination retention and ADR-0016 fidelity rules
-  carry forward into clone; ADR-0018 records the live-found service-only tail
-  correction. Post-v1 ADR-0019 adds truthful static poll snapshots, named Story
-  placeholders, and reply continuity without changing the CLI surface.
-  ADR-0020 makes init copy the source channel's non-empty description and static
-  avatar before message sync begins. ADR-0021 adds non-forum megagroup and
-  private-dialog sources with hybrid native/reupload attribution, explicit
-  reply-flatten reporting, and live acceptance. ADR-0022 accepts bot dialogs,
-  live legacy basic groups, and forum megagroups; the destination invariant is
-  now kind-dependent, with forum sources using private owned forum-megagroup
-  destinations and all other sources using private owned broadcast channels.
-  Forum routing passed controlled live acceptance on 2026-07-16. The
-  independent read-only `mirror_probe.py` diagnostic was archived on
-  2026-07-16 (unused since the clone pivot; recoverable from git history).
-  ADR-0023 (round 3, `docs/superpowers/specs/2026-07-16-clone-comments-design.md`)
-  adds comments: a broadcast source's readable linked discussion group gets
-  its own tool-created, tool-linked megagroup, synced as a second sequential
-  phase per run with its own cursor and comment-thread anchor remap; state
-  and `status`/`init`/`sync` output carry a permanent `comments` field
-  (`enabled`/`unavailable`/`none`). Round 3 also amends ADR-0021's author
-  prefix globally to an identify-the-author ladder (username, then profile
-  mention, then bare id, then post signature). Mocked suite: 454 passed, 8
-  skipped. The live acceptance gate (real channel with an active comment
-  section) is user-run and not yet reported.
-  ADR-0024 adds a best-effort source-side participant roster: after message
-  copying, `sync` snapshots the source channel and its discussion group's
-  members (where Telegram permits) into a per-clone JSONL sidecar and a
-  `participants` field on the `sync` response, using the same honest
-  `collected`/`unavailable`/`deferred`/`none` markers.
+  [clone design spec](superpowers/specs/2026-07-15-clone-design.md)). The
+  full chronicle — current capability, history (ADR-0017…0025), live
+  acceptance status, deferred items — lives in [docs/CLONE.md](CLONE.md).
 - Multi-user distribution / packaging for strangers.
 - Bot API (this is a user-account MTProto tool).
 - Secret chats (Telethon does not implement them), voice/video calls
