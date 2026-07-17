@@ -13,6 +13,10 @@ async def copy(tg, source, destination, account_alias, clone_id, cooldown) -> No
     if isinstance(source, types.User):
         full = await cooldown(tg(functions.users.GetFullUserRequest(source)))
         about = getattr(full.full_user, "about", None) or ""
+    elif isinstance(source, types.Chat):
+        full = await cooldown(tg(functions.messages.GetFullChatRequest(
+            chat_id=source.id)))
+        about = getattr(full.full_chat, "about", None) or ""
     else:
         full = await cooldown(tg(functions.channels.GetFullChannelRequest(source)))
         about = getattr(full.full_chat, "about", None) or ""

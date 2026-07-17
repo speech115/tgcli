@@ -44,10 +44,11 @@ not rewritten.
   rewrite supersedes the earlier `tg mirror` feature: mirror reached live
   parity but its implementation grew disproportionate, so clone rebuilt the
   same live-proven behavior on core primitives with hard complexity budgets.
-  All clone Tasks 1–9 are complete on `feature/clone`: JSON state, status,
-  preview/commit init, text and native media/album sync, mapped replies,
-  protected reupload, canonical contract, controlled open/protected live
-  acceptance, and final removal of the mirror parser/implementation/tests.
+  All original 2026-07-15 clone Tasks 1–9 are complete on `feature/clone`:
+  JSON state, status, preview/commit init, text and native media/album sync,
+  mapped replies, protected reupload, canonical contract, controlled
+  open/protected live acceptance, and final removal of the mirror
+  parser/implementation/tests.
   Earlier mirror ADRs (0013–0016) and plans/specs remain **history**, not active
   product surface. ADR-0015 destination retention and ADR-0016 fidelity rules
   carry forward into clone; ADR-0018 records the live-found service-only tail
@@ -56,7 +57,11 @@ not rewritten.
   ADR-0020 makes init copy the source channel's non-empty description and static
   avatar before message sync begins. ADR-0021 adds non-forum megagroup and
   private-dialog sources with hybrid native/reupload attribution, explicit
-  reply-flatten reporting, and live acceptance. The
+  reply-flatten reporting, and live acceptance. ADR-0022 accepts bot dialogs,
+  live legacy basic groups, and forum megagroups; the destination invariant is
+  now kind-dependent, with forum sources using private owned forum-megagroup
+  destinations and all other sources using private owned broadcast channels.
+  Forum routing passed controlled live acceptance on 2026-07-16. The
   independent read-only `mirror_probe.py` diagnostic was archived on
   2026-07-16 (unused since the clone pivot; recoverable from git history).
 - Multi-user distribution / packaging for strangers.

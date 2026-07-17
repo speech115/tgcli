@@ -14,6 +14,196 @@ Template:
 ```
 
 
+## 2026-07-16 — Clone chat types round 2 live-accepted (Claude Fable 5)
+**Did:** executed Task 9, the live acceptance gate for the round-2 clone plan.
+Bot dialog `AnonAskBot` (39 messages): 34 native forwards + 5 prefixed reply
+reuploads, order 1:1, both authors in forward headers, rerun 0. Owned legacy
+basic group «ебка ютуба» (266 messages + 2 service): broadcast destination,
+266/266 mapped ids strictly increasing, 40/40 reply links, 33 author-prefixed
+reuploads, rerun 0. Forum gate ran on a purpose-built owned fixture
+(«tgcli demo forum 07-16»: General + two named topics + in-topic reply):
+forum-megagroup destination, `topics_created 2`, topics 1:1 with exact titles,
+every message under its mirrored topic, the in-topic reply prefixed with the
+right parent in the right topic, rerun 0 copies / 0 topics. Full numbers are
+recorded under `### Live results` in the plan. Suite before acceptance:
+`377 passed, 8 skipped`; compileall clean.
+**Decided:** the task-7 forward-targeting question is closed on live data:
+`ForwardMessagesRequest.top_msg_id` routes forwards into the correct
+destination topics, so the designed reupload fallback stays unused and
+ADR-0022 stands as written. All four retained destinations stay user-owned.
+**Learned:** a SIGKILL between Telegram's send confirmation and the state
+save reproduced the ADR-0022 crash model in the wild: the next sync blocked
+fail-closed with `unexpected tail (1)`, and the documented manual repair
+(delete the single unmapped destination message, rerun) resumed cleanly from
+the saved cursor. Telethon's high-level `send_message(reply_to=<topic root>)`
+is the working way to place fixture messages into forum topics
+(`InputReplyToMessage` is rejected by `utils.get_message_id`), and
+`GetForumTopicsRequest` lives under `functions.messages`, not
+`functions.channels`.
+**Next:** merge the round-2 branch (PR against main) — clone now covers
+broadcast, megagroup, forum, basic, and dialog sources end to end.
+
+
+## 2026-07-16 — Clone chat types round 2 documented (Codex)
+**Did:** completed Task 8 of the round-2 clone plan. CONTRACT now records the
+kind-dependent destination rule and `topics_created` output; ADR-0022 records
+forum destination, topic-map, routing, recovery, and crash semantics; CLONE-002
+is closed; MAP and PLAN match the implemented source kinds and module tree.
+Task-level review passed after clarifying the original-plan wording and the
+kind-neutral retry guarantee. A whole-branch architecture review then found and
+TDD closed three prerequisite recovery-invariant gaps. Final verification is
+recorded in the Task 8 completion commit.
+**Decided:** forum live acceptance remains Task 9. Task 8 may claim mock/unit
+support and an accepted contract, but not live Telegram routing evidence.
+**Learned:** documentation review exposed broader implementation assumptions:
+1:1 topic maps require destination-value uniqueness, source lookup must not
+fabricate titles, and accepted-but-unconfirmed topic creation must turn an
+unmapped destination service tail into a manual-repair gate.
+**Next:** execute Task 9 live acceptance for bot, basic-group, and forum
+fixtures; verify forum topic placement and a zero-copy rerun on Telegram.
+
+
+## 2026-07-16 — Forum topic recovery invariants hardened (Codex)
+**Did:** closed three final architecture-review findings with TDD. Persisted
+and runtime topic mappings now exclude General, stay within signed TL-int
+bounds, and remain one-to-one. Topic lookup requires one matching non-empty
+title. Destination-tail verification blocks an accepted-but-unconfirmed topic
+creation before a retry can duplicate it. Final gates passed `377 passed, 8
+skipped`; coverage reports 23 namespaces.
+**Decided:** an unmapped destination `MessageActionTopicCreate` is evidence of
+an ambiguous accepted mutation and requires manual repair. Mapped topic-create
+rows and all other service-only tail rows retain their existing acceptance.
+ADR-0022 now records this stronger crash behavior.
+**Learned:** treating every service row as harmless made the existing
+service-tail exception too broad for lazy topic creation. The narrow action
+classification preserves General/fresh-forum behavior without weakening
+ordinary service-tail recovery. Final budgets are `clone.py 400/400`,
+`topics.py 99/100`, `state.py 170/170`, and `attribution.py 78/80`.
+**Next:** rerun the final architecture review; Task 9 live Telegram acceptance
+remains separate and untouched.
+
+
+## 2026-07-16 — Forum topic routing complete (Codex)
+**Did:** completed Task 7 of the round-2 clone plan. Forum messages now resolve
+their source topic, recover missing topic mappings from Telegram when needed,
+and route native forwards, snapshots, protected reuploads, albums, and mapped
+replies into the matching destination topic. General remains a passthrough.
+Added mapped/general/unmapped, audit-failure, copy-retry, album-consistency,
+malformed-header, cross-peer, and TL signed-int boundary regressions. Final
+gates passed `362 passed, 8 skipped`; coverage reports 23 namespaces.
+**Decided:** placement-only forum headers are topic placement, not replies, so
+they stay eligible for native forwarding and do not count as flattened. Real
+in-topic replies map the direct parent through `id_map` and add the mapped topic
+through `topic_map`. All reply/topic IDs must be canonical positive signed TL
+ints in `1..2_147_483_647` before lookup, audit, or mutation. Unsupported media
+retains its established early report-and-skip semantics without reply routing.
+**Learned:** retaining the source topic ID inside the validated reply signature
+is necessary for album consistency; collapsing placement to `None` can hide
+mixed-topic batches. The installed Telethon request supports native
+`top_msg_id`, so the designed forced-reupload fallback was unnecessary. Final
+budgets are `clone.py 400/400`, `topics.py 100/100`, `state.py 170/170`,
+`attribution.py 78/80`, and `replies.py 76`.
+**Next:** execute Task 8: document the shipped behavior in CONTRACT, ADR-0022,
+ISSUES, MAP, and PLAN before live acceptance.
+
+
+## 2026-07-16 — Lazy forum topic creation complete (Codex)
+**Did:** completed Task 6 of the round-2 clone plan. Forum sync now turns
+`MessageActionTopicCreate` service rows into destination topics, confirms the
+Telegram-assigned root ID through `UpdateMessageID`, persists the topic map
+before advancing the cursor, and reports `topics_created` in JSON and plain
+output. The shared batch-confirmation parser moved into `clone/topics.py`.
+Final gates passed `332 passed, 8 skipped`; coverage reports 23 namespaces.
+**Decided:** topic creation is safe by construction: `create_topic` requires an
+account alias and writes the fail-closed `clone-sync-topic` audit immediately
+before dispatch. A replay with a saved topic mapping but stale cursor advances
+without a duplicate audit or mutation. Only a hard crash after Telegram
+creates the topic but before mapping persistence may duplicate one topic, as
+accepted by the approved forum crash model.
+**Learned:** pinned Telethon 1.44 exposes forum topic creation and lookup under
+`functions.messages` with `peer=`, not the draft plan's `functions.channels`
+spelling. The plan's Task 6/7 internal interfaces were corrected accordingly.
+Final budgets are `clone.py 396/400`, `topics.py 70/100`,
+`attribution.py 78/80`, and `state.py 170/170`.
+**Next:** execute Task 7: route forum messages and replies into mapped topics.
+
+
+## 2026-07-16 — Forum clone destinations complete (Codex)
+**Did:** completed Task 5 of the round-2 clone plan. Forum megagroups are now
+accepted as sources; init creates or recovers one private creator-owned
+megagroup, enables forum mode idempotently, and records the destination before
+the toggle so interrupted initialization is retryable. Sync requires an
+enabled forum destination and now fails closed when the persisted destination
+tail points past Telegram's current latest message. Added create, marker
+recovery, audit-failure, source-kind drift, destination-shape, and tail-deletion
+regressions. Final gates passed `328 passed, 8 skipped`; coverage reports 23
+namespaces.
+**Decided:** init may adopt a matching private owned plain megagroup and then
+enable forum mode, while sync requires `forum=True`. Forum enablement has its
+own fail-closed `clone-init-forum` audit record. A live source changing between
+megagroup and forum is rejected before state writes, audit, or mutation.
+**Learned:** Telethon 1.44 requires the `tabs` argument on
+`ToggleForumRequest`; `tabs=False` preserves the default topic-list view. The
+Task 5 safety additions consumed the remaining `commands/clone.py` budget, now
+exactly `400/400`, so Task 6 must extract or compress before adding logic.
+**Next:** execute Task 6: lazy destination-topic creation during forum sync.
+
+
+## 2026-07-16 — Forum clone state foundation complete (Codex)
+**Did:** completed Task 4 of the round-2 clone plan. `CloneState` now persists
+`destination_kind` and a lazy `topic_map`, derives forum destinations from
+forum sources, exposes topic mapping helpers, and includes topic IDs in the
+destination-tail baseline. Added round-trip, legacy-default, malformed-state,
+cross-field, mixed-map, Unicode-digit, and TL signed-int boundary regressions.
+**Decided:** persisted forum state is fail-closed: source/destination kinds must
+agree, only forum clones may have topics, and source/destination topic IDs must
+be canonical positive ASCII decimal TL ints in `1..2_147_483_647`. This follows
+the installed Telethon schema's signed `<i` serialization and prevents corrupt
+state from disabling tail safety.
+**Learned:** validating only `dict[str, int]` was insufficient: Python accepts
+booleans as ints and Unicode decimal strings as numeric, while oversized values
+cannot be serialized by Telegram. Three review loops converted those implicit
+assumptions into tested state invariants. Final implementation budget is
+`state.py 170/170`.
+**Next:** execute Task 5: forum source gate and forum destination creation.
+
+
+## 2026-07-16 — Clone chat types Tasks 1–3 final review fixes (Codex)
+**Did:** corrected the init profile contract to include non-empty basic-group
+descriptions and made migrated basic-group policy errors name the available
+target channel id. Strengthened the CLI regression test with target id `555`.
+RED: the focused policy matrix failed `1 failed, 2 passed`; GREEN: init tests
+passed `19 passed`, and the final suite passed `298 passed, 8 skipped`.
+**Decided:** this is a contract/error-detail correction within the approved
+design; no new ADR or module change is required.
+**Learned:** the first full run hit an unrelated timestamp-sensitive
+`test_mirror_probe` redaction assertion because timestamp microseconds happened
+to contain `999`; the isolated test and immediate full rerun passed.
+**Next:** continue the approved round-2 plan from Task 4.
+
+
+## 2026-07-16 — Clone chat types round 2 prepared (Claude Fable 5 / Codex)
+**Did:** completed and approved the design for bot-dialog, legacy basic-group,
+and forum-megagroup clone sources in
+`docs/superpowers/specs/2026-07-16-clone-chat-types-2-design.md`, then wrote the
+nine-task TDD implementation plan in
+`docs/superpowers/plans/2026-07-16-clone-chat-types-2.md`. Codex recovered the
+finished but untracked plan after Claude hit its usage limit, moved the design
+commit off local `main` onto `codex/clone-chat-types-round-2-plan`, and restored
+local `main` to `origin/main`.
+**Decided:** bot dialogs follow the existing dialog path; live legacy basic
+groups follow the attributed megagroup path into broadcast destinations; forum
+sources create private owned forum-megagroup destinations with a lazy 1:1 topic
+map. ADR-0022, CONTRACT, ISSUES, MAP, and PLAN changes remain Task 8 so project
+documentation does not claim support before the implementation exists.
+**Learned:** Claude's plan file was complete despite the interrupted response,
+but it was not tracked and the design commit had been made directly on local
+`main`. The implementation remains intentionally untouched at this preparation
+checkpoint.
+**Next:** execute tasks 1–9 in
+`docs/superpowers/plans/2026-07-16-clone-chat-types-2.md`, preserving TDD and the
+live Telegram acceptance gate.
+
 ## 2026-07-16 — Architecture review, deepening plan, mirror_probe archived (Claude Fable 5)
 **Did:** ran an architecture review over the clone hot spot (report:
 scratchpad HTML, not committed). Wrote

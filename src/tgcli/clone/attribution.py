@@ -10,15 +10,17 @@ from tgcli.errors import PolicyError
 
 def source_kind(entity) -> str:
     if isinstance(entity, types.User):
-        if entity.bot:
-            raise PolicyError("clone source bots are not supported")
         return "dialog"
     if isinstance(entity, types.Chat):
-        raise PolicyError("clone source basic groups are not supported")
+        if (target := getattr(entity, "migrated_to", None)) is not None:
+            target_id = getattr(target, "channel_id", None)
+            hint = f"channel {target_id}" if target_id is not None else "the supergroup"
+            raise PolicyError(f"clone source basic group migrated to a supergroup; clone {hint} instead")
+        if getattr(entity, "deactivated", False):
+            raise PolicyError("clone source basic group is deactivated")
+        return "basic"
     if getattr(entity, "megagroup", False):
-        if getattr(entity, "forum", False):
-            raise PolicyError("clone source forum topics are not supported")
-        return "megagroup"
+        return "forum" if getattr(entity, "forum", False) else "megagroup"
     if getattr(entity, "broadcast", False):
         return "broadcast"
     raise PolicyError("clone source type is not supported")
@@ -31,6 +33,8 @@ def display_name(entity) -> str:
 def same_peer(peer, source) -> bool:
     if isinstance(source, types.User):
         return isinstance(peer, types.PeerUser) and peer.user_id == source.id
+    if isinstance(source, types.Chat):
+        return isinstance(peer, types.PeerChat) and peer.chat_id == source.id
     return isinstance(peer, types.PeerChannel) and peer.channel_id == source.id
 
 
