@@ -147,7 +147,12 @@ policy: version bump, old files rejected with a clear message.
 - Live acceptance gate (visual, as always): clone a real channel with an
   active comment section; verify the comments button appears, thread contents
   and order match, author prefixes are clickable where promised, rerun is
-  idempotent (0 copied).
+  idempotent (0 copied). **Passed 2026-07-17** on account `main` against a
+  hand-built fixture (posts 10/10, 10 anchors skipped, 5 group messages
+  copied, idempotent rerun); four live-only bugs found and fixed during the
+  run. Full results: `docs/superpowers/plans/2026-07-17-clone-comments.md`
+  ("Live results (2026-07-17)"), `docs/decisions/ADR-0023-clone-channel-comments.md`
+  ("Live findings").
 
 ## Documentation
 

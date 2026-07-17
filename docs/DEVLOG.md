@@ -14,6 +14,49 @@ Template:
 ```
 
 
+## 2026-07-17 — Clone channel comments: live acceptance passed (Claude Opus 4.8)
+**Did:** ran the round-3 live acceptance gate on account `main` against a
+hand-built fixture (no reusable comments fixture existed; a forum megagroup
+cannot be a discussion group per ADR-0015): source channel `tgcli comments
+demo 07-17` (10 posts) + linked source discussion group `tgcli comments demo
+chat 07-17` (10 auto-forward anchors + 5 hand-added messages: direct
+comment, nested comment-on-comment, comment with a quote, off-thread
+chatter, comment on the last post). `clone init` created and linked the
+clone discussion group; `clone sync` copied posts `10/10`, skipped all 10
+Telegram auto-forward anchors (`skipped_autoforward: 10`), copied the 5
+group messages (`reply_flattened: 0`); rerun of both phases reported
+`copied: 0`. The gate was non-tautological: the clone group carries one
+extra service message versus the source, so every anchor id shifts by `+1`
+and the remap had to do real work (verified id-by-id in the plan). Found
+and fixed four live-only bugs along the way (`7b8cb6c`, `8a4a59e`,
+`2438940`, `1722b5b`) — recorded in full in
+`docs/superpowers/plans/2026-07-17-clone-comments.md` ("Live results
+(2026-07-17)") and `docs/decisions/ADR-0023-clone-channel-comments.md`
+("Live findings"); updated the spec's live-acceptance line to match.
+**Decided:** the gate is accepted — round 3 is done. The four fixes stay as
+already-committed hotfixes rather than a plan rewrite; the plan and ADR now
+carry the live evidence instead of leaving it "not yet reported".
+**Learned:** the whole bug class this gate found is one shape — Telegram
+answers a no-op mutation (`ChatNotModified`, `LinkNotModified`,
+`ChatAboutNotModified`) with an error, not silence, which mocks can never
+catch because they record a request and never object. The most costly
+instance (`2438940`: syncing before the discussion group is linked
+permanently and silently loses comments, since there is no backfill API)
+was rated ~60% confidence by the code review that preceded the gate and was
+not reported as a finding — it occurred on the very first live run, not as
+a rare edge case. Init creating two peers hit real FLOOD_WAIT four times
+(23s, 5s, 349s, 335s) in one gate; each retry needed a fresh `clone init`
+preview, but progress and adopted peers survived every retry with no
+duplicates.
+**Next:** decide whether to fix `tg clone status`, which is dead for any
+account holding pre-round-3 (v1) clone state — `list_clones` calls
+`state.load` per file and one `PolicyError` kills the whole listing (all 10
+clone states on `main` are v1). Rejecting old state is the agreed policy,
+but taking down the whole command contradicts round 3's own truthfulness
+principle. Proposed, not implemented: report unreadable states as marked
+entries instead of dying — a `CONTRACT.md` change, awaiting the user's
+decision.
+
 ## 2026-07-17 — Clone channel comments shipped, round 3 (Claude Opus 4.8)
 **Did:** executed `docs/superpowers/plans/2026-07-17-clone-comments.md` task by
 task (7 commits, `557ab52`…`7b8cb6c`): amended the ADR-0021 attribution ladder

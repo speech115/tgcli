@@ -155,7 +155,57 @@ Read-only live probe against @disruptors_official post 3680 (recorded in
 the spec) established the auto-forward recognition pair, the
 `reply_to_top_id = null` direct-comment shape, `from_id = null` on real
 comments, and `linked_monoforum_id != linked_chat_id`. The end-to-end
-mocked suite is 454 passed, 8 skipped; the live acceptance gate (real
-channel with active comments, comments button + thread order + clickable
-author prefixes + idempotent rerun) is the user's to run next and is not
-yet reported.
+mocked suite was 454 passed, 8 skipped at that point.
+
+The full end-to-end live acceptance gate (real source channel + discussion
+group, comment threads through the clone, idempotent rerun) **passed on
+2026-07-17** against account `main`, using a fixture built by hand for the
+gate (no reusable comments fixture existed; a forum megagroup cannot stand
+in — ADR-0015). Full results, including the id-shift proof that the anchor
+remap did real work, are recorded in
+`docs/superpowers/plans/2026-07-17-clone-comments.md` under "Live results
+(2026-07-17)".
+
+## Live findings (2026-07-17 gate)
+
+The gate found and fixed four bugs, all invisible to the mocked suite
+because they share one shape: **Telegram answers a no-op mutation with an
+error, not silence.** A mock records the request and never objects; the
+live API does. Any future Telegram write path in this codebase should
+assume its "already in the desired state" case answers with a distinct
+error code, not a 2xx no-op, and handle it explicitly rather than relying on
+review or mocked tests to catch it.
+
+1. **Album anchors** (`7b8cb6c`, found in review before the gate ran): a
+   channel ALBUM post auto-forwards into the linked group as an album, so
+   its anchor arrives as a multi-message batch; recognition gated on
+   `len(messages) == 1` re-copied every album anchor as content instead of
+   skipping it. The same commit fixed a direct comment's rebuilt reply
+   header dropping its quote.
+2. **`ChatNotModified` / `LinkNotModified`** (`8a4a59e`): on a megagroup
+   Telegram just created, `TogglePreHistoryHiddenRequest(enabled=False)`
+   answers `ChatNotModified` — init crashed on every single run, before ever
+   linking. `SetDiscussionGroupRequest` on an already-linked pair answers
+   `LinkNotModified`, so the designed idempotent-relink crash recovery
+   (§Decision, `ensure_linked`) was not actually idempotent until this fix.
+3. **Sync before linking is unrecoverable data loss** (`2438940`): a
+   FLOOD_WAIT on init's second peer can leave `comments: "enabled"` in state
+   with no linked group. `sync` would then send posts Telegram will never
+   anchor — there is no backfill API, so the clone loses its comments
+   permanently and silently. `sync` now refuses to run before
+   `discussion_linked` and sends the user back to `init`. This was rated
+   roughly 60% confidence by the code review that preceded the gate and was
+   not reported as a finding; it occurred on the very first live run. It is
+   not a rare interruption — it is the normal outcome of a FLOOD_WAIT during
+   init, which this ADR's Consequences section already flags as doubly
+   likely now that init creates two peers.
+4. **`ChatAboutNotModified`** (`1722b5b`): `EditChatAboutRequest` with
+   unchanged text answers `ChatAboutNotModified` — init died on its own
+   documented crash-recovery path when re-run against an already-correct
+   description.
+
+**Live FLOOD_WAIT cost:** creating two peers per init hit repeated
+FLOOD_WAIT during the gate (23s, 5s, 349s, 335s), each retry consuming the
+committed preview and requiring a fresh `clone init` preview. Progress
+persisted across waits via the recorded peer ids; crash recovery adopted
+both peers with no duplicates.

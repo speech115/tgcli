@@ -812,9 +812,103 @@ git commit -m "docs: document clone channel comments"
 
 Mocked tests do not close this feature. Acceptance is visual (spec Testing):
 
-1. `tg clone init <channel-with-active-comments>` on a real source; commit.
-2. `tg clone sync <source>` to completion.
-3. Verify in a client: the comments button appears under posts; thread contents and order match the source; author prefixes are clickable where the ladder promises (`@username` or profile mention).
-4. Rerun `tg clone sync <source>` → `copied: 0`, idempotent.
+- [x] **Step 1:** `tg clone init <channel-with-active-comments>` on a real source; commit.
+- [x] **Step 2:** `tg clone sync <source>` to completion.
+- [x] **Step 3:** Verify in a client: the comments button appears under posts; thread contents and order match the source; author prefixes are clickable where the ladder promises (`@username` or profile mention).
+- [x] **Step 4:** Rerun `tg clone sync <source>` → `copied: 0`, idempotent.
 
 Report FLOOD_WAIT behavior: init now creates two peers, and the live ~15 h flood wait on rapid peer creation applies double.
+
+---
+
+### Live results (2026-07-17)
+
+Gate ran on account `main`. No reusable comments fixture existed in the
+account, and a forum megagroup cannot stand in as a discussion group
+(ADR-0015 — comments and topics are mutually exclusive server-side), so the
+fixture was built by hand for this gate:
+
+- source channel `tgcli comments demo 07-17` id `4358333110`, 10 posts.
+- source discussion group `tgcli comments demo chat 07-17` id `4443403807`,
+  linked; anchors at positions 2..11, then 5 further group messages: a
+  direct comment, a nested comment-on-comment, a comment carrying a quote,
+  off-thread chatter with no reply, and a comment on the last post.
+- clone destination channel id `4344362702`, clone destination discussion
+  group id `3883505013`.
+
+**Result:** posts `10/10` copied; phase 2 recognized and skipped all 10
+Telegram auto-forward anchors (`skipped_autoforward: 10`); the 5 group
+messages copied (`copied: 5`, `reply_flattened: 0`); rerun of both `sync`
+invocations reported `copied: 0`.
+
+**The gate was non-tautological.** The clone's discussion group carries two
+Telegram service messages against the source's one, so every anchor id is
+shifted by `+1` (source anchor `2` → clone anchor `3`) — the remap had to do
+real work; an identical-id passthrough would have failed this gate. Verified
+mappings:
+
+- source `12` (`reply_to=2`, direct comment on "Post 1") → clone `13`
+  (`reply_to=3`) — same post, different id.
+- source `13` (`reply_to=12, top=2`, nested) → clone `14`
+  (`reply_to=13, top=3`) — both the parent comment id and the thread root
+  remapped independently.
+- source `14` (`reply_to=3, quote='Post 2'`) → clone `15`
+  (`reply_to=4, quote='Post 2'`) — the quote text survived the rebuilt reply
+  header.
+- source `15` (off-thread, no reply) → clone `16` (off-thread, no reply, no
+  attribution prefix — native forward with `drop_author=False`, the
+  megagroup transport rule).
+- source `16` (`reply_to=11`) → clone `17` (`reply_to=12`).
+- attribution rendered `Сергей Иванов (@CrwDdy): ` — the username rung of
+  the ladder fired on live data.
+
+The rerun did not trip discussion tail verification: Telegram's own anchors
+already present in the destination group are correctly tolerated as
+expected tail content, not flagged as unexpected.
+
+**Four live-only bugs found and fixed during this gate** (one class:
+Telegram answers a no-op mutation with an error, not silence — invisible to
+mocks, which record the request and never object):
+
+1. `7b8cb6c` (found in review, before the gate ran): a channel album post
+   auto-forwards into the linked group as an album, so its anchor arrives as
+   a multi-message batch; anchor recognition gated on `len(messages)==1`
+   re-copied every album anchor as content. Also fixed in the same commit: a
+   direct comment's rebuilt reply header dropped its quote.
+2. `8a4a59e`: `TogglePreHistoryHiddenRequest(enabled=False)` on a megagroup
+   Telegram just created answers `ChatNotModified` — init crashed on
+   **every run**, before ever linking. `SetDiscussionGroupRequest` on an
+   already-linked pair answers `LinkNotModified`, so the designed idempotent
+   relink crash-recovery path (spec Task 5 step 7) was not actually
+   idempotent until this fix.
+3. `2438940`: a FLOOD_WAIT on init's second peer leaves `comments: "enabled"`
+   in state with no linked group. `sync` would then send posts Telegram will
+   never anchor, and anchors cannot be backfilled after the fact — the clone
+   loses its comments permanently and silently. `sync` now refuses to run
+   before the discussion group is linked and sends the user back to `init`.
+   The code review that preceded this gate rated this scenario ~60%
+   confidence and did not report it as a finding; it happened on the very
+   first live run. It is not a rare interruption — it is the normal outcome
+   of a FLOOD_WAIT during init, which the spec itself flags as doubly likely
+   now that init creates two peers.
+4. `1722b5b`: `EditChatAboutRequest` with unchanged text answers
+   `ChatAboutNotModified` — init died on its own documented recovery path.
+
+**Live FLOOD_WAIT cost.** Init creating two peers hit repeated FLOOD_WAIT:
+23s, then 5s, then 349s, then 335s. Each retry consumed the committed
+preview, so every retry needed a fresh `clone init` preview. Progress
+persisted across the waits: attempt 1 created the channel and detected
+comments, attempt 2 created the group, attempt 3 linked it. Crash recovery
+adopted both recorded peers with no duplicates on each retry. The cooldown
+is persisted and blocks the whole `init`, including the link step (which is
+not itself rate-limited) — conservative, by design.
+
+**Still open, not fixed here:** `tg clone status` is dead for any account
+with pre-round-3 clone state — `list_clones` calls `state.load` for every
+saved file, and one v1 file raises `PolicyError`, taking down the whole
+command. All 10 clone states on the `main` account are v1. Rejecting old
+state is the agreed no-migration policy, but taking down the entire listing
+contradicts round 3's own truthfulness principle (`comments: "unavailable"`
+is an honest marker, not an error). Proposed, not implemented: `list_clones`
+should report unreadable states as marked entries instead of dying. This is
+a `CONTRACT.md` change and awaits the user's decision.
