@@ -6,7 +6,7 @@ import secrets, tempfile
 from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
 from tgcli import chatref, safety
-from tgcli.clone import attribution, batching, fidelity, profile, snapshot, state, topics, transport
+from tgcli.clone import attribution, batching, fidelity, snapshot, state, topics, transport
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
 def _entry(s: state.CloneState) -> dict:
     return {"clone_id": s.clone_id, "source": {"id": s.source_peer_id,
@@ -90,6 +90,42 @@ async def _with_cooldown(awaitable, clone_state):
         raise
 async def _mutate(tg, request, clone_state: state.CloneState):
     return await _with_cooldown(tg(request), clone_state)
+async def _copy_profile(tg, source, destination, account_alias, clone_id, cooldown) -> None:
+    if isinstance(source, types.User):
+        full = await cooldown(tg(functions.users.GetFullUserRequest(source)))
+        about = getattr(full.full_user, "about", None) or ""
+    elif isinstance(source, types.Chat):
+        full = await cooldown(tg(functions.messages.GetFullChatRequest(
+            chat_id=source.id)))
+        about = getattr(full.full_chat, "about", None) or ""
+    else:
+        full = await cooldown(tg(functions.channels.GetFullChannelRequest(source)))
+        about = getattr(full.full_chat, "about", None) or ""
+    if about:
+        safety.append_audit("clone-init-about", account_alias, {
+            "clone_id": clone_id, "source_peer_id": source.id,
+        })
+        await cooldown(tg(functions.messages.EditChatAboutRequest(
+            peer=destination, about=about,
+        )))
+    photo = getattr(source, "photo", None)
+    if photo is None or isinstance(
+        photo, (types.ChatPhotoEmpty, types.UserProfilePhotoEmpty)
+    ):
+        return
+    with tempfile.TemporaryDirectory(prefix="tgcli-clone-avatar-") as workdir:
+        downloaded = await cooldown(tg.download_profile_photo(
+            source, file=Path(workdir) / "avatar",
+        ))
+        if downloaded is None:
+            raise PolicyError("clone source avatar download failed")
+        uploaded = await cooldown(tg.upload_file(downloaded))
+        safety.append_audit("clone-init-avatar", account_alias, {
+            "clone_id": clone_id, "source_peer_id": source.id,
+        })
+        await cooldown(tg(functions.channels.EditPhotoRequest(
+            channel=destination, photo=types.InputChatUploadedPhoto(file=uploaded),
+        )))
 async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dict:
     entity, source_kind, _ = await _resolve_source(tg, source)
     me = await tg.get_me()
@@ -151,8 +187,8 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
             tg, functions.channels.EditTitleRequest(
                 channel=destination, title=clone_state.source_title), clone_state)
         destination.title = clone_state.source_title
-    await profile.copy(tg, entity, destination, account_alias, clone_id,
-                       lambda awaitable: _with_cooldown(awaitable, clone_state))
+    await _copy_profile(tg, entity, destination, account_alias, clone_id,
+                        lambda awaitable: _with_cooldown(awaitable, clone_state))
     return _init_result(clone_state, destination)
 def init_rows(data: dict) -> list[tuple]:
     clone = data["clone"]
