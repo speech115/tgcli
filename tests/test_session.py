@@ -128,9 +128,7 @@ async def test_mutation_safe_telethon_client_sends_ambiguous_timeout_once(
         title="marker", about="", broadcast=True, megagroup=False
     )
     sender = FailingSender(
-        lambda sent: telethon_errors.TimedOutError(
-            request=sent, message="TIMEOUT"
-        )
+        lambda sent: telethon_errors.TimedOutError(request=sent, message="TIMEOUT")
     )
 
     with pytest.raises(ValueError, match="unsuccessful 1 time"):

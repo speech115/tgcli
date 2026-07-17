@@ -21,7 +21,10 @@ def config_env(tmp_path, monkeypatch):
 
 
 def read_journal():
-    return [json.loads(line) for line in (state_dir() / "invocations.jsonl").read_text().splitlines()]
+    return [
+        json.loads(line)
+        for line in (state_dir() / "invocations.jsonl").read_text().splitlines()
+    ]
 
 
 def test_successful_command_writes_invocation_metadata(tmp_path, monkeypatch):
@@ -39,9 +42,20 @@ def test_successful_command_writes_invocation_metadata(tmp_path, monkeypatch):
 
 
 def test_policy_block_writes_the_structured_error_code():
-    assert main([
-        "api", "auth.logOut", "--write", "--confirm", "auth.logOut", "--params", "{}"
-    ]) == 2
+    assert (
+        main(
+            [
+                "api",
+                "auth.logOut",
+                "--write",
+                "--confirm",
+                "auth.logOut",
+                "--params",
+                "{}",
+            ]
+        )
+        == 2
+    )
 
     [entry] = read_journal()
     assert entry["command"] == "api"

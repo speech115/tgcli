@@ -48,9 +48,9 @@ def test_resolve_priority_flag_env_default(config_file, monkeypatch):
     config = load_config(config_file)
     monkeypatch.setenv("TGCLI_ACCOUNT", "pl")
     assert resolve_account(config, "main").alias == "main"  # flag wins
-    assert resolve_account(config, None).alias == "pl"      # env wins
+    assert resolve_account(config, None).alias == "pl"  # env wins
     monkeypatch.delenv("TGCLI_ACCOUNT")
-    assert resolve_account(config, None).alias == "main"    # config default
+    assert resolve_account(config, None).alias == "main"  # config default
 
 
 def test_resolve_unknown_alias_raises(config_file):

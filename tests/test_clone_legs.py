@@ -1,10 +1,12 @@
 """Direct unit tests for clone legs."""
+
 from tgcli.clone import legs, state
 
 
 def _state():
     clone_state = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="S")
+        account_user_id=1, source_peer_id=2, source_title="S"
+    )
     clone_state.comments = "enabled"
     clone_state.discussion_source_peer_id = 55
     return clone_state
@@ -24,7 +26,8 @@ def test_posts_leg_reads_and_writes_post_fields():
 
 def test_posts_leg_reports_forum_destination_kind():
     clone_state = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="S", source_kind="forum")
+        account_user_id=1, source_peer_id=2, source_title="S", source_kind="forum"
+    )
     assert legs.posts(clone_state).destination_kind == "forum"
 
 

@@ -1,4 +1,5 @@
 """Unit tests for poll/story snapshot rendering."""
+
 import asyncio
 from types import SimpleNamespace
 
@@ -49,8 +50,9 @@ def test_poll_snapshot_text():
 def test_story_render_links_known_username():
     class Client:
         async def get_entity(self, peer):
-            return SimpleNamespace(title=None, first_name="Ann",
-                                   last_name=None, username="ann")
+            return SimpleNamespace(
+                title=None, first_name="Ann", last_name=None, username="ann"
+            )
 
     media = types.MessageMediaStory(peer=types.PeerUser(user_id=7), id=3)
     message = SimpleNamespace(media=media)

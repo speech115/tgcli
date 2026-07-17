@@ -78,16 +78,25 @@ def test_read_api_method_reaches_network_dispatcher(config_env, monkeypatch):
 
     monkeypatch.setattr(cli, "_run_network", fake_run_network)
 
-    assert main(["api", "users.getFullUser", "--params", '{"id": "@self"}', "--json"]) == 0
+    assert (
+        main(["api", "users.getFullUser", "--params", '{"id": "@self"}', "--json"]) == 0
+    )
     assert called == [("users.getFullUser", '{"id": "@self"}', "main")]
 
 
-def test_api_write_readonly_flag_is_blocked_before_network(config_env, monkeypatch, capsys):
+def test_api_write_readonly_flag_is_blocked_before_network(
+    config_env, monkeypatch, capsys
+):
     from tgcli import cli
 
-    monkeypatch.setattr(cli.session, "client", lambda account: pytest.fail("session opened"))
+    monkeypatch.setattr(
+        cli.session, "client", lambda account: pytest.fail("session opened")
+    )
 
-    assert main(["--readonly", "api", "messages.sendMessage", "--params", "{}", "--write"]) == 2
+    assert (
+        main(["--readonly", "api", "messages.sendMessage", "--params", "{}", "--write"])
+        == 2
+    )
     assert "mutation blocked" in capsys.readouterr().err
 
 
@@ -102,9 +111,10 @@ def test_allowed_api_write_reaches_dispatcher_and_is_audited(config_env, monkeyp
 
     monkeypatch.setattr(cli, "_run_network", fake_run_network)
 
-    assert main([
-        "api", "messages.sendMessage", "--params", "{}", "--write", "--json"
-    ]) == 0
+    assert (
+        main(["api", "messages.sendMessage", "--params", "{}", "--write", "--json"])
+        == 0
+    )
     assert calls == [("messages.sendMessage", "{}", "main")]
     assert "messages.sendMessage" in safety.audit_path().read_text()
 
@@ -112,16 +122,45 @@ def test_allowed_api_write_reaches_dispatcher_and_is_audited(config_env, monkeyp
 @pytest.mark.parametrize(
     ("argv", "message"),
     [
-        (["api", "auth.logOut", "--params", "{}", "--write", "--confirm", "auth.logOut"], "permanently denied"),
-        (["api", "messages.deleteMessages", "--params", "{}", "--write"], "requires exact --confirm"),
-        (["api", "messages.deleteMessages", "--params", "{}", "--write", "--confirm", "messages.deleteHistory"], "requires exact --confirm"),
+        (
+            [
+                "api",
+                "auth.logOut",
+                "--params",
+                "{}",
+                "--write",
+                "--confirm",
+                "auth.logOut",
+            ],
+            "permanently denied",
+        ),
+        (
+            ["api", "messages.deleteMessages", "--params", "{}", "--write"],
+            "requires exact --confirm",
+        ),
+        (
+            [
+                "api",
+                "messages.deleteMessages",
+                "--params",
+                "{}",
+                "--write",
+                "--confirm",
+                "messages.deleteHistory",
+            ],
+            "requires exact --confirm",
+        ),
     ],
 )
-def test_denied_or_unconfirmed_api_write_stops_before_config_or_session(argv, message, monkeypatch, capsys):
+def test_denied_or_unconfirmed_api_write_stops_before_config_or_session(
+    argv, message, monkeypatch, capsys
+):
     from tgcli import cli
 
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
-    monkeypatch.setattr(cli.session, "client", lambda account: pytest.fail("session opened"))
+    monkeypatch.setattr(
+        cli.session, "client", lambda account: pytest.fail("session opened")
+    )
 
     assert main(argv) == 2
     assert message in capsys.readouterr().err
@@ -134,8 +173,12 @@ def test_case_variant_denylisted_api_write_is_blocked_before_network(
     from tgcli import cli
 
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
-    monkeypatch.setattr(cli.session, "client", lambda account: pytest.fail("session opened"))
-    monkeypatch.setattr(cli, "_run_network", lambda args, account: pytest.fail("network dispatched"))
+    monkeypatch.setattr(
+        cli.session, "client", lambda account: pytest.fail("session opened")
+    )
+    monkeypatch.setattr(
+        cli, "_run_network", lambda args, account: pytest.fail("network dispatched")
+    )
 
     assert main(["api", method, "--params", "{}", "--write"]) == 2
     assert "permanently denied" in capsys.readouterr().err
@@ -145,8 +188,12 @@ def test_case_variant_confirm_method_still_requires_confirm(monkeypatch, capsys)
     from tgcli import cli
 
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
-    monkeypatch.setattr(cli.session, "client", lambda account: pytest.fail("session opened"))
-    monkeypatch.setattr(cli, "_run_network", lambda args, account: pytest.fail("network dispatched"))
+    monkeypatch.setattr(
+        cli.session, "client", lambda account: pytest.fail("session opened")
+    )
+    monkeypatch.setattr(
+        cli, "_run_network", lambda args, account: pytest.fail("network dispatched")
+    )
 
     assert main(["api", "messages.DeleteMessages", "--params", "{}", "--write"]) == 2
     assert "requires exact --confirm" in capsys.readouterr().err
@@ -163,21 +210,38 @@ def test_case_variant_confirm_matches_canonical_and_dispatches(config_env, monke
 
     monkeypatch.setattr(cli, "_run_network", fake_run_network)
 
-    assert main([
-        "api", "messages.DeleteMessages", "--params", "{}", "--write",
-        "--confirm", "messages.deleteMessages", "--json",
-    ]) == 0
+    assert (
+        main(
+            [
+                "api",
+                "messages.DeleteMessages",
+                "--params",
+                "{}",
+                "--write",
+                "--confirm",
+                "messages.deleteMessages",
+                "--json",
+            ]
+        )
+        == 0
+    )
     assert calls == [("messages.deleteMessages", "{}", "main")]
 
 
-@pytest.mark.parametrize("environment", [{"TGCLI_READONLY": "1"}, {"TGCLI_NO_SEND": "1"}])
-def test_api_write_kill_switch_stops_before_config_or_session(environment, monkeypatch, capsys):
+@pytest.mark.parametrize(
+    "environment", [{"TGCLI_READONLY": "1"}, {"TGCLI_NO_SEND": "1"}]
+)
+def test_api_write_kill_switch_stops_before_config_or_session(
+    environment, monkeypatch, capsys
+):
     from tgcli import cli
 
     for key, value in environment.items():
         monkeypatch.setenv(key, value)
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
-    monkeypatch.setattr(cli.session, "client", lambda account: pytest.fail("session opened"))
+    monkeypatch.setattr(
+        cli.session, "client", lambda account: pytest.fail("session opened")
+    )
 
     assert main(["api", "messages.sendMessage", "--params", "{}", "--write"]) == 2
     assert "mutation blocked" in capsys.readouterr().err
@@ -187,12 +251,16 @@ def test_unknown_api_write_stops_before_config_or_session(monkeypatch):
     from tgcli import cli
 
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
-    monkeypatch.setattr(cli.session, "client", lambda account: pytest.fail("session opened"))
+    monkeypatch.setattr(
+        cli.session, "client", lambda account: pytest.fail("session opened")
+    )
 
     assert main(["api", "messages.noSuchMethod", "--params", "{}", "--write"]) == 4
 
 
-def test_allowed_write_api_method_without_params_remains_parser_error(config_env, capsys):
+def test_allowed_write_api_method_without_params_remains_parser_error(
+    config_env, capsys
+):
     assert main(["api", "users.getFullUser", "--write"]) == 1
     assert "the following arguments are required: --params" in capsys.readouterr().err
 
@@ -205,7 +273,9 @@ def test_read_api_method_without_params_remains_parser_error(config_env, capsys)
 def test_non_read_api_method_is_blocked_before_network(config_env, monkeypatch):
     from tgcli import cli
 
-    monkeypatch.setattr(cli.session, "client", lambda account: pytest.fail("session opened"))
+    monkeypatch.setattr(
+        cli.session, "client", lambda account: pytest.fail("session opened")
+    )
 
     assert main(["api", "messages.sendMessage", "--params", "{}"]) == 2
 
@@ -217,11 +287,17 @@ def test_sensitive_verb_prefixed_api_method_is_blocked_before_config_or_session(
     from tgcli import cli
 
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
-    monkeypatch.setattr(cli.session, "client", lambda account: pytest.fail("session opened"))
-    monkeypatch.setattr(cli, "_run_network", lambda args, account: pytest.fail("network dispatched"))
+    monkeypatch.setattr(
+        cli.session, "client", lambda account: pytest.fail("session opened")
+    )
+    monkeypatch.setattr(
+        cli, "_run_network", lambda args, account: pytest.fail("network dispatched")
+    )
 
     assert main(["api", method, "--params", "{}"]) == 2
-    assert "raw API method is not allowlisted for read-only use" in capsys.readouterr().err
+    assert (
+        "raw API method is not allowlisted for read-only use" in capsys.readouterr().err
+    )
 
 
 @pytest.mark.parametrize("method", REVIEWED_READ_METHODS)
@@ -251,8 +327,14 @@ def test_rejected_read_looking_api_method_is_blocked_before_config_or_session(
     from tgcli import cli
 
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
-    monkeypatch.setattr(cli.session, "client", lambda account: pytest.fail("session opened"))
-    monkeypatch.setattr(cli, "_run_network", lambda args, account: pytest.fail("network dispatched"))
+    monkeypatch.setattr(
+        cli.session, "client", lambda account: pytest.fail("session opened")
+    )
+    monkeypatch.setattr(
+        cli, "_run_network", lambda args, account: pytest.fail("network dispatched")
+    )
 
     assert main(["api", method, "--params", "{}"]) == 2
-    assert "raw API method is not allowlisted for read-only use" in capsys.readouterr().err
+    assert (
+        "raw API method is not allowlisted for read-only use" in capsys.readouterr().err
+    )

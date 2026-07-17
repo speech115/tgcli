@@ -35,7 +35,9 @@ def make_message(message_id, text):
     )
 
 
-def test_search_json_passes_query_and_returns_search_results(config_env, monkeypatch, capsys):
+def test_search_json_passes_query_and_returns_search_results(
+    config_env, monkeypatch, capsys
+):
     entity = ns(id=-1001234, title="Channel")
     fake = FakeClient(
         messages=[make_message(1, "other")],

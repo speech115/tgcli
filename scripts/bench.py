@@ -93,7 +93,11 @@ class Runner:
             )
             exit_code, stdout, stderr = proc.returncode, proc.stdout, proc.stderr
         except subprocess.TimeoutExpired:
-            exit_code, stdout, stderr = 1, "", f"bench timeout after {STEP_TIMEOUT_SECONDS}s"
+            exit_code, stdout, stderr = (
+                1,
+                "",
+                f"bench timeout after {STEP_TIMEOUT_SECONDS}s",
+            )
         duration_ms = int((time.perf_counter() - started) * 1000)
 
         status = classify(exit_code, allow_rate_limit_skip=allow_rate_limit_skip)
@@ -109,7 +113,12 @@ class Runner:
 
     def record(self, step: str, status: str, duration_ms: int, detail: str = ""):
         self.results.append(
-            {"step": step, "status": status, "duration_ms": duration_ms, "detail": detail}
+            {
+                "step": step,
+                "status": status,
+                "duration_ms": duration_ms,
+                "detail": detail,
+            }
         )
 
 
@@ -150,7 +159,9 @@ def main() -> int:
     runner.run("count", ["count", "me"])
     runner.run("api-read", ["api", "users.getFullUser", "--params", '{"id":"me"}'])
 
-    preview = runner.run("send-preview", ["send", "me", f"tgcli bench {stamp}", "--preview"])
+    preview = runner.run(
+        "send-preview", ["send", "me", f"tgcli bench {stamp}", "--preview"]
+    )
     if preview:
         runner.run("send-commit", ["send", "--commit", preview["preview_id"]])
     else:
@@ -164,24 +175,48 @@ def main() -> int:
                 media_id = find_media_message(discovery["messages"])
         if media_id is None:
             runner.record(
-                "media-download", "SKIP", 0,
+                "media-download",
+                "SKIP",
+                0,
                 "no media in Saved Messages; forward any photo to yourself",
             )
         else:
             runner.run(
                 "media-download",
-                ["media", "download", "me", str(media_id), "--output", f"{tmp}/media.bin"],
+                [
+                    "media",
+                    "download",
+                    "me",
+                    str(media_id),
+                    "--output",
+                    f"{tmp}/media.bin",
+                ],
             )
 
         runner.run(
             "export-messages",
-            ["export", "messages", "me", "--output", f"{tmp}/messages.jsonl", "--limit", "50"],
+            [
+                "export",
+                "messages",
+                "me",
+                "--output",
+                f"{tmp}/messages.jsonl",
+                "--limit",
+                "50",
+            ],
             allow_rate_limit_skip=True,
         )
         runner.run(
             "export-subscribers",
-            ["export", "subscribers", args.subscribers_channel,
-             "--output", f"{tmp}/subscribers.csv", "--limit", "200"],
+            [
+                "export",
+                "subscribers",
+                args.subscribers_channel,
+                "--output",
+                f"{tmp}/subscribers.csv",
+                "--limit",
+                "200",
+            ],
             allow_rate_limit_skip=True,
         )
 

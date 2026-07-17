@@ -9,8 +9,14 @@ from tgcli.clone import roster, state
 
 
 def user(uid, **overrides):
-    values = {"id": uid, "username": None, "first_name": f"U{uid}",
-              "last_name": None, "phone": None, "bot": False}
+    values = {
+        "id": uid,
+        "username": None,
+        "first_name": f"U{uid}",
+        "last_name": None,
+        "phone": None,
+        "bot": False,
+    }
     values.update(overrides)
     return SimpleNamespace(**values)
 
@@ -18,8 +24,15 @@ def user(uid, **overrides):
 class FakeTg:
     """Minimal duck-typed client for roster.collect."""
 
-    def __init__(self, *, source=(), discussion=(), source_error=None,
-                 discussion_error=None, discussion_entity=True):
+    def __init__(
+        self,
+        *,
+        source=(),
+        discussion=(),
+        source_error=None,
+        discussion_error=None,
+        discussion_entity=True,
+    ):
         self._source = list(source)
         self._discussion = list(discussion)
         self._source_error = source_error
@@ -50,8 +63,9 @@ class FakeTg:
 
 
 def seed(comments="none"):
-    s = state.CloneState.new(account_user_id=42, source_peer_id=123,
-                             source_title="Source channel")
+    s = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel"
+    )
     s.destination_peer_id = 999
     if comments == "enabled":
         s.comments = "enabled"
@@ -81,9 +95,15 @@ def test_collect_writes_source_rows_and_reports_counts():
     assert result["discussion"]["status"] == "none"
     lines = read_lines(clone_state)
     assert [row["peer"] for row in lines] == ["source", "source"]
-    assert lines[0] == {"peer": "source", "id": 1, "username": "a",
-                        "first_name": "U1", "last_name": None, "phone": None,
-                        "is_bot": False}
+    assert lines[0] == {
+        "peer": "source",
+        "id": 1,
+        "username": "a",
+        "first_name": "U1",
+        "last_name": None,
+        "phone": None,
+        "is_bot": False,
+    }
 
 
 def test_collect_marks_channel_unavailable_when_not_admin():
@@ -110,8 +130,10 @@ def test_collect_defers_on_floodwait_and_discards_partial():
 
 def test_collect_gathers_discussion_group_when_comments_enabled():
     clone_state = seed(comments="enabled")
-    tg = FakeTg(source_error=telethon_errors.ChatAdminRequiredError(request=None),
-                discussion=[user(10, username="z"), user(11)])
+    tg = FakeTg(
+        source_error=telethon_errors.ChatAdminRequiredError(request=None),
+        discussion=[user(10, username="z"), user(11)],
+    )
     result = run(tg, clone_state)
     assert result["source"]["status"] == "unavailable"
     assert result["discussion"]["status"] == "collected"

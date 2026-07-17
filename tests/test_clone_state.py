@@ -9,9 +9,15 @@ from tgcli.errors import PolicyError
 
 
 def _valid_payload(**overrides):
-    payload = {"version": state.VERSION, "account_user_id": 1, "source_peer_id": 2,
-               "source_title": "S", "source_kind": "broadcast",
-               "destination_kind": "broadcast", "topic_map": {}}
+    payload = {
+        "version": state.VERSION,
+        "account_user_id": 1,
+        "source_peer_id": 2,
+        "source_title": "S",
+        "source_kind": "broadcast",
+        "destination_kind": "broadcast",
+        "topic_map": {},
+    }
     payload.update(overrides)
     return payload
 
@@ -133,7 +139,9 @@ def test_state_rejects_unknown_destination_kind(tmp_path, monkeypatch):
 
 def test_state_rejects_non_dict_topic_map(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    saved = state.CloneState.new(account_user_id=1, source_peer_id=2, source_title="Old")
+    saved = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="Old"
+    )
     data = saved.to_dict()
     data["topic_map"] = [["7", 1007]]
     state.clones_dir().mkdir(parents=True)
@@ -197,7 +205,10 @@ def test_state_rejects_inconsistent_forum_fields(
 ):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     saved = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="Source", source_kind=source_kind
+        account_user_id=1,
+        source_peer_id=2,
+        source_title="Source",
+        source_kind=source_kind,
     )
     data = saved.to_dict()
     data["destination_kind"] = destination_kind
@@ -384,7 +395,8 @@ def test_record_mapping_and_dest_for():
 
 def test_new_state_defaults_to_no_comments():
     clone_state = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="S")
+        account_user_id=1, source_peer_id=2, source_title="S"
+    )
     assert clone_state.comments == "none"
     assert clone_state.discussion_id_map == {}
     assert clone_state.discussion_cursor == 0
@@ -393,7 +405,8 @@ def test_new_state_defaults_to_no_comments():
 
 def test_discussion_mapping_roundtrips():
     clone_state = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="S")
+        account_user_id=1, source_peer_id=2, source_title="S"
+    )
     clone_state.comments = "enabled"
     clone_state.discussion_source_peer_id = 55
     clone_state.discussion_destination_peer_id = 66
@@ -409,7 +422,8 @@ def test_discussion_mapping_roundtrips():
 
 def test_max_destination_id_excludes_discussion_ids():
     clone_state = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="S")
+        account_user_id=1, source_peer_id=2, source_title="S"
+    )
     clone_state.record_mapping(1, 10)
     clone_state.comments = "enabled"
     clone_state.discussion_source_peer_id = 55
@@ -421,8 +435,16 @@ def test_max_destination_id_excludes_discussion_ids():
 def test_load_rejects_version_1_state():
     path = state.path_for("a" * 64)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"version": 1, "account_user_id": 1,
-                                "source_peer_id": 2, "source_title": "S"}))
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "account_user_id": 1,
+                "source_peer_id": 2,
+                "source_title": "S",
+            }
+        )
+    )
     with pytest.raises(PolicyError, match="unsupported version"):
         state.load("a" * 64)
 
@@ -444,9 +466,13 @@ def test_from_dict_rejects_discussion_map_without_enabled_comments():
 
 def test_from_dict_rejects_duplicate_discussion_destinations():
     with pytest.raises(ValueError):
-        state.CloneState.from_dict(_valid_payload(
-            comments="enabled", discussion_source_peer_id=55,
-            discussion_id_map={"1": 2, "3": 2}))
+        state.CloneState.from_dict(
+            _valid_payload(
+                comments="enabled",
+                discussion_source_peer_id=55,
+                discussion_id_map={"1": 2, "3": 2},
+            )
+        )
 
 
 def test_supersede_missing_slot_is_noop():
@@ -487,8 +513,16 @@ def test_supersede_preserves_unreadable_v1_file():
     cid = "c" * 64
     path = state.path_for(cid)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"version": 1, "account_user_id": 1,
-                                "source_peer_id": 2, "source_title": "S"}))
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "account_user_id": 1,
+                "source_peer_id": 2,
+                "source_title": "S",
+            }
+        )
+    )
     archived = state.supersede(cid)
     assert len(archived) == 1
     assert not path.exists()

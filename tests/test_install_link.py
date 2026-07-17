@@ -47,7 +47,9 @@ def test_fails_without_venv_entrypoint(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    result = run_script({"TGCLI_BIN_DIR": str(tmp_path / "bin"), "TGCLI_REPO": str(repo)})
+    result = run_script(
+        {"TGCLI_BIN_DIR": str(tmp_path / "bin"), "TGCLI_REPO": str(repo)}
+    )
 
     assert result.returncode == 1
     assert "uv sync" in result.stderr

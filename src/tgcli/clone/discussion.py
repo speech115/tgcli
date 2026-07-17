@@ -1,4 +1,5 @@
 """Discussion groups: detection, linking and anchors for comment clones."""
+
 from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 from tgcli.clone import topics
@@ -16,8 +17,9 @@ def linked_chat_id(full_channel) -> int | None:
 
 def is_discussion_destination(entity, *, title: str | None = None) -> bool:
     """Private owned megagroup that is not a forum."""
-    return (topics.is_forum_destination(entity, title=title)
-            and not getattr(entity, "forum", False))
+    return topics.is_forum_destination(entity, title=title) and not getattr(
+        entity, "forum", False
+    )
 
 
 def autoforward_post_id(message, source_channel_id: int) -> int | None:
@@ -28,8 +30,7 @@ def autoforward_post_id(message, source_channel_id: int) -> int | None:
     if not isinstance(header, types.MessageFwdHeader):
         return None
     peer = header.saved_from_peer
-    if (not isinstance(peer, types.PeerChannel)
-            or peer.channel_id != source_channel_id):
+    if not isinstance(peer, types.PeerChannel) or peer.channel_id != source_channel_id:
         return None
     post_id = header.saved_from_msg_id
     if type(post_id) is not int or not 0 < post_id <= 2_147_483_647:
@@ -45,7 +46,8 @@ async def verify_tail(tg, destination, recorded_last_id, label, expected) -> Non
     destination_last_id = latest[0].id if latest else 0
     if recorded_last_id is not None and recorded_last_id > destination_last_id:
         raise PolicyError(
-            f"clone {label} recorded tail is missing; manual repair is required")
+            f"clone {label} recorded tail is missing; manual repair is required"
+        )
     baseline = recorded_last_id or 1
     if destination_last_id <= baseline:
         return
@@ -54,7 +56,8 @@ async def verify_tail(tg, destination, recorded_last_id, label, expected) -> Non
     if unexpected:
         raise PolicyError(
             f"clone {label} has unexpected tail messages; manual repair is required",
-            unexpected=len(unexpected))
+            unexpected=len(unexpected),
+        )
 
 
 async def adopt(tg, mutate, marker_candidates, marker, recorded_peer_id, on_create):
@@ -74,8 +77,11 @@ async def adopt(tg, mutate, marker_candidates, marker, recorded_peer_id, on_crea
         return valid[0]
     on_create()
     update = await mutate(topics.create_request(marker))
-    candidates = [item for item in getattr(update, "chats", ())
-                  if is_discussion_destination(item, title=marker)]
+    candidates = [
+        item
+        for item in getattr(update, "chats", ())
+        if is_discussion_destination(item, title=marker)
+    ]
     if len(candidates) != 1:
         raise PolicyError("Telegram did not return the created discussion group")
     return candidates[0]
@@ -87,31 +93,45 @@ async def ensure_linked(mutate, channel, group) -> None:
     normal path (live-proven): a megagroup it just created already shows its
     history, and crash recovery re-links an already-linked pair."""
     for request, benign in (
-            (functions.channels.TogglePreHistoryHiddenRequest(
-                channel=group, enabled=False),
-             telethon_errors.ChatNotModifiedError),
-            (functions.channels.SetDiscussionGroupRequest(
-                broadcast=channel, group=group),
-             telethon_errors.LinkNotModifiedError)):
+        (
+            functions.channels.TogglePreHistoryHiddenRequest(
+                channel=group, enabled=False
+            ),
+            telethon_errors.ChatNotModifiedError,
+        ),
+        (
+            functions.channels.SetDiscussionGroupRequest(
+                broadcast=channel, group=group
+            ),
+            telethon_errors.LinkNotModifiedError,
+        ),
+    ):
         try:
             await mutate(request)
         except benign:
             pass
 
 
-async def anchor_for(mutate, destination_channel, destination_post_id: int,
-                     cache: dict) -> int | None:
+async def anchor_for(
+    mutate, destination_channel, destination_post_id: int, cache: dict
+) -> int | None:
     """Destination anchor message id in the discussion group, via
     messages.getDiscussionMessage. Cached per run; None when Telegram
     returns no anchor."""
     if destination_post_id in cache:
         return cache[destination_post_id]
-    response = await mutate(functions.messages.GetDiscussionMessageRequest(
-        peer=destination_channel, msg_id=destination_post_id))
-    anchors = [getattr(item, "id", None)
-               for item in (getattr(response, "messages", None) or ())]
-    found = [item for item in anchors
-             if type(item) is int and 0 < item <= 2_147_483_647]
+    response = await mutate(
+        functions.messages.GetDiscussionMessageRequest(
+            peer=destination_channel, msg_id=destination_post_id
+        )
+    )
+    anchors = [
+        getattr(item, "id", None)
+        for item in (getattr(response, "messages", None) or ())
+    ]
+    found = [
+        item for item in anchors if type(item) is int and 0 < item <= 2_147_483_647
+    ]
     anchor = found[0] if found else None
     cache[destination_post_id] = anchor
     return anchor

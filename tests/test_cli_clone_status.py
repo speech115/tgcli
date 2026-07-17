@@ -3,8 +3,16 @@ import json
 from tgcli.clone import state
 
 
-def _seed(account_user_id, source_peer_id, title, *, kind="broadcast",
-          dest=None, cursor=0, mapped=()):
+def _seed(
+    account_user_id,
+    source_peer_id,
+    title,
+    *,
+    kind="broadcast",
+    dest=None,
+    cursor=0,
+    mapped=(),
+):
     s = state.CloneState.new(
         account_user_id=account_user_id,
         source_peer_id=source_peer_id,

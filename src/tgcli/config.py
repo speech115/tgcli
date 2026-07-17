@@ -7,7 +7,9 @@ from tgcli.errors import ConfigError
 
 
 def default_config_path() -> Path:
-    return Path(os.environ.get("TGCLI_CONFIG", "~/.config/tgcli/config.toml")).expanduser()
+    return Path(
+        os.environ.get("TGCLI_CONFIG", "~/.config/tgcli/config.toml")
+    ).expanduser()
 
 
 @dataclass(frozen=True)

@@ -15,6 +15,12 @@ jobs:
           enable-cache: true
       - name: Install dependencies
         run: uv sync --frozen
+      - name: Lint
+        run: uv run ruff check .
+      - name: Check formatting
+        run: uv run ruff format --check .
+      - name: Type check
+        run: uv run pyright
       - name: Run tests
         run: uv run pytest -q
       - name: Check Telethon coverage matrix

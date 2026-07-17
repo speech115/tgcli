@@ -13,43 +13,45 @@ from telethon.tl.tlobject import TLObject, TLRequest
 from tgcli.errors import ConfigError, NotFoundError
 
 
-READ_METHOD_ALLOWLIST = frozenset({
-    "channels.getAdminLog",
-    "channels.getAdminedPublicChannels",
-    "channels.getChannels",
-    "channels.getFullChannel",
-    "channels.getMessages",
-    "channels.getParticipant",
-    "channels.getParticipants",
-    "contacts.getContacts",
-    "contacts.resolveUsername",
-    "contacts.search",
-    "messages.getCommonChats",
-    "messages.getDialogs",
-    "messages.getDiscussionMessage",
-    "messages.getForumTopics",
-    "messages.getFullChat",
-    "messages.getHistory",
-    "messages.getMessageReactionsList",
-    "messages.getMessages",
-    "messages.getMessagesReactions",
-    "messages.getPeerDialogs",
-    "messages.getReplies",
-    "messages.getSavedDialogs",
-    "messages.getSavedHistory",
-    "messages.getSearchCounters",
-    "messages.getUnreadMentions",
-    "messages.getUnreadReactions",
-    "messages.search",
-    "messages.searchGlobal",
-    "photos.getUserPhotos",
-    "stats.getBroadcastStats",
-    "stats.getMegagroupStats",
-    "stats.getMessagePublicForwards",
-    "stats.getMessageStats",
-    "users.getFullUser",
-    "users.getUsers",
-})
+READ_METHOD_ALLOWLIST = frozenset(
+    {
+        "channels.getAdminLog",
+        "channels.getAdminedPublicChannels",
+        "channels.getChannels",
+        "channels.getFullChannel",
+        "channels.getMessages",
+        "channels.getParticipant",
+        "channels.getParticipants",
+        "contacts.getContacts",
+        "contacts.resolveUsername",
+        "contacts.search",
+        "messages.getCommonChats",
+        "messages.getDialogs",
+        "messages.getDiscussionMessage",
+        "messages.getForumTopics",
+        "messages.getFullChat",
+        "messages.getHistory",
+        "messages.getMessageReactionsList",
+        "messages.getMessages",
+        "messages.getMessagesReactions",
+        "messages.getPeerDialogs",
+        "messages.getReplies",
+        "messages.getSavedDialogs",
+        "messages.getSavedHistory",
+        "messages.getSearchCounters",
+        "messages.getUnreadMentions",
+        "messages.getUnreadReactions",
+        "messages.search",
+        "messages.searchGlobal",
+        "photos.getUserPhotos",
+        "stats.getBroadcastStats",
+        "stats.getMegagroupStats",
+        "stats.getMessagePublicForwards",
+        "stats.getMessageStats",
+        "users.getFullUser",
+        "users.getUsers",
+    }
+)
 SENSITIVE_KEY_TOKENS = (
     "accesshash",
     "apihash",
@@ -60,12 +62,14 @@ SENSITIVE_KEY_TOKENS = (
     "securerandom",
     "tmppassword",
 )
-HARD_DENYLIST = frozenset({
-    "account.deleteAccount",
-    "auth.logOut",
-    "auth.resetAuthorizations",
-    "account.resetAuthorization",
-})
+HARD_DENYLIST = frozenset(
+    {
+        "account.deleteAccount",
+        "auth.logOut",
+        "auth.resetAuthorizations",
+        "account.resetAuthorization",
+    }
+)
 
 
 def is_read_method(name: str) -> bool:
@@ -79,9 +83,8 @@ def is_hard_denied(name: str) -> bool:
 
 def requires_confirmation(name: str) -> bool:
     method = name.rsplit(".", 1)[-1].casefold()
-    return (
-        method.startswith(("delete", "reset", "leave", "block"))
-        or (method.startswith("edit") and ("admin" in method or "banned" in method))
+    return method.startswith(("delete", "reset", "leave", "block")) or (
+        method.startswith("edit") and ("admin" in method or "banned" in method)
     )
 
 
@@ -134,12 +137,14 @@ async def build_request(client, name: str, params_json: str):
     if not isinstance(params, dict):
         raise ConfigError("raw API params must be a JSON object")
     try:
-        return request_type(**{
-            key: await _convert_value(
-                client, value, _field_annotation(request_type, key)
-            )
-            for key, value in params.items()
-        })
+        return request_type(
+            **{
+                key: await _convert_value(
+                    client, value, _field_annotation(request_type, key)
+                )
+                for key, value in params.items()
+            }
+        )
     except TypeError as exc:
         raise ConfigError(f"invalid raw API parameters: {exc}") from exc
 
@@ -198,10 +203,7 @@ async def _convert_value(client, value, annotation=None):
         return value
     constructor = value.get("_")
     if constructor is None:
-        return {
-            key: await _convert_value(client, item)
-            for key, item in value.items()
-        }
+        return {key: await _convert_value(client, item) for key, item in value.items()}
     if constructor == "bytes":
         if set(value) != {"_", "base64"} or not isinstance(value["base64"], str):
             raise ConfigError("raw API bytes must use {'_': 'bytes', 'base64': '...'}")
@@ -215,12 +217,16 @@ async def _convert_value(client, value, annotation=None):
     if not isclass(constructor_type) or not issubclass(constructor_type, TLObject):
         raise ConfigError(f"raw API constructor is not allowed: {constructor!r}")
     try:
-        return constructor_type(**{
-            key: await _convert_value(
-                client, item, _field_annotation(constructor_type, key)
-            )
-            for key, item in value.items()
-            if key != "_"
-        })
+        return constructor_type(
+            **{
+                key: await _convert_value(
+                    client, item, _field_annotation(constructor_type, key)
+                )
+                for key, item in value.items()
+                if key != "_"
+            }
+        )
     except TypeError as exc:
-        raise ConfigError(f"invalid raw API constructor {constructor!r}: {exc}") from exc
+        raise ConfigError(
+            f"invalid raw API constructor {constructor!r}: {exc}"
+        ) from exc

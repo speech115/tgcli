@@ -23,14 +23,15 @@ def session_path(account: Account) -> Path:
 def _make_client(
     path: Path, account: Account, *, mutation_safe: bool = False
 ) -> TelegramClient:
-    mutation_options = (
-        {"request_retries": 0, "flood_sleep_threshold": 0}
-        if mutation_safe
-        else {}
-    )
-    return TelegramClient(
-        str(path), account.api_id, account.api_hash, **mutation_options
-    )
+    if mutation_safe:
+        return TelegramClient(
+            str(path),
+            account.api_id,
+            account.api_hash,
+            request_retries=0,
+            flood_sleep_threshold=0,
+        )
+    return TelegramClient(str(path), account.api_id, account.api_hash)
 
 
 @asynccontextmanager
@@ -60,6 +61,6 @@ async def client(account: Account, *, mutation_safe: bool = False):
             f"session {account.session!r} needs reauthentication; authorize it again"
         ) from exc
     finally:
-        await tg.disconnect()
+        await tg.disconnect()  # type: ignore  # Telethon stub: Coroutine | None
         fcntl.flock(lock, fcntl.LOCK_UN)
         lock.close()

@@ -1,4 +1,5 @@
 """Direct unit tests for clone discussion helpers."""
+
 import asyncio
 from types import SimpleNamespace
 
@@ -19,29 +20,45 @@ def test_linked_chat_id_reads_the_linked_chat():
 
 
 def test_linked_chat_id_ignores_monoforums():
-    assert discussion.linked_chat_id(
-        _full(linked_monoforum_id=77).full_chat) is None
+    assert discussion.linked_chat_id(_full(linked_monoforum_id=77).full_chat) is None
 
 
 def test_is_discussion_destination_accepts_private_owned_megagroup():
-    entity = SimpleNamespace(title="G", creator=True, megagroup=True,
-                             broadcast=False, forum=False, username=None,
-                             usernames=[])
+    entity = SimpleNamespace(
+        title="G",
+        creator=True,
+        megagroup=True,
+        broadcast=False,
+        forum=False,
+        username=None,
+        usernames=[],
+    )
     assert discussion.is_discussion_destination(entity, title="G") is True
 
 
 def test_is_discussion_destination_rejects_forum():
-    entity = SimpleNamespace(title="G", creator=True, megagroup=True,
-                             broadcast=False, forum=True, username=None,
-                             usernames=[])
+    entity = SimpleNamespace(
+        title="G",
+        creator=True,
+        megagroup=True,
+        broadcast=False,
+        forum=True,
+        username=None,
+        usernames=[],
+    )
     assert discussion.is_discussion_destination(entity) is False
 
 
 def _anchor(source_channel_id, post_id):
-    return SimpleNamespace(id=1, fwd_from=types.MessageFwdHeader(
-        date=None, channel_post=post_id,
-        saved_from_peer=types.PeerChannel(channel_id=source_channel_id),
-        saved_from_msg_id=post_id))
+    return SimpleNamespace(
+        id=1,
+        fwd_from=types.MessageFwdHeader(
+            date=None,
+            channel_post=post_id,
+            saved_from_peer=types.PeerChannel(channel_id=source_channel_id),
+            saved_from_msg_id=post_id,
+        ),
+    )
 
 
 def test_autoforward_post_id_matches_saved_from_pair():
@@ -53,8 +70,10 @@ def test_autoforward_post_id_rejects_other_channels():
 
 
 def test_autoforward_post_id_ignores_plain_messages():
-    assert discussion.autoforward_post_id(
-        SimpleNamespace(id=2, fwd_from=None), 123) is None
+    assert (
+        discussion.autoforward_post_id(SimpleNamespace(id=2, fwd_from=None), 123)
+        is None
+    )
 
 
 def test_ensure_linked_unhides_history_then_links():
@@ -64,8 +83,7 @@ def test_ensure_linked_unhides_history_then_links():
         requests.append(request)
 
     asyncio.run(discussion.ensure_linked(mutate, "channel", "group"))
-    assert isinstance(requests[0],
-                      functions.channels.TogglePreHistoryHiddenRequest)
+    assert isinstance(requests[0], functions.channels.TogglePreHistoryHiddenRequest)
     assert requests[0].enabled is False
     assert isinstance(requests[1], functions.channels.SetDiscussionGroupRequest)
     assert requests[1].broadcast == "channel" and requests[1].group == "group"
@@ -88,6 +106,7 @@ def test_ensure_linked_tolerates_an_already_visible_history():
 def test_ensure_linked_tolerates_an_existing_link():
     """Crash recovery re-runs the link on an already-linked pair; Telegram
     answers LinkNotModified and that is a success, not a failure."""
+
     async def mutate(request):
         if isinstance(request, functions.channels.SetDiscussionGroupRequest):
             raise telethon_errors.LinkNotModifiedError(request)

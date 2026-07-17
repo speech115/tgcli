@@ -52,8 +52,9 @@ The project is feature-complete and in production use. Default posture:
 - stdout is sacred: only contract data. Debug/progress/warnings → stderr.
 - Never commit: `.env`, `*.session`, audit logs, downloaded media,
   anything under `~/.local/state/tgcli/`.
-- Run `pytest -q` before every commit. Quote real output in PRs, never
-  "tests pass".
+- Run `pytest -q`, `ruff check .`, `ruff format --check .`, and `pyright`
+  before every commit (CI enforces all four — ADR-0027). Quote real output
+  in PRs, never "tests pass".
 
 ## Git
 

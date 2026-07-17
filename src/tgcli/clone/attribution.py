@@ -12,6 +12,7 @@ from tgcli.errors import PolicyError
 @dataclass(frozen=True)
 class Author:
     """Author label; mention_user_id set → render it as a profile mention."""
+
     text: str
     mention_user_id: int | None = None
 
@@ -23,7 +24,9 @@ def source_kind(entity) -> str:
         if (target := getattr(entity, "migrated_to", None)) is not None:
             target_id = getattr(target, "channel_id", None)
             hint = f"channel {target_id}" if target_id is not None else "the supergroup"
-            raise PolicyError(f"clone source basic group migrated to a supergroup; clone {hint} instead")
+            raise PolicyError(
+                f"clone source basic group migrated to a supergroup; clone {hint} instead"
+            )
         if getattr(entity, "deactivated", False):
             raise PolicyError("clone source basic group is deactivated")
         return "basic"
@@ -35,7 +38,11 @@ def source_kind(entity) -> str:
 
 
 def display_name(entity) -> str:
-    return getattr(entity, "title", None) or utils.get_display_name(entity) or f"id {entity.id}"
+    return (
+        getattr(entity, "title", None)
+        or utils.get_display_name(entity)
+        or f"id {entity.id}"
+    )
 
 
 def same_peer(peer, source) -> bool:
@@ -72,15 +79,22 @@ def _identify(entity, sender_id) -> Author:
 
 async def author_of(tg, source, message, me, cache: dict, cooldown) -> Author:
     peer = getattr(message, "from_id", None)
-    if (isinstance(peer, types.PeerUser) and peer.user_id == me.id
-            or peer is None and getattr(message, "out", False)):
+    if (
+        isinstance(peer, types.PeerUser)
+        and peer.user_id == me.id
+        or peer is None
+        and getattr(message, "out", False)
+    ):
         entity = me
     elif peer is None and isinstance(source, types.User):
         entity = source
     elif peer is None:
         signature = getattr(message, "post_author", None)
-        return (Author(text=signature) if isinstance(signature, str) and signature
-                else _identify(None, getattr(message, "sender_id", None)))
+        return (
+            Author(text=signature)
+            if isinstance(signature, str) and signature
+            else _identify(None, getattr(message, "sender_id", None))
+        )
     else:
         key = _peer_key(peer)
         if key not in cache:
@@ -100,9 +114,13 @@ def prefixed(text: str, entities, author: Author | None) -> tuple[str, list | No
     shift = len(prefix.encode("utf-16-le")) // 2
     result = []
     if author.mention_user_id is not None:
-        result.append(types.MessageEntityMentionName(offset=0,
-            length=len(author.text.encode("utf-16-le")) // 2,
-            user_id=author.mention_user_id))
+        result.append(
+            types.MessageEntityMentionName(
+                offset=0,
+                length=len(author.text.encode("utf-16-le")) // 2,
+                user_id=author.mention_user_id,
+            )
+        )
     for entity in original:
         shifted_entity = copy(entity)
         shifted_entity.offset += shift

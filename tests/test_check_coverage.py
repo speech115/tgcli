@@ -43,9 +43,7 @@ def test_checker_reports_missing_unknown_duplicate_and_bad_status(tmp_path):
 def test_checker_requires_reasons_for_excluded_namespaces(tmp_path):
     features = tmp_path / "FEATURES.md"
     features.write_text(
-        "| TL namespace | Status | Notes |\n"
-        "|---|---|---|\n"
-        "| auth | excluded | |\n"
+        "| TL namespace | Status | Notes |\n|---|---|---|\n| auth | excluded | |\n"
     )
 
     result = subprocess.run(

@@ -104,19 +104,47 @@ def materialize_fixture(kind: str, directory: Path, *, color: str = "0x3366cc") 
     common = [tools["ffmpeg"], "-nostdin", "-hide_banner", "-loglevel", "error", "-y"]
     if kind == "photo":
         command = common + [
-            "-f", "lavfi", "-i", f"color=c={color}:s=512x512:d=1",
-            "-frames:v", "1", "-c:v", "mjpeg", "-q:v", "2", str(output),
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c={color}:s=512x512:d=1",
+            "-frames:v",
+            "1",
+            "-c:v",
+            "mjpeg",
+            "-q:v",
+            "2",
+            str(output),
         ]
     elif kind == "audio":
         command = common + [
-            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
-            "-ac", "1", "-c:a", "libmp3lame", "-b:a", "64k", str(output),
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=48000:duration=2",
+            "-ac",
+            "1",
+            "-c:a",
+            "libmp3lame",
+            "-b:a",
+            "64k",
+            str(output),
         ]
     elif kind == "voice":
         command = common + [
-            "-f", "lavfi", "-i", "sine=frequency=660:sample_rate=48000:duration=2",
-            "-ac", "1", "-c:a", "libopus", "-b:a", "24k",
-            "-application", "voip", str(output),
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=660:sample_rate=48000:duration=2",
+            "-ac",
+            "1",
+            "-c:a",
+            "libopus",
+            "-b:a",
+            "24k",
+            "-application",
+            "voip",
+            str(output),
         ]
     elif kind in {"video", "video_note"}:
         size = "640x360" if kind == "video" else "240x240"
@@ -124,25 +152,53 @@ def materialize_fixture(kind: str, directory: Path, *, color: str = "0x3366cc") 
         audio = ["-an"]
         if kind == "video":
             inputs += [
-                "-f", "lavfi", "-i",
+                "-f",
+                "lavfi",
+                "-i",
                 "sine=frequency=330:sample_rate=48000:duration=2",
             ]
             audio = ["-c:a", "aac", "-b:a", "64k", "-shortest"]
-        command = common + inputs + [
-            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-            "-movflags", "+faststart",
-        ] + audio + [str(output)]
+        command = (
+            common
+            + inputs
+            + [
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-pix_fmt",
+                "yuv420p",
+                "-movflags",
+                "+faststart",
+            ]
+            + audio
+            + [str(output)]
+        )
     elif kind == "animation":
         command = common + [
-            "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=15:duration=1",
-            "-an", "-c:v", "gif", str(output),
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=64x64:rate=15:duration=1",
+            "-an",
+            "-c:v",
+            "gif",
+            str(output),
         ]
     elif kind == "sticker":
         png = directory / "demo-sticker.png"
-        _run(common + [
-            "-f", "lavfi", "-i", f"color=c={color}:s=512x512:d=1",
-            "-frames:v", "1", str(png),
-        ])
+        _run(
+            common
+            + [
+                "-f",
+                "lavfi",
+                "-i",
+                f"color=c={color}:s=512x512:d=1",
+                "-frames:v",
+                "1",
+                str(png),
+            ]
+        )
         _run([tools["cwebp"], "-quiet", "-lossless", "-o", str(output), str(png)])
         png.unlink()
         return output
@@ -231,9 +287,7 @@ async def seed_kind(tg, entity, kind: str, directory: Path, text_id: int | None)
     if kind == "reply":
         if text_id is None:
             raise ValueError("reply fixture needs the text fixture first")
-        message = await tg.send_message(
-            entity, "demo reply message", reply_to=text_id
-        )
+        message = await tg.send_message(entity, "demo reply message", reply_to=text_id)
         return [message.id]
     if kind == "album":
         files = [

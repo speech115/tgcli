@@ -44,7 +44,9 @@ async def _resolve_entity(tg, chat: str):
         raise NotFoundError(f"dialog not found: {chat!r}") from None
 
 
-def _summary(kind: str, export_format: str, destination: Path, count: int, entity, chat: str) -> dict:
+def _summary(
+    kind: str, export_format: str, destination: Path, count: int, entity, chat: str
+) -> dict:
     return {
         "export": {
             "kind": kind,
@@ -65,13 +67,19 @@ def _message_takeout(tg):
     return tg.takeout(**TAKEOUT_MESSAGE_KWARGS)
 
 
-async def export_messages(tg, chat: str, destination: Path, limit: int | None = None) -> dict:
+async def export_messages(
+    tg, chat: str, destination: Path, limit: int | None = None
+) -> dict:
     entity = await _resolve_entity(tg, chat)
     count = 0
     with _atomic_text_destination(destination) as handle:
         async with _message_takeout(tg) as takeout:
-            async for message in takeout.iter_messages(entity, limit=limit, reverse=True):
-                handle.write(json.dumps(message_to_dict(message), ensure_ascii=False) + "\n")
+            async for message in takeout.iter_messages(
+                entity, limit=limit, reverse=True
+            ):
+                handle.write(
+                    json.dumps(message_to_dict(message), ensure_ascii=False) + "\n"
+                )
                 count += 1
     return _summary("messages", "jsonl", destination, count, entity, chat)
 
@@ -92,11 +100,15 @@ def _csv_cell(value: str | None) -> str:
     return f"'{value}" if value.startswith(("=", "+", "-", "@")) else value
 
 
-async def export_subscribers(tg, channel: str, destination: Path, limit: int | None = None) -> dict:
+async def export_subscribers(
+    tg, channel: str, destination: Path, limit: int | None = None
+) -> dict:
     entity = await _resolve_entity(tg, channel)
     count = 0
     with _atomic_text_destination(destination) as handle:
-        writer = csv.DictWriter(handle, fieldnames=SUBSCRIBER_COLUMNS, lineterminator="\n")
+        writer = csv.DictWriter(
+            handle, fieldnames=SUBSCRIBER_COLUMNS, lineterminator="\n"
+        )
         writer.writeheader()
         async for subscriber in tg.iter_participants(entity, limit=limit):
             writer.writerow(_subscriber_to_row(subscriber))

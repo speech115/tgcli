@@ -66,7 +66,9 @@ def safe_filename(name: str | None, message_id: int) -> str:
 
 
 def destination_for(name: str, requested: str | None) -> Path:
-    path = Path(requested).expanduser() if requested else Path.home() / "Downloads" / name
+    path = (
+        Path(requested).expanduser() if requested else Path.home() / "Downloads" / name
+    )
     if path.exists():
         raise PolicyError(f"output path already exists: {path}")
     return path
@@ -98,7 +100,7 @@ async def resolve_message(tg, source: MediaSource, account_alias: str):
         entity = (
             await _resolve_private_entity(tg, source.private_channel_id, account_alias)
             if source.private_channel_id is not None
-            else await tg.get_entity(chatref.parse(source.chat))
+            else await tg.get_entity(chatref.parse(source.chat))  # type: ignore  # chat set when no private link
         )
     except ValueError:
         raise NotFoundError(f"dialog not found: {source.chat!r}") from None
@@ -110,7 +112,11 @@ async def resolve_message(tg, source: MediaSource, account_alias: str):
 
 
 def _source_label(source: MediaSource) -> str:
-    chat = f"private:{source.private_channel_id}" if source.private_channel_id else source.chat
+    chat = (
+        f"private:{source.private_channel_id}"
+        if source.private_channel_id
+        else source.chat
+    )
     return f"{chat}:{source.message_id}"
 
 
@@ -144,7 +150,9 @@ def _write_state(
     )
 
 
-def _resume_offset(state_path: Path, part_path: Path, source: MediaSource, destination: Path) -> int:
+def _resume_offset(
+    state_path: Path, part_path: Path, source: MediaSource, destination: Path
+) -> int:
     if not state_path.exists():
         if part_path.exists():
             raise PolicyError(f"partial media download has no state: {part_path}")
@@ -164,7 +172,9 @@ def _resume_offset(state_path: Path, part_path: Path, source: MediaSource, desti
         or offset < 0
         or offset > part_size
     ):
-        raise PolicyError(f"media download state does not match requested output: {state_path}")
+        raise PolicyError(
+            f"media download state does not match requested output: {state_path}"
+        )
     if offset < part_size:
         with part_path.open("r+b") as handle:
             handle.truncate(offset)
@@ -193,7 +203,9 @@ async def download_media(
     destination.parent.mkdir(parents=True, exist_ok=True)
     if parallel > 1:
         if resumed:
-            raise PolicyError("parallel media download cannot resume an interrupted transfer")
+            raise PolicyError(
+                "parallel media download cannot resume an interrupted transfer"
+            )
         return await _download_parallel(
             tg,
             message,
@@ -259,7 +271,9 @@ async def _download_parallel(
 ) -> dict:
     total = _message_size(message)
     if not isinstance(total, int) or total <= 0:
-        raise NotFoundError(f"media size is unavailable for parallel download: {source.message_id}")
+        raise NotFoundError(
+            f"media size is unavailable for parallel download: {source.message_id}"
+        )
 
     with part_path.open("xb") as handle:
         handle.truncate(total)

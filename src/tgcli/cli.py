@@ -70,7 +70,9 @@ def build_parser() -> argparse.ArgumentParser:
         "list", help="List configured accounts", parents=[global_flags]
     )
     p_import = accounts_sub.add_parser(
-        "import", help="Copy authorized sessions from the old stack", parents=[global_flags]
+        "import",
+        help="Copy authorized sessions from the old stack",
+        parents=[global_flags],
     )
     p_import.add_argument("aliases", nargs="*", metavar="ALIAS")
     p_import.add_argument("--source-root", type=Path, default=Path("~"))
@@ -79,29 +81,41 @@ def build_parser() -> argparse.ArgumentParser:
     p_dialogs = sub.add_parser("dialogs", help="List dialogs", parents=[global_flags])
     p_dialogs.add_argument("--limit", type=int, default=50)
 
-    p_read = sub.add_parser("read", help="Read recent messages from a dialog", parents=[global_flags])
+    p_read = sub.add_parser(
+        "read", help="Read recent messages from a dialog", parents=[global_flags]
+    )
     p_read.add_argument("chat", help="@username, t.me link, or dialog id")
     p_read.add_argument("--limit", type=int, default=20)
 
-    p_search = sub.add_parser("search", help="Search messages in a dialog", parents=[global_flags])
+    p_search = sub.add_parser(
+        "search", help="Search messages in a dialog", parents=[global_flags]
+    )
     p_search.add_argument("chat", help="@username, t.me link, or dialog id")
     p_search.add_argument("query")
     p_search.add_argument("--limit", type=int, default=20)
 
-    p_latest = sub.add_parser("latest", help="Read the latest dialog message", parents=[global_flags])
+    p_latest = sub.add_parser(
+        "latest", help="Read the latest dialog message", parents=[global_flags]
+    )
     p_latest.add_argument("chat", help="@username, t.me link, or dialog id")
 
-    p_message = sub.add_parser("message", help="Read one message by id", parents=[global_flags])
+    p_message = sub.add_parser(
+        "message", help="Read one message by id", parents=[global_flags]
+    )
     p_message.add_argument("chat", help="@username, t.me link, or dialog id")
     p_message.add_argument("message_id", type=int)
 
     p_info = sub.add_parser("info", help="Show dialog metadata", parents=[global_flags])
     p_info.add_argument("chat", help="@username, t.me link, or dialog id")
 
-    p_count = sub.add_parser("count", help="Count dialog messages", parents=[global_flags])
+    p_count = sub.add_parser(
+        "count", help="Count dialog messages", parents=[global_flags]
+    )
     p_count.add_argument("chat", help="@username, t.me link, or dialog id")
 
-    p_media = sub.add_parser("media", help="Download message media", parents=[global_flags])
+    p_media = sub.add_parser(
+        "media", help="Download message media", parents=[global_flags]
+    )
     media_sub = p_media.add_subparsers(dest="media_command", required=True)
     p_download = media_sub.add_parser("download", parents=[global_flags])
     p_download.add_argument("source", help="t.me link or chat reference")
@@ -109,30 +123,40 @@ def build_parser() -> argparse.ArgumentParser:
     p_download.add_argument("--output", help="final output path")
     p_download.add_argument("--parallel", type=int, default=1)
 
-    p_send = sub.add_parser("send", help="Preview and commit a message", parents=[global_flags])
+    p_send = sub.add_parser(
+        "send", help="Preview and commit a message", parents=[global_flags]
+    )
     p_send.add_argument("chat", nargs="?", help="target for --preview")
     p_send.add_argument("text", nargs="?", help="message text for --preview")
     p_send.add_argument("--preview", action="store_true")
     p_send.add_argument("--commit", metavar="PREVIEW_ID")
 
-    p_api = sub.add_parser("api", help="Call an allowlisted raw TL method", parents=[global_flags])
+    p_api = sub.add_parser(
+        "api", help="Call an allowlisted raw TL method", parents=[global_flags]
+    )
     p_api.add_argument("method", metavar="METHOD")
     p_api.add_argument("--params", metavar="JSON")
     p_api.add_argument("--write", action="store_true")
     p_api.add_argument("--confirm", metavar="METHOD")
 
-    p_export = sub.add_parser("export", help="Export Telegram data", parents=[global_flags])
+    p_export = sub.add_parser(
+        "export", help="Export Telegram data", parents=[global_flags]
+    )
     export_sub = p_export.add_subparsers(dest="export_kind", required=True)
     p_export_messages = export_sub.add_parser("messages", parents=[global_flags])
     p_export_messages.add_argument("chat", help="@username, t.me link, or dialog id")
     p_export_messages.add_argument("--output", required=True, type=Path)
     p_export_messages.add_argument("--limit", type=int)
     p_export_subscribers = export_sub.add_parser("subscribers", parents=[global_flags])
-    p_export_subscribers.add_argument("channel", help="@username, t.me link, or dialog id")
+    p_export_subscribers.add_argument(
+        "channel", help="@username, t.me link, or dialog id"
+    )
     p_export_subscribers.add_argument("--output", required=True, type=Path)
     p_export_subscribers.add_argument("--limit", type=int)
 
-    p_clone = sub.add_parser("clone", help="Copy a supported chat", parents=[global_flags])
+    p_clone = sub.add_parser(
+        "clone", help="Copy a supported chat", parents=[global_flags]
+    )
     clone_sub = p_clone.add_subparsers(dest="clone_command", required=True)
     p_clone_status = clone_sub.add_parser("status", parents=[global_flags])
     p_clone_status.add_argument(
@@ -142,9 +166,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_clone_init.add_argument("source", help="source channel, supergroup, or dialog")
     p_clone_init.add_argument("--commit", metavar="PREVIEW_ID")
     p_clone_init.add_argument(
-        "--replace", action="store_true",
+        "--replace",
+        action="store_true",
         help="supersede an incompatible or stale clone: archive its state and "
-             "start a fresh destination pair")
+        "start a fresh destination pair",
+    )
     p_clone_sync = clone_sub.add_parser("sync", parents=[global_flags])
     p_clone_sync.add_argument("source", help="source channel, supergroup, or dialog")
     p_clone_sync.add_argument("--limit", type=int)
@@ -153,12 +179,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 async def _run_network(args, account) -> tuple[dict, list[tuple]]:
-    mutation_safe = (
-        args.command == "clone"
-        and (
-            args.clone_command == "sync"
-            or (args.clone_command == "init" and args.commit is not None)
-        )
+    mutation_safe = args.command == "clone" and (
+        args.clone_command == "sync"
+        or (args.clone_command == "init" and args.commit is not None)
     )
     try:
         async with session.client(account, mutation_safe=mutation_safe) as tg:
@@ -189,7 +212,9 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                 source = media_cmd.parse_source(args.source, args.message_id)
 
                 def progress(current: int, total: int | None) -> None:
-                    output.note(f"downloaded {current}/{total if total is not None else '?'} bytes")
+                    output.note(
+                        f"downloaded {current}/{total if total is not None else '?'} bytes"
+                    )
 
                 data = await media_cmd.download_media(
                     tg,
@@ -205,7 +230,9 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                     data = await send_cmd.prepare(tg, args.chat, args.text)
                 else:
                     data = await send_cmd.commit(
-                        tg, args.commit, args.preview_payload
+                        tg,
+                        args.commit,  # type: ignore  # preview load guards None
+                        args.preview_payload,
                     )
                 return data, send_cmd.to_rows(data)
             if args.command == "api":
@@ -227,7 +254,8 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                     )
                 else:
                     data = await clone_cmd.preview_init(
-                        tg, args.source, replace=args.replace)
+                        tg, args.source, replace=args.replace
+                    )
                 return data, clone_cmd.init_rows(data)
             if args.command == "clone" and args.clone_command == "sync":
                 data = await clone_cmd.sync_text(
@@ -286,7 +314,9 @@ def main(argv: list[str] | None = None) -> int:
                 args.preview_payload = safety.consume_preview(args.commit)
             elif not (args.preview and args.chat is not None and args.text is not None):
                 try:
-                    parser.error("send requires CHAT TEXT --preview or --commit PREVIEW_ID")
+                    parser.error(
+                        "send requires CHAT TEXT --preview or --commit PREVIEW_ID"
+                    )
                 except SystemExit:
                     return 1
         if args.command == "clone" and args.clone_command == "init" and args.commit:
@@ -302,9 +332,15 @@ def main(argv: list[str] | None = None) -> int:
             args.method = api_cmd.canonical_method(args.method)
             if api_cmd.is_hard_denied(args.method):
                 raise PolicyError("raw API method is permanently denied")
-            confirm = api_cmd.try_canonical_method(args.confirm) if args.confirm else args.confirm
+            confirm = (
+                api_cmd.try_canonical_method(args.confirm)
+                if args.confirm
+                else args.confirm
+            )
             if api_cmd.requires_confirmation(args.method) and confirm != args.method:
-                raise PolicyError("raw API destructive write requires exact --confirm METHOD")
+                raise PolicyError(
+                    "raw API destructive write requires exact --confirm METHOD"
+                )
         if args.command == "api" and not args.write:
             canonical = api_cmd.try_canonical_method(args.method)
             if canonical is None or not api_cmd.is_read_method(canonical):
@@ -332,9 +368,13 @@ def main(argv: list[str] | None = None) -> int:
                 account = resolve_account(config, args.account)
                 args.account = account.alias
                 if args.verbose:
-                    LOGGER.debug("resolved account=%s command=%s", account.alias, args.command)
+                    LOGGER.debug(
+                        "resolved account=%s command=%s", account.alias, args.command
+                    )
                 if args.command == "send" and args.commit:
-                    safety.append_audit("send", account.alias, {"preview_id": args.commit})
+                    safety.append_audit(
+                        "send", account.alias, {"preview_id": args.commit}
+                    )
                 if args.command == "api" and args.write:
                     safety.append_audit("api", account.alias, {"method": args.method})
                 network = _run_network(args, account)
@@ -344,7 +384,9 @@ def main(argv: list[str] | None = None) -> int:
                 ) and not timeout_supplied:
                     data, rows = asyncio.run(network)
                 else:
-                    data, rows = asyncio.run(asyncio.wait_for(network, timeout=args.timeout))
+                    data, rows = asyncio.run(
+                        asyncio.wait_for(network, timeout=args.timeout)
+                    )
     except TgcliError as err:
         output.emit_error(err, as_json=args.json)
         error_code = err.code
@@ -359,7 +401,10 @@ def main(argv: list[str] | None = None) -> int:
             output.emit_plain(rows)
         else:
             output.emit_plain(
-                [(" | ".join("" if cell is None else str(cell) for cell in row),) for row in rows]
+                [
+                    (" | ".join("" if cell is None else str(cell) for cell in row),)
+                    for row in rows
+                ]
             )
         exit_code = 0
     finally:

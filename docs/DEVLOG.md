@@ -14,6 +14,30 @@ Template:
 ```
 
 
+## 2026-07-17 — CI gains ruff + pyright gates (Claude Fable 5)
+**Did:** ADR-0027: dev deps gain ruff + pyright; CI now runs `ruff check`,
+`ruff format --check`, and `pyright` (basic, `src/` only) before pytest.
+One-time repo-wide `ruff format` (48 files). Fixed what pyright found:
+`session.py` `**dict` expansion replaced with explicit kwargs (it blinded
+the checker to every TelegramClient kwarg — 16 of the 32 errors), our own
+`object` annotations became `Any` where attributes are accessed
+dynamically (`batching.ServiceSkip.message`, `_marker_candidates`),
+`cast` after explicit validation in `comments._anchor_posts` /
+`topics._confirm_batch`, inline `# type: ignore` with reasons on five
+Telethon stub gaps. Ruff: E401 + 3×E731 fixed. All gates green: ruff
+clean, 80 files formatted, pyright 0 errors, 480 passed / 8 skipped,
+coverage OK.
+**Decided:** ADR-0027 — format enforced in CI because the local edit hook
+already ruff-formats every touched file (without a baseline, every PR
+mixes format noise into logic diffs); tests stay outside pyright scope;
+stub gaps get inline ignores with reasons, never repo-wide disables.
+**Learned:** the local edit hook also strips unused imports, so adding an
+import in one edit and its usage in the next silently loses the import —
+add both in the same edit. `**{...}` kwargs expansion defeats pyright's
+call-site checking entirely; explicit kwargs are both clearer and
+checkable.
+**Next:** consider bumping version to 1.0.0 (audit item #5).
+
 ## 2026-07-17 — Maintenance mode: coordination docs realigned (Claude Fable 5)
 **Did:** wrote ADR-0026 (maintenance mode); AGENTS.md gained a Maintenance
 Mode section and a corrected Read First (current scope → ISSUES.md, ADRs

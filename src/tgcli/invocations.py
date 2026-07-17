@@ -27,6 +27,11 @@ def log_invocation(
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a") as handle:
-            handle.write(json.dumps({key: value for key, value in entry.items() if value is not None}) + "\n")
+            handle.write(
+                json.dumps(
+                    {key: value for key, value in entry.items() if value is not None}
+                )
+                + "\n"
+            )
     except OSError as exc:
         print(f"warning: invocation journal not written: {exc}", file=sys.stderr)

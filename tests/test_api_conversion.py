@@ -31,7 +31,9 @@ async def test_call_serializes_tl_result_in_raw_api_envelope():
             assert request.__class__.__name__ == "GetFullUserRequest"
             return Result()
 
-    assert await call(Client(), "users.getFullUser", '{"id": {"_": "InputUserSelf"}}') == {
+    assert await call(
+        Client(), "users.getFullUser", '{"id": {"_": "InputUserSelf"}}'
+    ) == {
         "method": "users.getFullUser",
         "result": {"_": "UserFull", "id": 42},
     }

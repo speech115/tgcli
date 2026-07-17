@@ -16,7 +16,10 @@ def _name(entity, fallback: str) -> str:
         return title
     name = " ".join(
         part
-        for part in (getattr(entity, "first_name", None), getattr(entity, "last_name", None))
+        for part in (
+            getattr(entity, "first_name", None),
+            getattr(entity, "last_name", None),
+        )
         if part
     )
     return name or getattr(entity, "username", None) or fallback
