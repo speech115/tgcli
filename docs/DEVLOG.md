@@ -14,6 +14,53 @@ Template:
 ```
 
 
+## 2026-07-17 — Clone channel comments shipped, round 3 (Claude Opus 4.8)
+**Did:** executed `docs/superpowers/plans/2026-07-17-clone-comments.md` task by
+task (7 commits, `557ab52`…`7b8cb6c`): amended the ADR-0021 attribution ladder
+globally to identify authors (`attribution.author_of` → `Author(text,
+mention_user_id)`, username → profile mention → id → post signature → "id
+unknown"); added `comments`/`discussion_*` fields to `CloneState` with
+fail-closed validation and bumped `state.VERSION` to 2 (no migration, old
+files rejected); added `clone/legs.py` (the `Leg` seam so `batching.plan` /
+`transport.decide` / `replies.target` read either the post fields or the
+discussion fields of `CloneState` without a duplicated sync loop); added
+`clone/discussion.py` (linked-chat detection via `linked_chat_id` only —
+`linked_monoforum_id` is never read — destination group create/adopt/link,
+anchor lookup, shared tail-verify) and `clone/comments.py` (phase-2 sync
+leg: skip Telegram's own auto-forward anchors, remap a comment's thread
+root from source anchor → source post → destination post → destination
+anchor, carrying the quote explicitly); wired `commands/clone.py` so `init`
+creates/links a second `<marker>-discussion` megagroup before the first post
+syncs, and `sync` runs phase 2 after phase 1 exhausts (or after `--limit`
+budget remains) reporting `skipped_autoforward`/`discussion_cursor`. Wrote
+ADR-0023, updated CONTRACT.md §11 (verified every sample JSON key and plain
+column order against the actual code and `tests/test_cli_clone_status.py` /
+`tests/test_cli_clone_sync.py`), MAP.md, PLAN.md, and the spec header/open
+question. Full suite: `454 passed, 8 skipped`.
+**Decided:** module layout deviates from the spec's single `discussion.py` —
+split into `discussion.py` (detection/anchors/linking, ≤120 lines),
+`comments.py` (the phase-2 loop), and `legs.py` (≤60 lines) to keep every
+file inside budget and `state.py` a pure data module. `comments:
+"unavailable"` (unreadable linked group) is a permanent honest marker, not a
+`PolicyError` — no retroactive backfill exists server-side, so existing
+clones re-init against a fresh destination to opt in. `--limit` spends phase
+1 to exhaustion before phase 2 starts (the spec's one open question,
+resolved sequential-first).
+**Learned:** direct comments carry `reply_to_top_id = null` (only nested
+comment-on-comment replies set it) so thread-root detection must key off
+`reply_to_msg_id == known anchor`, not `top_id` presence; `from_id = null`
+happens on real comments in the wild, exercising the post-signature/`id
+unknown` ladder rungs for real; a channel ALBUM post auto-forwards into the
+linked group as an album too, so anchor recognition is per-batch
+(`_anchor_posts`), and a batch mixing anchors with real content is a
+`PolicyError` rather than a silent partial skip; a destination comment's
+reply header is rebuilt from scratch against the destination anchor, so the
+source quote has to be carried across explicitly instead of riding along.
+**Next:** run the live acceptance gate — `tg clone init` on a real
+comments-active channel, `tg clone sync` to completion, verify the comments
+button/thread order/clickable prefixes in a client, rerun for idempotency —
+and report the double FLOOD_WAIT exposure from creating two peers per init.
+
 ## 2026-07-17 — Clone deepening refactor (Claude Opus 4.8)
 **Did:** executed the behavior-frozen clone deepening refactor plan
 (`docs/superpowers/plans/2026-07-16-clone-deepening-refactor.md`). Extracted

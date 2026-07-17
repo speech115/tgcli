@@ -59,7 +59,7 @@ Username source: `entity.username` if truthy, else the first `usernames` item wi
 
 `prefixed` keeps the existing UTF-16 offset shift for pre-existing entities and, when `mention_user_id` is set, prepends `types.MessageEntityMentionName(offset=0, length=<utf-16 length of author.text>, user_id=author.mention_user_id)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_clone_attribution.py` (keep the existing tests, adapting them to `Author`/`author_of`):
 
@@ -160,29 +160,29 @@ def test_author_of_falls_back_to_id_unknown_without_sender_or_signature():
 
 Note: the last two use a non-`types.User` source so the `peer is None and isinstance(source, types.User)` branch does not fire.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest -q tests/test_clone_attribution.py`
 Expected: FAIL — `AttributeError: module 'tgcli.clone.attribution' has no attribute 'Author'`.
 
-- [ ] **Step 3: Implement the ladder**
+- [x] **Step 3: Implement the ladder**
 
 Rewrite `author_name` as `author_of` returning `Author`, keeping the existing me/source/cache branches. Extend `prefixed` to accept `Author | None` and emit `MessageEntityMentionName`. Keep the entity-copy discipline (never mutate caller entities).
 
-- [ ] **Step 4: Update call sites**
+- [x] **Step 4: Update call sites**
 
 In `src/tgcli/commands/clone.py`, `attribution.author_name(...)` → `attribution.author_of(...)`; the `author` value flows into `prefixed` unchanged (it is now an `Author`, not a `str`). Type hints on `_forward_batch`/`_reupload_batch` `author` params, if any, become `attribution.Author | None`.
 
-- [ ] **Step 5: Fix the sync suite's prefix expectations**
+- [x] **Step 5: Fix the sync suite's prefix expectations**
 
 `tests/test_cli_clone_sync.py` asserts prefixes like `"Ivan: text"` for megagroup clones. Update the affected assertions to the new ladder output for the fakes they use, and add one assertion that a username-less user sender produces a `MessageEntityMentionName` at offset 0 in the sent request's `entities`.
 
-- [ ] **Step 6: Run the suite**
+- [x] **Step 6: Run the suite**
 
 Run: `pytest -q`
 Expected: PASS. Then `wc -l src/tgcli/clone/attribution.py` ≤ 110.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/tgcli/clone/attribution.py src/tgcli/commands/clone.py tests/test_clone_attribution.py tests/test_cli_clone_sync.py
@@ -217,7 +217,7 @@ git commit -m "feat: identify clone authors by username or profile mention"
 
 Validation in `from_dict`, fail-closed like `topic_map`: `comments` in the allowed set; `discussion_id_map` keys are canonical decimal strings in `1..2_147_483_647` with int values in the same range and no duplicate values; `discussion_cursor` a non-negative int; `comments == "enabled"` requires `discussion_source_peer_id` and `source_kind == "broadcast"`; `comments != "enabled"` forbids `discussion_id_map` and a non-zero `discussion_cursor`; `discussion_linked` implies `discussion_destination_peer_id is not None`. Anything else → `ValueError("inconsistent discussion state")`, which `load` already turns into the standard PolicyError.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_clone_state.py`, following the existing round-2 `topic_map` test style:
 
@@ -300,21 +300,21 @@ def _valid_payload(**overrides):
     return payload
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest -q tests/test_clone_state.py`
 Expected: FAIL — missing `comments` / `record_discussion_mapping`.
 
-- [ ] **Step 3: Implement fields, methods, validation, `VERSION = 2`**
+- [x] **Step 3: Implement fields, methods, validation, `VERSION = 2`**
 
 Add fields to the dataclass, to `to_dict`, and validate in `from_dict`. Add the three methods.
 
-- [ ] **Step 4: Run the suite**
+- [x] **Step 4: Run the suite**
 
 Run: `pytest -q`
 Expected: PASS (existing state tests that pin `version: 1` payloads must be updated to `state.VERSION`). Then `wc -l src/tgcli/clone/state.py` ≤ 190.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tgcli/clone/state.py tests/test_clone_state.py
@@ -357,7 +357,7 @@ Pure refactor, no behavior change. This is the seam that lets phase 2 reuse phas
 
 `replies.target(messages, leg, source)` and `transport.decide(messages, leg, source)` take a `Leg` where they took a `CloneState` — they already only read `source_kind`, `destination_kind`, and `dest_for`. Rename their parameter to `leg`; no logic changes. `_forward_batch` and `copy_batch` in `clone.py` take both `clone_state` (for cooldown/save/audit) and `leg` (for `record_mapping`, `cursor`, `source_kind` in `drop_author`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/test_clone_legs.py`:
 
@@ -410,23 +410,23 @@ def test_discussion_leg_applies_megagroup_rules():
     assert leg.destination_kind == "megagroup"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest -q tests/test_clone_legs.py`
 Expected: FAIL — `ModuleNotFoundError: No module named 'tgcli.clone.legs'`.
 
-- [ ] **Step 3: Implement `legs.py`**
+- [x] **Step 3: Implement `legs.py`**
 
-- [ ] **Step 4: Rewire phase 1 through `legs.posts`**
+- [x] **Step 4: Rewire phase 1 through `legs.posts`**
 
 Thread a `leg = legs.posts(clone_state)` through `sync_text` → `copy_batch` → `transport.decide` / `_forward_batch`. Replace `clone_state.record_mapping` / `clone_state.cursor` / `clone_state.source_kind` inside the batch path with the leg. `state.save(clone_state)` stays as-is. Update `tests/test_clone_replies.py` and `tests/test_clone_transport.py` to pass `legs.posts(clone_state)`.
 
-- [ ] **Step 5: Run the suite**
+- [x] **Step 5: Run the suite**
 
 Run: `pytest -q`
 Expected: PASS with no test behavior changed — phase 1 is byte-for-byte the same behavior. Then `wc -l src/tgcli/clone/legs.py` ≤ 60.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/tgcli/clone/legs.py src/tgcli/clone/replies.py src/tgcli/clone/transport.py src/tgcli/commands/clone.py tests/test_clone_legs.py tests/test_clone_replies.py tests/test_clone_transport.py
@@ -475,7 +475,7 @@ Pure-ish module: no sync loop, no init flow. Those land in Tasks 5 and 6.
 
 `anchor_for` calls `functions.messages.GetDiscussionMessageRequest(peer=destination_channel, msg_id=destination_post_id)`; the anchor is the first item of `response.messages` with an int `id`; missing → `None`. Cache key is `destination_post_id`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/test_clone_discussion.py`:
 
@@ -573,19 +573,19 @@ def test_anchor_for_returns_none_without_anchor():
     assert asyncio.run(discussion.anchor_for(mutate, "dest", 10, {})) is None
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest -q tests/test_clone_discussion.py`
 Expected: FAIL — `ModuleNotFoundError: No module named 'tgcli.clone.discussion'`.
 
-- [ ] **Step 3: Implement `discussion.py`**
+- [x] **Step 3: Implement `discussion.py`**
 
-- [ ] **Step 4: Run the suite**
+- [x] **Step 4: Run the suite**
 
 Run: `pytest -q`
 Expected: PASS. Then `wc -l src/tgcli/clone/discussion.py` ≤ 120.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tgcli/clone/discussion.py tests/test_clone_discussion.py
@@ -618,7 +618,7 @@ Init now creates two peers per clone; the existing cooldown discipline (`_enforc
 
 `_entry` (used by `clone status`) gains `"comments": s.comments`, and `status_rows` gains a trailing `comments` column.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_cli_clone_init.py`, following the file's existing fake-client + `main([...])` style. Required cases:
 
@@ -650,23 +650,23 @@ def test_init_rejects_a_discussion_marker_matching_multiple_groups(...):
 
 The init fake client needs: `GetFullChannelRequest` returning a `full_chat` with `linked_chat_id`, `get_entity(PeerChannel(linked))` returning a megagroup, `get_messages(linked_entity, limit=1)` returning one message (or raising), `CreateChannelRequest` returning the new megagroup, and recording `TogglePreHistoryHiddenRequest` / `SetDiscussionGroupRequest`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest -q tests/test_cli_clone_init.py -k discussion`
 Expected: FAIL — no discussion requests issued.
 
-- [ ] **Step 3: Implement the init flow**
+- [x] **Step 3: Implement the init flow**
 
-- [ ] **Step 4: Add `comments` to status output**
+- [x] **Step 4: Add `comments` to status output**
 
 Update `_entry`, `status_rows`, and `tests/test_cli_clone_status.py`.
 
-- [ ] **Step 5: Run the suite**
+- [x] **Step 5: Run the suite**
 
 Run: `pytest -q`
 Expected: PASS. Then `wc -l src/tgcli/commands/clone.py` ≤ 460.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/tgcli/commands/clone.py tests/test_cli_clone_init.py tests/test_cli_clone_status.py
@@ -703,7 +703,7 @@ Behavior:
 - `--limit N`: `copied_batches` is shared across phases; phase 2 breaks on the same check and sets `more = True`. When the limit lands inside phase 2, comments lag posts until the next run — accepted.
 - Per-batch guarantees carry over: state saved after each confirmed batch, FloodWait → cooldown persisted → exit 5 without advancing the current batch.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_cli_clone_sync.py` a `CloneCommentsClient` (extends `CloneReuploadClient`): a source channel with a linked group, a seeded `comments="enabled"` state, `iter_messages` serving either peer, `GetDiscussionMessageRequest` returning an anchor id, and recording sends per peer. Required cases:
 
@@ -749,19 +749,19 @@ def test_sync_skips_phase_two_when_comments_are_unavailable(...):
     skipped_autoforward == 0."""
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest -q tests/test_cli_clone_sync.py -k comment`
 Expected: FAIL — `KeyError: 'skipped_autoforward'`.
 
-- [ ] **Step 3: Implement phase 2**
+- [x] **Step 3: Implement phase 2**
 
-- [ ] **Step 4: Run the suite**
+- [x] **Step 4: Run the suite**
 
 Run: `pytest -q`
 Expected: PASS. Then `wc -l src/tgcli/commands/clone.py` ≤ 460 — **if over, cut before adding** (candidates: move the tail verification and the anchor remap helper into `discussion.py`, which has room under its 120-line budget).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tgcli/commands/clone.py src/tgcli/clone/discussion.py tests/test_cli_clone_sync.py
@@ -779,27 +779,27 @@ git commit -m "feat: clone channel comments into the linked discussion group"
 
 **Interfaces:** consumes the shipped behavior of Tasks 1–6.
 
-- [ ] **Step 1: Write ADR-0023**
+- [x] **Step 1: Write ADR-0023**
 
 Follow the shape of `ADR-0022-clone-forum-topics.md`. Content: comments design; the anchor-timing constraint (link before the first post, no retroactive backfill, existing clones re-init to opt in); the global prefix-format amendment to ADR-0021 (Task 1's ladder); the `legs.py` deviation from the spec's module budget table and why; `comments: unavailable` as an honest permanent marker rather than a PolicyError; monoforum ≠ discussion group.
 
-- [ ] **Step 2: Update CONTRACT.md §11**
+- [x] **Step 2: Update CONTRACT.md §11**
 
 Document: the `comments` field in `clone status` / `init` / `sync` output and its three values; the new `skipped_autoforward` and `discussion_cursor` sync counters; the new trailing plain-output columns for status/init/sync; the two-peer init and the `-discussion` marker; that `--limit` spends phase 1 first. Update the sample JSON lines to match the real payloads.
 
-- [ ] **Step 3: Update MAP.md**
+- [x] **Step 3: Update MAP.md**
 
 Add `clone/discussion.py` and `clone/legs.py` with one-line responsibilities.
 
-- [ ] **Step 4: Update PLAN.md and the spec header**
+- [x] **Step 4: Update PLAN.md and the spec header**
 
 Mark round 3 complete in PLAN.md. In the spec: `Status: implemented (2026-07-17)`, and under Open questions record the resolution — `--limit` runs phase 1 to exhaustion first.
 
-- [ ] **Step 5: Append the DEVLOG entry**
+- [x] **Step 5: Append the DEVLOG entry**
 
 Per AGENTS.md: what shipped, what is live-unverified (the live acceptance gate below), what is next.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/

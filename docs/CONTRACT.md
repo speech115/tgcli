@@ -232,7 +232,7 @@ unparseable credentials for a newly configured account exits 3.
 
 `--plain` emits frozen TSV columns: `alias`, `status`, `config`.
 
-## 11. Chat Clone (ADR-0017, ADR-0021, ADR-0022)
+## 11. Chat Clone (ADR-0017, ADR-0021, ADR-0022, ADR-0023)
 
 `tg clone` is the canonical chat-copy surface. It accepts broadcast channels,
 megagroup supergroups (forum and non-forum), live legacy basic groups, and
@@ -243,6 +243,18 @@ a forum source clones into a private owned forum megagroup with a 1:1 topic map;
 every other source clones into a private owned broadcast channel. Destinations
 are tool-created and tool-controlled; cloning into pre-existing or shared groups
 is not supported.
+
+A broadcast source with a readable linked discussion group (`ChannelFull.
+linked_chat_id`; a monoforum's `linked_monoforum_id` is never read — it is
+not a comment section) additionally gets a second private owned megagroup,
+created and linked before the first post is synced, cloning the source's
+comment threads. State and every `status`/`init`/`sync` response carry a
+`comments` field: `"enabled"` (linked group readable, threads clone),
+`"unavailable"` (linked group exists but is unreadable — the channel still
+clones posts-only, and the marker is permanent; there is no backfill, only a
+fresh `init` against a new destination), or `"none"` (no linked group, or a
+non-broadcast source). Existing clones from before this feature have
+`comments: "none"` and are never retroactively upgraded.
 
 ```text
 tg clone status [SOURCE]
@@ -256,11 +268,11 @@ session. Without `SOURCE` it lists every JSON state file; with `SOURCE` it
 filters by exact numeric source id or case-insensitive title substring. JSON:
 
 ```json
-{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"megagroup"},"destination_id":999,"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null}]}
+{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination_id":999,"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled"}]}
 ```
 
 Plain status columns are `source_peer_id`, `source_title`, `source_kind`,
-`destination_peer_id`, `cursor`, `copied`, `last_synced_at`.
+`destination_peer_id`, `cursor`, `copied`, `last_synced_at`, `comments`.
 
 `init SOURCE` is a read-only network preview. It resolves the source, verifies
 that its kind is accepted, reads the approximate message count and
@@ -280,11 +292,25 @@ source kind still match the preview, then creates or recovers one private
 creator-owned destination of the source-dependent kind. JSON:
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":{"id":999,"title":"Source"},"status":"ready","commit_required":false}}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":{"id":999,"title":"Source"},"comments":"none","status":"ready","commit_required":false}}
 ```
 
-Plain init columns are `status`, `clone_id`, `source_peer_id`,
-`destination_peer_id`.
+Plain init columns are unchanged by comments support: `status`, `clone_id`,
+`source_peer_id`, `destination_peer_id`. `comments` is JSON-only on `init`.
+
+For a broadcast source, commit also creates or recovers a second peer: a
+private owned megagroup titled `<creation_marker>-discussion`, using the
+same crash-recovery marker-scan discipline as the destination channel (a
+crash between group-create and `SetDiscussionGroupRequest` recovers by
+re-adopting the marked group and relinking — idempotent). Its
+title/about/avatar are copied from the source discussion group, then
+`channels.SetDiscussionGroupRequest` links it to the destination channel
+strictly before `sync` sends the first post. A linked source group that
+cannot be read (private, not a member) skips group creation entirely and
+sets `comments: "unavailable"`; a source with no linked group at all sets
+`comments: "none"`. Non-broadcast sources never attempt this and always
+report `comments: "none"`. Init's live ~15h FLOOD_WAIT window on rapid peer
+creation applies to up to two peers per run instead of one.
 
 Before creation, state with `destination_peer_id:null` and title marker
 `tgcli-clone-<clone-id-prefix>` is atomically saved under
@@ -348,6 +374,31 @@ For forum clones, a topic-create service message creates the matching
 destination topic (counted in `topics_created`, not `skipped_service`); messages
 arriving for an unmapped topic recover it from the source topic's current title.
 
+When `comments == "enabled"`, sync runs a second phase after phase 1
+(channel posts) reaches exhaustion: it copies the linked source discussion
+group into the clone's own linked group, oldest to newest, under its own
+cursor (`discussion_cursor` in state and in the JSON `sync` object; the top-
+level `sync.clone` object itself carries no `comments` field). `--limit N`
+is not split between phases — phase 1 spends the full budget first, and
+phase 2 only starts if phase 1 did not stop on the limit; a run that stops
+inside phase 2 leaves comments lagging posts until the next invocation.
+Telegram's own auto-forwards of channel posts into the discussion group
+(recognized by `fwd_from.saved_from_peer`/`saved_from_msg_id` matching the
+source channel and post) are read-only anchors, never copied, and counted in
+`skipped_autoforward`; a channel album auto-forwards as an album, so a
+mixed batch (some anchors, some not) exits 2 before any copy. A comment's
+thread parent is remapped from the source anchor through the source post
+(`id_map`) to the destination anchor
+(`messages.GetDiscussionMessageRequest`, cached per run) so it lands as a
+reply in the right destination thread, including its quote; comment-on-
+comment parents remap through the discussion group's own `id_map`
+(`discussion_id_map`). An unmappable parent flattens on the same
+`reply_flattened` rule as any other clone. Off-thread discussion-group
+messages clone as ordinary attributed megagroup content. The discussion
+group has its own tail verification, tolerating Telegram's own anchors in
+the tail the same way the channel tail tolerates topic-create service rows;
+an unexpected discussion-group tail message exits 2 the same way.
+
 For broadcast sources, an unprotected non-reply batch uses native forwarding
 with `drop_author=True`; the destination does not expose a source-forward
 header. For attributed megagroup, forum, basic-group, and dialog sources, the
@@ -393,10 +444,10 @@ FloodWait persists the clone cooldown and exits 5 without advancing the current
 message. JSON:
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"megagroup"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"forwarded":1,"reuploaded":1,"snapshots":0,"reply_flattened":0,"skipped_service":1,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"topics_created":0,"cursor":5,"more":false}}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"cursor":5,"discussion_cursor":0,"more":false}}
 ```
 
 Plain sync columns are `copied`, `forwarded`, `reuploaded`, `snapshots`,
 `reply_flattened`, `skipped_service`, `skipped_unsupported_count`,
 `topics_created`, `cursor`, `clone_id`, `source_peer_id`,
-`destination_peer_id`, `more`.
+`destination_peer_id`, `more`, `skipped_autoforward`, `discussion_cursor`.
