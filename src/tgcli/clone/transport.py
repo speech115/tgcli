@@ -13,8 +13,8 @@ class TransportPlan:
     needs_author: bool
 
 
-def decide(messages, clone_state, source) -> TransportPlan:
-    reply_to = replies.target(messages, clone_state, source)
+def decide(messages, leg, source) -> TransportPlan:
+    reply_to = replies.target(messages, leg, source)
     header = getattr(messages[0], "reply_to", None)
     reply_flattened = (header is not None and reply_to is None
                        and not topics.placement_only(header))
@@ -26,7 +26,7 @@ def decide(messages, clone_state, source) -> TransportPlan:
         mode = "reuploaded"
     else:
         mode = "forwarded"
-    needs_author = (clone_state.source_kind != "broadcast"
+    needs_author = (leg.source_kind != "broadcast"
                     and mode != "forwarded")
     return TransportPlan(mode=mode, reply_to=reply_to,
                          reply_flattened=reply_flattened,

@@ -6,7 +6,7 @@ import pytest
 
 from telethon.tl import types
 
-from tgcli.clone import replies, state
+from tgcli.clone import legs, replies, state
 from tgcli.errors import PolicyError
 
 
@@ -15,7 +15,7 @@ def _clone_state(id_map=None):
         account_user_id=1, source_peer_id=2, source_title="src")
     for source_id, destination_id in (id_map or {}).items():
         clone_state.record_mapping(source_id, destination_id)
-    return clone_state
+    return legs.posts(clone_state)
 
 
 def _msg(reply_to=None):

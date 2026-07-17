@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from telethon.tl import types
 
-from tgcli.clone import state, transport
+from tgcli.clone import legs, state, transport
 
 
 def _clone_state(kind="broadcast", id_map=None):
@@ -12,7 +12,7 @@ def _clone_state(kind="broadcast", id_map=None):
         source_kind=kind)
     for source_id, destination_id in (id_map or {}).items():
         clone_state.record_mapping(source_id, destination_id)
-    return clone_state
+    return legs.posts(clone_state)
 
 
 def _source(noforwards=False):
