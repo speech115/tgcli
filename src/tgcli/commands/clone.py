@@ -6,7 +6,7 @@ import secrets, tempfile
 from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
 from tgcli import chatref, safety
-from tgcli.clone import attribution, fidelity, profile, replies, state, topics
+from tgcli.clone import attribution, batching, fidelity, profile, replies, state, topics
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
 def _entry(s: state.CloneState) -> dict:
     return {"clone_id": s.clone_id, "source": {"id": s.source_peer_id,
@@ -305,8 +305,8 @@ async def sync_text(tg, source: str, account_alias: str,
     reply_flattened = 0
     author_cache = {}
     more = False
-    active_album = []
-    async def finish_batch(messages) -> None:
+
+    async def copy_batch(messages) -> None:
         nonlocal copied, copied_batches, reply_flattened
         unsupported = [
             {"id": message.id, "kind": kind}
@@ -326,22 +326,21 @@ async def sync_text(tg, source: str, account_alias: str,
                 topics.topic_id_of(messages[0]), topic_counters,
                 account_alias=account_alias)
         batch_copied, mode, flattened = await _forward_batch(
-            tg, source_entity, destination, clone_state, account_alias, messages,
-            me, author_cache, reply_to, topic_dest=topic_dest
+            tg, source_entity, destination, clone_state, account_alias,
+            list(messages), me, author_cache, reply_to, topic_dest=topic_dest
         )
         copied += batch_copied
         transport_counts[mode] += batch_copied
         reply_flattened += int(flattened)
         copied_batches += 1
-    async for source_message in tg.iter_messages(
-            source_entity, min_id=clone_state.cursor, reverse=True):
-        if getattr(source_message, "action", None) is not None:
-            if active_album:
-                await finish_batch(active_album)
-                active_album = []
-            if limit is not None and copied_batches >= limit:
-                more = True
-                break
+
+    async for event in batching.plan(tg.iter_messages(
+            source_entity, min_id=clone_state.cursor, reverse=True)):
+        if limit is not None and copied_batches >= limit:
+            more = True
+            break
+        if isinstance(event, batching.ServiceSkip):
+            source_message = event.message
             if forum and isinstance(source_message.action,
                                     types.MessageActionTopicCreate):
                 if clone_state.topic_dest_for(source_message.id) is None:
@@ -354,33 +353,10 @@ async def sync_text(tg, source: str, account_alias: str,
                     topic_counters["topics_created"] += 1
             else:
                 skipped_service += 1
-            clone_state.cursor = source_message.id
+            clone_state.cursor = event.message_id
             state.save(clone_state)
             continue
-        grouped_id = getattr(source_message, "grouped_id", None)
-        if grouped_id is not None:
-            if isinstance(grouped_id, bool) or not isinstance(grouped_id, int):
-                raise PolicyError("clone album group id is invalid")
-            if active_album and active_album[0].grouped_id == grouped_id:
-                active_album.append(source_message)
-                continue
-            if active_album:
-                await finish_batch(active_album)
-                active_album = []
-            if limit is not None and copied_batches >= limit:
-                more = True
-                break
-            active_album = [source_message]
-            continue
-        if active_album:
-            await finish_batch(active_album)
-            active_album = []
-        if limit is not None and copied_batches >= limit:
-            more = True
-            break
-        await finish_batch([source_message])
-    if active_album:
-        await finish_batch(active_album)
+        await copy_batch(event.messages)
     clone_state.last_synced_at = datetime.now(UTC).isoformat()
     state.save(clone_state)
     return {"clone": {"id": clone_state.clone_id,
