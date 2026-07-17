@@ -1,6 +1,7 @@
 """Discussion groups: detection, linking and anchors for comment clones."""
 from telethon.tl import functions, types
 from tgcli.clone import topics
+from tgcli.errors import PolicyError
 
 
 def linked_chat_id(full_channel) -> int | None:
@@ -33,6 +34,30 @@ def autoforward_post_id(message, source_channel_id: int) -> int | None:
     if type(post_id) is not int or not 0 < post_id <= 2_147_483_647:
         return None
     return post_id
+
+
+async def adopt(tg, mutate, marker_candidates, marker, recorded_peer_id, on_create):
+    """The recorded peer, else the single marker-matched group, else a fresh
+    one. Same marker discipline as the destination channel."""
+    if recorded_peer_id is not None:
+        try:
+            return await tg.get_entity(types.PeerChannel(recorded_peer_id))
+        except ValueError:
+            raise PolicyError("clone discussion group is unavailable") from None
+    valid, wrong_shape = await marker_candidates(marker, is_discussion_destination)
+    if len(valid) + len(wrong_shape) > 1:
+        raise PolicyError("clone discussion marker matched multiple groups")
+    if wrong_shape:
+        raise PolicyError("clone discussion marker matched a group with wrong shape")
+    if valid:
+        return valid[0]
+    on_create()
+    update = await mutate(topics.create_request(marker))
+    candidates = [item for item in getattr(update, "chats", ())
+                  if is_discussion_destination(item, title=marker)]
+    if len(candidates) != 1:
+        raise PolicyError("Telegram did not return the created discussion group")
+    return candidates[0]
 
 
 async def ensure_linked(mutate, channel, group) -> None:

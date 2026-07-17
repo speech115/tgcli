@@ -71,6 +71,31 @@ def test_status_plain_output(capsys):
     assert "222" in out
 
 
+def test_status_reports_comments_state(capsys):
+    alpha = _seed(100000001, 111, "Alpha", dest=222)
+    alpha.comments = "enabled"
+    alpha.discussion_source_peer_id = 777
+    state.save(alpha)
+    _seed(100000001, 333, "Beta")
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    by_title = {c["source"]["title"]: c["comments"] for c in payload["clones"]}
+    assert by_title == {"Alpha": "enabled", "Beta": "none"}
+
+
+def test_status_plain_output_includes_comments(capsys):
+    seeded = _seed(100000001, 111, "Alpha", dest=222)
+    seeded.comments = "unavailable"
+    seeded.discussion_source_peer_id = 777
+    state.save(seeded)
+
+    code, out = _run(capsys, ["clone", "status", "--plain"])
+    assert code == 0
+    assert "unavailable" in out
+
+
 def test_clone_replaces_legacy_mirror_command(capsys):
     from tgcli.cli import main
 

@@ -71,10 +71,17 @@ class CloneInitClient:
         self.destination = None
         self.downloads = []
         self.uploads = []
+        self.linked = None
+        self.linked_monoforum_id = None
+        self.linked_history_error = None
+        self.discussion = None
 
     async def get_entity(self, ref):
-        if isinstance(ref, types.PeerChannel) and self.destination is not None:
-            return self.destination
+        if isinstance(ref, types.PeerChannel):
+            for entity in (self.destination, self.linked, self.discussion):
+                if entity is not None and entity.id == ref.channel_id:
+                    return entity
+            raise ValueError(f"no entity: {ref!r}")
         assert ref == "@source"
         return self.source
 
@@ -82,13 +89,18 @@ class CloneInitClient:
         return SimpleNamespace(id=42)
 
     async def get_messages(self, entity, limit=None):
+        if entity is self.linked:
+            if self.linked_history_error is not None:
+                raise self.linked_history_error
+            return [SimpleNamespace(id=1)]
         assert entity is self.source
         assert limit == 0
         return SimpleNamespace(total=321)
 
     async def iter_dialogs(self):
-        if self.destination is not None:
-            yield SimpleNamespace(entity=self.destination)
+        for entity in (self.destination, self.discussion):
+            if entity is not None:
+                yield SimpleNamespace(entity=entity)
 
     async def download_profile_photo(self, entity, file=None):
         assert entity is self.source
@@ -104,16 +116,27 @@ class CloneInitClient:
     async def __call__(self, request):
         self.requests.append(request)
         if isinstance(request, functions.channels.GetFullChannelRequest):
-            return SimpleNamespace(
-                full_chat=SimpleNamespace(about=self.source_about)
-            )
+            own = request.channel is self.source
+            return SimpleNamespace(full_chat=SimpleNamespace(
+                about=self.source_about,
+                linked_chat_id=(self.linked.id
+                                if own and self.linked is not None else None),
+                linked_monoforum_id=self.linked_monoforum_id if own else None,
+            ))
         if isinstance(request, functions.messages.GetFullChatRequest):
             return SimpleNamespace(full_chat=SimpleNamespace(about=self.source_about))
         if isinstance(request, functions.users.GetFullUserRequest):
             return SimpleNamespace(full_user=SimpleNamespace(about=self.source_about))
         if isinstance(request, functions.channels.CreateChannelRequest):
-            clone_id = state.clone_id(42, 123)
-            pending = state.load(clone_id)
+            pending = state.load(state.clone_id(42, 123))
+            if request.title.endswith("-discussion"):
+                assert pending.discussion_destination_peer_id is None
+                assert request.title == f"{pending.creation_marker}-discussion"
+                self.discussion = channel(
+                    1001, request.title, creator=True, broadcast=False,
+                    megagroup=True, forum=False,
+                )
+                return SimpleNamespace(chats=[self.discussion])
             assert pending.destination_peer_id is None
             assert pending.creation_marker == request.title
             self.destination = channel(
@@ -125,13 +148,16 @@ class CloneInitClient:
             self.destination.forum = True
             return SimpleNamespace()
         if isinstance(request, functions.channels.EditTitleRequest):
-            self.destination.title = request.title
+            request.channel.title = request.title
             return SimpleNamespace()
         if isinstance(request, functions.messages.EditChatAboutRequest):
-            self.destination.about = request.about
+            request.peer.about = request.about
             return True
         if isinstance(request, functions.channels.EditPhotoRequest):
-            self.destination.photo = request.photo
+            request.channel.photo = request.photo
+            return SimpleNamespace()
+        if isinstance(request, (functions.channels.TogglePreHistoryHiddenRequest,
+                                functions.channels.SetDiscussionGroupRequest)):
             return SimpleNamespace()
         raise AssertionError(f"unexpected request: {request!r}")
 
@@ -643,6 +669,202 @@ def test_clone_init_commit_blocks_multiple_marker_matches_without_mutation(
     assert "multiple channels" in capsys.readouterr().err
     assert client.requests == []
     assert not safety.audit_path().exists()
+
+
+def linked_group(group_id=777, title="Source chat"):
+    return channel(group_id, title, broadcast=False, megagroup=True, forum=False)
+
+
+def test_init_creates_and_links_discussion_group(config_env, monkeypatch, capsys):
+    """Source with a readable linked group: init creates a private owned
+    megagroup, links it via SetDiscussionGroupRequest, and records
+    comments == "enabled" with discussion_linked True."""
+    client = CloneInitClient()
+    client.linked = linked_group()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert main(
+        ["clone", "init", "@source", "--commit", preview["preview_id"], "--json"]
+    ) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["comments"] == "enabled"
+    [created] = [item for item in client.requests
+                 if isinstance(item, functions.channels.CreateChannelRequest)
+                 and item.title.endswith("-discussion")]
+    assert created.megagroup is True and created.broadcast is False
+    [link] = [item for item in client.requests
+              if isinstance(item, functions.channels.SetDiscussionGroupRequest)]
+    assert link.broadcast is client.destination and link.group is client.discussion
+    assert any(isinstance(item, functions.channels.TogglePreHistoryHiddenRequest)
+               and item.enabled is False for item in client.requests)
+    assert client.discussion.title == "Source chat"
+    saved = state.load(result["clone"]["id"])
+    assert saved.comments == "enabled"
+    assert saved.discussion_source_peer_id == 777
+    assert saved.discussion_destination_peer_id == 1001
+    assert saved.discussion_linked is True
+    audits = [json.loads(line) for line in safety.audit_path().read_text().splitlines()]
+    assert "clone-init-discussion-create" in [record["action"] for record in audits]
+    assert "clone-init-discussion-link" in [record["action"] for record in audits]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        telethon_errors.ChannelPrivateError(request=None),
+        telethon_errors.ChatAdminRequiredError(request=None),
+        ValueError("no history"),
+    ],
+)
+def test_init_marks_unreadable_discussion_group_unavailable(
+    error, config_env, monkeypatch, capsys
+):
+    """Linked group whose history raises ChannelPrivateError: init succeeds
+    posts-only, state records comments == "unavailable" and the source
+    discussion peer id, and no group is created."""
+    client = CloneInitClient()
+    client.linked = linked_group()
+    client.linked_history_error = error
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert main(
+        ["clone", "init", "@source", "--commit", preview["preview_id"], "--json"]
+    ) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["comments"] == "unavailable"
+    assert result["clone"]["status"] == "ready"
+    saved = state.load(result["clone"]["id"])
+    assert saved.comments == "unavailable"
+    assert saved.discussion_source_peer_id == 777
+    assert saved.discussion_destination_peer_id is None
+    assert saved.discussion_linked is False
+    assert client.discussion is None
+    assert not any(isinstance(item, functions.channels.SetDiscussionGroupRequest)
+                   for item in client.requests)
+
+
+def test_init_without_linked_chat_records_no_comments(
+    config_env, monkeypatch, capsys
+):
+    """linked_chat_id None: comments == "none", no extra requests."""
+    client = CloneInitClient()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert main(
+        ["clone", "init", "@source", "--commit", preview["preview_id"], "--json"]
+    ) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["comments"] == "none"
+    saved = state.load(result["clone"]["id"])
+    assert saved.comments == "none"
+    assert saved.discussion_source_peer_id is None
+    assert [type(request) for request in client.requests] == [
+        functions.channels.CreateChannelRequest,
+        functions.channels.EditTitleRequest,
+        functions.channels.GetFullChannelRequest,
+    ]
+
+
+def test_init_ignores_monoforum_links(config_env, monkeypatch, capsys):
+    """linked_chat_id None + linked_monoforum_id set: comments == "none"."""
+    client = CloneInitClient()
+    client.linked_monoforum_id = 888
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert main(
+        ["clone", "init", "@source", "--commit", preview["preview_id"], "--json"]
+    ) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["comments"] == "none"
+    saved = state.load(result["clone"]["id"])
+    assert saved.comments == "none"
+    assert saved.discussion_source_peer_id is None
+    assert not any(isinstance(item, functions.channels.SetDiscussionGroupRequest)
+                   for item in client.requests)
+
+
+def test_init_relinks_after_a_crash_between_create_and_link(
+    config_env, monkeypatch, capsys
+):
+    """Seeded state with discussion_destination_peer_id set and
+    discussion_linked False: init adopts the peer (no CreateChannelRequest)
+    and issues SetDiscussionGroupRequest, leaving discussion_linked True."""
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel"
+    )
+    clone_state.creation_marker = f"tgcli-clone-{clone_state.clone_id[:12]}"
+    clone_state.destination_peer_id = 999
+    clone_state.discussion_destination_peer_id = 1001
+    state.save(clone_state)
+    client = CloneInitClient()
+    client.destination = channel(999, "Source channel", creator=True)
+    client.linked = linked_group()
+    client.discussion = channel(
+        1001, f"{clone_state.creation_marker}-discussion", creator=True,
+        broadcast=False, megagroup=True, forum=False,
+    )
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert main(
+        ["clone", "init", "@source", "--commit", preview["preview_id"], "--json"]
+    ) == 0
+
+    capsys.readouterr()
+    assert not any(isinstance(item, functions.channels.CreateChannelRequest)
+                   for item in client.requests)
+    [link] = [item for item in client.requests
+              if isinstance(item, functions.channels.SetDiscussionGroupRequest)]
+    assert link.group is client.discussion
+    saved = state.load(clone_state.clone_id)
+    assert saved.discussion_linked is True
+    assert saved.discussion_destination_peer_id == 1001
+    assert saved.comments == "enabled"
+
+
+def test_init_rejects_a_discussion_marker_matching_multiple_groups(
+    config_env, monkeypatch, capsys
+):
+    """Two dialogs titled with the discussion marker: PolicyError, exit 4."""
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel"
+    )
+    clone_state.creation_marker = f"tgcli-clone-{clone_state.clone_id[:12]}"
+    clone_state.destination_peer_id = 999
+    state.save(clone_state)
+    marker = f"{clone_state.creation_marker}-discussion"
+
+    class MultipleDiscussionMarkersClient(CloneInitClient):
+        async def iter_dialogs(self):
+            yield SimpleNamespace(entity=self.destination)
+            for group_id in (1001, 1002):
+                yield SimpleNamespace(entity=channel(
+                    group_id, marker, creator=True, broadcast=False,
+                    megagroup=True, forum=False,
+                ))
+
+    client = MultipleDiscussionMarkersClient()
+    client.destination = channel(999, "Source channel", creator=True)
+    client.linked = linked_group()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert main(
+        ["clone", "init", "@source", "--commit", preview["preview_id"], "--json"]
+    ) == 2
+
+    assert "multiple" in capsys.readouterr().err
+    saved = state.load(clone_state.clone_id)
+    assert saved.discussion_destination_peer_id is None
+    assert saved.discussion_linked is False
 
 
 def test_clone_init_commit_readonly_blocks_before_config_session_and_preview_use(

@@ -6,14 +6,15 @@ import secrets, tempfile
 from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
 from tgcli import chatref, safety
-from tgcli.clone import attribution, batching, fidelity, legs, snapshot, state, topics, transport
+from tgcli.clone import attribution, batching, discussion, fidelity, legs, snapshot, state, topics, transport
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
 def _entry(s: state.CloneState) -> dict:
     return {"clone_id": s.clone_id, "source": {"id": s.source_peer_id,
             "title": s.source_title, "kind": s.source_kind},
             "destination_id": s.destination_peer_id,
             "cursor": s.cursor, "copied": len(s.id_map), "cooldown_until": s.retry_not_before,
-            "created_at": s.created_at, "last_synced_at": s.last_synced_at}
+            "created_at": s.created_at, "last_synced_at": s.last_synced_at,
+            "comments": s.comments}
 def _matches(s: state.CloneState, source: str | None) -> bool:
     return source is None or (s.source_peer_id == int(source)
         if source.lstrip("-").isdigit() else source.casefold() in s.source_title.casefold())
@@ -27,7 +28,7 @@ def list_clones(source: str | None = None) -> dict:
 def status_rows(data: dict) -> list[tuple]:
     return [(c["source"]["id"], c["source"]["title"], c["source"]["kind"],
              c["destination_id"], c["cursor"],
-             c["copied"], c["last_synced_at"]) for c in data["clones"]]
+             c["copied"], c["last_synced_at"], c["comments"]) for c in data["clones"]]
 async def _resolve_source(tg, source: str):
     try:
         entity = await tg.get_entity(chatref.parse(source))
@@ -83,7 +84,8 @@ async def _with_cooldown(awaitable, clone_state):
         raise
 async def _mutate(tg, request, clone_state: state.CloneState):
     return await _with_cooldown(tg(request), clone_state)
-async def _copy_profile(tg, source, destination, account_alias, clone_id, cooldown) -> None:
+async def _copy_profile(tg, source, destination, account_alias, clone_id, cooldown):
+    """Copies about/avatar onto destination; returns the source's full chat."""
     if isinstance(source, types.User):
         full = await cooldown(tg(functions.users.GetFullUserRequest(source)))
         about = getattr(full.full_user, "about", None) or ""
@@ -100,10 +102,11 @@ async def _copy_profile(tg, source, destination, account_alias, clone_id, cooldo
         })
         await cooldown(tg(functions.messages.EditChatAboutRequest(
             peer=destination, about=about)))
+    full_chat = getattr(full, "full_chat", None)
     photo = getattr(source, "photo", None)
     if photo is None or isinstance(photo, (types.ChatPhotoEmpty,
                                            types.UserProfilePhotoEmpty)):
-        return
+        return full_chat
     with tempfile.TemporaryDirectory(prefix="tgcli-clone-avatar-") as workdir:
         downloaded = await cooldown(tg.download_profile_photo(
             source, file=Path(workdir) / "avatar"))
@@ -116,6 +119,50 @@ async def _copy_profile(tg, source, destination, account_alias, clone_id, cooldo
         await cooldown(tg(functions.channels.EditPhotoRequest(
             channel=destination,
             photo=types.InputChatUploadedPhoto(file=uploaded))))
+    return full_chat
+async def _init_discussion(tg, destination, clone_state, full_chat, account_alias,
+                           clone_id) -> None:
+    """Create/adopt and link the destination discussion group before any post.
+    An unreadable source group is not an error: the clone stays posts-only and
+    honestly records comments == "unavailable"."""
+    if clone_state.source_kind != "broadcast":
+        return
+    linked = discussion.linked_chat_id(full_chat)
+    if linked is None:
+        clone_state.comments = "none"
+        return state.save(clone_state)
+    clone_state.discussion_source_peer_id = linked
+    cooldown = lambda awaitable: _with_cooldown(awaitable, clone_state)
+    mutate = lambda request: _mutate(tg, request, clone_state)
+    try:
+        source_group = await tg.get_entity(types.PeerChannel(linked))
+        await cooldown(tg.get_messages(source_group, limit=1))
+    except (ValueError, telethon_errors.ChannelPrivateError,
+            telethon_errors.ChatAdminRequiredError):
+        clone_state.comments = "unavailable"
+        return state.save(clone_state)
+    clone_state.comments = "enabled"
+    state.save(clone_state)
+    group = await discussion.adopt(
+        tg, mutate, lambda marker, shape_ok: _marker_candidates(tg, marker, shape_ok),
+        f"{clone_state.creation_marker}-discussion",
+        clone_state.discussion_destination_peer_id,
+        lambda: safety.append_audit("clone-init-discussion-create", account_alias,
+                                    {"clone_id": clone_id}))
+    if not discussion.is_discussion_destination(group):
+        raise PolicyError("clone discussion group is not a private owned megagroup")
+    clone_state.discussion_destination_peer_id = group.id
+    state.save(clone_state)
+    title = attribution.display_name(source_group)
+    if getattr(group, "title", None) != title:
+        await mutate(functions.channels.EditTitleRequest(channel=group, title=title))
+        group.title = title
+    await _copy_profile(tg, source_group, group, account_alias, clone_id, cooldown)
+    safety.append_audit("clone-init-discussion-link", account_alias,
+                        {"clone_id": clone_id})
+    await discussion.ensure_linked(mutate, destination, group)
+    clone_state.discussion_linked = True
+    state.save(clone_state)
 async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dict:
     entity, source_kind, _ = await _resolve_source(tg, source)
     me = await tg.get_me()
@@ -177,13 +224,17 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
             tg, functions.channels.EditTitleRequest(
                 channel=destination, title=clone_state.source_title), clone_state)
         destination.title = clone_state.source_title
-    await _copy_profile(tg, entity, destination, account_alias, clone_id,
-                        lambda awaitable: _with_cooldown(awaitable, clone_state))
+    full_chat = await _copy_profile(
+        tg, entity, destination, account_alias, clone_id,
+        lambda awaitable: _with_cooldown(awaitable, clone_state))
+    await _init_discussion(tg, destination, clone_state, full_chat, account_alias,
+                           clone_id)
     return {"clone": {"id": clone_state.clone_id, "source": {
             "id": clone_state.source_peer_id, "title": clone_state.source_title,
             "kind": clone_state.source_kind},
             "destination": {"id": clone_state.destination_peer_id,
             "title": getattr(destination, "title", clone_state.source_title)},
+            "comments": clone_state.comments,
             "status": "ready", "commit_required": False}}
 def init_rows(data: dict) -> list[tuple]:
     clone = data["clone"]
