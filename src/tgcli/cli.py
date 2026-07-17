@@ -141,6 +141,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_clone_init = clone_sub.add_parser("init", parents=[global_flags])
     p_clone_init.add_argument("source", help="source channel, supergroup, or dialog")
     p_clone_init.add_argument("--commit", metavar="PREVIEW_ID")
+    p_clone_init.add_argument(
+        "--replace", action="store_true",
+        help="supersede an incompatible or stale clone: archive its state and "
+             "start a fresh destination pair")
     p_clone_sync = clone_sub.add_parser("sync", parents=[global_flags])
     p_clone_sync.add_argument("source", help="source channel, supergroup, or dialog")
     p_clone_sync.add_argument("--limit", type=int)
@@ -222,7 +226,8 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                         tg, args.source, account.alias, args.preview_payload
                     )
                 else:
-                    data = await clone_cmd.preview_init(tg, args.source)
+                    data = await clone_cmd.preview_init(
+                        tg, args.source, replace=args.replace)
                 return data, clone_cmd.init_rows(data)
             if args.command == "clone" and args.clone_command == "sync":
                 data = await clone_cmd.sync_text(
