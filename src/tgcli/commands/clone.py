@@ -6,7 +6,7 @@ import secrets, tempfile
 from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
 from tgcli import chatref, safety
-from tgcli.clone import attribution, batching, discussion, fidelity, legs, snapshot, state, topics, transport
+from tgcli.clone import attribution, batching, comments, discussion, fidelity, legs, snapshot, state, topics, transport
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
 def _entry(s: state.CloneState) -> dict:
     return {"clone_id": s.clone_id, "source": {"id": s.source_peer_id,
@@ -355,34 +355,24 @@ async def sync_text(tg, source: str, account_alias: str,
     if not valid_destination:
         kind_name = "forum megagroup" if forum else "broadcast channel"
         raise PolicyError(f"clone destination is not a private owned {kind_name}")
-    latest = await tg.get_messages(destination, limit=1)
-    destination_last_id = latest[0].id if latest else 0
-    recorded_last_id = clone_state.max_destination_id()
-    if recorded_last_id is not None and recorded_last_id > destination_last_id:
-        raise PolicyError("clone destination recorded tail is missing; manual repair is required")
-    baseline = recorded_last_id or 1
-    if destination_last_id > baseline:
-        tail = await tg.get_messages(destination, limit=destination_last_id - baseline)
-        unexpected = [item for item in tail if item.id > baseline and (
-                       getattr(item, "action", None) is None or
-                       isinstance(item.action, types.MessageActionTopicCreate)
-                       and item.id not in clone_state.topic_map.values())]
-        if unexpected:
-            raise PolicyError("clone destination has unexpected tail messages; manual repair is required",
-                              unexpected=len(unexpected))
+    await discussion.verify_tail(
+        tg, destination, clone_state.max_destination_id(), "destination",
+        lambda item: getattr(item, "action", None) is not None
+        and not (isinstance(item.action, types.MessageActionTopicCreate)
+                 and item.id not in clone_state.topic_map.values()))
     copied = 0
     copied_batches = 0
-    skipped_service = 0
     skipped_unsupported = []
     transport_counts = {"forwarded": 0, "reuploaded": 0, "snapshots": 0}
-    topic_counters = {"topics_created": 0}
+    counters = {"topics_created": 0, "skipped_service": 0,
+                "skipped_autoforward": 0}
     mutate = lambda request: _mutate(tg, request, clone_state)
     reply_flattened = 0
     author_cache = {}
     more = False
     posts_leg = legs.posts(clone_state)
 
-    async def copy_batch(messages, leg) -> None:
+    async def copy_batch(messages, leg, source, dest, remap=None) -> None:
         nonlocal copied, copied_batches, reply_flattened
         unsupported = [
             {"id": message.id, "kind": kind}
@@ -394,15 +384,17 @@ async def sync_text(tg, source: str, account_alias: str,
             leg.cursor = messages[-1].id
             state.save(clone_state)
             return
-        plan = transport.decide(messages, leg, source_entity)
+        plan = transport.decide(messages, leg, source)
+        if remap is not None:
+            plan = await remap(messages, plan)
         topic_dest = None
         if forum:
             topic_dest = await topics.ensure_topic(
-                mutate, source_entity, destination, clone_state,
-                topics.topic_id_of(messages[0]), topic_counters,
+                mutate, source, dest, clone_state,
+                topics.topic_id_of(messages[0]), counters,
                 account_alias=account_alias)
         batch_copied, mode, flattened = await _forward_batch(
-            tg, source_entity, destination, clone_state, leg, account_alias,
+            tg, source, dest, clone_state, leg, account_alias,
             list(messages), me, author_cache, plan, topic_dest=topic_dest
         )
         copied += batch_copied
@@ -426,27 +418,32 @@ async def sync_text(tg, source: str, account_alias: str,
                         title=source_message.action.title,
                         icon_color=getattr(source_message.action, "icon_color", None),
                         icon_emoji_id=getattr(source_message.action, "icon_emoji_id", None))
-                    topic_counters["topics_created"] += 1
+                    counters["topics_created"] += 1
             else:
-                skipped_service += 1
+                counters["skipped_service"] += 1
             posts_leg.cursor = event.message_id
             state.save(clone_state)
             continue
-        await copy_batch(event.messages, posts_leg)
+        await copy_batch(event.messages, posts_leg, source_entity, destination)
+    if clone_state.comments == "enabled" and not more:
+        more = await comments.sync_phase(
+            tg, clone_state, source_entity, destination, mutate, copy_batch,
+            counters, lambda: limit is not None and copied_batches >= limit)
     clone_state.last_synced_at = datetime.now(UTC).isoformat()
     state.save(clone_state)
     return {"clone": {"id": clone_state.clone_id,
         "source": {"id": source_entity.id, "title": clone_state.source_title,
                    "kind": clone_state.source_kind},
         "destination": {"id": destination.id, "title": destination.title}},
-        "sync": {"copied": copied, "skipped_service": skipped_service,
-                 "skipped_unsupported": skipped_unsupported,
-                 **transport_counts, **topic_counters, "reply_flattened": reply_flattened,
-                 "cursor": clone_state.cursor, "more": more}}
+        "sync": {"copied": copied, "skipped_unsupported": skipped_unsupported,
+                 **transport_counts, **counters, "reply_flattened": reply_flattened,
+                 "cursor": clone_state.cursor,
+                 "discussion_cursor": clone_state.discussion_cursor, "more": more}}
 def sync_rows(data: dict) -> list[tuple]:
     clone = data["clone"]
     sync = data["sync"]
     return [(sync["copied"], sync["forwarded"], sync["reuploaded"], sync["snapshots"],
              sync["reply_flattened"], sync["skipped_service"], len(sync["skipped_unsupported"]),
              sync["topics_created"], sync["cursor"], clone["id"], clone["source"]["id"],
-             clone["destination"]["id"], sync["more"])]
+             clone["destination"]["id"], sync["more"], sync["skipped_autoforward"],
+             sync["discussion_cursor"])]
