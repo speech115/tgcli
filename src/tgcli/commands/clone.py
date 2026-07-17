@@ -100,8 +100,11 @@ async def _copy_profile(tg, source, destination, account_alias, clone_id, cooldo
         safety.append_audit("clone-init-about", account_alias, {
             "clone_id": clone_id, "source_peer_id": source.id,
         })
-        await cooldown(tg(functions.messages.EditChatAboutRequest(
-            peer=destination, about=about)))
+        try:
+            await cooldown(tg(functions.messages.EditChatAboutRequest(
+                peer=destination, about=about)))
+        except telethon_errors.ChatAboutNotModifiedError:
+            pass
     full_chat = getattr(full, "full_chat", None)
     photo = getattr(source, "photo", None)
     if photo is None or isinstance(photo, (types.ChatPhotoEmpty,

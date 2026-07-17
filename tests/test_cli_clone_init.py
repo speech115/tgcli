@@ -431,6 +431,28 @@ def test_clone_init_commit_copies_nonempty_channel_description(
     assert audits[-1]["action"] == "clone-init-about"
 
 
+def test_clone_init_commit_tolerates_an_unchanged_description(
+    config_env, monkeypatch, capsys
+):
+    """Re-running init is the documented recovery path, and by then the
+    description already matches — Telegram answers ChatAboutNotModified
+    (live-proven). That is a no-op, not a failure."""
+    class UnchangedAboutClient(CloneInitClient):
+        async def __call__(self, request):
+            if isinstance(request, functions.messages.EditChatAboutRequest):
+                raise telethon_errors.ChatAboutNotModifiedError(request)
+            return await super().__call__(request)
+
+    client = UnchangedAboutClient()
+    client.source_about = "Source description"
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert main(
+        ["clone", "init", "@source", "--commit", preview["preview_id"], "--json"]
+    ) == 0
+
+
 def test_clone_init_commit_copies_private_dialog_profile(
     config_env, monkeypatch, capsys
 ):
