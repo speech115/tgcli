@@ -14,6 +14,19 @@ Template:
 ```
 
 
+## 2026-07-17 — Version 1.0.0 (Claude Fable 5)
+**Did:** bumped `pyproject.toml` and `src/tgcli/__init__.py` from 0.1.0 to
+1.0.0 (`tg --version` reports it); `uv.lock` refreshed. All gates green:
+ruff clean, 80 files formatted, pyright 0 errors, 480 passed / 8 skipped.
+**Decided:** 1.0.0 is honest now — phases 0–7 complete, clone rounds
+live-accepted, maintenance mode declared (ADR-0026), CI quality gates in
+place (ADR-0027). Closes audit item #5; no ADR needed (no contract or
+architecture change).
+**Learned:** nothing new; two version strings is fine at this size, not
+worth single-sourcing machinery.
+**Next:** none — the agreed audit list is done; future work arrives as
+fixes per ADR-0026.
+
 ## 2026-07-17 — CI gains ruff + pyright gates (Claude Fable 5)
 **Did:** ADR-0027: dev deps gain ruff + pyright; CI now runs `ruff check`,
 `ruff format --check`, and `pyright` (basic, `src/` only) before pytest.
