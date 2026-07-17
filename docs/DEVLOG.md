@@ -14,6 +14,19 @@ Template:
 ```
 
 
+## 2026-07-17 — ISSUES: pre-approve accounts login on session loss (Claude Fable 5)
+**Did:** added ACCOUNTS-001 to docs/ISSUES.md — `tg accounts login`
+(interactive session (re)authorization) as deferred, pre-approved
+maintenance work with re-entry trigger "first revoked or lost session";
+noted the operational mitigation (back up `~/.config/tgcli/` and
+`~/.local/state/tgcli/`).
+**Decided:** the one future feature worth pre-approving is the session
+recovery path — it is most needed exactly when it is least convenient to
+build. Needs its own ADR at implementation time (auth touches the safety
+surface).
+**Learned:** nothing new.
+**Next:** none; fires on trigger.
+
 ## 2026-07-17 — Version 1.0.0 (Claude Fable 5)
 **Did:** bumped `pyproject.toml` and `src/tgcli/__init__.py` from 0.1.0 to
 1.0.0 (`tg --version` reports it); `uv.lock` refreshed. All gates green:
