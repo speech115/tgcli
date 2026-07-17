@@ -371,6 +371,57 @@ def test_sync_skips_source_autoforwards(config_env, monkeypatch, capsys):
     assert state.load(clone_state.clone_id).discussion_id_map == {}
 
 
+def test_sync_skips_album_autoforward_anchors(config_env, monkeypatch, capsys):
+    """Telegram auto-forwards an album post as an album, so its anchor arrives
+    as a multi-message batch. It is still an anchor and must not be copied."""
+    clone_state = seed_comments_clone()
+    album = [message(2, grouped_id=7, media=types.MessageMediaPhoto(
+                photo=types.Photo(id=1, access_hash=1, file_reference=b"r",
+                                  date=None, sizes=[], dc_id=2))),
+             message(3, grouped_id=7, media=types.MessageMediaPhoto(
+                photo=types.Photo(id=2, access_hash=2, file_reference=b"r",
+                                  date=None, sizes=[], dc_id=2)))]
+    anchors = [anchor(10, 2), anchor(11, 3)]
+    for item in anchors:
+        item.grouped_id = 7
+    client = CloneCommentsClient(album, anchors)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["skipped_autoforward"] == 2
+    assert sync["discussion_cursor"] == 11
+    assert group_sends(client) == []
+    assert state.load(clone_state.clone_id).discussion_id_map == {}
+
+
+def test_sync_keeps_the_quote_of_a_direct_comment(config_env, monkeypatch, capsys):
+    """A comment replying straight to the anchor gets a rebuilt reply header;
+    its quote must survive the rebuild."""
+    seed_comments_clone()
+    client = CloneCommentsClient(
+        [message(2)],
+        [anchor(10, 2),
+         message(12, message="agreed", reply_to=types.MessageReplyHeader(
+             reply_to_msg_id=10, quote=True, quote_text="the claim",
+             quote_offset=4,
+             quote_entities=[types.MessageEntityBold(offset=0, length=3)]))])
+    client.anchor_ids = {2: 500}
+    client.group_last_id = 500
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    [send] = group_sends(client)
+    assert send.reply_to.reply_to_msg_id == 500
+    assert send.reply_to.quote_text == "the claim"
+    assert send.reply_to.quote_offset == 4
+    assert send.reply_to.quote_entities == [
+        types.MessageEntityBold(offset=0, length=3)]
+
+
 def test_sync_attaches_a_comment_to_its_post_thread(
     config_env, monkeypatch, capsys
 ):

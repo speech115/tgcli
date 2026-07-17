@@ -43,7 +43,10 @@ async def _remap(tg, mutate, clone_state, source_group, source_channel_id,
     if found is None:
         return plan
     if top is None:
-        reply_to = types.InputReplyToMessage(reply_to_msg_id=found)
+        reply_to = types.InputReplyToMessage(
+            reply_to_msg_id=found, quote_text=header.quote_text,
+            quote_entities=list(header.quote_entities or ()) or None,
+            quote_offset=header.quote_offset)
     elif plan.reply_to is None:
         return plan
     else:
@@ -52,6 +55,19 @@ async def _remap(tg, mutate, clone_state, source_group, source_channel_id,
     return replace(plan, reply_to=reply_to, reply_flattened=False,
                    needs_author=True,
                    mode="snapshots" if plan.mode == "snapshots" else "reuploaded")
+
+
+def _anchor_posts(messages, source_channel_id) -> dict[int, int] | None:
+    """Anchor id -> source post id for a batch of Telegram's own auto-forwards,
+    or None when the batch is real content. A channel album auto-forwards as an
+    album, so an anchor batch can carry several messages."""
+    found = {message.id: discussion.autoforward_post_id(message, source_channel_id)
+             for message in messages}
+    if all(post_id is None for post_id in found.values()):
+        return None
+    if any(post_id is None for post_id in found.values()):
+        raise PolicyError("clone discussion anchor album is incomplete")
+    return found
 
 
 async def sync_phase(tg, clone_state, source_channel, destination, mutate,
@@ -89,11 +105,10 @@ async def sync_phase(tg, clone_state, source_channel, destination, mutate,
         if isinstance(event, batching.ServiceSkip):
             counters["skipped_service"] += 1
             leg.cursor = event.message_id
-        elif len(event.messages) == 1 and (post_id := discussion.autoforward_post_id(
-                event.messages[0], source_channel.id)) is not None:
-            anchors[event.messages[0].id] = post_id
-            counters["skipped_autoforward"] += 1
-            leg.cursor = event.messages[0].id
+        elif (posts := _anchor_posts(event.messages, source_channel.id)) is not None:
+            anchors.update(posts)
+            counters["skipped_autoforward"] += len(posts)
+            leg.cursor = event.messages[-1].id
         else:
             await copy_batch(event.messages, leg, source_group, group, remap)
             continue
