@@ -14,6 +14,27 @@ Template:
 ```
 
 
+## 2026-07-17 — preserve native forward header on re-forwarded posts (Claude Opus 4.8)
+**Did:** ADR-0025. User noticed cloned posts that were themselves forwards lost
+any "forwarded from" marking. Root-caused live: on `@sral_v_nastav` **32/100**
+posts carry `fwd_from`, and broadcast's blanket `drop_author=True` erased their
+original header — the clone showed 0 posts with a forward header. Fix: per-batch
+`drop_author` via new `_drops_author(leg, messages)` in `commands/clone.py` —
+own posts (no `fwd_from`) keep `drop_author=True` (clone stays native, no source
+leak); re-forwards (any item has `fwd_from`) forward with `drop_author=False` so
+Telegram restores the true origin header. Albums decide as one batch.
+**Verified live (the load-bearing semantic):** forwarded source posts 691/679
+into the clone with `drop_author=False` → headers resolved to "Иван Якунин" and
+channel `1732547702/4497`, never the source channel `4301599563`. Telegram
+preserves the *original* origin across a re-forward, so no source leak. TDD: 2
+new tests (single re-forward + forwarded album); existing own-post drop_author
+tests unchanged. CONTRACT updated. Full suite 471 / 8.
+**Decided:** native header only (user choice) — cheap, truthful, clickable.
+**Limitation:** reupload paths (re-forward + mapped reply, or protected source)
+still can't carry `fwd_from`; text-marker fallback deferred until needed.
+**Left 2 experiment messages (681/682) in the clone fixture** — duplicates,
+harmless; deleting messages is a user action, not mine.
+
 ## 2026-07-17 — live acceptance of roster + newline attribution (Claude Opus 4.8)
 **Did:** ran the round-3.5 live gate on real channel `@sral_v_nastav`
 (4301599563, 677 posts, `comments: enabled`). Full clone: destination channel

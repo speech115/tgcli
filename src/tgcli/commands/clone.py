@@ -311,6 +311,15 @@ async def _reupload_batch(tg, destination, clone_state, account_alias, messages,
         request = functions.messages.SendMultiMediaRequest(
             peer=destination, multi_media=multi_media, reply_to=reply_to)
         return await _mutate(tg, request, clone_state)
+def _drops_author(leg, messages) -> bool:
+    """A broadcast clone hides the source-forward header on the channel's own
+    posts, but a post that is itself a forward keeps drop_author=False so
+    Telegram restores its original forward header instead of erasing the origin.
+    """
+    return leg.source_kind == "broadcast" and not any(
+        getattr(message, "fwd_from", None) is not None for message in messages)
+
+
 async def _forward_batch(tg, source, destination, clone_state, leg, account_alias,
                          messages, me, author_cache, plan, *, topic_dest=None):
     source_ids = [message.id for message in messages]
@@ -339,7 +348,7 @@ async def _forward_batch(tg, source, destination, clone_state, leg, account_alia
                              "source_message_ids": source_ids})
         request = functions.messages.ForwardMessagesRequest(
             from_peer=source, id=source_ids, random_id=random_ids,
-            to_peer=destination, drop_author=leg.source_kind == "broadcast",
+            to_peer=destination, drop_author=_drops_author(leg, messages),
             top_msg_id=top_msg_id,
         )
         response = await _mutate(tg, request, clone_state)

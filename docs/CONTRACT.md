@@ -406,9 +406,16 @@ group has its own tail verification, tolerating Telegram's own anchors in
 the tail the same way the channel tail tolerates topic-create service rows;
 an unexpected discussion-group tail message exits 2 the same way.
 
-For broadcast sources, an unprotected non-reply batch uses native forwarding
-with `drop_author=True`; the destination does not expose a source-forward
-header. For attributed megagroup, forum, basic-group, and dialog sources, the
+For broadcast sources, an unprotected non-reply batch of the channel's own
+content uses native forwarding with `drop_author=True`; the destination does
+not expose a source-forward header. A broadcast post that is itself a forward
+(carries `fwd_from` — a re-forward from another user, channel, or story) instead
+forwards with `drop_author=False`, so Telegram restores its original forward
+header pointing at the true origin, never at the cloned source channel (an album
+decides as one batch since every item shares the header). Only the native
+forwarded path preserves this header: a re-forward that also has a mapped reply,
+or any post from a protected source, travels by reupload and loses `fwd_from`.
+For attributed megagroup, forum, basic-group, and dialog sources, the
 same batch uses native forwarding with `drop_author=False`, retaining
 Telegram's author header.
 

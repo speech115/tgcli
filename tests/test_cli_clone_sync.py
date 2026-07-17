@@ -823,6 +823,47 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
     assert client.iter_messages_calls == [(0, True), (3, True)]
 
 
+def test_clone_sync_keeps_native_forward_header_for_reforwarded_broadcast_post(
+    config_env, monkeypatch, capsys
+):
+    """A broadcast source's own post drops its author (clone looks native), but a
+    post that is itself a forward keeps drop_author=False so Telegram restores
+    the original forward header instead of erasing the re-forward's origin."""
+    seed_clone()
+    own = message(2)
+    reforward = message(3, fwd_from=types.MessageFwdHeader(
+        date=None, from_name="Original Author"))
+    client = CloneSyncClient([own, reforward])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    by_id = {tuple(request.id): request.drop_author
+             for request in client.requests
+             if isinstance(request, functions.messages.ForwardMessagesRequest)}
+    assert by_id == {(2,): True, (3,): False}
+
+
+def test_clone_sync_keeps_native_forward_header_for_reforwarded_album(
+    config_env, monkeypatch, capsys
+):
+    """A forwarded album carries fwd_from on every item, so the whole batch
+    forwards with drop_author=False and keeps its origin header."""
+    seed_clone()
+    header = types.MessageFwdHeader(date=None, from_name="Original Author")
+    album = [message(2, grouped_id=77, fwd_from=header),
+             message(3, grouped_id=77, fwd_from=header)]
+    client = CloneSyncClient(album)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    [request] = [item for item in client.requests
+                 if isinstance(item, functions.messages.ForwardMessagesRequest)]
+    assert request.id == [2, 3]
+    assert request.drop_author is False
+
+
 def test_clone_sync_creates_destination_topic_from_topic_create_service(
     config_env, monkeypatch, capsys
 ):
