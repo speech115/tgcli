@@ -252,13 +252,15 @@ comment threads. State and every `status`/`init`/`sync` response carry a
 `comments` field: `"enabled"` (linked group readable, threads clone),
 `"unavailable"` (linked group exists but is unreadable — the channel still
 clones posts-only, and the marker is permanent; there is no backfill, only a
-fresh `init` against a new destination), or `"none"` (no linked group, or a
-non-broadcast source). Existing clones from before this feature have
-`comments: "none"` and are never retroactively upgraded.
+fresh clone against a new destination, reached with `init --replace` — see
+below), or `"none"` (no linked group, or a non-broadcast source). Existing
+clones from before this feature have `comments: "none"` and are never
+retroactively upgraded in place.
 
 ```text
 tg clone status [SOURCE]
 tg clone init SOURCE
+tg clone init SOURCE --replace
 tg clone init SOURCE --commit PREVIEW_ID
 tg clone sync SOURCE [--limit N]
 ```
@@ -283,12 +285,16 @@ Because an unreadable file's identity cannot be matched, it is omitted from
 
 `init SOURCE` is a read-only network preview. It resolves the source, verifies
 that its kind is accepted, reads the approximate message count and
-protected-content flag, and stores `source_kind` in a five-minute single-use
-preview through the shared safety mechanism. It does not create clone state or
-mutate Telegram. JSON:
+protected-content flag, and stores `source_kind` (and the `--replace` intent)
+in a five-minute single-use preview through the shared safety mechanism. It does
+not create clone state or mutate Telegram. The response carries a `supersede`
+object describing the existing state slot, computed read-only (a legacy or
+corrupt file never makes preview fail): `existing` is whether a state file
+exists, `readable` is whether it loads under the current version (`null` when
+absent), and `replace` echoes the flag. JSON:
 
 ```json
-{"preview_id":"p_...","expires_at":"...","clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":null,"status":"planned","commit_required":true},"approximate_message_count":321,"protected":false}
+{"preview_id":"p_...","expires_at":"...","clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":null,"status":"planned","commit_required":true},"approximate_message_count":321,"protected":false,"supersede":{"existing":false,"readable":null,"replace":false}}
 ```
 
 `init SOURCE --commit PREVIEW_ID` requires a matching unexpired clone-init
@@ -327,6 +333,23 @@ exists, and exits 2 without mutation on multiple or wrong-shape matches. Once a
 destination id is recorded, repeated init resolves and reuses it without
 scanning or creating. Destinations are user-owned and never deleted
 automatically.
+
+Because `clone_id` is deterministic per source, one source maps to one state
+slot forever, and `commit` fail-closes (exit 2) on any slot whose version it
+cannot load — so a stale or legacy clone cannot be re-created by a bare `init`.
+`init SOURCE --replace` supersedes it: at commit, before loading state, it
+archives the existing `<clone_id>.json` and, if present, the ADR-0024 roster
+sidecar `<clone_id>-participants.jsonl` by renaming each to
+`*.superseded-<UTC>` (archive, never delete — the old destination in Telegram
+is untouched), appends a `clone-init-replace` audit record, then starts a fresh
+clone against a **new** destination pair. To guarantee the new pair, a replaced
+clone's creation marker gets a random suffix (`tgcli-clone-<prefix>-<hex>`) so
+it never re-adopts a marker-titled destination left by an interrupted prior
+init. `--replace` against an empty slot is a plain fresh init. `--replace` is
+declared on the preview step and carried in the preview payload; the commit
+honors the payload. Without `--replace`, the version-mismatch exit-2 message
+ends `; re-run clone init --replace to supersede it`; a v2 destination is never
+silently reused as if the flag had been passed.
 
 After creation or recovery, init applies the source title/display name, copies a
 non-empty channel or basic-group description, or User bio, and copies a

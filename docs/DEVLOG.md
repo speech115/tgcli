@@ -14,6 +14,37 @@ Template:
 ```
 
 
+## 2026-07-17 — clone init --replace: supersede a stale/legacy clone (Claude Opus 4.8)
+**Did:** closed the gap where a deterministic `clone_id` slot with a pre-round-3
+**v1** state file could never be re-created — `commit_init` → `state.load`
+fail-closes (`PolicyError`) on version mismatch, so ADR-0023's documented "fresh
+init to get comments" was physically impossible without a manual `mv`
+(exactly what the @sral_v_nastav gate had to do by hand). Stacked on
+`claude/clone-comments-round-3` (this fix only exists once VERSION=2 lands; main
+still has VERSION=1). Added `state.supersede(clone_id)` (pure: renames
+`<clone_id>.json` + ADR-0024 `-participants.jsonl` sidecar to `*.superseded-
+<UTC>`, archive-not-delete); `clone init --replace` flag declared at preview,
+carried in the payload; `commit_init` archives + audits `clone-init-replace` +
+starts fresh with a **nonce marker** (`tgcli-clone-<id12>-<hex>`) so an
+interrupted prior init's marker-titled channel is never re-adopted; preview
+gains a read-only `supersede:{existing,readable,replace}` probe; the no-flag
+version error now ends `; re-run clone init --replace to supersede it`.
+TDD throughout: 4 `state.supersede` unit tests + 5 CLI tests (no-flag hint, v1
+supersede+create, no-reuse of recorded destination, empty-slot plain init,
+preview supersede report). **Full suite 480 passed / 8 skipped.** ADR-0023
+(2026-07-17 amendment), ADR-0024 (sidecar note), CONTRACT §11 updated; spec at
+`docs/superpowers/specs/2026-07-17-clone-replace-stale-design.md`.
+**Decided:** flag over documented manual eviction — discoverable, gated by
+preview→commit + mutation, testable, archival (reversible). Fail-closed
+preserved: no flag ⇒ v1 still refuses, v2 destination never silently reused.
+**Learned:** ADR-0023's own parenthetical ("new `clone_id`") was self-
+contradictory — a fresh init reuses the *same* slot, which is precisely why a
+bare re-init cannot work; the deterministic slot is the whole trap. Nonce marker
+matters because ADR-0023 already flags two-peer inits as doubly FLOOD_WAIT-prone,
+so a marker-titled half-created channel is a normal, not theoretical, state.
+**Next:** live-verify `--replace` on the @sral_v_nastav v1bak slot (restore the
+hand-archived `.json.v1bak`, run `init --replace`, confirm fresh pair + comments).
+
 ## 2026-07-17 — preserve native forward header on re-forwarded posts (Claude Opus 4.8)
 **Did:** ADR-0025. User noticed cloned posts that were themselves forwards lost
 any "forwarded from" marking. Root-caused live: on `@sral_v_nastav` **32/100**

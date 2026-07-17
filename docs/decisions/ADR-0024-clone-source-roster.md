@@ -63,3 +63,8 @@ its linked discussion group — the actual comment audience — usually collects
 - The sidecar is personal data (a membership roster) at the same privacy footing
   as `export subscribers`: the user's own account reading chats it can access,
   stored locally under `TGCLI_STATE_DIR`, never in the repo.
+- Superseding a clone (`clone init --replace`, ADR-0023 2026-07-17 amendment)
+  archives this sidecar alongside the state file — `state.supersede` renames
+  `<clone_id>-participants.jsonl` to `*.superseded-<UTC>` under the same
+  timestamp, so a superseded clone's old roster is retired with its state rather
+  than lingering against the new destination until the next sync rewrites it.
