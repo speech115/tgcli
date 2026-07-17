@@ -8,6 +8,14 @@ from tgcli.clone import state
 from tgcli.errors import PolicyError
 
 
+def _valid_payload(**overrides):
+    payload = {"version": state.VERSION, "account_user_id": 1, "source_peer_id": 2,
+               "source_title": "S", "source_kind": "broadcast",
+               "destination_kind": "broadcast", "topic_map": {}}
+    payload.update(overrides)
+    return payload
+
+
 def _fresh() -> state.CloneState:
     return state.CloneState.new(
         account_user_id=100000001,
@@ -372,3 +380,70 @@ def test_record_mapping_and_dest_for():
     assert s.dest_for(12) == 5
     assert s.dest_for(99) is None
     assert s.max_destination_id() == 9
+
+
+def test_new_state_defaults_to_no_comments():
+    clone_state = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="S")
+    assert clone_state.comments == "none"
+    assert clone_state.discussion_id_map == {}
+    assert clone_state.discussion_cursor == 0
+    assert clone_state.discussion_linked is False
+
+
+def test_discussion_mapping_roundtrips():
+    clone_state = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="S")
+    clone_state.comments = "enabled"
+    clone_state.discussion_source_peer_id = 55
+    clone_state.discussion_destination_peer_id = 66
+    clone_state.discussion_linked = True
+    clone_state.discussion_cursor = 9
+    clone_state.record_discussion_mapping(3, 4)
+    state.save(clone_state)
+    loaded = state.load(clone_state.clone_id)
+    assert loaded.discussion_dest_for(3) == 4
+    assert loaded.discussion_cursor == 9
+    assert loaded.comments == "enabled"
+
+
+def test_max_destination_id_excludes_discussion_ids():
+    clone_state = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="S")
+    clone_state.record_mapping(1, 10)
+    clone_state.comments = "enabled"
+    clone_state.discussion_source_peer_id = 55
+    clone_state.record_discussion_mapping(1, 900)
+    assert clone_state.max_destination_id() == 10
+    assert clone_state.max_discussion_destination_id() == 900
+
+
+def test_load_rejects_version_1_state():
+    path = state.path_for("a" * 64)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"version": 1, "account_user_id": 1,
+                                "source_peer_id": 2, "source_title": "S"}))
+    with pytest.raises(PolicyError, match="unsupported version"):
+        state.load("a" * 64)
+
+
+def test_from_dict_rejects_unknown_comments_value():
+    with pytest.raises(ValueError):
+        state.CloneState.from_dict(_valid_payload(comments="maybe"))
+
+
+def test_from_dict_rejects_enabled_comments_without_discussion_source():
+    with pytest.raises(ValueError):
+        state.CloneState.from_dict(_valid_payload(comments="enabled"))
+
+
+def test_from_dict_rejects_discussion_map_without_enabled_comments():
+    with pytest.raises(ValueError):
+        state.CloneState.from_dict(_valid_payload(discussion_id_map={"1": 2}))
+
+
+def test_from_dict_rejects_duplicate_discussion_destinations():
+    with pytest.raises(ValueError):
+        state.CloneState.from_dict(_valid_payload(
+            comments="enabled", discussion_source_peer_id=55,
+            discussion_id_map={"1": 2, "3": 2}))
