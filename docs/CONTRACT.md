@@ -145,8 +145,10 @@ same single-row shape. `info` outputs `id`, `kind`, `username`, `name`.
 `media download` outputs `path`, `bytes`, `resumed`, `parallel`. `send` preview
 rows retain their existing columns and append `file`, `reply_to`. `edit` preview
 rows are `preview_id`, `message_id`, `old_text`, `text`; `delete` preview rows
-are `preview_id`, `message_id`, `text`. Both mutation commit rows are
-`preview_id`, `message_id`.
+are `preview_id`, `message_id`, `text`; `forward` preview rows are
+`preview_id`, `source`, `message_id`, `destination`. Send, edit, delete, and
+forward commit rows are `preview_id`, `message_id`. `mark-read` rows are
+`dialog_id`, `read`.
 
 ```
 tg send CHAT (TEXT | --file PATH [--caption TEXT]) --preview \
@@ -169,7 +171,8 @@ Previews expire after five minutes. A send commit moves its preview through
 deduplicates by `random_id` within the preview TTL. Only a confirmed send marks
 the preview used, and only after its result audit record persists. Commit JSON
 is `{"preview_id": "p_9f3a", "message_id": 42}`.
-All `--preview` invocations for `send`, `edit`, and `delete` are non-mutating:
+All `--preview` invocations for `send`, `edit`, `delete`, and `forward` are
+non-mutating:
 they may resolve or read a Telegram target and write a local preview record,
 but never send, edit, or delete a Telegram message. They remain permitted with
 `--readonly`, `TGCLI_READONLY=1`, or `TGCLI_NO_SEND=1`. Those gates apply to
@@ -206,6 +209,35 @@ not consumed. Their commits use the same five-minute `.json` → `.pending` →
 Edit and delete commits have no `random_id`; their pre-dispatch audit
 records are `edit` or `delete`, and successful result records are
 `edit-result` or `delete-result`.
+
+```
+tg forward SOURCE MESSAGE_ID DESTINATION --preview
+tg forward --commit PREVIEW_ID
+tg mark-read CHAT
+```
+
+`forward` preview resolves both source and destination, reads the source
+message, and returns:
+
+```json
+{"preview_id":"p_9f3a","source":"@source","message_id":42,"destination":"@destination","text":"hello","expires_at":"2026-07-06T12:05:00+00:00"}
+```
+
+The stored forward payload also has a positive `random_id`. Its commit sends
+that source message from the stored source peer to the stored destination peer
+via Telegram's native forward request; it returns
+`{"preview_id":"p_9f3a","message_id":43}` only after exact `random_id`
+confirmation. Forward previews and commits use the same validation, readonly
+gates, retryable `.json` → `.pending` → `.used` lifecycle, and fail-closed
+`forward` / `forward-result` audit records as send. A native forward does not
+take reply or topic flags and therefore creates no reply header.
+
+`mark-read` is a content-free, idempotent direct mutation: it has no preview,
+but `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block it before
+configuration, session, audit, or Telegram work. On success it returns
+`{"dialog":{"id":-1001234},"marked_read":true}` and writes a fail-closed
+`mark-read` audit record containing the submitted chat reference before the
+Telegram acknowledgement.
 
 ## 6. Raw API Passthrough (`tg api`, phase 2+; ADR-0010)
 

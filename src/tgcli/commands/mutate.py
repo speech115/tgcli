@@ -1,7 +1,12 @@
 """Preview-to-commit mutations on existing messages (ADR-0028)."""
 
+import secrets
+
+from telethon.tl import functions
+
 from tgcli import chatref, safety
 from tgcli.commands.read import sanitize_plain_text
+from tgcli.confirm import confirmed_ids
 from tgcli.errors import NotFoundError
 
 
@@ -17,6 +22,10 @@ async def _message(tg, entity, message_id: int):
     if message is None:
         raise NotFoundError(f"message not found: {message_id}")
     return message
+
+
+def _random_id() -> int:
+    return secrets.randbelow(2**63 - 1) + 1
 
 
 async def prepare_edit(tg, chat: str, message_id: int, text: str) -> dict:
@@ -62,7 +71,62 @@ async def commit_delete(tg, preview_id: str, payload: dict) -> dict:
     return {"preview_id": preview_id, "message_id": payload["message_id"]}
 
 
+async def prepare_forward(tg, source: str, message_id: int, destination: str) -> dict:
+    source_entity = await _entity(tg, source)
+    message = await _message(tg, source_entity, message_id)
+    await _entity(tg, destination)
+    stored = safety.create_preview(
+        {
+            "kind": "forward",
+            "source": source,
+            "message_id": message_id,
+            "destination": destination,
+            "text": message.text or "",
+            "random_id": _random_id(),
+        }
+    )
+    keys = (
+        "preview_id",
+        "source",
+        "message_id",
+        "destination",
+        "text",
+        "expires_at",
+    )
+    return {key: stored[key] for key in keys}
+
+
+async def commit_forward(tg, preview_id: str, payload: dict) -> dict:
+    response = await tg(
+        functions.messages.ForwardMessagesRequest(
+            from_peer=await tg.get_input_entity(chatref.parse(payload["source"])),
+            id=[payload["message_id"]],
+            random_id=[payload["random_id"]],
+            to_peer=await tg.get_input_entity(chatref.parse(payload["destination"])),
+        )
+    )
+    [message_id] = confirmed_ids(response, [payload["random_id"]])
+    return {"preview_id": preview_id, "message_id": message_id}
+
+
+async def mark_read(tg, chat: str) -> dict:
+    entity = await _entity(tg, chat)
+    await tg.send_read_acknowledge(entity)
+    return {"dialog": {"id": entity.id}, "marked_read": True}
+
+
 def to_rows(data: dict) -> list[tuple]:
+    if "marked_read" in data:
+        return [(data["dialog"]["id"], "read")]
+    if "destination" in data:
+        return [
+            (
+                data["preview_id"],
+                data["source"],
+                data["message_id"],
+                data["destination"],
+            )
+        ]
     if "old_text" in data:
         return [
             (

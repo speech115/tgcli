@@ -13,6 +13,27 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-18 — Agent correspondence Slice 2 mutation surface complete (Codex)
+**Did:** completed Tasks 5–10 of the ADR-0028 plan: `send` now previews and
+commits text/files with reply, topic, silent, and stored `random_id` metadata;
+retryable previews move `.json` → `.pending` → `.used`; `edit`, `delete`, and
+`forward` use preview→commit; and `mark-read` is a gated, audited direct
+mutation. Forward commits use the preview's stored source, destination, and
+`random_id`, then fail-close unless Telegram confirms the exact message id.
+Added the JSON/TSV contracts and TDD coverage for forward confirmation and
+mark-read readonly behaviour.
+**Decided:** Slice 2 stays within ADR-0028's existing safety model. Forward
+does not add reply/topic flags: it uses Telegram's native forward semantics
+from the stored source peer to the stored destination peer, so it creates no
+reply header. `mark-read` remains preview-free because it is content-free and
+idempotent, while still requiring readonly/no-send gates and a pre-dispatch
+audit record.
+**Learned:** the frozen clone pyright baseline still has the unrelated
+`src/tgcli/clone/replies.py:28` missing-stub error for
+`MessageReplyHeader.reply_to_ephemeral`; Slice 2 did not touch clone code.
+**Next:** merge Slice 2 and perform the owner-gated live visual smoke: file
+send with caption and reply, edit, delete, and forward in a private test chat.
+
 ## 2026-07-18 — Agent correspondence Slice 1 read surface complete (Codex)
 **Did:** completed Tasks 1–4 of the ADR-0028 agent-correspondence plan: added
 the shared agent-facing message fields; `read` ID/date/topic filters and page

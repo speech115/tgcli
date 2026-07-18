@@ -179,6 +179,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_delete.add_argument("--preview", action="store_true")
     p_delete.add_argument("--commit", metavar="PREVIEW_ID")
 
+    p_forward = sub.add_parser(
+        "forward", help="Preview and commit a forward", parents=[global_flags]
+    )
+    p_forward.add_argument("source", nargs="?")
+    p_forward.add_argument("message_id", nargs="?", type=int)
+    p_forward.add_argument("destination", nargs="?")
+    p_forward.add_argument("--preview", action="store_true")
+    p_forward.add_argument("--commit", metavar="PREVIEW_ID")
+
+    p_mark_read = sub.add_parser(
+        "mark-read", help="Mark a dialog as read", parents=[global_flags]
+    )
+    p_mark_read.add_argument("chat")
+
     p_api = sub.add_parser(
         "api", help="Call an allowlisted raw TL method", parents=[global_flags]
     )
@@ -332,6 +346,21 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                         args.preview_payload,
                     )
                 return data, mutate_cmd.to_rows(data)
+            if args.command == "forward":
+                if args.preview:
+                    data = await mutate_cmd.prepare_forward(
+                        tg, args.source, args.message_id, args.destination
+                    )
+                else:
+                    data = await mutate_cmd.commit_forward(
+                        tg,
+                        args.commit,  # type: ignore  # preview load guards None
+                        args.preview_payload,
+                    )
+                return data, mutate_cmd.to_rows(data)
+            if args.command == "mark-read":
+                data = await mutate_cmd.mark_read(tg, args.chat)
+                return data, mutate_cmd.to_rows(data)
             if args.command == "api":
                 return await api_cmd.call(tg, args.method, args.params), []
             if args.command == "export":
@@ -410,6 +439,8 @@ def main(argv: list[str] | None = None) -> int:
             safety.enforce_mutation_allowed(args.readonly)
             if args.limit is not None and args.limit <= 0:
                 raise PolicyError("clone sync --limit must be positive")
+        if args.command == "mark-read":
+            safety.enforce_mutation_allowed(args.readonly)
         mutation_positionals = {
             "edit": ("chat", "message_id", "text"),
             "delete": ("chat", "message_id"),
@@ -536,6 +567,8 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 if args.command == "api" and args.write:
                     safety.append_audit("api", account.alias, {"method": args.method})
+                if args.command == "mark-read":
+                    safety.append_audit("mark-read", account.alias, {"chat": args.chat})
                 network = _run_network(args, account)
                 if (
                     args.command == "media"

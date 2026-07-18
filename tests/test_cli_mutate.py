@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -36,6 +37,16 @@ class MutateClient(FakeClient):
 
     async def delete_messages(self, chat, ids, revoke=True):
         self.deleted.append((chat, ids, revoke))
+
+
+class ForwardClient(MutateClient):
+    async def __call__(self, request):
+        from telethon.tl import types
+
+        self.forwarded = request
+        return SimpleNamespace(
+            updates=[types.UpdateMessageID(id=99, random_id=request.random_id[0])]
+        )
 
 
 def make_client():
@@ -151,6 +162,59 @@ def test_delete_commit_revokes(config_env, monkeypatch, capsys):
 
     assert main(["delete", "--commit", preview["preview_id"], "--json"]) == 0
     assert client.deleted == [("@chan", [2], True)]
+
+
+def test_forward_commit_uses_stored_random_id(config_env, monkeypatch, capsys):
+    preview = safety.create_preview(
+        {
+            "kind": "forward",
+            "source": "@chan",
+            "message_id": 2,
+            "destination": "@other",
+            "text": "old",
+            "random_id": 555,
+        }
+    )
+    client = ForwardClient(
+        messages=[
+            ns(
+                id=2,
+                date=None,
+                sender_id=1,
+                sender=None,
+                text="old",
+                media=None,
+                reply_to_msg_id=None,
+            )
+        ],
+        entities={"@chan": ns(id=5, title="Chan"), "@other": ns(id=6, title="Other")},
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["forward", "--commit", preview["preview_id"], "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["message_id"] == 99
+    assert client.forwarded.from_peer == "@chan"
+    assert client.forwarded.to_peer == "@other"
+    assert client.forwarded.random_id == [555]
+    assert client.forwarded.id == [2]
+
+
+def test_mark_read_needs_no_preview_but_respects_readonly(
+    config_env, monkeypatch, capsys
+):
+    client = make_client()
+
+    async def ack(entity):
+        client.acked = entity
+
+    client.send_read_acknowledge = ack
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mark-read", "@chan", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["marked_read"] is True
+    assert main(["--readonly", "mark-read", "@chan"]) == 2
 
 
 def test_kind_mismatch_is_blocked_without_consuming_preview(monkeypatch):
