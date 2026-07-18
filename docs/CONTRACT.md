@@ -143,7 +143,10 @@ message as `id`, `date`, `from_name`, `text`; `latest` and `message` use the
 same single-row shape. `info` outputs `id`, `kind`, `username`, `name`.
 `count` outputs one `count` value.
 `media download` outputs `path`, `bytes`, `resumed`, `parallel`. `send` preview
-rows retain their existing columns and append `file`, `reply_to`.
+rows retain their existing columns and append `file`, `reply_to`. `edit` preview
+rows are `preview_id`, `message_id`, `old_text`, `text`; `delete` preview rows
+are `preview_id`, `message_id`, `text`. Both mutation commit rows are
+`preview_id`, `message_id`.
 
 ```
 tg send CHAT (TEXT | --file PATH [--caption TEXT]) --preview \
@@ -173,6 +176,31 @@ commit appends `send-result` with its preview and message ids. If the pre-send
 audit record cannot be written, the mutation is blocked with exit 2; tgcli
 never performs an unaudited authorised write. Preview creation itself does not
 send or audit a mutation.
+
+```
+tg edit CHAT MESSAGE_ID TEXT --preview
+tg edit --commit PREVIEW_ID
+tg delete CHAT MESSAGE_ID --preview
+tg delete --commit PREVIEW_ID
+```
+
+`edit` previews read the target message and return its immutable commit
+payload alongside both the previous and requested text:
+
+```json
+{"preview_id":"p_9f3a","message_id":42,"old_text":"before","text":"after","expires_at":"2026-07-06T12:05:00+00:00"}
+```
+
+`delete` previews return the target message's `preview_id`, `message_id`, and
+`text` with the same expiry. Their commits return
+`{"preview_id":"p_9f3a","message_id":42}`. Each command accepts either its
+complete preview arguments with `--preview` or only `--commit PREVIEW_ID`; a
+preview of another kind is blocked before configuration or session work and is
+not consumed. The same readonly gates, five-minute `.json` → `.pending` →
+`.used` lifecycle, retry behavior, and fail-closed audit boundary apply as for
+`send`. Edit and delete commits have no `random_id`; their pre-dispatch audit
+records are `edit` or `delete`, and successful result records are
+`edit-result` or `delete-result`.
 
 ## 6. Raw API Passthrough (`tg api`, phase 2+; ADR-0010)
 

@@ -16,6 +16,7 @@ from tgcli.commands import dialogs as dialogs_cmd
 from tgcli.commands import export as export_cmd
 from tgcli.commands import info as info_cmd
 from tgcli.commands import media as media_cmd
+from tgcli.commands import mutate as mutate_cmd
 from tgcli.commands import read as read_cmd
 from tgcli.commands import search as search_cmd
 from tgcli.commands import send as send_cmd
@@ -161,6 +162,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_send.add_argument("--topic", type=int)
     p_send.add_argument("--silent", action="store_true")
 
+    p_edit = sub.add_parser(
+        "edit", help="Preview and commit a message edit", parents=[global_flags]
+    )
+    p_edit.add_argument("chat", nargs="?")
+    p_edit.add_argument("message_id", nargs="?", type=int)
+    p_edit.add_argument("text", nargs="?")
+    p_edit.add_argument("--preview", action="store_true")
+    p_edit.add_argument("--commit", metavar="PREVIEW_ID")
+
+    p_delete = sub.add_parser(
+        "delete", help="Preview and commit a message deletion", parents=[global_flags]
+    )
+    p_delete.add_argument("chat", nargs="?")
+    p_delete.add_argument("message_id", nargs="?", type=int)
+    p_delete.add_argument("--preview", action="store_true")
+    p_delete.add_argument("--commit", metavar="PREVIEW_ID")
+
     p_api = sub.add_parser(
         "api", help="Call an allowlisted raw TL method", parents=[global_flags]
     )
@@ -290,6 +308,30 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                         args.preview_payload,
                     )
                 return data, send_cmd.to_rows(data)
+            if args.command == "edit":
+                if args.preview:
+                    data = await mutate_cmd.prepare_edit(
+                        tg, args.chat, args.message_id, args.text
+                    )
+                else:
+                    data = await mutate_cmd.commit_edit(
+                        tg,
+                        args.commit,  # type: ignore  # preview load guards None
+                        args.preview_payload,
+                    )
+                return data, mutate_cmd.to_rows(data)
+            if args.command == "delete":
+                if args.preview:
+                    data = await mutate_cmd.prepare_delete(
+                        tg, args.chat, args.message_id
+                    )
+                else:
+                    data = await mutate_cmd.commit_delete(
+                        tg,
+                        args.commit,  # type: ignore  # preview load guards None
+                        args.preview_payload,
+                    )
+                return data, mutate_cmd.to_rows(data)
             if args.command == "api":
                 return await api_cmd.call(tg, args.method, args.params), []
             if args.command == "export":
@@ -368,6 +410,11 @@ def main(argv: list[str] | None = None) -> int:
             safety.enforce_mutation_allowed(args.readonly)
             if args.limit is not None and args.limit <= 0:
                 raise PolicyError("clone sync --limit must be positive")
+        mutation_positionals = {
+            "edit": ("chat", "message_id", "text"),
+            "delete": ("chat", "message_id"),
+            "forward": ("source", "message_id", "destination"),
+        }
         if args.command == "send":
             if args.commit:
                 if (
@@ -396,6 +443,30 @@ def main(argv: list[str] | None = None) -> int:
                 try:
                     parser.error(
                         "send requires CHAT (TEXT | --file PATH) --preview "
+                        "or --commit PREVIEW_ID"
+                    )
+                except SystemExit:
+                    return 1
+        elif args.command in mutation_positionals:
+            names = mutation_positionals[args.command]
+            values = [getattr(args, name) for name in names]
+            if args.commit:
+                if args.preview or any(value is not None for value in values):
+                    try:
+                        parser.error(
+                            f"{args.command} --commit accepts only a preview id"
+                        )
+                    except SystemExit:
+                        return 1
+                safety.enforce_mutation_allowed(args.readonly)
+                args.preview_payload = safety.begin_commit(
+                    args.commit, expected_kind=args.command
+                )
+            elif not (args.preview and all(value is not None for value in values)):
+                try:
+                    parser.error(
+                        f"{args.command} requires "
+                        f"{' '.join(name.upper() for name in names)} --preview "
                         "or --commit PREVIEW_ID"
                     )
                 except SystemExit:
@@ -452,14 +523,16 @@ def main(argv: list[str] | None = None) -> int:
                     LOGGER.debug(
                         "resolved account=%s command=%s", account.alias, args.command
                     )
-                if args.command == "send" and args.commit:
+                if args.command in ("send", "edit", "delete", "forward") and getattr(
+                    args, "commit", None
+                ):
+                    details = {"preview_id": args.commit}
+                    if "random_id" in args.preview_payload:
+                        details["random_id"] = args.preview_payload["random_id"]
                     safety.append_audit(
-                        "send",
+                        args.command,
                         account.alias,
-                        {
-                            "preview_id": args.commit,
-                            "random_id": args.preview_payload.get("random_id"),
-                        },
+                        details,
                     )
                 if args.command == "api" and args.write:
                     safety.append_audit("api", account.alias, {"method": args.method})
@@ -473,9 +546,11 @@ def main(argv: list[str] | None = None) -> int:
                     data, rows = asyncio.run(
                         asyncio.wait_for(network, timeout=args.timeout)
                     )
-                if getattr(args, "commit", None) and args.command == "send":
+                if args.command in ("send", "edit", "delete", "forward") and getattr(
+                    args, "commit", None
+                ):
                     safety.append_audit(
-                        "send-result",
+                        f"{args.command}-result",
                         account.alias,
                         {
                             "preview_id": args.commit,
