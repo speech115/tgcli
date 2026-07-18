@@ -445,6 +445,11 @@ def main(argv: list[str] | None = None) -> int:
                         parser.error("search --all takes exactly one QUERY")
                     except SystemExit:
                         return 1
+                if args.from_user is not None or args.since is not None:
+                    try:
+                        parser.error("search --all only supports QUERY and --limit")
+                    except SystemExit:
+                        return 1
                 args.query, args.chat = args.chat, None
             elif args.chat is None or args.query is None:
                 try:

@@ -74,6 +74,22 @@ def test_search_all_rejects_extra_positional(config_env, capsys):
     assert "search --all takes exactly one QUERY" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["search", "--all", "invoice", "--from", "@alice"],
+        ["search", "--all", "invoice", "--since", "2026-07-18"],
+    ],
+)
+def test_search_all_rejects_scoped_filters_before_loading_config(
+    monkeypatch, capsys, tmp_path, argv
+):
+    monkeypatch.setenv("TGCLI_CONFIG", str(tmp_path / "missing-config.toml"))
+
+    assert main(argv) == 1
+    assert "search --all only supports QUERY and --limit" in capsys.readouterr().err
+
+
 def test_search_from_filters_by_sender(config_env, monkeypatch, capsys):
     client = make_search_client()
     make_session_fake(monkeypatch, client)

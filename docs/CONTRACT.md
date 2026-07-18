@@ -92,9 +92,10 @@ newest-first output and stops when it reaches the lower date boundary.
                "topic_id": null, "grouped_id": null, "is_service": false}]}
 ```
 
-`search` accepts `--from @username` to restrict results to that sender and
-`--since ISO` as an inclusive lower date boundary. Search remains newest-first
-and stops when it reaches a message older than `--since`.
+Chat-scoped `search <chat> <query>` accepts `--from @username` to restrict
+results to that sender and `--since ISO` as an inclusive lower date boundary.
+Search remains newest-first and stops when it reaches a message older than
+`--since`.
 
 `tg search --all <query> --json` searches across accessible dialogs. Its top
 level response has `query` and `messages`; each message retains the standard
@@ -105,8 +106,9 @@ and `name`:
  "dialog": {"id": -1001234, "name": "Channel"}}]}
 ```
 
-`search --all` takes exactly one query positional. The scoped form remains
-`search <chat> <query>`.
+`search --all` takes exactly one query positional and may use `--limit`.
+`--from` and `--since` are chat-scoped filters and are incompatible with
+`--all`. The scoped form remains `search <chat> <query>`.
 
 `tg latest <chat> --json` and `tg message <chat> <message_id> --json` return
 one message in that same shape:
