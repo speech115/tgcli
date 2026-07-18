@@ -96,6 +96,21 @@ def test_send_preview_with_file_and_caption(config_env, monkeypatch, capsys, tmp
     assert stored["random_id"] > 0
 
 
+def test_send_preview_normalizes_relative_file_path(
+    config_env, monkeypatch, capsys, tmp_path
+):
+    photo = tmp_path / "pic.jpg"
+    photo.write_bytes(b"file")
+    monkeypatch.chdir(tmp_path)
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["send", "@alice", "--file", "pic.jpg", "--preview", "--json"]) == 0
+    preview = json.loads(capsys.readouterr().out)
+    assert preview["file"] == str(photo)
+    assert safety.begin_commit(preview["preview_id"])["file"] == str(photo)
+
+
 def test_send_preview_records_reply_topic_silent(config_env, monkeypatch, capsys):
     client = SendClient()
     make_session_fake(monkeypatch, client)
@@ -176,7 +191,7 @@ def test_send_commit_with_extra_args_returns_usage_error(capsys):
 def test_send_without_required_args_returns_usage_error(capsys):
     assert main(["send", "@alice"]) == 1
     assert (
-        "send requires CHAT TEXT --preview or --commit PREVIEW_ID"
+        "send requires CHAT (TEXT | --file PATH) --preview or --commit PREVIEW_ID"
         in capsys.readouterr().err
     )
 

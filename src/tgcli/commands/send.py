@@ -39,6 +39,7 @@ async def prepare(
         path = Path(file).expanduser()
         if not path.is_file():
             raise NotFoundError(f"file not found: {file}")
+        path = path.resolve()
         body = caption or ""
     else:
         if caption is not None:

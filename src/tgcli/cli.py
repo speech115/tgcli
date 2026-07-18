@@ -393,7 +393,8 @@ def main(argv: list[str] | None = None) -> int:
             ):
                 try:
                     parser.error(
-                        "send requires CHAT TEXT --preview or --commit PREVIEW_ID"
+                        "send requires CHAT (TEXT | --file PATH) --preview "
+                        "or --commit PREVIEW_ID"
                     )
                 except SystemExit:
                     return 1
