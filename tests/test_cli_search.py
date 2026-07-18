@@ -46,6 +46,34 @@ def make_search_client():
     )
 
 
+def test_search_all_returns_per_hit_dialogs(config_env, monkeypatch, capsys):
+    message = ns(
+        id=1,
+        date=None,
+        sender_id=1,
+        sender=None,
+        text="invoice",
+        media=None,
+        reply_to_msg_id=None,
+        chat=ns(id=5, title="Chan"),
+        chat_id=5,
+    )
+    client = FakeClient(search_messages={"invoice": [message]})
+    make_session_fake(monkeypatch, client)
+
+    assert main(["search", "--all", "invoice", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["query"] == "invoice"
+    assert data["messages"][0]["dialog"] == {"id": 5, "name": "Chan"}
+    assert client.iter_messages_calls[0][0] is None
+
+
+def test_search_all_rejects_extra_positional(config_env, capsys):
+    assert main(["search", "--all", "@chan", "invoice"]) == 1
+    assert "search --all takes exactly one QUERY" in capsys.readouterr().err
+
+
 def test_search_from_filters_by_sender(config_env, monkeypatch, capsys):
     client = make_search_client()
     make_session_fake(monkeypatch, client)

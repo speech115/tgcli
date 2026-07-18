@@ -96,6 +96,18 @@ newest-first output and stops when it reaches the lower date boundary.
 `--since ISO` as an inclusive lower date boundary. Search remains newest-first
 and stops when it reaches a message older than `--since`.
 
+`tg search --all <query> --json` searches across accessible dialogs. Its top
+level response has `query` and `messages`; each message retains the standard
+message shape and adds a per-hit `dialog` object with the source dialog `id`
+and `name`:
+```json
+{"query": "hello", "messages": [{"id": 42,
+ "dialog": {"id": -1001234, "name": "Channel"}}]}
+```
+
+`search --all` takes exactly one query positional. The scoped form remains
+`search <chat> <query>`.
+
 `tg latest <chat> --json` and `tg message <chat> <message_id> --json` return
 one message in that same shape:
 ```json

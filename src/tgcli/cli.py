@@ -115,8 +115,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_search = sub.add_parser(
         "search", help="Search messages in a dialog", parents=[global_flags]
     )
-    p_search.add_argument("chat", help="@username, t.me link, or dialog id")
-    p_search.add_argument("query")
+    p_search.add_argument("chat", nargs="?", help="@username, t.me link, or dialog id")
+    p_search.add_argument("query", nargs="?")
+    p_search.add_argument("--all", action="store_true")
     p_search.add_argument("--limit", type=int, default=20)
     p_search.add_argument("--from", dest="from_user")
     p_search.add_argument("--since", help="ISO date/datetime lower bound")
@@ -270,14 +271,19 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                 )
                 return data, read_cmd.to_rows(data)
             if args.command == "search":
-                data = await search_cmd.fetch_search(
-                    tg,
-                    args.chat,
-                    args.query,
-                    limit=args.limit,
-                    from_user=args.from_user,
-                    since=args.since,
-                )
+                if args.all:
+                    data = await search_cmd.fetch_search_all(
+                        tg, args.query, limit=args.limit
+                    )
+                else:
+                    data = await search_cmd.fetch_search(
+                        tg,
+                        args.chat,
+                        args.query,
+                        limit=args.limit,
+                        from_user=args.from_user,
+                        since=args.since,
+                    )
                 return data, search_cmd.to_rows(data)
             if args.command == "latest":
                 data = await search_cmd.fetch_latest(tg, args.chat)
@@ -432,6 +438,19 @@ def main(argv: list[str] | None = None) -> int:
     exit_code = 1
     error_code = None
     try:
+        if args.command == "search":
+            if args.all:
+                if args.query is not None or args.chat is None:
+                    try:
+                        parser.error("search --all takes exactly one QUERY")
+                    except SystemExit:
+                        return 1
+                args.query, args.chat = args.chat, None
+            elif args.chat is None or args.query is None:
+                try:
+                    parser.error("search requires CHAT QUERY (or --all QUERY)")
+                except SystemExit:
+                    return 1
         if args.command in ("read", "search"):
             try:
                 args.since = _parse_when(
