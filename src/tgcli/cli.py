@@ -155,6 +155,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_send.add_argument("text", nargs="?", help="message text for --preview")
     p_send.add_argument("--preview", action="store_true")
     p_send.add_argument("--commit", metavar="PREVIEW_ID")
+    p_send.add_argument("--reply-to", type=int, dest="reply_to")
+    p_send.add_argument("--file")
+    p_send.add_argument("--caption")
+    p_send.add_argument("--topic", type=int)
+    p_send.add_argument("--silent", action="store_true")
 
     p_api = sub.add_parser(
         "api", help="Call an allowlisted raw TL method", parents=[global_flags]
@@ -268,7 +273,16 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                 return data, media_cmd.to_rows(data)
             if args.command == "send":
                 if args.preview:
-                    data = await send_cmd.prepare(tg, args.chat, args.text)
+                    data = await send_cmd.prepare(
+                        tg,
+                        args.chat,
+                        args.text,
+                        reply_to=args.reply_to,
+                        file=args.file,
+                        caption=args.caption,
+                        topic=args.topic,
+                        silent=args.silent,
+                    )
                 else:
                     data = await send_cmd.commit(
                         tg,
@@ -356,14 +370,27 @@ def main(argv: list[str] | None = None) -> int:
                 raise PolicyError("clone sync --limit must be positive")
         if args.command == "send":
             if args.commit:
-                if args.preview or args.chat is not None or args.text is not None:
+                if (
+                    args.preview
+                    or args.chat is not None
+                    or args.text is not None
+                    or args.reply_to is not None
+                    or args.file is not None
+                    or args.caption is not None
+                    or args.topic is not None
+                    or args.silent
+                ):
                     try:
                         parser.error("send --commit accepts only a preview id")
                     except SystemExit:
                         return 1
                 safety.enforce_mutation_allowed(args.readonly)
                 args.preview_payload = safety.consume_preview(args.commit)
-            elif not (args.preview and args.chat is not None and args.text is not None):
+            elif not (
+                args.preview
+                and args.chat is not None
+                and (args.text is not None or args.file is not None)
+            ):
                 try:
                     parser.error(
                         "send requires CHAT TEXT --preview or --commit PREVIEW_ID"

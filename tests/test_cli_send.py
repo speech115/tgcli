@@ -49,12 +49,106 @@ def test_send_preview_persists_payload_without_sending(config_env, monkeypatch, 
     assert preview["expires_at"]
     assert client.sent == []
 
-    stored = safety.consume_preview(preview["preview_id"])
+    stored = safety.begin_commit(preview["preview_id"])
+    random_id = stored.pop("random_id")
     assert stored == {
+        "kind": "send",
         "chat": "@alice",
         "text": "hello",
+        "file": None,
+        "file_size": None,
+        "reply_to": None,
+        "topic": None,
+        "silent": False,
         "to": {"id": 7, "name": "Alice"},
     }
+    assert isinstance(random_id, int)
+
+
+def test_send_preview_with_file_and_caption(config_env, monkeypatch, capsys, tmp_path):
+    photo = tmp_path / "pic.jpg"
+    photo.write_bytes(b"\xff\xd8fake!!")
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+
+    assert (
+        main(
+            [
+                "send",
+                "@alice",
+                "--file",
+                str(photo),
+                "--caption",
+                "look",
+                "--preview",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    preview = json.loads(capsys.readouterr().out)
+    assert preview["file"] == str(photo)
+    assert preview["file_size"] == 8
+    assert preview["text"] == "look"
+
+    stored = safety.begin_commit(preview["preview_id"])
+    assert stored["kind"] == "send"
+    assert stored["random_id"] > 0
+
+
+def test_send_preview_records_reply_topic_silent(config_env, monkeypatch, capsys):
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+
+    assert (
+        main(
+            [
+                "send",
+                "@alice",
+                "hi",
+                "--reply-to",
+                "5",
+                "--topic",
+                "9",
+                "--silent",
+                "--preview",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    preview = json.loads(capsys.readouterr().out)
+    stored = safety.begin_commit(preview["preview_id"])
+    assert (stored["reply_to"], stored["topic"], stored["silent"]) == (5, 9, True)
+
+
+def test_send_file_rejects_positional_text(config_env, monkeypatch, capsys):
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+    assert main(["send", "@alice", "hi", "--file", "x.jpg", "--preview"]) == 2
+
+
+def test_send_caption_requires_file(config_env, monkeypatch, capsys):
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+    assert main(["send", "@alice", "hi", "--caption", "look", "--preview"]) == 2
+
+
+def test_send_missing_file_is_not_found(config_env, monkeypatch, capsys, tmp_path):
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+    assert (
+        main(
+            [
+                "send",
+                "@alice",
+                "--file",
+                str(tmp_path / "nope.jpg"),
+                "--preview",
+            ]
+        )
+        == 4
+    )
 
 
 def test_send_commit_replays_stored_payload_once(config_env, monkeypatch, capsys):

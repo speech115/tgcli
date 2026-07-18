@@ -142,13 +142,25 @@ positive `N`, and starts a fresh offset-based transfer.
 message as `id`, `date`, `from_name`, `text`; `latest` and `message` use the
 same single-row shape. `info` outputs `id`, `kind`, `username`, `name`.
 `count` outputs one `count` value.
-`media download` outputs `path`, `bytes`, `resumed`, `parallel`.
+`media download` outputs `path`, `bytes`, `resumed`, `parallel`. `send` preview
+rows retain their existing columns and append `file`, `reply_to`.
 
-`tg send CHAT TEXT --preview --json`:
+```
+tg send CHAT (TEXT | --file PATH [--caption TEXT]) --preview \
+  [--reply-to MESSAGE_ID] [--topic TOPIC_ID] [--silent]
+```
+
+`tg send CHAT TEXT --preview --json` or a file preview returns:
 ```json
 {"preview_id": "p_9f3a", "to": {"id": 111, "name": "Alice"},
- "text": "hello", "expires_at": "2026-07-06T12:05:00+00:00"}
+ "text": "hello", "file": null, "file_size": null, "reply_to": null,
+ "topic": null, "silent": false, "expires_at": "2026-07-06T12:05:00+00:00"}
 ```
+For a file preview, `text` is the optional caption, `file` is its absolute
+path, and `file_size` is its byte size. `--caption` requires `--file`; a file
+send cannot take positional text. The stored preview additionally includes the
+target, `kind: "send"`, and a positive `random_id` for the later idempotent
+commit path.
 Previews expire after five minutes and are single-use: `tg send --commit p_9f3a`
 replays only the stored target and text, then consumes the preview even if the
 network call fails. Commit JSON is `{"preview_id": "p_9f3a", "message_id": 42}`.
