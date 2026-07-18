@@ -38,14 +38,51 @@ class FakeClient:
             yield dialog
 
     async def iter_messages(
-        self, entity, search=None, limit=None, reverse=False, min_id=0
+        self,
+        entity,
+        search=None,
+        limit=None,
+        reverse=False,
+        min_id=0,
+        offset_id=0,
+        offset_date=None,
+        reply_to=None,
+        from_user=None,
     ):
         self.iter_messages_calls.append((entity, search, limit))
         self.iter_messages_reverse_calls.append(reverse)
+        self.iter_messages_kwargs = {
+            "min_id": min_id,
+            "offset_id": offset_id,
+            "offset_date": offset_date,
+            "reply_to": reply_to,
+            "from_user": from_user,
+        }
         if self.iter_messages_error is not None:
             raise self.iter_messages_error
         messages = self._search_messages.get(search, self._messages)
+        if from_user is not None:
+            wanted = str(from_user).lstrip("@")
+            messages = [
+                message
+                for message in messages
+                if getattr(getattr(message, "sender", None), "username", None) == wanted
+            ]
         messages = [message for message in messages if message.id > min_id]
+        if offset_id:
+            messages = [message for message in messages if message.id < offset_id]
+        if offset_date is not None:
+            messages = [
+                message
+                for message in messages
+                if message.date and message.date < offset_date
+            ]
+        if reply_to is not None:
+            messages = [
+                message
+                for message in messages
+                if getattr(message, "topic", None) == reply_to
+            ]
         if reverse:
             messages = list(reversed(messages))
         for message in messages[:limit]:

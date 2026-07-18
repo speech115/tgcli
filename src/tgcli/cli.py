@@ -3,6 +3,7 @@ import asyncio
 import logging
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 from telethon import errors as telethon_errors
@@ -23,6 +24,20 @@ from tgcli.errors import PolicyError, RateLimitError, TgcliError
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _parse_when(
+    parser: argparse.ArgumentParser, value: str | None, flag: str
+) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        parser.error(f"{flag} expects an ISO 8601 date or datetime")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed
 
 
 def _enable_verbose_diagnostics():
@@ -86,6 +101,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_read.add_argument("chat", help="@username, t.me link, or dialog id")
     p_read.add_argument("--limit", type=int, default=20)
+    p_read.add_argument(
+        "--before-id", type=int, help="only messages older than this id"
+    )
+    p_read.add_argument("--after-id", type=int, help="only messages newer than this id")
+    p_read.add_argument("--since", help="ISO date/datetime lower bound")
+    p_read.add_argument("--until", help="ISO date/datetime upper bound")
+    p_read.add_argument("--topic", type=int, help="forum topic id")
 
     p_search = sub.add_parser(
         "search", help="Search messages in a dialog", parents=[global_flags]
@@ -189,7 +211,16 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                 data = await dialogs_cmd.fetch_dialogs(tg, limit=args.limit)
                 return data, dialogs_cmd.to_rows(data)
             if args.command == "read":
-                data = await read_cmd.fetch_messages(tg, args.chat, limit=args.limit)
+                data = await read_cmd.fetch_messages(
+                    tg,
+                    args.chat,
+                    limit=args.limit,
+                    before_id=args.before_id,
+                    after_id=args.after_id,
+                    since=args.since,
+                    until=args.until,
+                    topic=args.topic,
+                )
                 return data, read_cmd.to_rows(data)
             if args.command == "search":
                 data = await search_cmd.fetch_search(
@@ -299,6 +330,16 @@ def main(argv: list[str] | None = None) -> int:
     exit_code = 1
     error_code = None
     try:
+        if args.command in ("read", "search"):
+            try:
+                args.since = _parse_when(
+                    parser, getattr(args, "since", None), "--since"
+                )
+                args.until = _parse_when(
+                    parser, getattr(args, "until", None), "--until"
+                )
+            except SystemExit:
+                return 1
         if args.command == "clone" and args.clone_command == "sync":
             safety.enforce_mutation_allowed(args.readonly)
             if args.limit is not None and args.limit <= 0:

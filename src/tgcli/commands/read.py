@@ -120,19 +120,43 @@ async def fetch_message(tg, chat: str, message_id: int) -> dict:
     }
 
 
-async def fetch_messages(tg, chat: str, limit: int = 20) -> dict:
+async def fetch_messages(
+    tg,
+    chat: str,
+    limit: int = 20,
+    *,
+    before_id: int | None = None,
+    after_id: int | None = None,
+    since=None,
+    until=None,
+    topic: int | None = None,
+) -> dict:
     try:
         entity = await tg.get_entity(chatref.parse(chat))
     except ValueError:
         raise NotFoundError(f"dialog not found: {chat!r}") from None
 
     messages = []
-    async for message in tg.iter_messages(entity, limit=limit):
+    async for message in tg.iter_messages(
+        entity,
+        limit=limit,
+        offset_id=before_id or 0,
+        min_id=after_id or 0,
+        offset_date=until,
+        reply_to=topic,
+    ):
+        if since is not None and message.date is not None and message.date < since:
+            break
         messages.append(message_to_dict(message, entity))
 
+    ids = [message["id"] for message in messages]
     return {
         "dialog": {"id": entity.id, "name": _dialog_name(entity, chat)},
         "messages": messages,
+        "page": {
+            "oldest_id": min(ids) if ids else None,
+            "newest_id": max(ids) if ids else None,
+        },
     }
 
 

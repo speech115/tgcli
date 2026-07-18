@@ -66,11 +66,18 @@ Flag beats env, env beats config.
                "text": "hello", "media": null, "media_info": null,
                "reply_to": null, "permalink": null, "edited_at": null,
                "outgoing": false, "forwarded_from": null, "reactions": [],
-               "topic_id": null, "grouped_id": null, "is_service": false}]}
+               "topic_id": null, "grouped_id": null, "is_service": false}],
+ "page": {"oldest_id": 42, "newest_id": 42}}
 ```
 
 All message-shape additions since 0.1 are additive; `media` remains the Telethon
 class name string, `media_info` carries structured metadata.
+
+`read` accepts `--before-id INT` (messages older than an id), `--after-id INT`
+(messages newer than an id), `--since ISO`, `--until ISO`, and `--topic INT`
+(forum topic id). The additive `page` object reports the lowest and highest
+returned message ids, or `null` for an empty page. `--since` preserves
+newest-first output and stops when it reaches the lower date boundary.
 
 `tg search <chat> <query> --json` uses the same `dialog` and message shapes as
 `read`, adding the submitted query:
