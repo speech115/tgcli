@@ -71,6 +71,33 @@ def test_begin_commit_enforces_ttl_and_id_shape():
         safety.begin_commit("../etc/passwd")
 
 
+def test_begin_commit_handles_pending_preview_disappearing_during_read(monkeypatch):
+    preview = safety.create_preview({"kind": "send"})
+    safety.begin_commit(preview["preview_id"])
+    pending = safety.previews_dir() / f"{preview['preview_id']}.pending"
+    original_read_text = type(pending).read_text
+
+    def vanish_before_read(path, *args, **kwargs):
+        if path == pending:
+            pending.unlink()
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(type(pending), "read_text", vanish_before_read)
+
+    with pytest.raises(PolicyError, match="already used or does not exist"):
+        safety.begin_commit(preview["preview_id"])
+
+
+def test_finish_commit_rejects_invalid_preview_id_before_filesystem_access(monkeypatch):
+    def unexpected_filesystem_access():
+        raise AssertionError("finish_commit should validate before filesystem access")
+
+    monkeypatch.setattr(safety, "previews_dir", unexpected_filesystem_access)
+
+    with pytest.raises(PolicyError, match="already used or does not exist"):
+        safety.finish_commit("../etc/passwd")
+
+
 def test_audit_appends_one_json_object_per_line():
     safety.append_audit("send", "main", {"preview_id": "p_test"})
     safety.append_audit("api", "main", {"method": "messages.sendMessage"})

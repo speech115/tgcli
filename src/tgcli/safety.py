@@ -71,7 +71,10 @@ def begin_commit(preview_id: str, *, now: datetime | None = None) -> dict:
     except FileNotFoundError:
         if not pending.exists():
             raise PolicyError("preview is already used or does not exist") from None
-    record = json.loads(pending.read_text())
+    try:
+        record = json.loads(pending.read_text())
+    except FileNotFoundError:
+        raise PolicyError("preview is already used or does not exist") from None
     now = now or datetime.now(UTC)
     if now >= datetime.fromisoformat(record["expires_at"]):
         raise PolicyError("preview has expired")
@@ -79,6 +82,8 @@ def begin_commit(preview_id: str, *, now: datetime | None = None) -> dict:
 
 
 def finish_commit(preview_id: str) -> None:
+    if not preview_id.startswith("p_") or "/" in preview_id:
+        raise PolicyError("preview is already used or does not exist")
     pending = previews_dir() / f"{preview_id}.pending"
     try:
         pending.replace(pending.with_suffix(".used"))
