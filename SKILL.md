@@ -34,16 +34,23 @@ selected account session, does one operation, and exits.
 | Import old-stack sessions | `tg --json accounts import` |
 | List dialogs | `tg --json dialogs --limit 50` |
 | List unread dialogs | `tg --json dialogs --unread-only` |
+| Filter dialogs by kind | `tg --json dialogs --kind channel` |
 | Read recent messages | `tg --json read @channel --limit 20` |
 | Read an older page | `tg --json read @channel --before-id 42 --limit 20` |
+| Read newer or bounded messages | `tg --json read CHAT --after-id 42 --since ISO --until ISO --topic ID` |
 | Search a dialog | `tg --json search @channel "query" --limit 20` |
+| Search a dialog with filters | `tg --json search CHAT "query" --from @user --since ISO` |
 | Search all dialogs | `tg --json search --all "query" --limit 20` |
 | Read the latest message | `tg --json latest @channel` |
 | Read an exact message | `tg --json message @channel 42` |
+| Read a message with neighbours | `tg --json message @channel 42 --context 3` |
 | Inspect a dialog | `tg --json info @channel` |
+| Inspect dialog capabilities | `tg --json info @channel --full` |
 | Count messages | `tg --json count @channel` |
 | Download media | `tg --json media download https://t.me/channel/42 --parallel 4` |
 | Preview a send | `tg --json send @channel "Hello" --preview` |
+| Preview a reply/topic/silent send | `tg --json send CHAT "TEXT" --preview --reply-to ID --topic ID --silent` |
+| Preview a file send | `tg --json send CHAT --file PATH --caption "TEXT" --preview` |
 | Commit a preview | `tg --json send --commit p_9f3a` |
 | Preview an edit | `tg --json edit @channel 42 "Corrected text" --preview` |
 | Commit an edit | `tg --json edit --commit p_9f3a` |

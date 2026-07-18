@@ -26,7 +26,8 @@ churn. Final local gates: `.venv/bin/pytest -q` — `560 passed, 8 skipped`;
 **Decided:** this task closes documentation and local quality gates only;
 the v1.1 label is the ADR-0028 surface name, not a release-version bump.
 No new ADR is needed because ADR-0028 already authorizes the commands and
-their safety behavior.
+their safety behavior. ADR-0028's rejected and deferred boundaries remain
+unchanged, and clone is untouched.
 **Learned:** send and forward retry safety depends on reusing the original
 preview ID, whose stored `random_id` allows Telegram confirmation without a
 duplicate mutation; a new preview is not an equivalent retry.
