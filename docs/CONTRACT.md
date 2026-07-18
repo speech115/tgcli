@@ -132,6 +132,16 @@ neighbors are ordered by ascending id.
 {"id": -1001234, "name": "Channel", "kind": "channel", "username": "chan"}
 ```
 
+`tg info <chat> --full --json` adds `role`, `can`, `slowmode_seconds`,
+`participants_count`, and `about` to that base shape. `role` is `"creator"`,
+`"admin"`, `"member"`, or `null` for a user dialog. `can` contains
+best-effort `send_messages`, `send_media`, `pin_messages`, `delete_messages`,
+and `edit_messages` booleans (or `null` when Telegram does not expose enough
+rights data). `slowmode_seconds`, `participants_count`, and `about` come from
+full channel metadata for channels and megagroups; they are `null` for user
+dialogs and basic groups. The `can` map is a preflight aid, not authorization
+truth — Telegram remains the authority.
+
 `tg count <chat> --json`:
 ```json
 {"dialog": {"id": -1001234, "name": "Channel"}, "count": 73}
@@ -157,7 +167,8 @@ positive `N`, and starts a fresh offset-based transfer.
 column. `read` and `search` output one row per
 message as `id`, `date`, `from_name`, `text`; `latest` and `message` use the
 same single-row shape. `info` outputs `id`, `kind`, `username`, `name`.
-`count` outputs one `count` value.
+`count` outputs one `count` value. `info --full` keeps the same `info` TSV
+columns; its additive fields are JSON-only.
 `media download` outputs `path`, `bytes`, `resumed`, `parallel`. `send` preview
 rows retain their existing columns and append `file`, `reply_to`. `edit` preview
 rows are `preview_id`, `message_id`, `old_text`, `text`; `delete` preview rows

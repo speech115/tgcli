@@ -1,6 +1,7 @@
 from tgcli import chatref
 from tgcli.commands.search import _sanitize_text
 from tgcli.errors import NotFoundError
+from telethon.tl import functions
 
 
 async def _entity(tg, chat: str):
@@ -40,6 +41,57 @@ async def fetch_info(tg, chat: str) -> dict:
         "name": _name(entity, chat),
         "kind": _kind(entity),
         "username": getattr(entity, "username", None),
+    }
+
+
+def _role(entity) -> str | None:
+    if _kind(entity) == "user":
+        return None
+    if getattr(entity, "creator", False):
+        return "creator"
+    if getattr(entity, "admin_rights", None) is not None:
+        return "admin"
+    return "member"
+
+
+def _can(entity, flag: str) -> bool | None:
+    if _kind(entity) == "user":
+        return True
+    if getattr(entity, "creator", False) or getattr(entity, "admin_rights", None):
+        return True
+    if getattr(entity, "broadcast", False):
+        return False
+    banned = getattr(entity, "banned_rights", None) or getattr(
+        entity, "default_banned_rights", None
+    )
+    if banned is None:
+        return None
+    return not getattr(banned, flag, False)
+
+
+async def fetch_info_full(tg, chat: str) -> dict:
+    entity = await _entity(tg, chat)
+    base = await fetch_info(tg, chat)
+    full = None
+    if getattr(entity, "broadcast", False) or getattr(entity, "megagroup", False):
+        response = await tg(functions.channels.GetFullChannelRequest(channel=entity))
+        full = response.full_chat
+    admin = getattr(entity, "admin_rights", None)
+    return {
+        **base,
+        "role": _role(entity),
+        "can": {
+            "send_messages": _can(entity, "send_messages"),
+            "send_media": _can(entity, "send_media"),
+            "pin_messages": bool(getattr(admin, "pin_messages", False))
+            or _can(entity, "pin_messages"),
+            "delete_messages": bool(getattr(admin, "delete_messages", False))
+            or _kind(entity) == "user",
+            "edit_messages": bool(getattr(admin, "edit_messages", False)),
+        },
+        "slowmode_seconds": getattr(full, "slowmode_seconds", None),
+        "participants_count": getattr(full, "participants_count", None),
+        "about": getattr(full, "about", None),
     }
 
 

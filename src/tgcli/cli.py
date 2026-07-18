@@ -136,6 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_info = sub.add_parser("info", help="Show dialog metadata", parents=[global_flags])
     p_info.add_argument("chat", help="@username, t.me link, or dialog id")
+    p_info.add_argument("--full", action="store_true")
 
     p_count = sub.add_parser(
         "count", help="Count dialog messages", parents=[global_flags]
@@ -294,7 +295,11 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                 )
                 return data, search_cmd.to_rows(data)
             if args.command == "info":
-                data = await info_cmd.fetch_info(tg, args.chat)
+                data = (
+                    await info_cmd.fetch_info_full(tg, args.chat)
+                    if args.full
+                    else await info_cmd.fetch_info(tg, args.chat)
+                )
                 return data, info_cmd.to_rows(data)
             if args.command == "count":
                 data = await info_cmd.fetch_count(tg, args.chat)
