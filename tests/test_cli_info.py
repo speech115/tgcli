@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from telethon.tl import functions
 
 from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli.cli import main
@@ -94,7 +95,12 @@ def test_info_full_reports_role_rights_and_slowmode(config_env, monkeypatch, cap
     )
 
     class FullClient(FakeClient):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.full_requests = []
+
         async def __call__(self, request):
+            self.full_requests.append(request)
             return ns(
                 full_chat=ns(
                     slowmode_seconds=30,
@@ -115,6 +121,98 @@ def test_info_full_reports_role_rights_and_slowmode(config_env, monkeypatch, cap
     assert data["slowmode_seconds"] == 30
     assert data["participants_count"] == 12
     assert data["about"] == "rules"
+    assert len(client.full_requests) == 1
+    assert isinstance(client.full_requests[0], functions.channels.GetFullChannelRequest)
+
+
+def test_info_full_creator_has_all_capabilities(config_env, monkeypatch, capsys):
+    entity = ns(
+        id=8,
+        title="Owned channel",
+        username="owned",
+        broadcast=True,
+        megagroup=False,
+        creator=True,
+        admin_rights=None,
+    )
+
+    class FullClient(FakeClient):
+        async def __call__(self, request):
+            return ns(full_chat=ns())
+
+    client = FullClient(entities={"@owned": entity})
+    make_session_fake(monkeypatch, client)
+
+    assert main(["info", "@owned", "--full", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["can"] == {
+        "send_messages": True,
+        "send_media": True,
+        "pin_messages": True,
+        "delete_messages": True,
+        "edit_messages": True,
+    }
+
+
+def test_info_full_admin_without_pin_right_cannot_pin(config_env, monkeypatch, capsys):
+    entity = ns(
+        id=9,
+        title="Restricted admin",
+        username="restricted",
+        broadcast=False,
+        megagroup=True,
+        creator=False,
+        admin_rights=ns(
+            delete_messages=True,
+            pin_messages=False,
+            edit_messages=True,
+        ),
+    )
+
+    class FullClient(FakeClient):
+        async def __call__(self, request):
+            return ns(full_chat=ns())
+
+    client = FullClient(entities={"@restricted": entity})
+    make_session_fake(monkeypatch, client)
+
+    assert main(["info", "@restricted", "--full", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["can"]["pin_messages"] is False
+
+
+def test_info_full_broadcast_admin_without_post_right_cannot_send(
+    config_env, monkeypatch, capsys
+):
+    entity = ns(
+        id=10,
+        title="No posts",
+        username="no_posts",
+        broadcast=True,
+        megagroup=False,
+        creator=False,
+        admin_rights=ns(
+            post_messages=False,
+            delete_messages=True,
+            pin_messages=True,
+            edit_messages=True,
+        ),
+    )
+
+    class FullClient(FakeClient):
+        async def __call__(self, request):
+            return ns(full_chat=ns())
+
+    client = FullClient(entities={"@no_posts": entity})
+    make_session_fake(monkeypatch, client)
+
+    assert main(["info", "@no_posts", "--full", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["can"]["send_messages"] is False
+    assert data["can"]["send_media"] is False
 
 
 def test_info_full_for_user_avoids_channel_request(config_env, monkeypatch, capsys):

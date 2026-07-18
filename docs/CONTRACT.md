@@ -140,7 +140,10 @@ and `edit_messages` booleans (or `null` when Telegram does not expose enough
 rights data). `slowmode_seconds`, `participants_count`, and `about` come from
 full channel metadata for channels and megagroups; they are `null` for user
 dialogs and basic groups. The `can` map is a preflight aid, not authorization
-truth — Telegram remains the authority.
+truth — Telegram remains the authority. A creator reports all listed
+capabilities as `true`. For an admin, broadcast posting capabilities use the
+available `post_messages` flag, and pin/delete/edit use their respective
+Telegram admin-right flags; tgcli does not infer ungranted admin capabilities.
 
 `tg count <chat> --json`:
 ```json

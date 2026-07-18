@@ -57,8 +57,6 @@ def _role(entity) -> str | None:
 def _can(entity, flag: str) -> bool | None:
     if _kind(entity) == "user":
         return True
-    if getattr(entity, "creator", False) or getattr(entity, "admin_rights", None):
-        return True
     if getattr(entity, "broadcast", False):
         return False
     banned = getattr(entity, "banned_rights", None) or getattr(
@@ -69,6 +67,38 @@ def _can(entity, flag: str) -> bool | None:
     return not getattr(banned, flag, False)
 
 
+def _capabilities(entity) -> dict[str, bool | None]:
+    if getattr(entity, "creator", False):
+        return {
+            "send_messages": True,
+            "send_media": True,
+            "pin_messages": True,
+            "delete_messages": True,
+            "edit_messages": True,
+        }
+    admin = getattr(entity, "admin_rights", None)
+    if admin is not None:
+        can_post = (
+            bool(getattr(admin, "post_messages", False))
+            if getattr(entity, "broadcast", False)
+            else True
+        )
+        return {
+            "send_messages": can_post,
+            "send_media": can_post,
+            "pin_messages": bool(getattr(admin, "pin_messages", False)),
+            "delete_messages": bool(getattr(admin, "delete_messages", False)),
+            "edit_messages": bool(getattr(admin, "edit_messages", False)),
+        }
+    return {
+        "send_messages": _can(entity, "send_messages"),
+        "send_media": _can(entity, "send_media"),
+        "pin_messages": _can(entity, "pin_messages"),
+        "delete_messages": _kind(entity) == "user",
+        "edit_messages": False,
+    }
+
+
 async def fetch_info_full(tg, chat: str) -> dict:
     entity = await _entity(tg, chat)
     base = await fetch_info(tg, chat)
@@ -76,19 +106,10 @@ async def fetch_info_full(tg, chat: str) -> dict:
     if getattr(entity, "broadcast", False) or getattr(entity, "megagroup", False):
         response = await tg(functions.channels.GetFullChannelRequest(channel=entity))
         full = response.full_chat
-    admin = getattr(entity, "admin_rights", None)
     return {
         **base,
         "role": _role(entity),
-        "can": {
-            "send_messages": _can(entity, "send_messages"),
-            "send_media": _can(entity, "send_media"),
-            "pin_messages": bool(getattr(admin, "pin_messages", False))
-            or _can(entity, "pin_messages"),
-            "delete_messages": bool(getattr(admin, "delete_messages", False))
-            or _kind(entity) == "user",
-            "edit_messages": bool(getattr(admin, "edit_messages", False)),
-        },
+        "can": _capabilities(entity),
         "slowmode_seconds": getattr(full, "slowmode_seconds", None),
         "participants_count": getattr(full, "participants_count", None),
         "about": getattr(full, "about", None),
