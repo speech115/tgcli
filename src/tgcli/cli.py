@@ -385,7 +385,9 @@ def main(argv: list[str] | None = None) -> int:
                     except SystemExit:
                         return 1
                 safety.enforce_mutation_allowed(args.readonly)
-                args.preview_payload = safety.consume_preview(args.commit)
+                args.preview_payload = safety.begin_commit(args.commit)
+                if args.preview_payload.get("kind") != "send":
+                    raise PolicyError("preview does not match send")
             elif not (
                 args.preview
                 and args.chat is not None
@@ -452,7 +454,12 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 if args.command == "send" and args.commit:
                     safety.append_audit(
-                        "send", account.alias, {"preview_id": args.commit}
+                        "send",
+                        account.alias,
+                        {
+                            "preview_id": args.commit,
+                            "random_id": args.preview_payload.get("random_id"),
+                        },
                     )
                 if args.command == "api" and args.write:
                     safety.append_audit("api", account.alias, {"method": args.method})
@@ -465,6 +472,16 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     data, rows = asyncio.run(
                         asyncio.wait_for(network, timeout=args.timeout)
+                    )
+                if getattr(args, "commit", None) and args.command == "send":
+                    safety.finish_commit(args.commit)
+                    safety.append_audit(
+                        "send-result",
+                        account.alias,
+                        {
+                            "preview_id": args.commit,
+                            "message_id": data.get("message_id"),
+                        },
                     )
     except TgcliError as err:
         output.emit_error(err, as_json=args.json)

@@ -2,6 +2,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from telethon.tl import functions, types
 
 from tests.conftest import make_session_fake
 from tgcli import safety
@@ -26,15 +27,30 @@ def config_env(tmp_path, monkeypatch):
 
 class SendClient:
     def __init__(self):
-        self.sent = []
+        self.requests = []
+        self.uploaded = []
 
     async def get_entity(self, chat):
         assert chat == "@alice"
         return SimpleNamespace(id=7, title="Alice")
 
-    async def send_message(self, chat, text):
-        self.sent.append((chat, text))
-        return SimpleNamespace(id=42)
+    async def get_input_entity(self, chat):
+        return f"input:{chat}"
+
+    async def upload_file(self, path):
+        self.uploaded.append(path)
+        return SimpleNamespace(name=path)
+
+    async def __call__(self, request):
+        self.requests.append(request)
+        return SimpleNamespace(
+            updates=[types.UpdateMessageID(id=42, random_id=request.random_id)]
+        )
+
+
+class FailingClient(SendClient):
+    async def __call__(self, request):
+        raise OSError("connection reset")
 
 
 def test_send_preview_persists_payload_without_sending(config_env, monkeypatch, capsys):
@@ -47,7 +63,7 @@ def test_send_preview_persists_payload_without_sending(config_env, monkeypatch, 
     assert preview["to"] == {"id": 7, "name": "Alice"}
     assert preview["text"] == "hello"
     assert preview["expires_at"]
-    assert client.sent == []
+    assert client.requests == []
 
     stored = safety.begin_commit(preview["preview_id"])
     random_id = stored.pop("random_id")
@@ -166,9 +182,20 @@ def test_send_missing_file_is_not_found(config_env, monkeypatch, capsys, tmp_pat
     )
 
 
-def test_send_commit_replays_stored_payload_once(config_env, monkeypatch, capsys):
+def test_send_commit_sends_raw_with_stored_random_id(config_env, monkeypatch, capsys):
     preview = safety.create_preview(
-        {"chat": "@alice", "text": "hello", "to": {"id": 7, "name": "Alice"}}
+        {
+            "kind": "send",
+            "chat": "@alice",
+            "text": "hello",
+            "file": None,
+            "file_size": None,
+            "reply_to": 5,
+            "topic": None,
+            "silent": True,
+            "random_id": 777,
+            "to": {"id": 7, "name": "Alice"},
+        }
     )
     client = SendClient()
     make_session_fake(monkeypatch, client)
@@ -178,9 +205,90 @@ def test_send_commit_replays_stored_payload_once(config_env, monkeypatch, capsys
         "preview_id": preview["preview_id"],
         "message_id": 42,
     }
-    assert client.sent == [("@alice", "hello")]
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMessageRequest)
+    assert request.random_id == 777
+    assert request.silent is True
+    assert request.reply_to.reply_to_msg_id == 5
 
     assert main(["send", "--commit", preview["preview_id"]]) == 2
+
+    lines = [json.loads(line) for line in safety.audit_path().read_text().splitlines()]
+    assert lines[-2]["action"] == "send"
+    assert lines[-2]["random_id"] == 777
+    assert lines[-1]["action"] == "send-result"
+    assert lines[-1]["message_id"] == 42
+
+
+def test_send_commit_sends_raw_media(config_env, monkeypatch, capsys, tmp_path):
+    photo = tmp_path / "pic.jpg"
+    photo.write_bytes(b"file")
+    preview = safety.create_preview(
+        {
+            "kind": "send",
+            "chat": "@alice",
+            "text": "look",
+            "file": str(photo),
+            "file_size": 4,
+            "reply_to": None,
+            "topic": None,
+            "silent": False,
+            "random_id": 778,
+            "to": {"id": 7, "name": "Alice"},
+        }
+    )
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 0
+
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMediaRequest)
+    assert isinstance(request.media, types.InputMediaUploadedPhoto)
+    assert request.message == "look"
+    assert request.random_id == 778
+    assert client.uploaded == [str(photo)]
+
+
+def test_send_commit_is_retryable_after_network_failure(
+    config_env, monkeypatch, capsys
+):
+    preview = safety.create_preview(
+        {
+            "kind": "send",
+            "chat": "@alice",
+            "text": "hello",
+            "file": None,
+            "file_size": None,
+            "reply_to": None,
+            "topic": None,
+            "silent": False,
+            "random_id": 779,
+            "to": {"id": 7, "name": "Alice"},
+        }
+    )
+    make_session_fake(monkeypatch, FailingClient())
+
+    with pytest.raises(OSError, match="connection reset"):
+        main(["send", "--commit", preview["preview_id"], "--json"])
+
+    working = SendClient()
+    make_session_fake(monkeypatch, working)
+    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 0
+    assert working.requests[0].random_id == 779
+
+
+def test_send_commit_rejects_a_non_send_preview_before_session(monkeypatch):
+    from tgcli import cli
+
+    preview = safety.create_preview({"kind": "clone-init"})
+    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
+    monkeypatch.setattr(
+        cli.session, "client", lambda account: pytest.fail("session opened")
+    )
+
+    assert main(["send", "--commit", preview["preview_id"]]) == 2
+    assert not safety.audit_path().exists()
 
 
 def test_send_commit_with_extra_args_returns_usage_error(capsys):
@@ -203,7 +311,20 @@ def test_send_without_required_args_returns_usage_error(capsys):
 def test_send_commit_is_blocked_before_config_or_session(monkeypatch, flag, value):
     from tgcli import cli
 
-    preview = safety.create_preview({"chat": "@alice", "text": "hello", "to": {}})
+    preview = safety.create_preview(
+        {
+            "kind": "send",
+            "chat": "@alice",
+            "text": "hello",
+            "file": None,
+            "file_size": None,
+            "reply_to": None,
+            "topic": None,
+            "silent": False,
+            "random_id": 780,
+            "to": {},
+        }
+    )
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
     monkeypatch.setattr(
         cli.session, "client", lambda account: pytest.fail("session opened")

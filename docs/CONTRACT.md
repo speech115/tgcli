@@ -161,14 +161,17 @@ path, and `file_size` is its byte size. `--caption` requires `--file`; a file
 send cannot take positional text. The stored preview additionally includes the
 target, `kind: "send"`, and a positive `random_id` for the later idempotent
 commit path.
-Previews expire after five minutes and are single-use: `tg send --commit p_9f3a`
-replays only the stored target and text, then consumes the preview even if the
-network call fails. Commit JSON is `{"preview_id": "p_9f3a", "message_id": 42}`.
+Previews expire after five minutes. A send commit moves its preview through
+`.json` → `.pending` → `.used`: a failed commit may be re-committed; Telegram
+deduplicates by `random_id` within the preview TTL. Only a confirmed send marks
+the preview used. Commit JSON is `{"preview_id": "p_9f3a", "message_id": 42}`.
 Every authorised send commit appends one JSON object to
 `~/.local/state/tgcli/audit.jsonl` (or `TGCLI_STATE_DIR/audit.jsonl`) before
-network dispatch. If the audit record cannot be written, the mutation is
-blocked with exit 2; tgcli never performs an unaudited authorised write.
-Preview creation itself does not send or audit a mutation.
+network dispatch, including the stored `random_id`; a successful confirmed
+commit appends `send-result` with its preview and message ids. If the pre-send
+audit record cannot be written, the mutation is blocked with exit 2; tgcli
+never performs an unaudited authorised write. Preview creation itself does not
+send or audit a mutation.
 
 ## 6. Raw API Passthrough (`tg api`, phase 2+; ADR-0010)
 
