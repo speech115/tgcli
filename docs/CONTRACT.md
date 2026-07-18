@@ -283,6 +283,11 @@ session-file presence, whether the session lock can be acquired, whether the
 local preview state directory is writable, and whether Telegram authorizes the
 session. It does not mutate Telegram.
 
+The health checks make short-lived local probes: for an existing session they
+may create and acquire its `.lock` file, and they create then remove a
+`.doctor-probe` file in the preview-state directory. A missing session is not
+locked and creates no lock file. These probes do not mutate Telegram.
+
 `--json` emits:
 
 ```json
@@ -291,9 +296,10 @@ session. It does not mutate Telegram.
 "user":{"id":1,"username":"me","name":"Me"},"ok":true}],"ok":true}
 ```
 
-An online session/configuration failure is represented as `checks.error`, with
-`authorized: false`, `user: null`, and `ok: false` for that account. `--plain`
-uses frozen columns: `alias`, `status` (`ok|fail`), `username`, `failures`.
+Any ordinary online exception, including a session/configuration failure, is
+represented as `checks.error`, with `authorized: false`, `user: null`, and
+`ok: false` for that account. `--plain` uses frozen columns: `alias`, `status`
+(`ok|fail`), `username`, `failures`.
 
 When `doctor` itself runs, it always exits 0; consult the top-level `ok` and
 per-account `ok` values for health failures. An invalid or unreadable config,

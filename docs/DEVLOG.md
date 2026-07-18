@@ -13,6 +13,17 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-18 — Task 14 doctor review fixes (Codex)
+**Did:** made the doctor online probe convert every ordinary exception into
+`checks.error` and exit-0 report data; a missing `.session` now reports
+`lock_free: false` without creating a lock file. Added regressions for both
+cases and documented the short-lived local lock/writability probes.
+**Decided:** `doctor` still acquires a lock only for an existing session, and
+its local probe cleanup is best-effort; no Telegram mutation is permitted.
+**Learned:** an absent session and an available lock are different health
+facts, so `lock_free` must not be inferred by probing a nonexistent session.
+**Next:** review the corrective commit, then run the owner-gated live smoke.
+
 ## 2026-07-18 — Agent correspondence Task 14 doctor health report (Codex)
 **Did:** added `tg doctor`, which inspects every configured account (or one
 explicit alias) for session presence, lock availability, writable local state,

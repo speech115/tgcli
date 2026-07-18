@@ -5,7 +5,6 @@ from pathlib import Path
 
 from tgcli import safety, session
 from tgcli.config import Config, resolve_account
-from tgcli.errors import TgcliError
 
 
 def _lock_free(session_file: Path) -> bool:
@@ -24,21 +23,26 @@ def _lock_free(session_file: Path) -> bool:
 
 
 def _writable(directory: Path) -> bool:
+    probe = directory / ".doctor-probe"
     try:
         directory.mkdir(parents=True, exist_ok=True)
-        probe = directory / ".doctor-probe"
         probe.write_text("")
-        probe.unlink()
         return True
     except OSError:
         return False
+    finally:
+        try:
+            probe.unlink()
+        except OSError:
+            pass
 
 
 async def check_account(account) -> dict:
     session_file = session.session_path(account)
+    has_session_file = session_file.is_file()
     checks: dict = {
-        "session_file": session_file.is_file(),
-        "lock_free": _lock_free(session_file),
+        "session_file": has_session_file,
+        "lock_free": has_session_file and _lock_free(session_file),
         "state_writable": _writable(safety.previews_dir()),
         "authorized": False,
     }
@@ -54,7 +58,7 @@ async def check_account(account) -> dict:
                         "username": getattr(me, "username", None),
                         "name": getattr(me, "first_name", None),
                     }
-        except (TgcliError, OSError) as exc:
+        except Exception as exc:
             checks["error"] = str(exc)
     ok = all(value for key, value in checks.items() if key != "error")
     return {

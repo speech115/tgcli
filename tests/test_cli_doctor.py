@@ -52,6 +52,8 @@ def _fake_client(monkeypatch):
 
 
 def test_doctor_reports_all_accounts(config_env, monkeypatch, capsys):
+    from tgcli import safety, session
+
     _touch_session("main")
     _fake_client(monkeypatch)
 
@@ -63,6 +65,8 @@ def test_doctor_reports_all_accounts(config_env, monkeypatch, capsys):
     assert by_alias["spare"]["checks"]["session_file"] is False
     assert by_alias["spare"]["ok"] is False
     assert data["ok"] is False
+    assert (session.state_dir() / "sessions" / "main.lock").exists()
+    assert not (safety.previews_dir() / ".doctor-probe").exists()
 
 
 def test_doctor_single_account(config_env, monkeypatch, capsys):
@@ -94,3 +98,38 @@ def test_doctor_reports_config_error_in_payload(config_env, monkeypatch, capsys)
     assert report["checks"]["error"] == "session 'main' is not authorized"
     assert report["ok"] is False
     assert data["ok"] is False
+
+
+def test_doctor_reports_runtime_error_in_payload(config_env, monkeypatch, capsys):
+    from tgcli import session
+
+    _touch_session("main")
+
+    @asynccontextmanager
+    async def failing_session(account):
+        raise RuntimeError("unexpected transport failure")
+        yield
+
+    monkeypatch.setattr(session, "client", failing_session)
+
+    assert main(["doctor", "--account", "main", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    report = data["accounts"][0]
+    assert report["checks"]["authorized"] is False
+    assert report["checks"]["error"] == "unexpected transport failure"
+    assert report["ok"] is False
+    assert data["ok"] is False
+
+
+def test_doctor_missing_session_does_not_create_lock(config_env, capsys):
+    from tgcli import session
+
+    sessions = session.state_dir() / "sessions"
+    sessions.mkdir(parents=True)
+
+    assert main(["doctor", "--account", "spare", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    report = data["accounts"][0]
+    assert report["checks"]["session_file"] is False
+    assert report["checks"]["lock_free"] is False
+    assert not (sessions / "spare.lock").exists()
