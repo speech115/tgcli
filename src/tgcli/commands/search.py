@@ -16,7 +16,7 @@ async def fetch_search(tg, chat: str, query: str, limit: int = 20) -> dict:
     entity = await _entity(tg, chat)
     messages = []
     async for message in tg.iter_messages(entity, search=query, limit=limit):
-        messages.append(message_to_dict(message))
+        messages.append(message_to_dict(message, entity))
     return {
         "dialog": {"id": entity.id, "name": _dialog_name(entity, chat)},
         "query": query,
@@ -29,7 +29,7 @@ async def fetch_latest(tg, chat: str) -> dict:
     async for message in tg.iter_messages(entity, limit=1):
         return {
             "dialog": {"id": entity.id, "name": _dialog_name(entity, chat)},
-            "message": message_to_dict(message),
+            "message": message_to_dict(message, entity),
         }
     raise NotFoundError(f"no messages found: {chat!r}")
 

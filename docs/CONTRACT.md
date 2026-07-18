@@ -62,9 +62,15 @@ Flag beats env, env beats config.
 ```json
 {"dialog": {"id": -1001234, "name": "Channel"},
  "messages": [{"id": 42, "date": "2026-07-06T10:00:00+00:00",
-               "from": {"id": 111, "name": "Alice"},
-               "text": "hello", "media": null, "reply_to": null}]}
+               "from": {"id": 111, "name": "Alice", "username": null},
+               "text": "hello", "media": null, "media_info": null,
+               "reply_to": null, "permalink": null, "edited_at": null,
+               "outgoing": false, "forwarded_from": null, "reactions": [],
+               "topic_id": null, "grouped_id": null, "is_service": false}]}
 ```
+
+All message-shape additions since 0.1 are additive; `media` remains the Telethon
+class name string, `media_info` carries structured metadata.
 
 `tg search <chat> <query> --json` uses the same `dialog` and message shapes as
 `read`, adding the submitted query:

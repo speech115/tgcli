@@ -20,14 +20,87 @@ def _dialog_name(entity, fallback: str) -> str:
     )
 
 
-def message_to_dict(message) -> dict:
+def _permalink(entity, message_id: int) -> str | None:
+    if entity is None:
+        return None
+    username = getattr(entity, "username", None)
+    if username:
+        return f"https://t.me/{username}/{message_id}"
+    if getattr(entity, "broadcast", False) or getattr(entity, "megagroup", False):
+        return f"https://t.me/c/{entity.id}/{message_id}"
+    return None
+
+
+def _media_info(message) -> dict | None:
+    file = getattr(message, "file", None)
+    if file is None:
+        return None
+    return {
+        "name": getattr(file, "name", None),
+        "mime": getattr(file, "mime_type", None),
+        "size": getattr(file, "size", None),
+        "duration": getattr(file, "duration", None),
+        "width": getattr(file, "width", None),
+        "height": getattr(file, "height", None),
+    }
+
+
+def _reactions(message) -> list[dict]:
+    results = getattr(getattr(message, "reactions", None), "results", None) or []
+    output = []
+    for item in results:
+        reaction = getattr(item, "reaction", None)
+        emoji = getattr(reaction, "emoticon", None)
+        custom = getattr(reaction, "document_id", None)
+        output.append(
+            {"emoji": emoji or (str(custom) if custom else None), "count": item.count}
+        )
+    return output
+
+
+def _forwarded_from(message) -> dict | None:
+    forward = getattr(message, "forward", None)
+    if forward is None:
+        return None
+    date = getattr(forward, "date", None)
+    return {
+        "name": getattr(forward, "from_name", None),
+        "id": getattr(forward, "sender_id", None) or getattr(forward, "chat_id", None),
+        "date": date.isoformat() if date else None,
+    }
+
+
+def _topic_id(message) -> int | None:
+    reply = getattr(message, "reply_to", None)
+    if reply is None or not getattr(reply, "forum_topic", False):
+        return None
+    return getattr(reply, "reply_to_top_id", None) or getattr(
+        reply, "reply_to_msg_id", None
+    )
+
+
+def message_to_dict(message, entity=None) -> dict:
+    edit_date = getattr(message, "edit_date", None)
     return {
         "id": message.id,
         "date": message.date.isoformat() if message.date else None,
-        "from": {"id": message.sender_id, "name": _sender_name(message)},
+        "from": {
+            "id": message.sender_id,
+            "name": _sender_name(message),
+            "username": getattr(getattr(message, "sender", None), "username", None),
+        },
         "text": message.text or "",
         "media": type(message.media).__name__ if message.media else None,
+        "media_info": _media_info(message),
         "reply_to": message.reply_to_msg_id,
+        "permalink": _permalink(entity, message.id),
+        "edited_at": edit_date.isoformat() if edit_date else None,
+        "outgoing": bool(getattr(message, "out", False)),
+        "forwarded_from": _forwarded_from(message),
+        "reactions": _reactions(message),
+        "topic_id": _topic_id(message),
+        "grouped_id": getattr(message, "grouped_id", None),
+        "is_service": getattr(message, "action", None) is not None,
     }
 
 
@@ -43,7 +116,7 @@ async def fetch_message(tg, chat: str, message_id: int) -> dict:
 
     return {
         "dialog": {"id": entity.id, "name": _dialog_name(entity, chat)},
-        "message": message_to_dict(message),
+        "message": message_to_dict(message, entity),
     }
 
 
@@ -55,7 +128,7 @@ async def fetch_messages(tg, chat: str, limit: int = 20) -> dict:
 
     messages = []
     async for message in tg.iter_messages(entity, limit=limit):
-        messages.append(message_to_dict(message))
+        messages.append(message_to_dict(message, entity))
 
     return {
         "dialog": {"id": entity.id, "name": _dialog_name(entity, chat)},

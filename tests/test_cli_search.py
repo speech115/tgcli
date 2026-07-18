@@ -57,10 +57,19 @@ def test_search_json_passes_query_and_returns_search_results(
             {
                 "id": 42,
                 "date": "2026-07-06T10:00:00+00:00",
-                "from": {"id": 111, "name": "Alice"},
+                "from": {"id": 111, "name": "Alice", "username": None},
                 "text": "needle result",
                 "media": None,
+                "media_info": None,
                 "reply_to": None,
+                "permalink": None,
+                "edited_at": None,
+                "outgoing": False,
+                "forwarded_from": None,
+                "reactions": [],
+                "topic_id": None,
+                "grouped_id": None,
+                "is_service": False,
             }
         ],
     }
