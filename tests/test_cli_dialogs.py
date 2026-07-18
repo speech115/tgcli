@@ -78,7 +78,7 @@ def test_dialogs_unread_only_and_kind_filter(config_env, monkeypatch, capsys):
         dialogs=[
             make_dialog(),
             make_user_dialog(unread_count=0),
-            make_user_dialog(unread_count=1, mentions=2),
+            make_user_dialog(unread_count=0, mentions=2),
         ]
     )
     make_session_fake(monkeypatch, client)
@@ -86,9 +86,25 @@ def test_dialogs_unread_only_and_kind_filter(config_env, monkeypatch, capsys):
     assert main(["dialogs", "--unread-only", "--kind", "user", "--json"]) == 0
 
     data = json.loads(capsys.readouterr().out)
-    assert data["dialogs"]
-    assert all(d["kind"] == "user" and d["unread"] > 0 for d in data["dialogs"])
-    assert all("mentions" in d for d in data["dialogs"])
+    assert data["dialogs"] == [
+        {
+            "id": 42,
+            "name": "Unread user",
+            "kind": "user",
+            "username": "user",
+            "unread": 0,
+            "mentions": 2,
+            "last_message_at": "2026-07-06T12:00:00+00:00",
+        }
+    ]
+
+
+def test_dialogs_limit_zero_returns_no_dialogs(config_env, monkeypatch, capsys):
+    make_session_fake(monkeypatch, FakeClient(dialogs=[make_dialog()]))
+
+    assert main(["dialogs", "--limit", "0", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out) == {"dialogs": []}
 
 
 def test_dialogs_unread_only_includes_unread_mentions(config_env, monkeypatch, capsys):

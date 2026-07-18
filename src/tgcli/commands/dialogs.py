@@ -9,6 +9,9 @@ def _kind(dialog) -> str:
 async def fetch_dialogs(
     tg, limit: int = 50, *, unread_only: bool = False, kind: str | None = None
 ) -> dict:
+    if limit == 0:
+        return {"dialogs": []}
+
     dialogs = []
     async for dialog in tg.iter_dialogs():
         mentions = (
