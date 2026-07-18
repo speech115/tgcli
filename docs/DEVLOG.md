@@ -13,6 +13,28 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-18 — Agent correspondence Task 15 docs closure (Codex)
+**Did:** updated `SKILL.md` for the complete ADR-0028 correspondence surface:
+`edit`, `delete`, `forward`, `mark-read`, and `doctor`, plus recipes for
+walking `read --before-id` history, checking unread dialogs with
+`read --after-id`, and retrying the same send commit after a network failure.
+Re-read `docs/MAP.md` against `src/tgcli/`: `confirm.py`, `commands/mutate.py`,
+and `commands/doctor.py` already have accurate rows, so the map needed no
+churn. Final local gates: `.venv/bin/pytest -q` — `560 passed, 8 skipped`;
+`.venv/bin/ruff check .` — passed; `.venv/bin/ruff format --check .` —
+`86 files already formatted`; `uv run pyright` — `0 errors, 0 warnings`.
+**Decided:** this task closes documentation and local quality gates only;
+the v1.1 label is the ADR-0028 surface name, not a release-version bump.
+No new ADR is needed because ADR-0028 already authorizes the commands and
+their safety behavior.
+**Learned:** send and forward retry safety depends on reusing the original
+preview ID, whose stored `random_id` allows Telegram confirmation without a
+duplicate mutation; a new preview is not an equivalent retry.
+**Next:** after merge, perform the owner-gated live visual acceptance:
+`tg doctor --json`, `tg dialogs --unread-only --json`, and
+`tg search --all` against a known string. This live smoke was not run in this
+documentation-only task.
+
 ## 2026-07-18 — Task 14 doctor review fixes (Codex)
 **Did:** made the doctor online probe convert every ordinary exception into
 `checks.error` and exit-0 report data; a missing `.session` now reports
