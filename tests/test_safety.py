@@ -46,6 +46,31 @@ def test_expired_preview_is_blocked():
         safety.consume_preview(preview["preview_id"], now=now + timedelta(seconds=301))
 
 
+def test_begin_commit_allows_retry_until_finished():
+    preview = safety.create_preview({"kind": "send", "text": "hi"})
+
+    payload = safety.begin_commit(preview["preview_id"])
+
+    assert payload["text"] == "hi"
+    # Network failed mid-send: begin again succeeds with the same payload.
+    assert safety.begin_commit(preview["preview_id"])["text"] == "hi"
+    safety.finish_commit(preview["preview_id"])
+    with pytest.raises(PolicyError):
+        safety.begin_commit(preview["preview_id"])
+
+
+def test_begin_commit_enforces_ttl_and_id_shape():
+    preview = safety.create_preview({"kind": "send"})
+    late = datetime.now(UTC) + timedelta(minutes=6)
+
+    with pytest.raises(PolicyError):
+        safety.begin_commit(preview["preview_id"], now=late)
+    with pytest.raises(PolicyError):
+        safety.begin_commit("p_missing")
+    with pytest.raises(PolicyError):
+        safety.begin_commit("../etc/passwd")
+
+
 def test_audit_appends_one_json_object_per_line():
     safety.append_audit("send", "main", {"preview_id": "p_test"})
     safety.append_audit("api", "main", {"method": "messages.sendMessage"})

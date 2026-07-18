@@ -56,6 +56,36 @@ def consume_preview(preview_id: str, *, now: datetime | None = None) -> dict:
     return record["payload"]
 
 
+def begin_commit(preview_id: str, *, now: datetime | None = None) -> dict:
+    """Move a preview to .pending and return its payload.
+
+    Unlike consume_preview, a .pending preview may be begun again: the
+    stored random_id makes a retried network send idempotent (ADR-0028).
+    """
+    if not preview_id.startswith("p_") or "/" in preview_id:
+        raise PolicyError("preview is already used or does not exist")
+    path = previews_dir() / f"{preview_id}.json"
+    pending = path.with_suffix(".pending")
+    try:
+        path.replace(pending)
+    except FileNotFoundError:
+        if not pending.exists():
+            raise PolicyError("preview is already used or does not exist") from None
+    record = json.loads(pending.read_text())
+    now = now or datetime.now(UTC)
+    if now >= datetime.fromisoformat(record["expires_at"]):
+        raise PolicyError("preview has expired")
+    return record["payload"]
+
+
+def finish_commit(preview_id: str) -> None:
+    pending = previews_dir() / f"{preview_id}.pending"
+    try:
+        pending.replace(pending.with_suffix(".used"))
+    except FileNotFoundError:
+        pass
+
+
 def append_audit(action: str, account: str, details: dict) -> None:
     record = {
         "timestamp": datetime.now(UTC).isoformat(),
