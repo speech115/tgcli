@@ -51,10 +51,11 @@ Flag beats env, env beats config.
 
 ## 5. Core JSON Shapes (phase 1–3)
 
-`tg dialogs --json`:
+`tg dialogs [--unread-only] [--kind {user,group,channel}] --json`:
 ```json
 {"dialogs": [{"id": -1001234, "name": "Channel", "kind": "channel",
               "username": "chan", "unread": 3,
+              "mentions": 0,
               "last_message_at": "2026-07-06T11:59:00+00:00"}]}
 ```
 
@@ -138,7 +139,8 @@ positive `N`, and starts a fresh offset-based transfer.
 
 ### TSV Shapes
 
-`dialogs` retains its phase-1 columns. `read` and `search` output one row per
+`dialogs` retains its phase-1 columns and appends `mentions` as the final
+column. `read` and `search` output one row per
 message as `id`, `date`, `from_name`, `text`; `latest` and `message` use the
 same single-row shape. `info` outputs `id`, `kind`, `username`, `name`.
 `count` outputs one `count` value.

@@ -96,6 +96,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_dialogs = sub.add_parser("dialogs", help="List dialogs", parents=[global_flags])
     p_dialogs.add_argument("--limit", type=int, default=50)
+    p_dialogs.add_argument("--unread-only", action="store_true")
+    p_dialogs.add_argument("--kind", choices=["user", "group", "channel"])
 
     p_read = sub.add_parser(
         "read", help="Read recent messages from a dialog", parents=[global_flags]
@@ -248,7 +250,12 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
     try:
         async with session.client(account, mutation_safe=mutation_safe) as tg:
             if args.command == "dialogs":
-                data = await dialogs_cmd.fetch_dialogs(tg, limit=args.limit)
+                data = await dialogs_cmd.fetch_dialogs(
+                    tg,
+                    limit=args.limit,
+                    unread_only=args.unread_only,
+                    kind=args.kind,
+                )
                 return data, dialogs_cmd.to_rows(data)
             if args.command == "read":
                 data = await read_cmd.fetch_messages(
