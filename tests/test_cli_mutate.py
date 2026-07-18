@@ -69,13 +69,13 @@ def test_edit_preview_shows_old_and_new_text(config_env, monkeypatch, capsys):
         ("delete", ["@chan", "2"], "deleted"),
     ],
 )
-@pytest.mark.parametrize("flag", ["--readonly", "TGCLI_NO_SEND"])
-def test_mutation_preview_is_allowed_by_readonly_and_no_send(
+@pytest.mark.parametrize("flag", ["--readonly", "TGCLI_READONLY", "TGCLI_NO_SEND"])
+def test_mutation_preview_is_allowed_by_mutation_gates(
     config_env, monkeypatch, command, arguments, mutation, flag
 ):
     client = make_client()
     make_session_fake(monkeypatch, client)
-    if flag == "TGCLI_NO_SEND":
+    if flag.startswith("TGCLI_"):
         monkeypatch.setenv(flag, "1")
         argv = [command, *arguments, "--preview"]
     else:

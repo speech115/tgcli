@@ -82,6 +82,20 @@ def test_send_preview_persists_payload_without_sending(config_env, monkeypatch, 
     assert isinstance(random_id, int)
 
 
+@pytest.mark.parametrize("flag", ["--readonly", "TGCLI_READONLY", "TGCLI_NO_SEND"])
+def test_send_preview_is_allowed_by_mutation_gates(config_env, monkeypatch, flag):
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+    if flag.startswith("TGCLI_"):
+        monkeypatch.setenv(flag, "1")
+        argv = ["send", "@alice", "hello", "--preview"]
+    else:
+        argv = [flag, "send", "@alice", "hello", "--preview"]
+
+    assert main(argv) == 0
+    assert client.requests == []
+
+
 def test_send_preview_with_file_and_caption(config_env, monkeypatch, capsys, tmp_path):
     photo = tmp_path / "pic.jpg"
     photo.write_bytes(b"\xff\xd8fake!!")
