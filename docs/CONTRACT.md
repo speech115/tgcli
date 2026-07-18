@@ -223,9 +223,11 @@ message, and returns:
 {"preview_id":"p_9f3a","source":"@source","message_id":42,"destination":"@destination","text":"hello","expires_at":"2026-07-06T12:05:00+00:00"}
 ```
 
-The stored forward payload also has a positive `random_id`. Its commit sends
-that source message from the stored source peer to the stored destination peer
-via Telegram's native forward request; it returns
+The stored forward payload also has a positive `random_id` and the submitted
+source and destination chat references. Preview resolves both references only
+as a preflight; commit re-resolves the stored chat references into input peers,
+then sends that source message to that destination through Telegram's native
+forward request. It returns
 `{"preview_id":"p_9f3a","message_id":43}` only after exact `random_id`
 confirmation. Forward previews and commits use the same validation, readonly
 gates, retryable `.json` → `.pending` → `.used` lifecycle, and fail-closed

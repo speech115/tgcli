@@ -49,6 +49,18 @@ class ForwardClient(MutateClient):
         )
 
 
+class FlakyForwardClient(ForwardClient):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.fail_next_forward = True
+
+    async def __call__(self, request):
+        if self.fail_next_forward:
+            self.fail_next_forward = False
+            raise ConnectionError("connection dropped")
+        return await super().__call__(request)
+
+
 def make_client():
     message = ns(
         id=2,
@@ -60,6 +72,23 @@ def make_client():
         reply_to_msg_id=None,
     )
     return MutateClient(messages=[message], entities={"@chan": ns(id=5, title="Chan")})
+
+
+def make_forward_client(client_type=ForwardClient):
+    return client_type(
+        messages=[
+            ns(
+                id=2,
+                date=None,
+                sender_id=1,
+                sender=None,
+                text="old",
+                media=None,
+                reply_to_msg_id=None,
+            )
+        ],
+        entities={"@chan": ns(id=5, title="Chan"), "@other": ns(id=6, title="Other")},
+    )
 
 
 def test_edit_preview_shows_old_and_new_text(config_env, monkeypatch, capsys):
@@ -175,20 +204,7 @@ def test_forward_commit_uses_stored_random_id(config_env, monkeypatch, capsys):
             "random_id": 555,
         }
     )
-    client = ForwardClient(
-        messages=[
-            ns(
-                id=2,
-                date=None,
-                sender_id=1,
-                sender=None,
-                text="old",
-                media=None,
-                reply_to_msg_id=None,
-            )
-        ],
-        entities={"@chan": ns(id=5, title="Chan"), "@other": ns(id=6, title="Other")},
-    )
+    client = make_forward_client()
     make_session_fake(monkeypatch, client)
 
     assert main(["forward", "--commit", preview["preview_id"], "--json"]) == 0
@@ -199,6 +215,62 @@ def test_forward_commit_uses_stored_random_id(config_env, monkeypatch, capsys):
     assert client.forwarded.to_peer == "@other"
     assert client.forwarded.random_id == [555]
     assert client.forwarded.id == [2]
+    actions = [
+        json.loads(line)["action"]
+        for line in safety.audit_path().read_text().splitlines()
+    ]
+    assert actions == ["forward", "forward-result"]
+
+
+def test_forward_preview_stores_chat_refs_and_random_id(
+    config_env, monkeypatch, capsys
+):
+    client = make_forward_client()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["forward", "@chan", "2", "@other", "--preview", "--json"]) == 0
+
+    preview = json.loads(capsys.readouterr().out)
+    stored = safety.begin_commit(preview["preview_id"], expected_kind="forward")
+    assert preview == {
+        "preview_id": preview["preview_id"],
+        "source": "@chan",
+        "message_id": 2,
+        "destination": "@other",
+        "text": "old",
+        "expires_at": preview["expires_at"],
+    }
+    assert stored["source"] == "@chan"
+    assert stored["destination"] == "@other"
+    assert isinstance(stored["random_id"], int)
+    assert stored["random_id"] > 0
+
+
+def test_forward_commit_retries_pending_preview_after_network_failure(
+    config_env, monkeypatch, capsys
+):
+    preview = safety.create_preview(
+        {
+            "kind": "forward",
+            "source": "@chan",
+            "message_id": 2,
+            "destination": "@other",
+            "text": "old",
+            "random_id": 555,
+        }
+    )
+    client = make_forward_client(FlakyForwardClient)
+    make_session_fake(monkeypatch, client)
+
+    with pytest.raises(ConnectionError, match="connection dropped"):
+        main(["forward", "--commit", preview["preview_id"]])
+    pending = safety.previews_dir() / f"{preview['preview_id']}.pending"
+    assert pending.exists()
+
+    assert main(["forward", "--commit", preview["preview_id"], "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["message_id"] == 99
+    assert not pending.exists()
+    assert pending.with_suffix(".used").exists()
 
 
 def test_mark_read_needs_no_preview_but_respects_readonly(
@@ -214,7 +286,29 @@ def test_mark_read_needs_no_preview_but_respects_readonly(
 
     assert main(["mark-read", "@chan", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["marked_read"] is True
+    actions = [
+        json.loads(line)["action"]
+        for line in safety.audit_path().read_text().splitlines()
+    ]
+    assert actions == ["mark-read"]
     assert main(["--readonly", "mark-read", "@chan"]) == 2
+
+
+@pytest.mark.parametrize("flag", ["--readonly", "TGCLI_READONLY", "TGCLI_NO_SEND"])
+def test_mark_read_gates_before_config_or_session(monkeypatch, flag):
+    from tgcli import cli
+
+    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
+    monkeypatch.setattr(
+        cli.session, "client", lambda account: pytest.fail("session opened")
+    )
+    if flag.startswith("TGCLI_"):
+        monkeypatch.setenv(flag, "1")
+        argv = ["mark-read", "@chan"]
+    else:
+        argv = [flag, "mark-read", "@chan"]
+
+    assert main(argv) == 2
 
 
 def test_kind_mismatch_is_blocked_without_consuming_preview(monkeypatch):
