@@ -13,6 +13,23 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-18 — Agent correspondence Slice 1 read surface complete (Codex)
+**Did:** completed Tasks 1–4 of the ADR-0028 agent-correspondence plan: added
+the shared agent-facing message fields; `read` ID/date/topic filters and page
+metadata; `message --context`; and `search --from` / `--since`. Documented
+the additive response and filter contracts. The full local test suite reported
+`492 passed, 8 skipped`; ruff check and format gates passed.
+**Decided:** all Slice 1 changes remain additive to existing JSON and TSV
+contracts. Date lower bounds preserve Telethon's newest-first iteration and
+stop at the first older message; sender filtering is delegated through
+Telethon's `from_user` parameter. No ADR was needed because ADR-0028 already
+authorizes this scoped, contract-additive work.
+**Learned:** the repository's current pyright baseline has one unrelated error
+in frozen clone code, `src/tgcli/clone/replies.py:28`, for the absent
+`MessageReplyHeader.reply_to_ephemeral` stub attribute; it was not changed.
+**Next:** start Slice 2 only from its first TDD task: preview commit state in
+`safety.py`, with its new failure/retry semantics tested before implementation.
+
 
 ## 2026-07-18 — ADR-0028: v1.1 agent correspondence scope + plan (Claude Fable 5)
 **Did:** owner-commissioned product review of v1.0 walked through a

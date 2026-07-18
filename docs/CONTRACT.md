@@ -91,6 +91,10 @@ newest-first output and stops when it reaches the lower date boundary.
                "topic_id": null, "grouped_id": null, "is_service": false}]}
 ```
 
+`search` accepts `--from @username` to restrict results to that sender and
+`--since ISO` as an inclusive lower date boundary. Search remains newest-first
+and stops when it reaches a message older than `--since`.
+
 `tg latest <chat> --json` and `tg message <chat> <message_id> --json` return
 one message in that same shape:
 ```json

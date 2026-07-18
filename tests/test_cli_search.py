@@ -35,6 +35,47 @@ def make_message(message_id, text):
     )
 
 
+def make_search_client():
+    entity = ns(id=-1001234, title="Channel")
+    alice = make_message(42, "hello from alice")
+    alice.sender.username = "alice"
+    bob = make_message(41, "hello from bob")
+    bob.sender.username = "bob"
+    return FakeClient(
+        search_messages={"hello": [alice, bob]}, entities={"@chan": entity}
+    )
+
+
+def test_search_from_filters_by_sender(config_env, monkeypatch, capsys):
+    client = make_search_client()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["search", "@chan", "hello", "--from", "@alice", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert client.iter_messages_kwargs["from_user"] == "@alice"
+    assert all(message["from"]["username"] == "alice" for message in data["messages"])
+
+
+def test_search_since_stops_at_date_boundary(config_env, monkeypatch, capsys):
+    entity = ns(id=-1001234, title="Channel")
+    newest = make_message(42, "hello today")
+    newest.date = dt.datetime(2026, 7, 18, 10, 0, tzinfo=dt.timezone.utc)
+    older = make_message(41, "hello yesterday")
+    older.date = dt.datetime(2026, 7, 17, 10, 0, tzinfo=dt.timezone.utc)
+    make_session_fake(
+        monkeypatch,
+        FakeClient(
+            search_messages={"hello": [newest, older]}, entities={"@chan": entity}
+        ),
+    )
+
+    assert main(["search", "@chan", "hello", "--since", "2026-07-18", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert [message["id"] for message in data["messages"]] == [42]
+
+
 def test_search_json_passes_query_and_returns_search_results(
     config_env, monkeypatch, capsys
 ):

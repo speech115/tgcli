@@ -12,10 +12,16 @@ async def _entity(tg, chat: str):
         raise NotFoundError(f"dialog not found: {chat!r}") from None
 
 
-async def fetch_search(tg, chat: str, query: str, limit: int = 20) -> dict:
+async def fetch_search(
+    tg, chat: str, query: str, limit: int = 20, *, from_user=None, since=None
+) -> dict:
     entity = await _entity(tg, chat)
     messages = []
-    async for message in tg.iter_messages(entity, search=query, limit=limit):
+    async for message in tg.iter_messages(
+        entity, search=query, limit=limit, from_user=from_user
+    ):
+        if since is not None and message.date is not None and message.date < since:
+            break
         messages.append(message_to_dict(message, entity))
     return {
         "dialog": {"id": entity.id, "name": _dialog_name(entity, chat)},

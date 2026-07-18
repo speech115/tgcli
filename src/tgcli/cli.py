@@ -115,6 +115,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_search.add_argument("chat", help="@username, t.me link, or dialog id")
     p_search.add_argument("query")
     p_search.add_argument("--limit", type=int, default=20)
+    p_search.add_argument("--from", dest="from_user")
+    p_search.add_argument("--since", help="ISO date/datetime lower bound")
 
     p_latest = sub.add_parser(
         "latest", help="Read the latest dialog message", parents=[global_flags]
@@ -225,7 +227,12 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                 return data, read_cmd.to_rows(data)
             if args.command == "search":
                 data = await search_cmd.fetch_search(
-                    tg, args.chat, args.query, limit=args.limit
+                    tg,
+                    args.chat,
+                    args.query,
+                    limit=args.limit,
+                    from_user=args.from_user,
+                    since=args.since,
                 )
                 return data, search_cmd.to_rows(data)
             if args.command == "latest":
