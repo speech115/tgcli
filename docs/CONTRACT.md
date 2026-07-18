@@ -197,13 +197,18 @@ tg send CHAT (TEXT | --file PATH [--caption TEXT]) --preview \
 ```
 For a file preview, `text` is the optional caption, `file` is its absolute
 path, `file_size` is its byte size, and `file_sha256` is the lowercase SHA-256
-digest of its contents. Immediately before upload, commit requires that exact
-absolute path to still be a file with the stored size and digest; a mismatch is
-blocked with exit 2 before upload. `--caption` requires `--file`; a file send
-cannot take positional text. The stored preview additionally includes the
-target, `kind: "send"`, and a positive `random_id` for the later idempotent
-commit path. Text and captions use the Telethon client's default parse mode,
-preserving the existing Markdown-to-entity behavior of high-level sends.
+digest of the same open byte stream. Immediately before upload, commit opens
+that absolute source once and copies it into a unique temporary snapshot while
+computing the snapshot's size and digest. A mismatch is blocked with exit 2;
+otherwise only the verified snapshot is uploaded, so later replacement of the
+original path cannot change the sent bytes. The snapshot is removed after
+success or any upload, request, or confirmation failure. MIME type and Telegram
+filename continue to derive from the original path. `--caption` requires
+`--file`; a file send cannot take positional text. The stored preview
+additionally includes the target, `kind: "send"`, and a positive `random_id`
+for the later idempotent commit path. Text and captions use the Telethon
+client's default parse mode, preserving the existing Markdown-to-entity
+behavior of high-level sends.
 Previews expire after five minutes. A send commit moves its preview through
 `.json` → `.pending` → `.used`: a failed commit may be re-committed; Telegram
 deduplicates by `random_id` within the preview TTL. Only a confirmed send marks

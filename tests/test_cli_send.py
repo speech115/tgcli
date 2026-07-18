@@ -1,5 +1,6 @@
 import hashlib
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -58,6 +59,49 @@ class SendClient:
 class FailingClient(SendClient):
     async def __call__(self, request):
         raise OSError("connection reset")
+
+
+class SnapshotClient(SendClient):
+    def __init__(self, original: Path, failure: str | None = None):
+        super().__init__()
+        self.original = original
+        self.failure = failure
+        self.snapshot_path = None
+        self.uploaded_bytes = None
+
+    async def upload_file(self, path):
+        self.snapshot_path = Path(path)
+        self.original.write_bytes(b"swap")
+        self.uploaded_bytes = self.snapshot_path.read_bytes()
+        if self.failure == "upload":
+            raise OSError("upload failed")
+        return await super().upload_file(path)
+
+    async def __call__(self, request):
+        if self.failure == "request":
+            raise OSError("request failed")
+        if self.failure == "confirmation":
+            self.requests.append(request)
+            return SimpleNamespace(updates=[])
+        return await super().__call__(request)
+
+
+def file_preview(path: Path, *, random_id: int) -> dict:
+    return safety.create_preview(
+        {
+            "kind": "send",
+            "chat": "@alice",
+            "text": "look",
+            "file": str(path),
+            "file_size": len(path.read_bytes()),
+            "file_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "reply_to": None,
+            "topic": None,
+            "silent": False,
+            "random_id": random_id,
+            "to": {"id": 7, "name": "Alice"},
+        }
+    )
 
 
 def test_send_preview_persists_payload_without_sending(config_env, monkeypatch, capsys):
@@ -296,7 +340,53 @@ def test_send_commit_sends_raw_media(config_env, monkeypatch, capsys, tmp_path):
     assert isinstance(request.media, types.InputMediaUploadedPhoto)
     assert request.message == "look"
     assert request.random_id == 778
-    assert client.uploaded == [str(photo)]
+    [uploaded_path] = client.uploaded
+    assert Path(uploaded_path) != photo
+    assert not Path(uploaded_path).exists()
+
+
+def test_send_commit_uploads_verified_snapshot_when_original_changes(
+    config_env, monkeypatch, tmp_path
+):
+    document = tmp_path / "report.txt"
+    document.write_bytes(b"file")
+    preview = file_preview(document, random_id=785)
+    client = SnapshotClient(document)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["send", "--commit", preview["preview_id"]]) == 0
+
+    assert client.snapshot_path != document
+    assert client.uploaded_bytes == b"file"
+    assert document.read_bytes() == b"swap"
+    assert client.snapshot_path is not None
+    assert not client.snapshot_path.exists()
+    [request] = client.requests
+    assert isinstance(request.media, types.InputMediaUploadedDocument)
+    assert request.media.mime_type == "text/plain"
+    assert request.media.attributes == [types.DocumentAttributeFilename("report.txt")]
+
+
+@pytest.mark.parametrize("failure", ["upload", "request", "confirmation"])
+def test_send_commit_cleans_verified_snapshot_on_failure(
+    config_env, monkeypatch, tmp_path, failure
+):
+    document = tmp_path / "report.txt"
+    document.write_bytes(b"file")
+    preview = file_preview(document, random_id=786)
+    client = SnapshotClient(document, failure)
+    make_session_fake(monkeypatch, client)
+
+    if failure == "confirmation":
+        assert main(["send", "--commit", preview["preview_id"]]) == 2
+    else:
+        with pytest.raises(OSError, match=f"{failure} failed"):
+            main(["send", "--commit", preview["preview_id"]])
+
+    assert client.snapshot_path != document
+    assert client.uploaded_bytes == b"file"
+    assert client.snapshot_path is not None
+    assert not client.snapshot_path.exists()
 
 
 def test_send_commit_parses_default_markdown_caption(config_env, monkeypatch, tmp_path):

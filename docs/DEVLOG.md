@@ -13,6 +13,27 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-18 — File-send TOCTOU snapshot closure (Codex)
+**Did:** closed the final file-send TOCTOU gap. Preview now derives byte count
+and SHA-256 from one open stream. Commit copies one open of the approved source
+into a unique temporary snapshot while computing the same fingerprint,
+compares both values to the preview, uploads only that snapshot, and removes it
+after success or upload/request/confirmation failure. Original-path MIME and
+filename metadata are preserved. Added an adversarial upload hook that replaces
+the original after validation and cleanup coverage for all outcomes; amended
+the canonical ADR-0028 plan Tasks 7/8 and CONTRACT. Final local gates:
+`uv run pytest -q` — `570 passed, 8 skipped in 2.70s`; `uv run ruff check .` —
+passed; `uv run ruff format --check .` — `86 files already formatted`; `uv run
+pyright` — `0 errors, 0 warnings, 0 informations`; `uv run python
+scripts/check-coverage.py` — `coverage OK: 23 namespaces`.
+**Decided:** the temporary snapshot is implementation hardening inside
+ADR-0028's approved send contract, not a new state model or architectural
+surface; it needs no dependency, MAP change, or new ADR.
+**Learned:** validating a path and then handing the same path to an uploader is
+still unsafe because the uploader reopens it. Hashing the exact bytes copied to
+an isolated snapshot makes the proof and the uploaded object identical.
+**Next:** run the final whole-branch rereview before pushing.
+
 ## 2026-07-18 — Agent correspondence final-review fixes (Codex)
 **Did:** applied all five whole-branch review fixes without touching clone:
 file-send previews now expose and store SHA-256 and commits revalidate the

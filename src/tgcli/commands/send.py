@@ -3,6 +3,7 @@
 import hashlib
 import mimetypes
 import secrets
+import tempfile
 from pathlib import Path
 from typing import cast
 
@@ -27,9 +28,21 @@ def _random_id() -> int:
     return secrets.randbelow(2**63 - 1) + 1
 
 
-def _file_sha256(path: Path) -> str:
-    with path.open("rb") as file_handle:
-        return hashlib.file_digest(file_handle, "sha256").hexdigest()
+def _file_fingerprint(path: Path, snapshot: Path | None = None) -> tuple[int, str]:
+    digest = hashlib.sha256()
+    size = 0
+    with path.open("rb") as source:
+        destination = snapshot.open("xb") if snapshot is not None else None
+        try:
+            while chunk := source.read(1024 * 1024):
+                digest.update(chunk)
+                size += len(chunk)
+                if destination is not None:
+                    destination.write(chunk)
+        finally:
+            if destination is not None:
+                destination.close()
+    return size, digest.hexdigest()
 
 
 async def prepare(
@@ -51,12 +64,14 @@ async def prepare(
         if not path.is_file():
             raise NotFoundError(f"file not found: {file}")
         path = path.resolve()
+        file_size, file_sha256 = _file_fingerprint(path)
         body = caption or ""
     else:
         if caption is not None:
             raise PolicyError("send --caption requires --file")
         if text is None:
             raise PolicyError("send requires TEXT or --file")
+        file_size, file_sha256 = None, None
         body = text
 
     entity = await tg.get_entity(chatref.parse(chat))
@@ -66,8 +81,8 @@ async def prepare(
             "chat": chat,
             "text": body,
             "file": str(path) if path else None,
-            "file_size": path.stat().st_size if path else None,
-            "file_sha256": _file_sha256(path) if path else None,
+            "file_size": file_size,
+            "file_sha256": file_sha256,
             "reply_to": reply_to,
             "topic": topic,
             "silent": silent,
@@ -113,18 +128,18 @@ def _uploaded_media(uploaded, file: str):
     )
 
 
-def _validate_preview_file(payload: dict) -> Path:
-    path = Path(payload["file"])
+def _verified_file_snapshot(payload: dict, directory: str) -> Path:
+    source = Path(payload["file"])
+    snapshot = Path(directory) / "upload"
     try:
-        if not path.is_absolute() or not path.is_file():
+        if not source.is_absolute():
             raise PolicyError("preview file no longer matches the prepared file")
-        if path.stat().st_size != payload.get("file_size"):
-            raise PolicyError("preview file no longer matches the prepared file")
-        if _file_sha256(path) != payload.get("file_sha256"):
+        size, digest = _file_fingerprint(source, snapshot)
+        if size != payload.get("file_size") or digest != payload.get("file_sha256"):
             raise PolicyError("preview file no longer matches the prepared file")
     except OSError:
         raise PolicyError("preview file no longer matches the prepared file") from None
-    return path
+    return snapshot
 
 
 async def commit(tg, preview_id: str, payload: dict) -> dict:
@@ -140,15 +155,22 @@ async def commit(tg, preview_id: str, payload: dict) -> dict:
         "reply_to": _reply_header(payload),
     }
     if payload.get("file"):
-        path = _validate_preview_file(payload)
-        uploaded = await tg.upload_file(str(path))
-        request = functions.messages.SendMediaRequest(
-            **common, media=_uploaded_media(uploaded, str(path))
-        )
+        original_path = payload["file"]
+        snapshot_dir = tempfile.TemporaryDirectory(prefix="tgcli-send-")
+        try:
+            snapshot = _verified_file_snapshot(payload, snapshot_dir.name)
+            uploaded = await tg.upload_file(str(snapshot))
+            request = functions.messages.SendMediaRequest(
+                **common, media=_uploaded_media(uploaded, original_path)
+            )
+            response = await tg(request)
+            [message_id] = confirmed_ids(response, [random_id])
+        finally:
+            snapshot_dir.cleanup()
     else:
         request = functions.messages.SendMessageRequest(**common)
-    response = await tg(request)
-    [message_id] = confirmed_ids(response, [random_id])
+        response = await tg(request)
+        [message_id] = confirmed_ids(response, [random_id])
     return {"preview_id": preview_id, "message_id": message_id}
 
 

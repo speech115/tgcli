@@ -746,7 +746,7 @@ git commit -m "Add shared random_id confirmation helper"
 - Test: `tests/test_cli_send.py`
 
 **Interfaces:**
-- Produces: `prepare(tg, chat, text=None, *, reply_to=None, file=None, caption=None, topic=None, silent=False) -> dict`. Preview payload keys: `kind="send"`, `chat`, `text` (body or caption), `file` (absolute path or None), `file_size`, `reply_to`, `topic`, `silent`, `random_id`, `to`. CLI flags on `p_send`: `--reply-to INT`, `--file PATH`, `--caption TEXT`, `--topic INT`, `--silent`.
+- Produces: `prepare(tg, chat, text=None, *, reply_to=None, file=None, caption=None, topic=None, silent=False) -> dict`. Preview payload keys: `kind="send"`, `chat`, `text` (body or caption), `file` (absolute path or None), `file_size`, `file_sha256`, `reply_to`, `topic`, `silent`, `random_id`, `to`. The size and SHA-256 are computed together from one open stream, so the preview binds to one observed byte sequence. CLI flags on `p_send`: `--reply-to INT`, `--file PATH`, `--caption TEXT`, `--topic INT`, `--silent`.
 
 - [ ] **Step 1: Failing tests** in `tests/test_cli_send.py`:
 
@@ -762,6 +762,7 @@ def test_send_preview_with_file_and_caption(config_env, monkeypatch, capsys, tmp
     preview = json.loads(capsys.readouterr().out)
     assert preview["file"] == str(photo)
     assert preview["file_size"] == 8
+    assert preview["file_sha256"] == hashlib.sha256(photo.read_bytes()).hexdigest()
     assert preview["text"] == "look"
 
     stored = safety.begin_commit(preview["preview_id"])
@@ -799,6 +800,7 @@ def test_send_missing_file_is_not_found(config_env, monkeypatch, capsys, tmp_pat
 ```python
 """Preview and replay the intentional Telegram send surface (ADR-0028)."""
 
+import hashlib
 import secrets
 from pathlib import Path
 
@@ -808,6 +810,23 @@ from tgcli.errors import NotFoundError, PolicyError
 
 def _random_id() -> int:
     return secrets.randbelow(2**63 - 1) + 1
+
+
+def _file_fingerprint(path: Path, snapshot: Path | None = None) -> tuple[int, str]:
+    digest = hashlib.sha256()
+    size = 0
+    with path.open("rb") as source:
+        destination = snapshot.open("xb") if snapshot is not None else None
+        try:
+            while chunk := source.read(1024 * 1024):
+                digest.update(chunk)
+                size += len(chunk)
+                if destination is not None:
+                    destination.write(chunk)
+        finally:
+            if destination is not None:
+                destination.close()
+    return size, digest.hexdigest()
 
 
 async def prepare(
@@ -828,12 +847,15 @@ async def prepare(
         path = Path(file).expanduser()
         if not path.is_file():
             raise NotFoundError(f"file not found: {file}")
+        path = path.resolve()
+        file_size, file_sha256 = _file_fingerprint(path)
         body = caption or ""
     else:
         if caption is not None:
             raise PolicyError("send --caption requires --file")
         if text is None:
             raise PolicyError("send requires TEXT or --file")
+        file_size, file_sha256 = None, None
         body = text
 
     entity = await tg.get_entity(chatref.parse(chat))
@@ -843,7 +865,8 @@ async def prepare(
             "chat": chat,
             "text": body,
             "file": str(path) if path else None,
-            "file_size": path.stat().st_size if path else None,
+            "file_size": file_size,
+            "file_sha256": file_sha256,
             "reply_to": reply_to,
             "topic": topic,
             "silent": silent,
@@ -852,7 +875,7 @@ async def prepare(
         }
     )
     keys = (
-        "preview_id", "to", "text", "file", "file_size",
+        "preview_id", "to", "text", "file", "file_size", "file_sha256",
         "reply_to", "topic", "silent", "expires_at",
     )
     return {key: stored[key] for key in keys}
@@ -895,7 +918,7 @@ Keep `_target_to_dict` as is. Update `to_rows` preview row to append `file` and 
                     )
 ```
 
-Existing `test_send_preview_persists_payload_without_sending` asserts the full stored payload — extend its expected dict with the new keys (`kind`, `file: None`, `file_size: None`, `reply_to: None`, `topic: None`, `silent: False`, `random_id: <assert isinstance int>`); switch its `consume_preview` call to `begin_commit`.
+Existing `test_send_preview_persists_payload_without_sending` asserts the full stored payload — extend its expected dict with the new keys (`kind`, `file: None`, `file_size: None`, `file_sha256: None`, `reply_to: None`, `topic: None`, `silent: False`, `random_id: <assert isinstance int>`); switch its `consume_preview` call to `begin_commit`.
 
 - [ ] **Step 4: Gates, CONTRACT (send flags + preview JSON shape), commit**
 
@@ -912,7 +935,7 @@ git commit -m "Extend send preview with reply, file, topic, silent, random_id"
 
 **Interfaces:**
 - Consumes: `safety.begin_commit`/`finish_commit` (Task 5), `confirm.confirmed_ids` (Task 6), Task 7 payload.
-- Produces: `commit(tg, preview_id, payload) -> {"preview_id", "message_id"}` via `SendMessageRequest`/`SendMediaRequest` with the stored `random_id`. `cli.py`: send commit uses `begin_commit`, then on success `finish_commit` + audit record `send-result {preview_id, message_id}`; the pre-send audit record gains `random_id`.
+- Produces: `commit(tg, preview_id, payload) -> {"preview_id", "message_id"}` via `SendMessageRequest`/`SendMediaRequest` with the stored `random_id`. For media, commit opens the approved absolute source once, copies that stream to a unique temporary snapshot while computing its size and SHA-256, compares both to the preview, uploads only the verified snapshot, and removes it in `finally` after success or any upload/request/confirmation failure. MIME type and Telegram filename still derive from the original payload path. `cli.py`: send commit uses `begin_commit`, then on success `finish_commit` + audit record `send-result {preview_id, message_id}`; the pre-send audit record gains `random_id`.
 
 - [ ] **Step 1: Failing tests** — replace `SendClient` in `tests/test_cli_send.py` with a raw-request recorder and update commit tests:
 
@@ -946,7 +969,8 @@ class SendClient:
 def test_send_commit_sends_raw_with_stored_random_id(config_env, monkeypatch, capsys):
     preview = safety.create_preview({
         "kind": "send", "chat": "@alice", "text": "hello", "file": None,
-        "file_size": None, "reply_to": 5, "topic": None, "silent": True,
+        "file_size": None, "file_sha256": None, "reply_to": 5,
+        "topic": None, "silent": True,
         "random_id": 777, "to": {"id": 7, "name": "Alice"},
     })
     client = SendClient()
@@ -972,7 +996,8 @@ def test_send_commit_sends_raw_with_stored_random_id(config_env, monkeypatch, ca
 def test_send_commit_is_retryable_after_network_failure(config_env, monkeypatch, capsys):
     preview = safety.create_preview({
         "kind": "send", "chat": "@alice", "text": "hello", "file": None,
-        "file_size": None, "reply_to": None, "topic": None, "silent": False,
+        "file_size": None, "file_sha256": None, "reply_to": None,
+        "topic": None, "silent": False,
         "random_id": 778, "to": {"id": 7, "name": "Alice"},
     })
     client = SendClient()
@@ -1005,6 +1030,7 @@ def test_send_commit_is_retryable_after_network_failure(config_env, monkeypatch,
 
 ```python
 import mimetypes
+import tempfile
 
 from telethon.tl import functions, types
 
@@ -1032,21 +1058,43 @@ def _uploaded_media(uploaded, file: str):
     )
 
 
+def _verified_file_snapshot(payload: dict, directory: str) -> Path:
+    source = Path(payload["file"])
+    snapshot = Path(directory) / "upload"
+    try:
+        if not source.is_absolute():
+            raise PolicyError("preview file no longer matches the prepared file")
+        size, digest = _file_fingerprint(source, snapshot)
+        if size != payload.get("file_size") or digest != payload.get("file_sha256"):
+            raise PolicyError("preview file no longer matches the prepared file")
+    except OSError:
+        raise PolicyError("preview file no longer matches the prepared file") from None
+    return snapshot
+
+
 async def commit(tg, preview_id: str, payload: dict) -> dict:
     peer = await tg.get_input_entity(chatref.parse(payload["chat"]))
     random_id = payload["random_id"]
     silent = payload.get("silent") or None
     reply_to = _reply_header(payload)
     if payload.get("file"):
-        uploaded = await tg.upload_file(payload["file"])
-        request = functions.messages.SendMediaRequest(
-            peer=peer,
-            media=_uploaded_media(uploaded, payload["file"]),
-            message=payload["text"],
-            random_id=random_id,
-            silent=silent,
-            reply_to=reply_to,
-        )
+        original_path = payload["file"]
+        snapshot_dir = tempfile.TemporaryDirectory(prefix="tgcli-send-")
+        try:
+            snapshot = _verified_file_snapshot(payload, snapshot_dir.name)
+            uploaded = await tg.upload_file(str(snapshot))
+            request = functions.messages.SendMediaRequest(
+                peer=peer,
+                media=_uploaded_media(uploaded, original_path),
+                message=payload["text"],
+                random_id=random_id,
+                silent=silent,
+                reply_to=reply_to,
+            )
+            response = await tg(request)
+            [message_id] = confirmed_ids(response, [random_id])
+        finally:
+            snapshot_dir.cleanup()
     else:
         request = functions.messages.SendMessageRequest(
             peer=peer,
@@ -1055,8 +1103,8 @@ async def commit(tg, preview_id: str, payload: dict) -> dict:
             silent=silent,
             reply_to=reply_to,
         )
-    response = await tg(request)
-    [message_id] = confirmed_ids(response, [random_id])
+        response = await tg(request)
+        [message_id] = confirmed_ids(response, [random_id])
     return {"preview_id": preview_id, "message_id": message_id}
 ```
 
