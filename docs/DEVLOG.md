@@ -13,6 +13,160 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-18 — File-send TOCTOU snapshot closure (Codex)
+**Did:** closed the final file-send TOCTOU gap. Preview now derives byte count
+and SHA-256 from one open stream. Commit copies one open of the approved source
+into a unique temporary snapshot while computing the same fingerprint,
+compares both values to the preview, uploads only that snapshot, and removes it
+after success or upload/request/confirmation failure. Original-path MIME and
+filename metadata are preserved. Added an adversarial upload hook that replaces
+the original after validation and cleanup coverage for all outcomes; amended
+the canonical ADR-0028 plan Tasks 7/8 and CONTRACT. Final local gates:
+`uv run pytest -q` — `570 passed, 8 skipped in 2.70s`; `uv run ruff check .` —
+passed; `uv run ruff format --check .` — `86 files already formatted`; `uv run
+pyright` — `0 errors, 0 warnings, 0 informations`; `uv run python
+scripts/check-coverage.py` — `coverage OK: 23 namespaces`.
+**Decided:** the temporary snapshot is implementation hardening inside
+ADR-0028's approved send contract, not a new state model or architectural
+surface; it needs no dependency, MAP change, or new ADR.
+**Learned:** validating a path and then handing the same path to an uploader is
+still unsafe because the uploader reopens it. Hashing the exact bytes copied to
+an isolated snapshot makes the proof and the uploaded object identical.
+**Next:** run the final whole-branch rereview before pushing.
+
+## 2026-07-18 — Agent correspondence final-review fixes (Codex)
+**Did:** applied all five whole-branch review fixes without touching clone:
+file-send previews now expose and store SHA-256 and commits revalidate the
+absolute path, size, and digest before upload; repeated edits treat
+`MessageNotModifiedError` as convergence; raw text and media sends preserve
+Telethon's default parse mode and entities; dialog filtering classifies
+megagroups as groups; and the unread recipe now drains a fixed checkpoint
+window before oldest-first processing. Added changed-size, same-size
+replacement, text/caption Markdown, ambiguous edit retry, and megagroup versus
+broadcast regressions. Final local gates: `uv run pytest -q` — `566 passed, 8
+skipped in 2.56s`; `uv run ruff check .` — passed; `uv run ruff format --check .` — `86
+files already formatted`; `uv run pyright` — `0 errors, 0 warnings, 0
+informations`; `uv run python scripts/check-coverage.py` — `coverage OK: 23
+namespaces`.
+**Decided:** no new ADR or dependency is needed: these are narrow correctness
+fixes inside ADR-0028's approved send, edit, discovery, and agent-recipe
+surface. `docs/MAP.md` remains accurate because no module moved or changed
+ownership.
+**Learned:** switching an idempotent send to raw TL requests also bypasses the
+high-level client's default text parsing unless `_parse_message_text(..., ())`
+is applied explicitly; file size alone cannot bind a preview to same-size
+replacement contents.
+**Next:** run the requested whole-branch rereview before pushing the completed
+commit.
+
+## 2026-07-18 — Agent correspondence Task 15 docs closure (Codex)
+**Did:** updated `SKILL.md` for the complete ADR-0028 correspondence surface:
+`edit`, `delete`, `forward`, `mark-read`, and `doctor`, plus recipes for
+walking `read --before-id` history, checking unread dialogs with
+`read --after-id`, and retrying the same send commit after a network failure.
+Re-read `docs/MAP.md` against `src/tgcli/`: `confirm.py`, `commands/mutate.py`,
+and `commands/doctor.py` already have accurate rows, so the map needed no
+churn. Final local gates: `.venv/bin/pytest -q` — `560 passed, 8 skipped`;
+`.venv/bin/ruff check .` — passed; `.venv/bin/ruff format --check .` —
+`86 files already formatted`; `uv run pyright` — `0 errors, 0 warnings`.
+**Decided:** this task closes documentation and local quality gates only;
+the v1.1 label is the ADR-0028 surface name, not a release-version bump.
+No new ADR is needed because ADR-0028 already authorizes the commands and
+their safety behavior. ADR-0028's rejected and deferred boundaries remain
+unchanged, and clone is untouched.
+**Learned:** send and forward retry safety depends on reusing the original
+preview ID, whose stored `random_id` allows Telegram confirmation without a
+duplicate mutation; a new preview is not an equivalent retry.
+**Next:** after merge, perform the owner-gated live visual acceptance:
+`tg doctor --json`, `tg dialogs --unread-only --json`, and
+`tg search --all` against a known string. This live smoke was not run in this
+documentation-only task.
+
+## 2026-07-18 — Task 14 doctor review fixes (Codex)
+**Did:** made the doctor online probe convert every ordinary exception into
+`checks.error` and exit-0 report data; a missing `.session` now reports
+`lock_free: false` without creating a lock file. Added regressions for both
+cases and documented the short-lived local lock/writability probes.
+**Decided:** `doctor` still acquires a lock only for an existing session, and
+its local probe cleanup is best-effort; no Telegram mutation is permitted.
+**Learned:** an absent session and an available lock are different health
+facts, so `lock_free` must not be inferred by probing a nonexistent session.
+**Next:** review the corrective commit, then run the owner-gated live smoke.
+
+## 2026-07-18 — Agent correspondence Task 14 doctor health report (Codex)
+**Did:** added `tg doctor`, which inspects every configured account (or one
+explicit alias) for session presence, lock availability, writable local state,
+and Telegram authorization; added JSON/TSV contract documentation and three
+CLI tests covering all accounts, account filtering, and a reported auth/config
+failure. Focused test result: `3 passed`.
+**Decided:** online `ConfigError` is health data, not a CLI error: `doctor`
+returns exit 0 after a completed check and callers inspect `ok`. No Telegram
+mutation occurs; the state-writability probe is local and temporary.
+**Learned:** doctor must invoke `tgcli.session.client` directly, so tests patch
+that module path instead of only a `cli` import alias.
+**Next:** run the full quality gates and perform the owner-gated live health
+smoke after merge.
+
+## 2026-07-18 — Agent correspondence Slice 2 mutation surface complete (Codex)
+**Did:** completed Tasks 5–10 of the ADR-0028 plan: `send` now previews and
+commits text/files with reply, topic, silent, and stored `random_id` metadata;
+retryable previews move `.json` → `.pending` → `.used`; `edit`, `delete`, and
+`forward` use preview→commit; and `mark-read` is a gated, audited direct
+mutation. Forward commits use the preview's stored source, destination, and
+`random_id`, then fail-close unless Telegram confirms the exact message id.
+Added the JSON/TSV contracts and TDD coverage for forward confirmation and
+mark-read readonly behaviour.
+**Decided:** Slice 2 stays within ADR-0028's existing safety model. Forward
+does not add reply/topic flags: it uses Telegram's native forward semantics
+from the stored source peer to the stored destination peer, so it creates no
+reply header. `mark-read` remains preview-free because it is content-free and
+idempotent, while still requiring readonly/no-send gates and a pre-dispatch
+audit record.
+**Learned:** the frozen clone pyright baseline still has the unrelated
+`src/tgcli/clone/replies.py:28` missing-stub error for
+`MessageReplyHeader.reply_to_ephemeral`; Slice 2 did not touch clone code.
+**Next:** merge Slice 2 and perform the owner-gated live visual smoke: file
+send with caption and reply, edit, delete, and forward in a private test chat.
+
+## 2026-07-18 — Agent correspondence Slice 1 read surface complete (Codex)
+**Did:** completed Tasks 1–4 of the ADR-0028 agent-correspondence plan: added
+the shared agent-facing message fields; `read` ID/date/topic filters and page
+metadata; `message --context`; and `search --from` / `--since`. Documented
+the additive response and filter contracts. The full local test suite reported
+`492 passed, 8 skipped`; ruff check and format gates passed.
+**Decided:** all Slice 1 changes remain additive to existing JSON and TSV
+contracts. Date lower bounds preserve Telethon's newest-first iteration and
+stop at the first older message; sender filtering is delegated through
+Telethon's `from_user` parameter. No ADR was needed because ADR-0028 already
+authorizes this scoped, contract-additive work.
+**Learned:** the repository's current pyright baseline has one unrelated error
+in frozen clone code, `src/tgcli/clone/replies.py:28`, for the absent
+`MessageReplyHeader.reply_to_ephemeral` stub attribute; it was not changed.
+**Next:** start Slice 2 only from its first TDD task: preview commit state in
+`safety.py`, with its new failure/retry semantics tested before implementation.
+
+
+## 2026-07-18 — ADR-0028: v1.1 agent correspondence scope + plan (Claude Fable 5)
+**Did:** owner-commissioned product review of v1.0 walked through a
+structured grilling session; wrote ADR-0028 (scope: richer message JSON,
+id/date pagination, full mutation set under preview→commit with
+random_id commits, discovery flags, `tg doctor`), the scoped plan
+`docs/superpowers/plans/2026-07-18-agent-correspondence.md` (15 tasks,
+3 slices), ISSUES additions MSG-001 and FEED-001, ADR index row. Docs
+only — no code yet.
+**Decided:** ADR-0028. Rejected: `tg spec`, `tg can`, `tg inbox`, keyed
+idempotency journal, opaque cursors. Deferred with triggers: MSG-001,
+FEED-001; ACCOUNTS-001 keeps its trigger. Clone stays untouched —
+`random_id` confirmation is deliberately duplicated into a new
+`tgcli/confirm.py` instead of refactoring the frozen clone.
+**Learned:** two review claims were already implemented (structured
+FLOOD_WAIT with `retry_after` in CONTRACT §2; t.me links accepted as
+chat refs everywhere) — verify review claims against code before
+planning around them. `consume_preview`'s burn-on-consume design is what
+makes network-failure retries unsafe today; the `.pending` state fixes
+that without a journal subsystem.
+**Next:** owner reviews the plan; then execute slice 1 (tasks 1–4) on a
+`claude/agent-correspondence-s1` branch.
 
 ## 2026-07-17 — ISSUES: pre-approve accounts login on session loss (Claude Fable 5)
 **Did:** added ACCOUNTS-001 to docs/ISSUES.md — `tg accounts login`

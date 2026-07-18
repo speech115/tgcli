@@ -12,11 +12,17 @@ async def _entity(tg, chat: str):
         raise NotFoundError(f"dialog not found: {chat!r}") from None
 
 
-async def fetch_search(tg, chat: str, query: str, limit: int = 20) -> dict:
+async def fetch_search(
+    tg, chat: str, query: str, limit: int = 20, *, from_user=None, since=None
+) -> dict:
     entity = await _entity(tg, chat)
     messages = []
-    async for message in tg.iter_messages(entity, search=query, limit=limit):
-        messages.append(message_to_dict(message))
+    async for message in tg.iter_messages(
+        entity, search=query, limit=limit, from_user=from_user
+    ):
+        if since is not None and message.date is not None and message.date < since:
+            break
+        messages.append(message_to_dict(message, entity))
     return {
         "dialog": {"id": entity.id, "name": _dialog_name(entity, chat)},
         "query": query,
@@ -24,12 +30,25 @@ async def fetch_search(tg, chat: str, query: str, limit: int = 20) -> dict:
     }
 
 
+async def fetch_search_all(tg, query: str, limit: int = 20) -> dict:
+    messages = []
+    async for message in tg.iter_messages(None, search=query, limit=limit):
+        chat = getattr(message, "chat", None)
+        entry = message_to_dict(message, chat)
+        entry["dialog"] = {
+            "id": getattr(message, "chat_id", None),
+            "name": _dialog_name(chat, "") if chat is not None else None,
+        }
+        messages.append(entry)
+    return {"query": query, "messages": messages}
+
+
 async def fetch_latest(tg, chat: str) -> dict:
     entity = await _entity(tg, chat)
     async for message in tg.iter_messages(entity, limit=1):
         return {
             "dialog": {"id": entity.id, "name": _dialog_name(entity, chat)},
-            "message": message_to_dict(message),
+            "message": message_to_dict(message, entity),
         }
     raise NotFoundError(f"no messages found: {chat!r}")
 

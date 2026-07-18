@@ -31,6 +31,7 @@ tgcli/
 │   ├── session.py             [done]    session locks + normal/mutation-safe TelegramClient factory
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
+│   ├── confirm.py             [done]    fail-closed random_id → message-id confirmation
 │   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023)
 │   │   ├── state.py           [done]    atomic JSON state, mappings, cooldown
 │   │   ├── fidelity.py        [done]    media capability classification
@@ -52,6 +53,8 @@ tgcli/
 │   │   ├── info.py            [done]    tg info / count (phase 2)
 │   │   ├── media.py           [done]    tg media download             (phase 3; Telethon-only)
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
+│   │   ├── mutate.py          [done]    tg edit|delete|forward preview / commit; tg mark-read (ADR-0028)
+│   │   ├── doctor.py          [done]    tg doctor environment/session health report (ADR-0028)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
 │   │   └── clone.py           [done]    clone status/init/sync surface (ADR-0017…0025; all live gates passed)

@@ -3,6 +3,7 @@ import asyncio
 import logging
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 from telethon import errors as telethon_errors
@@ -12,9 +13,11 @@ from tgcli.commands import accounts as accounts_cmd
 from tgcli.commands import api as api_cmd
 from tgcli.commands import clone as clone_cmd
 from tgcli.commands import dialogs as dialogs_cmd
+from tgcli.commands import doctor as doctor_cmd
 from tgcli.commands import export as export_cmd
 from tgcli.commands import info as info_cmd
 from tgcli.commands import media as media_cmd
+from tgcli.commands import mutate as mutate_cmd
 from tgcli.commands import read as read_cmd
 from tgcli.commands import search as search_cmd
 from tgcli.commands import send as send_cmd
@@ -23,6 +26,20 @@ from tgcli.errors import PolicyError, RateLimitError, TgcliError
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _parse_when(
+    parser: argparse.ArgumentParser, value: str | None, flag: str
+) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        parser.error(f"{flag} expects an ISO 8601 date or datetime")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed
 
 
 def _enable_verbose_diagnostics():
@@ -80,19 +97,35 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_dialogs = sub.add_parser("dialogs", help="List dialogs", parents=[global_flags])
     p_dialogs.add_argument("--limit", type=int, default=50)
+    p_dialogs.add_argument("--unread-only", action="store_true")
+    p_dialogs.add_argument("--kind", choices=["user", "group", "channel"])
+
+    sub.add_parser(
+        "doctor", help="Check environment and session health", parents=[global_flags]
+    )
 
     p_read = sub.add_parser(
         "read", help="Read recent messages from a dialog", parents=[global_flags]
     )
     p_read.add_argument("chat", help="@username, t.me link, or dialog id")
     p_read.add_argument("--limit", type=int, default=20)
+    p_read.add_argument(
+        "--before-id", type=int, help="only messages older than this id"
+    )
+    p_read.add_argument("--after-id", type=int, help="only messages newer than this id")
+    p_read.add_argument("--since", help="ISO date/datetime lower bound")
+    p_read.add_argument("--until", help="ISO date/datetime upper bound")
+    p_read.add_argument("--topic", type=int, help="forum topic id")
 
     p_search = sub.add_parser(
         "search", help="Search messages in a dialog", parents=[global_flags]
     )
-    p_search.add_argument("chat", help="@username, t.me link, or dialog id")
-    p_search.add_argument("query")
+    p_search.add_argument("chat", nargs="?", help="@username, t.me link, or dialog id")
+    p_search.add_argument("query", nargs="?")
+    p_search.add_argument("--all", action="store_true")
     p_search.add_argument("--limit", type=int, default=20)
+    p_search.add_argument("--from", dest="from_user")
+    p_search.add_argument("--since", help="ISO date/datetime lower bound")
 
     p_latest = sub.add_parser(
         "latest", help="Read the latest dialog message", parents=[global_flags]
@@ -104,9 +137,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_message.add_argument("chat", help="@username, t.me link, or dialog id")
     p_message.add_argument("message_id", type=int)
+    p_message.add_argument("--context", type=int, default=0)
 
     p_info = sub.add_parser("info", help="Show dialog metadata", parents=[global_flags])
     p_info.add_argument("chat", help="@username, t.me link, or dialog id")
+    p_info.add_argument("--full", action="store_true")
 
     p_count = sub.add_parser(
         "count", help="Count dialog messages", parents=[global_flags]
@@ -130,6 +165,42 @@ def build_parser() -> argparse.ArgumentParser:
     p_send.add_argument("text", nargs="?", help="message text for --preview")
     p_send.add_argument("--preview", action="store_true")
     p_send.add_argument("--commit", metavar="PREVIEW_ID")
+    p_send.add_argument("--reply-to", type=int, dest="reply_to")
+    p_send.add_argument("--file")
+    p_send.add_argument("--caption")
+    p_send.add_argument("--topic", type=int)
+    p_send.add_argument("--silent", action="store_true")
+
+    p_edit = sub.add_parser(
+        "edit", help="Preview and commit a message edit", parents=[global_flags]
+    )
+    p_edit.add_argument("chat", nargs="?")
+    p_edit.add_argument("message_id", nargs="?", type=int)
+    p_edit.add_argument("text", nargs="?")
+    p_edit.add_argument("--preview", action="store_true")
+    p_edit.add_argument("--commit", metavar="PREVIEW_ID")
+
+    p_delete = sub.add_parser(
+        "delete", help="Preview and commit a message deletion", parents=[global_flags]
+    )
+    p_delete.add_argument("chat", nargs="?")
+    p_delete.add_argument("message_id", nargs="?", type=int)
+    p_delete.add_argument("--preview", action="store_true")
+    p_delete.add_argument("--commit", metavar="PREVIEW_ID")
+
+    p_forward = sub.add_parser(
+        "forward", help="Preview and commit a forward", parents=[global_flags]
+    )
+    p_forward.add_argument("source", nargs="?")
+    p_forward.add_argument("message_id", nargs="?", type=int)
+    p_forward.add_argument("destination", nargs="?")
+    p_forward.add_argument("--preview", action="store_true")
+    p_forward.add_argument("--commit", metavar="PREVIEW_ID")
+
+    p_mark_read = sub.add_parser(
+        "mark-read", help="Mark a dialog as read", parents=[global_flags]
+    )
+    p_mark_read.add_argument("chat")
 
     p_api = sub.add_parser(
         "api", help="Call an allowlisted raw TL method", parents=[global_flags]
@@ -186,24 +257,54 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
     try:
         async with session.client(account, mutation_safe=mutation_safe) as tg:
             if args.command == "dialogs":
-                data = await dialogs_cmd.fetch_dialogs(tg, limit=args.limit)
+                data = await dialogs_cmd.fetch_dialogs(
+                    tg,
+                    limit=args.limit,
+                    unread_only=args.unread_only,
+                    kind=args.kind,
+                )
                 return data, dialogs_cmd.to_rows(data)
             if args.command == "read":
-                data = await read_cmd.fetch_messages(tg, args.chat, limit=args.limit)
+                data = await read_cmd.fetch_messages(
+                    tg,
+                    args.chat,
+                    limit=args.limit,
+                    before_id=args.before_id,
+                    after_id=args.after_id,
+                    since=args.since,
+                    until=args.until,
+                    topic=args.topic,
+                )
                 return data, read_cmd.to_rows(data)
             if args.command == "search":
-                data = await search_cmd.fetch_search(
-                    tg, args.chat, args.query, limit=args.limit
-                )
+                if args.all:
+                    data = await search_cmd.fetch_search_all(
+                        tg, args.query, limit=args.limit
+                    )
+                else:
+                    data = await search_cmd.fetch_search(
+                        tg,
+                        args.chat,
+                        args.query,
+                        limit=args.limit,
+                        from_user=args.from_user,
+                        since=args.since,
+                    )
                 return data, search_cmd.to_rows(data)
             if args.command == "latest":
                 data = await search_cmd.fetch_latest(tg, args.chat)
                 return data, search_cmd.to_rows(data)
             if args.command == "message":
-                data = await read_cmd.fetch_message(tg, args.chat, args.message_id)
+                data = await read_cmd.fetch_message(
+                    tg, args.chat, args.message_id, context=args.context
+                )
                 return data, search_cmd.to_rows(data)
             if args.command == "info":
-                data = await info_cmd.fetch_info(tg, args.chat)
+                data = (
+                    await info_cmd.fetch_info_full(tg, args.chat)
+                    if args.full
+                    else await info_cmd.fetch_info(tg, args.chat)
+                )
                 return data, info_cmd.to_rows(data)
             if args.command == "count":
                 data = await info_cmd.fetch_count(tg, args.chat)
@@ -227,7 +328,16 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                 return data, media_cmd.to_rows(data)
             if args.command == "send":
                 if args.preview:
-                    data = await send_cmd.prepare(tg, args.chat, args.text)
+                    data = await send_cmd.prepare(
+                        tg,
+                        args.chat,
+                        args.text,
+                        reply_to=args.reply_to,
+                        file=args.file,
+                        caption=args.caption,
+                        topic=args.topic,
+                        silent=args.silent,
+                    )
                 else:
                     data = await send_cmd.commit(
                         tg,
@@ -235,6 +345,45 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                         args.preview_payload,
                     )
                 return data, send_cmd.to_rows(data)
+            if args.command == "edit":
+                if args.preview:
+                    data = await mutate_cmd.prepare_edit(
+                        tg, args.chat, args.message_id, args.text
+                    )
+                else:
+                    data = await mutate_cmd.commit_edit(
+                        tg,
+                        args.commit,  # type: ignore  # preview load guards None
+                        args.preview_payload,
+                    )
+                return data, mutate_cmd.to_rows(data)
+            if args.command == "delete":
+                if args.preview:
+                    data = await mutate_cmd.prepare_delete(
+                        tg, args.chat, args.message_id
+                    )
+                else:
+                    data = await mutate_cmd.commit_delete(
+                        tg,
+                        args.commit,  # type: ignore  # preview load guards None
+                        args.preview_payload,
+                    )
+                return data, mutate_cmd.to_rows(data)
+            if args.command == "forward":
+                if args.preview:
+                    data = await mutate_cmd.prepare_forward(
+                        tg, args.source, args.message_id, args.destination
+                    )
+                else:
+                    data = await mutate_cmd.commit_forward(
+                        tg,
+                        args.commit,  # type: ignore  # preview load guards None
+                        args.preview_payload,
+                    )
+                return data, mutate_cmd.to_rows(data)
+            if args.command == "mark-read":
+                data = await mutate_cmd.mark_read(tg, args.chat)
+                return data, mutate_cmd.to_rows(data)
             if args.command == "api":
                 return await api_cmd.call(tg, args.method, args.params), []
             if args.command == "export":
@@ -299,23 +448,98 @@ def main(argv: list[str] | None = None) -> int:
     exit_code = 1
     error_code = None
     try:
+        if args.command == "search":
+            if args.all:
+                if args.query is not None or args.chat is None:
+                    try:
+                        parser.error("search --all takes exactly one QUERY")
+                    except SystemExit:
+                        return 1
+                if args.from_user is not None or args.since is not None:
+                    try:
+                        parser.error("search --all only supports QUERY and --limit")
+                    except SystemExit:
+                        return 1
+                args.query, args.chat = args.chat, None
+            elif args.chat is None or args.query is None:
+                try:
+                    parser.error("search requires CHAT QUERY (or --all QUERY)")
+                except SystemExit:
+                    return 1
+        if args.command in ("read", "search"):
+            try:
+                args.since = _parse_when(
+                    parser, getattr(args, "since", None), "--since"
+                )
+                args.until = _parse_when(
+                    parser, getattr(args, "until", None), "--until"
+                )
+            except SystemExit:
+                return 1
         if args.command == "clone" and args.clone_command == "sync":
             safety.enforce_mutation_allowed(args.readonly)
             if args.limit is not None and args.limit <= 0:
                 raise PolicyError("clone sync --limit must be positive")
+        if args.command == "mark-read":
+            safety.enforce_mutation_allowed(args.readonly)
+        mutation_positionals = {
+            "edit": ("chat", "message_id", "text"),
+            "delete": ("chat", "message_id"),
+            "forward": ("source", "message_id", "destination"),
+        }
         if args.command == "send":
             if args.commit:
-                if args.preview or args.chat is not None or args.text is not None:
+                if (
+                    args.preview
+                    or args.chat is not None
+                    or args.text is not None
+                    or args.reply_to is not None
+                    or args.file is not None
+                    or args.caption is not None
+                    or args.topic is not None
+                    or args.silent
+                ):
                     try:
                         parser.error("send --commit accepts only a preview id")
                     except SystemExit:
                         return 1
                 safety.enforce_mutation_allowed(args.readonly)
-                args.preview_payload = safety.consume_preview(args.commit)
-            elif not (args.preview and args.chat is not None and args.text is not None):
+                args.preview_payload = safety.begin_commit(
+                    args.commit, expected_kind="send"
+                )
+            elif not (
+                args.preview
+                and args.chat is not None
+                and (args.text is not None or args.file is not None)
+            ):
                 try:
                     parser.error(
-                        "send requires CHAT TEXT --preview or --commit PREVIEW_ID"
+                        "send requires CHAT (TEXT | --file PATH) --preview "
+                        "or --commit PREVIEW_ID"
+                    )
+                except SystemExit:
+                    return 1
+        elif args.command in mutation_positionals:
+            names = mutation_positionals[args.command]
+            values = [getattr(args, name) for name in names]
+            if args.commit:
+                if args.preview or any(value is not None for value in values):
+                    try:
+                        parser.error(
+                            f"{args.command} --commit accepts only a preview id"
+                        )
+                    except SystemExit:
+                        return 1
+                safety.enforce_mutation_allowed(args.readonly)
+                args.preview_payload = safety.begin_commit(
+                    args.commit, expected_kind=args.command
+                )
+            elif not (args.preview and all(value is not None for value in values)):
+                try:
+                    parser.error(
+                        f"{args.command} requires "
+                        f"{' '.join(name.upper() for name in names)} --preview "
+                        "or --commit PREVIEW_ID"
                     )
                 except SystemExit:
                     return 1
@@ -364,6 +588,13 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "accounts":
                 data = accounts_cmd.list_accounts(config)
                 rows = accounts_cmd.to_rows(data)
+            elif args.command == "doctor":
+                data = asyncio.run(
+                    asyncio.wait_for(
+                        doctor_cmd.run(config, args.account), timeout=args.timeout
+                    )
+                )
+                rows = doctor_cmd.to_rows(data)
             else:
                 account = resolve_account(config, args.account)
                 args.account = account.alias
@@ -371,12 +602,21 @@ def main(argv: list[str] | None = None) -> int:
                     LOGGER.debug(
                         "resolved account=%s command=%s", account.alias, args.command
                     )
-                if args.command == "send" and args.commit:
+                if args.command in ("send", "edit", "delete", "forward") and getattr(
+                    args, "commit", None
+                ):
+                    details = {"preview_id": args.commit}
+                    if "random_id" in args.preview_payload:
+                        details["random_id"] = args.preview_payload["random_id"]
                     safety.append_audit(
-                        "send", account.alias, {"preview_id": args.commit}
+                        args.command,
+                        account.alias,
+                        details,
                     )
                 if args.command == "api" and args.write:
                     safety.append_audit("api", account.alias, {"method": args.method})
+                if args.command == "mark-read":
+                    safety.append_audit("mark-read", account.alias, {"chat": args.chat})
                 network = _run_network(args, account)
                 if (
                     args.command == "media"
@@ -387,6 +627,18 @@ def main(argv: list[str] | None = None) -> int:
                     data, rows = asyncio.run(
                         asyncio.wait_for(network, timeout=args.timeout)
                     )
+                if args.command in ("send", "edit", "delete", "forward") and getattr(
+                    args, "commit", None
+                ):
+                    safety.append_audit(
+                        f"{args.command}-result",
+                        account.alias,
+                        {
+                            "preview_id": args.commit,
+                            "message_id": data.get("message_id"),
+                        },
+                    )
+                    safety.finish_commit(args.commit)
     except TgcliError as err:
         output.emit_error(err, as_json=args.json)
         error_code = err.code

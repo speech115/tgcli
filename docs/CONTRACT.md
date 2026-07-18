@@ -51,43 +51,102 @@ Flag beats env, env beats config.
 
 ## 5. Core JSON Shapes (phase 1–3)
 
-`tg dialogs --json`:
+`tg dialogs [--unread-only] [--kind {user,group,channel}] --json`:
 ```json
 {"dialogs": [{"id": -1001234, "name": "Channel", "kind": "channel",
               "username": "chan", "unread": 3,
+              "mentions": 0,
               "last_message_at": "2026-07-06T11:59:00+00:00"}]}
 ```
+
+Megagroup dialogs are classified as `group` even though Telethon also marks
+them as channels; broadcast channels remain `channel`.
 
 `tg read <chat> --json`:
 ```json
 {"dialog": {"id": -1001234, "name": "Channel"},
  "messages": [{"id": 42, "date": "2026-07-06T10:00:00+00:00",
-               "from": {"id": 111, "name": "Alice"},
-               "text": "hello", "media": null, "reply_to": null}]}
+               "from": {"id": 111, "name": "Alice", "username": null},
+               "text": "hello", "media": null, "media_info": null,
+               "reply_to": null, "permalink": null, "edited_at": null,
+               "outgoing": false, "forwarded_from": null, "reactions": [],
+               "topic_id": null, "grouped_id": null, "is_service": false}],
+ "page": {"oldest_id": 42, "newest_id": 42}}
 ```
+
+All message-shape additions since 0.1 are additive; `media` remains the Telethon
+class name string, `media_info` carries structured metadata.
+
+`read` accepts `--before-id INT` (messages older than an id), `--after-id INT`
+(messages newer than an id), `--since ISO`, `--until ISO`, and `--topic INT`
+(forum topic id). The additive `page` object reports the lowest and highest
+returned message ids, or `null` for an empty page. `--since` preserves
+newest-first output and stops when it reaches the lower date boundary.
 
 `tg search <chat> <query> --json` uses the same `dialog` and message shapes as
 `read`, adding the submitted query:
 ```json
 {"dialog": {"id": -1001234, "name": "Channel"}, "query": "hello",
  "messages": [{"id": 42, "date": "2026-07-06T10:00:00+00:00",
-               "from": {"id": 111, "name": "Alice"}, "text": "hello",
-               "media": null, "reply_to": null}]}
+               "from": {"id": 111, "name": "Alice", "username": null},
+               "text": "hello", "media": null, "media_info": null,
+               "reply_to": null, "permalink": null, "edited_at": null,
+               "outgoing": false, "forwarded_from": null, "reactions": [],
+               "topic_id": null, "grouped_id": null, "is_service": false}]}
 ```
+
+Chat-scoped `search <chat> <query>` accepts `--from @username` to restrict
+results to that sender and `--since ISO` as an inclusive lower date boundary.
+Search remains newest-first and stops when it reaches a message older than
+`--since`.
+
+`tg search --all <query> --json` searches across accessible dialogs. Its top
+level response has `query` and `messages`; each message retains the standard
+message shape and adds a per-hit `dialog` object with the source dialog `id`
+and `name`:
+```json
+{"query": "hello", "messages": [{"id": 42,
+ "dialog": {"id": -1001234, "name": "Channel"}}]}
+```
+
+`search --all` takes exactly one query positional and may use `--limit`.
+`--from` and `--since` are chat-scoped filters and are incompatible with
+`--all`. The scoped form remains `search <chat> <query>`.
 
 `tg latest <chat> --json` and `tg message <chat> <message_id> --json` return
 one message in that same shape:
 ```json
 {"dialog": {"id": -1001234, "name": "Channel"},
  "message": {"id": 42, "date": "2026-07-06T10:00:00+00:00",
-             "from": {"id": 111, "name": "Alice"}, "text": "hello",
-             "media": null, "reply_to": null}}
+             "from": {"id": 111, "name": "Alice", "username": null},
+             "text": "hello", "media": null, "media_info": null,
+             "reply_to": null, "permalink": null, "edited_at": null,
+             "outgoing": false, "forwarded_from": null, "reactions": [],
+             "topic_id": null, "grouped_id": null, "is_service": false}}
 ```
+
+`tg message <chat> <message_id> --context N --json` adds an optional
+`context` array containing existing messages in the inclusive ID window from
+`message_id - N` through `message_id + N`; the target message is excluded and
+neighbors are ordered by ascending id.
 
 `tg info <chat> --json`:
 ```json
 {"id": -1001234, "name": "Channel", "kind": "channel", "username": "chan"}
 ```
+
+`tg info <chat> --full --json` adds `role`, `can`, `slowmode_seconds`,
+`participants_count`, and `about` to that base shape. `role` is `"creator"`,
+`"admin"`, `"member"`, or `null` for a user dialog. `can` contains
+best-effort `send_messages`, `send_media`, `pin_messages`, `delete_messages`,
+and `edit_messages` booleans (or `null` when Telegram does not expose enough
+rights data). `slowmode_seconds`, `participants_count`, and `about` come from
+full channel metadata for channels and megagroups; they are `null` for user
+dialogs and basic groups. The `can` map is a preflight aid, not authorization
+truth — Telegram remains the authority. A creator reports all listed
+capabilities as `true`. For an admin, broadcast posting capabilities use the
+available `post_messages` flag, and pin/delete/edit use their respective
+Telegram admin-right flags; tgcli does not infer ungranted admin capabilities.
 
 `tg count <chat> --json`:
 ```json
@@ -110,25 +169,155 @@ positive `N`, and starts a fresh offset-based transfer.
 
 ### TSV Shapes
 
-`dialogs` retains its phase-1 columns. `read` and `search` output one row per
+`dialogs` retains its phase-1 columns and appends `mentions` as the final
+column. `read` and `search` output one row per
 message as `id`, `date`, `from_name`, `text`; `latest` and `message` use the
 same single-row shape. `info` outputs `id`, `kind`, `username`, `name`.
-`count` outputs one `count` value.
-`media download` outputs `path`, `bytes`, `resumed`, `parallel`.
+`count` outputs one `count` value. `info --full` keeps the same `info` TSV
+columns; its additive fields are JSON-only.
+`media download` outputs `path`, `bytes`, `resumed`, `parallel`. `send` preview
+rows retain their existing columns and append `file`, `reply_to`. `edit` preview
+rows are `preview_id`, `message_id`, `old_text`, `text`; `delete` preview rows
+are `preview_id`, `message_id`, `text`; `forward` preview rows are
+`preview_id`, `source`, `message_id`, `destination`. Send, edit, delete, and
+forward commit rows are `preview_id`, `message_id`. `mark-read` rows are
+`dialog_id`, `read`.
 
-`tg send CHAT TEXT --preview --json`:
+```
+tg send CHAT (TEXT | --file PATH [--caption TEXT]) --preview \
+  [--reply-to MESSAGE_ID] [--topic TOPIC_ID] [--silent]
+```
+
+`tg send CHAT TEXT --preview --json` or a file preview returns:
 ```json
 {"preview_id": "p_9f3a", "to": {"id": 111, "name": "Alice"},
- "text": "hello", "expires_at": "2026-07-06T12:05:00+00:00"}
+ "text": "hello", "file": null, "file_size": null, "file_sha256": null,
+ "reply_to": null,
+ "topic": null, "silent": false, "expires_at": "2026-07-06T12:05:00+00:00"}
 ```
-Previews expire after five minutes and are single-use: `tg send --commit p_9f3a`
-replays only the stored target and text, then consumes the preview even if the
-network call fails. Commit JSON is `{"preview_id": "p_9f3a", "message_id": 42}`.
+For a file preview, `text` is the optional caption, `file` is its absolute
+path, `file_size` is its byte size, and `file_sha256` is the lowercase SHA-256
+digest of the same open byte stream. Immediately before upload, commit opens
+that absolute source once and copies it into a unique temporary snapshot while
+computing the snapshot's size and digest. A mismatch is blocked with exit 2;
+otherwise only the verified snapshot is uploaded, so later replacement of the
+original path cannot change the sent bytes. The snapshot is removed after
+success or any upload, request, or confirmation failure. MIME type and Telegram
+filename continue to derive from the original path. `--caption` requires
+`--file`; a file send cannot take positional text. The stored preview
+additionally includes the target, `kind: "send"`, and a positive `random_id`
+for the later idempotent commit path. Text and captions use the Telethon
+client's default parse mode, preserving the existing Markdown-to-entity
+behavior of high-level sends.
+Previews expire after five minutes. A send commit moves its preview through
+`.json` → `.pending` → `.used`: a failed commit may be re-committed; Telegram
+deduplicates by `random_id` within the preview TTL. Only a confirmed send marks
+the preview used, and only after its result audit record persists. Commit JSON
+is `{"preview_id": "p_9f3a", "message_id": 42}`.
+All `--preview` invocations for `send`, `edit`, `delete`, and `forward` are
+non-mutating:
+they may resolve or read a Telegram target and write a local preview record,
+but never send, edit, or delete a Telegram message. They remain permitted with
+`--readonly`, `TGCLI_READONLY=1`, or `TGCLI_NO_SEND=1`. Those gates apply to
+`--commit` only, before configuration, session, audit, or mutation work.
 Every authorised send commit appends one JSON object to
 `~/.local/state/tgcli/audit.jsonl` (or `TGCLI_STATE_DIR/audit.jsonl`) before
-network dispatch. If the audit record cannot be written, the mutation is
-blocked with exit 2; tgcli never performs an unaudited authorised write.
-Preview creation itself does not send or audit a mutation.
+network dispatch, including the stored `random_id`; a successful confirmed
+commit appends `send-result` with its preview and message ids. If the pre-send
+audit record cannot be written, the mutation is blocked with exit 2; tgcli
+never performs an unaudited authorised write. Preview creation itself does not
+send or audit a mutation.
+
+```
+tg edit CHAT MESSAGE_ID TEXT --preview
+tg edit --commit PREVIEW_ID
+tg delete CHAT MESSAGE_ID --preview
+tg delete --commit PREVIEW_ID
+```
+
+`edit` previews read the target message and return its immutable commit
+payload alongside both the previous and requested text:
+
+```json
+{"preview_id":"p_9f3a","message_id":42,"old_text":"before","text":"after","expires_at":"2026-07-06T12:05:00+00:00"}
+```
+
+`delete` previews return the target message's `preview_id`, `message_id`, and
+`text` with the same expiry. Their commits return
+`{"preview_id":"p_9f3a","message_id":42}`. Each command accepts either its
+complete preview arguments with `--preview` or only `--commit PREVIEW_ID`; a
+preview of another kind is blocked before configuration or session work and is
+not consumed. Their commits use the same five-minute `.json` → `.pending` →
+`.used` lifecycle, retry behavior, and fail-closed audit boundary as `send`.
+Edit and delete commits have no `random_id`; their pre-dispatch audit
+records are `edit` or `delete`, and successful result records are
+`edit-result` or `delete-result`.
+
+```
+tg forward SOURCE MESSAGE_ID DESTINATION --preview
+tg forward --commit PREVIEW_ID
+tg mark-read CHAT
+```
+
+`forward` preview resolves both source and destination, reads the source
+message, and returns:
+
+```json
+{"preview_id":"p_9f3a","source":"@source","message_id":42,"destination":"@destination","text":"hello","expires_at":"2026-07-06T12:05:00+00:00"}
+```
+
+The stored forward payload also has a positive `random_id` and the submitted
+source and destination chat references. Preview resolves both references only
+as a preflight; commit re-resolves the stored chat references into input peers,
+then sends that source message to that destination through Telegram's native
+forward request. It returns
+`{"preview_id":"p_9f3a","message_id":43}` only after exact `random_id`
+confirmation. Forward previews and commits use the same validation, readonly
+gates, retryable `.json` → `.pending` → `.used` lifecycle, and fail-closed
+`forward` / `forward-result` audit records as send. A native forward does not
+take reply or topic flags and therefore creates no reply header.
+
+`mark-read` is a content-free, idempotent direct mutation: it has no preview,
+but `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block it before
+configuration, session, audit, or Telegram work. On success it returns
+`{"dialog":{"id":-1001234},"marked_read":true}` and writes a fail-closed
+`mark-read` audit record containing the submitted chat reference before the
+Telegram acknowledgement.
+
+## 5.1 Environment Health (`tg doctor`; ADR-0028)
+
+```
+tg doctor [--account ALIAS]
+```
+
+`doctor` is a read-only Telegram health report: without `--account`, it checks
+every configured account; with it, it checks only that account. It reports the
+session-file presence, whether the session lock can be acquired, whether the
+local preview state directory is writable, and whether Telegram authorizes the
+session. It does not mutate Telegram.
+
+The health checks make short-lived local probes: for an existing session they
+may create and acquire its `.lock` file, and they create then remove a
+`.doctor-probe` file in the preview-state directory. A missing session is not
+locked and creates no lock file. These probes do not mutate Telegram.
+
+`--json` emits:
+
+```json
+{"accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
+"checks":{"session_file":true,"lock_free":true,"state_writable":true,"authorized":true},
+"user":{"id":1,"username":"me","name":"Me"},"ok":true}],"ok":true}
+```
+
+Any ordinary online exception, including a session/configuration failure, is
+represented as `checks.error`, with `authorized: false`, `user: null`, and
+`ok: false` for that account. `--plain` uses frozen columns: `alias`, `status`
+(`ok|fail`), `username`, `failures`.
+
+When `doctor` itself runs, it always exits 0; consult the top-level `ok` and
+per-account `ok` values for health failures. An invalid or unreadable config,
+or an explicitly unknown `--account`, prevents the check from running and
+retains the normal config/auth exit 3.
 
 ## 6. Raw API Passthrough (`tg api`, phase 2+; ADR-0010)
 

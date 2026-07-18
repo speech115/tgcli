@@ -35,6 +35,91 @@ def make_message(message_id, text):
     )
 
 
+def make_search_client():
+    entity = ns(id=-1001234, title="Channel")
+    alice = make_message(42, "hello from alice")
+    alice.sender.username = "alice"
+    bob = make_message(41, "hello from bob")
+    bob.sender.username = "bob"
+    return FakeClient(
+        search_messages={"hello": [alice, bob]}, entities={"@chan": entity}
+    )
+
+
+def test_search_all_returns_per_hit_dialogs(config_env, monkeypatch, capsys):
+    message = ns(
+        id=1,
+        date=None,
+        sender_id=1,
+        sender=None,
+        text="invoice",
+        media=None,
+        reply_to_msg_id=None,
+        chat=ns(id=5, title="Chan"),
+        chat_id=5,
+    )
+    client = FakeClient(search_messages={"invoice": [message]})
+    make_session_fake(monkeypatch, client)
+
+    assert main(["search", "--all", "invoice", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["query"] == "invoice"
+    assert data["messages"][0]["dialog"] == {"id": 5, "name": "Chan"}
+    assert client.iter_messages_calls[0][0] is None
+
+
+def test_search_all_rejects_extra_positional(config_env, capsys):
+    assert main(["search", "--all", "@chan", "invoice"]) == 1
+    assert "search --all takes exactly one QUERY" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["search", "--all", "invoice", "--from", "@alice"],
+        ["search", "--all", "invoice", "--since", "2026-07-18"],
+    ],
+)
+def test_search_all_rejects_scoped_filters_before_loading_config(
+    monkeypatch, capsys, tmp_path, argv
+):
+    monkeypatch.setenv("TGCLI_CONFIG", str(tmp_path / "missing-config.toml"))
+
+    assert main(argv) == 1
+    assert "search --all only supports QUERY and --limit" in capsys.readouterr().err
+
+
+def test_search_from_filters_by_sender(config_env, monkeypatch, capsys):
+    client = make_search_client()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["search", "@chan", "hello", "--from", "@alice", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert client.iter_messages_kwargs["from_user"] == "@alice"
+    assert all(message["from"]["username"] == "alice" for message in data["messages"])
+
+
+def test_search_since_stops_at_date_boundary(config_env, monkeypatch, capsys):
+    entity = ns(id=-1001234, title="Channel")
+    newest = make_message(42, "hello today")
+    newest.date = dt.datetime(2026, 7, 18, 10, 0, tzinfo=dt.timezone.utc)
+    older = make_message(41, "hello yesterday")
+    older.date = dt.datetime(2026, 7, 17, 10, 0, tzinfo=dt.timezone.utc)
+    make_session_fake(
+        monkeypatch,
+        FakeClient(
+            search_messages={"hello": [newest, older]}, entities={"@chan": entity}
+        ),
+    )
+
+    assert main(["search", "@chan", "hello", "--since", "2026-07-18", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert [message["id"] for message in data["messages"]] == [42]
+
+
 def test_search_json_passes_query_and_returns_search_results(
     config_env, monkeypatch, capsys
 ):
@@ -57,10 +142,19 @@ def test_search_json_passes_query_and_returns_search_results(
             {
                 "id": 42,
                 "date": "2026-07-06T10:00:00+00:00",
-                "from": {"id": 111, "name": "Alice"},
+                "from": {"id": 111, "name": "Alice", "username": None},
                 "text": "needle result",
                 "media": None,
+                "media_info": None,
                 "reply_to": None,
+                "permalink": None,
+                "edited_at": None,
+                "outgoing": False,
+                "forwarded_from": None,
+                "reactions": [],
+                "topic_id": None,
+                "grouped_id": None,
+                "is_service": False,
             }
         ],
     }
@@ -78,7 +172,26 @@ def test_latest_json_returns_first_message(config_env, monkeypatch, capsys):
 
     assert code == 0
     assert fake.iter_messages_calls == [(entity, None, 1)]
-    assert json.loads(capsys.readouterr().out)["message"]["id"] == 42
+    assert json.loads(capsys.readouterr().out) == {
+        "dialog": {"id": -1001234, "name": "Channel"},
+        "message": {
+            "id": 42,
+            "date": "2026-07-06T10:00:00+00:00",
+            "from": {"id": 111, "name": "Alice", "username": None},
+            "text": "latest",
+            "media": None,
+            "media_info": None,
+            "reply_to": None,
+            "permalink": None,
+            "edited_at": None,
+            "outgoing": False,
+            "forwarded_from": None,
+            "reactions": [],
+            "topic_id": None,
+            "grouped_id": None,
+            "is_service": False,
+        },
+    }
 
 
 @pytest.mark.parametrize(
