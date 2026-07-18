@@ -80,6 +80,20 @@ def test_read_since_stops_at_boundary(config_env, monkeypatch, capsys):
     assert all(message["date"] >= "2026-07-18" for message in data["messages"])
 
 
+def test_read_until_passes_parsed_offset_date(config_env, monkeypatch, capsys):
+    client = make_read_client()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["read", "@chan", "--until", "2026-07-18", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert client.iter_messages_kwargs["offset_date"] == dt.datetime(
+        2026, 7, 18, tzinfo=dt.timezone.utc
+    )
+    assert [message["id"] for message in data["messages"]] == [2, 1]
+    assert data["page"] == {"oldest_id": 1, "newest_id": 2}
+
+
 def test_read_topic_passes_reply_to(config_env, monkeypatch, capsys):
     client = make_read_client()
     make_session_fake(monkeypatch, client)
