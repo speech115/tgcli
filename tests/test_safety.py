@@ -59,6 +59,31 @@ def test_begin_commit_allows_retry_until_finished():
         safety.begin_commit(preview["preview_id"])
 
 
+def test_begin_commit_expected_kind_preserves_a_mismatched_preview():
+    preview = safety.create_preview({"kind": "clone-init", "source": "@source"})
+
+    with pytest.raises(PolicyError, match="preview does not match send"):
+        safety.begin_commit(preview["preview_id"], expected_kind="send")
+
+    preview_path = safety.previews_dir() / f"{preview['preview_id']}.json"
+    assert preview_path.exists()
+    assert safety.consume_preview(preview["preview_id"]) == {
+        "kind": "clone-init",
+        "source": "@source",
+    }
+
+
+def test_begin_commit_revalidates_expected_kind_for_a_pending_preview():
+    preview = safety.create_preview({"kind": "clone-init"})
+    safety.begin_commit(preview["preview_id"])
+
+    with pytest.raises(PolicyError, match="preview does not match send"):
+        safety.begin_commit(preview["preview_id"], expected_kind="send")
+
+    pending = safety.previews_dir() / f"{preview['preview_id']}.pending"
+    assert pending.exists()
+
+
 def test_begin_commit_enforces_ttl_and_id_shape():
     preview = safety.create_preview({"kind": "send"})
     late = datetime.now(UTC) + timedelta(minutes=6)

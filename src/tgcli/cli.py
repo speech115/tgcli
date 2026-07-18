@@ -385,9 +385,9 @@ def main(argv: list[str] | None = None) -> int:
                     except SystemExit:
                         return 1
                 safety.enforce_mutation_allowed(args.readonly)
-                args.preview_payload = safety.begin_commit(args.commit)
-                if args.preview_payload.get("kind") != "send":
-                    raise PolicyError("preview does not match send")
+                args.preview_payload = safety.begin_commit(
+                    args.commit, expected_kind="send"
+                )
             elif not (
                 args.preview
                 and args.chat is not None
@@ -474,7 +474,6 @@ def main(argv: list[str] | None = None) -> int:
                         asyncio.wait_for(network, timeout=args.timeout)
                     )
                 if getattr(args, "commit", None) and args.command == "send":
-                    safety.finish_commit(args.commit)
                     safety.append_audit(
                         "send-result",
                         account.alias,
@@ -483,6 +482,7 @@ def main(argv: list[str] | None = None) -> int:
                             "message_id": data.get("message_id"),
                         },
                     )
+                    safety.finish_commit(args.commit)
     except TgcliError as err:
         output.emit_error(err, as_json=args.json)
         error_code = err.code

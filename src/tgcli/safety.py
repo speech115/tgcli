@@ -56,7 +56,17 @@ def consume_preview(preview_id: str, *, now: datetime | None = None) -> dict:
     return record["payload"]
 
 
-def begin_commit(preview_id: str, *, now: datetime | None = None) -> dict:
+def _validate_preview_kind(payload: dict, expected_kind: str | None) -> None:
+    if expected_kind is not None and payload.get("kind") != expected_kind:
+        raise PolicyError(f"preview does not match {expected_kind}")
+
+
+def begin_commit(
+    preview_id: str,
+    *,
+    now: datetime | None = None,
+    expected_kind: str | None = None,
+) -> dict:
     """Move a preview to .pending and return its payload.
 
     Unlike consume_preview, a .pending preview may be begun again: the
@@ -67,14 +77,22 @@ def begin_commit(preview_id: str, *, now: datetime | None = None) -> dict:
     path = previews_dir() / f"{preview_id}.json"
     pending = path.with_suffix(".pending")
     try:
-        path.replace(pending)
+        record = json.loads(path.read_text())
     except FileNotFoundError:
         if not pending.exists():
             raise PolicyError("preview is already used or does not exist") from None
+    else:
+        _validate_preview_kind(record["payload"], expected_kind)
+        try:
+            path.replace(pending)
+        except FileNotFoundError:
+            if not pending.exists():
+                raise PolicyError("preview is already used or does not exist") from None
     try:
         record = json.loads(pending.read_text())
     except FileNotFoundError:
         raise PolicyError("preview is already used or does not exist") from None
+    _validate_preview_kind(record["payload"], expected_kind)
     now = now or datetime.now(UTC)
     if now >= datetime.fromisoformat(record["expires_at"]):
         raise PolicyError("preview has expired")

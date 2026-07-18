@@ -7,6 +7,7 @@ from telethon.tl import functions, types
 from tests.conftest import make_session_fake
 from tgcli import safety
 from tgcli.cli import main
+from tgcli.errors import PolicyError
 
 
 SAMPLE = """
@@ -278,6 +279,45 @@ def test_send_commit_is_retryable_after_network_failure(
     assert working.requests[0].random_id == 779
 
 
+def test_send_commit_keeps_preview_pending_when_result_audit_fails(
+    config_env, monkeypatch, capsys
+):
+    preview = safety.create_preview(
+        {
+            "kind": "send",
+            "chat": "@alice",
+            "text": "hello",
+            "file": None,
+            "file_size": None,
+            "reply_to": None,
+            "topic": None,
+            "silent": False,
+            "random_id": 780,
+            "to": {"id": 7, "name": "Alice"},
+        }
+    )
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+    original_append_audit = safety.append_audit
+
+    def fail_result_audit(action, account, details):
+        if action == "send-result":
+            raise PolicyError("cannot write audit record: disk full")
+        original_append_audit(action, account, details)
+
+    monkeypatch.setattr(safety, "append_audit", fail_result_audit)
+
+    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 2
+    pending = safety.previews_dir() / f"{preview['preview_id']}.pending"
+    assert pending.exists()
+    assert not pending.with_suffix(".used").exists()
+
+    monkeypatch.setattr(safety, "append_audit", original_append_audit)
+    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 0
+    assert len(client.requests) == 2
+    assert {request.random_id for request in client.requests} == {780}
+
+
 def test_send_commit_rejects_a_non_send_preview_before_session(monkeypatch):
     from tgcli import cli
 
@@ -289,6 +329,9 @@ def test_send_commit_rejects_a_non_send_preview_before_session(monkeypatch):
 
     assert main(["send", "--commit", preview["preview_id"]]) == 2
     assert not safety.audit_path().exists()
+    preview_path = safety.previews_dir() / f"{preview['preview_id']}.json"
+    assert preview_path.exists()
+    assert safety.consume_preview(preview["preview_id"])["kind"] == "clone-init"
 
 
 def test_send_commit_with_extra_args_returns_usage_error(capsys):

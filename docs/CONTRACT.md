@@ -164,7 +164,8 @@ commit path.
 Previews expire after five minutes. A send commit moves its preview through
 `.json` → `.pending` → `.used`: a failed commit may be re-committed; Telegram
 deduplicates by `random_id` within the preview TTL. Only a confirmed send marks
-the preview used. Commit JSON is `{"preview_id": "p_9f3a", "message_id": 42}`.
+the preview used, and only after its result audit record persists. Commit JSON
+is `{"preview_id": "p_9f3a", "message_id": 42}`.
 Every authorised send commit appends one JSON object to
 `~/.local/state/tgcli/audit.jsonl` (or `TGCLI_STATE_DIR/audit.jsonl`) before
 network dispatch, including the stored `random_id`; a successful confirmed
