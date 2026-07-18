@@ -104,8 +104,9 @@ one message in that same shape:
 ```
 
 `tg message <chat> <message_id> --context N --json` adds an optional
-`context` array containing up to `N` preceding and `N` following messages;
-the target message is excluded and neighbors are ordered by ascending id.
+`context` array containing existing messages in the inclusive ID window from
+`message_id - N` through `message_id + N`; the target message is excluded and
+neighbors are ordered by ascending id.
 
 `tg info <chat> --json`:
 ```json

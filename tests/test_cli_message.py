@@ -87,6 +87,17 @@ def test_message_context_returns_neighbors(config_env, monkeypatch, capsys):
     assert [message["id"] for message in data["context"]] == [1, 3]
 
 
+def test_message_context_does_not_expand_sparse_id_window(
+    config_env, monkeypatch, capsys
+):
+    make_session_fake(monkeypatch, make_fake(message_ids=(9, 10, 12)))
+
+    assert main(["message", "@chan", "10", "--context", "1", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert [message["id"] for message in data["context"]] == [9]
+
+
 def test_message_plain_sanitizes_message_controls(config_env, monkeypatch, capsys):
     fake = make_fake()
     fake._messages[0].text = "a\tb\r\nc"
