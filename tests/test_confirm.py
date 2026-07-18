@@ -21,3 +21,45 @@ def test_confirmed_ids_fails_closed_on_missing_confirmation():
     response = type("R", (), {"updates": []})()
     with pytest.raises(PolicyError):
         confirmed_ids(response, [7])
+
+
+def test_confirmed_ids_fails_closed_on_duplicate_confirmation():
+    response = type(
+        "R",
+        (),
+        {
+            "updates": [
+                types.UpdateMessageID(id=42, random_id=7),
+                types.UpdateMessageID(id=42, random_id=7),
+            ]
+        },
+    )()
+    with pytest.raises(PolicyError):
+        confirmed_ids(response, [7])
+
+
+@pytest.mark.parametrize(
+    ("updates", "random_ids"),
+    [
+        (
+            [
+                types.UpdateMessageID(id=42, random_id=7),
+                types.UpdateMessageID(id=43, random_id=8),
+            ],
+            [7],
+        ),
+        ([types.UpdateMessageID(id=0, random_id=7)], [7]),
+        (
+            [
+                types.UpdateMessageID(id=42, random_id=7),
+                types.UpdateMessageID(id=42, random_id=8),
+            ],
+            [7, 8],
+        ),
+    ],
+    ids=["extra-random-id", "non-positive-message-id", "non-unique-message-id"],
+)
+def test_confirmed_ids_fails_closed_on_invalid_confirmation(updates, random_ids):
+    response = type("R", (), {"updates": updates})()
+    with pytest.raises(PolicyError):
+        confirmed_ids(response, random_ids)

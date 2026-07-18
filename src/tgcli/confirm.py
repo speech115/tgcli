@@ -19,14 +19,16 @@ def confirmed_ids(response, random_ids: list[int]) -> list[int]:
             return [message_id]
         raise PolicyError("Telegram did not confirm the send")
     updates = getattr(response, "updates", ())
-    matches = {
-        update.random_id: update.id
+    confirmations = [
+        (update.random_id, update.id)
         for update in updates
         if isinstance(update, types.UpdateMessageID)
-    }
+    ]
+    matches = dict(confirmations)
     message_ids = [matches.get(random_id) for random_id in random_ids]
     if (
-        set(matches) != set(random_ids)
+        len(confirmations) != len(random_ids)
+        or set(matches) != set(random_ids)
         or any(
             isinstance(item, bool) or not isinstance(item, int) or item <= 0
             for item in message_ids
