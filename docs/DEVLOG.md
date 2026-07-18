@@ -14,6 +14,28 @@ Template:
 ```
 
 
+## 2026-07-18 — ADR-0028: v1.1 agent correspondence scope + plan (Claude Fable 5)
+**Did:** owner-commissioned product review of v1.0 walked through a
+structured grilling session; wrote ADR-0028 (scope: richer message JSON,
+id/date pagination, full mutation set under preview→commit with
+random_id commits, discovery flags, `tg doctor`), the scoped plan
+`docs/superpowers/plans/2026-07-18-agent-correspondence.md` (15 tasks,
+3 slices), ISSUES additions MSG-001 and FEED-001, ADR index row. Docs
+only — no code yet.
+**Decided:** ADR-0028. Rejected: `tg spec`, `tg can`, `tg inbox`, keyed
+idempotency journal, opaque cursors. Deferred with triggers: MSG-001,
+FEED-001; ACCOUNTS-001 keeps its trigger. Clone stays untouched —
+`random_id` confirmation is deliberately duplicated into a new
+`tgcli/confirm.py` instead of refactoring the frozen clone.
+**Learned:** two review claims were already implemented (structured
+FLOOD_WAIT with `retry_after` in CONTRACT §2; t.me links accepted as
+chat refs everywhere) — verify review claims against code before
+planning around them. `consume_preview`'s burn-on-consume design is what
+makes network-failure retries unsafe today; the `.pending` state fixes
+that without a journal subsystem.
+**Next:** owner reviews the plan; then execute slice 1 (tasks 1–4) on a
+`claude/agent-correspondence-s1` branch.
+
 ## 2026-07-17 — ISSUES: pre-approve accounts login on session loss (Claude Fable 5)
 **Did:** added ACCOUNTS-001 to docs/ISSUES.md — `tg accounts login`
 (interactive session (re)authorization) as deferred, pre-approved
