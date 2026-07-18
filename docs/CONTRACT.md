@@ -169,6 +169,11 @@ Previews expire after five minutes. A send commit moves its preview through
 deduplicates by `random_id` within the preview TTL. Only a confirmed send marks
 the preview used, and only after its result audit record persists. Commit JSON
 is `{"preview_id": "p_9f3a", "message_id": 42}`.
+All `--preview` invocations for `send`, `edit`, and `delete` are non-mutating:
+they may resolve or read a Telegram target and write a local preview record,
+but never send, edit, or delete a Telegram message. They remain permitted with
+`--readonly`, `TGCLI_READONLY=1`, or `TGCLI_NO_SEND=1`. Those gates apply to
+`--commit` only, before configuration, session, audit, or mutation work.
 Every authorised send commit appends one JSON object to
 `~/.local/state/tgcli/audit.jsonl` (or `TGCLI_STATE_DIR/audit.jsonl`) before
 network dispatch, including the stored `random_id`; a successful confirmed
@@ -196,9 +201,9 @@ payload alongside both the previous and requested text:
 `{"preview_id":"p_9f3a","message_id":42}`. Each command accepts either its
 complete preview arguments with `--preview` or only `--commit PREVIEW_ID`; a
 preview of another kind is blocked before configuration or session work and is
-not consumed. The same readonly gates, five-minute `.json` → `.pending` →
-`.used` lifecycle, retry behavior, and fail-closed audit boundary apply as for
-`send`. Edit and delete commits have no `random_id`; their pre-dispatch audit
+not consumed. Their commits use the same five-minute `.json` → `.pending` →
+`.used` lifecycle, retry behavior, and fail-closed audit boundary as `send`.
+Edit and delete commits have no `random_id`; their pre-dispatch audit
 records are `edit` or `delete`, and successful result records are
 `edit-result` or `delete-result`.
 
