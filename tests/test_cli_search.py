@@ -87,7 +87,26 @@ def test_latest_json_returns_first_message(config_env, monkeypatch, capsys):
 
     assert code == 0
     assert fake.iter_messages_calls == [(entity, None, 1)]
-    assert json.loads(capsys.readouterr().out)["message"]["id"] == 42
+    assert json.loads(capsys.readouterr().out) == {
+        "dialog": {"id": -1001234, "name": "Channel"},
+        "message": {
+            "id": 42,
+            "date": "2026-07-06T10:00:00+00:00",
+            "from": {"id": 111, "name": "Alice", "username": None},
+            "text": "latest",
+            "media": None,
+            "media_info": None,
+            "reply_to": None,
+            "permalink": None,
+            "edited_at": None,
+            "outgoing": False,
+            "forwarded_from": None,
+            "reactions": [],
+            "topic_id": None,
+            "grouped_id": None,
+            "is_service": False,
+        },
+    }
 
 
 @pytest.mark.parametrize(

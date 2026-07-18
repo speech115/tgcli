@@ -37,13 +37,32 @@ def make_fake():
     return FakeClient(messages=[message], entities={"@chan": entity})
 
 
-def test_message_json_returns_requested_id(config_env, monkeypatch, capsys):
+def test_message_json_matches_contract(config_env, monkeypatch, capsys):
     make_session_fake(monkeypatch, make_fake())
 
     code = main(["message", "@chan", "42", "--json"])
 
     assert code == 0
-    assert json.loads(capsys.readouterr().out)["message"]["id"] == 42
+    assert json.loads(capsys.readouterr().out) == {
+        "dialog": {"id": -1001234, "name": "Channel"},
+        "message": {
+            "id": 42,
+            "date": "2026-07-06T10:00:00+00:00",
+            "from": {"id": 111, "name": "Alice", "username": None},
+            "text": "hello",
+            "media": None,
+            "media_info": None,
+            "reply_to": None,
+            "permalink": None,
+            "edited_at": None,
+            "outgoing": False,
+            "forwarded_from": None,
+            "reactions": [],
+            "topic_id": None,
+            "grouped_id": None,
+            "is_service": False,
+        },
+    }
 
 
 def test_message_missing_id_exits_4(config_env, monkeypatch, capsys):

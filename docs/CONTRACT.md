@@ -77,8 +77,11 @@ class name string, `media_info` carries structured metadata.
 ```json
 {"dialog": {"id": -1001234, "name": "Channel"}, "query": "hello",
  "messages": [{"id": 42, "date": "2026-07-06T10:00:00+00:00",
-               "from": {"id": 111, "name": "Alice"}, "text": "hello",
-               "media": null, "reply_to": null}]}
+               "from": {"id": 111, "name": "Alice", "username": null},
+               "text": "hello", "media": null, "media_info": null,
+               "reply_to": null, "permalink": null, "edited_at": null,
+               "outgoing": false, "forwarded_from": null, "reactions": [],
+               "topic_id": null, "grouped_id": null, "is_service": false}]}
 ```
 
 `tg latest <chat> --json` and `tg message <chat> <message_id> --json` return
@@ -86,8 +89,11 @@ one message in that same shape:
 ```json
 {"dialog": {"id": -1001234, "name": "Channel"},
  "message": {"id": 42, "date": "2026-07-06T10:00:00+00:00",
-             "from": {"id": 111, "name": "Alice"}, "text": "hello",
-             "media": null, "reply_to": null}}
+             "from": {"id": 111, "name": "Alice", "username": null},
+             "text": "hello", "media": null, "media_info": null,
+             "reply_to": null, "permalink": null, "edited_at": null,
+             "outgoing": false, "forwarded_from": null, "reactions": [],
+             "topic_id": null, "grouped_id": null, "is_service": false}}
 ```
 
 `tg info <chat> --json`:
