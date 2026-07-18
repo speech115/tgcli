@@ -13,6 +13,20 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-18 — Agent correspondence Task 14 doctor health report (Codex)
+**Did:** added `tg doctor`, which inspects every configured account (or one
+explicit alias) for session presence, lock availability, writable local state,
+and Telegram authorization; added JSON/TSV contract documentation and three
+CLI tests covering all accounts, account filtering, and a reported auth/config
+failure. Focused test result: `3 passed`.
+**Decided:** online `ConfigError` is health data, not a CLI error: `doctor`
+returns exit 0 after a completed check and callers inspect `ok`. No Telegram
+mutation occurs; the state-writability probe is local and temporary.
+**Learned:** doctor must invoke `tgcli.session.client` directly, so tests patch
+that module path instead of only a `cli` import alias.
+**Next:** run the full quality gates and perform the owner-gated live health
+smoke after merge.
+
 ## 2026-07-18 — Agent correspondence Slice 2 mutation surface complete (Codex)
 **Did:** completed Tasks 5–10 of the ADR-0028 plan: `send` now previews and
 commits text/files with reply, topic, silent, and stored `random_id` metadata;

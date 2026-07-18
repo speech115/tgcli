@@ -271,6 +271,35 @@ configuration, session, audit, or Telegram work. On success it returns
 `mark-read` audit record containing the submitted chat reference before the
 Telegram acknowledgement.
 
+## 5.1 Environment Health (`tg doctor`; ADR-0028)
+
+```
+tg doctor [--account ALIAS]
+```
+
+`doctor` is a read-only Telegram health report: without `--account`, it checks
+every configured account; with it, it checks only that account. It reports the
+session-file presence, whether the session lock can be acquired, whether the
+local preview state directory is writable, and whether Telegram authorizes the
+session. It does not mutate Telegram.
+
+`--json` emits:
+
+```json
+{"accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
+"checks":{"session_file":true,"lock_free":true,"state_writable":true,"authorized":true},
+"user":{"id":1,"username":"me","name":"Me"},"ok":true}],"ok":true}
+```
+
+An online session/configuration failure is represented as `checks.error`, with
+`authorized: false`, `user: null`, and `ok: false` for that account. `--plain`
+uses frozen columns: `alias`, `status` (`ok|fail`), `username`, `failures`.
+
+When `doctor` itself runs, it always exits 0; consult the top-level `ok` and
+per-account `ok` values for health failures. An invalid or unreadable config,
+or an explicitly unknown `--account`, prevents the check from running and
+retains the normal config/auth exit 3.
+
 ## 6. Raw API Passthrough (`tg api`, phase 2+; ADR-0010)
 
 ```

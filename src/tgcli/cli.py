@@ -13,6 +13,7 @@ from tgcli.commands import accounts as accounts_cmd
 from tgcli.commands import api as api_cmd
 from tgcli.commands import clone as clone_cmd
 from tgcli.commands import dialogs as dialogs_cmd
+from tgcli.commands import doctor as doctor_cmd
 from tgcli.commands import export as export_cmd
 from tgcli.commands import info as info_cmd
 from tgcli.commands import media as media_cmd
@@ -98,6 +99,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_dialogs.add_argument("--limit", type=int, default=50)
     p_dialogs.add_argument("--unread-only", action="store_true")
     p_dialogs.add_argument("--kind", choices=["user", "group", "channel"])
+
+    sub.add_parser(
+        "doctor", help="Check environment and session health", parents=[global_flags]
+    )
 
     p_read = sub.add_parser(
         "read", help="Read recent messages from a dialog", parents=[global_flags]
@@ -583,6 +588,13 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "accounts":
                 data = accounts_cmd.list_accounts(config)
                 rows = accounts_cmd.to_rows(data)
+            elif args.command == "doctor":
+                data = asyncio.run(
+                    asyncio.wait_for(
+                        doctor_cmd.run(config, args.account), timeout=args.timeout
+                    )
+                )
+                rows = doctor_cmd.to_rows(data)
             else:
                 account = resolve_account(config, args.account)
                 args.account = account.alias

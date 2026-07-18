@@ -54,6 +54,7 @@ tgcli/
 │   │   ├── media.py           [done]    tg media download             (phase 3; Telethon-only)
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── mutate.py          [done]    tg edit|delete|forward preview / commit; tg mark-read (ADR-0028)
+│   │   ├── doctor.py          [done]    tg doctor environment/session health report (ADR-0028)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
 │   │   └── clone.py           [done]    clone status/init/sync surface (ADR-0017…0025; all live gates passed)
