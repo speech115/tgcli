@@ -103,6 +103,10 @@ one message in that same shape:
              "topic_id": null, "grouped_id": null, "is_service": false}}
 ```
 
+`tg message <chat> <message_id> --context N --json` adds an optional
+`context` array containing up to `N` preceding and `N` following messages;
+the target message is excluded and neighbors are ordered by ascending id.
+
 `tg info <chat> --json`:
 ```json
 {"id": -1001234, "name": "Channel", "kind": "channel", "username": "chan"}

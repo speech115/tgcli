@@ -115,6 +115,13 @@ class FakeClient:
         self.get_messages_calls.append((entity, ids, limit))
         if limit == 0:
             return ns(total=self._message_total)
+        if isinstance(ids, list):
+            return [
+                next(
+                    (message for message in self._messages if message.id == item), None
+                )
+                for item in ids
+            ]
         return next((message for message in self._messages if message.id == ids), None)
 
 

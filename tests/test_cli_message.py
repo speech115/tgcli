@@ -23,18 +23,21 @@ def config_env(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_CONFIG", str(path))
 
 
-def make_fake():
+def make_fake(message_ids=(42,)):
     entity = ns(id=-1001234, title="Channel")
-    message = ns(
-        id=42,
-        date=dt.datetime(2026, 7, 6, 10, 0, tzinfo=dt.timezone.utc),
-        sender_id=111,
-        sender=ns(first_name="Alice", last_name=None),
-        text="hello",
-        media=None,
-        reply_to_msg_id=None,
-    )
-    return FakeClient(messages=[message], entities={"@chan": entity})
+    messages = [
+        ns(
+            id=message_id,
+            date=dt.datetime(2026, 7, 6, 10, 0, tzinfo=dt.timezone.utc),
+            sender_id=111,
+            sender=ns(first_name="Alice", last_name=None),
+            text="hello",
+            media=None,
+            reply_to_msg_id=None,
+        )
+        for message_id in message_ids
+    ]
+    return FakeClient(messages=messages, entities={"@chan": entity})
 
 
 def test_message_json_matches_contract(config_env, monkeypatch, capsys):
@@ -72,6 +75,16 @@ def test_message_missing_id_exits_4(config_env, monkeypatch, capsys):
 
     assert code == 4
     assert json.loads(capsys.readouterr().err)["error"]["code"] == "NOT_FOUND"
+
+
+def test_message_context_returns_neighbors(config_env, monkeypatch, capsys):
+    make_session_fake(monkeypatch, make_fake(message_ids=(1, 2, 3)))
+
+    assert main(["message", "@chan", "2", "--context", "1", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["message"]["id"] == 2
+    assert [message["id"] for message in data["context"]] == [1, 3]
 
 
 def test_message_plain_sanitizes_message_controls(config_env, monkeypatch, capsys):

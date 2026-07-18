@@ -104,7 +104,7 @@ def message_to_dict(message, entity=None) -> dict:
     }
 
 
-async def fetch_message(tg, chat: str, message_id: int) -> dict:
+async def fetch_message(tg, chat: str, message_id: int, context: int = 0) -> dict:
     try:
         entity = await tg.get_entity(chatref.parse(chat))
     except ValueError:
@@ -114,10 +114,21 @@ async def fetch_message(tg, chat: str, message_id: int) -> dict:
     if message is None:
         raise NotFoundError(f"message not found: {message_id}")
 
-    return {
+    data = {
         "dialog": {"id": entity.id, "name": _dialog_name(entity, chat)},
         "message": message_to_dict(message, entity),
     }
+    if context > 0:
+        ids = [
+            item
+            for item in range(message_id - context, message_id + context + 1)
+            if item > 0 and item != message_id
+        ]
+        neighbors = await tg.get_messages(entity, ids=ids)
+        data["context"] = [
+            message_to_dict(item, entity) for item in neighbors if item is not None
+        ]
+    return data
 
 
 async def fetch_messages(

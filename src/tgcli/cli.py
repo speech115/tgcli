@@ -126,6 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_message.add_argument("chat", help="@username, t.me link, or dialog id")
     p_message.add_argument("message_id", type=int)
+    p_message.add_argument("--context", type=int, default=0)
 
     p_info = sub.add_parser("info", help="Show dialog metadata", parents=[global_flags])
     p_info.add_argument("chat", help="@username, t.me link, or dialog id")
@@ -231,7 +232,9 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                 data = await search_cmd.fetch_latest(tg, args.chat)
                 return data, search_cmd.to_rows(data)
             if args.command == "message":
-                data = await read_cmd.fetch_message(tg, args.chat, args.message_id)
+                data = await read_cmd.fetch_message(
+                    tg, args.chat, args.message_id, context=args.context
+                )
                 return data, search_cmd.to_rows(data)
             if args.command == "info":
                 data = await info_cmd.fetch_info(tg, args.chat)
