@@ -1,8 +1,8 @@
 def _kind(dialog) -> str:
-    if dialog.is_channel:
-        return "channel"
     if dialog.is_group:
         return "group"
+    if dialog.is_channel:
+        return "channel"
     return "user"
 
 

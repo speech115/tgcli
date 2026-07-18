@@ -2,6 +2,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from telethon.errors import MessageNotModifiedError
 
 from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli import safety
@@ -47,6 +48,14 @@ class ForwardClient(MutateClient):
         return SimpleNamespace(
             updates=[types.UpdateMessageID(id=99, random_id=request.random_id[0])]
         )
+
+
+class ConvergedEditClient(MutateClient):
+    async def edit_message(self, chat, message_id, text):
+        self.edited.append((chat, message_id, text))
+        if len(self.edited) > 1:
+            raise MessageNotModifiedError(request=None)
+        return ns(id=message_id)
 
 
 class FlakyForwardClient(ForwardClient):
@@ -180,6 +189,34 @@ def test_edit_commit_keeps_preview_pending_when_result_audit_fails(
     monkeypatch.setattr(safety, "append_audit", original_append_audit)
     assert main(["edit", "--commit", preview["preview_id"]]) == 0
     assert client.edited == [("@chan", 2, "new"), ("@chan", 2, "new")]
+
+
+def test_edit_commit_retry_converges_after_ambiguous_success(config_env, monkeypatch):
+    preview = safety.create_preview(
+        {
+            "kind": "edit",
+            "chat": "@chan",
+            "message_id": 2,
+            "old_text": "old",
+            "text": "new",
+        }
+    )
+    base = make_client()
+    client = ConvergedEditClient(messages=base._messages, entities=base._entities)
+    make_session_fake(monkeypatch, client)
+    original_append_audit = safety.append_audit
+
+    def fail_first_result_audit(action, account, details):
+        if action == "edit-result" and len(client.edited) == 1:
+            raise PolicyError("cannot write audit record: disk full")
+        original_append_audit(action, account, details)
+
+    monkeypatch.setattr(safety, "append_audit", fail_first_result_audit)
+
+    assert main(["edit", "--commit", preview["preview_id"]]) == 2
+    assert main(["edit", "--commit", preview["preview_id"]]) == 0
+    assert client.edited == [("@chan", 2, "new"), ("@chan", 2, "new")]
+    assert not (safety.previews_dir() / f"{preview['preview_id']}.pending").exists()
 
 
 def test_delete_commit_revokes(config_env, monkeypatch, capsys):

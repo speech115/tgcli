@@ -1,5 +1,6 @@
 """Preview and replay the intentional Telegram send surface (ADR-0028)."""
 
+import hashlib
 import mimetypes
 import secrets
 from pathlib import Path
@@ -24,6 +25,11 @@ def _target_to_dict(entity) -> dict:
 
 def _random_id() -> int:
     return secrets.randbelow(2**63 - 1) + 1
+
+
+def _file_sha256(path: Path) -> str:
+    with path.open("rb") as file_handle:
+        return hashlib.file_digest(file_handle, "sha256").hexdigest()
 
 
 async def prepare(
@@ -61,6 +67,7 @@ async def prepare(
             "text": body,
             "file": str(path) if path else None,
             "file_size": path.stat().st_size if path else None,
+            "file_sha256": _file_sha256(path) if path else None,
             "reply_to": reply_to,
             "topic": topic,
             "silent": silent,
@@ -74,6 +81,7 @@ async def prepare(
         "text",
         "file",
         "file_size",
+        "file_sha256",
         "reply_to",
         "topic",
         "silent",
@@ -105,20 +113,37 @@ def _uploaded_media(uploaded, file: str):
     )
 
 
+def _validate_preview_file(payload: dict) -> Path:
+    path = Path(payload["file"])
+    try:
+        if not path.is_absolute() or not path.is_file():
+            raise PolicyError("preview file no longer matches the prepared file")
+        if path.stat().st_size != payload.get("file_size"):
+            raise PolicyError("preview file no longer matches the prepared file")
+        if _file_sha256(path) != payload.get("file_sha256"):
+            raise PolicyError("preview file no longer matches the prepared file")
+    except OSError:
+        raise PolicyError("preview file no longer matches the prepared file") from None
+    return path
+
+
 async def commit(tg, preview_id: str, payload: dict) -> dict:
     peer = await tg.get_input_entity(chatref.parse(payload["chat"]))
     random_id = payload["random_id"]
+    message, entities = await tg._parse_message_text(payload["text"], ())
     common = {
         "peer": peer,
-        "message": payload["text"],
+        "message": message,
+        "entities": entities,
         "random_id": random_id,
         "silent": payload.get("silent") or None,
         "reply_to": _reply_header(payload),
     }
-    if file := payload.get("file"):
-        uploaded = await tg.upload_file(file)
+    if payload.get("file"):
+        path = _validate_preview_file(payload)
+        uploaded = await tg.upload_file(str(path))
         request = functions.messages.SendMediaRequest(
-            **common, media=_uploaded_media(uploaded, file)
+            **common, media=_uploaded_media(uploaded, str(path))
         )
     else:
         request = functions.messages.SendMessageRequest(**common)

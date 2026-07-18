@@ -84,10 +84,16 @@ collected pages only if a consumer needs oldest-first processing.
 
 First discover pending conversations with
 `tg --json dialogs --unread-only`. For each dialog, persist the last processed
-message id in the caller's own state and request only new content with
-`tg --json read CHAT --after-id LAST_ID`. Do not use `unread` as a durable
-cursor: it is a Telegram UI counter, whereas the message id is the stable
-per-dialog boundary.
+message id in the caller's own state. Hold that `LAST_ID` fixed while fetching
+the whole unread window: start with
+`tg --json read CHAT --after-id LAST_ID --limit 100`, then paginate older
+results with
+`tg --json read CHAT --after-id LAST_ID --before-id OLDEST_ID --limit 100`,
+where `OLDEST_ID` is the preceding page's `page.oldest_id`. Stop on an empty
+`messages` array. Only after collecting every page, process the messages
+oldest-first; once processing succeeds, advance the checkpoint to the maximum
+collected message id. Do not use `unread` as a durable cursor: it is a Telegram
+UI counter, whereas the message id is the stable per-dialog boundary.
 
 ### Send with retry
 

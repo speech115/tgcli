@@ -13,6 +13,31 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-18 — Agent correspondence final-review fixes (Codex)
+**Did:** applied all five whole-branch review fixes without touching clone:
+file-send previews now expose and store SHA-256 and commits revalidate the
+absolute path, size, and digest before upload; repeated edits treat
+`MessageNotModifiedError` as convergence; raw text and media sends preserve
+Telethon's default parse mode and entities; dialog filtering classifies
+megagroups as groups; and the unread recipe now drains a fixed checkpoint
+window before oldest-first processing. Added changed-size, same-size
+replacement, text/caption Markdown, ambiguous edit retry, and megagroup versus
+broadcast regressions. Final local gates: `uv run pytest -q` — `566 passed, 8
+skipped in 2.56s`; `uv run ruff check .` — passed; `uv run ruff format --check .` — `86
+files already formatted`; `uv run pyright` — `0 errors, 0 warnings, 0
+informations`; `uv run python scripts/check-coverage.py` — `coverage OK: 23
+namespaces`.
+**Decided:** no new ADR or dependency is needed: these are narrow correctness
+fixes inside ADR-0028's approved send, edit, discovery, and agent-recipe
+surface. `docs/MAP.md` remains accurate because no module moved or changed
+ownership.
+**Learned:** switching an idempotent send to raw TL requests also bypasses the
+high-level client's default text parsing unless `_parse_message_text(..., ())`
+is applied explicitly; file size alone cannot bind a preview to same-size
+replacement contents.
+**Next:** run the requested whole-branch rereview before pushing the completed
+commit.
+
 ## 2026-07-18 — Agent correspondence Task 15 docs closure (Codex)
 **Did:** updated `SKILL.md` for the complete ADR-0028 correspondence surface:
 `edit`, `delete`, `forward`, `mark-read`, and `doctor`, plus recipes for

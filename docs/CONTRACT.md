@@ -59,6 +59,9 @@ Flag beats env, env beats config.
               "last_message_at": "2026-07-06T11:59:00+00:00"}]}
 ```
 
+Megagroup dialogs are classified as `group` even though Telethon also marks
+them as channels; broadcast channels remain `channel`.
+
 `tg read <chat> --json`:
 ```json
 {"dialog": {"id": -1001234, "name": "Channel"},
@@ -188,14 +191,19 @@ tg send CHAT (TEXT | --file PATH [--caption TEXT]) --preview \
 `tg send CHAT TEXT --preview --json` or a file preview returns:
 ```json
 {"preview_id": "p_9f3a", "to": {"id": 111, "name": "Alice"},
- "text": "hello", "file": null, "file_size": null, "reply_to": null,
+ "text": "hello", "file": null, "file_size": null, "file_sha256": null,
+ "reply_to": null,
  "topic": null, "silent": false, "expires_at": "2026-07-06T12:05:00+00:00"}
 ```
 For a file preview, `text` is the optional caption, `file` is its absolute
-path, and `file_size` is its byte size. `--caption` requires `--file`; a file
-send cannot take positional text. The stored preview additionally includes the
+path, `file_size` is its byte size, and `file_sha256` is the lowercase SHA-256
+digest of its contents. Immediately before upload, commit requires that exact
+absolute path to still be a file with the stored size and digest; a mismatch is
+blocked with exit 2 before upload. `--caption` requires `--file`; a file send
+cannot take positional text. The stored preview additionally includes the
 target, `kind: "send"`, and a positive `random_id` for the later idempotent
-commit path.
+commit path. Text and captions use the Telethon client's default parse mode,
+preserving the existing Markdown-to-entity behavior of high-level sends.
 Previews expire after five minutes. A send commit moves its preview through
 `.json` → `.pending` → `.used`: a failed commit may be re-committed; Telegram
 deduplicates by `random_id` within the preview TTL. Only a confirmed send marks

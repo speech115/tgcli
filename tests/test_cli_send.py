@@ -1,8 +1,10 @@
+import hashlib
 import json
 from types import SimpleNamespace
 
 import pytest
 from telethon.tl import functions, types
+from telethon.extensions import markdown
 
 from tests.conftest import make_session_fake
 from tgcli import safety
@@ -42,6 +44,10 @@ class SendClient:
         self.uploaded.append(path)
         return SimpleNamespace(name=path)
 
+    async def _parse_message_text(self, message, parse_mode):
+        assert parse_mode == ()
+        return markdown.parse(message)
+
     async def __call__(self, request):
         self.requests.append(request)
         return SimpleNamespace(
@@ -74,6 +80,7 @@ def test_send_preview_persists_payload_without_sending(config_env, monkeypatch, 
         "text": "hello",
         "file": None,
         "file_size": None,
+        "file_sha256": None,
         "reply_to": None,
         "topic": None,
         "silent": False,
@@ -120,6 +127,7 @@ def test_send_preview_with_file_and_caption(config_env, monkeypatch, capsys, tmp
     preview = json.loads(capsys.readouterr().out)
     assert preview["file"] == str(photo)
     assert preview["file_size"] == 8
+    assert preview["file_sha256"] == hashlib.sha256(photo.read_bytes()).hexdigest()
     assert preview["text"] == "look"
 
     stored = safety.begin_commit(preview["preview_id"])
@@ -235,6 +243,31 @@ def test_send_commit_sends_raw_with_stored_random_id(config_env, monkeypatch, ca
     assert lines[-1]["message_id"] == 42
 
 
+def test_send_commit_parses_default_markdown_entities(config_env, monkeypatch):
+    preview = safety.create_preview(
+        {
+            "kind": "send",
+            "chat": "@alice",
+            "text": "**bold**",
+            "file": None,
+            "file_size": None,
+            "file_sha256": None,
+            "reply_to": None,
+            "topic": None,
+            "silent": False,
+            "random_id": 783,
+            "to": {"id": 7, "name": "Alice"},
+        }
+    )
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["send", "--commit", preview["preview_id"]]) == 0
+    [request] = client.requests
+    assert request.message == "bold"
+    assert request.entities == [types.MessageEntityBold(offset=0, length=4)]
+
+
 def test_send_commit_sends_raw_media(config_env, monkeypatch, capsys, tmp_path):
     photo = tmp_path / "pic.jpg"
     photo.write_bytes(b"file")
@@ -245,6 +278,7 @@ def test_send_commit_sends_raw_media(config_env, monkeypatch, capsys, tmp_path):
             "text": "look",
             "file": str(photo),
             "file_size": 4,
+            "file_sha256": hashlib.sha256(photo.read_bytes()).hexdigest(),
             "reply_to": None,
             "topic": None,
             "silent": False,
@@ -263,6 +297,91 @@ def test_send_commit_sends_raw_media(config_env, monkeypatch, capsys, tmp_path):
     assert request.message == "look"
     assert request.random_id == 778
     assert client.uploaded == [str(photo)]
+
+
+def test_send_commit_parses_default_markdown_caption(config_env, monkeypatch, tmp_path):
+    photo = tmp_path / "pic.jpg"
+    photo.write_bytes(b"file")
+    preview = safety.create_preview(
+        {
+            "kind": "send",
+            "chat": "@alice",
+            "text": "**bold**",
+            "file": str(photo),
+            "file_size": 4,
+            "file_sha256": hashlib.sha256(photo.read_bytes()).hexdigest(),
+            "reply_to": None,
+            "topic": None,
+            "silent": False,
+            "random_id": 784,
+            "to": {"id": 7, "name": "Alice"},
+        }
+    )
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["send", "--commit", preview["preview_id"]]) == 0
+    [request] = client.requests
+    assert request.message == "bold"
+    assert request.entities == [types.MessageEntityBold(offset=0, length=4)]
+
+
+def test_send_commit_rejects_file_with_changed_size_before_upload(
+    config_env, monkeypatch, tmp_path
+):
+    photo = tmp_path / "pic.jpg"
+    photo.write_bytes(b"file")
+    preview = safety.create_preview(
+        {
+            "kind": "send",
+            "chat": "@alice",
+            "text": "look",
+            "file": str(photo),
+            "file_size": 4,
+            "file_sha256": hashlib.sha256(photo.read_bytes()).hexdigest(),
+            "reply_to": None,
+            "topic": None,
+            "silent": False,
+            "random_id": 781,
+            "to": {"id": 7, "name": "Alice"},
+        }
+    )
+    photo.write_bytes(b"changed")
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["send", "--commit", preview["preview_id"]]) == 2
+    assert client.uploaded == []
+    assert client.requests == []
+
+
+def test_send_commit_rejects_same_size_file_replacement_before_upload(
+    config_env, monkeypatch, tmp_path
+):
+    photo = tmp_path / "pic.jpg"
+    photo.write_bytes(b"file")
+    preview = safety.create_preview(
+        {
+            "kind": "send",
+            "chat": "@alice",
+            "text": "look",
+            "file": str(photo),
+            "file_size": 4,
+            "file_sha256": hashlib.sha256(photo.read_bytes()).hexdigest(),
+            "reply_to": None,
+            "topic": None,
+            "silent": False,
+            "random_id": 782,
+            "to": {"id": 7, "name": "Alice"},
+        }
+    )
+    photo.write_bytes(b"swap")
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["send", "--commit", preview["preview_id"]]) == 2
+    assert client.uploaded == []
+    assert client.requests == []
 
 
 def test_send_commit_is_retryable_after_network_failure(

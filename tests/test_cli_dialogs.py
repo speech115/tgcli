@@ -47,6 +47,18 @@ def make_user_dialog(*, unread_count: int, mentions: int = 0):
     )
 
 
+def make_megagroup_dialog():
+    return ns(
+        id=-1005678,
+        name="Megagroup",
+        is_channel=True,
+        is_group=True,
+        entity=ns(username="mega"),
+        unread_count=0,
+        date=dt.datetime(2026, 7, 6, 12, 1, tzinfo=dt.timezone.utc),
+    )
+
+
 def test_dialogs_json_matches_contract(config_env, monkeypatch, capsys):
     make_session_fake(monkeypatch, FakeClient(dialogs=[make_dialog()]))
     code = main(["--json", "dialogs"])
@@ -95,6 +107,27 @@ def test_dialogs_unread_only_and_kind_filter(config_env, monkeypatch, capsys):
             "unread": 0,
             "mentions": 2,
             "last_message_at": "2026-07-06T12:00:00+00:00",
+        }
+    ]
+
+
+def test_dialogs_kind_group_includes_megagroup_but_not_broadcast(
+    config_env, monkeypatch, capsys
+):
+    client = FakeClient(dialogs=[make_dialog(), make_megagroup_dialog()])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["dialogs", "--kind", "group", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["dialogs"] == [
+        {
+            "id": -1005678,
+            "name": "Megagroup",
+            "kind": "group",
+            "username": "mega",
+            "unread": 0,
+            "mentions": 0,
+            "last_message_at": "2026-07-06T12:01:00+00:00",
         }
     ]
 

@@ -2,6 +2,7 @@
 
 import secrets
 
+from telethon.errors import MessageNotModifiedError
 from telethon.tl import functions
 
 from tgcli import chatref, safety
@@ -45,10 +46,14 @@ async def prepare_edit(tg, chat: str, message_id: int, text: str) -> dict:
 
 
 async def commit_edit(tg, preview_id: str, payload: dict) -> dict:
-    message = await tg.edit_message(
-        payload["chat"], payload["message_id"], payload["text"]
-    )
-    return {"preview_id": preview_id, "message_id": message.id}
+    try:
+        message = await tg.edit_message(
+            payload["chat"], payload["message_id"], payload["text"]
+        )
+        message_id = message.id
+    except MessageNotModifiedError:
+        message_id = payload["message_id"]
+    return {"preview_id": preview_id, "message_id": message_id}
 
 
 async def prepare_delete(tg, chat: str, message_id: int) -> dict:
