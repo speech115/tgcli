@@ -91,3 +91,45 @@ def to_rows(data: dict) -> list[tuple]:
             sanitize_plain_text(peer["display_name"]),
         )
     ]
+
+
+CONTACTS_SEARCH_GLOBAL_LIMIT = 50
+
+
+async def contacts_list(tg) -> dict:
+    response = await tg(functions.contacts.GetContactsRequest(hash=0))
+    return {"contacts": [peer_to_dict(user) for user in response.users]}
+
+
+async def contacts_search(tg, query: str, *, use_global: bool = False) -> dict:
+    if use_global:
+        response = await tg(
+            functions.contacts.SearchRequest(
+                q=query, limit=CONTACTS_SEARCH_GLOBAL_LIMIT
+            )
+        )
+        return {
+            "contacts": [peer_to_dict(user) for user in response.users],
+            "scope": "global",
+        }
+    listed = await contacts_list(tg)
+    needle = query.casefold()
+    matched = [
+        contact
+        for contact in listed["contacts"]
+        if (contact["display_name"] and needle in contact["display_name"].casefold())
+        or (contact["username"] and needle in contact["username"].casefold())
+    ]
+    return {"contacts": matched, "scope": "local"}
+
+
+def contacts_to_rows(data: dict) -> list[tuple]:
+    return [
+        (
+            contact["id"],
+            contact["type"],
+            sanitize_plain_text(contact["username"]),
+            sanitize_plain_text(contact["display_name"]),
+        )
+        for contact in data["contacts"]
+    ]

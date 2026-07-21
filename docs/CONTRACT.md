@@ -171,6 +171,28 @@ megagroup or basic group, otherwise `user`. `display_name` is the chat title,
 or first+last name for a user/bot. `is_contact` and `is_bot` reflect the
 entity's own Telegram flags.
 
+```
+tg contacts list
+tg contacts search <query> [--global]
+```
+
+`tg contacts list --json`:
+```json
+{"contacts": [{"id": 111, "type": "user", "username": "alice",
+               "display_name": "Alice Smith", "is_contact": true,
+               "is_bot": false}]}
+```
+
+`list` calls `contacts.getContacts` once and maps every returned user through
+the same `peer` shape as `resolve`.
+
+`tg contacts search <query> --json` filters `contacts list`'s result in
+Python by a case-insensitive substring match over `display_name` and
+`username`; it makes no additional Telegram request. The response adds
+`"scope": "local"`. `--global` instead calls `contacts.search` with `q` set
+to `<query>` and returns its `users` mapped the same way, with
+`"scope": "global"`; local `contacts list` is not consulted for `--global`.
+
 `tg media download <t.me/link|chat> [message_id] --json`:
 ```json
 {"source": "@channel:42", "path": "/Users/me/Downloads/clip.mp4",
@@ -193,7 +215,9 @@ message as `id`, `date`, `from_name`, `text`; `latest` and `message` use the
 same single-row shape. `info` outputs `id`, `kind`, `username`, `name`.
 `count` outputs one `count` value. `info --full` keeps the same `info` TSV
 columns; its additive fields are JSON-only. `resolve` outputs one row:
-`id`, `type`, `username`, `display_name`.
+`id`, `type`, `username`, `display_name`. `contacts list` and `contacts
+search` output the same four columns, one row per contact; `scope` is
+JSON-only.
 `media download` outputs `path`, `bytes`, `resumed`, `parallel`. `send` preview
 rows retain their existing columns and append `file`, `reply_to`. `edit` preview
 rows are `preview_id`, `message_id`, `old_text`, `text`; `delete` preview rows

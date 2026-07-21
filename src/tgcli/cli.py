@@ -156,6 +156,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_resolve.add_argument("ref", help="+phone, @username, t.me link, or dialog id")
 
+    p_contacts = sub.add_parser(
+        "contacts", help="List or search Telegram contacts", parents=[global_flags]
+    )
+    contacts_sub = p_contacts.add_subparsers(dest="contacts_command", required=True)
+    contacts_sub.add_parser("list", parents=[global_flags])
+    p_contacts_search = contacts_sub.add_parser("search", parents=[global_flags])
+    p_contacts_search.add_argument(
+        "query", help="case-insensitive substring over name/username"
+    )
+    p_contacts_search.add_argument(
+        "--global",
+        action="store_true",
+        dest="use_global",
+        help="search Telegram's global directory instead of local contacts",
+    )
+
     p_media = sub.add_parser(
         "media", help="Download message media", parents=[global_flags]
     )
@@ -320,6 +336,14 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
             if args.command == "resolve":
                 data = await identity_cmd.resolve(tg, args.ref)
                 return data, identity_cmd.to_rows(data)
+            if args.command == "contacts":
+                if args.contacts_command == "list":
+                    data = await identity_cmd.contacts_list(tg)
+                else:
+                    data = await identity_cmd.contacts_search(
+                        tg, args.query, use_global=args.use_global
+                    )
+                return data, identity_cmd.contacts_to_rows(data)
             if args.command == "media" and args.media_command == "download":
                 source = media_cmd.parse_source(args.source, args.message_id)
 

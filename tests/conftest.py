@@ -17,6 +17,8 @@ class FakeClient:
         message_total=None,
         participants=(),
         resolve_phone_result=None,
+        contacts_result=None,
+        contacts_search_result=None,
     ):
         self._dialogs = list(dialogs)
         self._messages = list(messages)
@@ -26,6 +28,8 @@ class FakeClient:
         self._message_total = message_total
         self._participants = list(participants)
         self._resolve_phone_result = resolve_phone_result
+        self._contacts_result = contacts_result
+        self._contacts_search_result = contacts_search_result
         self.session = ns(takeout_id=None)
         self.iter_messages_calls = []
         self.iter_messages_reverse_calls = []
@@ -138,6 +142,20 @@ class FakeClient:
                     "resolve_phone_result was configured"
                 )
             return self._resolve_phone_result
+        if isinstance(request, functions.contacts.GetContactsRequest):
+            if self._contacts_result is None:
+                raise AssertionError(
+                    "FakeClient received GetContactsRequest but no "
+                    "contacts_result was configured"
+                )
+            return self._contacts_result
+        if isinstance(request, functions.contacts.SearchRequest):
+            if self._contacts_search_result is None:
+                raise AssertionError(
+                    "FakeClient received SearchRequest but no "
+                    "contacts_search_result was configured"
+                )
+            return self._contacts_search_result
         raise AssertionError(f"FakeClient received unexpected raw request: {request!r}")
 
 
