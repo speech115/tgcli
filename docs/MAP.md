@@ -17,9 +17,10 @@ tgcli/
 │   ├── CLONE.md               [done]    tg clone chronicle: capability, history, acceptance status (ADR-0026)
 │   ├── CONTRACT.md            [done]    CLI automation contract (stdout/exit codes/JSON)
 │   ├── ISSUES.md              [done]    deliberately deferred product work and re-entry gates
+│   ├── PROPOSALS.md           [done]    unvetted owner wishlist backlog (2026-07-21); each item needs owner+ADR
 │   ├── DEVLOG.md              [done]    session-by-session agent log
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── decisions/             [done]    ADR-0001…0026 + README.md index (ADR-0026 maintenance mode)
+│   ├── decisions/             [done]    ADR-0001…0029 + README.md index (ADR-0026 maintenance mode)
 │   └── superpowers/plans/     [done]    completed v1 plans; mirror plans superseded by clone spec (ADR-0017)
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only

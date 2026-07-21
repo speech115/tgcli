@@ -13,6 +13,67 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-21 — ADR-0029: discovery & inbox scope + plan (Claude Opus 4.8)
+**Did:** synced stale local main to origin (was 34 behind), vetted the owner's
+feature wishlist against the real post-PR-#17 surface, and wrote
+docs/PROPOSALS.md (backlog). Then grilled the top-5 quick wins and captured the
+decisions as **ADR-0029** + scoped plan
+docs/superpowers/plans/2026-07-21-discovery-inbox.md (3 slices, 7 tasks).
+Updated decisions/README, MAP.md, ISSUES.md link, PROPOSALS graduation note.
+No production code yet — awaiting owner go per ADR-0026.
+**Decided (grill outcomes):** one ADR for all 5; inbox mutations
+(mark-unread, dialog pin/unpin) run direct like mark-read, no preview;
+`resolve` supports +phone via `contacts.resolvePhone` ONLY (added to read
+allowlist, never importContacts); `contacts search` local by default, `--global`
+opts into contacts.search; `thread` = ancestors always (depth 20, cap 100) +
+replies only via getReplies under `--replies`; `media manifest` = dry-run with
+--type/--since/--limit; `mark-unread` top-level (mirrors mark-read), pin/unpin
+under `tg dialog`.
+**Learned:** always `git fetch` + check origin/main before a coverage audit —
+the first pass on a stale tree wrongly flagged shipped commands as missing.
+resolvePhone is the only new safety-surface change, which is what makes an ADR
+required rather than optional.
+**Next:** on owner go, execute slice 1 (allowlist resolvePhone → resolve →
+contacts) TDD, one task per commit.
+
+## 2026-07-21 — Export @mir_ivanova subscribers to Google Sheets (Codex)
+**Did:** performed a live read-only participant export for `@mir_ivanova`,
+including Telegram join timestamps, then built and visually verified a
+three-column workbook and imported it through `gog` as a native Google Sheet.
+Verified 284 exported API-visible users against Telegram's visible counter of
+286, 285 populated rows including the header, oldest-to-newest date order, and
+the first/last ranges after Google conversion. No production code changed.
+**Decided:** report the result as Telegram API-visible maximum rather than exact
+counter equality because both the normal and exhaustive search-slice passes
+left the same two-user counter gap. Used the channel creation timestamp for the
+creator's otherwise-null join date.
+**Learned:** `ChannelParticipantsRecent` stopped at 200 for this broadcast
+channel; alphabetic search slices recovered 84 more users, while extended
+Unicode slices recovered none beyond that. Telegram management and future
+subscriber-export work must use `tgcli`; no legacy Telegram project is an
+active fallback or dependency.
+**Next:** use the Google Sheet as the handoff artifact; if join-date search
+slices become recurring work, scope that capability directly in `tgcli` under
+the maintenance-mode gate.
+
+## 2026-07-21 — PROPOSALS: vet owner wishlist against real surface (Claude Opus 4.8)
+**Did:** local main was 34 commits behind origin (pre-PR-#17); first pass
+analysed a stale tree and wrongly flagged shipped commands as missing.
+Fast-forwarded to origin/main, re-checked the real surface, and wrote
+docs/PROPOSALS.md — only genuinely-new, un-vetted ideas. Cross-linked from
+ISSUES.md, added the MAP.md row. No code changed.
+**Decided:** nothing approved (ADR-0026). PROPOSALS holds contacts/`resolve`,
+`thread`, read-only `batch`, incremental export + bulk media/`manifest`,
+`dialog` state, and the deferred verticals (community/moderation, stats,
+security). Messaging tail and change feed are NOT here — already tracked as
+MSG-001 / FEED-001 (ADR-0028); wanting one is a re-entry, not a new proposal.
+**Learned:** verify the checkout is current before auditing coverage — a
+stale local main produced a confident but wrong "these commands don't exist".
+`tg doctor` already covers the whoami need; `read --after-id/--since/--until`
+already provides the interim change-feed polling path.
+**Next:** await owner pick; identity layer (`resolve`, `contacts`) is the
+cheapest high-value new work if they want to start.
+
 ## 2026-07-18 — File-send TOCTOU snapshot closure (Codex)
 **Did:** closed the final file-send TOCTOU gap. Preview now derives byte count
 and SHA-256 from one open stream. Commit copies one open of the approved source
