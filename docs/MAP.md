@@ -52,6 +52,7 @@ tgcli/
 │   │   ├── read.py            [done]    tg read <chat>                (phase 1)
 │   │   ├── search.py          [done]    tg search / latest / message (phase 2)
 │   │   ├── info.py            [done]    tg info / count (phase 2)
+│   │   ├── identity.py        [done]    tg resolve / contacts (peer discovery)
 │   │   ├── media.py           [done]    tg media download             (phase 3; Telethon-only)
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── mutate.py          [done]    tg edit|delete|forward preview / commit; tg mark-read (ADR-0028)

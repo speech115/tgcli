@@ -15,6 +15,7 @@ from tgcli.commands import clone as clone_cmd
 from tgcli.commands import dialogs as dialogs_cmd
 from tgcli.commands import doctor as doctor_cmd
 from tgcli.commands import export as export_cmd
+from tgcli.commands import identity as identity_cmd
 from tgcli.commands import info as info_cmd
 from tgcli.commands import media as media_cmd
 from tgcli.commands import mutate as mutate_cmd
@@ -147,6 +148,13 @@ def build_parser() -> argparse.ArgumentParser:
         "count", help="Count dialog messages", parents=[global_flags]
     )
     p_count.add_argument("chat", help="@username, t.me link, or dialog id")
+
+    p_resolve = sub.add_parser(
+        "resolve",
+        help="Resolve a phone, @username, link, or id to a peer",
+        parents=[global_flags],
+    )
+    p_resolve.add_argument("ref", help="+phone, @username, t.me link, or dialog id")
 
     p_media = sub.add_parser(
         "media", help="Download message media", parents=[global_flags]
@@ -309,6 +317,9 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
             if args.command == "count":
                 data = await info_cmd.fetch_count(tg, args.chat)
                 return data, info_cmd.to_rows(data)
+            if args.command == "resolve":
+                data = await identity_cmd.resolve(tg, args.ref)
+                return data, identity_cmd.to_rows(data)
             if args.command == "media" and args.media_command == "download":
                 source = media_cmd.parse_source(args.source, args.message_id)
 

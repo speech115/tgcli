@@ -16,6 +16,7 @@ class FakeClient:
         search_messages=None,
         message_total=None,
         participants=(),
+        resolve_phone_result=None,
     ):
         self._dialogs = list(dialogs)
         self._messages = list(messages)
@@ -24,6 +25,7 @@ class FakeClient:
         self._search_messages = search_messages or {}
         self._message_total = message_total
         self._participants = list(participants)
+        self._resolve_phone_result = resolve_phone_result
         self.session = ns(takeout_id=None)
         self.iter_messages_calls = []
         self.iter_messages_reverse_calls = []
@@ -32,6 +34,7 @@ class FakeClient:
         self.takeout_calls = []
         self.takeout_error = None
         self.iter_messages_error = None
+        self.call_requests = []
 
     async def iter_dialogs(self, limit=None):
         for dialog in self._dialogs[:limit]:
@@ -123,6 +126,19 @@ class FakeClient:
                 for item in ids
             ]
         return next((message for message in self._messages if message.id == ids), None)
+
+    async def __call__(self, request):
+        from telethon.tl import functions
+
+        self.call_requests.append(request)
+        if isinstance(request, functions.contacts.ResolvePhoneRequest):
+            if self._resolve_phone_result is None:
+                raise AssertionError(
+                    "FakeClient received ResolvePhoneRequest but no "
+                    "resolve_phone_result was configured"
+                )
+            return self._resolve_phone_result
+        raise AssertionError(f"FakeClient received unexpected raw request: {request!r}")
 
 
 @pytest.fixture(autouse=True)

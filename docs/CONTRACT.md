@@ -153,6 +153,24 @@ Telegram admin-right flags; tgcli does not infer ungranted admin capabilities.
 {"dialog": {"id": -1001234, "name": "Channel"}, "count": 73}
 ```
 
+`tg resolve <ref> --json`:
+```json
+{"peer": {"id": 111, "type": "user", "username": "alice",
+          "display_name": "Alice Smith", "is_contact": true,
+          "is_bot": false}}
+```
+
+`REF` is a `+<digits>` phone number, `@username`, `t.me` link, or numeric
+dialog id. A phone ref calls `contacts.resolvePhone` only — it never calls
+`contacts.importContacts` — and maps the returned peer to its entity via the
+response's `users`/`chats` lists; an empty result is exit 4 (not found).
+Every other ref goes through the standard chat-reference parser and
+`get_entity`. `type` is one of `user`, `bot`, `group`, `channel`: `bot` when
+the entity reports `bot`, `channel` for a broadcast channel, `group` for a
+megagroup or basic group, otherwise `user`. `display_name` is the chat title,
+or first+last name for a user/bot. `is_contact` and `is_bot` reflect the
+entity's own Telegram flags.
+
 `tg media download <t.me/link|chat> [message_id] --json`:
 ```json
 {"source": "@channel:42", "path": "/Users/me/Downloads/clip.mp4",
@@ -174,7 +192,8 @@ column. `read` and `search` output one row per
 message as `id`, `date`, `from_name`, `text`; `latest` and `message` use the
 same single-row shape. `info` outputs `id`, `kind`, `username`, `name`.
 `count` outputs one `count` value. `info --full` keeps the same `info` TSV
-columns; its additive fields are JSON-only.
+columns; its additive fields are JSON-only. `resolve` outputs one row:
+`id`, `type`, `username`, `display_name`.
 `media download` outputs `path`, `bytes`, `resumed`, `parallel`. `send` preview
 rows retain their existing columns and append `file`, `reply_to`. `edit` preview
 rows are `preview_id`, `message_id`, `old_text`, `text`; `delete` preview rows
