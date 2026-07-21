@@ -13,6 +13,31 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-21 — Slice 1: resolve + contacts commands (Claude Sonnet 5)
+**Did:** executed ADR-0029 slice 1 (`fae503f`..`7102c6b`): allowlisted
+`contacts.resolvePhone` as a read method (ADR-0010), added `tg resolve REF`
+(resolves `@username`, `t.me` link, numeric id, or `+phone` to a single
+`{peer:{id,type,username,display_name,is_contact,is_bot}}`), and added
+`tg contacts list` / `tg contacts search QUERY [--global]` in the new
+`src/tgcli/commands/identity.py`, reusing the `peer_to_dict` mapping. Local
+`contacts search` filters the address book in Python (`scope: "local"`);
+`--global` calls `contacts.search` capped at 50 results (`scope: "global"`).
+Closed out the slice with three doc edits: this entry, an ADR-0010
+reconciliation (`contacts.resolvePhone` moved from "reviewed and rejected"
+into the allowlist, 35 → 36 methods), and a CONTRACT.md note on the
+`--global` 50-result cap.
+**Decided:** phone lookup calls `contacts.resolvePhone` only, never
+`contacts.importContacts` — the caller must already hold the phone number,
+and Telegram returns not-found (exit 4) when the target's privacy settings
+block the lookup, so the allowlist entry cannot be used to enumerate numbers.
+**Learned:** ADR-0010's own Consequences require an ADR-0010 update whenever
+the read allowlist changes; the resolvePhone allowlisting commit shipped
+without that follow-up, leaving the ADR self-contradictory (method both
+allowlisted in code and listed under "rejected" in the doc) until this
+closeout.
+**Next:** all four gates green (581 passed, 8 skipped); proceed to slice 2
+per the scoped plan.
+
 ## 2026-07-21 — ADR-0029: discovery & inbox scope + plan (Claude Opus 4.8)
 **Did:** synced stale local main to origin (was 34 behind), vetted the owner's
 feature wishlist against the real post-PR-#17 surface, and wrote

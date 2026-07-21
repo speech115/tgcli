@@ -192,6 +192,8 @@ Python by a case-insensitive substring match over `display_name` and
 `"scope": "local"`. `--global` instead calls `contacts.search` with `q` set
 to `<query>` and returns its `users` mapped the same way, with
 `"scope": "global"`; local `contacts list` is not consulted for `--global`.
+`--global` results are capped at 50 (`contacts.search`'s own `limit`
+argument); there is no flag to raise it.
 
 `tg media download <t.me/link|chat> [message_id] --json`:
 ```json
