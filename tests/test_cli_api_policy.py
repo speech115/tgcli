@@ -15,8 +15,9 @@ REVIEWED_READ_METHODS = [
     "channels.getMessages",
     "channels.getParticipant",
     "channels.getParticipants",
-    # contacts (3)
+    # contacts (4)
     "contacts.getContacts",
+    "contacts.resolvePhone",
     "contacts.resolveUsername",
     "contacts.search",
     # messages (18)
@@ -316,7 +317,6 @@ def test_allowlist_contains_exactly_the_reviewed_methods():
     [
         "messages.getMessagesViews",
         "contacts.getLocated",
-        "contacts.resolvePhone",
         "messages.getExportedChatInvites",
         "messages.getBotCallbackAnswer",
     ],

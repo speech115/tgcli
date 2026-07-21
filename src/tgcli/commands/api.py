@@ -23,6 +23,7 @@ READ_METHOD_ALLOWLIST = frozenset(
         "channels.getParticipant",
         "channels.getParticipants",
         "contacts.getContacts",
+        "contacts.resolvePhone",
         "contacts.resolveUsername",
         "contacts.search",
         "messages.getCommonChats",
