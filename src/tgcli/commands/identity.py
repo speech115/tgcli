@@ -3,12 +3,13 @@
 from telethon.tl import functions, types
 
 from tgcli import chatref
+from tgcli.commands.read import sanitize_plain_text
 from tgcli.errors import NotFoundError
 
 
-def _is_phone(ref: str) -> bool:
-    stripped = ref.lstrip()
-    return stripped.startswith("+") and stripped[1:].isdigit()
+def _is_phone(stripped_ref: str) -> bool:
+    """`stripped_ref` must already be `ref.lstrip()`d by the caller."""
+    return stripped_ref.startswith("+") and stripped_ref[1:].isdigit()
 
 
 def peer_to_dict(entity) -> dict:
@@ -65,8 +66,9 @@ def _entity_from_resolved_peer(response):
 
 
 async def resolve(tg, ref: str) -> dict:
-    if _is_phone(ref):
-        phone = ref.lstrip()[1:]
+    stripped = ref.lstrip()
+    if _is_phone(stripped):
+        phone = stripped[1:]
         response = await tg(functions.contacts.ResolvePhoneRequest(phone=phone))
         entity = _entity_from_resolved_peer(response)
         if entity is None:
@@ -81,4 +83,11 @@ async def resolve(tg, ref: str) -> dict:
 
 def to_rows(data: dict) -> list[tuple]:
     peer = data["peer"]
-    return [(peer["id"], peer["type"], peer["username"], peer["display_name"])]
+    return [
+        (
+            peer["id"],
+            peer["type"],
+            sanitize_plain_text(peer["username"]),
+            sanitize_plain_text(peer["display_name"]),
+        )
+    ]

@@ -121,6 +121,28 @@ def test_resolve_phone_empty_result_is_not_found(config_env, monkeypatch, capsys
     )
 
 
+def test_resolve_plain_output_sanitizes_username_and_display_name(
+    config_env, monkeypatch, capsys
+):
+    entity = ns(
+        id=555,
+        first_name="Alice\nEvil",
+        last_name="Smith",
+        username="mal\tformed",
+        bot=False,
+        contact=False,
+    )
+    client = FakeClient(entities={"@alice": entity})
+    make_session_fake(monkeypatch, client)
+
+    assert main(["resolve", "@alice", "--plain"]) == 0
+
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+    assert len(lines) == 1
+    assert lines[0] == "555\tuser\tmal formed\tAlice Evil Smith"
+
+
 def test_resolve_plain_output_is_single_row(config_env, monkeypatch, capsys):
     entity = ns(
         id=444,
