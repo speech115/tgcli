@@ -121,6 +121,38 @@ def test_resolve_phone_empty_result_is_not_found(config_env, monkeypatch, capsys
     )
 
 
+def test_resolve_phone_enforces_shared_cooldown(config_env, monkeypatch, capsys):
+    from telethon.tl import types
+
+    from tgcli import resolve_phone
+
+    user = ns(
+        id=333,
+        first_name="Phoney",
+        last_name=None,
+        username=None,
+        bot=False,
+        contact=False,
+    )
+    resolved = ns(peer=types.PeerUser(user_id=333), users=[user], chats=[])
+    client = FakeClient(resolve_phone_result=resolved)
+    make_session_fake(monkeypatch, client)
+
+    clock = {"t": 1_000.0}
+    monkeypatch.setattr(resolve_phone.time, "time", lambda: clock["t"])
+
+    assert main(["resolve", "+99512345678", "--json"]) == 0
+    assert main(["resolve", "+99512345678", "--json"]) == 5
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"]["code"] == "FLOOD_WAIT"
+    assert err["error"]["retry_after"] == 3
+    assert len(client.call_requests) == 1
+
+    clock["t"] += resolve_phone.RESOLVE_PHONE_COOLDOWN_S
+    assert main(["resolve", "+99512345679", "--json"]) == 0
+    assert len(client.call_requests) == 2
+
+
 def test_resolve_plain_output_sanitizes_username_and_display_name(
     config_env, monkeypatch, capsys
 ):

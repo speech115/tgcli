@@ -82,7 +82,7 @@ def _custom_emoji(message) -> list[dict]:
         glyph = del_surrogate(surrogate[entity.offset : entity.offset + entity.length])
         output.append(
             {
-                "id": entity.document_id,
+                "id": str(entity.document_id),
                 "emoji": glyph,
                 "offset": entity.offset,
                 "length": entity.length,

@@ -286,6 +286,34 @@ def test_export_broadcast_subscribers_unions_prefix_searches(
     )
 
 
+def test_export_broadcast_rejects_limit_above_page(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    entity = ns(id=-1001234, title="Channel", broadcast=True)
+    fake = FakeClient(entities={"@chan": entity})
+    make_session_fake(monkeypatch, fake)
+    destination = tmp_path / "subscribers.csv"
+
+    assert (
+        main(
+            [
+                "export",
+                "subscribers",
+                "@chan",
+                "--output",
+                str(destination),
+                "--limit",
+                "201",
+            ]
+        )
+        == 2
+    )
+    assert "broadcast export --limit above 200" in capsys.readouterr().err
+    assert not destination.exists()
+    assert fake.iter_participants_calls == []
+    assert fake.call_requests == []
+
+
 def test_export_subscribers_neutralizes_formula_cells(
     config_env, monkeypatch, tmp_path
 ):

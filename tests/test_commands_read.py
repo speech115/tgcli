@@ -105,6 +105,8 @@ def test_message_to_dict_extracts_custom_emoji_ids():
     from telethon.tl.types import MessageEntityCustomEmoji
 
     # "🔥" is a surrogate pair (UTF-16 length 2): the entity covers offset 0..2.
+    # document_id is emitted as a decimal string so JS JSON.parse cannot round it.
+    big_id = 5301234567890123456
     message = _ns(
         id=7,
         date=None,
@@ -114,12 +116,13 @@ def test_message_to_dict_extracts_custom_emoji_ids():
         message="🔥 жги",
         media=None,
         reply_to_msg_id=None,
-        entities=[MessageEntityCustomEmoji(offset=0, length=2, document_id=5555)],
+        entities=[MessageEntityCustomEmoji(offset=0, length=2, document_id=big_id)],
     )
     data = message_to_dict(message)
     assert data["custom_emoji"] == [
-        {"id": 5555, "emoji": "🔥", "offset": 0, "length": 2}
+        {"id": "5301234567890123456", "emoji": "🔥", "offset": 0, "length": 2}
     ]
+    assert isinstance(data["custom_emoji"][0]["id"], str)
 
 
 def test_message_to_dict_media_topic_and_private_permalink():

@@ -56,7 +56,9 @@ under ADR-0029 for the identity layer's `tg resolve` on a `+phone` ref;
 `resolvePhone` only, never `contacts.importContacts` — the caller supplies
 one already-known phone number, and Telegram returns not-found when the
 target's privacy settings disallow the lookup, so the call cannot be used to
-enumerate numbers)
+enumerate numbers. A shared ~3s client-side cooldown applies to both
+`tg resolve +…` and raw `tg api contacts.resolvePhone`, exiting 5 when
+hit.)
 
 photos (1): `photos.getUserPhotos`
 

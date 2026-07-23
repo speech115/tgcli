@@ -15,8 +15,7 @@ def _is_phone(stripped_ref: str) -> bool:
 def peer_to_dict(entity) -> dict:
     """Project a Telethon user/chat/channel entity into the `peer` JSON shape.
 
-    Reused by `commands.contacts` (later task) so keep this free of any
-    resolve-specific concerns.
+    Reused by ``contacts_list`` / ``contacts_search`` in this module.
     """
     is_bot = bool(getattr(entity, "bot", False))
     if is_bot:
@@ -68,6 +67,9 @@ def _entity_from_resolved_peer(response):
 async def resolve(tg, ref: str) -> dict:
     stripped = ref.lstrip()
     if _is_phone(stripped):
+        from tgcli.resolve_phone import enforce_resolve_phone_cooldown
+
+        enforce_resolve_phone_cooldown()
         phone = stripped[1:]
         response = await tg(functions.contacts.ResolvePhoneRequest(phone=phone))
         entity = _entity_from_resolved_peer(response)

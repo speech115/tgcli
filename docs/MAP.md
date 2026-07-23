@@ -20,7 +20,7 @@ tgcli/
 │   ├── PROPOSALS.md           [done]    unvetted owner wishlist backlog (2026-07-21); each item needs owner+ADR
 │   ├── DEVLOG.md              [done]    session-by-session agent log
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── decisions/             [done]    ADR-0001…0030 + README.md index (ADR-0026 maintenance mode)
+│   ├── decisions/             [done]    ADR-0001…0031 + README.md index (ADR-0026 maintenance mode)
 │   └── superpowers/plans/     [done]    completed v1 plans; mirror plans superseded by clone spec (ADR-0017)
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -34,6 +34,7 @@ tgcli/
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
 │   ├── confirm.py             [done]    fail-closed random_id → message-id confirmation
 │   ├── formatting.py          [done]    outgoing --format {plain,md,html} → entities (ADR-0030)
+│   ├── resolve_phone.py       [done]    shared contacts.resolvePhone cooldown (ADR-0029)
 │   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023)
 │   │   ├── state.py           [done]    atomic JSON state, mappings, cooldown
 │   │   ├── fidelity.py        [done]    media capability classification
@@ -61,7 +62,7 @@ tgcli/
 │   │   ├── mutate.py          [done]    tg edit|delete|forward preview / commit; tg mark-read|mark-unread (ADR-0028/0029)
 │   │   ├── doctor.py          [done]    tg doctor environment/session health report (ADR-0028)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
-│   │   ├── export.py          [done]    tg export messages|subscribers (phase 5; broadcast prefix-union)
+│   │   ├── export.py          [done]    tg export messages|subscribers (phase 5; ADR-0031 broadcast walk)
 │   │   └── clone.py           [done]    clone status/init/sync surface (ADR-0017…0025; all live gates passed)
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)

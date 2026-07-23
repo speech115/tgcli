@@ -13,6 +13,20 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — PR #18 review fixes: export limit, emoji id string, resolvePhone cooldown, ADR-0031 (Composer)
+**Did:** addressed Bugbot/Standards/Spec/thermo-nuclear findings on
+`claude/agent-quick-wins`. (1) Broadcast `export subscribers --limit > 200`
+now exits 2 instead of full-crawl + arbitrary slice; unlimited omit-`--limit`
+keeps prefix-union (ADR-0031). (2) `custom_emoji[].id` emitted as decimal
+string. (3) Shared ~3s `resolve_phone` cooldown for `tg resolve +…` and
+`tg api contacts.resolvePhone`. Docs: CONTRACT, MAP, SKILL, ADR-0010 note,
+ADR-0031 + index.
+**Decided:** reject finite broadcast limits above the page size rather than
+invent a “most recent N past 200” API Telegram does not offer cheaply.
+**Learned:** review consensus across four agents was stronger on export
+semantics and JS id precision than on the argparse exit-1 vs plan exit-2 nit.
+**Next:** merge PR #18 after gates.
+
 ## 2026-07-23 — ADR-0029 slice 3: media manifest + thread (Composer)
 **Did:** executed discovery-inbox Tasks 6–7. `tg media manifest CHAT` dry-run
 inventory (`--type`/`--since`/`--limit`, no download) in `media.py`. New

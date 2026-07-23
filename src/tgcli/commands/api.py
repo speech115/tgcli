@@ -156,6 +156,10 @@ async def build_request(client, name: str, params_json: str):
 
 async def call(client, name: str, params_json: str) -> dict:
     """Invoke a safe raw request and return the documented JSON envelope."""
+    if name == "contacts.resolvePhone":
+        from tgcli.resolve_phone import enforce_resolve_phone_cooldown
+
+        enforce_resolve_phone_cooldown()
     result = await client(await build_request(client, name, params_json))
     return {"method": name, "result": _sanitize_result(result.to_dict())}
 

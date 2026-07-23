@@ -79,9 +79,11 @@ All message-shape additions since 0.1 are additive; `media` remains the Telethon
 class name string, `media_info` carries structured metadata. `custom_emoji` is a
 (possibly empty) list of the message's custom (premium) emoji as
 `{"id", "emoji", "offset", "length"}`, where `id` is the reusable `document_id`
-(the `emoji-id` accepted by `--format html`) and `emoji` is the fallback unicode
-glyph; offsets are UTF-16 code units. This lets an agent harvest custom-emoji ids
-from any readable post and reuse them when composing formatted messages.
+as a **decimal string** (so IEEE-754 JSON number parsers cannot round it; the
+string is the `emoji-id` accepted by `--format html`) and `emoji` is the
+fallback unicode glyph; offsets are UTF-16 code units. This lets an agent
+harvest custom-emoji ids from any readable post and reuse them when composing
+formatted messages.
 
 `read` accepts `--before-id INT` (messages older than an id), `--after-id INT`
 (messages newer than an id), `--since ISO`, `--until ISO`, and `--topic INT`
@@ -172,12 +174,15 @@ Telegram admin-right flags; tgcli does not infer ungranted admin capabilities.
 dialog id. A phone ref calls `contacts.resolvePhone` only — it never calls
 `contacts.importContacts` — and maps the returned peer to its entity via the
 response's `users`/`chats` lists; an empty result is exit 4 (not found).
-Every other ref goes through the standard chat-reference parser and
-`get_entity`. `type` is one of `user`, `bot`, `group`, `channel`: `bot` when
-the entity reports `bot`, `channel` for a broadcast channel, `group` for a
-megagroup or basic group, otherwise `user`. `display_name` is the chat title,
-or first+last name for a user/bot. `is_contact` and `is_bot` reflect the
-entity's own Telegram flags.
+Phone resolution (and raw `tg api contacts.resolvePhone`) shares a
+client-side cooldown of about 3 seconds across `tg` processes; a call that
+arrives too soon exits 5 (`FLOOD_WAIT`) with `retry_after`. Every other ref
+goes through the standard chat-reference parser and `get_entity`. `type` is
+one of `user`, `bot`, `group`, `channel`: `bot` when the entity reports
+`bot`, `channel` for a broadcast channel, `group` for a megagroup or basic
+group, otherwise `user`. `display_name` is the chat title, or first+last name
+for a user/bot. `is_contact` and `is_bot` reflect the entity's own Telegram
+flags.
 
 ```
 tg contacts list
@@ -481,9 +486,11 @@ tg export subscribers <channel> --output <path> [--limit <n>]
   used for field values. Username and name cells beginning with `=`, `+`, `-`,
   or `@` are prefixed with a single quote so spreadsheet programs do not
   interpret them as formulas. For **broadcast** channels, when `--limit` is
-  omitted or greater than 200, tgcli unions saturating prefix searches over
+  omitted, tgcli unions saturating prefix searches over
   `channels.getParticipants` to walk past Telegram's hard 200-row cap for a
-  single query; megagroups and explicit small limits keep a single
+  single query. A `--limit` greater than 200 on a broadcast channel exits 2
+  (`BLOCKED`): it must not run a full-channel crawl and then take an arbitrary
+  post-dedupe slice. Megagroups and `--limit` ≤ 200 keep a single
   `iter_participants` pass. Emoji/CJK-only display names with no searchable
   character may leave a member unreachable.
 - Success on `--json` is one completion document:

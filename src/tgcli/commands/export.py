@@ -164,10 +164,20 @@ async def _iter_all_channel_members(tg, entity):
 async def export_subscribers(
     tg, channel: str, destination: Path, limit: int | None = None
 ) -> dict:
+    from tgcli.errors import PolicyError
+
     entity = await _resolve_entity(tg, channel)
     count = 0
-    want_all = limit is None or limit > _PARTICIPANTS_PAGE
-    aggressive = want_all and getattr(entity, "broadcast", False)
+    is_broadcast = bool(getattr(entity, "broadcast", False))
+    if is_broadcast and limit is not None and limit > _PARTICIPANTS_PAGE:
+        raise PolicyError(
+            "broadcast export --limit above 200 is unsupported; omit --limit "
+            "for a full prefix-union export, or use --limit <= 200 for a single "
+            "getParticipants page"
+        )
+    # Full walk only when unlimited: a finite limit > 200 would otherwise
+    # enumerate the whole channel then take an arbitrary dict-order slice.
+    aggressive = is_broadcast and limit is None
     with _atomic_text_destination(destination) as handle:
         writer = csv.DictWriter(
             handle, fieldnames=SUBSCRIBER_COLUMNS, lineterminator="\n"
@@ -175,8 +185,6 @@ async def export_subscribers(
         writer.writeheader()
         if aggressive:
             members = await _iter_all_channel_members(tg, entity)
-            if limit is not None:
-                members = members[:limit]
             for subscriber in members:
                 writer.writerow(_subscriber_to_row(subscriber))
                 count += 1

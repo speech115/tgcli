@@ -90,8 +90,9 @@ are UTF-16-correct, so emoji do not shift the markup.
 
 Custom emoji cannot be invented — reuse real ids. Every read
 (`read`/`search`/`message`/`export`) now returns `custom_emoji` per message:
-`{id, emoji, offset, length}`, where `id` is the reusable `emoji-id`. Harvest an
-id from any readable post (e.g. read a channel that uses the emoji you want),
+`{id, emoji, offset, length}`, where `id` is a **decimal string** (the reusable
+`emoji-id`; not a JSON number, so JS parsers cannot round it). Harvest an id
+from any readable post (e.g. read a channel that uses the emoji you want),
 then drop `<tg-emoji emoji-id="ID">` into a `--format html` send/edit. Sending
 custom emoji requires the account to have Telegram Premium.
 
