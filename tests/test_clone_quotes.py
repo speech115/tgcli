@@ -9,7 +9,15 @@ import pytest
 from telethon import errors as telethon_errors
 from telethon.tl import types
 
-from tgcli.clone import attribution, legs, quotes, replies, state, transport
+from tgcli.clone import (
+    attribution,
+    legs,
+    quote_fallback,
+    quotes,
+    replies,
+    state,
+    transport,
+)
 
 
 def _discussion(*, id_map=None, discussion_id_map=None, source_peer_id=2):
@@ -49,6 +57,11 @@ def _msg(message_id=10, *, reply_to=None, message="body", entities=None):
 
 DISCUSSION_SOURCE = SimpleNamespace(id=4454061248, noforwards=False)
 SOURCE = SimpleNamespace(id=2, noforwards=False)
+
+
+def test_resolver_helpers_stay_out_of_the_fallback_renderer():
+    assert not hasattr(quote_fallback, "peer_cache_key")
+    assert not hasattr(quote_fallback, "reuploaded")
 
 
 class FakeClient:
@@ -269,7 +282,7 @@ def test_forbidden_peer_title_comes_from_the_enclosing_history_response():
         ]
     )
 
-    head = f"{quotes.FALLBACK_SOURCE_LABEL} Свободный Капиталюга\n"
+    head = f"{quote_fallback.FALLBACK_SOURCE_LABEL} Свободный Капиталюга\n"
     assert resolved.body_prefix is not None
     assert resolved.body_prefix.startswith(head)
     assert "id 2275285084" not in resolved.body_prefix
@@ -294,7 +307,7 @@ def test_forbidden_peer_title_ignores_a_chat_whose_id_merely_contains_the_peer()
 
     assert resolved.body_prefix is not None
     assert resolved.body_prefix.startswith(
-        f"{quotes.FALLBACK_SOURCE_LABEL} id 2275285084\n"
+        f"{quote_fallback.FALLBACK_SOURCE_LABEL} id 2275285084\n"
     )
 
 
@@ -303,7 +316,7 @@ def test_forbidden_peer_without_a_title_keeps_the_bare_id():
 
     assert resolved.body_prefix is not None
     assert resolved.body_prefix.startswith(
-        f"{quotes.FALLBACK_SOURCE_LABEL} id 2275285084\n"
+        f"{quote_fallback.FALLBACK_SOURCE_LABEL} id 2275285084\n"
     )
 
 
@@ -504,7 +517,7 @@ def test_stale_quote_is_dropped_and_the_reply_link_survives():
         needs_author=True,
     )
 
-    stripped = quotes.drop_stale_quote(
+    stripped = quote_fallback.drop_stale_quote(
         messages, plan, _bad_request("QUOTE_TEXT_INVALID")
     )
 

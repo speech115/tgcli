@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import runpy
 import subprocess
 import sys
 from pathlib import Path
@@ -15,7 +16,8 @@ CEILINGS = {
     "src/tgcli/read_ops.py": 413,
     "src/tgcli/commands/clone.py": 910,
     "src/tgcli/clone/state.py": 287,
-    "src/tgcli/clone/quotes.py": 380,
+    "src/tgcli/clone/quotes.py": 365,
+    "src/tgcli/clone/quote_fallback.py": 127,
 }
 
 
@@ -124,6 +126,10 @@ def test_architecture_check_accepts_owned_read_operation_seam(tmp_path):
 
     assert result.returncode == 0
     assert result.stdout == "architecture check passed\n"
+
+
+def test_fixture_ceilings_match_the_checker():
+    assert CEILINGS == runpy.run_path(str(SCRIPT))["CEILINGS"]
 
 
 def test_architecture_check_rejects_read_dispatch_leaking_into_dispatch(tmp_path):

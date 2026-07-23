@@ -17,6 +17,47 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — PR #33 independent boundary review (Codex)
+**Did:** reviewed the rebased quote-fallback split from `main` on both Spec and
+Standards axes. Added red regressions for two confirmed defects: the
+architecture-test ceilings had drifted from the checker, and resolver-owned
+peer/cache and plan-transition helpers lived in `quote_fallback`. Moved stable
+peer identity to `attribution.peer_key`, the generic upload-capable transition
+to `transport.as_reuploaded`, and kept `quote_fallback` renderer-only. The new
+tests bind the test fixture to the real ceilings and reject those resolver
+helpers from the fallback module. Final gate: `703 passed, 8 skipped`; Ruff
+check/format passed; Pyright reported 0 errors; coverage passed 23 namespaces.
+**Decided:** ADR-0037's renderer boundary is literal: native resolution must
+not depend on `quote_fallback`. The fallback ceiling ratchets from 149 to its
+reviewed post-fix size of 127; `quotes.py` remains at 365.
+**Learned:** duplicating a budget registry in a test can silently weaken the
+fixture even while the repository-level architecture test remains green.
+**Next:** update PR #33, wait for fresh green CI, then merge and delete its
+branch before rebasing the remaining PR #28.
+
+## 2026-07-23 — Split quote fallback rendering from the resolver (Composer)
+**Did:** ADR-0037. Extracted `clone/quote_fallback.py` (source label, blockquote
+prefix, peer label, fallback plan, `apply_body`, `drop_stale_quote`) from
+`clone/quotes.py`, which keeps reachability, cross-leg walks, thread
+placement, `resolve`, and `send_with_degrade`. `commands/clone.py` and tests
+import the owning module — no re-exports. Architecture ceilings: `quotes.py`
+365, `quote_fallback.py` 127 (down from the 500 monolithic
+bump). MAP + ADR index updated. Behaviour unchanged; existing quote tests are
+the proof. Rebased onto the merged #31 after review: the split now carries the
+foreign-parent guard in `_place_thread` and the `placement` argument that lets
+`fallback_plan` keep a rejected send's resolved thread. Independent review
+moved peer identity to `attribution` and the generic reupload-plan transition
+to `transport`, keeping native resolver paths out of the fallback renderer.
+**Decided:** two jobs, two modules — classify (`replies`) → resolve (`quotes`)
+→ render loss (`quote_fallback`). Rejected a three-way peers split as shallow
+(ADR-0034).
+**Learned:** the live-run fixes that grew the file were almost all fallback
+shaping; they never needed the async resolver context. The review fixes split
+the same way: the guard stayed with the resolver, the placement argument went
+with the renderer.
+**Next:** independent Spec + Standards review of PR #31 (and this stacked
+seam PR) before merge.
+
 ## 2026-07-23 — Review of the quote-reply branch: two resolver defects (Claude Opus 4.8)
 **Did:** reviewed PR #31 against its plan and ADR-0036, then fixed the two
 defects the review found in `clone/quotes.py`. (1) `_place_thread` walked

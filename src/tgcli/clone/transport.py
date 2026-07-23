@@ -1,6 +1,6 @@
 """Decide how a clone batch travels: forward, reupload, or snapshot."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from tgcli.clone import fidelity, replies, topics
 
@@ -16,6 +16,16 @@ class TransportPlan:
     body_prefix_entities: tuple = ()
     # Per-batch quote fallback row for sync reporting (ADR-0036).
     quote_flattened: dict | None = None
+
+
+def as_reuploaded(plan: TransportPlan) -> TransportPlan:
+    """Make a plan upload-capable while preserving snapshot transport."""
+    return replace(
+        plan,
+        mode="snapshots" if plan.mode == "snapshots" else "reuploaded",
+        needs_author=True,
+        reply_flattened=False,
+    )
 
 
 def decide(messages, leg, source) -> TransportPlan:

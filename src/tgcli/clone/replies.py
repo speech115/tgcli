@@ -1,7 +1,8 @@
 """Classify clone reply headers (ADR-0019/0021/0036).
 
-Resolution of classifications into ``InputReplyToMessage`` or a rendered
-fallback lives in ``clone.quotes``; this module stays synchronous and client-free.
+Resolution of classifications into ``InputReplyToMessage`` lives in
+``clone.quotes``; rendered degradation lives in ``clone.quote_fallback``.
+This module stays synchronous and client-free.
 """
 
 from dataclasses import dataclass
