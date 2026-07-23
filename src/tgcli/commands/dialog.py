@@ -71,7 +71,8 @@ async def set_muted(
     await tg(
         functions.account.UpdateNotifySettingsRequest(
             peer=types.InputNotifyPeer(peer=input_peer),
-            settings=types.InputPeerNotifySettings(mute_until=mute_until),
+            # Telethon stubs type mute_until as datetime|None; MTProto wants unix int.
+            settings=types.InputPeerNotifySettings(mute_until=mute_until),  # type: ignore[arg-type]
         )
     )
     return {"dialog": {"id": entity.id}, "muted": muted, "until": until_out}
