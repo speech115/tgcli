@@ -16,10 +16,10 @@ lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 ### Added
 
 - **Message drafts** — `tg draft set|show|clear|list`. `set`/`clear` go through
-  preview→commit with `old_text` so an agent cannot silently overwrite the
-  human's half-written input; `show`/`list` are typed read ops (batch +
-  readonly). Own draft JSON object, not a message shape. No `draft send`
-  (ADR-0039).
+  preview→commit with an internal observed-state snapshot, rechecked immediately
+  before save; Telegram offers no conditional-save token, so the final read→save
+  race remains explicit. `show`/`list` are typed read ops (batch + readonly).
+  Own draft JSON object, not a message shape. No `draft send` (ADR-0039).
 
 ## [1.1.0] — 2026-07-23 (pending tag)
 

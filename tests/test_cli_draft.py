@@ -6,6 +6,7 @@ import json
 from datetime import UTC, datetime
 
 import pytest
+from telethon.errors import MessageNotModifiedError
 from telethon.tl import functions, types
 
 from tests.conftest import FakeClient, make_session_fake, ns
@@ -215,6 +216,7 @@ def test_draft_set_preview_and_commit_saves_exact_request(
     assert preview["reply_to"] == 42
     assert preview["topic"] == 7
     assert preview["to"] == {"id": 5, "name": "Alice"}
+    assert "old_state" not in preview
 
     assert main(["draft", "set", "--commit", preview["preview_id"], "--json"]) == 0
     result = json.loads(capsys.readouterr().out)
@@ -263,6 +265,7 @@ def test_draft_clear_preview_and_commit(config_env, monkeypatch, capsys):
     preview = json.loads(capsys.readouterr().out)
     assert preview["old_text"] == "wipe me"
     assert "text" not in preview
+    assert "old_state" not in preview
 
     assert main(["draft", "clear", "--commit", preview["preview_id"], "--json"]) == 0
     result = json.loads(capsys.readouterr().out)
@@ -279,6 +282,183 @@ def test_draft_clear_preview_and_commit(config_env, monkeypatch, capsys):
     assert saves[0].reply_to is None
 
 
+def test_draft_set_commit_treats_not_modified_as_success(
+    config_env, monkeypatch, capsys
+):
+    """Telegram reports an identical draft with MessageNotModifiedError."""
+    entity = _user()
+
+    class NoOpClient(FakeClient):
+        async def __call__(self, request):
+            if isinstance(request, functions.messages.SaveDraftRequest):
+                raise MessageNotModifiedError(request=request)
+            return await super().__call__(request)
+
+    client = NoOpClient(
+        entities={"@alice": entity},
+        peer_dialogs_result=_peer_dialogs(
+            types.DraftMessage(message="same", date=None), entity
+        ),
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["draft", "set", "@alice", "same", "--preview", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+
+    assert main(["draft", "set", "--commit", preview_id, "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["draft"]["text"] == "same"
+
+
+@pytest.mark.parametrize(
+    ("draft_command", "preview_args"),
+    [("set", ["agent text"]), ("clear", [])],
+)
+def test_draft_commit_rejects_a_draft_changed_after_preview(
+    config_env, monkeypatch, capsys, draft_command, preview_args
+):
+    entity = _user()
+    peer_dialogs = _peer_dialogs(types.DraftMessage(message="old", date=None), entity)
+    client = FakeClient(entities={"@alice": entity}, peer_dialogs_result=peer_dialogs)
+    make_session_fake(monkeypatch, client)
+
+    assert (
+        main(["draft", draft_command, "@alice", *preview_args, "--preview", "--json"])
+        == 0
+    )
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+    peer_dialogs.dialogs[0].draft = types.DraftMessage(
+        message="human update", date=None
+    )
+
+    assert main(["draft", draft_command, "--commit", preview_id, "--json"]) == 2
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"]["code"] == "BLOCKED"
+    assert not any(
+        isinstance(request, functions.messages.SaveDraftRequest)
+        for request in client.call_requests
+    )
+
+
+def test_draft_set_commit_rejects_same_text_reply_change(
+    config_env, monkeypatch, capsys
+):
+    entity = _user()
+    peer_dialogs = _peer_dialogs(
+        types.DraftMessage(
+            message="same",
+            date=None,
+            reply_to=types.InputReplyToMessage(reply_to_msg_id=42),
+        ),
+        entity,
+    )
+    client = FakeClient(entities={"@alice": entity}, peer_dialogs_result=peer_dialogs)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["draft", "set", "@alice", "same", "--preview", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+    peer_dialogs.dialogs[0].draft = types.DraftMessage(
+        message="same",
+        date=None,
+        reply_to=types.InputReplyToMessage(reply_to_msg_id=43),
+    )
+
+    assert main(["draft", "set", "--commit", preview_id, "--json"]) == 2
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "BLOCKED"
+    assert not any(
+        isinstance(request, functions.messages.SaveDraftRequest)
+        for request in client.call_requests
+    )
+
+
+def test_draft_set_commit_rejects_same_text_topic_change(
+    config_env, monkeypatch, capsys
+):
+    entity = _user()
+    peer_dialogs = _peer_dialogs(
+        types.DraftMessage(
+            message="same",
+            date=None,
+            reply_to=types.InputReplyToMessage(reply_to_msg_id=42, top_msg_id=7),
+        ),
+        entity,
+    )
+    client = FakeClient(entities={"@alice": entity}, peer_dialogs_result=peer_dialogs)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["draft", "set", "@alice", "same", "--preview", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+    peer_dialogs.dialogs[0].draft = types.DraftMessage(
+        message="same",
+        date=None,
+        reply_to=types.InputReplyToMessage(reply_to_msg_id=42, top_msg_id=8),
+    )
+
+    assert main(["draft", "set", "--commit", preview_id, "--json"]) == 2
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "BLOCKED"
+    assert not any(
+        isinstance(request, functions.messages.SaveDraftRequest)
+        for request in client.call_requests
+    )
+
+
+def test_draft_set_commit_rejects_same_text_entity_change(
+    config_env, monkeypatch, capsys
+):
+    entity = _user()
+    peer_dialogs = _peer_dialogs(
+        types.DraftMessage(
+            message="same",
+            date=None,
+            entities=[types.MessageEntityBold(offset=0, length=4)],
+        ),
+        entity,
+    )
+    client = FakeClient(entities={"@alice": entity}, peer_dialogs_result=peer_dialogs)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["draft", "set", "@alice", "same", "--preview", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+    peer_dialogs.dialogs[0].draft = types.DraftMessage(
+        message="same",
+        date=None,
+        entities=[types.MessageEntityItalic(offset=0, length=4)],
+    )
+
+    assert main(["draft", "set", "--commit", preview_id, "--json"]) == 2
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "BLOCKED"
+    assert not any(
+        isinstance(request, functions.messages.SaveDraftRequest)
+        for request in client.call_requests
+    )
+
+
+def test_draft_preview_serializes_formatted_date_entity(
+    config_env, monkeypatch, capsys
+):
+    entity = _user()
+    when = datetime(2026, 7, 23, 12, 0, tzinfo=UTC)
+    formatted_date = getattr(types, "MessageEntityFormattedDate")
+    client = FakeClient(
+        entities={"@alice": entity},
+        peer_dialogs_result=_peer_dialogs(
+            types.DraftMessage(
+                message="when",
+                date=None,
+                entities=[formatted_date(offset=0, length=4, date=when)],
+            ),
+            entity,
+        ),
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["draft", "set", "@alice", "next", "--preview", "--json"]) == 0
+    preview = json.loads(capsys.readouterr().out)
+    stored = json.loads(
+        (safety.previews_dir() / f"{preview['preview_id']}.json").read_text()
+    )
+    assert stored["payload"]["old_state"]["entities"][0]["date"] == when.isoformat()
+
+
 def test_draft_set_commit_rejects_extra_flags(config_env, monkeypatch, capsys):
     stored = safety.create_preview(
         {
@@ -293,6 +473,27 @@ def test_draft_set_commit_rejects_extra_flags(config_env, monkeypatch, capsys):
         }
     )
     assert main(["draft", "set", "--commit", stored["preview_id"], "@alice", "x"]) == 1
+    assert "draft set --commit accepts only a preview id" in capsys.readouterr().err
+
+
+def test_draft_set_commit_rejects_format_flag(config_env, capsys):
+    stored = safety.create_preview(
+        {
+            "kind": "draft-set",
+            "chat": "@alice",
+            "old_text": "",
+            "text": "x",
+            "format": "md",
+            "reply_to": None,
+            "topic": None,
+            "to": {"id": 5, "name": "Alice"},
+        }
+    )
+
+    assert (
+        main(["draft", "set", "--commit", stored["preview_id"], "--format", "plain"])
+        == 1
+    )
     assert "draft set --commit accepts only a preview id" in capsys.readouterr().err
 
 
@@ -424,6 +625,42 @@ def test_draft_set_keeps_preview_pending_when_result_audit_fails(
     pending = safety.previews_dir() / f"{preview_id}.pending"
     assert pending.exists()
     assert not pending.with_suffix(".used").exists()
+
+    monkeypatch.setattr(safety, "append_audit", original_append_audit)
+    assert main(["draft", "set", "--commit", preview_id, "--json"]) == 0
+
+
+def test_draft_set_topic_only_retry_recognizes_applied_save(
+    config_env, monkeypatch, capsys
+):
+    from tgcli.errors import PolicyError
+
+    entity = _user()
+    client = FakeClient(
+        entities={"@alice": entity},
+        peer_dialogs_result=_peer_dialogs(types.DraftMessageEmpty(), entity),
+    )
+
+    async def input_peer(key):
+        return types.InputPeerUser(user_id=5, access_hash=7)
+
+    client.get_input_entity = input_peer  # type: ignore[method-assign]
+    make_session_fake(monkeypatch, client)
+
+    assert (
+        main(["draft", "set", "@alice", "hi", "--topic", "7", "--preview", "--json"])
+        == 0
+    )
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+    original_append_audit = safety.append_audit
+
+    def fail_result_audit(action, account, details):
+        if action == "draft-set-result":
+            raise PolicyError("cannot write audit record: disk full")
+        original_append_audit(action, account, details)
+
+    monkeypatch.setattr(safety, "append_audit", fail_result_audit)
+    assert main(["draft", "set", "--commit", preview_id]) == 2
 
     monkeypatch.setattr(safety, "append_audit", original_append_audit)
     assert main(["draft", "set", "--commit", preview_id, "--json"]) == 0

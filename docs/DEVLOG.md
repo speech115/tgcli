@@ -17,6 +17,53 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — ADR-0039 topic-only retry correction (Codex)
+**Did:** normalized the desired retry snapshot through the exact
+`InputReplyToMessage` shape sent to Telegram. A topic-only draft stores its
+topic as `reply_to_msg_id` with no `top_msg_id`; the regression simulates a
+save that completed before result auditing failed and proves its retry is
+accepted rather than misclassified as a human overwrite.
+**Decided:** retry equality follows the actual TL request, not raw CLI flag
+names, while the full observed-state mismatch still fails closed.
+**Learned:** `--topic` alone is intentionally encoded differently from a
+reply-within-topic, so comparing unnormalized CLI payload fields is unsafe.
+**Next:** final independent re-review of the stale-preview guard.
+
+## 2026-07-23 — ADR-0039 full-state stale-draft correction (Codex)
+**Did:** final review found that the first stale-preview guard compared only
+text. Draft previews now persist a JSON-safe internal snapshot of text, reply,
+topic, and every Telethon formatting entity; commit re-reads immediately before
+`saveDraft`, rejects any observed mismatch, and still accepts a retry whose
+complete state already equals the requested one. Added same-text reply and
+formatting-entity regressions; public preview JSON is unchanged.
+**Decided:** ADR-0039 now explicitly records the bounded guarantee: Telegram
+has no conditional-save/version token, so the final read→save race is a
+residual risk rather than an untruthfully claimed CAS guarantee.
+**Learned:** checking text alone treats changed reply/thread metadata and rich
+formatting as invisible, exactly where a human's prepared draft needs safety.
+**Next:** independent re-review of the full-state guard, then rebase onto the
+corrected release stack and tag only after merge.
+
+## 2026-07-23 — ADR-0039 drafts whole-diff review corrections (Codex)
+**Did:** independently reviewed the `claude/release-1.1.0...claude/drafts`
+drafts slice on Spec and Standards axes, then fixed three confirmed safety and
+contract defects. `SaveDraft` now treats Telegram's idempotent
+`MessageNotModifiedError` as success; commit re-reads the draft and refuses a
+human change made after preview, while accepting a retry whose requested draft
+already exists; and `draft set --commit` now rejects an extra `--format` flag.
+Added permanent public-seam regressions and documented the stale-preview rule
+in CONTRACT. Raised the reviewed `preflight.py` architecture ceiling to its
+actual 203 lines with the paired architecture regression.
+**Decided:** these are narrow corrections required by ADR-0039's existing
+preview safety and commit-only contract, not a new behavior decision or ADR.
+The inherited ADR-0038 changelog wording and `v1.1.1` tag remain release-merge
+work owned by the stacked release flow.
+**Learned:** `messages.saveDraft` has both bare-`Bool` and
+`MessageNotModifiedError` no-op paths; a retryable preview must distinguish a
+human overwrite from a save that already completed before result auditing.
+**Next:** rebase this committed slice onto the corrected 1.1.0 release, then
+tag `v1.1.1` only after the feature is merged.
+
 ## 2026-07-23 — wacli review: backlog items + FEED-001 blocker (Claude Opus 4.8)
 **Did:** owner-requested review of [wacli](https://wacli.sh/) (openclaw's
 WhatsApp CLI, sibling of the gogcli lineage) for what transfers to tgcli, with

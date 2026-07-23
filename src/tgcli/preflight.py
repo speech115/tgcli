@@ -156,6 +156,7 @@ def _prepare_draft_preview(parser: argparse.ArgumentParser, args) -> None:
                 args.preview
                 or args.chat is not None
                 or args.text is not None
+                or args.format is not None
                 or args.reply_to is not None
                 or args.topic is not None
             ):
@@ -166,6 +167,8 @@ def _prepare_draft_preview(parser: argparse.ArgumentParser, args) -> None:
             parser.error(
                 "draft set requires CHAT TEXT --preview or --commit PREVIEW_ID"
             )
+        else:
+            args.format = args.format or "md"
         return
     if args.commit:
         if args.preview or args.chat is not None:

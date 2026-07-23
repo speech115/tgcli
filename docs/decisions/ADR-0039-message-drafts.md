@@ -42,13 +42,16 @@ that puts content into Telegram, and directly-gated one-shot writes
    same effect. The final press stays with the human, which is the entire
    point of the feature.
 3. **`set` and `clear` go through preview→commit**, like `edit`. The
-   preview carries `old_text`, the current draft body. This is what turns
-   the silent-overwrite risk into a visible one, and it costs no new
-   concept: the same handshake, the same `expected_kind` check, the same
-   audit record. `clear` gets its own preview rather than being a flag on
-   `set`, because destroying human text deserves its own confirmed
-   intent — even though at the TL level it is just `saveDraft` with an
-   empty message.
+   public preview carries `old_text`, the current draft body, while its
+   private persisted payload snapshots the complete observable draft state
+   (text, reply, topic, formatting entities). Immediately before `saveDraft`,
+   commit re-reads and compares that snapshot. This detects a human change
+   observed then without widening the public JSON contract; Telegram provides
+   no conditional-save/version token, so it cannot close the final read→save
+   race. The same handshake, `expected_kind` check, and audit record apply.
+   `clear` gets its own preview rather than being a flag on `set`, because
+   destroying human text deserves its own confirmed intent — even though at
+   the TL level it is just `saveDraft` with an empty message.
 4. **`show` and `list` are typed read operations in `read_ops.py`**
    (ADR-0034), which makes them available inside `tg batch` and safe under
    `TGCLI_READONLY` without extra work. A read added outside the registry

@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import cast
 
+from telethon.errors import MessageNotModifiedError
 from telethon.helpers import add_surrogate, del_surrogate
 from telethon.tl import functions, types
 from telethon.tl.types import MessageEntityCustomEmoji
 
 from tgcli import chatref, formatting, safety
 from tgcli.commands.read import sanitize_plain_text
-from tgcli.errors import NotFoundError
+from tgcli.errors import NotFoundError, PolicyError
 
 
 def _chat_to_dict(entity) -> dict:
@@ -50,6 +52,40 @@ def _reply_fields(draft_tl) -> tuple[int | None, int | None]:
     return reply.reply_to_msg_id, reply.top_msg_id
 
 
+def _json_safe(value):
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, bytes):
+        return {"bytes": value.hex()}
+    return value
+
+
+def _entities_state(entities) -> list[dict]:
+    return [cast(dict, _json_safe(entity.to_dict())) for entity in entities or []]
+
+
+def _draft_state(draft_tl) -> dict:
+    """JSON-safe observable draft state for the preview's stale-write check."""
+    if not isinstance(draft_tl, types.DraftMessage):
+        return {
+            "text": "",
+            "reply_to_msg_id": None,
+            "topic_id": None,
+            "entities": [],
+        }
+    reply_to_msg_id, topic_id = _reply_fields(draft_tl)
+    return {
+        "text": draft_tl.message or "",
+        "reply_to_msg_id": reply_to_msg_id,
+        "topic_id": topic_id,
+        "entities": _entities_state(draft_tl.entities),
+    }
+
+
 def draft_to_dict(entity, draft_tl) -> dict:
     """Project a TL draft into the ADR-0039 JSON object (not a message)."""
     chat = _chat_to_dict(entity)
@@ -84,7 +120,7 @@ async def _entity(tg, chat: str):
         raise NotFoundError(f"dialog not found: {chat!r}") from None
 
 
-async def fetch_show(tg, chat: str) -> dict:
+async def _read_draft_state(tg, chat: str) -> tuple[dict, dict]:
     entity = await _entity(tg, chat)
     peer = await tg.get_input_entity(chatref.parse(chat))
     result = await tg(
@@ -93,7 +129,12 @@ async def fetch_show(tg, chat: str) -> dict:
         )
     )
     draft_tl = result.dialogs[0].draft if result.dialogs else None
-    return {"draft": draft_to_dict(entity, draft_tl)}
+    return draft_to_dict(entity, draft_tl), _draft_state(draft_tl)
+
+
+async def fetch_show(tg, chat: str) -> dict:
+    draft, _ = await _read_draft_state(tg, chat)
+    return {"draft": draft}
 
 
 async def fetch_list(tg) -> dict:
@@ -163,18 +204,18 @@ async def prepare_set(
     topic: int | None = None,
 ) -> dict:
     formatting.render(text, fmt)
-    entity = await _entity(tg, chat)
-    current = await fetch_show(tg, chat)
+    current, old_state = await _read_draft_state(tg, chat)
     stored = safety.create_preview(
         {
             "kind": "draft-set",
             "chat": chat,
-            "old_text": current["draft"]["text"],
+            "old_text": old_state["text"],
+            "old_state": old_state,
             "text": text,
             "format": fmt,
             "reply_to": reply_to,
             "topic": topic,
-            "to": _chat_to_dict(entity),
+            "to": current["chat"],
         }
     )
     keys = (
@@ -191,14 +232,14 @@ async def prepare_set(
 
 
 async def prepare_clear(tg, chat: str) -> dict:
-    entity = await _entity(tg, chat)
-    current = await fetch_show(tg, chat)
+    current, old_state = await _read_draft_state(tg, chat)
     stored = safety.create_preview(
         {
             "kind": "draft-clear",
             "chat": chat,
-            "old_text": current["draft"]["text"],
-            "to": _chat_to_dict(entity),
+            "old_text": old_state["text"],
+            "old_state": old_state,
+            "to": current["chat"],
         }
     )
     keys = ("preview_id", "to", "old_text", "expires_at")
@@ -207,14 +248,17 @@ async def prepare_clear(tg, chat: str) -> dict:
 
 async def _save_draft(tg, payload: dict, *, message: str, entities) -> bool:
     peer = await tg.get_input_entity(chatref.parse(payload["chat"]))
-    result = await tg(
-        functions.messages.SaveDraftRequest(
-            peer=peer,
-            message=message,
-            entities=entities,
-            reply_to=_reply_header(payload),
+    try:
+        result = await tg(
+            functions.messages.SaveDraftRequest(
+                peer=peer,
+                message=message,
+                entities=entities,
+                reply_to=_reply_header(payload),
+            )
         )
-    )
+    except MessageNotModifiedError:
+        return False
     # messages.saveDraft returns a bare Bool — the type that crashed tg api
     # in the 1.1.0 cycle. Accept both True (changed) and False (no-op).
     if type(result) is not bool:
@@ -224,15 +268,42 @@ async def _save_draft(tg, payload: dict, *, message: str, entities) -> bool:
 
 async def commit_set(tg, preview_id: str, payload: dict) -> dict:
     body, entities = formatting.render(payload["text"], payload.get("format", "md"))
+    current, current_state = await _read_draft_state(tg, payload["chat"])
+    if _stale_draft(payload, current_state):
+        if current_state == _requested_state(body, entities, payload):
+            return {"preview_id": preview_id, "draft": current}
+        raise PolicyError("draft changed after preview; create a new preview")
     await _save_draft(tg, payload, message=body, entities=entities)
     shown = await fetch_show(tg, payload["chat"])
     return {"preview_id": preview_id, "draft": shown["draft"]}
 
 
 async def commit_clear(tg, preview_id: str, payload: dict) -> dict:
+    current, current_state = await _read_draft_state(tg, payload["chat"])
+    if _stale_draft(payload, current_state):
+        if current_state == _requested_state("", None, payload):
+            return {"preview_id": preview_id, "draft": current}
+        raise PolicyError("draft changed after preview; create a new preview")
     await _save_draft(tg, payload, message="", entities=None)
     shown = await fetch_show(tg, payload["chat"])
     return {"preview_id": preview_id, "draft": shown["draft"]}
+
+
+def _stale_draft(payload: dict, current_state: dict) -> bool:
+    old_state = payload.get("old_state")
+    if old_state is None:
+        raise PolicyError("draft preview lacks observed state; create a new preview")
+    return current_state != old_state
+
+
+def _requested_state(message: str, entities, payload: dict) -> dict:
+    reply = _reply_header(payload)
+    return {
+        "text": message,
+        "reply_to_msg_id": None if reply is None else reply.reply_to_msg_id,
+        "topic_id": None if reply is None else reply.top_msg_id,
+        "entities": _entities_state(entities),
+    }
 
 
 def mutation_to_rows(data: dict) -> list[tuple]:

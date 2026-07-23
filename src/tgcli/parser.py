@@ -385,7 +385,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_draft_set.add_argument(
         "--format",
         choices=("plain", "md", "html"),
-        default="md",
+        default=None,
         dest="format",
         help="rich-text format of TEXT (default md, mirrors send)",
     )

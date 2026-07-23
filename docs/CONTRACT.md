@@ -290,6 +290,13 @@ readonly gates; commit is blocked by `--readonly` / `TGCLI_READONLY` /
 `TGCLI_NO_SEND`. Authorised commits append `draft-set` /
 `draft-clear` audit records before the network call and
 `draft-set-result` / `draft-clear-result` after success.
+Immediately before saving, a commit re-reads the complete observable draft
+state — text, reply, topic, and every formatting entity — and fails closed
+(exit 2) if it no longer matches the preview's internal snapshot. A matching
+requested state is treated as the successful retry of an already-applied save.
+Telegram exposes no conditional-save/version token, so an edit made after that
+read and before `saveDraft` remains a residual race; callers must make a new
+preview after any blocked commit.
 
 `tg media download <t.me/link|chat> [message_id] --json`:
 ```json
