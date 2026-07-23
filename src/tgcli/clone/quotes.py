@@ -441,6 +441,44 @@ def foreign_quote_reply(plan) -> bool:
     )
 
 
+def _stale_quote_peer(messages):
+    header = getattr(messages[0], "reply_to", None)
+    peer = getattr(header, "reply_to_peer_id", None) if header is not None else None
+    return None if peer is None else _peer_cache_key(peer)[1]
+
+
+def drop_stale_quote(messages, plan, error) -> transport.TransportPlan | None:
+    """Strip a quote Telegram refuses, keeping the reply link intact.
+
+    A quote carries the parent's text as it read when the quote was made. Edit
+    the parent afterwards and the stored fragment no longer matches, so
+    re-sending it is rejected with ``QUOTE_TEXT_INVALID`` even though the
+    reply target itself is perfectly valid. Dropping the stale fragment keeps
+    the reply — and the thread — and reports the loss; keeping it would fail
+    the whole batch over one edited word.
+    """
+    if not str(getattr(error, "message", "") or "").startswith("QUOTE_"):
+        return None
+    reply_to = plan.reply_to
+    if not isinstance(reply_to, types.InputReplyToMessage):
+        return None
+    if reply_to.quote_text is None:
+        return None
+    stripped = cast(types.InputReplyToMessage, copy(reply_to))
+    stripped.quote_text = None
+    stripped.quote_entities = None
+    stripped.quote_offset = None
+    return replace(
+        plan,
+        reply_to=stripped,
+        quote_flattened={
+            "id": messages[0].id,
+            "peer": _stale_quote_peer(messages),
+            "reason": "quote-rejected",
+        },
+    )
+
+
 async def send_with_degrade(send, messages, plan, leg, source, ctx):
     """Retry once with fallback when a native foreign quote is rejected."""
     try:
@@ -450,3 +488,8 @@ async def send_with_degrade(send, messages, plan, leg, source, ctx):
             raise
         degraded = degrade_to_fallback(messages, plan, leg, source, ctx)
         return await send(degraded)
+    except telethon_errors.BadRequestError as error:
+        stripped = drop_stale_quote(messages, plan, error)
+        if stripped is None:
+            raise
+        return await send(stripped)

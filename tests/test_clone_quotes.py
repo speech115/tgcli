@@ -4,6 +4,8 @@
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from telethon import errors as telethon_errors
 from telethon.tl import types
 
@@ -407,3 +409,101 @@ def test_quiet_trap_source_2374_never_uses_discussion_map_id_1244():
     # Unreachable without a fake entity → must be fallback, never mapped 9999.
     assert resolved.body_prefix is not None
     assert resolved.reply_to is None or resolved.reply_to.reply_to_msg_id != 9999
+
+
+def _bad_request(message: str):
+    error = telethon_errors.BadRequestError(request=None, message=message)
+    error.message = message
+    return error
+
+
+def test_stale_quote_is_dropped_and_the_reply_link_survives():
+    """Source 2378: the quoted post was edited, so the fragment no longer matches."""
+    header = types.MessageReplyHeader(
+        reply_to_msg_id=789,
+        reply_to_peer_id=types.PeerChannel(4301599563),
+        quote_text="Им самих не смущает эта хуйня?",
+        quote_offset=282,
+        reply_to_top_id=2375,
+    )
+    messages = [_msg(2378, reply_to=header)]
+    plan = transport.TransportPlan(
+        mode="reuploaded",
+        reply_to=types.InputReplyToMessage(
+            reply_to_msg_id=550,
+            quote_text="Им самих не смущает эта хуйня?",
+            quote_offset=282,
+        ),
+        reply_flattened=False,
+        needs_author=True,
+    )
+
+    stripped = quotes.drop_stale_quote(
+        messages, plan, _bad_request("QUOTE_TEXT_INVALID")
+    )
+
+    assert stripped is not None
+    # The reply still points at the mapped destination message.
+    assert stripped.reply_to.reply_to_msg_id == 550
+    assert stripped.reply_to.quote_text is None
+    assert stripped.reply_to.quote_offset is None
+    assert stripped.quote_flattened == {
+        "id": 2378,
+        "peer": 4301599563,
+        "reason": "quote-rejected",
+    }
+    # The original plan is untouched — the retry must not mutate the first send.
+    assert plan.reply_to.quote_text == "Им самих не смущает эта хуйня?"
+
+
+def test_send_with_degrade_retries_once_without_the_stale_quote():
+    header = types.MessageReplyHeader(
+        reply_to_msg_id=789,
+        reply_to_peer_id=types.PeerChannel(4301599563),
+        quote_text="stale",
+        reply_to_top_id=2375,
+    )
+    messages = [_msg(2378, reply_to=header)]
+    plan = transport.TransportPlan(
+        mode="reuploaded",
+        reply_to=types.InputReplyToMessage(reply_to_msg_id=550, quote_text="stale"),
+        reply_flattened=False,
+        needs_author=True,
+    )
+    sent = []
+
+    async def send(current):
+        sent.append(current)
+        if current.reply_to.quote_text is not None:
+            raise _bad_request("QUOTE_TEXT_INVALID")
+        return "ok"
+
+    leg = _discussion(id_map={789: 773})
+    result = asyncio.run(
+        quotes.send_with_degrade(
+            send, messages, plan, leg, DISCUSSION_SOURCE, _ctx(FakeClient())
+        )
+    )
+
+    assert result == "ok"
+    assert len(sent) == 2
+    assert sent[1].reply_to.reply_to_msg_id == 550
+    assert sent[1].quote_flattened["reason"] == "quote-rejected"
+
+
+def test_send_with_degrade_reraises_unrelated_bad_requests():
+    messages = [_msg(2378)]
+    plan = transport.TransportPlan(
+        mode="reuploaded", reply_to=None, reply_flattened=False, needs_author=True
+    )
+
+    async def send(_current):
+        raise _bad_request("MESSAGE_TOO_LONG")
+
+    leg = _discussion()
+    with pytest.raises(telethon_errors.BadRequestError):
+        asyncio.run(
+            quotes.send_with_degrade(
+                send, messages, plan, leg, DISCUSSION_SOURCE, _ctx(FakeClient())
+            )
+        )
