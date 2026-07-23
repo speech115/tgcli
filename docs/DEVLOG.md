@@ -13,6 +13,23 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Cursor onboarding + pyright reply_to_ephemeral (Composer)
+**Did:** Cursor first-session track C+A from the orientation plan. Added
+always-apply rule `.cursor/rules/tgcli-maintenance.mdc` (maintenance mode,
+TDD, docs discipline, how-to-task examples). Mapped it in `docs/MAP.md`.
+Fixed frozen pyright baseline in `clone/replies.py` via
+`getattr(header, "reply_to_ephemeral", False)` plus a unit test that
+rejects ephemeral reply shapes. Verified: `tg doctor --json` ok (3
+accounts); `.venv/bin/pytest -q` → 627 passed, 8 skipped; ruff clean;
+pyright 0 errors.
+**Decided:** gated product work (MSG-001 / FEED-001 / PROPOSALS) stays
+owner-triggered after onboarding; no ADR for the getattr hardening.
+**Learned:** system `pytest` outside `.venv` fails collection; always use
+`.venv/bin/pytest`. Sandbox blocks session locks / invocation journal —
+doctor needs unrestricted FS for live auth checks.
+**Next:** owner picks one gated item (`tg batch`, albums, `tg changes`,
+or `accounts login`) or a live Telegram task.
+
 ## 2026-07-23 — Fix tg api bool/scalar RPC serialization (Composer)
 **Did:** bug fix for live finding: `tg api account.updateStatus --write`
 reached Telegram then crashed on `bool.to_dict()`. Added failing unit test

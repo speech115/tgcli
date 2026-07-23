@@ -7,6 +7,7 @@ This file must always match the real tree (AGENTS.md rule).
 tgcli/
 ├── README.md                  [done]    vision + principles
 ├── .github/workflows/ci.yml   [done]    CI: ruff + pyright + pytest + coverage gate on push/PR (ADR-0027)
+├── .cursor/rules/             [done]    Cursor always-apply maintenance/TDD/docs rule
 ├── AGENTS.md                  [done]    agent contract, doc discipline
 ├── CLAUDE.md                  [done]    Claude adapter → AGENTS.md
 ├── SKILL.md                   [done]    agent command routing and safety contract (phase 6)
