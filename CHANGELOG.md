@@ -11,6 +11,15 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.1.2] — 2026-07-23
+
+### Added
+
+- **Local state inventory and cleanup** — `tg store stats` / `tg store cleanup`
+  (ADR-0040). Offline-only. Cleanup reaps spent/expired previews behind
+  `--confirm`; never touches the audit log or sessions. New previews are mode
+  `0600`.
+
 ## [1.1.1] — 2026-07-23
 
 ### Added

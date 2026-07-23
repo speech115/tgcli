@@ -38,6 +38,22 @@ def test_preview_expires_after_five_minutes_and_is_single_use():
         safety.consume_preview(preview["preview_id"], now=now)
 
 
+def test_create_preview_writes_mode_0600():
+    preview = safety.create_preview({"chat": "@alice", "text": "secret"})
+    path = safety.previews_dir() / f"{preview['preview_id']}.json"
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_commit_transitions_keep_mode_0600():
+    preview = safety.create_preview({"kind": "send", "text": "hi"})
+    safety.begin_commit(preview["preview_id"])
+    pending = safety.previews_dir() / f"{preview['preview_id']}.pending"
+    assert pending.stat().st_mode & 0o777 == 0o600
+    safety.finish_commit(preview["preview_id"])
+    used = safety.previews_dir() / f"{preview['preview_id']}.used"
+    assert used.stat().st_mode & 0o777 == 0o600
+
+
 def test_expired_preview_is_blocked():
     now = datetime(2026, 7, 10, 12, 0, tzinfo=UTC)
     preview = safety.create_preview({"chat": "@alice", "text": "hello"}, now=now)

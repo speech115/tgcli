@@ -174,3 +174,33 @@ def test_cleanup_confirm_blocked_under_readonly(tmp_path, monkeypatch, capsys):
     err = json.loads(capsys.readouterr().err)
     assert err["error"]["code"] == "BLOCKED"
     assert (tmp_path / "previews" / "p_spent0.used").exists()
+
+
+def test_cleanup_tightens_surviving_preview_modes(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    future = NOW + timedelta(minutes=4)
+    live = _write_preview(tmp_path, "p_live", expires_at=future)
+    live.chmod(0o644)
+    spent = _write_preview(
+        tmp_path, "p_spent", suffix=".used", expires_at=NOW - timedelta(minutes=1)
+    )
+    spent.chmod(0o644)
+
+    store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
+
+    assert not spent.exists()
+    assert live.exists()
+    assert live.stat().st_mode & 0o777 == 0o600
+
+
+def test_scan_reports_world_readable_previews(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    future = NOW + timedelta(minutes=4)
+    open_path = _write_preview(tmp_path, "p_open", expires_at=future)
+    open_path.chmod(0o644)
+    tight = _write_preview(tmp_path, "p_tight", expires_at=future)
+    tight.chmod(0o600)
+
+    data = store_cmd.scan(tmp_path, now=NOW)
+
+    assert data["previews_world_readable"] == 1

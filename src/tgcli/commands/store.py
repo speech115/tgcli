@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -67,6 +69,7 @@ def scan(root: Path, *, now: datetime | None = None) -> dict:
     """Classify every artefact under the state root."""
     now = now or datetime.now(UTC)
     previews = {name: _empty_bucket() for name in _PREVIEW_BUCKETS}
+    world_readable = 0
     preview_root = root / "previews"
     if preview_root.is_dir():
         for path in preview_root.iterdir():
@@ -78,6 +81,9 @@ def scan(root: Path, *, now: datetime | None = None) -> dict:
             size = _file_bytes(path)
             previews[bucket]["count"] += 1
             previews[bucket]["bytes"] += size
+            mode = path.stat().st_mode
+            if mode & (stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH):
+                world_readable += 1
 
     sessions_dir = root / "sessions"
     session_files = (
@@ -93,6 +99,7 @@ def scan(root: Path, *, now: datetime | None = None) -> dict:
 
     return {
         "previews": previews,
+        "previews_world_readable": world_readable,
         "audit_log": {"bytes": _file_bytes(root / "audit.jsonl")},
         "invocations": {"bytes": _file_bytes(root / "invocations.jsonl")},
         "sessions": {
@@ -181,6 +188,14 @@ def cleanup(
         for path in selected:
             path.unlink(missing_ok=True)
             removed.append(path.name)
+        preview_root = root / "previews"
+        if preview_root.is_dir():
+            for path in preview_root.iterdir():
+                if path.is_file():
+                    try:
+                        os.chmod(path, 0o600)
+                    except OSError:
+                        pass
     else:
         would_remove = list(names)
 

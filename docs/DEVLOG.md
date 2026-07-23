@@ -17,6 +17,22 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — ADR-0040 slice 1: `tg store` (Cursor)
+**Did:** executed plan Tasks 1–3. `tg store stats` inventories previews
+(live/expired/spent/pending), audit/invocations/sessions/clones/downloads, and
+relic dirs. `tg store cleanup` dry-runs by default; `--confirm` deletes spent
+`.used` + expired `.json` only; `--include-pending` only when far past TTL;
+`--older-than` Nd/Nh; blocked under `--readonly` (exit 2). Preview writes and
+confirmed cleanup tighten modes to `0600`; `stats` reports
+`previews_world_readable`. CONTRACT §5.05, MAP, patch 1.1.2. Full gate green.
+**Decided:** held ADR-0040 boundaries — audit log and sessions never enter the
+deletable set; relics report-only; dry-run does not chmod (mutation stays behind
+`--confirm`).
+**Learned:** argparse `argument_default=SUPPRESS` on global parents does not
+suppress subparser `store_true` defaults; architecture ceilings must move with
+cli/parser growth in the same commit as the fixture mirror.
+**Next:** Slice 2 — `tg doctor` offline by default, live checks behind `--connect`.
+
 ## 2026-07-23 — ADR-0040: wacli-review adoption scope (Claude Opus 4.8)
 **Did:** owner-driven grilling + domain-modeling session over the four wacli
 items in `docs/PROPOSALS.md`. Wrote `ADR-0040` (adopt `store stats|cleanup`

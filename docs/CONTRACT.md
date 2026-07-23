@@ -572,6 +572,7 @@ No config and no Telegram session. `--json` emits:
 ```json
 {"previews":{"live":{"count":2,"bytes":120},"expired":{"count":1,"bytes":40},
  "spent":{"count":3,"bytes":90},"pending":{"count":1,"bytes":30}},
+ "previews_world_readable":0,
  "audit_log":{"bytes":20},"invocations":{"bytes":0},
  "sessions":{"count":1,"bytes":4096},"clones":{"bytes":0},"downloads":{"bytes":0},
  "relics":[{"name":"labs","bytes":11}]}
@@ -579,8 +580,11 @@ No config and no Telegram session. `--json` emits:
 
 Preview buckets are classified from each file's stored `expires_at` (not mtime):
 `live` = `.json` within TTL, `expired` = `.json` past TTL, `spent` = `.used`,
-`pending` = `.pending`. Relic directories (`mirrors`, `mirror-lab`, `labs`,
-`probes`) are reported when present and never auto-deleted.
+`pending` = `.pending`. `previews_world_readable` counts preview files with any
+other-user permission bit set (legacy `0644` bodies). Relic directories
+(`mirrors`, `mirror-lab`, `labs`, `probes`) are reported when present and never
+auto-deleted. New previews are written mode `0600`; `store cleanup` also
+tightens surviving preview modes to `0600`.
 
 `--plain` columns: `category`, `count` (nullable for size-only rows), `bytes`.
 
