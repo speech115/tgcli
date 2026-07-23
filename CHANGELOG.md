@@ -4,13 +4,14 @@ All notable changes to tgcli. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [semver](https://semver.org/) over the CLI automation contract in
 [docs/CONTRACT.md](docs/CONTRACT.md) — flags, JSON shapes, and exit codes.
-JSON changes are additive-only, so contract growth is a minor bump.
+JSON changes are additive-only. Features and fixes ship as patch releases;
+the owner declares minor milestones.
 
 Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
-## [1.1.0] — 2026-07-23
+## [1.1.0] — 2026-07-23 (pending tag)
 
 Agent-correspondence release: everything an agent needs to read a dialog
 precisely, act on single messages, and pull data out in bulk. All changes are
@@ -58,10 +59,11 @@ additive — 1.0.0 invocations keep working.
 
 ### Fixed
 
-- `tg api` no longer crashes on a bare `Bool` RPC result.
-- `dialogs --limit 0` behavior, `info --full` rights preflight, mute
-  pre-audit validation, `tg batch` FLOOD_WAIT exit code, and a file-send
-  TOCTOU window closed with verified snapshots.
+- `tg api` no longer crashes on a bare `Bool` RPC result (ADR-0010).
+- `dialogs --limit 0` behavior, `info --full` rights preflight, and a
+  file-send TOCTOU window closed with verified snapshots (ADR-0028).
+- Mute pre-audit validation and the `tg batch` FLOOD_WAIT exit code
+  (ADR-0032).
 
 ## [1.0.0] — 2026-07-17
 
@@ -70,5 +72,5 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
-[1.1.0]: https://github.com/speech115/tgcli/compare/v1.0.0...v1.1.0
+[1.1.0]: https://github.com/speech115/tgcli/compare/v1.0.0...claude/release-1.1.0
 [1.0.0]: https://github.com/speech115/tgcli/releases/tag/v1.0.0

@@ -1,4 +1,4 @@
-# ADR-0038: Tagged minor releases with a CHANGELOG entry per release
+# ADR-0038: Tagged releases with a CHANGELOG entry per release
 
 Date: 2026-07-23
 Status: accepted
