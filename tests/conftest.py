@@ -176,6 +176,14 @@ class FakeClient:
             query = getattr(request.filter, "q", "")
             users = list(self._participant_search.get(query, ()))
             return ns(users=users, count=len(users))
+        if isinstance(
+            request,
+            (
+                functions.messages.MarkDialogUnreadRequest,
+                functions.messages.ToggleDialogPinRequest,
+            ),
+        ):
+            return True
         raise AssertionError(f"FakeClient received unexpected raw request: {request!r}")
 
 

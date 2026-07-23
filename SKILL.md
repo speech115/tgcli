@@ -62,6 +62,8 @@ selected account session, does one operation, and exits.
 | Preview a forward | `tg --json forward @source 42 @destination --preview` |
 | Commit a forward | `tg --json forward --commit p_9f3a` |
 | Mark a dialog read | `tg --json mark-read @channel` |
+| Mark a dialog unread | `tg --json mark-unread @channel` |
+| Pin / unpin a dialog | `tg --json dialog pin @channel` / `tg --json dialog unpin @channel` |
 | Check local health | `tg --json doctor` |
 | Export messages | `tg --json export messages @channel --output messages.jsonl` |
 | Export subscribers | `tg --json export subscribers @channel --output subscribers.csv` |
@@ -140,10 +142,11 @@ network work. A block is exit 2; do not retry it until the safety condition is
 intentionally changed.
 
 `edit`, `delete`, and `forward` follow the same preview → commit rule as
-`send`. `mark-read` is a content-free direct mutation, but it remains audited
-and subject to those same safety gates. `doctor` is read-only: it reports
-configured-account session presence, lock availability, local state
-writability, Telegram authorization, and a top-level `ok` result.
+`send`. `mark-read`, `mark-unread`, and `dialog pin`/`unpin` are content-free
+direct mutations, but they remain audited and subject to those same safety
+gates. `doctor` is read-only: it reports configured-account session presence,
+lock availability, local state writability, Telegram authorization, and a
+top-level `ok` result.
 
 ## Account selection
 

@@ -12,6 +12,7 @@ from tgcli import __version__, invocations, output, safety, session
 from tgcli.commands import accounts as accounts_cmd
 from tgcli.commands import api as api_cmd
 from tgcli.commands import clone as clone_cmd
+from tgcli.commands import dialog as dialog_cmd
 from tgcli.commands import dialogs as dialogs_cmd
 from tgcli.commands import doctor as doctor_cmd
 from tgcli.commands import export as export_cmd
@@ -240,6 +241,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_mark_read.add_argument("chat")
 
+    p_mark_unread = sub.add_parser(
+        "mark-unread", help="Mark a dialog as unread", parents=[global_flags]
+    )
+    p_mark_unread.add_argument("chat")
+
+    p_dialog = sub.add_parser(
+        "dialog", help="Change inbox dialog state", parents=[global_flags]
+    )
+    dialog_sub = p_dialog.add_subparsers(dest="dialog_command", required=True)
+    p_dialog_pin = dialog_sub.add_parser(
+        "pin", help="Pin a dialog", parents=[global_flags]
+    )
+    p_dialog_pin.add_argument("chat")
+    p_dialog_unpin = dialog_sub.add_parser(
+        "unpin", help="Unpin a dialog", parents=[global_flags]
+    )
+    p_dialog_unpin.add_argument("chat")
+
     p_api = sub.add_parser(
         "api", help="Call an allowlisted raw TL method", parents=[global_flags]
     )
@@ -434,6 +453,14 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
             if args.command == "mark-read":
                 data = await mutate_cmd.mark_read(tg, args.chat)
                 return data, mutate_cmd.to_rows(data)
+            if args.command == "mark-unread":
+                data = await mutate_cmd.mark_unread(tg, args.chat)
+                return data, mutate_cmd.to_rows(data)
+            if args.command == "dialog":
+                data = await dialog_cmd.set_pinned(
+                    tg, args.chat, pinned=args.dialog_command == "pin"
+                )
+                return data, dialog_cmd.to_rows(data)
             if args.command == "api":
                 return await api_cmd.call(tg, args.method, args.params), []
             if args.command == "export":
@@ -531,6 +558,10 @@ def main(argv: list[str] | None = None) -> int:
             if args.limit is not None and args.limit <= 0:
                 raise PolicyError("clone sync --limit must be positive")
         if args.command == "mark-read":
+            safety.enforce_mutation_allowed(args.readonly)
+        if args.command == "mark-unread":
+            safety.enforce_mutation_allowed(args.readonly)
+        if args.command == "dialog":
             safety.enforce_mutation_allowed(args.readonly)
         mutation_positionals = {
             "edit": ("chat", "message_id", "text"),
@@ -667,6 +698,16 @@ def main(argv: list[str] | None = None) -> int:
                     safety.append_audit("api", account.alias, {"method": args.method})
                 if args.command == "mark-read":
                     safety.append_audit("mark-read", account.alias, {"chat": args.chat})
+                if args.command == "mark-unread":
+                    safety.append_audit(
+                        "mark-unread", account.alias, {"chat": args.chat}
+                    )
+                if args.command == "dialog":
+                    safety.append_audit(
+                        f"dialog-{args.dialog_command}",
+                        account.alias,
+                        {"chat": args.chat},
+                    )
                 network = _run_network(args, account)
                 if (
                     args.command == "media"

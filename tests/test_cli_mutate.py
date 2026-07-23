@@ -421,6 +421,45 @@ def test_mark_read_gates_before_config_or_session(monkeypatch, flag):
     assert main(argv) == 2
 
 
+def test_mark_unread_records_request_and_audit(config_env, monkeypatch, capsys):
+    from telethon.tl import functions, types
+
+    client = make_client()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mark-unread", "@chan", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"dialog": {"id": 5}, "marked_unread": True}
+    assert len(client.call_requests) == 1
+    request = client.call_requests[0]
+    assert isinstance(request, functions.messages.MarkDialogUnreadRequest)
+    assert request.unread is True
+    assert isinstance(request.peer, types.InputDialogPeer)
+    actions = [
+        json.loads(line)["action"]
+        for line in safety.audit_path().read_text().splitlines()
+    ]
+    assert actions == ["mark-unread"]
+    assert main(["--readonly", "mark-unread", "@chan"]) == 2
+
+
+@pytest.mark.parametrize("flag", ["--readonly", "TGCLI_READONLY", "TGCLI_NO_SEND"])
+def test_mark_unread_gates_before_config_or_session(monkeypatch, flag):
+    from tgcli import cli
+
+    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
+    monkeypatch.setattr(
+        cli.session, "client", lambda account: pytest.fail("session opened")
+    )
+    if flag.startswith("TGCLI_"):
+        monkeypatch.setenv(flag, "1")
+        argv = ["mark-unread", "@chan"]
+    else:
+        argv = [flag, "mark-unread", "@chan"]
+
+    assert main(argv) == 2
+
+
 def test_kind_mismatch_is_blocked_without_consuming_preview(monkeypatch):
     from tgcli import cli
 

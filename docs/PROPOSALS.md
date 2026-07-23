@@ -116,8 +116,8 @@ this is about the *export/download* side.
 |---|---|---|---|
 | `tg dialog archive/unarchive` | med | S | missing (`folders.editPeerFolders`) |
 | `tg dialog mute/unmute [--until]` | med | S | missing (`updateNotifySettings`) |
-| `tg dialog pin/unpin` | med | XS | missing (`toggleDialogPin`) |
-| `tg dialog mark-unread` | med | XS | missing (`markDialogUnread`) |
+| `tg dialog pin/unpin` | med | XS | **shipped** (ADR-0029 slice 2) |
+| `tg dialog mark-unread` | med | XS | **shipped** as top-level `tg mark-unread` (ADR-0029 slice 2) |
 
 Single `dialog` namespace (not five top-level commands). `mark-read` already
 exists as a top-level command; keep that, add the rest here. Mutations → gate.

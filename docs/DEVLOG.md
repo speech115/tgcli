@@ -13,6 +13,20 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — ADR-0029 slice 2: mark-unread + dialog pin/unpin (Composer)
+**Did:** executed discovery-inbox Tasks 4–5. `tg mark-unread CHAT` via
+`MarkDialogUnreadRequest(unread=True)` in `mutate.py`, with the same
+`--readonly` / env gating and fail-closed audit as `mark-read`. New
+`commands/dialog.py` + `tg dialog pin|unpin CHAT` via
+`ToggleDialogPinRequest`. FakeClient accepts both Bool TL requests. Tests in
+`test_cli_mutate.py` / `test_cli_dialog.py`. CONTRACT, MAP, SKILL, PROPOSALS
+updated.
+**Decided:** keep `mark-unread` top-level (mirrors shipped `mark-read`) and
+pin/unpin under the `dialog` namespace, per ADR-0029 — not a unified
+`dialog mark-unread`.
+**Learned:** both TL methods take `InputDialogPeer`, not a bare InputPeer.
+**Next:** ADR-0029 slice 3 — `media manifest` then `tg thread`.
+
 ## 2026-07-23 — Close WIP: formatting/export/stories docs + export test (Composer)
 **Did:** finished the uncommitted 2026-07-22 WIP on `claude/agent-quick-wins`.
 Added a reproducing unit test that broadcast `export subscribers` unions

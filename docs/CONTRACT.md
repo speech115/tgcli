@@ -351,6 +351,27 @@ configuration, session, audit, or Telegram work. On success it returns
 `mark-read` audit record containing the submitted chat reference before the
 Telegram acknowledgement.
 
+```
+tg mark-unread CHAT
+```
+
+`mark-unread` mirrors `mark-read`: same direct gating and audit timing, no
+preview. On success it returns
+`{"dialog":{"id":-1001234},"marked_unread":true}` and writes a fail-closed
+`mark-unread` audit record. Plain rows are `dialog_id`, `unread`.
+
+```
+tg dialog pin CHAT
+tg dialog unpin CHAT
+```
+
+`dialog pin` / `dialog unpin` are content-free, idempotent direct mutations
+(ADR-0029): same `--readonly` / `TGCLI_READONLY` / `TGCLI_NO_SEND` gating as
+`mark-read`, no preview. On success they return
+`{"dialog":{"id":-1001234},"pinned":true|false}` and write a fail-closed
+`dialog-pin` or `dialog-unpin` audit record with the submitted chat reference.
+Plain rows are `dialog_id`, `pinned|unpinned`.
+
 ## 5.1 Environment Health (`tg doctor`; ADR-0028)
 
 ```
