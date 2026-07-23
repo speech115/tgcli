@@ -773,6 +773,11 @@ def main(argv: list[str] | None = None) -> int:
             safety.enforce_mutation_allowed(args.readonly)
         if args.command == "dialog":
             safety.enforce_mutation_allowed(args.readonly)
+            if args.dialog_command == "mute":
+                dialog_cmd.validate_mute_flags(
+                    until=getattr(args, "until", None),
+                    forever=bool(getattr(args, "forever", False)),
+                )
         mutation_positionals = {
             "edit": ("chat", "message_id", "text"),
             "delete": ("chat", "message_id"),
@@ -958,11 +963,7 @@ def main(argv: list[str] | None = None) -> int:
         raise
     else:
         if args.command == "batch":
-            import json as _json
-
-            for item in data["_batch_results"]:
-                sys.stdout.write(_json.dumps(item, ensure_ascii=False) + "\n")
-            sys.stdout.flush()
+            batch_cmd.emit_results(data["_batch_results"])
             exit_code = data["_batch_exit"] or 0
         else:
             if args.json:

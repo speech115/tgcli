@@ -102,3 +102,28 @@ def test_batch_rejects_over_100_ops(config_env, monkeypatch):
     lines = "\n".join(json.dumps({"op": "dialogs", "limit": 1}) for _ in range(101))
     monkeypatch.setattr("sys.stdin", type("S", (), {"read": lambda self: lines})())
     assert main(["batch"]) == 2
+
+
+def test_batch_maps_flood_wait_to_exit_5(config_env, monkeypatch, capsys):
+    from telethon import errors as telethon_errors
+
+    client = FakeClient(dialogs=[make_dialog()])
+    make_session_fake(monkeypatch, client)
+
+    async def boom(*args, **kwargs):
+        raise telethon_errors.FloodWaitError(request=None, capture=3)
+
+    monkeypatch.setattr("tgcli.commands.batch.dialogs_cmd.fetch_dialogs", boom)
+    monkeypatch.setattr(
+        "sys.stdin",
+        type(
+            "S",
+            (),
+            {"read": lambda self: json.dumps({"op": "dialogs", "limit": 1}) + "\n"},
+        )(),
+    )
+    assert main(["batch"]) == 5
+    line = json.loads(capsys.readouterr().out.splitlines()[0])
+    assert line["ok"] is False
+    assert line["error"]["code"] == "FLOOD_WAIT"
+    assert line["error"]["retry_after"] == 3

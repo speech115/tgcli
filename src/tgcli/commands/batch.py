@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from telethon import errors as telethon_errors
+
 from tgcli.commands import dialogs as dialogs_cmd
 from tgcli.commands import identity as identity_cmd
 from tgcli.commands import info as info_cmd
@@ -12,7 +14,7 @@ from tgcli.commands import media as media_cmd
 from tgcli.commands import read as read_cmd
 from tgcli.commands import search as search_cmd
 from tgcli.commands import thread as thread_cmd
-from tgcli.errors import PolicyError, TgcliError
+from tgcli.errors import PolicyError, RateLimitError, TgcliError
 
 BATCH_OP_CAP = 100
 
@@ -161,6 +163,25 @@ async def run_batch(
                 first_exit = exc.exit_code
             if fail_fast:
                 break
+        except telethon_errors.FloodWaitError as exc:
+            rate = RateLimitError(
+                f"rate limited for {exc.seconds}s", retry_after=exc.seconds
+            )
+            results.append(
+                {
+                    "ok": False,
+                    "op": op,
+                    "error": {
+                        "code": rate.code,
+                        "message": str(rate),
+                        **rate.details,
+                    },
+                }
+            )
+            if first_exit is None:
+                first_exit = rate.exit_code
+            if fail_fast:
+                break
         except Exception as exc:
             results.append(
                 {
@@ -174,3 +195,12 @@ async def run_batch(
             if fail_fast:
                 break
     return results, first_exit
+
+
+def emit_results(results: list[dict[str, Any]]) -> None:
+    """Write batch JSONL to stdout (contract data only)."""
+    import sys
+
+    for item in results:
+        sys.stdout.write(json.dumps(item, ensure_ascii=False) + "\n")
+    sys.stdout.flush()

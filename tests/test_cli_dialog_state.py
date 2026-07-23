@@ -59,6 +59,8 @@ def test_dialog_mute_requires_until_or_forever(config_env, monkeypatch):
     client = make_client()
     make_session_fake(monkeypatch, client)
     assert main(["dialog", "mute", "@chan", "--json"]) == 2
+    assert client.call_requests == []
+    assert not safety.audit_path().exists()
 
 
 def test_dialog_mute_until_and_forever(config_env, monkeypatch, capsys):

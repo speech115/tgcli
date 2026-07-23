@@ -59,6 +59,11 @@ def _parse_until(until: str | None, forever: bool) -> tuple[int, str | None]:
     return int(parsed.timestamp()), parsed.astimezone(timezone.utc).isoformat()
 
 
+def validate_mute_flags(*, until: str | None, forever: bool) -> None:
+    """Fail closed before audit/network (ADR-0032 grilling)."""
+    _parse_until(until, forever)
+
+
 async def set_muted(
     tg, chat: str, *, muted: bool, until: str | None = None, forever: bool = False
 ) -> dict:
