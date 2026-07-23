@@ -47,6 +47,10 @@ selected account session, does one operation, and exits.
 | Inspect a dialog | `tg --json info @channel` |
 | Inspect dialog capabilities | `tg --json info @channel --full` |
 | Count messages | `tg --json count @channel` |
+| Resolve a peer | `tg --json resolve @user` / `tg --json resolve +995…` |
+| List / search contacts | `tg --json contacts list` / `tg --json contacts search "query"` |
+| Media inventory (no download) | `tg --json media manifest @channel --type photo --limit 50` |
+| Reply chain | `tg --json thread CHAT MESSAGE_ID [--replies] [--depth 20]` |
 | Download media | `tg --json media download https://t.me/channel/42 --parallel 4` |
 | Preview a send | `tg --json send @channel "Hello" --preview` |
 | Preview a reply/topic/silent send | `tg --json send CHAT "TEXT" --preview --reply-to ID --topic ID --silent` |

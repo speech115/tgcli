@@ -18,6 +18,7 @@ class FakeClient:
         participants=(),
         participants_count=None,
         participant_search=None,
+        replies=None,
         resolve_phone_result=None,
         contacts_result=None,
         contacts_search_result=None,
@@ -31,6 +32,7 @@ class FakeClient:
         self._participants = list(participants)
         self._participants_count = participants_count
         self._participant_search = participant_search
+        self._replies = dict(replies or {})
         self._resolve_phone_result = resolve_phone_result
         self._contacts_result = contacts_result
         self._contacts_search_result = contacts_search_result
@@ -122,8 +124,11 @@ class FakeClient:
     async def get_me(self):
         return self._me
 
-    async def get_messages(self, entity, ids=None, limit=None):
-        self.get_messages_calls.append((entity, ids, limit))
+    async def get_messages(self, entity, ids=None, limit=None, reply_to=None):
+        self.get_messages_calls.append((entity, ids, limit, reply_to))
+        if reply_to is not None:
+            messages = list(self._replies.get(reply_to, ()))
+            return messages[:limit] if limit is not None else messages
         if limit == 0:
             return ns(total=self._message_total)
         if isinstance(ids, list):

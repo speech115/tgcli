@@ -13,6 +13,22 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — ADR-0029 slice 3: media manifest + thread (Composer)
+**Did:** executed discovery-inbox Tasks 6–7. `tg media manifest CHAT` dry-run
+inventory (`--type`/`--since`/`--limit`, no download) in `media.py`. New
+`commands/thread.py` + `tg thread CHAT MESSAGE_ID` with ancestor walk
+(depth default 20, hard cap 100, cycle-safe) and opt-in `--replies` via
+`get_messages(reply_to=…)` when `message.replies` exposes a cheap thread.
+FakeClient `get_messages` gains `reply_to` + `replies=` map. CONTRACT, MAP,
+SKILL, PROPOSALS updated; ADR-0029 plan fully shipped.
+**Decided:** argparse `--type` invalid choice stays exit 1 (repo convention),
+not PolicyError exit 2; newest-first `--since` stops at the first older
+message rather than scanning past it.
+**Learned:** Telethon `get_messages(reply_to=)` is enough for forum/comment
+threads without a raw `GetRepliesRequest` in the wrapper.
+**Next:** optional PR for `claude/agent-quick-wins`; backlog remains
+mutual-chats / bulk media / incremental export / batch / dialog archive-mute.
+
 ## 2026-07-23 — ADR-0029 slice 2: mark-unread + dialog pin/unpin (Composer)
 **Did:** executed discovery-inbox Tasks 4–5. `tg mark-unread CHAT` via
 `MarkDialogUnreadRequest(unread=True)` in `mutate.py`, with the same

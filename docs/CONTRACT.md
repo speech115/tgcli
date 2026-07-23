@@ -217,6 +217,19 @@ to stderr. Single-stream transfer resumes a matching interrupted partial file
 from `~/.local/state/tgcli/downloads/`; `--parallel N` is opt-in, requires a
 positive `N`, and starts a fresh offset-based transfer.
 
+```
+tg media manifest CHAT [--type photo|video|audio|voice|document] [--since ISO] [--limit N]
+```
+
+`media manifest` is a dry-run inventory (ADR-0029): it walks recent messages
+with `iter_messages` (default `--limit` 100), keeps only those with media, and
+never downloads. Each item is
+`{"message_id":42,"type":"photo","size":1234,"mime":"image/jpeg","filename":"a.jpg"}`.
+`--type` filters to one kind; `--since` drops older messages (newest-first walk
+stops at the first message older than the bound). Success JSON:
+`{"dialog":{"id":-1001234,"name":"Channel"},"items":[...],"count":N}`. Plain
+rows are `message_id`, `type`, `size`, `mime`, `filename`.
+
 ### TSV Shapes
 
 `dialogs` retains its phase-1 columns and appends `mentions` as the final
@@ -228,7 +241,8 @@ columns; its additive fields are JSON-only. `resolve` outputs one row:
 `id`, `type`, `username`, `display_name`. `contacts list` and `contacts
 search` output the same four columns, one row per contact; `scope` is
 JSON-only.
-`media download` outputs `path`, `bytes`, `resumed`, `parallel`. `send` preview
+`media download` outputs `path`, `bytes`, `resumed`, `parallel`. `media
+manifest` outputs `message_id`, `type`, `size`, `mime`, `filename`. `send` preview
 rows retain their existing columns and append `file`, `reply_to`, `format`. `edit` preview
 rows are `preview_id`, `message_id`, `old_text`, `text`, `format`; `delete` preview rows
 are `preview_id`, `message_id`, `text`; `forward` preview rows are
@@ -371,6 +385,21 @@ tg dialog unpin CHAT
 `{"dialog":{"id":-1001234},"pinned":true|false}` and write a fail-closed
 `dialog-pin` or `dialog-unpin` audit record with the submitted chat reference.
 Plain rows are `dialog_id`, `pinned|unpinned`.
+
+```
+tg thread CHAT MESSAGE_ID [--replies] [--depth N] [--limit N]
+```
+
+`thread` is a read-only reply-chain discovery command (ADR-0029). It always
+returns `{dialog, root, ancestors, replies, note}` where `root` and each
+ancestor/reply use the universal message JSON shape. Ancestors walk
+`reply_to` upward, ordered oldest→newest, excluding the root; `--depth`
+defaults to 20 and is hard-capped at 100 (cycles stop the walk). `replies`
+is empty unless `--replies` is set **and** the root exposes a cheap
+comment/forum thread (`message.replies`); otherwise `replies` stays `[]` and
+`note` is `"no cheap reply thread for this message; replies omitted"`.
+`--limit` caps replies (default 50). Plain rows are the same message TSV as
+`read`, one row per root then ancestors then replies.
 
 ## 5.1 Environment Health (`tg doctor`; ADR-0028)
 

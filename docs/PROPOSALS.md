@@ -43,13 +43,11 @@ existing issue — not a new proposal.
 
 Everything below has no code path today and is not in ISSUES.md.
 
-> **Graduated 2026-07-21:** `resolve`, `contacts list/search`, `media manifest`,
-> `dialog pin/unpin` + `mark-unread`, and `thread` passed the maintenance-mode
-> gate — see **ADR-0029** and its plan
-> [2026-07-21-discovery-inbox.md](superpowers/plans/2026-07-21-discovery-inbox.md).
-> They are kept below for context but are now planned, not unvetted. Still
-> genuinely backlog: `mutual-chats`, bulk media download, incremental export,
-> `batch`, `dialog archive/mute`, and the community/stats/security verticals.
+> **Graduated 2026-07-21 / shipped 2026-07-23:** `resolve`, `contacts
+> list/search`, `media manifest`, `dialog pin/unpin` + `mark-unread`, and
+> `thread` shipped under **ADR-0029** (all three plan slices). Still genuinely
+> backlog: `mutual-chats`, bulk media download, incremental export, `batch`,
+> `dialog archive/mute`, and the community/stats/security verticals.
 
 **Value** = leverage; **Effort**: `XS` hours / `S` ~a day / `M` days+ADR /
 `L` multi-day vertical + ADR; **Status**: `raw-only` = reachable via `tg api`
@@ -77,16 +75,16 @@ allowlisted calls but no task-first wrapper.
 
 | Item | Value | Effort | Status |
 |---|---|---|---|
-| `tg resolve` | high | S | raw-only |
-| `tg contacts list` | med | S | raw-only (`getContacts`) |
-| `tg contacts search` | med | S | raw-only (`contacts.search`) |
+| `tg resolve` | high | S | **shipped** (ADR-0029 slice 1) |
+| `tg contacts list` | med | S | **shipped** (ADR-0029 slice 1) |
+| `tg contacts search` | med | S | **shipped** (ADR-0029 slice 1) |
 | `tg mutual-chats <@user>` | med | S | raw-only (`getCommonChats`) |
 
 ### Thread reading
 
 | Item | Value | Effort | Status |
 |---|---|---|---|
-| `tg thread` (reply chain) | high | M | missing |
+| `tg thread` (reply chain) | high | M | **shipped** (ADR-0029 slice 3) |
 
 ### Read-only batch mode
 
@@ -105,7 +103,7 @@ transaction language without real atomicity; out of scope for v1.
 | `export messages --after-id --append` / `--resume` | med | S | missing |
 | `export bundle <chat> --output dir/` | med | M | missing |
 | `media download --since/--type/--all/--message-ids` | med | M | missing (per-message only) |
-| `media manifest` | med | S | missing |
+| `media manifest` | med | S | **shipped** (ADR-0029 slice 3) |
 
 Note: incremental *reading* is already covered by `read --after-id/--since`;
 this is about the *export/download* side.

@@ -30,7 +30,7 @@ def test_count_json_uses_messages_total(config_env, monkeypatch, capsys):
     code = main(["count", "@chan", "--json"])
 
     assert code == 0
-    assert fake.get_messages_calls == [(entity, None, 0)]
+    assert fake.get_messages_calls == [(entity, None, 0, None)]
     assert json.loads(capsys.readouterr().out) == {
         "dialog": {"id": -1001234, "name": "Channel"},
         "count": 73,
