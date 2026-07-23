@@ -58,7 +58,7 @@ tgcli/
 │   │   ├── identity.py        [done]    tg resolve / contacts / mutual-chats (ADR-0029/0032)
 │   │   ├── dialog.py          [done]    tg dialog pin/unpin/archive/mute (ADR-0029/0032)
 │   │   ├── thread.py          [done]    tg thread reply-chain read (ADR-0029)
-│   │   ├── media.py           [done]    tg media download|manifest (phase 3; ADR-0029)
+│   │   ├── media.py           [done]    tg media download|manifest (+ bulk download ADR-0032)
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── mutate.py          [done]    tg edit|delete|forward preview / commit; tg mark-read|mark-unread (ADR-0028/0029)
 │   │   ├── doctor.py          [done]    tg doctor environment/session health report (ADR-0028)

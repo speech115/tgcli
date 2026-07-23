@@ -102,7 +102,7 @@ transaction language without real atomicity; out of scope for v1.
 |---|---|---|---|
 | `export messages --after-id --append` / `--resume` | med | S | **shipped** (ADR-0032 slice 3) |
 | `export bundle <chat> --output dir/` | med | M | missing |
-| `media download --since/--type/--all/--message-ids` | med | M | missing (per-message only) |
+| `media download --since/--type/--all/--message-ids` | med | M | **shipped** (ADR-0032 slice 4; no `--all`, hard cap 100) |
 | `media manifest` | med | S | **shipped** (ADR-0029 slice 3) |
 
 Note: incremental *reading* is already covered by `read --after-id/--since`;

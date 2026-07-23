@@ -244,6 +244,18 @@ to stderr. Single-stream transfer resumes a matching interrupted partial file
 from `~/.local/state/tgcli/downloads/`; `--parallel N` is opt-in, requires a
 positive `N`, and starts a fresh offset-based transfer.
 
+Bulk mode (ADR-0032) activates with `--message-ids id,id` and/or filter flags
+`--type` / `--since` / `--limit` on a chat reference (no single `message_id`).
+Do not combine a positional `message_id` with bulk flags (exit 2). Hard cap
+**100** downloads per invocation (`--message-ids` length and filter `--limit`;
+default filter limit 100). `--output` is a destination directory. Success /
+partial JSON:
+`{"dialog":{…},"items":[{"message_id","path","bytes","resumed"}],"count":N,
+"failed":[{"message_id","error"}]}`. Per-item NotFound goes into `failed` and
+continues; FloodWait/auth/policy stop the loop. Any non-empty `failed` →
+nonzero exit (typically 4) while still emitting the JSON document on
+`--json`; successful files remain on disk. Unbounded `--all` is not offered.
+
 ```
 tg media manifest CHAT [--type photo|video|audio|voice|document] [--since ISO] [--limit N]
 ```

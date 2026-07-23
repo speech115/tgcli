@@ -13,6 +13,14 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Slice 4: bulk media download (Composer)
+**Did:** ADR-0032 slice 4 — `media download --message-ids` and filter
+`--type/--since/--limit` (cap 100). PartialFailure emits JSON with
+`failed[]` and nonzero exit. CONTRACT/SKILL/PROPOSALS/MAP updated.
+**Decided:** PartialFailure exception carries result document for stdout.
+**Learned:** none.
+**Next:** Slice 5 — read-only `tg batch`.
+
 ## 2026-07-23 — Slice 3: incremental export messages (Composer)
 **Did:** ADR-0032 slice 3 — `export messages --after-id/--append/--resume`.
 Append requires a cursor; resume parses last JSONL `id` (fail closed).
