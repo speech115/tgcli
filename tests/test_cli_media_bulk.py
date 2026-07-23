@@ -5,7 +5,7 @@ import pytest
 from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli import cli
 from tgcli.cli import main
-from tgcli.errors import NotFoundError, PolicyError
+from tgcli.errors import NotFoundError
 
 
 SAMPLE = """
@@ -120,6 +120,4 @@ def test_media_download_rejects_over_100_ids(config_env, monkeypatch):
 
 def test_media_download_rejects_message_id_with_bulk_flags(config_env, monkeypatch):
     make_session_fake(monkeypatch, FakeClient())
-    assert (
-        main(["media", "download", "@chan", "42", "--message-ids", "1,2"]) == 2
-    )
+    assert main(["media", "download", "@chan", "42", "--message-ids", "1,2"]) == 2

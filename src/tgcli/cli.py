@@ -213,7 +213,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_download = media_sub.add_parser("download", parents=[global_flags])
     p_download.add_argument("source", help="t.me link or chat reference")
     p_download.add_argument("message_id", nargs="?", type=int)
-    p_download.add_argument("--output", help="final output path or bulk output directory")
+    p_download.add_argument(
+        "--output", help="final output path or bulk output directory"
+    )
     p_download.add_argument("--parallel", type=int, default=1)
     p_download.add_argument(
         "--message-ids",
@@ -727,8 +729,7 @@ def main(argv: list[str] | None = None) -> int:
                 except SystemExit:
                     return 1
         if args.command in ("read", "search") or (
-            args.command == "media"
-            and args.media_command in ("manifest", "download")
+            args.command == "media" and args.media_command in ("manifest", "download")
         ):
             try:
                 args.since = _parse_when(

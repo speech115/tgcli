@@ -376,9 +376,7 @@ async def download_media_bulk(
         if effective_limit < 1:
             raise PolicyError("bulk media --limit must be positive")
         if effective_limit > BULK_DOWNLOAD_CAP:
-            raise PolicyError(
-                f"bulk media --limit may not exceed {BULK_DOWNLOAD_CAP}"
-            )
+            raise PolicyError(f"bulk media --limit may not exceed {BULK_DOWNLOAD_CAP}")
         inventory = await manifest(
             tg, chat, kind=kind, since=since, limit=effective_limit
         )
@@ -401,11 +399,14 @@ async def download_media_bulk(
                 tg,
                 source,
                 account_alias,
-                output=str(output_dir / _message_filename(
-                    # resolve for filename — download_media resolves again
-                    (await resolve_message(tg, source, account_alias))[1],
-                    message_id,
-                )),
+                output=str(
+                    output_dir
+                    / _message_filename(
+                        # resolve for filename — download_media resolves again
+                        (await resolve_message(tg, source, account_alias))[1],
+                        message_id,
+                    )
+                ),
                 progress=progress,
             )
             items.append(
