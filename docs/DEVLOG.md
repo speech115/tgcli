@@ -17,6 +17,27 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Split quote fallback rendering from the resolver (Composer)
+**Did:** ADR-0037. Extracted `clone/quote_fallback.py` (source label, blockquote
+prefix, peer label, fallback plan, `apply_body`, `drop_stale_quote`) from
+`clone/quotes.py`, which keeps reachability, cross-leg walks, thread
+placement, `resolve`, and `send_with_degrade`. `commands/clone.py` and tests
+import the owning module — no re-exports. Architecture ceilings: `quotes.py`
+365, `quote_fallback.py` 149 (down from the 500 monolithic
+bump). MAP + ADR index updated. Behaviour unchanged; existing quote tests are
+the proof. Rebased onto the merged #31 after review: the split now carries the
+foreign-parent guard in `_place_thread` and the `placement` argument that lets
+`fallback_plan` keep a rejected send's resolved thread.
+**Decided:** two jobs, two modules — classify (`replies`) → resolve (`quotes`)
+→ render loss (`quote_fallback`). Rejected a three-way peers split as shallow
+(ADR-0034).
+**Learned:** the live-run fixes that grew the file were almost all fallback
+shaping; they never needed the async resolver context. The review fixes split
+the same way: the guard stayed with the resolver, the placement argument went
+with the renderer.
+**Next:** independent Spec + Standards review of PR #31 (and this stacked
+seam PR) before merge.
+
 ## 2026-07-23 — Review of the quote-reply branch: two resolver defects (Claude Opus 4.8)
 **Did:** reviewed PR #31 against its plan and ADR-0036, then fixed the two
 defects the review found in `clone/quotes.py`. (1) `_place_thread` walked

@@ -1,7 +1,8 @@
 """Resolve clone reply classifications into native quotes or fallbacks (ADR-0036).
 
-Client-bound: reachability probes, cross-leg anchor walks, and fallback rendering
-live here. ``replies`` stays a pure classifier.
+Client-bound: reachability probes, cross-leg anchor walks, and send-time
+retry live here. ``replies`` stays a pure classifier; rendered degradation
+lives in ``quote_fallback`` (ADR-0037).
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from typing import Any, cast
 from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
-from tgcli.clone import attribution, discussion, replies, transport
+from tgcli.clone import attribution, discussion, quote_fallback, replies, transport
 
 
 @dataclass
@@ -32,96 +33,11 @@ class ResolveContext:
     peer_titles: dict = field(default_factory=dict)
 
 
-def _peer_cache_key(peer) -> tuple:
-    if isinstance(peer, types.PeerChannel):
-        return ("channel", peer.channel_id)
-    if isinstance(peer, types.PeerUser):
-        return ("user", peer.user_id)
-    if isinstance(peer, types.PeerChat):
-        return ("chat", peer.chat_id)
-    return (
-        "other",
-        getattr(peer, "channel_id", None) or getattr(peer, "user_id", None),
-    )
-
-
-def _peer_label(peer, entity, title: str | None = None) -> str:
-    if entity is not None:
-        return attribution.display_name(entity)
-    if title:
-        return title
-    peer_id = _peer_cache_key(peer)[1]
-    return "id unknown" if peer_id is None else f"id {peer_id}"
-
-
 def _quote_fields(classified: replies.Classification):
     return (
         classified.quote_text,
         list(classified.quote_entities) or None,
         classified.quote_offset,
-    )
-
-
-def _reuploaded(plan: transport.TransportPlan) -> transport.TransportPlan:
-    return replace(
-        plan,
-        mode="snapshots" if plan.mode == "snapshots" else "reuploaded",
-        needs_author=True,
-        reply_flattened=False,
-    )
-
-
-# Source label for a quote that could not stay a native reply. Russian, to
-# match the clones this tool actually runs; one place to change.
-FALLBACK_SOURCE_LABEL = "Переслано от:"
-
-
-def fallback_prefix(title: str, quote_text: str | None) -> tuple[str, tuple]:
-    """Labelled peer line, the quote as a blockquote, then a blank line."""
-    quote = quote_text or ""
-    head = f"{FALLBACK_SOURCE_LABEL} {title}\n"
-    prefix = f"{head}{quote}\n\n"
-    entities: tuple = ()
-    if quote:
-        entities = (
-            types.MessageEntityBlockquote(
-                offset=attribution.utf16_len(head),
-                length=attribution.utf16_len(quote),
-            ),
-        )
-    return prefix, entities
-
-
-def _fallback_plan(
-    messages,
-    plan: transport.TransportPlan,
-    classified: replies.Classification,
-    *,
-    reason: str,
-    entity=None,
-    peer_title: str | None = None,
-    placement: int | None = None,
-) -> transport.TransportPlan:
-    """Rendered fallback body; ``placement`` is the destination thread anchor."""
-    title = _peer_label(classified.peer, entity, peer_title)
-    prefix, prefix_entities = fallback_prefix(title, classified.quote_text)
-    quote_flattened = {
-        "id": messages[0].id,
-        "peer": _peer_cache_key(classified.peer)[1],
-        "reason": reason,
-    }
-    return _reuploaded(
-        replace(
-            plan,
-            reply_to=(
-                None
-                if placement is None
-                else types.InputReplyToMessage(reply_to_msg_id=placement)
-            ),
-            body_prefix=prefix,
-            body_prefix_entities=prefix_entities,
-            quote_flattened=quote_flattened,
-        )
     )
 
 
@@ -135,7 +51,7 @@ FOREIGN_SEND_ERRORS = (
 
 
 async def _probe_reachable(ctx: ResolveContext, peer) -> tuple[bool, object | None]:
-    key = _peer_cache_key(peer)
+    key = quote_fallback.peer_cache_key(peer)
     if key in ctx.peer_reachable:
         return ctx.peer_reachable[key], ctx.peer_entities.get(key)
     entity = None
@@ -159,7 +75,7 @@ async def _peer_title(ctx: ResolveContext, peer, message) -> str | None:
     account is banned from, and it is the only place the title is available:
     resolving the bare ``PeerChannel`` raises ``ChannelPrivateError``.
     """
-    key = _peer_cache_key(peer)
+    key = quote_fallback.peer_cache_key(peer)
     if key in ctx.peer_titles:
         return ctx.peer_titles[key]
     enclosing = getattr(message, "peer_id", None)
@@ -303,7 +219,7 @@ async def _place_thread(
             and (mapped_top := leg.dest_for(top)) is not None
             and plan.reply_to is None
         ):
-            return _reuploaded(
+            return quote_fallback.reuploaded(
                 replace(
                     plan,
                     reply_to=types.InputReplyToMessage(reply_to_msg_id=mapped_top),
@@ -328,7 +244,7 @@ async def _place_thread(
     else:
         reply_to = cast(types.InputReplyToMessage, copy(plan.reply_to))
         reply_to.top_msg_id = found
-    return _reuploaded(replace(plan, reply_to=reply_to))
+    return quote_fallback.reuploaded(replace(plan, reply_to=reply_to))
 
 
 async def _unreachable_fallback(
@@ -345,7 +261,7 @@ async def _unreachable_fallback(
         if entity is not None
         else await _peer_title(ctx, classified.peer, messages[0])
     )
-    return _fallback_plan(
+    return quote_fallback.fallback_plan(
         messages,
         plan,
         classified,
@@ -370,7 +286,7 @@ async def resolve(
     elif classified.kind == "mapped-cross-leg":
         reply_to = await _cross_leg_reply(classified, leg, ctx)
         if reply_to is not None:
-            plan = _reuploaded(replace(plan, reply_to=reply_to))
+            plan = quote_fallback.reuploaded(replace(plan, reply_to=reply_to))
     elif classified.kind == "foreign-peer":
         reachable, entity = await _probe_reachable(ctx, classified.peer)
         if reachable:
@@ -379,7 +295,7 @@ async def resolve(
             except ValueError:
                 reply_to = None
             if reply_to is not None:
-                plan = _reuploaded(replace(plan, reply_to=reply_to))
+                plan = quote_fallback.reuploaded(replace(plan, reply_to=reply_to))
             else:
                 plan = await _unreachable_fallback(
                     messages, plan, classified, ctx, entity=entity
@@ -397,10 +313,10 @@ def degrade_to_fallback(
     classified = replies.target(messages, leg, source)
     if classified is None or classified.kind != "foreign-peer":
         return plan
-    key = _peer_cache_key(classified.peer)
+    key = quote_fallback.peer_cache_key(classified.peer)
     ctx.peer_reachable[key] = False
     entity = ctx.peer_entities.get(key)
-    return _fallback_plan(
+    return quote_fallback.fallback_plan(
         messages,
         plan,
         classified,
@@ -425,60 +341,11 @@ def _degraded_placement(plan, classified: replies.Classification, leg) -> int | 
     return None
 
 
-def apply_body(message, author, plan) -> tuple[str, list | None]:
-    """Quote fallback prefix (if any), then author attribution — one UTF-16 path."""
-    text, entities = attribution.with_prefix(
-        getattr(message, "message", None) or "",
-        getattr(message, "entities", None),
-        plan.body_prefix or "",
-        plan.body_prefix_entities,
-    )
-    return attribution.prefixed(text, entities, author)
-
-
 def foreign_quote_reply(plan) -> bool:
     reply_to = plan.reply_to
     return (
         isinstance(reply_to, types.InputReplyToMessage)
         and reply_to.reply_to_peer_id is not None
-    )
-
-
-def _stale_quote_peer(messages):
-    header = getattr(messages[0], "reply_to", None)
-    peer = getattr(header, "reply_to_peer_id", None) if header is not None else None
-    return None if peer is None else _peer_cache_key(peer)[1]
-
-
-def drop_stale_quote(messages, plan, error) -> transport.TransportPlan | None:
-    """Strip a quote Telegram refuses, keeping the reply link intact.
-
-    A quote carries the parent's text as it read when the quote was made. Edit
-    the parent afterwards and the stored fragment no longer matches, so
-    re-sending it is rejected with ``QUOTE_TEXT_INVALID`` even though the
-    reply target itself is perfectly valid. Dropping the stale fragment keeps
-    the reply — and the thread — and reports the loss; keeping it would fail
-    the whole batch over one edited word.
-    """
-    if not str(getattr(error, "message", "") or "").startswith("QUOTE_"):
-        return None
-    reply_to = plan.reply_to
-    if not isinstance(reply_to, types.InputReplyToMessage):
-        return None
-    if reply_to.quote_text is None:
-        return None
-    stripped = cast(types.InputReplyToMessage, copy(reply_to))
-    stripped.quote_text = None
-    stripped.quote_entities = None
-    stripped.quote_offset = None
-    return replace(
-        plan,
-        reply_to=stripped,
-        quote_flattened={
-            "id": messages[0].id,
-            "peer": _stale_quote_peer(messages),
-            "reason": "quote-rejected",
-        },
     )
 
 
@@ -492,7 +359,7 @@ async def send_with_degrade(send, messages, plan, leg, source, ctx):
         degraded = degrade_to_fallback(messages, plan, leg, source, ctx)
         return await send(degraded)
     except telethon_errors.BadRequestError as error:
-        stripped = drop_stale_quote(messages, plan, error)
+        stripped = quote_fallback.drop_stale_quote(messages, plan, error)
         if stripped is None:
             raise
         return await send(stripped)

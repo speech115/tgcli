@@ -43,6 +43,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0034](ADR-0034-shared-read-operation-seam.md) | Shared typed read-operation seam for interactive CLI and batch | accepted |
 | [0035](ADR-0035-cli-entry-split.md) | CLI entry split into parser/preflight/dispatch; budgets become ceilings | accepted |
 | [0036](ADR-0036-clone-quote-replies.md) | Clone classifies quote replies by target reachability; understood-but-untransferable degrades and reports instead of wedging | accepted |
+| [0037](ADR-0037-clone-quote-fallback-seam.md) | Split clone quote fallback rendering (`quote_fallback.py`) from the async resolver (`quotes.py`) | accepted |
 
 Notes on supersessions:
 
