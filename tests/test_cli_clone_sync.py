@@ -1354,10 +1354,13 @@ def test_clone_sync_topic_recovery_reuses_mapping_after_copy_failure(
     assert saved.cursor == 5 and saved.dest_for(5) == 3
 
 
-def test_clone_sync_validates_forum_header_before_topic_recovery(
+def test_clone_sync_flattens_cross_peer_forum_header_without_wedging(
     config_env, monkeypatch, capsys
 ):
     clone_state = seed_clone(kind="forum", title="Forum chat")
+    clone_state.record_topic(2, 1002)
+    clone_state.cursor = 2
+    state.save(clone_state)
     client = CloneForumClient(
         [
             message(
@@ -1370,15 +1373,17 @@ def test_clone_sync_validates_forum_header_before_topic_recovery(
             ),
         ]
     )
+    client.destination_last_id = 1002
     make_session_fake(monkeypatch, client)
 
-    assert main(["clone", "sync", "@source", "--json"]) == 2
+    assert main(["clone", "sync", "@source", "--json"]) == 0
 
-    assert "cross-peer clone replies are not supported" in capsys.readouterr().err
-    assert client.requests == []
-    assert not safety.audit_path().exists()
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] == 1
+    assert sync["reply_flattened"] == 1
     saved = state.load(clone_state.clone_id)
-    assert saved.cursor == 0 and saved.topic_map == {} and saved.id_map == {}
+    assert saved.cursor == 5
+    assert saved.dest_for(5) is not None
 
 
 @pytest.mark.parametrize("topic_id", [True, "2", -2, 2_147_483_648])
@@ -1547,7 +1552,7 @@ def test_clone_sync_forwards_same_topic_placement_album(
     assert request.id == [3, 4] and request.top_msg_id == 1002
 
 
-def test_clone_sync_rejects_forum_reply_header_for_nonforum_clone(
+def test_clone_sync_flattens_forum_reply_header_for_nonforum_clone(
     config_env, monkeypatch, capsys
 ):
     seed_clone(kind="megagroup", title="Team chat")
@@ -1564,9 +1569,11 @@ def test_clone_sync_rejects_forum_reply_header_for_nonforum_clone(
     )
     make_session_fake(monkeypatch, client)
 
-    assert main(["clone", "sync", "@source", "--json"]) == 2
+    assert main(["clone", "sync", "@source", "--json"]) == 0
 
-    assert "reply shape is not supported" in capsys.readouterr().err
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] == 1
+    assert sync["reply_flattened"] == 1
 
 
 def test_clone_sync_forwards_megagroup_nonreply_with_author_header(
@@ -1819,7 +1826,7 @@ def test_clone_sync_reuploads_basic_group_reply_with_prefix(
     assert sync["reuploaded"] == 1
 
 
-def test_clone_sync_blocks_basic_group_reply_with_different_source_peer(
+def test_clone_sync_flattens_basic_group_reply_with_different_source_peer(
     config_env, monkeypatch, capsys
 ):
     clone_state = seed_clone(kind="basic", title="Legacy group")
@@ -1834,11 +1841,12 @@ def test_clone_sync_blocks_basic_group_reply_with_different_source_peer(
     client.destination_last_id = 1001
     make_session_fake(monkeypatch, client)
 
-    assert main(["clone", "sync", "@source", "--json"]) == 2
+    assert main(["clone", "sync", "@source", "--json"]) == 0
 
-    assert "cross-peer clone replies" in capsys.readouterr().err
-    assert client.requests == []
-    assert state.load(clone_state.clone_id).dest_for(2) is None
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] == 1
+    assert sync["reply_flattened"] == 1
+    assert state.load(clone_state.clone_id).dest_for(2) is not None
 
 
 def test_clone_sync_reports_attributed_unmapped_reply_forward_fallback(

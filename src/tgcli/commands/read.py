@@ -1,4 +1,6 @@
+from telethon import utils
 from telethon.helpers import add_surrogate, del_surrogate
+from telethon.tl import types
 from telethon.tl.types import MessageEntityCustomEmoji
 
 from tgcli import chatref
@@ -112,6 +114,41 @@ def _topic_id(message) -> int | None:
     )
 
 
+def _reply_peer_matches_chat(peer, entity) -> bool:
+    """True when reply_to_peer_id names the chat being read (or is absent)."""
+    if peer is None or entity is None:
+        return True
+    eid = getattr(entity, "id", None)
+    if not isinstance(eid, int):
+        return True
+    if utils.get_peer_id(peer) == eid:
+        return True
+    if isinstance(peer, types.PeerChannel):
+        return peer.channel_id == eid
+    if isinstance(peer, types.PeerUser):
+        return peer.user_id == eid
+    if isinstance(peer, types.PeerChat):
+        return peer.chat_id == eid
+    return False
+
+
+def _reply_to(message, entity=None):
+    msg_id = message.reply_to_msg_id
+    if msg_id is None:
+        return None
+    header = getattr(message, "reply_to", None)
+    peer = getattr(header, "reply_to_peer_id", None) if header is not None else None
+    if _reply_peer_matches_chat(peer, entity):
+        return msg_id
+    return {"id": msg_id, "peer": utils.get_peer_id(peer)}
+
+
+def _quote_text(message) -> str | None:
+    header = getattr(message, "reply_to", None)
+    text = getattr(header, "quote_text", None) if header is not None else None
+    return text if isinstance(text, str) else None
+
+
 def message_to_dict(message, entity=None) -> dict:
     edit_date = getattr(message, "edit_date", None)
     return {
@@ -125,7 +162,8 @@ def message_to_dict(message, entity=None) -> dict:
         "text": message.text or "",
         "media": type(message.media).__name__ if message.media else None,
         "media_info": _media_info(message),
-        "reply_to": message.reply_to_msg_id,
+        "reply_to": _reply_to(message, entity),
+        "quote_text": _quote_text(message),
         "permalink": _permalink(entity, message.id),
         "edited_at": edit_date.isoformat() if edit_date else None,
         "outgoing": bool(getattr(message, "out", False)),

@@ -14,11 +14,24 @@ class TransportPlan:
 
 
 def decide(messages, leg, source) -> TransportPlan:
-    reply_to = replies.target(messages, leg, source)
+    classified = replies.target(messages, leg, source)
     header = getattr(messages[0], "reply_to", None)
-    reply_flattened = (
-        header is not None and reply_to is None and not topics.placement_only(header)
-    )
+    if classified is None:
+        reply_to = None
+        reply_flattened = False
+    elif classified.kind == "mapped-in-leg":
+        reply_to = replies.input_reply(classified, leg)
+        reply_flattened = False
+    elif classified.kind == "flatten":
+        reply_to = None
+        # Forum placement-only headers on a forum destination are not a lost reply.
+        reply_flattened = not (
+            leg.destination_kind == "forum" and topics.placement_only(header)
+        )
+    else:
+        # foreign-peer / mapped-cross-leg resolve in a later slice; flatten until then.
+        reply_to = None
+        reply_flattened = True
     if len(messages) == 1 and fidelity.supports(messages[0]):
         mode = "snapshots"
     elif (

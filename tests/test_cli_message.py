@@ -56,6 +56,7 @@ def test_message_json_matches_contract(config_env, monkeypatch, capsys):
             "media": None,
             "media_info": None,
             "reply_to": None,
+            "quote_text": None,
             "permalink": None,
             "edited_at": None,
             "outgoing": False,

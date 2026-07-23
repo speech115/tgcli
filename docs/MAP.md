@@ -49,7 +49,7 @@ tgcli/
 │   │   ├── transport.py       [done]    pure forward/reupload/snapshot decision
 │   │   ├── snapshot.py        [done]    truthful poll/story text rendering
 │   │   ├── attribution.py     [done]    source kinds, author-identity ladder, UTF-16 prefix + mention shifts (ADR-0023)
-│   │   ├── replies.py         [done]    validated reply mapping and explicit flatten fallback
+│   │   ├── replies.py         [done]    reply classification (ADR-0036); mapped-in-leg input rebuild; flatten/foreign pending resolver
 │   │   ├── topics.py          [done]    forum destination shape, lazy topic map, batch confirmation (ADR-0022)
 │   │   ├── discussion.py      [done]    linked-chat detection, discussion group create/link/recover, anchor lookup (ADR-0023)
 │   │   ├── comments.py        [done]    phase-2 sync leg: copies the discussion group, remaps comment threads (ADR-0023)

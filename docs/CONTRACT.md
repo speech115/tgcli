@@ -68,7 +68,8 @@ them as channels; broadcast channels remain `channel`.
  "messages": [{"id": 42, "date": "2026-07-06T10:00:00+00:00",
                "from": {"id": 111, "name": "Alice", "username": null},
                "text": "hello", "media": null, "media_info": null,
-               "reply_to": null, "permalink": null, "edited_at": null,
+               "reply_to": null, "quote_text": null, "permalink": null,
+               "edited_at": null,
                "outgoing": false, "forwarded_from": null, "reactions": [],
                "custom_emoji": [],
                "topic_id": null, "grouped_id": null, "is_service": false}],
@@ -83,7 +84,11 @@ as a **decimal string** (so IEEE-754 JSON number parsers cannot round it; the
 string is the `emoji-id` accepted by `--format html`) and `emoji` is the
 fallback unicode glyph; offsets are UTF-16 code units. This lets an agent
 harvest custom-emoji ids from any readable post and reuse them when composing
-formatted messages.
+formatted messages. `reply_to` is the parent message id as an int for same-chat
+replies (and when `reply_to_peer_id` is absent); for a cross-chat quote reply it
+is `{"id": <msg_id>, "peer": <bot-api peer id>}` so the id is not resolved
+against the chat being read. `quote_text` is the quoted fragment string when
+the reply header carries one, otherwise `null`.
 
 `read` accepts `--before-id INT` (messages older than an id), `--after-id INT`
 (messages newer than an id), `--since ISO`, `--until ISO`, and `--topic INT`
@@ -98,7 +103,8 @@ newest-first output and stops when it reaches the lower date boundary.
  "messages": [{"id": 42, "date": "2026-07-06T10:00:00+00:00",
                "from": {"id": 111, "name": "Alice", "username": null},
                "text": "hello", "media": null, "media_info": null,
-               "reply_to": null, "permalink": null, "edited_at": null,
+               "reply_to": null, "quote_text": null, "permalink": null,
+               "edited_at": null,
                "outgoing": false, "forwarded_from": null, "reactions": [],
                "custom_emoji": [],
                "topic_id": null, "grouped_id": null, "is_service": false}]}
@@ -129,7 +135,8 @@ one message in that same shape:
  "message": {"id": 42, "date": "2026-07-06T10:00:00+00:00",
              "from": {"id": 111, "name": "Alice", "username": null},
              "text": "hello", "media": null, "media_info": null,
-             "reply_to": null, "permalink": null, "edited_at": null,
+             "reply_to": null, "quote_text": null, "permalink": null,
+             "edited_at": null,
              "outgoing": false, "forwarded_from": null, "reactions": [],
              "custom_emoji": [],
              "topic_id": null, "grouped_id": null, "is_service": false}}
@@ -868,11 +875,15 @@ attributed message uses a native author-preserving forward for this fallback.
 If only the nested top root is unavailable, the mapped direct parent remains
 linked. `MessageReplyStoryHeader` also flattens and reports because it has no
 message id to map. In forum clones, placement-only topic headers are not replies;
-real in-topic replies map both their parent and topic. Non-forum clones reject
-forum reply headers. Cross-peer, scheduled, ephemeral, todo, poll-option,
-reply-from, reply-media, malformed quote, and inconsistent album reply shapes
-exit 2 before audit or mutation. Supported quote text, entities, and offset are
-retained.
+real in-topic replies map both their parent and topic. Non-forum clones, and
+headers that carry scheduled/ephemeral/todo/poll-option targets, flatten the
+reply relation and continue (ADR-0036). Cross-chat quote replies
+(`reply_to_peer_id` outside the current source) are classified rather than
+rejected; until quote resolution ships they also flatten and continue.
+`reply_from` / `reply_media` are server-rendered decorations and are ignored.
+Malformed quote metadata, an invalid reply parent, and inconsistent album reply
+shapes still exit 2 before audit or mutation. Supported quote text, entities,
+and offset are retained on mapped same-leg replies.
 
 Reupload sends text and webpage messages with `sendMessage`, photos/documents
 with `sendMedia`, and albums with per-item `uploadMedia` followed by one

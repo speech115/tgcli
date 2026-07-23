@@ -17,6 +17,26 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Clone quote replies slices 0–1 (Composer)
+**Did:** implemented plan slices 0 and 1 for ADR-0036. Slice 0:
+`message_to_dict` now emits `quote_text` and, for cross-chat quotes, 
+`reply_to` as `{"id", "peer"}` instead of a bare id that resolves against
+the wrong chat; CONTRACT + live smoke shape updated. Slice 1:
+`clone/replies.py` is a pure classifier
+(`mapped-in-leg` / `mapped-cross-leg` / `foreign-peer` / `flatten`, stop on
+invalid parent/quote/album/unrecognized header); `reply_from`/`reply_media`
+no longer reject; transport consumes the classification and still builds
+`InputReplyToMessage` only for mapped-in-leg (cross-leg/foreign flatten until
+slice 2). Fixtures for source 2374/2378. Full gate: 680 passed, 8 skipped;
+ruff + pyright + architecture + coverage green.
+**Decided:** until `clone/quotes.py` lands, foreign-peer and mapped-cross-leg
+flatten rather than wedge — progress with recorded loss beats a stuck cursor.
+**Learned:** `topics.placement_only` is true for any forum_topic header
+without a top id, including on non-forum destinations; reply_flattened must
+gate that exception on `destination_kind == "forum"`.
+**Next:** slice 2 — `clone/quotes.py` resolver (native quote / rendered
+fallback by reachability).
+
 ## 2026-07-23 — Close the `mutual-chats --plain` test gap (Claude Opus 4.8)
 **Did:** added `test_mutual_chats_plain_output_sanitizes_and_lists_chats` to
 `tests/test_cli_mutual_chats.py` — asserts the frozen TSV column order
