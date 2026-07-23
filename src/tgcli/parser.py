@@ -372,4 +372,30 @@ def build_parser() -> argparse.ArgumentParser:
     p_clone_sync.add_argument("source", help="source channel, supergroup, or dialog")
     p_clone_sync.add_argument("--limit", type=int)
 
+    p_draft = sub.add_parser(
+        "draft", help="Show, list, set, or clear dialog drafts", parents=[global_flags]
+    )
+    draft_sub = p_draft.add_subparsers(dest="draft_command", required=True)
+    draft_sub.add_parser("list", parents=[global_flags])
+    p_draft_show = draft_sub.add_parser("show", parents=[global_flags])
+    p_draft_show.add_argument("chat")
+    p_draft_set = draft_sub.add_parser("set", parents=[global_flags])
+    p_draft_set.add_argument("chat", nargs="?")
+    p_draft_set.add_argument("text", nargs="?")
+    p_draft_set.add_argument(
+        "--format",
+        choices=("plain", "md", "html"),
+        default="md",
+        dest="format",
+        help="rich-text format of TEXT (default md, mirrors send)",
+    )
+    p_draft_set.add_argument("--preview", action="store_true")
+    p_draft_set.add_argument("--commit", metavar="PREVIEW_ID")
+    p_draft_set.add_argument("--reply-to", type=int, dest="reply_to")
+    p_draft_set.add_argument("--topic", type=int)
+    p_draft_clear = draft_sub.add_parser("clear", parents=[global_flags])
+    p_draft_clear.add_argument("chat", nargs="?")
+    p_draft_clear.add_argument("--preview", action="store_true")
+    p_draft_clear.add_argument("--commit", metavar="PREVIEW_ID")
+
     return parser

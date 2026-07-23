@@ -144,6 +144,36 @@ def _prepare_previews(parser: argparse.ArgumentParser, args) -> None:
             or args.preview_payload.get("source") != args.source
         ):
             raise PolicyError("clone init preview does not match this source")
+    if args.command == "draft" and args.draft_command in ("set", "clear"):
+        _prepare_draft_preview(parser, args)
+
+
+def _prepare_draft_preview(parser: argparse.ArgumentParser, args) -> None:
+    kind = f"draft-{args.draft_command}"
+    if args.draft_command == "set":
+        if args.commit:
+            if (
+                args.preview
+                or args.chat is not None
+                or args.text is not None
+                or args.reply_to is not None
+                or args.topic is not None
+            ):
+                parser.error("draft set --commit accepts only a preview id")
+            safety.enforce_mutation_allowed(args.readonly)
+            args.preview_payload = safety.begin_commit(args.commit, expected_kind=kind)
+        elif not (args.preview and args.chat is not None and args.text is not None):
+            parser.error(
+                "draft set requires CHAT TEXT --preview or --commit PREVIEW_ID"
+            )
+        return
+    if args.commit:
+        if args.preview or args.chat is not None:
+            parser.error("draft clear --commit accepts only a preview id")
+        safety.enforce_mutation_allowed(args.readonly)
+        args.preview_payload = safety.begin_commit(args.commit, expected_kind=kind)
+    elif not (args.preview and args.chat is not None):
+        parser.error("draft clear requires CHAT --preview or --commit PREVIEW_ID")
 
 
 def _prepare_api(parser: argparse.ArgumentParser, args) -> None:

@@ -24,7 +24,7 @@ tgcli/
 │   ├── DEVLOG-v1.md           [done]    closed log of the phases 0–7 build
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033)
-│   ├── decisions/             [done]    ADR-0001…0037 + README.md index (ADR-0026 maintenance mode)
+│   ├── decisions/             [done]    ADR-0001…0039 + README.md index (ADR-0026 maintenance mode)
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -70,6 +70,7 @@ tgcli/
 │   │   ├── thread.py          [done]    tg thread reply-chain read (ADR-0029)
 │   │   ├── media.py           [done]    tg media download|manifest (+ bulk download ADR-0032)
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
+│   │   ├── draft.py           [done]    tg draft set|show|clear|list (ADR-0039)
 │   │   ├── mutate.py          [done]    tg edit|delete|forward preview / commit; tg mark-read|mark-unread (ADR-0028/0029)
 │   │   ├── doctor.py          [done]    tg doctor environment/session health report (ADR-0028)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)

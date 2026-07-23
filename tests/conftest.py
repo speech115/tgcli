@@ -23,6 +23,8 @@ class FakeClient:
         contacts_result=None,
         contacts_search_result=None,
         common_chats_result=None,
+        peer_dialogs_result=None,
+        all_drafts_result=None,
     ):
         self._dialogs = list(dialogs)
         self._messages = list(messages)
@@ -38,6 +40,8 @@ class FakeClient:
         self._contacts_result = contacts_result
         self._contacts_search_result = contacts_search_result
         self._common_chats_result = common_chats_result
+        self._peer_dialogs_result = peer_dialogs_result
+        self._all_drafts_result = all_drafts_result
         self.session = ns(takeout_id=None)
         self.iter_messages_calls = []
         self.iter_messages_reverse_calls = []
@@ -190,6 +194,22 @@ class FakeClient:
                     "common_chats_result was configured"
                 )
             return self._common_chats_result
+        if isinstance(request, functions.messages.GetPeerDialogsRequest):
+            if self._peer_dialogs_result is None:
+                raise AssertionError(
+                    "FakeClient received GetPeerDialogsRequest but no "
+                    "peer_dialogs_result was configured"
+                )
+            return self._peer_dialogs_result
+        if isinstance(request, functions.messages.GetAllDraftsRequest):
+            if self._all_drafts_result is None:
+                raise AssertionError(
+                    "FakeClient received GetAllDraftsRequest but no "
+                    "all_drafts_result was configured"
+                )
+            return self._all_drafts_result
+        if isinstance(request, functions.messages.SaveDraftRequest):
+            return True
         if isinstance(
             request,
             (

@@ -74,6 +74,16 @@ def _audit_before(args, account) -> None:
         if "random_id" in args.preview_payload:
             details["random_id"] = args.preview_payload["random_id"]
         safety.append_audit(args.command, account.alias, details)
+    if (
+        args.command == "draft"
+        and args.draft_command in ("set", "clear")
+        and getattr(args, "commit", None)
+    ):
+        safety.append_audit(
+            f"draft-{args.draft_command}",
+            account.alias,
+            {"preview_id": args.commit, "chat": args.preview_payload.get("chat")},
+        )
     if args.command == "api" and args.write:
         safety.append_audit("api", account.alias, {"method": args.method})
     if args.command in ("mark-read", "mark-unread"):
@@ -92,6 +102,17 @@ def _audit_after(args, account, data) -> None:
             f"{args.command}-result",
             account.alias,
             {"preview_id": args.commit, "message_id": data.get("message_id")},
+        )
+        safety.finish_commit(args.commit)
+    if (
+        args.command == "draft"
+        and args.draft_command in ("set", "clear")
+        and getattr(args, "commit", None)
+    ):
+        safety.append_audit(
+            f"draft-{args.draft_command}-result",
+            account.alias,
+            {"preview_id": args.commit, "chat": data.get("draft", {}).get("chat")},
         )
         safety.finish_commit(args.commit)
 

@@ -11,6 +11,16 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.1.1] — 2026-07-23 (pending tag)
+
+### Added
+
+- **Message drafts** — `tg draft set|show|clear|list`. `set`/`clear` go through
+  preview→commit with `old_text` so an agent cannot silently overwrite the
+  human's half-written input; `show`/`list` are typed read ops (batch +
+  readonly). Own draft JSON object, not a message shape. No `draft send`
+  (ADR-0039).
+
 ## [1.1.0] — 2026-07-23 (pending tag)
 
 Agent-correspondence release: everything an agent needs to read a dialog

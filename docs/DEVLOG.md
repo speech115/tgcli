@@ -17,6 +17,21 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Message drafts ADR-0039 / v1.1.1 (Composer)
+**Did:** implemented `tg draft set|show|clear|list` on `claude/drafts`. Reads
+landed as `draft.show`/`draft.list` in `read_ops`; set/clear use preview→commit
+with `old_text` (`expected_kind` `draft-set`/`draft-clear`). Own draft JSON
+object; boundary test asserts `SaveDraftRequest` + Bool. CONTRACT/SKILL/MAP/
+CHANGELOG + patch bump to 1.1.1. Live smoke covers markdown set, show, no-op
+set, clear, and clear-of-empty.
+**Decided:** ADR-0039 as grilled — no `draft send`, no `--file` in v1; set
+mirrors `send` format defaults.
+**Learned:** Telethon `Draft` hides entities/`top_msg_id`; read path uses TL
+`DraftMessage` directly. `utils.get_peer_id` rejects SimpleNamespace fakes —
+resolve users/chats by peer type + id instead.
+**Next:** independent Spec+Standards whole-diff review; tag `v1.1.1` after
+merge.
+
 ## 2026-07-23 — Correct ADR-0038 release semantics (Codex)
 **Did:** corrected the release records after an independent `main...HEAD`
 review: the policy now applies to fixes as well as features, CHANGELOG states
