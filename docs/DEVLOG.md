@@ -17,6 +17,32 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Review of the quote-reply branch: two resolver defects (Claude Opus 4.8)
+**Did:** reviewed PR #31 against its plan and ADR-0036, then fixed the two
+defects the review found in `clone/quotes.py`. (1) `_place_thread` walked
+`reply_to_msg_id` against the source discussion group even when the header
+named another peer, so a foreign parent id colliding with an anchor produced
+a native quote reply at an unrelated destination post *and* the fallback
+prefix — ADR-0036 §4's silent failure. The walk now takes `reply_to_top_id`
+alone unless the parent lives in this group. (2) `degrade_to_fallback` reset
+`reply_to` to `None`, discarding the thread anchor `_place_thread` had already
+resolved; `dest_for(top)` cannot recover it because a discussion top is an
+auto-forward anchor that never enters the leg's map, so a rejected foreign
+quote landed outside its thread. Placement now carries over. Also removed a
+no-op `if`/`pass` block, an unused `ctx` parameter, and the duplicated
+forbidden-peer error tuple. Two regression tests, both verified red against
+the pre-fix module. 701 passed, 8 skipped; ruff + pyright + architecture green.
+**Decided:** absorb the churn inside the reviewed 500-line ceiling for
+`quotes.py` instead of a fourth bump — the file is 498 after folding
+`_peer_label` onto `_peer_cache_key` and inlining `_input_peer`.
+**Learned:** the branch's own quiet-trap test for source 2374 passes with the
+foreign-parent walk intact, because its context has no `source_group`; the
+trap only fires on the discussion leg, which is exactly where it lives.
+**Next:** the `replies.target` classification is recomputed two to three times
+per batch (decide → resolve → degrade), and `decide`'s `reply_flattened` is
+provisional until `resolve` runs — worth threading the classification through
+when the seam gets the look the previous entry asked for.
+
 ## 2026-07-23 — Clone quote replies: live run and two field fixes (Claude Opus 4.8)
 **Did:** consolidated four stray branches into `cursor/clone-quote-replies`
 (the other three were strict subsets; PR #30 was auto-closed by the rename

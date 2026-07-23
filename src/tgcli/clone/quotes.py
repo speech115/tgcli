@@ -50,13 +50,8 @@ def _peer_label(peer, entity, title: str | None = None) -> str:
         return attribution.display_name(entity)
     if title:
         return title
-    if isinstance(peer, types.PeerChannel):
-        return f"id {peer.channel_id}"
-    if isinstance(peer, types.PeerUser):
-        return f"id {peer.user_id}"
-    if isinstance(peer, types.PeerChat):
-        return f"id {peer.chat_id}"
-    return "id unknown"
+    peer_id = _peer_cache_key(peer)[1]
+    return "id unknown" if peer_id is None else f"id {peer_id}"
 
 
 def _quote_fields(classified: replies.Classification):
@@ -101,19 +96,15 @@ def _fallback_plan(
     messages,
     plan: transport.TransportPlan,
     classified: replies.Classification,
-    ctx: ResolveContext,
     *,
     reason: str,
     entity=None,
     peer_title: str | None = None,
+    placement: int | None = None,
 ) -> transport.TransportPlan:
+    """Rendered fallback body; ``placement`` is the destination thread anchor."""
     title = _peer_label(classified.peer, entity, peer_title)
     prefix, prefix_entities = fallback_prefix(title, classified.quote_text)
-    placement = None
-    if classified.top_id is not None:
-        # Prefer an already-mapped discussion parent for thread placement.
-        # Cross-leg / autoforward tops are finalized in ``_place_thread``.
-        pass
     quote_flattened = {
         "id": messages[0].id,
         "peer": _peer_cache_key(classified.peer)[1],
@@ -122,12 +113,25 @@ def _fallback_plan(
     return _reuploaded(
         replace(
             plan,
-            reply_to=placement,
+            reply_to=(
+                None
+                if placement is None
+                else types.InputReplyToMessage(reply_to_msg_id=placement)
+            ),
             body_prefix=prefix,
             body_prefix_entities=prefix_entities,
             quote_flattened=quote_flattened,
         )
     )
+
+
+# A peer the account may not touch: the same answers Telegram gives to a probe
+# and to a send that carries the peer as a reply target.
+FOREIGN_SEND_ERRORS = (
+    telethon_errors.ChannelPrivateError,
+    telethon_errors.ChatAdminRequiredError,
+    telethon_errors.ChannelInvalidError,
+)
 
 
 async def _probe_reachable(ctx: ResolveContext, peer) -> tuple[bool, object | None]:
@@ -139,12 +143,7 @@ async def _probe_reachable(ctx: ResolveContext, peer) -> tuple[bool, object | No
         entity = await ctx.tg.get_entity(peer)
         await ctx.tg.get_messages(entity, limit=1)
         reachable = True
-    except (
-        ValueError,
-        telethon_errors.ChannelPrivateError,
-        telethon_errors.ChatAdminRequiredError,
-        telethon_errors.ChannelInvalidError,
-    ):
+    except (ValueError, *FOREIGN_SEND_ERRORS):
         reachable = False
     ctx.peer_reachable[key] = reachable
     ctx.peer_entities[key] = entity
@@ -191,10 +190,6 @@ async def _peer_title(ctx: ResolveContext, peer, message) -> str | None:
             break
     ctx.peer_titles[key] = title
     return title
-
-
-async def _input_peer(ctx: ResolveContext, peer):
-    return await ctx.tg.get_input_entity(peer)
 
 
 def _other_dest(leg, source_id: int) -> int | None:
@@ -247,7 +242,7 @@ async def _foreign_native(
     classified: replies.Classification, leg, ctx: ResolveContext
 ) -> types.InputReplyToMessage | None:
     assert classified.parent_id is not None and classified.peer is not None
-    input_peer = await _input_peer(ctx, classified.peer)
+    input_peer = await ctx.tg.get_input_entity(classified.peer)
     quote_text, quote_entities, quote_offset = _quote_fields(classified)
     top_destination_id = (
         leg.dest_for(classified.top_id) if classified.top_id is not None else None
@@ -288,7 +283,14 @@ async def _place_thread(
     if not isinstance(header, types.MessageReplyHeader):
         return plan
     top = header.reply_to_top_id
-    root = top if top is not None else header.reply_to_msg_id
+    # ``reply_to_top_id`` always names this group; ``reply_to_msg_id`` only when
+    # the header carries no other peer. Walking a foreign parent id here is
+    # ADR-0036 §4's silent failure — the group has its own message under that
+    # id, and matching an anchor re-points the reply at an unrelated post.
+    peer = header.reply_to_peer_id
+    root = top
+    if root is None and (peer is None or attribution.same_peer(peer, ctx.source_group)):
+        root = header.reply_to_msg_id
     if root is None:
         return plan
     post_id = await _source_post(ctx, root)
@@ -347,7 +349,6 @@ async def _unreachable_fallback(
         messages,
         plan,
         classified,
-        ctx,
         reason="unreachable",
         entity=entity,
         peer_title=title,
@@ -399,27 +400,29 @@ def degrade_to_fallback(
     key = _peer_cache_key(classified.peer)
     ctx.peer_reachable[key] = False
     entity = ctx.peer_entities.get(key)
-    degraded = _fallback_plan(
-        messages, plan, classified, ctx, reason="rejected", entity=entity
+    return _fallback_plan(
+        messages,
+        plan,
+        classified,
+        reason="rejected",
+        entity=entity,
+        placement=_degraded_placement(plan, classified, leg),
     )
-    # Sync placement when the discussion top is already mapped.
+
+
+def _degraded_placement(plan, classified: replies.Classification, leg) -> int | None:
+    """Keep the thread the rejected send had already resolved (ADR-0036 §2).
+
+    ``_place_thread`` walks source anchor -> post -> destination anchor, and a
+    discussion top is itself an auto-forward anchor that never enters the leg's
+    map — so ``dest_for`` alone cannot recover the placement it found.
+    """
+    resolved_top = getattr(plan.reply_to, "top_msg_id", None)
+    if resolved_top is not None:
+        return resolved_top
     if classified.top_id is not None:
-        mapped_top = leg.dest_for(classified.top_id)
-        if mapped_top is not None:
-            return _reuploaded(
-                replace(
-                    degraded,
-                    reply_to=types.InputReplyToMessage(reply_to_msg_id=mapped_top),
-                )
-            )
-    return degraded
-
-
-FOREIGN_SEND_ERRORS = (
-    telethon_errors.ChannelPrivateError,
-    telethon_errors.ChatAdminRequiredError,
-    telethon_errors.ChannelInvalidError,
-)
+        return leg.dest_for(classified.top_id)
+    return None
 
 
 def apply_body(message, author, plan) -> tuple[str, list | None]:

@@ -411,6 +411,72 @@ def test_quiet_trap_source_2374_never_uses_discussion_map_id_1244():
     assert resolved.reply_to is None or resolved.reply_to.reply_to_msg_id != 9999
 
 
+def _threaded_ctx(client):
+    return _ctx(
+        client,
+        source_group=SimpleNamespace(id=4454061248),
+        source_channel_id=2,
+    )
+
+
+def test_quiet_trap_a_foreign_parent_id_is_never_walked_against_the_group():
+    """ADR-0036 §4: the group's own 1244 must not capture a foreign quote."""
+    header = types.MessageReplyHeader(
+        reply_to_msg_id=1244,
+        reply_to_peer_id=types.PeerChannel(2275285084),
+        quote_text="foreign quote",
+    )
+    messages = [_msg(2374, reply_to=header, message="author text")]
+    leg = _discussion(id_map={789: 773})
+    plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
+    ctx = _threaded_ctx(FakeClient())
+    # The group's own message 1244 happens to be the anchor of source post 789,
+    # mapped to destination post 773 whose anchor is 550.
+    ctx.anchors[1244] = 789
+    ctx.anchor_cache[773] = 550
+
+    resolved = asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
+
+    assert resolved.body_prefix is not None
+    # Never a native reply at 550, and never the foreign quote on top of it.
+    assert resolved.reply_to is None
+    assert resolved.quote_flattened["reason"] == "unreachable"
+
+
+def test_degrade_keeps_the_thread_placement_the_rejected_send_resolved():
+    """A discussion top is an auto-forward anchor: dest_for alone cannot find it."""
+    peer = types.PeerChannel(2275285084)
+    input_peer = types.InputPeerChannel(channel_id=2275285084, access_hash=99)
+    header = types.MessageReplyHeader(
+        reply_to_msg_id=1244,
+        reply_to_peer_id=peer,
+        quote_text="foreign quote",
+        reply_to_top_id=2373,
+    )
+    messages = [_msg(2374, reply_to=header, message="author text")]
+    leg = _discussion(id_map={789: 773})
+    plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
+    client = FakeClient(
+        entities={("channel", 2275285084): SimpleNamespace(id=2275285084, title="Ch")},
+        readable={("channel", 2275285084): True},
+        input_peers={("channel", 2275285084): input_peer},
+    )
+    ctx = _threaded_ctx(client)
+    ctx.anchors[2373] = 789
+    ctx.anchor_cache[773] = 550
+    resolved = asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
+    assert resolved.reply_to.top_msg_id == 550
+    assert leg.dest_for(2373) is None  # the anchor is never in the leg's map
+
+    degraded = quotes.degrade_to_fallback(
+        messages, resolved, leg, DISCUSSION_SOURCE, ctx
+    )
+
+    assert degraded.body_prefix is not None
+    assert degraded.reply_to.reply_to_msg_id == 550
+    assert degraded.reply_to.quote_text is None
+
+
 def _bad_request(message: str):
     error = telethon_errors.BadRequestError(request=None, message=message)
     error.message = message
