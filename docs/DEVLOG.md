@@ -17,6 +17,24 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — PR #28 rebase and typed-discriminator review (Codex)
+**Did:** completed the interrupted rebase of the read-operation registry onto
+`main`, preserving both sides of the DEVLOG conflict, then reviewed the whole
+diff on independent Spec and Standards axes. The review reproduced one real
+defect: operation dataclasses accepted an override such as
+`Dialogs(..., name="read")`, letting the string-keyed dispatcher select a
+handler for the wrong variant. Added a red regression and made every operation
+name an immutable `ClassVar[Literal[...]]`. Focused registry tests: 33 passed.
+Final post-PR33 rebase gate: `736 passed, 8 skipped`; Ruff check/format passed;
+Pyright reported 0 errors; coverage passed 23 namespaces.
+**Decided:** the registry remains keyed by the documented operation names, but
+the discriminator belongs to the closed typed variant and is not constructor
+input. ADR-0034 and the public CLI contract remain unchanged.
+**Learned:** a frozen dataclass does not make a defaulted discriminator safe
+when callers can still replace it during construction.
+**Next:** rebase this reviewed branch onto the just-merged PR #33, update PR
+#28, wait for fresh green CI, then merge and delete the final feature branch.
+
 ## 2026-07-23 — PR #33 independent boundary review (Codex)
 **Did:** reviewed the rebased quote-fallback split from `main` on both Spec and
 Standards axes. Added red regressions for two confirmed defects: the
@@ -57,7 +75,6 @@ the same way: the guard stayed with the resolver, the placement argument went
 with the renderer.
 **Next:** independent Spec + Standards review of PR #31 (and this stacked
 seam PR) before merge.
-
 ## 2026-07-23 — Review of the quote-reply branch: two resolver defects (Claude Opus 4.8)
 **Did:** reviewed PR #31 against its plan and ADR-0036, then fixed the two
 defects the review found in `clone/quotes.py`. (1) `_place_thread` walked
@@ -187,7 +204,34 @@ Line-targeted mutation of the projection table is a cheap coverage audit for
 this repo (whole suite runs in ~4s, so 13 mutants cost under a minute).
 **Next:** none for this thread; the same mutation script generalizes if the
 `_SPECS`-style registry refactor of `read_ops` lands later.
-
+## 2026-07-23 — read_ops registry collapses the triple table (Claude Opus 4.8)
+**Did:** `from_cli`, `from_batch`, `execute`, and `BATCH_OP_NAMES` each carried
+their own copy of the 13-operation list — four edits per new read op, with
+nothing failing on drift. Replaced them with a single `_SPECS` table in
+`read_ops.py` keyed by op name, one row per operation holding its CLI builder,
+batch builder, `fetch` call, and `--plain` `rows` projection; `BATCH_OP_NAMES`
+now derives from the table and `execute` pairs `fetch` with `rows`
+structurally. Added `tests/test_read_ops.py` (32 tests) asserting the table
+covers the `ReadOperation` union exactly and that every op is reachable from a
+real CLI invocation and a batch payload. Behavior unchanged; 413 → 382 lines,
+ceiling lowered to match in both `scripts/check-architecture.py` and its test.
+706 passed / 8 skipped; ruff format + check, pyright, architecture gates green.
+**Decided:** clone stays frozen per ADR-0028 — its 874-line hotspot and the
+duplicated destination validation in `commit_init`/`sync_text` were left
+untouched by owner decision. No ADR needed here: the read seam of ADR-0034 is
+unchanged, only its internals.
+**Learned:** the first attempt kept 13 per-op `_run_*` functions and came out
+*longer* than the original (423 vs the 413 ceiling) — the architecture check
+caught a "simplification" that wasn't one. Splitting the spec into `fetch` +
+`rows` deleted 11 of those functions, because the repeated
+`Result(data, to_rows(data))` pairing was the actual duplication. Second
+gotcha: `git checkout <file>` to undo a mutation test wiped the uncommitted
+refactor — commit before mutation-testing. Mutation testing also surfaced a
+pre-existing hole: swapping `rows=` for `mutual-chats` passes the whole suite
+even though it raises `KeyError: 'peer'` live, because
+`tg mutual-chats --plain` has no test at all.
+**Next:** cover `tg mutual-chats --plain` in `tests/test_cli_mutual_chats.py`,
+then sweep the other `_SPECS` rows for the same missing-projection gap.
 ## 2026-07-23 — CLI entry split + docs archive boundary (Claude Opus 4.8)
 **Did:** split `cli.py` (909 lines, 7 functions) into four modules with one job
 each — `parser.py` (375, grammar), `preflight.py` (168, pre-session validation
