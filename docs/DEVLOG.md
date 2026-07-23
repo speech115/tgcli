@@ -17,6 +17,27 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Close the `mutual-chats --plain` test gap (Claude Opus 4.8)
+**Did:** added `test_mutual_chats_plain_output_sanitizes_and_lists_chats` to
+`tests/test_cli_mutual_chats.py` — asserts the frozen TSV column order
+`id, type, username, display_name` plus tab/newline sanitization and the
+empty-username cell. Then mutation-audited every projection in
+`read_ops.execute`: swapped each of the 13 `Result(data, …_to_rows(data))`
+lines for a mismatched projection and ran the full suite per mutant. All 13
+are now killed; `mutual-chats` was the only survivor before the new test
+(verified by re-running the mutant with the new test deselected: 674 passed).
+`675 passed, 8 skipped`; ruff check/format clean.
+**Decided:** nothing architectural — test-only change, no CONTRACT or MAP
+impact.
+**Learned:** the `mutual-chats` gap was worse than a crash. Swapping
+`mutual_chats_to_rows` for `to_rows` does not raise `KeyError: 'peer'`,
+because `mutual-chats` data carries both `peer` and `chats` — `--plain`
+would have silently printed the resolved user instead of the common chats.
+Line-targeted mutation of the projection table is a cheap coverage audit for
+this repo (whole suite runs in ~4s, so 13 mutants cost under a minute).
+**Next:** none for this thread; the same mutation script generalizes if the
+`_SPECS`-style registry refactor of `read_ops` lands later.
+
 ## 2026-07-23 — CLI entry split + docs archive boundary (Claude Opus 4.8)
 **Did:** split `cli.py` (909 lines, 7 functions) into four modules with one job
 each — `parser.py` (375, grammar), `preflight.py` (168, pre-session validation
