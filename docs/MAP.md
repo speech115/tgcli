@@ -21,8 +21,8 @@ tgcli/
 │   ├── PROPOSALS.md           [done]    unvetted owner wishlist backlog (2026-07-21); each item needs owner+ADR
 │   ├── DEVLOG.md              [done]    session-by-session agent log
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── decisions/             [done]    ADR-0001…0031 + README.md index (ADR-0026 maintenance mode)
-│   └── superpowers/plans/     [done]    completed v1 plans; mirror plans superseded by clone spec (ADR-0017)
+│   ├── decisions/             [done]    ADR-0001…0032 + README.md index (ADR-0026 maintenance mode)
+│   └── superpowers/plans/     [done]    completed v1 plans; ADR-0032 data-plumbing plan (2026-07-23)
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
 │   ├── cli.py                 [done]    argparse tree, global flags, dispatch, exit-code mapping

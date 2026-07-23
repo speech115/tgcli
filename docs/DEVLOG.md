@@ -13,6 +13,18 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — ADR-0032 data plumbing scope + plan (Composer)
+**Did:** owner-approved PROPOSALS package (mutual-chats, dialog
+archive/mute, incremental export, bulk media, RO `tg batch`) grilled and
+accepted as ADR-0032; wrote the ADR, index row, MAP decisions line, and
+`docs/superpowers/plans/2026-07-23-data-plumbing.md`. Out of scope remains
+export bundle / MSG-001 / FEED-001 / ACCOUNTS-001 / moderation verticals.
+**Decided:** ADR-0032. One PR with five slice commits; mute requires
+`--until` or `--forever`; batch and bulk media hard-capped at 100; batch
+exit nonzero on any failed op; doctor not in batch allowlist.
+**Learned:** grilling closed the agent footguns before code.
+**Next:** Slice 1 — `tg mutual-chats`.
+
 ## 2026-07-23 — Cursor onboarding + pyright reply_to_ephemeral (Composer)
 **Did:** Cursor first-session track C+A from the orientation plan. Added
 always-apply rule `.cursor/rules/tgcli-maintenance.mdc` (maintenance mode,
