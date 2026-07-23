@@ -53,8 +53,15 @@ def same_peer(peer, source) -> bool:
     return isinstance(peer, types.PeerChannel) and peer.channel_id == source.id
 
 
-def _peer_key(peer) -> tuple[str, int | None]:
-    return type(peer).__name__, utils.get_peer_id(peer) if peer is not None else None
+def peer_key(peer) -> tuple[str, int | None]:
+    """Stable peer kind and raw id for in-process caches and loss reports."""
+    if isinstance(peer, types.PeerChannel):
+        return "channel", peer.channel_id
+    if isinstance(peer, types.PeerUser):
+        return "user", peer.user_id
+    if isinstance(peer, types.PeerChat):
+        return "chat", peer.chat_id
+    return "other", None
 
 
 def _active_username(entity) -> str | None:
@@ -96,7 +103,7 @@ async def author_of(tg, source, message, me, cache: dict, cooldown) -> Author:
             else _identify(None, getattr(message, "sender_id", None))
         )
     else:
-        key = _peer_key(peer)
+        key = peer_key(peer)
         if key not in cache:
             try:
                 cache[key] = await cooldown(tg.get_entity(peer))

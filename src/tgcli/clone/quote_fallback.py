@@ -20,35 +20,13 @@ from tgcli.clone import attribution, replies, transport
 FALLBACK_SOURCE_LABEL = "Переслано от:"
 
 
-def peer_cache_key(peer) -> tuple:
-    if isinstance(peer, types.PeerChannel):
-        return ("channel", peer.channel_id)
-    if isinstance(peer, types.PeerUser):
-        return ("user", peer.user_id)
-    if isinstance(peer, types.PeerChat):
-        return ("chat", peer.chat_id)
-    return (
-        "other",
-        getattr(peer, "channel_id", None) or getattr(peer, "user_id", None),
-    )
-
-
 def peer_label(peer, entity, title: str | None = None) -> str:
     if entity is not None:
         return attribution.display_name(entity)
     if title:
         return title
-    peer_id = peer_cache_key(peer)[1]
+    peer_id = attribution.peer_key(peer)[1]
     return "id unknown" if peer_id is None else f"id {peer_id}"
-
-
-def reuploaded(plan: transport.TransportPlan) -> transport.TransportPlan:
-    return replace(
-        plan,
-        mode="snapshots" if plan.mode == "snapshots" else "reuploaded",
-        needs_author=True,
-        reply_flattened=False,
-    )
 
 
 def fallback_prefix(title: str, quote_text: str | None) -> tuple[str, tuple]:
@@ -82,10 +60,10 @@ def fallback_plan(
     prefix, prefix_entities = fallback_prefix(title, classified.quote_text)
     quote_flattened = {
         "id": messages[0].id,
-        "peer": peer_cache_key(classified.peer)[1],
+        "peer": attribution.peer_key(classified.peer)[1],
         "reason": reason,
     }
-    return reuploaded(
+    return transport.as_reuploaded(
         replace(
             plan,
             reply_to=(
@@ -114,7 +92,7 @@ def apply_body(message, author, plan) -> tuple[str, list | None]:
 def _stale_quote_peer(messages):
     header = getattr(messages[0], "reply_to", None)
     peer = getattr(header, "reply_to_peer_id", None) if header is not None else None
-    return None if peer is None else peer_cache_key(peer)[1]
+    return None if peer is None else attribution.peer_key(peer)[1]
 
 
 def drop_stale_quote(messages, plan, error) -> transport.TransportPlan | None:

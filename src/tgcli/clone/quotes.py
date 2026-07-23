@@ -51,7 +51,7 @@ FOREIGN_SEND_ERRORS = (
 
 
 async def _probe_reachable(ctx: ResolveContext, peer) -> tuple[bool, object | None]:
-    key = quote_fallback.peer_cache_key(peer)
+    key = attribution.peer_key(peer)
     if key in ctx.peer_reachable:
         return ctx.peer_reachable[key], ctx.peer_entities.get(key)
     entity = None
@@ -75,7 +75,7 @@ async def _peer_title(ctx: ResolveContext, peer, message) -> str | None:
     account is banned from, and it is the only place the title is available:
     resolving the bare ``PeerChannel`` raises ``ChannelPrivateError``.
     """
-    key = quote_fallback.peer_cache_key(peer)
+    key = attribution.peer_key(peer)
     if key in ctx.peer_titles:
         return ctx.peer_titles[key]
     enclosing = getattr(message, "peer_id", None)
@@ -219,7 +219,7 @@ async def _place_thread(
             and (mapped_top := leg.dest_for(top)) is not None
             and plan.reply_to is None
         ):
-            return quote_fallback.reuploaded(
+            return transport.as_reuploaded(
                 replace(
                     plan,
                     reply_to=types.InputReplyToMessage(reply_to_msg_id=mapped_top),
@@ -244,7 +244,7 @@ async def _place_thread(
     else:
         reply_to = cast(types.InputReplyToMessage, copy(plan.reply_to))
         reply_to.top_msg_id = found
-    return quote_fallback.reuploaded(replace(plan, reply_to=reply_to))
+    return transport.as_reuploaded(replace(plan, reply_to=reply_to))
 
 
 async def _unreachable_fallback(
@@ -286,7 +286,7 @@ async def resolve(
     elif classified.kind == "mapped-cross-leg":
         reply_to = await _cross_leg_reply(classified, leg, ctx)
         if reply_to is not None:
-            plan = quote_fallback.reuploaded(replace(plan, reply_to=reply_to))
+            plan = transport.as_reuploaded(replace(plan, reply_to=reply_to))
     elif classified.kind == "foreign-peer":
         reachable, entity = await _probe_reachable(ctx, classified.peer)
         if reachable:
@@ -295,7 +295,7 @@ async def resolve(
             except ValueError:
                 reply_to = None
             if reply_to is not None:
-                plan = quote_fallback.reuploaded(replace(plan, reply_to=reply_to))
+                plan = transport.as_reuploaded(replace(plan, reply_to=reply_to))
             else:
                 plan = await _unreachable_fallback(
                     messages, plan, classified, ctx, entity=entity
@@ -313,7 +313,7 @@ def degrade_to_fallback(
     classified = replies.target(messages, leg, source)
     if classified is None or classified.kind != "foreign-peer":
         return plan
-    key = quote_fallback.peer_cache_key(classified.peer)
+    key = attribution.peer_key(classified.peer)
     ctx.peer_reachable[key] = False
     entity = ctx.peer_entities.get(key)
     return quote_fallback.fallback_plan(

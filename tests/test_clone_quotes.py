@@ -59,6 +59,11 @@ DISCUSSION_SOURCE = SimpleNamespace(id=4454061248, noforwards=False)
 SOURCE = SimpleNamespace(id=2, noforwards=False)
 
 
+def test_resolver_helpers_stay_out_of_the_fallback_renderer():
+    assert not hasattr(quote_fallback, "peer_cache_key")
+    assert not hasattr(quote_fallback, "reuploaded")
+
+
 class FakeClient:
     """Minimal client surface for quotes.resolve reachability probes."""
 

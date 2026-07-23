@@ -36,7 +36,10 @@ tweak to reopen the async resolver and its reachability cache.
 2. **`clone/quotes.py` owns resolution and send-time retry.** `ResolveContext`,
    reachability cache, cross-leg / foreign native rebuild, thread placement,
    `resolve`, `degrade_to_fallback`, and `send_with_degrade`. It calls into
-   `quote_fallback` when the outcome is a rendered loss.
+   `quote_fallback` when the outcome is a rendered loss. Shared raw peer
+   identity stays in `attribution`; the generic upload-capable plan transition
+   stays in `transport`, so native resolver paths do not depend on the fallback
+   renderer.
 
 3. **Public callers import the owner.** `commands/clone.py` takes `apply_body`
    from `quote_fallback` and resolution/send from `quotes`. Tests import
