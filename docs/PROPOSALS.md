@@ -46,8 +46,9 @@ Everything below has no code path today and is not in ISSUES.md.
 > **Graduated 2026-07-21 / shipped 2026-07-23:** `resolve`, `contacts
 > list/search`, `media manifest`, `dialog pin/unpin` + `mark-unread`, and
 > `thread` shipped under **ADR-0029** (all three plan slices). Still genuinely
-> backlog: `mutual-chats`, bulk media download, incremental export, `batch`,
-> `dialog archive/mute`, and the community/stats/security verticals.
+> backlog: `export bundle`, and the community/stats/security verticals.
+> ADR-0032 shipped: `mutual-chats`, `dialog archive/mute`, incremental
+> export, bulk media download, and read-only `tg batch`.
 
 **Value** = leverage; **Effort**: `XS` hours / `S` ~a day / `M` days+ADR /
 `L` multi-day vertical + ADR; **Status**: `raw-only` = reachable via `tg api`
