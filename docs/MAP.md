@@ -19,14 +19,18 @@ tgcli/
 │   ├── CONTRACT.md            [done]    CLI automation contract (stdout/exit codes/JSON)
 │   ├── ISSUES.md              [done]    deliberately deferred product work and re-entry gates
 │   ├── PROPOSALS.md           [done]    unvetted owner wishlist backlog (2026-07-21); each item needs owner+ADR
-│   ├── DEVLOG.md              [done]    session-by-session agent log
+│   ├── DEVLOG.md              [done]    session-by-session agent log (post-1.0.0)
+│   ├── DEVLOG-v1.md           [done]    closed log of the phases 0–7 build
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033)
 │   ├── decisions/             [done]    ADR-0001…0034 + README.md index (ADR-0026 maintenance mode)
-│   └── superpowers/plans/     [done]    completed v1 plans; ADR-0032/0034 maintenance plans
+│   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
-│   ├── cli.py                 [done]    argparse tree, process lifecycle, mutation dispatch, exit mapping
+│   ├── cli.py                 [done]    process lifecycle: preflight → execute → emit → journal
+│   ├── parser.py              [done]    the argparse subparser tree; grammar only, no behaviour
+│   ├── preflight.py           [done]    pre-session validation, mutation gates, preview load, api policy
+│   ├── dispatch.py            [done]    network routing for one command under one open session
 │   ├── output.py              [done]    emit(data) → stdout as JSON/plain; note()/warn() → stderr
 │   ├── errors.py              [done]    TgcliError hierarchy ↔ exit codes (CONTRACT.md §4)
 │   ├── chatref.py             [done]    chat reference normalization (numeric dialog id → int)
@@ -75,7 +79,7 @@ tgcli/
     ├── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
     ├── bench.py               [done]    live benchmark: every command against a real account
     ├── seed_demo_channel.py   [done]    manual demo-channel seeding for clone visual acceptance
-    └── check-architecture.py  [done]    module ownership + hotspot no-growth ratchet (ADR-0034)
+    └── check-architecture.py  [done]    module ownership + per-file line ceilings (ADR-0034)
 ```
 
 ## Module Ownership Rules
@@ -85,6 +89,13 @@ tgcli/
 - `commands/*` never print — they return data structures; `cli.py` passes
   them to `output.emit()`. This is what keeps the stdout contract testable.
 - `errors.py` is the only place exit codes live.
+- The CLI entry surface is four modules with one job each: `parser.py` says
+  what can be typed, `preflight.py` says what is allowed before a session
+  opens, `dispatch.py` says what runs once it is open, and `cli.py` owns the
+  invocation lifecycle. Nothing but `cli.py` may emit or journal.
+- `parser.py`, `preflight.py`, and `dispatch.py` inherit cli.py's read-command
+  ban: read commands are reachable only through `read_ops` (ADR-0034), and
+  `scripts/check-architecture.py` enforces it on all four modules.
 ## ADR Index
 
 Moved to [decisions/README.md](decisions/README.md) — the canonical index

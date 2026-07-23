@@ -8,6 +8,7 @@ from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli import safety
 from tgcli.cli import main
 from tgcli.errors import PolicyError
+from tgcli import session
 
 
 SAMPLE = """
@@ -410,7 +411,7 @@ def test_mark_read_gates_before_config_or_session(monkeypatch, flag):
 
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
     monkeypatch.setattr(
-        cli.session, "client", lambda account: pytest.fail("session opened")
+        session, "client", lambda account: pytest.fail("session opened")
     )
     if flag.startswith("TGCLI_"):
         monkeypatch.setenv(flag, "1")
@@ -449,7 +450,7 @@ def test_mark_unread_gates_before_config_or_session(monkeypatch, flag):
 
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
     monkeypatch.setattr(
-        cli.session, "client", lambda account: pytest.fail("session opened")
+        session, "client", lambda account: pytest.fail("session opened")
     )
     if flag.startswith("TGCLI_"):
         monkeypatch.setenv(flag, "1")
@@ -468,7 +469,7 @@ def test_kind_mismatch_is_blocked_without_consuming_preview(monkeypatch):
     )
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
     monkeypatch.setattr(
-        cli.session, "client", lambda account: pytest.fail("session opened")
+        session, "client", lambda account: pytest.fail("session opened")
     )
 
     assert main(["edit", "--commit", preview["preview_id"]]) == 2
@@ -509,7 +510,7 @@ def test_mutation_commit_gates_before_config_or_session(
     preview = safety.create_preview(payload)
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
     monkeypatch.setattr(
-        cli.session, "client", lambda account: pytest.fail("session opened")
+        session, "client", lambda account: pytest.fail("session opened")
     )
     if flag == "TGCLI_NO_SEND":
         monkeypatch.setenv(flag, "1")

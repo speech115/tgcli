@@ -6,6 +6,7 @@ from telethon.tl import functions
 from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli import safety
 from tgcli.cli import main
+from tgcli import session
 
 
 SAMPLE = """
@@ -82,7 +83,7 @@ def test_dialog_pin_gates_before_config_or_session(monkeypatch, flag, argv):
 
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
     monkeypatch.setattr(
-        cli.session, "client", lambda account: pytest.fail("session opened")
+        session, "client", lambda account: pytest.fail("session opened")
     )
     if flag.startswith("TGCLI_"):
         monkeypatch.setenv(flag, "1")

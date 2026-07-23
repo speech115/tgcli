@@ -13,9 +13,12 @@ Canonical behavior contract for every AI agent working in this repo.
    routing under [docs/agents/](docs/agents/): issue tracker, triage labels,
    and domain-document discovery.
 
-[docs/PLAN.md](docs/PLAN.md) (completed master plan) and
-[docs/CLONE.md](docs/CLONE.md) (clone chronicle) are historical
-background, not current scope.
+[docs/PLAN.md](docs/PLAN.md) (completed master plan),
+[docs/CLONE.md](docs/CLONE.md) (clone chronicle),
+[docs/DEVLOG-v1.md](docs/DEVLOG-v1.md) (sessions up to 1.0.0), and everything
+under [docs/superpowers/](docs/superpowers/) (completed plans and specs) are
+**closed history**. Read them to chase how something came to be; never to
+learn how it behaves now, and never update them when behaviour changes.
 
 ## Agent Skills
 
@@ -41,6 +44,7 @@ The project is feature-complete and in production use. Default posture:
 
 - **Every working session** appends one entry to `docs/DEVLOG.md`
   (template inside the file). No entry — the session did not happen.
+  `docs/DEVLOG-v1.md` is closed: never append to it.
 - **Every architectural decision** (new dependency, new module, changed
   contract, changed safety behavior) gets an ADR in `docs/decisions/`
   using the next number: `ADR-NNNN-slug.md`, plus its row in the index
