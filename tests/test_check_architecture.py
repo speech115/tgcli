@@ -6,8 +6,11 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "check-architecture.py"
-BASELINES = {
-    "src/tgcli/cli.py": 909,
+CEILINGS = {
+    "src/tgcli/cli.py": 213,
+    "src/tgcli/parser.py": 375,
+    "src/tgcli/preflight.py": 168,
+    "src/tgcli/dispatch.py": 213,
     "src/tgcli/commands/batch.py": 96,
     "src/tgcli/read_ops.py": 413,
     "src/tgcli/commands/clone.py": 874,
@@ -29,19 +32,17 @@ def _write_minimal_tree(
     *,
     cli_import: str = "",
     batch_import: str = "from tgcli import read_ops\n",
+    dispatch_import: str = "",
 ) -> None:
-    prefixes = {
-        "src/tgcli/cli.py": cli_import,
-        "src/tgcli/commands/batch.py": batch_import,
-        "src/tgcli/read_ops.py": "",
-        "src/tgcli/commands/clone.py": "",
-        "src/tgcli/clone/state.py": "",
-    }
+    prefixes = dict.fromkeys(CEILINGS, "")
+    prefixes["src/tgcli/cli.py"] = cli_import
+    prefixes["src/tgcli/commands/batch.py"] = batch_import
+    prefixes["src/tgcli/dispatch.py"] = dispatch_import
     for relative, prefix in prefixes.items():
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         prefix_lines = prefix.splitlines()
-        padding = ["#"] * (BASELINES[relative] - len(prefix_lines))
+        padding = ["#"] * (CEILINGS[relative] - len(prefix_lines))
         path.write_text("\n".join([*prefix_lines, *padding]) + "\n")
 
 
@@ -124,15 +125,37 @@ def test_architecture_check_accepts_owned_read_operation_seam(tmp_path):
     assert result.stdout == "architecture check passed\n"
 
 
-def test_architecture_check_requires_lowering_a_shrunk_baseline(tmp_path):
+def test_architecture_check_rejects_read_dispatch_leaking_into_dispatch(tmp_path):
+    _write_minimal_tree(
+        tmp_path,
+        dispatch_import="from tgcli.commands import search as search_cmd\n",
+    )
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 1
+    assert "src/tgcli/dispatch.py imports read command module search" in result.stdout
+
+
+def test_architecture_check_accepts_a_shrunk_file(tmp_path):
     _write_minimal_tree(tmp_path)
     cli = tmp_path / "src/tgcli/cli.py"
     cli.write_text("\n".join(cli.read_text().splitlines()[:-1]) + "\n")
 
     result = _run(tmp_path)
 
+    assert result.returncode == 0, result.stdout
+
+
+def test_architecture_check_rejects_growth_past_the_ceiling(tmp_path):
+    _write_minimal_tree(tmp_path)
+    cli = tmp_path / "src/tgcli/cli.py"
+    cli.write_text(cli.read_text() + "#\n")
+
+    result = _run(tmp_path)
+
     assert result.returncode == 1
-    assert "src/tgcli/cli.py has 908 lines; reviewed baseline is 909" in result.stdout
+    assert "src/tgcli/cli.py has 214 lines; reviewed ceiling is 213" in result.stdout
 
 
 def test_repository_passes_architecture_check():

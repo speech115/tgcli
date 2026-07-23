@@ -209,15 +209,15 @@ def state_dir_env(tmp_path, monkeypatch):
 
 
 def make_session_fake(monkeypatch, fake_client):
-    """Route tgcli.cli's session.client(...) to a FakeClient."""
-    from tgcli import cli
+    """Route session.client(...) to a FakeClient for every caller."""
+    from tgcli import session
 
     @asynccontextmanager
     async def fake_session(account, *, mutation_safe=False):
         fake_client.session_mutation_safe = mutation_safe
         yield fake_client
 
-    monkeypatch.setattr(cli.session, "client", fake_session)
+    monkeypatch.setattr(session, "client", fake_session)
 
 
 def ns(**kwargs) -> SimpleNamespace:

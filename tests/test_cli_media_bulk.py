@@ -7,9 +7,10 @@ from telethon import errors as telethon_errors
 
 from tests.conftest import FakeClient, make_session_fake, ns
 from tests.test_cli_media import _media_message
-from tgcli import cli
 from tgcli.cli import main
 from tgcli.errors import ConfigError, NotFoundError
+from tgcli import session
+from tgcli.commands import media as media_cmd
 
 
 SAMPLE = """
@@ -47,8 +48,8 @@ def test_media_download_message_ids_bulk(config_env, monkeypatch, tmp_path, caps
     async def fake_resolve(tg, source, account_alias):
         return ns(id=5), ns(file=ns(name=f"{source.message_id}.bin"))
 
-    monkeypatch.setattr(cli.media_cmd, "download_media", fake_download)
-    monkeypatch.setattr(cli.media_cmd, "resolve_message", fake_resolve)
+    monkeypatch.setattr(media_cmd, "download_media", fake_download)
+    monkeypatch.setattr(media_cmd, "resolve_message", fake_resolve)
 
     assert (
         main(
@@ -92,8 +93,8 @@ def test_media_download_bulk_failed_nonzero_exit(
     async def fake_resolve(tg, source, account_alias):
         return ns(id=5), ns(file=ns(name=f"{source.message_id}.bin"))
 
-    monkeypatch.setattr(cli.media_cmd, "download_media", fake_download)
-    monkeypatch.setattr(cli.media_cmd, "resolve_message", fake_resolve)
+    monkeypatch.setattr(media_cmd, "download_media", fake_download)
+    monkeypatch.setattr(media_cmd, "resolve_message", fake_resolve)
 
     assert (
         main(
@@ -157,7 +158,7 @@ def test_media_download_message_ids_combine_with_filters_and_limit(
             "parallel": 1,
         }
 
-    monkeypatch.setattr(cli.media_cmd, "download_media", fake_download)
+    monkeypatch.setattr(media_cmd, "download_media", fake_download)
 
     assert (
         main(
@@ -209,7 +210,7 @@ def test_media_download_type_filter_skips_text_only_explicit_id(
             "parallel": 1,
         }
 
-    monkeypatch.setattr(cli.media_cmd, "download_media", fake_download)
+    monkeypatch.setattr(media_cmd, "download_media", fake_download)
 
     assert (
         main(
@@ -251,9 +252,9 @@ def test_media_download_session_revoked_keeps_auth_exit_code(
     async def revoked_download(tg, source, account_alias, **kwargs):
         raise telethon_errors.SessionRevokedError(request=None)
 
-    monkeypatch.setattr(cli.session, "client", fake_session)
-    monkeypatch.setattr(cli.media_cmd, "resolve_message", fake_resolve)
-    monkeypatch.setattr(cli.media_cmd, "download_media", revoked_download)
+    monkeypatch.setattr(session, "client", fake_session)
+    monkeypatch.setattr(media_cmd, "resolve_message", fake_resolve)
+    monkeypatch.setattr(media_cmd, "download_media", revoked_download)
 
     assert (
         main(

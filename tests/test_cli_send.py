@@ -11,6 +11,7 @@ from tests.conftest import make_session_fake
 from tgcli import safety
 from tgcli.cli import main
 from tgcli.errors import PolicyError
+from tgcli import session
 
 
 SAMPLE = """
@@ -617,7 +618,7 @@ def test_send_commit_rejects_a_non_send_preview_before_session(monkeypatch):
     preview = safety.create_preview({"kind": "clone-init"})
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
     monkeypatch.setattr(
-        cli.session, "client", lambda account: pytest.fail("session opened")
+        session, "client", lambda account: pytest.fail("session opened")
     )
 
     assert main(["send", "--commit", preview["preview_id"]]) == 2
@@ -663,7 +664,7 @@ def test_send_commit_is_blocked_before_config_or_session(monkeypatch, flag, valu
     )
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
     monkeypatch.setattr(
-        cli.session, "client", lambda account: pytest.fail("session opened")
+        session, "client", lambda account: pytest.fail("session opened")
     )
     if flag.startswith("TGCLI_"):
         monkeypatch.setenv(flag, value)

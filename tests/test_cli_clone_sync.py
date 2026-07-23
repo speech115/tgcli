@@ -11,6 +11,7 @@ from tgcli import safety
 from tgcli.cli import main
 from tgcli.clone import state, topics
 from tgcli.errors import PolicyError
+from tgcli import session
 
 
 SAMPLE = """
@@ -2665,7 +2666,7 @@ def test_clone_sync_readonly_blocks_before_config_or_session(monkeypatch):
 
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
     monkeypatch.setattr(
-        cli.session, "client", lambda account: pytest.fail("session opened")
+        session, "client", lambda account: pytest.fail("session opened")
     )
 
     assert main(["--readonly", "clone", "sync", "@source"]) == 2

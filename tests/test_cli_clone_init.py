@@ -11,6 +11,7 @@ from tgcli import safety
 from tgcli.cli import main
 from tgcli.clone import state
 from tgcli.errors import PolicyError
+from tgcli import session
 
 
 SAMPLE = """
@@ -984,7 +985,7 @@ def test_clone_init_commit_readonly_blocks_before_config_session_and_preview_use
     preview = stored_preview()
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
     monkeypatch.setattr(
-        cli.session, "client", lambda account: pytest.fail("session opened")
+        session, "client", lambda account: pytest.fail("session opened")
     )
 
     assert (

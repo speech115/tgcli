@@ -4,6 +4,7 @@ from telethon.tl.tlobject import TLRequest
 
 from tgcli.cli import main
 from tgcli.commands import api as api_cmd
+from tgcli import session
 
 
 REVIEWED_READ_METHODS = [
@@ -93,10 +94,9 @@ def test_read_api_method_reaches_network_dispatcher(config_env, monkeypatch):
 def test_api_write_readonly_flag_is_blocked_before_network(
     config_env, monkeypatch, capsys
 ):
-    from tgcli import cli
 
     monkeypatch.setattr(
-        cli.session, "client", lambda account: pytest.fail("session opened")
+        session, "client", lambda account: pytest.fail("session opened")
     )
 
     assert (
@@ -165,7 +165,7 @@ def test_denied_or_unconfirmed_api_write_stops_before_config_or_session(
 
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
     monkeypatch.setattr(
-        cli.session, "client", lambda account: pytest.fail("session opened")
+        session, "client", lambda account: pytest.fail("session opened")
     )
 
     assert main(argv) == 2
@@ -180,7 +180,7 @@ def test_case_variant_denylisted_api_write_is_blocked_before_network(
 
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
     monkeypatch.setattr(
-        cli.session, "client", lambda account: pytest.fail("session opened")
+        session, "client", lambda account: pytest.fail("session opened")
     )
     monkeypatch.setattr(
         cli, "_run_network", lambda args, account: pytest.fail("network dispatched")
@@ -195,7 +195,7 @@ def test_case_variant_confirm_method_still_requires_confirm(monkeypatch, capsys)
 
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
     monkeypatch.setattr(
-        cli.session, "client", lambda account: pytest.fail("session opened")
+        session, "client", lambda account: pytest.fail("session opened")
     )
     monkeypatch.setattr(
         cli, "_run_network", lambda args, account: pytest.fail("network dispatched")
@@ -246,7 +246,7 @@ def test_api_write_kill_switch_stops_before_config_or_session(
         monkeypatch.setenv(key, value)
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
     monkeypatch.setattr(
-        cli.session, "client", lambda account: pytest.fail("session opened")
+        session, "client", lambda account: pytest.fail("session opened")
     )
 
     assert main(["api", "messages.sendMessage", "--params", "{}", "--write"]) == 2
@@ -258,7 +258,7 @@ def test_unknown_api_write_stops_before_config_or_session(monkeypatch):
 
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
     monkeypatch.setattr(
-        cli.session, "client", lambda account: pytest.fail("session opened")
+        session, "client", lambda account: pytest.fail("session opened")
     )
 
     assert main(["api", "messages.noSuchMethod", "--params", "{}", "--write"]) == 4
@@ -277,10 +277,9 @@ def test_read_api_method_without_params_remains_parser_error(config_env, capsys)
 
 
 def test_non_read_api_method_is_blocked_before_network(config_env, monkeypatch):
-    from tgcli import cli
 
     monkeypatch.setattr(
-        cli.session, "client", lambda account: pytest.fail("session opened")
+        session, "client", lambda account: pytest.fail("session opened")
     )
 
     assert main(["api", "messages.sendMessage", "--params", "{}"]) == 2
@@ -294,7 +293,7 @@ def test_sensitive_verb_prefixed_api_method_is_blocked_before_config_or_session(
 
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
     monkeypatch.setattr(
-        cli.session, "client", lambda account: pytest.fail("session opened")
+        session, "client", lambda account: pytest.fail("session opened")
     )
     monkeypatch.setattr(
         cli, "_run_network", lambda args, account: pytest.fail("network dispatched")
@@ -333,7 +332,7 @@ def test_rejected_read_looking_api_method_is_blocked_before_config_or_session(
 
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
     monkeypatch.setattr(
-        cli.session, "client", lambda account: pytest.fail("session opened")
+        session, "client", lambda account: pytest.fail("session opened")
     )
     monkeypatch.setattr(
         cli, "_run_network", lambda args, account: pytest.fail("network dispatched")

@@ -3,8 +3,8 @@ import json
 import pytest
 
 from tests.conftest import FakeClient, make_session_fake
-from tgcli import cli
 from tgcli.cli import main
+from tgcli.commands import media as media_cmd
 
 
 SAMPLE = """
@@ -43,7 +43,7 @@ def test_media_download_json_reports_progress_only_on_stderr(
         kwargs["progress"](3, 6)
         return RESULT
 
-    monkeypatch.setattr(cli.media_cmd, "download_media", fake_download)
+    monkeypatch.setattr(media_cmd, "download_media", fake_download)
 
     assert main(["--json", "media", "download", "@channel", "42"]) == 0
     captured = capsys.readouterr()
@@ -59,7 +59,7 @@ def test_media_download_accepts_complete_tme_link(config_env, monkeypatch, capsy
         assert source.message_id == 42
         return RESULT
 
-    monkeypatch.setattr(cli.media_cmd, "download_media", fake_download)
+    monkeypatch.setattr(media_cmd, "download_media", fake_download)
 
     assert main(["--json", "media", "download", "t.me/channel/42"]) == 0
     assert json.loads(capsys.readouterr().out) == RESULT

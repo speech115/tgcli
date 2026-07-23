@@ -1,4 +1,8 @@
-"""Fail-closed architecture ownership and hotspot budget ratchet."""
+"""Fail-closed architecture ownership and hotspot budget ratchet.
+
+Budgets are ceilings, not baselines: a file may shrink freely, and only growth
+past its reviewed ceiling fails. Lower a ceiling once a file settles under it.
+"""
 
 from __future__ import annotations
 
@@ -7,13 +11,27 @@ import ast
 from pathlib import Path
 
 
-BUDGETS = {
-    "src/tgcli/cli.py": 909,
+CEILINGS = {
+    "src/tgcli/cli.py": 213,
+    "src/tgcli/parser.py": 375,
+    "src/tgcli/preflight.py": 168,
+    "src/tgcli/dispatch.py": 213,
     "src/tgcli/commands/batch.py": 96,
     "src/tgcli/read_ops.py": 413,
     "src/tgcli/commands/clone.py": 874,
     "src/tgcli/clone/state.py": 287,
 }
+
+# Modules that must reach read commands only through the read_ops seam
+# (ADR-0034). cli.py's split into parser/preflight/dispatch keeps the same
+# invariant, so every piece of the old monolith stays covered.
+READ_OWNERSHIP_MODULES = (
+    "src/tgcli/cli.py",
+    "src/tgcli/parser.py",
+    "src/tgcli/preflight.py",
+    "src/tgcli/dispatch.py",
+    "src/tgcli/commands/batch.py",
+)
 
 EXCLUSIVE_READ_MODULES = {
     "dialogs",
@@ -93,19 +111,19 @@ def _read_ownership_errors(path: Path, relative: str) -> set[str]:
 
 def check(root: Path) -> list[str]:
     errors: list[str] = []
-    for relative, budget in BUDGETS.items():
+    for relative, budget in CEILINGS.items():
         path = root / relative
         try:
             line_count = len(path.read_text().splitlines())
         except FileNotFoundError:
             errors.append(f"{relative} is missing")
             continue
-        if line_count != budget:
+        if line_count > budget:
             errors.append(
-                f"{relative} has {line_count} lines; reviewed baseline is {budget}"
+                f"{relative} has {line_count} lines; reviewed ceiling is {budget}"
             )
 
-    for relative in ("src/tgcli/cli.py", "src/tgcli/commands/batch.py"):
+    for relative in READ_OWNERSHIP_MODULES:
         path = root / relative
         if not path.exists():
             continue
