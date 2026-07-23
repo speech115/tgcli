@@ -78,7 +78,7 @@ allowlisted calls but no task-first wrapper.
 | `tg resolve` | high | S | **shipped** (ADR-0029 slice 1) |
 | `tg contacts list` | med | S | **shipped** (ADR-0029 slice 1) |
 | `tg contacts search` | med | S | **shipped** (ADR-0029 slice 1) |
-| `tg mutual-chats <@user>` | med | S | raw-only (`getCommonChats`) |
+| `tg mutual-chats <@user>` | med | S | **shipped** (ADR-0032 slice 1) |
 
 ### Thread reading
 

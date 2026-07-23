@@ -22,6 +22,7 @@ class FakeClient:
         resolve_phone_result=None,
         contacts_result=None,
         contacts_search_result=None,
+        common_chats_result=None,
     ):
         self._dialogs = list(dialogs)
         self._messages = list(messages)
@@ -36,6 +37,7 @@ class FakeClient:
         self._resolve_phone_result = resolve_phone_result
         self._contacts_result = contacts_result
         self._contacts_search_result = contacts_search_result
+        self._common_chats_result = common_chats_result
         self.session = ns(takeout_id=None)
         self.iter_messages_calls = []
         self.iter_messages_reverse_calls = []
@@ -181,6 +183,13 @@ class FakeClient:
             query = getattr(request.filter, "q", "")
             users = list(self._participant_search.get(query, ()))
             return ns(users=users, count=len(users))
+        if isinstance(request, functions.messages.GetCommonChatsRequest):
+            if self._common_chats_result is None:
+                raise AssertionError(
+                    "FakeClient received GetCommonChatsRequest but no "
+                    "common_chats_result was configured"
+                )
+            return self._common_chats_result
         if isinstance(
             request,
             (

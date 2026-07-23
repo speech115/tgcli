@@ -13,6 +13,16 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Slice 1: tg mutual-chats (Composer)
+**Did:** ADR-0032 slice 1 — `tg mutual-chats <user>` over
+`messages.GetCommonChatsRequest` (limit 100). Returns `{peer, chats, count}`;
+empty chats ok; non-user peer exit 2; missing user exit 4. CONTRACT/SKILL/
+PROPOSALS/MAP updated. Tests in `tests/test_cli_mutual_chats.py`.
+**Decided:** bots allowed as the mutual peer (Telegram supports getCommonChats
+on bots that share groups); groups/channels as the ref stay blocked.
+**Learned:** none.
+**Next:** Slice 2 — dialog archive/mute.
+
 ## 2026-07-23 — ADR-0032 data plumbing scope + plan (Composer)
 **Did:** owner-approved PROPOSALS package (mutual-chats, dialog
 archive/mute, incremental export, bulk media, RO `tg batch`) grilled and

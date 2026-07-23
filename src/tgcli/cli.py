@@ -158,6 +158,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_resolve.add_argument("ref", help="+phone, @username, t.me link, or dialog id")
 
+    p_mutual = sub.add_parser(
+        "mutual-chats",
+        help="List chats shared with a user",
+        parents=[global_flags],
+    )
+    p_mutual.add_argument("ref", help="@username, t.me link, or user id")
+
     p_thread = sub.add_parser(
         "thread",
         help="Read a reply chain (ancestors; optional replies)",
@@ -409,6 +416,9 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
             if args.command == "resolve":
                 data = await identity_cmd.resolve(tg, args.ref)
                 return data, identity_cmd.to_rows(data)
+            if args.command == "mutual-chats":
+                data = await identity_cmd.mutual_chats(tg, args.ref)
+                return data, identity_cmd.mutual_chats_to_rows(data)
             if args.command == "thread":
                 data = await thread_cmd.fetch_thread(
                     tg,

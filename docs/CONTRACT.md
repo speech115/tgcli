@@ -208,6 +208,28 @@ to `<query>` and returns its `users` mapped the same way, with
 `--global` results are capped at 50 (`contacts.search`'s own `limit`
 argument); there is no flag to raise it.
 
+```
+tg mutual-chats <user>
+```
+
+`tg mutual-chats <user> --json`:
+```json
+{"peer": {"id": 111, "type": "user", "username": "alice",
+          "display_name": "Alice Smith", "is_contact": true,
+          "is_bot": false},
+ "chats": [{"id": 200, "type": "group", "username": "shared",
+            "display_name": "Shared Group", "is_contact": false,
+            "is_bot": false}],
+ "count": 1}
+```
+
+`mutual-chats` resolves `<user>` like `resolve` (non-phone refs) and calls
+`messages.getCommonChats` with `limit` 100. `peer` is the resolved user/bot;
+`chats` are common groups/channels mapped through the same `peer` shape.
+An empty `chats` list is success (`count` 0). A missing user is exit 4. A
+non-user/non-bot peer (group or channel) is exit 2 (`BLOCKED`). Plain rows
+are one TSV line per chat: `id`, `type`, `username`, `display_name`.
+
 `tg media download <t.me/link|chat> [message_id] --json`:
 ```json
 {"source": "@channel:42", "path": "/Users/me/Downloads/clip.mp4",
