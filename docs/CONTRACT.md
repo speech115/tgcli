@@ -175,10 +175,12 @@ dialog id. A phone ref calls `contacts.resolvePhone` only — it never calls
 `contacts.importContacts` — and maps the returned peer to its entity via the
 response's `users`/`chats` lists; an empty result is exit 4 (not found).
 Phone resolution (and raw `tg api contacts.resolvePhone`) shares a
-client-side cooldown of about 3 seconds across `tg` processes; a call that
-arrives too soon exits 5 (`FLOOD_WAIT`) with `retry_after`. Every other ref
-goes through the standard chat-reference parser and `get_entity`. `type` is
-one of `user`, `bot`, `group`, `channel`: `bot` when the entity reports
+client-side cooldown of about 3 seconds across `tg` processes; reservation is
+atomic across concurrent processes. A call that arrives too soon exits 5
+(`FLOOD_WAIT`) with `retry_after`. Telegram's `PHONE_NOT_OCCUPIED` is exit 4.
+Every other ref goes through the standard chat-reference parser and
+`get_entity`. `type` is one of `user`, `bot`, `group`, `channel`: `bot` when
+the entity reports
 `bot`, `channel` for a broadcast channel, `group` for a megagroup or basic
 group, otherwise `user`. `display_name` is the chat title, or first+last name
 for a user/bot. `is_contact` and `is_bot` reflect the entity's own Telegram
@@ -246,6 +248,8 @@ positive `N`, and starts a fresh offset-based transfer.
 
 Bulk mode (ADR-0032) activates with `--message-ids id,id` and/or filter flags
 `--type` / `--since` / `--limit` on a chat reference (no single `message_id`).
+When explicit IDs and filters are combined, the filters apply to those
+messages and `--limit` caps the filtered downloads, preserving input-ID order.
 Do not combine a positional `message_id` with bulk flags (exit 2). Hard cap
 **100** downloads per invocation (`--message-ids` length and filter `--limit`;
 default filter limit 100). `--output` is a destination directory. Success /
@@ -468,7 +472,10 @@ tg batch [--fail-fast] < ops.jsonl
 
 `batch` reads JSONL ops from stdin and writes one JSON result object per
 line to stdout under a **single** account session. Hard cap **100** ops
-(excess → exit 2 before network). Allowlisted `op` values:
+(excess → exit 2 before network); blank lines are ignored and do not count as
+ops. ISO date fields use the same parsing as their standalone commands
+(`read` `since`/`until`, `search` `since`, `media.manifest` `since`).
+Allowlisted `op` values:
 `dialogs`, `read`, `search`, `latest`, `message`, `info`, `count`,
 `resolve`, `mutual-chats`, `contacts.list`, `contacts.search`,
 `media.manifest`, `thread`. Mutations, `doctor`, `export`, `clone`,

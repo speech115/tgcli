@@ -963,7 +963,7 @@ def main(argv: list[str] | None = None) -> int:
         raise
     else:
         if args.command == "batch":
-            batch_cmd.emit_results(data["_batch_results"])
+            output.emit_json_lines(data["_batch_results"])
             exit_code = data["_batch_exit"] or 0
         else:
             if args.json:

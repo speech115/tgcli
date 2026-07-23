@@ -1,9 +1,13 @@
 import json
+from datetime import UTC, datetime
 
 import pytest
 
 from tests.conftest import FakeClient, make_session_fake, ns
 from tests.test_cli_dialogs import make_dialog
+from tests.test_cli_media import _media_message
+from tests.test_cli_read import make_read_client
+from tests.test_cli_search import make_message
 from tgcli.cli import main
 
 
@@ -102,6 +106,81 @@ def test_batch_rejects_over_100_ops(config_env, monkeypatch):
     lines = "\n".join(json.dumps({"op": "dialogs", "limit": 1}) for _ in range(101))
     monkeypatch.setattr("sys.stdin", type("S", (), {"read": lambda self: lines})())
     assert main(["batch"]) == 2
+
+
+def test_batch_cap_counts_operations_not_blank_lines(config_env, monkeypatch, capsys):
+    make_session_fake(monkeypatch, FakeClient(dialogs=[]))
+    ops = [json.dumps({"op": "dialogs", "limit": 1}) for _ in range(100)]
+    lines = "\n".join([*ops[:50], "", *ops[50:]])
+    monkeypatch.setattr("sys.stdin", type("S", (), {"read": lambda self: lines})())
+
+    assert main(["batch"]) == 0
+    assert len(capsys.readouterr().out.splitlines()) == 100
+
+
+def test_batch_search_parses_iso_since(config_env, monkeypatch, capsys):
+    client = FakeClient(
+        search_messages={"needle": [make_message(42, "needle")]},
+        entities={"@chan": ns(id=5, title="Chan")},
+    )
+    make_session_fake(monkeypatch, client)
+    line = json.dumps(
+        {
+            "op": "search",
+            "chat": "@chan",
+            "query": "needle",
+            "since": "2026-07-07T00:00:00+00:00",
+        }
+    )
+    monkeypatch.setattr("sys.stdin", type("S", (), {"read": lambda self: line})())
+
+    assert main(["batch"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is True
+    assert result["data"]["messages"] == []
+
+
+def test_batch_read_parses_iso_date_bounds(config_env, monkeypatch, capsys):
+    client = make_read_client()
+    make_session_fake(monkeypatch, client)
+    line = json.dumps(
+        {
+            "op": "read",
+            "chat": "@chan",
+            "since": "2026-07-17T00:00:00+00:00",
+            "until": "2026-07-19T00:00:00+00:00",
+        }
+    )
+    monkeypatch.setattr("sys.stdin", type("S", (), {"read": lambda self: line})())
+
+    assert main(["batch"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is True
+    assert [item["id"] for item in result["data"]["messages"]] == [3, 2]
+
+
+def test_batch_media_manifest_parses_iso_since(config_env, monkeypatch, capsys):
+    client = FakeClient(
+        messages=[
+            _media_message(2, "photo", date=datetime(2026, 7, 22, tzinfo=UTC)),
+            _media_message(1, "video", date=datetime(2026, 7, 18, tzinfo=UTC)),
+        ],
+        entities={"@chan": ns(id=5, title="Chan")},
+    )
+    make_session_fake(monkeypatch, client)
+    line = json.dumps(
+        {
+            "op": "media.manifest",
+            "source": "@chan",
+            "since": "2026-07-20T00:00:00+00:00",
+        }
+    )
+    monkeypatch.setattr("sys.stdin", type("S", (), {"read": lambda self: line})())
+
+    assert main(["batch"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is True
+    assert [item["message_id"] for item in result["data"]["items"]] == [2]
 
 
 def test_batch_maps_flood_wait_to_exit_5(config_env, monkeypatch, capsys):

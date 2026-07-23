@@ -121,6 +121,24 @@ def test_resolve_phone_empty_result_is_not_found(config_env, monkeypatch, capsys
     )
 
 
+def test_resolve_phone_not_occupied_is_not_found(config_env, monkeypatch, capsys):
+    from telethon import errors as telethon_errors
+
+    class PhoneNotOccupiedClient(FakeClient):
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, functions.contacts.ResolvePhoneRequest):
+                raise telethon_errors.PhoneNotOccupiedError(request)
+            return await super().__call__(request)
+
+    client = PhoneNotOccupiedClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["resolve", "+99500000000", "--json"]) == 4
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"]["code"] == "NOT_FOUND"
+
+
 def test_resolve_phone_enforces_shared_cooldown(config_env, monkeypatch, capsys):
     from telethon.tl import types
 

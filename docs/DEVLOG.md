@@ -13,6 +13,40 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Retrospective PR fixes and review correction (Codex)
+**Did:** audited merged PRs 18, 20, and 21 from the last whole-branch review
+point; confirmed PR 19 never merged. Added regression coverage and minimal
+fixes for batch blank-line caps and ISO dates, combined bulk-media filters,
+typed partial-failure exits, output ownership, auth-revocation propagation,
+broadcast export flood waits, unoccupied phone resolution, and atomic
+cross-process resolve-phone cooldown reservations. Updated CONTRACT, MAP, and
+SKILL. Final gate: 664 passed, 8 skipped; Ruff check/format, Pyright, and the
+23-namespace coverage check all passed. Independent final Spec review found no
+remaining actionable defect.
+**Decided:** withdraw the earlier `mutual-chats` type finding: Telethon's
+`GetCommonChatsRequest.resolve()` converts the high-level entity through
+`get_input_user`, so no production change is required. Historical PR 18
+sequencing/scope issues are recorded as process findings, not rewritten.
+**Learned:** whole-diff adversarial review found contract failures that focused
+happy-path tests and green aggregate CI missed, especially JSON-to-domain
+coercion, concurrent cooldown reservation, and exception mapping inside a
+partial-success loop.
+**Next:** review the published fix branch and merge it when ready.
+
+## 2026-07-23 — Independent implementation and review gates (Codex)
+**Did:** strengthened `AGENTS.md` with public-seam TDD, exact Telethon request
+type checks, coherent PR scope, independent whole-diff Spec + Standards review,
+adversarial CLI coverage, safe live-smoke boundaries, and the complete uv
+verification gate. Replaced the duplicated Cursor rule set with a thin adapter
+and explicit implementation/handoff checklist; removed its contradictory
+`commit (if asked)` instruction.
+**Decided:** green focused tests and CI are necessary but not sufficient;
+feature authors do not provide the only final approval of their own work.
+**Learned:** permissive fakes and copied agent rules can both hide drift:
+external type mismatches in code and workflow contradictions in instructions.
+**Next:** finish the active PR #21 regression fixes, then apply the independent
+whole-diff gate before merge.
+
 ## 2026-07-23 — Post-merge review of PRs 20 and 21 (Codex)
 **Did:** reviewed PR #20 (`f7542b6`) and PR #21 (`6096519`) against their
 contracts, ADRs, and repository standards. PR #20 was clean; focused API tests

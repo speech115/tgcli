@@ -1,54 +1,50 @@
 ---
-description: tgcli maintenance mode, TDD, and docs discipline for Cursor agents
+description: Cursor adapter for the canonical tgcli agent contract
 alwaysApply: true
 ---
 
 # tgcli — Cursor agent rules
 
-Canonical contract: `AGENTS.md`. Read `docs/MAP.md` and the tail of
-`docs/DEVLOG.md` before substantial work. Scope lives in `docs/ISSUES.md`
-and unvetted ideas in `docs/PROPOSALS.md`.
+`AGENTS.md` is the canonical contract and overrides this adapter. Read it,
+`docs/MAP.md`, the newest `docs/DEVLOG.md` entries, `docs/ISSUES.md`, and
+the governing ADR before changing code. Do not copy or reinterpret their
+rules here.
 
-## Maintenance mode (ADR-0026)
+## Cursor implementation loop
 
-- Do **not** add features or behavior changes unless the owner explicitly
-  requests them. Then: ADR + scoped plan — never a new PLAN.md phase.
-- Bug fix = reproducing test first, then the minimal fix.
-- When unsure fix vs feature, ask the owner.
-
-## TDD and verification
-
-```
-failing test → minimal code → green → docs → commit (if asked)
-```
-
-Before claiming done, run from the repo venv:
+1. Keep the task to one coherent slice. Put unrelated Cursor onboarding,
+   rules, cleanup, and product behavior in separate PRs.
+2. Write a failing test at the public seam before production code.
+3. For a Telegram RPC, assert the exact generated request field types, not
+   merely that a permissive fake accepted the request.
+4. Make the minimal change, run focused tests, and update required docs.
+5. Exercise adversarial CLI cases: invalid/combined flags, empty input,
+   caps, ISO dates, partial failures, readonly gates, and audit timing.
+6. Run the full gate:
 
 ```bash
-.venv/bin/pytest -q
-.venv/bin/ruff check .
-.venv/bin/ruff format --check .
-.venv/bin/pyright
+uv run pytest -q
+uv run ruff check .
+uv run ruff format --check .
+uv run pyright
+uv run python scripts/check-coverage.py
 ```
 
-## Docs discipline
+7. Commit and push the feature branch as required by `AGENTS.md`; never wait
+   for a separate ask and never push `main` without explicit permission.
 
-- Every session appends one entry to `docs/DEVLOG.md`.
-- Architectural change → new ADR + index row in `docs/decisions/README.md`.
-- Module add/move/remove → update `docs/MAP.md` in the same change.
-- CLI flags / JSON / exit codes → update `docs/CONTRACT.md` in the same change.
+## Handoff for independent review
 
-## Hard constraints
+Green CI is not a self-approval. Before merge, hand off:
 
-- No daemons or background processes.
-- stdout is contract data only; debug/progress → stderr.
-- Never commit `.env`, `*.session`, audit logs, or `~/.local/state/tgcli/`.
-- Branch: `claude/<topic>` or `codex/<topic>`. Do not push `main` unless
-  the owner asks in the current session.
+- the merge-base and full diff;
+- the governing ADR/plan/CONTRACT sections;
+- focused red/green evidence and exact full-gate output;
+- any behavior still proven only by mocks;
+- whether a safe live smoke ran, was unnecessary, or remains owner-gated.
 
-## Language
-
-User conversation: Russian. Code, comments, docs, commits, CLI: English.
+Do not merge or describe the PR as ready until an independent whole-diff
+Spec + Standards review has resolved every confirmed finding.
 
 ## How to task this agent (examples)
 
@@ -58,6 +54,9 @@ Fix: tg api crashes on bool RPC result. Reproducing test first.
 
 # Good — explicit feature gate
 Implement MSG-001 albums only. ADR + plan before code.
+
+# Good — independent finish gate
+Review the entire branch from its merge-base on Spec and Standards axes.
 
 # Bad — invites scope creep
 Improve tgcli / add more commands / make it better.

@@ -1,5 +1,6 @@
 """Peer discovery: `tg resolve REF` (contacts.resolvePhone / entity lookup)."""
 
+from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
 from tgcli import chatref
@@ -71,7 +72,10 @@ async def resolve(tg, ref: str) -> dict:
 
         enforce_resolve_phone_cooldown()
         phone = stripped[1:]
-        response = await tg(functions.contacts.ResolvePhoneRequest(phone=phone))
+        try:
+            response = await tg(functions.contacts.ResolvePhoneRequest(phone=phone))
+        except telethon_errors.PhoneNotOccupiedError:
+            raise NotFoundError(f"phone not found: {ref!r}") from None
         entity = _entity_from_resolved_peer(response)
         if entity is None:
             raise NotFoundError(f"phone not found: {ref!r}")

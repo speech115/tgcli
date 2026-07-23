@@ -12,7 +12,13 @@ from telethon import functions
 from telethon import errors as telethon_errors
 
 from tgcli import chatref
-from tgcli.errors import NotFoundError, PolicyError
+from tgcli.errors import (
+    NotFoundError,
+    PartialFailure,
+    PolicyError,
+    RateLimitError,
+    TgcliError,
+)
 from tgcli.session import state_dir
 
 
@@ -361,22 +367,20 @@ async def download_media_bulk(
 ) -> dict:
     """Download many media messages (ADR-0032). Raises PartialFailure if any fail."""
     from tgcli.commands.read import _dialog_name
-    from tgcli.errors import PartialFailure
-
-    if message_ids is not None and (kind is not None or since is not None):
-        raise PolicyError("do not combine --message-ids with --type/--since")
 
     try:
         entity = await tg.get_entity(chatref.parse(chat))
     except ValueError:
         raise NotFoundError(f"dialog not found: {chat!r}") from None
 
+    effective_limit = BULK_DOWNLOAD_CAP if limit is None else limit
+    if effective_limit < 1:
+        raise PolicyError("bulk media --limit must be positive")
+    if effective_limit > BULK_DOWNLOAD_CAP:
+        raise PolicyError(f"bulk media --limit may not exceed {BULK_DOWNLOAD_CAP}")
+
+    explicit_ids = message_ids is not None
     if message_ids is None:
-        effective_limit = BULK_DOWNLOAD_CAP if limit is None else limit
-        if effective_limit < 1:
-            raise PolicyError("bulk media --limit must be positive")
-        if effective_limit > BULK_DOWNLOAD_CAP:
-            raise PolicyError(f"bulk media --limit may not exceed {BULK_DOWNLOAD_CAP}")
         inventory = await manifest(
             tg, chat, kind=kind, since=since, limit=effective_limit
         )
@@ -392,9 +396,23 @@ async def download_media_bulk(
     items = []
     failed = []
     hard_error = None
+    selected = 0
     for message_id in message_ids:
+        if selected >= effective_limit:
+            break
         source = MediaSource(chat=chat, message_id=message_id, private_channel_id=None)
         try:
+            if explicit_ids and (kind is not None or since is not None):
+                message = await tg.get_messages(entity, ids=message_id)
+                if message is None:
+                    raise NotFoundError(f"message not found: {message_id}")
+            else:
+                _, message = await resolve_message(tg, source, account_alias)
+            if kind is not None and _media_kind(message) != kind:
+                continue
+            if since is not None and message.date is not None and message.date < since:
+                continue
+            selected += 1
             result = await download_media(
                 tg,
                 source,
@@ -402,8 +420,8 @@ async def download_media_bulk(
                 output=str(
                     output_dir
                     / _message_filename(
-                        # resolve for filename — download_media resolves again
-                        (await resolve_message(tg, source, account_alias))[1],
+                        # download_media resolves again for transfer metadata
+                        message,
                         message_id,
                     )
                 ),
@@ -423,6 +441,8 @@ async def download_media_bulk(
             hard_error = exc
             failed.append({"message_id": message_id, "error": str(exc)})
             break
+        except telethon_errors.SessionRevokedError:
+            raise
         except Exception as exc:
             hard_error = exc
             failed.append({"message_id": message_id, "error": str(exc)})
@@ -435,17 +455,21 @@ async def download_media_bulk(
         "failed": failed,
     }
     if failed or hard_error is not None:
-        exit_code = 5 if isinstance(hard_error, telethon_errors.FloodWaitError) else 4
-        if hard_error is not None and not isinstance(
-            hard_error, (NotFoundError, telethon_errors.FloodWaitError)
-        ):
-            exit_code = getattr(hard_error, "exit_code", 1)
-        elif failed and hard_error is None:
-            exit_code = 4
+        if isinstance(hard_error, telethon_errors.FloodWaitError):
+            cause = RateLimitError(
+                f"rate limited for {hard_error.seconds}s",
+                retry_after=hard_error.seconds,
+            )
+        elif isinstance(hard_error, TgcliError):
+            cause = hard_error
+        elif hard_error is not None:
+            cause = TgcliError(str(hard_error))
+        else:
+            cause = NotFoundError("one or more media messages were not found")
         raise PartialFailure(
             f"bulk media download finished with {len(failed)} failure(s)",
             data,
-            exit_code=exit_code,
+            cause=cause,
         )
     return data
 

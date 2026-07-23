@@ -54,7 +54,7 @@ selected account session, does one operation, and exits.
 | Media inventory (no download) | `tg --json media manifest @channel --type photo --limit 50` |
 | Reply chain | `tg --json thread CHAT MESSAGE_ID [--replies] [--depth 20]` |
 | Download media | `tg --json media download https://t.me/channel/42 --parallel 4` |
-| Bulk download media | `tg --json media download @chan --message-ids 1,2 --output DIR` (max 100) |
+| Bulk download media | `tg --json media download @chan --message-ids 1,2 --type video --since ISO --limit 50 --output DIR` (filters combine; max 100) |
 | Preview a send | `tg --json send @channel "Hello" --preview` |
 | Preview a reply/topic/silent send | `tg --json send CHAT "TEXT" --preview --reply-to ID --topic ID --silent` |
 | Preview a file send | `tg --json send CHAT --file PATH --caption "TEXT" --preview` |
@@ -74,7 +74,7 @@ selected account session, does one operation, and exits.
 | Archive / unarchive a dialog | `tg --json dialog archive @channel` / `tg --json dialog unarchive @channel` |
 | Mute / unmute a dialog | `tg --json dialog mute @channel --until ISO` / `--forever` / `unmute` |
 | Check local health | `tg --json doctor` |
-| Export messages | `tg --json export messages @channel --output messages.jsonl` |
+| Export messages | `tg --json export messages @channel --output messages.jsonl [--after-id ID] [--append|--resume]` |
 | Export subscribers | `tg --json export subscribers @channel --output subscribers.csv` |
 | List channel clones | `tg --json clone status` |
 | Preview a chat clone | `tg --json clone init SOURCE` |

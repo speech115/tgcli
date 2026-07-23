@@ -11,6 +11,11 @@ def emit_json(data) -> None:
     sys.stdout.write("\n")
 
 
+def emit_json_lines(items) -> None:
+    for item in items:
+        emit_json(item)
+
+
 def emit_plain(rows) -> None:
     for row in rows:
         sys.stdout.write(
