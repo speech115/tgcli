@@ -176,7 +176,31 @@ def test_cleanup_confirm_blocked_under_readonly(tmp_path, monkeypatch, capsys):
     assert (tmp_path / "previews" / "p_spent0.used").exists()
 
 
-def test_cleanup_tightens_surviving_preview_modes(tmp_path, monkeypatch):
+def test_cleanup_dry_run_does_not_chmod_survivors(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    future = NOW + timedelta(minutes=4)
+    live = _write_preview(tmp_path, "p_live", expires_at=future)
+    live.chmod(0o644)
+
+    store_cmd.cleanup(tmp_path, confirm=False, now=NOW)
+
+    assert live.stat().st_mode & 0o777 == 0o644
+
+
+def test_cleanup_confirm_blocked_by_tgcli_readonly_env(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("TGCLI_READONLY", "1")
+    _seed_inventory(tmp_path)
+
+    assert main(["store", "cleanup", "--confirm", "--json"]) == 2
+    assert (tmp_path / "previews" / "p_spent0.used").exists()
+
+
+def test_cleanup_rejects_invalid_older_than(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    assert main(["store", "cleanup", "--older-than", "nope", "--json"]) == 1
+    assert "invalid --older-than" in capsys.readouterr().err
+
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     future = NOW + timedelta(minutes=4)
     live = _write_preview(tmp_path, "p_live", expires_at=future)
