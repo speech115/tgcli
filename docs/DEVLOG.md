@@ -13,6 +13,22 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Post-merge review of PRs 20 and 21 (Codex)
+**Did:** reviewed PR #20 (`f7542b6`) and PR #21 (`6096519`) against their
+contracts, ADRs, and repository standards. PR #20 was clean; focused API tests
+reported 81 passed. PR #21's full gate reported 652 passed, 8 skipped, with
+Ruff, format, Pyright, and the 23-namespace coverage gate clean. The review
+found four functional contract defects in PR #21: wrong `TypeInputUser`
+construction for `mutual-chats`, rejected/ignored combined bulk-media filters,
+blank lines counted against the batch op cap, and unparsed batch ISO date
+filters. A focused repro confirmed the date-filter `datetime`/`str` TypeError.
+**Decided:** treat the findings as follow-up maintenance fixes; this review
+changes no production code and makes no new architectural decision.
+**Learned:** mocked request handlers and aggregate green gates did not exercise
+Telethon's exact request-field type or batch JSON-to-domain coercion.
+**Next:** fix PR #21 findings test-first, starting with `mutual-chats` and batch
+date parsing.
+
 ## 2026-07-23 — Slice 5: read-only tg batch (Composer)
 **Did:** ADR-0032 slice 5 — `tg batch` JSONL runner (cap 100, RO allowlist,
 any failure → nonzero exit, `--fail-fast`, no doctor). New
