@@ -6,73 +6,10 @@ as the source-anchor -> source-post map that lets a comment find the destination
 thread it belongs to.
 """
 
-from dataclasses import replace
 from typing import cast
 from telethon.tl import types
 from tgcli.clone import batching, discussion, legs, state
 from tgcli.errors import PolicyError
-
-
-async def _source_post(tg, source_group, source_channel_id, anchor_id, anchors):
-    """The source post an anchor belongs to, else None for a plain message.
-    Anchors met while walking phase 2 are already cached; earlier ones (and
-    non-anchors, negatively) are looked up once."""
-    if anchor_id not in anchors:
-        found = await tg.get_messages(source_group, ids=anchor_id)
-        anchors[anchor_id] = (
-            None
-            if found is None
-            else discussion.autoforward_post_id(found, source_channel_id)
-        )
-    return anchors[anchor_id]
-
-
-async def _remap(
-    tg,
-    mutate,
-    clone_state,
-    source_group,
-    source_channel_id,
-    destination,
-    messages,
-    plan,
-    anchors,
-    cache,
-):
-    """Re-point a comment's thread root at the destination's own anchor:
-    source anchor -> source post -> destination post -> destination anchor.
-    Anything unmappable is left alone and flattens on the existing rules."""
-    header = getattr(messages[0], "reply_to", None)
-    if not isinstance(header, types.MessageReplyHeader):
-        return plan
-    top = header.reply_to_top_id
-    root = top if top is not None else header.reply_to_msg_id
-    post_id = await _source_post(tg, source_group, source_channel_id, root, anchors)
-    destination_post_id = None if post_id is None else clone_state.dest_for(post_id)
-    if destination_post_id is None:
-        return plan
-    found = await discussion.anchor_for(mutate, destination, destination_post_id, cache)
-    if found is None:
-        return plan
-    if top is None:
-        reply_to = types.InputReplyToMessage(
-            reply_to_msg_id=found,
-            quote_text=header.quote_text,
-            quote_entities=list(header.quote_entities or ()) or None,
-            quote_offset=header.quote_offset,
-        )
-    elif plan.reply_to is None:
-        return plan
-    else:
-        reply_to = plan.reply_to
-        reply_to.top_msg_id = found
-    return replace(
-        plan,
-        reply_to=reply_to,
-        reply_flattened=False,
-        needs_author=True,
-        mode="snapshots" if plan.mode == "snapshots" else "reuploaded",
-    )
 
 
 def _anchor_posts(messages, source_channel_id) -> dict[int, int] | None:
@@ -91,7 +28,15 @@ def _anchor_posts(messages, source_channel_id) -> dict[int, int] | None:
 
 
 async def sync_phase(
-    tg, clone_state, source_channel, destination, mutate, copy_batch, counters, limited
+    tg,
+    clone_state,
+    source_channel,
+    destination,
+    mutate,
+    copy_batch,
+    counters,
+    limited,
+    resolve_ctx,
 ) -> bool:
     """Copy the source discussion group into the clone's. Phase 1 has already
     run to exhaustion, so every parent post is mapped. Returns True when the
@@ -120,21 +65,9 @@ async def sync_phase(
             or discussion.autoforward_post_id(item, destination.id) is not None
         ),
     )
-    anchors, cache = {}, {}
-
-    async def remap(messages, plan):
-        return await _remap(
-            tg,
-            mutate,
-            clone_state,
-            source_group,
-            source_channel.id,
-            destination,
-            messages,
-            plan,
-            anchors,
-            cache,
-        )
+    resolve_ctx.source_group = source_group
+    resolve_ctx.source_channel_id = source_channel.id
+    resolve_ctx.destination = destination
 
     async for event in batching.plan(
         tg.iter_messages(source_group, min_id=leg.cursor, reverse=True)
@@ -145,11 +78,11 @@ async def sync_phase(
             counters["skipped_service"] += 1
             leg.cursor = event.message_id
         elif (posts := _anchor_posts(event.messages, source_channel.id)) is not None:
-            anchors.update(posts)
+            resolve_ctx.anchors.update(posts)
             counters["skipped_autoforward"] += len(posts)
             leg.cursor = event.messages[-1].id
         else:
-            await copy_batch(event.messages, leg, source_group, group, remap)
+            await copy_batch(event.messages, leg, source_group, group)
             continue
         state.save(clone_state)
     return False

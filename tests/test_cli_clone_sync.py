@@ -125,10 +125,16 @@ class CloneSyncClient:
 
     async def get_entity(self, ref):
         if isinstance(ref, types.PeerChannel):
-            assert ref.channel_id == 999
-            return self.destination
+            if ref.channel_id == getattr(self.destination, "id", 999):
+                return self.destination
+            raise ValueError("peer not found")
+        if isinstance(ref, (types.PeerUser, types.PeerChat)):
+            raise ValueError("peer not found")
         assert ref == "@source"
         return self.source
+
+    async def get_input_entity(self, ref):
+        raise ValueError("no input peer")
 
     async def get_me(self):
         return SimpleNamespace(id=42)
@@ -1354,9 +1360,10 @@ def test_clone_sync_topic_recovery_reuses_mapping_after_copy_failure(
     assert saved.cursor == 5 and saved.dest_for(5) == 3
 
 
-def test_clone_sync_flattens_cross_peer_forum_header_without_wedging(
+def test_clone_sync_copies_cross_peer_forum_header_without_wedging(
     config_env, monkeypatch, capsys
 ):
+    """Foreign-peer forum header: probe fails → quote fallback, cursor advances."""
     clone_state = seed_clone(kind="forum", title="Forum chat")
     clone_state.record_topic(2, 1002)
     clone_state.cursor = 2
@@ -1380,7 +1387,7 @@ def test_clone_sync_flattens_cross_peer_forum_header_without_wedging(
 
     sync = json.loads(capsys.readouterr().out)["sync"]
     assert sync["copied"] == 1
-    assert sync["reply_flattened"] == 1
+    assert sync["reuploaded"] == 1
     saved = state.load(clone_state.clone_id)
     assert saved.cursor == 5
     assert saved.dest_for(5) is not None
@@ -1826,9 +1833,10 @@ def test_clone_sync_reuploads_basic_group_reply_with_prefix(
     assert sync["reuploaded"] == 1
 
 
-def test_clone_sync_flattens_basic_group_reply_with_different_source_peer(
+def test_clone_sync_copies_basic_group_foreign_peer_reply_without_wedging(
     config_env, monkeypatch, capsys
 ):
+    """Different-source-peer reply: unreachable probe → fallback, still copies."""
     clone_state = seed_clone(kind="basic", title="Legacy group")
     clone_state.record_mapping(1, 1001)
     clone_state.cursor = 1
@@ -1845,7 +1853,7 @@ def test_clone_sync_flattens_basic_group_reply_with_different_source_peer(
 
     sync = json.loads(capsys.readouterr().out)["sync"]
     assert sync["copied"] == 1
-    assert sync["reply_flattened"] == 1
+    assert sync["reuploaded"] == 1
     assert state.load(clone_state.clone_id).dest_for(2) is not None
 
 

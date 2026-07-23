@@ -11,6 +11,11 @@ class TransportPlan:
     reply_to: object | None
     reply_flattened: bool
     needs_author: bool
+    # Quote fallback body (ADR-0036); applied before author attribution.
+    body_prefix: str | None = None
+    body_prefix_entities: tuple = ()
+    # Internal seam for slice 3 reporting; not yet part of the CLI contract.
+    quote_flattened: dict | None = None
 
 
 def decide(messages, leg, source) -> TransportPlan:
@@ -29,7 +34,7 @@ def decide(messages, leg, source) -> TransportPlan:
             leg.destination_kind == "forum" and topics.placement_only(header)
         )
     else:
-        # foreign-peer / mapped-cross-leg resolve in a later slice; flatten until then.
+        # foreign-peer / mapped-cross-leg: quotes.resolve fills reply_to or fallback.
         reply_to = None
         reply_flattened = True
     if len(messages) == 1 and fidelity.supports(messages[0]):

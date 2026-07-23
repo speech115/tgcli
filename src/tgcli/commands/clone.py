@@ -16,6 +16,7 @@ from tgcli.clone import (
     discussion,
     fidelity,
     legs,
+    quotes,
     roster,
     snapshot,
     state,
@@ -492,6 +493,10 @@ async def _uploaded_media(tg, message, path, clone_state):
     )
 
 
+def _body_text(message, author, plan) -> tuple[str, list | None]:
+    return quotes.apply_body(message, author, plan)
+
+
 async def _reupload_batch(
     tg,
     destination,
@@ -501,7 +506,11 @@ async def _reupload_batch(
     random_ids,
     reply_to,
     author=None,
+    plan=None,
 ):
+    plan = plan or transport.TransportPlan(
+        mode="reuploaded", reply_to=reply_to, reply_flattened=False, needs_author=False
+    )
     with tempfile.TemporaryDirectory(prefix="tgcli-clone-reupload-") as workdir:
         downloads = {}
         for message in messages:
@@ -528,9 +537,7 @@ async def _reupload_batch(
         if len(messages) == 1:
             message = messages[0]
             media = getattr(message, "media", None)
-            text, entities = attribution.prefixed(
-                message.message or "", message.entities, author
-            )
+            text, entities = _body_text(message, author, plan)
             common = {
                 "peer": destination,
                 "message": text,
@@ -566,9 +573,7 @@ async def _reupload_batch(
                 functions.messages.UploadMediaRequest(peer=destination, media=uploaded),
                 clone_state,
             )
-            text, entities = attribution.prefixed(
-                message.message or "", message.entities, author if index == 0 else None
-            )
+            text, entities = _body_text(message, author if index == 0 else None, plan)
             multi_media.append(
                 types.InputSingleMedia(
                     media=telethon_utils.get_input_media(stored),
@@ -625,7 +630,13 @@ async def _forward_batch(
         )
     if plan.mode == "snapshots":
         rendered_text, rendered_entities = await snapshot.render(tg, messages[0])
-        text, entities = attribution.prefixed(rendered_text, rendered_entities, author)
+        text, entities = attribution.with_prefix(
+            rendered_text,
+            rendered_entities,
+            plan.body_prefix or "",
+            plan.body_prefix_entities,
+        )
+        text, entities = attribution.prefixed(text, entities, author)
         safety.append_audit(
             "clone-sync-snapshot",
             account_alias,
@@ -668,6 +679,7 @@ async def _forward_batch(
             random_ids,
             reply_to,
             author,
+            plan,
         )
     destination_ids = topics.confirmed_destination_ids(response, random_ids)
     for source_id, destination_id in zip(source_ids, destination_ids, strict=True):
@@ -736,8 +748,9 @@ async def sync_text(
     author_cache = {}
     more = False
     posts_leg = legs.posts(clone_state)
+    resolve_ctx = quotes.ResolveContext(tg=tg, mutate=mutate, destination=destination)
 
-    async def copy_batch(messages, leg, source, dest, remap=None) -> None:
+    async def copy_batch(messages, leg, source, dest) -> None:
         nonlocal copied, copied_batches, reply_flattened
         unsupported = [
             {"id": message.id, "kind": kind}
@@ -750,8 +763,7 @@ async def sync_text(
             state.save(clone_state)
             return
         plan = transport.decide(messages, leg, source)
-        if remap is not None:
-            plan = await remap(messages, plan)
+        plan = await quotes.resolve(messages, plan, leg, source, resolve_ctx)
         topic_dest = None
         if forum:
             topic_dest = await topics.ensure_topic(
@@ -763,18 +775,25 @@ async def sync_text(
                 counters,
                 account_alias=account_alias,
             )
-        batch_copied, mode, flattened = await _forward_batch(
-            tg,
-            source,
-            dest,
-            clone_state,
-            leg,
-            account_alias,
+        batch_copied, mode, flattened = await quotes.send_with_degrade(
+            lambda active_plan: _forward_batch(
+                tg,
+                source,
+                dest,
+                clone_state,
+                leg,
+                account_alias,
+                list(messages),
+                me,
+                author_cache,
+                active_plan,
+                topic_dest=topic_dest,
+            ),
             list(messages),
-            me,
-            author_cache,
             plan,
-            topic_dest=topic_dest,
+            leg,
+            source,
+            resolve_ctx,
         )
         copied += batch_copied
         transport_counts[mode] += batch_copied
@@ -822,6 +841,7 @@ async def sync_text(
             copy_batch,
             counters,
             lambda: limit is not None and copied_batches >= limit,
+            resolve_ctx,
         )
     participants = await roster.collect(tg, clone_state, source_entity)
     clone_state.last_synced_at = datetime.now(UTC).isoformat()

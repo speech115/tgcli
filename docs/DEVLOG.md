@@ -17,6 +17,23 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Clone quote replies slice 2 (Composer)
+**Did:** implemented ADR-0036 slice 2. Added `clone/quotes.py` async
+resolver (mapped same-leg, mapped cross-leg via post map → destination
+anchor, foreign-peer reachability cache, unreachable/rejected → rendered
+fallback using `attribution.with_prefix` for UTF-16 shifts). Folded
+`comments._remap` into `quotes.resolve` / `_place_thread`; both legs run
+the same resolution step from `copy_batch`. Wired `send_with_degrade` for
+reachable-then-rejected foreign quotes. Quiet-trap tests for 😴 UTF-16
+offsets and source-2374 wrong-map (discussion 1244). Updated MAP,
+architecture ceilings (`quotes.py` 380, `clone.py` 900).
+**Decided:** `TransportPlan` gains internal `body_prefix` /
+`quote_flattened` seams for slice 3 reporting without changing CONTRACT
+exit semantics yet.
+**Learned:** fake sync clients must raise `ValueError` on unknown peers
+(not assert) now that resolve probes reachability on every foreign header.
+**Next:** slice 3 — `quote_flattened` in sync JSON + `PartialFailure` exit.
+
 ## 2026-07-23 — Clone quote replies slices 0–1 (Composer)
 **Did:** implemented plan slices 0 and 1 for ADR-0036. Slice 0:
 `message_to_dict` now emits `quote_text` and, for cross-chat quotes, 
