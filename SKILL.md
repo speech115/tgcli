@@ -50,9 +50,11 @@ selected account session, does one operation, and exits.
 | Resolve a peer | `tg --json resolve @user` / `tg --json resolve +995…` |
 | List / search contacts | `tg --json contacts list` / `tg --json contacts search "query"` |
 | Mutual chats with a user | `tg --json mutual-chats @user` |
+| Read-only batch (JSONL) | `tg batch <<'EOF'` / pipe JSONL ops (max 100; no doctor/mutations) |
 | Media inventory (no download) | `tg --json media manifest @channel --type photo --limit 50` |
 | Reply chain | `tg --json thread CHAT MESSAGE_ID [--replies] [--depth 20]` |
 | Download media | `tg --json media download https://t.me/channel/42 --parallel 4` |
+| Bulk download media | `tg --json media download @chan --message-ids 1,2 --output DIR` (max 100) |
 | Preview a send | `tg --json send @channel "Hello" --preview` |
 | Preview a reply/topic/silent send | `tg --json send CHAT "TEXT" --preview --reply-to ID --topic ID --silent` |
 | Preview a file send | `tg --json send CHAT --file PATH --caption "TEXT" --preview` |

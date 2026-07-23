@@ -13,6 +13,14 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Slice 5: read-only tg batch (Composer)
+**Did:** ADR-0032 slice 5 — `tg batch` JSONL runner (cap 100, RO allowlist,
+any failure → nonzero exit, `--fail-fast`, no doctor). New
+`commands/batch.py`; CONTRACT/MAP/SKILL/PROPOSALS updated.
+**Decided:** stdin parsed before session open so allowlist/cap fail closed.
+**Learned:** none.
+**Next:** owner live smoke of archive/mute and a small batch against main.
+
 ## 2026-07-23 — Slice 4: bulk media download (Composer)
 **Did:** ADR-0032 slice 4 — `media download --message-ids` and filter
 `--type/--since/--limit` (cap 100). PartialFailure emits JSON with

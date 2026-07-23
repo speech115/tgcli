@@ -11,6 +11,7 @@ from telethon import errors as telethon_errors
 from tgcli import __version__, invocations, output, safety, session
 from tgcli.commands import accounts as accounts_cmd
 from tgcli.commands import api as api_cmd
+from tgcli.commands import batch as batch_cmd
 from tgcli.commands import clone as clone_cmd
 from tgcli.commands import dialog as dialog_cmd
 from tgcli.commands import dialogs as dialogs_cmd
@@ -164,6 +165,17 @@ def build_parser() -> argparse.ArgumentParser:
         parents=[global_flags],
     )
     p_mutual.add_argument("ref", help="@username, t.me link, or user id")
+
+    p_batch = sub.add_parser(
+        "batch",
+        help="Run read-only ops from JSONL stdin (ADR-0032)",
+        parents=[global_flags],
+    )
+    p_batch.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="stop after the first failed op",
+    )
 
     p_thread = sub.add_parser(
         "thread",
@@ -481,6 +493,12 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
             if args.command == "mutual-chats":
                 data = await identity_cmd.mutual_chats(tg, args.ref)
                 return data, identity_cmd.mutual_chats_to_rows(data)
+            if args.command == "batch":
+                ops = batch_cmd.parse_ops(args.batch_lines)
+                results, first_exit = await batch_cmd.run_batch(
+                    tg, ops, fail_fast=bool(getattr(args, "fail_fast", False))
+                )
+                return {"_batch_results": results, "_batch_exit": first_exit}, []
             if args.command == "thread":
                 data = await thread_cmd.fetch_thread(
                     tg,
@@ -728,6 +746,10 @@ def main(argv: list[str] | None = None) -> int:
                     parser.error("search requires CHAT QUERY (or --all QUERY)")
                 except SystemExit:
                     return 1
+        if args.command == "batch":
+            args.batch_lines = sys.stdin.read().splitlines()
+            # Fail closed on allowlist/cap before opening a session.
+            batch_cmd.parse_ops(args.batch_lines)
         if args.command in ("read", "search") or (
             args.command == "media" and args.media_command in ("manifest", "download")
         ):
@@ -935,18 +957,26 @@ def main(argv: list[str] | None = None) -> int:
         error_code = "UNHANDLED"
         raise
     else:
-        if args.json:
-            output.emit_json(data)
-        elif args.plain:
-            output.emit_plain(rows)
+        if args.command == "batch":
+            import json as _json
+
+            for item in data["_batch_results"]:
+                sys.stdout.write(_json.dumps(item, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
+            exit_code = data["_batch_exit"] or 0
         else:
-            output.emit_plain(
-                [
-                    (" | ".join("" if cell is None else str(cell) for cell in row),)
-                    for row in rows
-                ]
-            )
-        exit_code = 0
+            if args.json:
+                output.emit_json(data)
+            elif args.plain:
+                output.emit_plain(rows)
+            else:
+                output.emit_plain(
+                    [
+                        (" | ".join("" if cell is None else str(cell) for cell in row),)
+                        for row in rows
+                    ]
+                )
+            exit_code = 0
     finally:
         duration_ms = int((time.monotonic() - started) * 1000)
         if args.verbose:

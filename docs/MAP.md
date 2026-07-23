@@ -50,6 +50,7 @@ tgcli/
 │   │   ├── roster.py          [done]    best-effort source participant snapshot → JSONL sidecar (ADR-0024)
 │   │   └── legs.py            [done]    Leg seam sharing the batch path between the posts and discussion legs (ADR-0023)
 │   └── commands/
+│   │   ├── batch.py           [done]    tg batch read-only JSONL runner (ADR-0032)
 │   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
 │   │   ├── read.py            [done]    tg read <chat>                (phase 1)

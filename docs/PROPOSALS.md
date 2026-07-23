@@ -90,7 +90,7 @@ allowlisted calls but no task-first wrapper.
 
 | Item | Value | Effort | Status |
 |---|---|---|---|
-| `tg batch --json` (JSONL in/out) | med-high | M | missing |
+| `tg batch --json` (JSONL in/out) | med-high | M | **shipped** (ADR-0032 slice 5; RO, cap 100, no doctor) |
 
 One auth + one connection for N reads; less session-lock contention.
 **First version read-only only** — batch mutations would be a home-grown

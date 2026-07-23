@@ -460,6 +460,25 @@ comment/forum thread (`message.replies`); otherwise `replies` stays `[]` and
 `--limit` caps replies (default 50). Plain rows are the same message TSV as
 `read`, one row per root then ancestors then replies.
 
+## 5.0 Read-only batch (`tg batch`; ADR-0032)
+
+```
+tg batch [--fail-fast] < ops.jsonl
+```
+
+`batch` reads JSONL ops from stdin and writes one JSON result object per
+line to stdout under a **single** account session. Hard cap **100** ops
+(excess → exit 2 before network). Allowlisted `op` values:
+`dialogs`, `read`, `search`, `latest`, `message`, `info`, `count`,
+`resolve`, `mutual-chats`, `contacts.list`, `contacts.search`,
+`media.manifest`, `thread`. Mutations, `doctor`, `export`, `clone`,
+`media.download`, `api`, and `accounts` are rejected (exit 2).
+
+Each stdout line is `{"ok":true,"op":"…","data":{…}}` or
+`{"ok":false,"op":"…","error":{"code":"…","message":"…"}}`. Process exit is
+**0 only if every op succeeded**; otherwise the first failure's exit code
+(full JSONL still written unless `--fail-fast` stops after the first error).
+
 ## 5.1 Environment Health (`tg doctor`; ADR-0028)
 
 ```
