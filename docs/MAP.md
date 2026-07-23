@@ -23,7 +23,7 @@ tgcli/
 │   ├── DEVLOG-v1.md           [done]    closed log of the phases 0–7 build
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033)
-│   ├── decisions/             [done]    ADR-0001…0034 + README.md index (ADR-0026 maintenance mode)
+│   ├── decisions/             [done]    ADR-0001…0037 + README.md index (ADR-0026 maintenance mode)
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -50,7 +50,8 @@ tgcli/
 │   │   ├── snapshot.py        [done]    truthful poll/story text rendering
 │   │   ├── attribution.py     [done]    source kinds, author-identity ladder, UTF-16 prefix + mention shifts (ADR-0023)
 │   │   ├── replies.py         [done]    reply classification (ADR-0036); mapped-in-leg input rebuild
-│   │   ├── quotes.py          [done]    async quote resolver: native InputReplyToMessage or rendered fallback (ADR-0036)
+│   │   ├── quote_fallback.py  [done]    rendered quote degradation: prefix, body, stale-quote strip (ADR-0037)
+│   │   ├── quotes.py          [done]    async quote resolver: native InputReplyToMessage or fallback handoff (ADR-0036/0037)
 │   │   ├── topics.py          [done]    forum destination shape, lazy topic map, batch confirmation (ADR-0022)
 │   │   ├── discussion.py      [done]    linked-chat detection, discussion group create/link/recover, anchor lookup (ADR-0023)
 │   │   ├── comments.py        [done]    phase-2 sync leg: copies the discussion group (thread remap via quotes.resolve)

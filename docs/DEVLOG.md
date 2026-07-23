@@ -17,6 +17,22 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Split quote fallback rendering from the resolver (Composer)
+**Did:** ADR-0037. Extracted `clone/quote_fallback.py` (source label, blockquote
+prefix, peer label, fallback plan, `apply_body`, `drop_stale_quote`) from
+`clone/quotes.py`, which keeps reachability, cross-leg walks, thread
+placement, `resolve`, and `send_with_degrade`. `commands/clone.py` and tests
+import the owning module — no re-exports. Architecture ceilings: `quotes.py`
+356, `quote_fallback.py` 148 (down from the 500 monolithic bump). MAP + ADR
+index updated. Behaviour unchanged; existing quote tests are the proof.
+**Decided:** two jobs, two modules — classify (`replies`) → resolve (`quotes`)
+→ render loss (`quote_fallback`). Rejected a three-way peers split as shallow
+(ADR-0034).
+**Learned:** the live-run fixes that grew the file were almost all fallback
+shaping; they never needed the async resolver context.
+**Next:** independent Spec + Standards review of PR #31 (and this stacked
+seam PR) before merge.
+
 ## 2026-07-23 — Clone quote replies: live run and two field fixes (Claude Opus 4.8)
 **Did:** consolidated four stray branches into `cursor/clone-quote-replies`
 (the other three were strict subsets; PR #30 was auto-closed by the rename

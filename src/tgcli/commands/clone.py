@@ -16,6 +16,7 @@ from tgcli.clone import (
     discussion,
     fidelity,
     legs,
+    quote_fallback,
     quotes,
     roster,
     snapshot,
@@ -494,7 +495,7 @@ async def _uploaded_media(tg, message, path, clone_state):
 
 
 def _body_text(message, author, plan) -> tuple[str, list | None]:
-    return quotes.apply_body(message, author, plan)
+    return quote_fallback.apply_body(message, author, plan)
 
 
 async def _reupload_batch(
