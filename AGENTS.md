@@ -60,6 +60,11 @@ The project is feature-complete and in production use. Default posture:
 
 - Branch: `claude/<topic>` or `codex/<topic>`.
 - Commit: single-line imperative summary (`Add dialogs command`).
+- After a requested slice/task is green (`pytest -q`, `ruff check .`,
+  `ruff format --check .`, `pyright`) and docs are updated, **commit and
+  push the feature branch** in the same turn — do not wait for a separate
+  "commit" / "push" ask. Still never push to `main` without an explicit
+  current-session request.
 - Never push to `main` without an explicit current-session request.
 
 ## Language

@@ -33,7 +33,7 @@ Status values:
 | smsjobs | api | No dedicated workflow; use raw TL only after task-specific review. |
 | stats | api | Four broadcast, megagroup, and message stats reads are allowlisted (ADR-0010). |
 | stickers | api | No dedicated workflow; use raw TL only after task-specific review. |
-| stories | api | No dedicated workflow; use raw TL only after task-specific review. |
+| stories | api | Read allowlist: `getPeerStories`, `getStoriesArchive`, `getStoriesByID`, `getStoryViewsList` (ADR-0010). No dedicated workflow; story publish/delete stay out. |
 | updates | excluded | Current CLI has no update loop; clone catch-up is an explicit foreground invocation, not a watcher. |
 | upload | excluded | Raw part-upload remains impractical over JSON; wrapped media/send paths own it, including protected clone reupload. |
 | users | wrapped | `info` covers daily identity inspection; raw TL covers the long tail. |

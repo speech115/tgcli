@@ -12,15 +12,18 @@ from tgcli import __version__, invocations, output, safety, session
 from tgcli.commands import accounts as accounts_cmd
 from tgcli.commands import api as api_cmd
 from tgcli.commands import clone as clone_cmd
+from tgcli.commands import dialog as dialog_cmd
 from tgcli.commands import dialogs as dialogs_cmd
 from tgcli.commands import doctor as doctor_cmd
 from tgcli.commands import export as export_cmd
+from tgcli.commands import identity as identity_cmd
 from tgcli.commands import info as info_cmd
 from tgcli.commands import media as media_cmd
 from tgcli.commands import mutate as mutate_cmd
 from tgcli.commands import read as read_cmd
 from tgcli.commands import search as search_cmd
 from tgcli.commands import send as send_cmd
+from tgcli.commands import thread as thread_cmd
 from tgcli.config import load_config, resolve_account
 from tgcli.errors import PolicyError, RateLimitError, TgcliError
 
@@ -148,8 +151,56 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_count.add_argument("chat", help="@username, t.me link, or dialog id")
 
+    p_resolve = sub.add_parser(
+        "resolve",
+        help="Resolve a phone, @username, link, or id to a peer",
+        parents=[global_flags],
+    )
+    p_resolve.add_argument("ref", help="+phone, @username, t.me link, or dialog id")
+
+    p_thread = sub.add_parser(
+        "thread",
+        help="Read a reply chain (ancestors; optional replies)",
+        parents=[global_flags],
+    )
+    p_thread.add_argument("chat")
+    p_thread.add_argument("message_id", type=int)
+    p_thread.add_argument(
+        "--replies",
+        action="store_true",
+        help="include comment/forum replies when a cheap thread API exists",
+    )
+    p_thread.add_argument(
+        "--depth",
+        type=int,
+        default=20,
+        help="max ancestor steps (default 20, hard cap 100)",
+    )
+    p_thread.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="max replies when --replies is set (default 50)",
+    )
+
+    p_contacts = sub.add_parser(
+        "contacts", help="List or search Telegram contacts", parents=[global_flags]
+    )
+    contacts_sub = p_contacts.add_subparsers(dest="contacts_command", required=True)
+    contacts_sub.add_parser("list", parents=[global_flags])
+    p_contacts_search = contacts_sub.add_parser("search", parents=[global_flags])
+    p_contacts_search.add_argument(
+        "query", help="case-insensitive substring over name/username"
+    )
+    p_contacts_search.add_argument(
+        "--global",
+        action="store_true",
+        dest="use_global",
+        help="search Telegram's global directory instead of local contacts",
+    )
+
     p_media = sub.add_parser(
-        "media", help="Download message media", parents=[global_flags]
+        "media", help="Inspect or download message media", parents=[global_flags]
     )
     media_sub = p_media.add_subparsers(dest="media_command", required=True)
     p_download = media_sub.add_parser("download", parents=[global_flags])
@@ -157,12 +208,33 @@ def build_parser() -> argparse.ArgumentParser:
     p_download.add_argument("message_id", nargs="?", type=int)
     p_download.add_argument("--output", help="final output path")
     p_download.add_argument("--parallel", type=int, default=1)
+    p_manifest = media_sub.add_parser(
+        "manifest",
+        help="List media in a chat without downloading",
+        parents=[global_flags],
+    )
+    p_manifest.add_argument("source", help="@username, t.me link, or dialog id")
+    p_manifest.add_argument(
+        "--type",
+        dest="media_type",
+        choices=list(media_cmd.MEDIA_KINDS),
+        help="keep only this media kind",
+    )
+    p_manifest.add_argument("--since", help="ISO 8601 lower bound on message date")
+    p_manifest.add_argument("--limit", type=int, default=100)
 
     p_send = sub.add_parser(
         "send", help="Preview and commit a message", parents=[global_flags]
     )
     p_send.add_argument("chat", nargs="?", help="target for --preview")
     p_send.add_argument("text", nargs="?", help="message text for --preview")
+    p_send.add_argument(
+        "--format",
+        choices=("plain", "md", "html"),
+        default="md",
+        dest="format",
+        help="rich-text format of TEXT/caption (html supports quote/spoiler/custom emoji)",
+    )
     p_send.add_argument("--preview", action="store_true")
     p_send.add_argument("--commit", metavar="PREVIEW_ID")
     p_send.add_argument("--reply-to", type=int, dest="reply_to")
@@ -177,6 +249,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_edit.add_argument("chat", nargs="?")
     p_edit.add_argument("message_id", nargs="?", type=int)
     p_edit.add_argument("text", nargs="?")
+    p_edit.add_argument(
+        "--format",
+        choices=("plain", "md", "html"),
+        default="plain",
+        dest="format",
+        help="rich-text format of TEXT (html supports quote/spoiler/custom emoji)",
+    )
     p_edit.add_argument("--preview", action="store_true")
     p_edit.add_argument("--commit", metavar="PREVIEW_ID")
 
@@ -201,6 +280,24 @@ def build_parser() -> argparse.ArgumentParser:
         "mark-read", help="Mark a dialog as read", parents=[global_flags]
     )
     p_mark_read.add_argument("chat")
+
+    p_mark_unread = sub.add_parser(
+        "mark-unread", help="Mark a dialog as unread", parents=[global_flags]
+    )
+    p_mark_unread.add_argument("chat")
+
+    p_dialog = sub.add_parser(
+        "dialog", help="Change inbox dialog state", parents=[global_flags]
+    )
+    dialog_sub = p_dialog.add_subparsers(dest="dialog_command", required=True)
+    p_dialog_pin = dialog_sub.add_parser(
+        "pin", help="Pin a dialog", parents=[global_flags]
+    )
+    p_dialog_pin.add_argument("chat")
+    p_dialog_unpin = dialog_sub.add_parser(
+        "unpin", help="Unpin a dialog", parents=[global_flags]
+    )
+    p_dialog_unpin.add_argument("chat")
 
     p_api = sub.add_parser(
         "api", help="Call an allowlisted raw TL method", parents=[global_flags]
@@ -309,6 +406,27 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
             if args.command == "count":
                 data = await info_cmd.fetch_count(tg, args.chat)
                 return data, info_cmd.to_rows(data)
+            if args.command == "resolve":
+                data = await identity_cmd.resolve(tg, args.ref)
+                return data, identity_cmd.to_rows(data)
+            if args.command == "thread":
+                data = await thread_cmd.fetch_thread(
+                    tg,
+                    args.chat,
+                    args.message_id,
+                    depth=args.depth,
+                    want_replies=args.replies,
+                    replies_limit=args.limit,
+                )
+                return data, thread_cmd.to_rows(data)
+            if args.command == "contacts":
+                if args.contacts_command == "list":
+                    data = await identity_cmd.contacts_list(tg)
+                else:
+                    data = await identity_cmd.contacts_search(
+                        tg, args.query, use_global=args.use_global
+                    )
+                return data, identity_cmd.contacts_to_rows(data)
             if args.command == "media" and args.media_command == "download":
                 source = media_cmd.parse_source(args.source, args.message_id)
 
@@ -326,6 +444,15 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                     progress=progress,
                 )
                 return data, media_cmd.to_rows(data)
+            if args.command == "media" and args.media_command == "manifest":
+                data = await media_cmd.manifest(
+                    tg,
+                    args.source,
+                    kind=args.media_type,
+                    since=args.since,
+                    limit=args.limit,
+                )
+                return data, media_cmd.manifest_to_rows(data)
             if args.command == "send":
                 if args.preview:
                     data = await send_cmd.prepare(
@@ -337,6 +464,7 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                         caption=args.caption,
                         topic=args.topic,
                         silent=args.silent,
+                        fmt=args.format,
                     )
                 else:
                     data = await send_cmd.commit(
@@ -348,7 +476,7 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
             if args.command == "edit":
                 if args.preview:
                     data = await mutate_cmd.prepare_edit(
-                        tg, args.chat, args.message_id, args.text
+                        tg, args.chat, args.message_id, args.text, args.format
                     )
                 else:
                     data = await mutate_cmd.commit_edit(
@@ -384,6 +512,14 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
             if args.command == "mark-read":
                 data = await mutate_cmd.mark_read(tg, args.chat)
                 return data, mutate_cmd.to_rows(data)
+            if args.command == "mark-unread":
+                data = await mutate_cmd.mark_unread(tg, args.chat)
+                return data, mutate_cmd.to_rows(data)
+            if args.command == "dialog":
+                data = await dialog_cmd.set_pinned(
+                    tg, args.chat, pinned=args.dialog_command == "pin"
+                )
+                return data, dialog_cmd.to_rows(data)
             if args.command == "api":
                 return await api_cmd.call(tg, args.method, args.params), []
             if args.command == "export":
@@ -466,7 +602,9 @@ def main(argv: list[str] | None = None) -> int:
                     parser.error("search requires CHAT QUERY (or --all QUERY)")
                 except SystemExit:
                     return 1
-        if args.command in ("read", "search"):
+        if args.command in ("read", "search") or (
+            args.command == "media" and args.media_command == "manifest"
+        ):
             try:
                 args.since = _parse_when(
                     parser, getattr(args, "since", None), "--since"
@@ -481,6 +619,10 @@ def main(argv: list[str] | None = None) -> int:
             if args.limit is not None and args.limit <= 0:
                 raise PolicyError("clone sync --limit must be positive")
         if args.command == "mark-read":
+            safety.enforce_mutation_allowed(args.readonly)
+        if args.command == "mark-unread":
+            safety.enforce_mutation_allowed(args.readonly)
+        if args.command == "dialog":
             safety.enforce_mutation_allowed(args.readonly)
         mutation_positionals = {
             "edit": ("chat", "message_id", "text"),
@@ -617,6 +759,16 @@ def main(argv: list[str] | None = None) -> int:
                     safety.append_audit("api", account.alias, {"method": args.method})
                 if args.command == "mark-read":
                     safety.append_audit("mark-read", account.alias, {"chat": args.chat})
+                if args.command == "mark-unread":
+                    safety.append_audit(
+                        "mark-unread", account.alias, {"chat": args.chat}
+                    )
+                if args.command == "dialog":
+                    safety.append_audit(
+                        f"dialog-{args.dialog_command}",
+                        account.alias,
+                        {"chat": args.chat},
+                    )
                 network = _run_network(args, account)
                 if (
                     args.command == "media"

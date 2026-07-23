@@ -9,7 +9,7 @@ from typing import cast
 
 from telethon.tl import functions, types
 
-from tgcli import chatref, safety
+from tgcli import chatref, formatting, safety
 from tgcli.confirm import confirmed_ids
 from tgcli.errors import NotFoundError, PolicyError
 
@@ -55,6 +55,7 @@ async def prepare(
     caption: str | None = None,
     topic: int | None = None,
     silent: bool = False,
+    fmt: str = "md",
 ) -> dict:
     path = None
     if file is not None:
@@ -74,12 +75,14 @@ async def prepare(
         file_size, file_sha256 = None, None
         body = text
 
+    formatting.render(body, fmt)  # validate format early; raises on unknown fmt
     entity = await tg.get_entity(chatref.parse(chat))
     stored = safety.create_preview(
         {
             "kind": "send",
             "chat": chat,
             "text": body,
+            "format": fmt,
             "file": str(path) if path else None,
             "file_size": file_size,
             "file_sha256": file_sha256,
@@ -94,6 +97,7 @@ async def prepare(
         "preview_id",
         "to",
         "text",
+        "format",
         "file",
         "file_size",
         "file_sha256",
@@ -145,7 +149,7 @@ def _verified_file_snapshot(payload: dict, directory: str) -> Path:
 async def commit(tg, preview_id: str, payload: dict) -> dict:
     peer = await tg.get_input_entity(chatref.parse(payload["chat"]))
     random_id = payload["random_id"]
-    message, entities = await tg._parse_message_text(payload["text"], ())
+    message, entities = formatting.render(payload["text"], payload.get("format", "md"))
     common = {
         "peer": peer,
         "message": message,
@@ -185,6 +189,7 @@ def to_rows(data: dict) -> list[tuple]:
                 data["expires_at"],
                 data["file"],
                 data["reply_to"],
+                data.get("format", "md"),
             )
         ]
     return [(data["preview_id"], data["message_id"])]

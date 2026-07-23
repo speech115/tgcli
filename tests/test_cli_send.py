@@ -122,6 +122,7 @@ def test_send_preview_persists_payload_without_sending(config_env, monkeypatch, 
         "kind": "send",
         "chat": "@alice",
         "text": "hello",
+        "format": "md",
         "file": None,
         "file_size": None,
         "file_sha256": None,
@@ -310,6 +311,75 @@ def test_send_commit_parses_default_markdown_entities(config_env, monkeypatch):
     [request] = client.requests
     assert request.message == "bold"
     assert request.entities == [types.MessageEntityBold(offset=0, length=4)]
+
+
+def test_send_preview_records_format(config_env, monkeypatch, capsys):
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+
+    assert (
+        main(["send", "@alice", "<b>hi</b>", "--format", "html", "--preview", "--json"])
+        == 0
+    )
+    preview = json.loads(capsys.readouterr().out)
+    assert preview["format"] == "html"
+    assert safety.begin_commit(preview["preview_id"])["format"] == "html"
+    assert client.requests == []
+
+
+def test_send_commit_html_sends_entities(config_env, monkeypatch):
+    preview = safety.create_preview(
+        {
+            "kind": "send",
+            "chat": "@alice",
+            "text": "<b>жир</b> <tg-spoiler>секрет</tg-spoiler>",
+            "format": "html",
+            "file": None,
+            "file_size": None,
+            "file_sha256": None,
+            "reply_to": None,
+            "topic": None,
+            "silent": False,
+            "random_id": 784,
+            "to": {"id": 7, "name": "Alice"},
+        }
+    )
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["send", "--commit", preview["preview_id"]]) == 0
+    [request] = client.requests
+    assert request.message == "жир секрет"
+    assert [type(e) for e in request.entities] == [
+        types.MessageEntityBold,
+        types.MessageEntitySpoiler,
+    ]
+
+
+def test_send_commit_plain_sends_text_verbatim(config_env, monkeypatch):
+    preview = safety.create_preview(
+        {
+            "kind": "send",
+            "chat": "@alice",
+            "text": "**literal** <b>tags</b>",
+            "format": "plain",
+            "file": None,
+            "file_size": None,
+            "file_sha256": None,
+            "reply_to": None,
+            "topic": None,
+            "silent": False,
+            "random_id": 785,
+            "to": {"id": 7, "name": "Alice"},
+        }
+    )
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["send", "--commit", preview["preview_id"]]) == 0
+    [request] = client.requests
+    assert request.message == "**literal** <b>tags</b>"
+    assert request.entities is None
 
 
 def test_send_commit_sends_raw_media(config_env, monkeypatch, capsys, tmp_path):

@@ -1,3 +1,6 @@
+from telethon.helpers import add_surrogate, del_surrogate
+from telethon.tl.types import MessageEntityCustomEmoji
+
 from tgcli import chatref
 from tgcli.errors import NotFoundError
 
@@ -58,6 +61,36 @@ def _reactions(message) -> list[dict]:
     return output
 
 
+def _custom_emoji(message) -> list[dict]:
+    """Custom (premium) emoji in the message, so their ids can be reused.
+
+    Each item is ``{id, emoji, offset, length}`` where ``id`` is the reusable
+    ``document_id`` (the ``emoji-id`` for ``--format html``) and ``emoji`` is the
+    fallback unicode glyph it covers. Offsets/lengths are UTF-16 code units, so
+    the covered glyph is sliced via Telethon's surrogate helpers.
+    """
+    entities = getattr(message, "entities", None) or []
+    # Entities index into the raw text (.message); fall back to .text for fakes.
+    raw = getattr(message, "message", None)
+    if raw is None:
+        raw = getattr(message, "text", "") or ""
+    surrogate = add_surrogate(raw)
+    output = []
+    for entity in entities:
+        if not isinstance(entity, MessageEntityCustomEmoji):
+            continue
+        glyph = del_surrogate(surrogate[entity.offset : entity.offset + entity.length])
+        output.append(
+            {
+                "id": str(entity.document_id),
+                "emoji": glyph,
+                "offset": entity.offset,
+                "length": entity.length,
+            }
+        )
+    return output
+
+
 def _forwarded_from(message) -> dict | None:
     forward = getattr(message, "forward", None)
     if forward is None:
@@ -98,6 +131,7 @@ def message_to_dict(message, entity=None) -> dict:
         "outgoing": bool(getattr(message, "out", False)),
         "forwarded_from": _forwarded_from(message),
         "reactions": _reactions(message),
+        "custom_emoji": _custom_emoji(message),
         "topic_id": _topic_id(message),
         "grouped_id": getattr(message, "grouped_id", None),
         "is_service": getattr(message, "action", None) is not None,

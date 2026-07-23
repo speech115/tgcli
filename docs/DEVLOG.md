@@ -13,6 +13,235 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — PR #18 review fixes: export limit, emoji id string, resolvePhone cooldown, ADR-0031 (Composer)
+**Did:** addressed Bugbot/Standards/Spec/thermo-nuclear findings on
+`claude/agent-quick-wins`. (1) Broadcast `export subscribers --limit > 200`
+now exits 2 instead of full-crawl + arbitrary slice; unlimited omit-`--limit`
+keeps prefix-union (ADR-0031). (2) `custom_emoji[].id` emitted as decimal
+string. (3) Shared ~3s `resolve_phone` cooldown for `tg resolve +…` and
+`tg api contacts.resolvePhone`. Docs: CONTRACT, MAP, SKILL, ADR-0010 note,
+ADR-0031 + index.
+**Decided:** reject finite broadcast limits above the page size rather than
+invent a “most recent N past 200” API Telegram does not offer cheaply.
+**Learned:** review consensus across four agents was stronger on export
+semantics and JS id precision than on the argparse exit-1 vs plan exit-2 nit.
+**Next:** merge PR #18 after gates.
+
+## 2026-07-23 — ADR-0029 slice 3: media manifest + thread (Composer)
+**Did:** executed discovery-inbox Tasks 6–7. `tg media manifest CHAT` dry-run
+inventory (`--type`/`--since`/`--limit`, no download) in `media.py`. New
+`commands/thread.py` + `tg thread CHAT MESSAGE_ID` with ancestor walk
+(depth default 20, hard cap 100, cycle-safe) and opt-in `--replies` via
+`get_messages(reply_to=…)` when `message.replies` exposes a cheap thread.
+FakeClient `get_messages` gains `reply_to` + `replies=` map. CONTRACT, MAP,
+SKILL, PROPOSALS updated; ADR-0029 plan fully shipped.
+**Decided:** argparse `--type` invalid choice stays exit 1 (repo convention),
+not PolicyError exit 2; newest-first `--since` stops at the first older
+message rather than scanning past it.
+**Learned:** Telethon `get_messages(reply_to=)` is enough for forum/comment
+threads without a raw `GetRepliesRequest` in the wrapper.
+**Next:** optional PR for `claude/agent-quick-wins`; backlog remains
+mutual-chats / bulk media / incremental export / batch / dialog archive-mute.
+
+## 2026-07-23 — ADR-0029 slice 2: mark-unread + dialog pin/unpin (Composer)
+**Did:** executed discovery-inbox Tasks 4–5. `tg mark-unread CHAT` via
+`MarkDialogUnreadRequest(unread=True)` in `mutate.py`, with the same
+`--readonly` / env gating and fail-closed audit as `mark-read`. New
+`commands/dialog.py` + `tg dialog pin|unpin CHAT` via
+`ToggleDialogPinRequest`. FakeClient accepts both Bool TL requests. Tests in
+`test_cli_mutate.py` / `test_cli_dialog.py`. CONTRACT, MAP, SKILL, PROPOSALS
+updated.
+**Decided:** keep `mark-unread` top-level (mirrors shipped `mark-read`) and
+pin/unpin under the `dialog` namespace, per ADR-0029 — not a unified
+`dialog mark-unread`.
+**Learned:** both TL methods take `InputDialogPeer`, not a bare InputPeer.
+**Next:** ADR-0029 slice 3 — `media manifest` then `tg thread`.
+
+## 2026-07-23 — Close WIP: formatting/export/stories docs + export test (Composer)
+**Did:** finished the uncommitted 2026-07-22 WIP on `claude/agent-quick-wins`.
+Added a reproducing unit test that broadcast `export subscribers` unions
+prefix searches past the page cap (FakeClient hooks for
+`GetFullChannel`/`GetParticipants`). Wrote ADR-0030 (outgoing `--format` +
+`custom_emoji`); expanded ADR-0010 to 40 methods (`stories.*`); updated
+MAP, CONTRACT (broadcast subscriber walk), ISSUES MSG-001, FEATURES,
+ADR-0028 deferred note. Formatted `export.py` / `test_cli_send.py`.
+**Decided:** formatting lands as ADR-0030 (MSG-001 partial), not a silent
+CONTRACT-only change; stories stay an ADR-0010 allowlist bump.
+**Learned:** existing subscriber tests still hit `iter_participants` because
+the fake channel entity has no `broadcast=True` — the aggressive path needs
+an explicit broadcast fixture.
+**Next:** commit the WIP (one or more commits), then push / open PR for
+`claude/agent-quick-wins`; resume ADR-0029 slices 2–3 when ready.
+
+## 2026-07-22 — Full broadcast-subscriber export + stories read allowlist (Claude Opus 4.8)
+**Did:** (1) `export subscribers` now returns every member of a broadcast
+channel instead of the 200 Telegram caps a single `getParticipants` at. New
+`_iter_all_channel_members` (`src/tgcli/commands/export.py`) unions saturating
+prefix searches over a latin+digit+cyrillic alphabet, deepening any prefix that
+fills a full 200-page, deduping by id, stopping once the reported member total
+is reached. Aggressive path triggers only for broadcast channels when no small
+`--limit` is set (`limit is None or limit > 200`); megagroups and explicit small
+limits keep the plain single-pass `iter_participants`. Verified on
+@mir_ivanova: 200 → 280/281 members. (2) Added four read-only `stories.*`
+methods (`getPeerStories`, `getStoryViewsList`, `getStoriesArchive`,
+`getStoriesByID`) to `READ_METHOD_ALLOWLIST` (`src/tgcli/commands/api.py`) +
+the reviewed-list test, so story-viewer analytics work via `tg api`.
+**Decided:** raw `GetParticipantsRequest` + **sequential** issue, not
+`iter_participants` and not concurrency. `iter_participants` fires a second
+request per search purely to compute a `count` we discard (2× the calls);
+issuing prefix queries concurrently reliably trips server flood-wait (measured:
+8 concurrent = 5.6s dominated by one flood-stalled call, vs 8 sequential =
+3.2s @ ~0.4s each). Net: naive full enumeration 3:19 → tuned 1:07.
+**Learned:** for **broadcast** channels the 200 cap is hard for both
+`ChannelParticipantsRecent` and `ChannelParticipantsSearch('')` — `offset>200`
+returns zero rows and `.count` itself reads 200, so pagination can't see past
+it. Prefix-substring search is the only escape and its wall-time floor is set
+by Telegram's getParticipants flood-limit, not local work. Emoji/CJK-only
+display names with no searchable char can leave a member unreachable (got
+280 of a reported 281), so early-break on total may not fire — acceptable.
+**Next:** consider a `--fast`/`--complete` toggle if the ~1min full sweep is
+too slow for interactive use on large channels.
+
+## 2026-07-22 — Fix edit-commit peer + add `edit --format` (Claude Opus 4.8)
+**Did:** two changes to the edit surface. (1) Bugfix: `commit_edit` passed the
+raw stored `chat` string straight to `tg.edit_message`, so editing a private
+channel by numeric `-100…` id died with `Cannot find any entity`. Wrapped it in
+`chatref.parse()` to match `commit_forward`/`send.commit`
+(`src/tgcli/commands/mutate.py:50`). (2) Feature: new `src/tgcli/formatting.py`
+(`render(text, fmt)` → `(clean_text, entities|None)`), a `--format
+{plain,md,html}` flag on `tg edit` (default `plain`), threaded through the
+preview payload and re-rendered at commit into explicit `formatting_entities`.
+`html` reuses Telethon's HTML parser (bold/italic/underline/strike, blockquote +
+`expandable`, code/pre, links, `tg-emoji` custom emoji) and subclasses it to add
+`<tg-spoiler>` / `<span class="tg-spoiler">`, which Telethon 1.44 does not emit.
+Added `tests/test_formatting.py` (10) + 3 CLI tests; updated the edit fakes to
+accept the new kwargs. 594 passed. Updated CONTRACT (edit preview row gains
+`format`; new `--format` paragraph).
+**Decided:** `edit` defaults to `plain` = parse disabled (verbatim TEXT, no
+entities), deliberately *not* inheriting the client Markdown default that
+`send` documents — surgical edits should be literal unless formatting is asked
+for. Formatting is stored as the raw markup + format name in the preview and
+re-rendered at commit, keeping the preview payload JSON-safe. Extends ADR-0028.
+**Learned:** Telethon 1.44's HTML parser already handles expandable blockquote
+and `tg-emoji`, but silently drops spoiler tags (no entity, text kept) — easy to
+miss without checking entity types. Telegram entity offsets are UTF-16 code
+units, so surrogate-pair emoji (💸) must shift following offsets by 2; the
+subclass inherits Telethon's `add_surrogate`/`strip_text` machinery to get this
+right (covered by a dedicated test).
+**Next:** consider mirroring `--format` onto `send` for parity (send still uses
+the client Markdown default), and surfacing entities in `tg message` read output
+so formatted posts can be verified without a raw TL call.
+
+## 2026-07-22 — `send --format` parity + custom-emoji harvest (Claude Opus 4.8)
+**Did:** (1) mirrored `--format {plain,md,html}` onto `send` (default `md`, so
+existing behavior + CONTRACT hold), routing prepare/commit through
+`formatting.render` instead of the client's implicit `_parse_message_text`;
+`format` is stored in the preview payload and appended to the send preview row.
+(2) Added custom-emoji harvesting: `message_to_dict` now emits `custom_emoji`, a
+list of `{id, emoji, offset, length}` extracted from `MessageEntityCustomEmoji`,
+so ids can be pulled from any readable post (e.g. тень.exe) and reused as
+`<tg-emoji emoji-id="ID">` in `--format html`. Glyphs are sliced with Telethon
+surrogate helpers (UTF-16). Updated 5 exact-match message fixtures + 3 CONTRACT
+JSON examples, added 4 send tests + 1 read test. 598 passed.
+**Decided:** `send` keeps `md` as default (composition convenience, documented),
+while `edit` stays `plain` (surgical, literal) — deliberate asymmetry. Custom
+emoji surfaced on the universal message shape rather than a bespoke command, so
+`read`/`search`/`message`/`export` all expose ids uniformly (additive field).
+**Learned:** entity offsets index into `Message.message` (raw), not the
+`.text` property (which re-renders markup) — slicing `.text` would drift when
+markup is present; fakes only carry `.text`, so the helper prefers `.message`
+and falls back. Telethon 1.44 `MessageEntityCustomEmoji.document_id` is the same
+id `<tg-emoji emoji-id>` consumes, so harvest→reuse round-trips without a map.
+**Next:** optionally let `--format html` accept a shorthand for pasting a raw
+unicode+id pair, and add an `entities` passthrough for the long tail (underline
+mixes, nested quotes) if a real post needs it.
+
+## 2026-07-21 — Slice 1: resolve + contacts commands (Claude Sonnet 5)
+**Did:** executed ADR-0029 slice 1 (`fae503f`..`7102c6b`): allowlisted
+`contacts.resolvePhone` as a read method (ADR-0010), added `tg resolve REF`
+(resolves `@username`, `t.me` link, numeric id, or `+phone` to a single
+`{peer:{id,type,username,display_name,is_contact,is_bot}}`), and added
+`tg contacts list` / `tg contacts search QUERY [--global]` in the new
+`src/tgcli/commands/identity.py`, reusing the `peer_to_dict` mapping. Local
+`contacts search` filters the address book in Python (`scope: "local"`);
+`--global` calls `contacts.search` capped at 50 results (`scope: "global"`).
+Closed out the slice with three doc edits: this entry, an ADR-0010
+reconciliation (`contacts.resolvePhone` moved from "reviewed and rejected"
+into the allowlist, 35 → 36 methods), and a CONTRACT.md note on the
+`--global` 50-result cap.
+**Decided:** phone lookup calls `contacts.resolvePhone` only, never
+`contacts.importContacts` — the caller must already hold the phone number,
+and Telegram returns not-found (exit 4) when the target's privacy settings
+block the lookup, so the allowlist entry cannot be used to enumerate numbers.
+**Learned:** ADR-0010's own Consequences require an ADR-0010 update whenever
+the read allowlist changes; the resolvePhone allowlisting commit shipped
+without that follow-up, leaving the ADR self-contradictory (method both
+allowlisted in code and listed under "rejected" in the doc) until this
+closeout.
+**Next:** all four gates green (581 passed, 8 skipped); proceed to slice 2
+per the scoped plan.
+
+## 2026-07-21 — ADR-0029: discovery & inbox scope + plan (Claude Opus 4.8)
+**Did:** synced stale local main to origin (was 34 behind), vetted the owner's
+feature wishlist against the real post-PR-#17 surface, and wrote
+docs/PROPOSALS.md (backlog). Then grilled the top-5 quick wins and captured the
+decisions as **ADR-0029** + scoped plan
+docs/superpowers/plans/2026-07-21-discovery-inbox.md (3 slices, 7 tasks).
+Updated decisions/README, MAP.md, ISSUES.md link, PROPOSALS graduation note.
+No production code yet — awaiting owner go per ADR-0026.
+**Decided (grill outcomes):** one ADR for all 5; inbox mutations
+(mark-unread, dialog pin/unpin) run direct like mark-read, no preview;
+`resolve` supports +phone via `contacts.resolvePhone` ONLY (added to read
+allowlist, never importContacts); `contacts search` local by default, `--global`
+opts into contacts.search; `thread` = ancestors always (depth 20, cap 100) +
+replies only via getReplies under `--replies`; `media manifest` = dry-run with
+--type/--since/--limit; `mark-unread` top-level (mirrors mark-read), pin/unpin
+under `tg dialog`.
+**Learned:** always `git fetch` + check origin/main before a coverage audit —
+the first pass on a stale tree wrongly flagged shipped commands as missing.
+resolvePhone is the only new safety-surface change, which is what makes an ADR
+required rather than optional.
+**Next:** on owner go, execute slice 1 (allowlist resolvePhone → resolve →
+contacts) TDD, one task per commit.
+
+## 2026-07-21 — Export @mir_ivanova subscribers to Google Sheets (Codex)
+**Did:** performed a live read-only participant export for `@mir_ivanova`,
+including Telegram join timestamps, then built and visually verified a
+three-column workbook and imported it through `gog` as a native Google Sheet.
+Verified 284 exported API-visible users against Telegram's visible counter of
+286, 285 populated rows including the header, oldest-to-newest date order, and
+the first/last ranges after Google conversion. No production code changed.
+**Decided:** report the result as Telegram API-visible maximum rather than exact
+counter equality because both the normal and exhaustive search-slice passes
+left the same two-user counter gap. Used the channel creation timestamp for the
+creator's otherwise-null join date.
+**Learned:** `ChannelParticipantsRecent` stopped at 200 for this broadcast
+channel; alphabetic search slices recovered 84 more users, while extended
+Unicode slices recovered none beyond that. Telegram management and future
+subscriber-export work must use `tgcli`; no legacy Telegram project is an
+active fallback or dependency.
+**Next:** use the Google Sheet as the handoff artifact; if join-date search
+slices become recurring work, scope that capability directly in `tgcli` under
+the maintenance-mode gate.
+
+## 2026-07-21 — PROPOSALS: vet owner wishlist against real surface (Claude Opus 4.8)
+**Did:** local main was 34 commits behind origin (pre-PR-#17); first pass
+analysed a stale tree and wrongly flagged shipped commands as missing.
+Fast-forwarded to origin/main, re-checked the real surface, and wrote
+docs/PROPOSALS.md — only genuinely-new, un-vetted ideas. Cross-linked from
+ISSUES.md, added the MAP.md row. No code changed.
+**Decided:** nothing approved (ADR-0026). PROPOSALS holds contacts/`resolve`,
+`thread`, read-only `batch`, incremental export + bulk media/`manifest`,
+`dialog` state, and the deferred verticals (community/moderation, stats,
+security). Messaging tail and change feed are NOT here — already tracked as
+MSG-001 / FEED-001 (ADR-0028); wanting one is a re-entry, not a new proposal.
+**Learned:** verify the checkout is current before auditing coverage — a
+stale local main produced a confident but wrong "these commands don't exist".
+`tg doctor` already covers the whoami need; `read --after-id/--since/--until`
+already provides the interim change-feed polling path.
+**Next:** await owner pick; identity layer (`resolve`, `contacts`) is the
+cheapest high-value new work if they want to start.
+
 ## 2026-07-18 — File-send TOCTOU snapshot closure (Codex)
 **Did:** closed the final file-send TOCTOU gap. Preview now derives byte count
 and SHA-256 from one open stream. Commit copies one open of the approved source

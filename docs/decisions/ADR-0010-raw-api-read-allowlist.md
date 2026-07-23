@@ -1,7 +1,9 @@
 # ADR-0010: Explicit phase-2 raw API read allowlist
 
 Status: accepted (2026-07-10); allowlist expanded to 35 methods after the
-2026-07-10 batch review
+2026-07-10 batch review, then to 36 methods on 2026-07-21 when ADR-0029
+reconsidered `contacts.resolvePhone`, then to 40 methods on 2026-07-22 when
+four read-only `stories.*` methods were added for story-viewer analytics
 
 Supersedes: ADR-0008's phase-2 read-classification rule
 
@@ -17,15 +19,20 @@ session, and network safeguards could apply.
 
 Phase 2 uses a reviewed, explicit, default-deny allowlist. The initial
 allowlist contained only `users.getFullUser`, required by Phase 2 acceptance.
-A batch review on 2026-07-10 expanded it to the 35 methods below. Every
-method not listed exits 2 before configuration loading, session acquisition,
-or network dispatch.
+A batch review on 2026-07-10 expanded it to the 35 methods below. On
+2026-07-21, ADR-0029 reconsidered `contacts.resolvePhone` for the identity
+layer (`tg resolve` on a `+phone` ref) and moved it into the allowlist,
+bringing the total to 36; see that method's note under `contacts` below.
+On 2026-07-22 four read-only `stories.*` methods were added (story-viewer
+analytics via `tg api`), bringing the total to 40. Every method not listed
+exits 2 before configuration loading, session acquisition, or network
+dispatch.
 
 New raw API methods require an ADR-0010 update and a regression test proving
 the exact method reaches the dispatcher. Method names and namespaces are never
 used as evidence that an operation is read-only.
 
-### Allowlist (35 methods, reviewed 2026-07-10)
+### Allowlist (40 methods; `contacts.resolvePhone` 2026-07-21; `stories.*` 2026-07-22)
 
 messages (18): `messages.getHistory`, `messages.getMessages`,
 `messages.getReplies`, `messages.getDiscussionMessage`, `messages.search`,
@@ -43,13 +50,24 @@ channels (7): `channels.getFullChannel`, `channels.getChannels`,
 
 users (2): `users.getUsers`, `users.getFullUser`
 
-contacts (3): `contacts.resolveUsername`, `contacts.search`,
-`contacts.getContacts`
+contacts (4): `contacts.resolveUsername`, `contacts.search`,
+`contacts.getContacts`, `contacts.resolvePhone` (reconsidered and accepted
+under ADR-0029 for the identity layer's `tg resolve` on a `+phone` ref;
+`resolvePhone` only, never `contacts.importContacts` — the caller supplies
+one already-known phone number, and Telegram returns not-found when the
+target's privacy settings disallow the lookup, so the call cannot be used to
+enumerate numbers. A shared ~3s client-side cooldown applies to both
+`tg resolve +…` and raw `tg api contacts.resolvePhone`, exiting 5 when
+hit.)
 
 photos (1): `photos.getUserPhotos`
 
 stats (4): `stats.getBroadcastStats`, `stats.getMegagroupStats`,
 `stats.getMessageStats`, `stats.getMessagePublicForwards`
+
+stories (4): `stories.getPeerStories`, `stories.getStoriesArchive`,
+`stories.getStoriesByID`, `stories.getStoryViewsList` (read-only story and
+viewer analytics; no story publish/delete/pin methods)
 
 ### Reviewed and rejected (2026-07-10)
 
@@ -58,7 +76,6 @@ stats (4): `stats.getBroadcastStats`, `stats.getMegagroupStats`,
 | `messages.getMessagesViews` | the `increment` flag mutates view counters |
 | `messages.getBotCallbackAnswer`, `messages.getInlineBotResults` | bot interaction; a third party observes the call |
 | `contacts.getLocated` | publishes live geolocation |
-| `contacts.resolvePhone` | enables phone number enumeration |
 | `messages.getExportedChatInvite`, `messages.getExportedChatInvites`, `messages.getChatInviteImporters`, `messages.getAdminsWithInvites` | secret invite links appear in output |
 | `messages.getSponsoredMessages` | ad impression side effects |
 | `auth.*`, `account.*` | excluded wholesale: credential and account-lifecycle surface |

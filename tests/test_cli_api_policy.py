@@ -15,8 +15,9 @@ REVIEWED_READ_METHODS = [
     "channels.getMessages",
     "channels.getParticipant",
     "channels.getParticipants",
-    # contacts (3)
+    # contacts (4)
     "contacts.getContacts",
+    "contacts.resolvePhone",
     "contacts.resolveUsername",
     "contacts.search",
     # messages (18)
@@ -45,6 +46,11 @@ REVIEWED_READ_METHODS = [
     "stats.getMegagroupStats",
     "stats.getMessagePublicForwards",
     "stats.getMessageStats",
+    # stories (4)
+    "stories.getStoriesArchive",
+    "stories.getStoriesByID",
+    "stories.getPeerStories",
+    "stories.getStoryViewsList",
     # users (2)
     "users.getFullUser",
     "users.getUsers",
@@ -316,7 +322,6 @@ def test_allowlist_contains_exactly_the_reviewed_methods():
     [
         "messages.getMessagesViews",
         "contacts.getLocated",
-        "contacts.resolvePhone",
         "messages.getExportedChatInvites",
         "messages.getBotCallbackAnswer",
     ],

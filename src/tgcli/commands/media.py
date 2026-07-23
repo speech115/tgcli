@@ -322,3 +322,79 @@ async def _download_parallel(
 
 def to_rows(data: dict) -> list[tuple]:
     return [(data["path"], data["bytes"], data["resumed"], data["parallel"])]
+
+
+MEDIA_KINDS = ("photo", "video", "audio", "voice", "document")
+
+
+def _media_kind(message) -> str | None:
+    if not getattr(message, "media", None):
+        return None
+    if getattr(message, "photo", None):
+        return "photo"
+    if getattr(message, "video", None):
+        return "video"
+    if getattr(message, "voice", None):
+        return "voice"
+    if getattr(message, "audio", None):
+        return "audio"
+    if getattr(message, "document", None):
+        return "document"
+    return None
+
+
+def _manifest_item(message, kind: str) -> dict:
+    file = getattr(message, "file", None)
+    return {
+        "message_id": message.id,
+        "type": kind,
+        "size": getattr(file, "size", None) if file else None,
+        "mime": getattr(file, "mime_type", None) if file else None,
+        "filename": getattr(file, "name", None) if file else None,
+    }
+
+
+async def manifest(
+    tg,
+    source: str,
+    *,
+    kind: str | None = None,
+    since=None,
+    limit: int = 100,
+) -> dict:
+    from tgcli.commands.read import _dialog_name
+
+    try:
+        entity = await tg.get_entity(chatref.parse(source))
+    except ValueError:
+        raise NotFoundError(f"dialog not found: {source!r}") from None
+
+    items = []
+    async for message in tg.iter_messages(entity, limit=limit):
+        if since is not None and message.date is not None and message.date < since:
+            break
+        media_kind = _media_kind(message)
+        if media_kind is None:
+            continue
+        if kind is not None and media_kind != kind:
+            continue
+        items.append(_manifest_item(message, media_kind))
+
+    return {
+        "dialog": {"id": entity.id, "name": _dialog_name(entity, source)},
+        "items": items,
+        "count": len(items),
+    }
+
+
+def manifest_to_rows(data: dict) -> list[tuple]:
+    return [
+        (
+            item["message_id"],
+            item["type"],
+            item["size"],
+            item["mime"] or "",
+            item["filename"] or "",
+        )
+        for item in data["items"]
+    ]

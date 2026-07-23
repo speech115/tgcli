@@ -17,9 +17,10 @@ tgcli/
 │   ├── CLONE.md               [done]    tg clone chronicle: capability, history, acceptance status (ADR-0026)
 │   ├── CONTRACT.md            [done]    CLI automation contract (stdout/exit codes/JSON)
 │   ├── ISSUES.md              [done]    deliberately deferred product work and re-entry gates
+│   ├── PROPOSALS.md           [done]    unvetted owner wishlist backlog (2026-07-21); each item needs owner+ADR
 │   ├── DEVLOG.md              [done]    session-by-session agent log
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── decisions/             [done]    ADR-0001…0026 + README.md index (ADR-0026 maintenance mode)
+│   ├── decisions/             [done]    ADR-0001…0031 + README.md index (ADR-0026 maintenance mode)
 │   └── superpowers/plans/     [done]    completed v1 plans; mirror plans superseded by clone spec (ADR-0017)
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -32,6 +33,8 @@ tgcli/
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
 │   ├── confirm.py             [done]    fail-closed random_id → message-id confirmation
+│   ├── formatting.py          [done]    outgoing --format {plain,md,html} → entities (ADR-0030)
+│   ├── resolve_phone.py       [done]    shared contacts.resolvePhone cooldown (ADR-0029)
 │   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023)
 │   │   ├── state.py           [done]    atomic JSON state, mappings, cooldown
 │   │   ├── fidelity.py        [done]    media capability classification
@@ -51,12 +54,15 @@ tgcli/
 │   │   ├── read.py            [done]    tg read <chat>                (phase 1)
 │   │   ├── search.py          [done]    tg search / latest / message (phase 2)
 │   │   ├── info.py            [done]    tg info / count (phase 2)
-│   │   ├── media.py           [done]    tg media download             (phase 3; Telethon-only)
+│   │   ├── identity.py        [done]    tg resolve / contacts (peer discovery)
+│   │   ├── dialog.py          [done]    tg dialog pin/unpin (inbox state; ADR-0029)
+│   │   ├── thread.py          [done]    tg thread reply-chain read (ADR-0029)
+│   │   ├── media.py           [done]    tg media download|manifest (phase 3; ADR-0029)
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
-│   │   ├── mutate.py          [done]    tg edit|delete|forward preview / commit; tg mark-read (ADR-0028)
+│   │   ├── mutate.py          [done]    tg edit|delete|forward preview / commit; tg mark-read|mark-unread (ADR-0028/0029)
 │   │   ├── doctor.py          [done]    tg doctor environment/session health report (ADR-0028)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
-│   │   ├── export.py          [done]    tg export messages|subscribers (phase 5, takeout)
+│   │   ├── export.py          [done]    tg export messages|subscribers (phase 5; ADR-0031 broadcast walk)
 │   │   └── clone.py           [done]    clone status/init/sync surface (ADR-0017…0025; all live gates passed)
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)

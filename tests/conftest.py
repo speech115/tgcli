@@ -16,6 +16,12 @@ class FakeClient:
         search_messages=None,
         message_total=None,
         participants=(),
+        participants_count=None,
+        participant_search=None,
+        replies=None,
+        resolve_phone_result=None,
+        contacts_result=None,
+        contacts_search_result=None,
     ):
         self._dialogs = list(dialogs)
         self._messages = list(messages)
@@ -24,6 +30,12 @@ class FakeClient:
         self._search_messages = search_messages or {}
         self._message_total = message_total
         self._participants = list(participants)
+        self._participants_count = participants_count
+        self._participant_search = participant_search
+        self._replies = dict(replies or {})
+        self._resolve_phone_result = resolve_phone_result
+        self._contacts_result = contacts_result
+        self._contacts_search_result = contacts_search_result
         self.session = ns(takeout_id=None)
         self.iter_messages_calls = []
         self.iter_messages_reverse_calls = []
@@ -32,6 +44,7 @@ class FakeClient:
         self.takeout_calls = []
         self.takeout_error = None
         self.iter_messages_error = None
+        self.call_requests = []
 
     async def iter_dialogs(self, limit=None):
         for dialog in self._dialogs[:limit]:
@@ -111,8 +124,11 @@ class FakeClient:
     async def get_me(self):
         return self._me
 
-    async def get_messages(self, entity, ids=None, limit=None):
-        self.get_messages_calls.append((entity, ids, limit))
+    async def get_messages(self, entity, ids=None, limit=None, reply_to=None):
+        self.get_messages_calls.append((entity, ids, limit, reply_to))
+        if reply_to is not None:
+            messages = list(self._replies.get(reply_to, ()))
+            return messages[:limit] if limit is not None else messages
         if limit == 0:
             return ns(total=self._message_total)
         if isinstance(ids, list):
@@ -123,6 +139,57 @@ class FakeClient:
                 for item in ids
             ]
         return next((message for message in self._messages if message.id == ids), None)
+
+    async def __call__(self, request):
+        from telethon.tl import functions
+
+        self.call_requests.append(request)
+        if isinstance(request, functions.contacts.ResolvePhoneRequest):
+            if self._resolve_phone_result is None:
+                raise AssertionError(
+                    "FakeClient received ResolvePhoneRequest but no "
+                    "resolve_phone_result was configured"
+                )
+            return self._resolve_phone_result
+        if isinstance(request, functions.contacts.GetContactsRequest):
+            if self._contacts_result is None:
+                raise AssertionError(
+                    "FakeClient received GetContactsRequest but no "
+                    "contacts_result was configured"
+                )
+            return self._contacts_result
+        if isinstance(request, functions.contacts.SearchRequest):
+            if self._contacts_search_result is None:
+                raise AssertionError(
+                    "FakeClient received SearchRequest but no "
+                    "contacts_search_result was configured"
+                )
+            return self._contacts_search_result
+        if isinstance(request, functions.channels.GetFullChannelRequest):
+            if self._participants_count is None:
+                raise AssertionError(
+                    "FakeClient received GetFullChannelRequest but no "
+                    "participants_count was configured"
+                )
+            return ns(full_chat=ns(participants_count=self._participants_count))
+        if isinstance(request, functions.channels.GetParticipantsRequest):
+            if self._participant_search is None:
+                raise AssertionError(
+                    "FakeClient received GetParticipantsRequest but no "
+                    "participant_search was configured"
+                )
+            query = getattr(request.filter, "q", "")
+            users = list(self._participant_search.get(query, ()))
+            return ns(users=users, count=len(users))
+        if isinstance(
+            request,
+            (
+                functions.messages.MarkDialogUnreadRequest,
+                functions.messages.ToggleDialogPinRequest,
+            ),
+        ):
+            return True
+        raise AssertionError(f"FakeClient received unexpected raw request: {request!r}")
 
 
 @pytest.fixture(autouse=True)

@@ -70,12 +70,20 @@ them as channels; broadcast channels remain `channel`.
                "text": "hello", "media": null, "media_info": null,
                "reply_to": null, "permalink": null, "edited_at": null,
                "outgoing": false, "forwarded_from": null, "reactions": [],
+               "custom_emoji": [],
                "topic_id": null, "grouped_id": null, "is_service": false}],
  "page": {"oldest_id": 42, "newest_id": 42}}
 ```
 
 All message-shape additions since 0.1 are additive; `media` remains the Telethon
-class name string, `media_info` carries structured metadata.
+class name string, `media_info` carries structured metadata. `custom_emoji` is a
+(possibly empty) list of the message's custom (premium) emoji as
+`{"id", "emoji", "offset", "length"}`, where `id` is the reusable `document_id`
+as a **decimal string** (so IEEE-754 JSON number parsers cannot round it; the
+string is the `emoji-id` accepted by `--format html`) and `emoji` is the
+fallback unicode glyph; offsets are UTF-16 code units. This lets an agent
+harvest custom-emoji ids from any readable post and reuse them when composing
+formatted messages.
 
 `read` accepts `--before-id INT` (messages older than an id), `--after-id INT`
 (messages newer than an id), `--since ISO`, `--until ISO`, and `--topic INT`
@@ -92,6 +100,7 @@ newest-first output and stops when it reaches the lower date boundary.
                "text": "hello", "media": null, "media_info": null,
                "reply_to": null, "permalink": null, "edited_at": null,
                "outgoing": false, "forwarded_from": null, "reactions": [],
+               "custom_emoji": [],
                "topic_id": null, "grouped_id": null, "is_service": false}]}
 ```
 
@@ -122,6 +131,7 @@ one message in that same shape:
              "text": "hello", "media": null, "media_info": null,
              "reply_to": null, "permalink": null, "edited_at": null,
              "outgoing": false, "forwarded_from": null, "reactions": [],
+             "custom_emoji": [],
              "topic_id": null, "grouped_id": null, "is_service": false}}
 ```
 
@@ -153,6 +163,51 @@ Telegram admin-right flags; tgcli does not infer ungranted admin capabilities.
 {"dialog": {"id": -1001234, "name": "Channel"}, "count": 73}
 ```
 
+`tg resolve <ref> --json`:
+```json
+{"peer": {"id": 111, "type": "user", "username": "alice",
+          "display_name": "Alice Smith", "is_contact": true,
+          "is_bot": false}}
+```
+
+`REF` is a `+<digits>` phone number, `@username`, `t.me` link, or numeric
+dialog id. A phone ref calls `contacts.resolvePhone` only — it never calls
+`contacts.importContacts` — and maps the returned peer to its entity via the
+response's `users`/`chats` lists; an empty result is exit 4 (not found).
+Phone resolution (and raw `tg api contacts.resolvePhone`) shares a
+client-side cooldown of about 3 seconds across `tg` processes; a call that
+arrives too soon exits 5 (`FLOOD_WAIT`) with `retry_after`. Every other ref
+goes through the standard chat-reference parser and `get_entity`. `type` is
+one of `user`, `bot`, `group`, `channel`: `bot` when the entity reports
+`bot`, `channel` for a broadcast channel, `group` for a megagroup or basic
+group, otherwise `user`. `display_name` is the chat title, or first+last name
+for a user/bot. `is_contact` and `is_bot` reflect the entity's own Telegram
+flags.
+
+```
+tg contacts list
+tg contacts search <query> [--global]
+```
+
+`tg contacts list --json`:
+```json
+{"contacts": [{"id": 111, "type": "user", "username": "alice",
+               "display_name": "Alice Smith", "is_contact": true,
+               "is_bot": false}]}
+```
+
+`list` calls `contacts.getContacts` once and maps every returned user through
+the same `peer` shape as `resolve`.
+
+`tg contacts search <query> --json` filters `contacts list`'s result in
+Python by a case-insensitive substring match over `display_name` and
+`username`; it makes no additional Telegram request. The response adds
+`"scope": "local"`. `--global` instead calls `contacts.search` with `q` set
+to `<query>` and returns its `users` mapped the same way, with
+`"scope": "global"`; local `contacts list` is not consulted for `--global`.
+`--global` results are capped at 50 (`contacts.search`'s own `limit`
+argument); there is no flag to raise it.
+
 `tg media download <t.me/link|chat> [message_id] --json`:
 ```json
 {"source": "@channel:42", "path": "/Users/me/Downloads/clip.mp4",
@@ -167,6 +222,19 @@ to stderr. Single-stream transfer resumes a matching interrupted partial file
 from `~/.local/state/tgcli/downloads/`; `--parallel N` is opt-in, requires a
 positive `N`, and starts a fresh offset-based transfer.
 
+```
+tg media manifest CHAT [--type photo|video|audio|voice|document] [--since ISO] [--limit N]
+```
+
+`media manifest` is a dry-run inventory (ADR-0029): it walks recent messages
+with `iter_messages` (default `--limit` 100), keeps only those with media, and
+never downloads. Each item is
+`{"message_id":42,"type":"photo","size":1234,"mime":"image/jpeg","filename":"a.jpg"}`.
+`--type` filters to one kind; `--since` drops older messages (newest-first walk
+stops at the first message older than the bound). Success JSON:
+`{"dialog":{"id":-1001234,"name":"Channel"},"items":[...],"count":N}`. Plain
+rows are `message_id`, `type`, `size`, `mime`, `filename`.
+
 ### TSV Shapes
 
 `dialogs` retains its phase-1 columns and appends `mentions` as the final
@@ -174,10 +242,14 @@ column. `read` and `search` output one row per
 message as `id`, `date`, `from_name`, `text`; `latest` and `message` use the
 same single-row shape. `info` outputs `id`, `kind`, `username`, `name`.
 `count` outputs one `count` value. `info --full` keeps the same `info` TSV
-columns; its additive fields are JSON-only.
-`media download` outputs `path`, `bytes`, `resumed`, `parallel`. `send` preview
-rows retain their existing columns and append `file`, `reply_to`. `edit` preview
-rows are `preview_id`, `message_id`, `old_text`, `text`; `delete` preview rows
+columns; its additive fields are JSON-only. `resolve` outputs one row:
+`id`, `type`, `username`, `display_name`. `contacts list` and `contacts
+search` output the same four columns, one row per contact; `scope` is
+JSON-only.
+`media download` outputs `path`, `bytes`, `resumed`, `parallel`. `media
+manifest` outputs `message_id`, `type`, `size`, `mime`, `filename`. `send` preview
+rows retain their existing columns and append `file`, `reply_to`, `format`. `edit` preview
+rows are `preview_id`, `message_id`, `old_text`, `text`, `format`; `delete` preview rows
 are `preview_id`, `message_id`, `text`; `forward` preview rows are
 `preview_id`, `source`, `message_id`, `destination`. Send, edit, delete, and
 forward commit rows are `preview_id`, `message_id`. `mark-read` rows are
@@ -205,10 +277,24 @@ original path cannot change the sent bytes. The snapshot is removed after
 success or any upload, request, or confirmation failure. MIME type and Telegram
 filename continue to derive from the original path. `--caption` requires
 `--file`; a file send cannot take positional text. The stored preview
-additionally includes the target, `kind: "send"`, and a positive `random_id`
-for the later idempotent commit path. Text and captions use the Telethon
-client's default parse mode, preserving the existing Markdown-to-entity
-behavior of high-level sends.
+additionally includes the target, `kind: "send"`, the chosen `format`, and a
+positive `random_id` for the later idempotent commit path. `send` accepts
+`--format {plain,md,html}` (default `md`, preserving the historical
+Markdown-to-entity behavior for text and captions); `plain` sends verbatim and
+`html` uses the same entity set as `edit --format html` (bold/italic/quote/
+expandable quote/spoiler/code/links/`tg-emoji` custom emoji). The commit
+re-renders from the stored `format` and passes explicit entities.
+`tg edit CHAT MESSAGE_ID TEXT --preview [--format {plain,md,html}]` records the
+chosen format in the preview (default `plain`). Unlike `send`, edit does not
+apply the client's default parse mode: `plain` sends TEXT verbatim with no
+entities (parse disabled), so literal `*`, `_`, `<` survive. `md` uses Telethon
+Markdown. `html` supports the full entity set — `<b>`/`<i>`/`<u>`/`<s>`,
+`<blockquote>` and `<blockquote expandable>`, `<tg-spoiler>` (or
+`<span class="tg-spoiler">`), `<code>`/`<pre>`, `<a href>`, and
+`<tg-emoji emoji-id="…">` custom emoji. Offsets are computed in UTF-16 code
+units, so surrogate-pair emoji shift following entities correctly. The commit
+re-renders TEXT from the stored `format` and passes explicit
+`formatting_entities`.
 Previews expire after five minutes. A send commit moves its preview through
 `.json` → `.pending` → `.used`: a failed commit may be re-committed; Telegram
 deduplicates by `random_id` within the preview TTL. Only a confirmed send marks
@@ -283,6 +369,42 @@ configuration, session, audit, or Telegram work. On success it returns
 `{"dialog":{"id":-1001234},"marked_read":true}` and writes a fail-closed
 `mark-read` audit record containing the submitted chat reference before the
 Telegram acknowledgement.
+
+```
+tg mark-unread CHAT
+```
+
+`mark-unread` mirrors `mark-read`: same direct gating and audit timing, no
+preview. On success it returns
+`{"dialog":{"id":-1001234},"marked_unread":true}` and writes a fail-closed
+`mark-unread` audit record. Plain rows are `dialog_id`, `unread`.
+
+```
+tg dialog pin CHAT
+tg dialog unpin CHAT
+```
+
+`dialog pin` / `dialog unpin` are content-free, idempotent direct mutations
+(ADR-0029): same `--readonly` / `TGCLI_READONLY` / `TGCLI_NO_SEND` gating as
+`mark-read`, no preview. On success they return
+`{"dialog":{"id":-1001234},"pinned":true|false}` and write a fail-closed
+`dialog-pin` or `dialog-unpin` audit record with the submitted chat reference.
+Plain rows are `dialog_id`, `pinned|unpinned`.
+
+```
+tg thread CHAT MESSAGE_ID [--replies] [--depth N] [--limit N]
+```
+
+`thread` is a read-only reply-chain discovery command (ADR-0029). It always
+returns `{dialog, root, ancestors, replies, note}` where `root` and each
+ancestor/reply use the universal message JSON shape. Ancestors walk
+`reply_to` upward, ordered oldest→newest, excluding the root; `--depth`
+defaults to 20 and is hard-capped at 100 (cycles stop the walk). `replies`
+is empty unless `--replies` is set **and** the root exposes a cheap
+comment/forum thread (`message.replies`); otherwise `replies` stays `[]` and
+`note` is `"no cheap reply thread for this message; replies omitted"`.
+`--limit` caps replies (default 50). Plain rows are the same message TSV as
+`read`, one row per root then ancestors then replies.
 
 ## 5.1 Environment Health (`tg doctor`; ADR-0028)
 
@@ -363,7 +485,14 @@ tg export subscribers <channel> --output <path> [--limit <n>]
   `id,username,first_name,last_name,phone,is_bot`; standard CSV quoting is
   used for field values. Username and name cells beginning with `=`, `+`, `-`,
   or `@` are prefixed with a single quote so spreadsheet programs do not
-  interpret them as formulas.
+  interpret them as formulas. For **broadcast** channels, when `--limit` is
+  omitted, tgcli unions saturating prefix searches over
+  `channels.getParticipants` to walk past Telegram's hard 200-row cap for a
+  single query. A `--limit` greater than 200 on a broadcast channel exits 2
+  (`BLOCKED`): it must not run a full-channel crawl and then take an arbitrary
+  post-dedupe slice. Megagroups and `--limit` ≤ 200 keep a single
+  `iter_participants` pass. Emoji/CJK-only display names with no searchable
+  character may leave a member unreachable.
 - Success on `--json` is one completion document:
   `{"export":{"kind":"messages|subscribers","format":"jsonl|csv",
   "path":"<path>","count":42,"dialog":{"id":-1001234,"name":"Channel"}}}`.

@@ -65,9 +65,10 @@ Three slices, each independently shippable, all contract-additive:
 - Opaque pagination cursors — state tgcli would have to version.
 
 **Deferred with triggers** (tracked in [ISSUES.md](../ISSUES.md)):
-MSG-001 (albums, scheduled sends, reactions, pin, protect-content,
-entities/formatting), FEED-001 (`tg changes` daemonless change feed).
-ACCOUNTS-001 (`tg accounts login`) keeps its existing trigger.
+MSG-001 (albums, scheduled sends, reactions, pin, protect-content; entities/
+formatting partially completed by ADR-0030), FEED-001 (`tg changes`
+daemonless change feed). ACCOUNTS-001 (`tg accounts login`) keeps its
+existing trigger.
 
 ## Consequences
 
