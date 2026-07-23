@@ -6,7 +6,7 @@ This file must always match the real tree (AGENTS.md rule).
 ```
 tgcli/
 ├── README.md                  [done]    vision + principles
-├── .github/workflows/ci.yml   [done]    CI: ruff + pyright + pytest + coverage gate on push/PR (ADR-0027)
+├── .github/workflows/ci.yml   [done]    CI: ruff + architecture + pyright + pytest + coverage gates (ADR-0027/0034)
 ├── .cursor/rules/             [done]    Cursor always-apply maintenance/TDD/docs rule
 ├── AGENTS.md                  [done]    agent contract, doc discipline
 ├── CLAUDE.md                  [done]    Claude adapter → AGENTS.md
@@ -22,11 +22,11 @@ tgcli/
 │   ├── DEVLOG.md              [done]    session-by-session agent log
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033)
-│   ├── decisions/             [done]    ADR-0001…0033 + README.md index (ADR-0026 maintenance mode)
-│   └── superpowers/plans/     [done]    completed v1 plans; ADR-0032 data-plumbing plan (2026-07-23)
+│   ├── decisions/             [done]    ADR-0001…0034 + README.md index (ADR-0026 maintenance mode)
+│   └── superpowers/plans/     [done]    completed v1 plans; ADR-0032/0034 maintenance plans
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
-│   ├── cli.py                 [done]    argparse tree, global flags, dispatch, exit-code mapping
+│   ├── cli.py                 [done]    argparse tree, process lifecycle, mutation dispatch, exit mapping
 │   ├── output.py              [done]    emit(data) → stdout as JSON/plain; note()/warn() → stderr
 │   ├── errors.py              [done]    TgcliError hierarchy ↔ exit codes (CONTRACT.md §4)
 │   ├── chatref.py             [done]    chat reference normalization (numeric dialog id → int)
@@ -37,6 +37,7 @@ tgcli/
 │   ├── confirm.py             [done]    fail-closed random_id → message-id confirmation
 │   ├── formatting.py          [done]    outgoing --format {plain,md,html} → entities (ADR-0030)
 │   ├── resolve_phone.py       [done]    shared contacts.resolvePhone cooldown (ADR-0029)
+│   ├── read_ops.py            [done]    typed read-operation seam shared by interactive CLI + batch (ADR-0034)
 │   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023)
 │   │   ├── state.py           [done]    atomic JSON state, mappings, cooldown
 │   │   ├── fidelity.py        [done]    media capability classification
@@ -73,7 +74,8 @@ tgcli/
     ├── install-link.sh        [done]    symlink tg → PATH (phase 6 cutover)
     ├── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
     ├── bench.py               [done]    live benchmark: every command against a real account
-    └── seed_demo_channel.py   [done]    manual demo-channel seeding for clone visual acceptance
+    ├── seed_demo_channel.py   [done]    manual demo-channel seeding for clone visual acceptance
+    └── check-architecture.py  [done]    module ownership + hotspot no-growth ratchet (ADR-0034)
 ```
 
 ## Module Ownership Rules

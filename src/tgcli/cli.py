@@ -3,28 +3,22 @@ import asyncio
 import logging
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 from telethon import errors as telethon_errors
 
-from tgcli import __version__, invocations, output, safety, session
+from tgcli import __version__, invocations, output, read_ops, safety, session
 from tgcli.commands import accounts as accounts_cmd
 from tgcli.commands import api as api_cmd
 from tgcli.commands import batch as batch_cmd
 from tgcli.commands import clone as clone_cmd
 from tgcli.commands import dialog as dialog_cmd
-from tgcli.commands import dialogs as dialogs_cmd
 from tgcli.commands import doctor as doctor_cmd
 from tgcli.commands import export as export_cmd
-from tgcli.commands import identity as identity_cmd
-from tgcli.commands import info as info_cmd
 from tgcli.commands import media as media_cmd
 from tgcli.commands import mutate as mutate_cmd
-from tgcli.commands import read as read_cmd
-from tgcli.commands import search as search_cmd
 from tgcli.commands import send as send_cmd
-from tgcli.commands import thread as thread_cmd
 from tgcli.config import load_config, resolve_account
 from tgcli.errors import PartialFailure, PolicyError, RateLimitError, TgcliError
 
@@ -35,15 +29,10 @@ LOGGER = logging.getLogger(__name__)
 def _parse_when(
     parser: argparse.ArgumentParser, value: str | None, flag: str
 ) -> datetime | None:
-    if value is None:
-        return None
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
+    def invalid():
         parser.error(f"{flag} expects an ISO 8601 date or datetime")
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed
+
+    return read_ops.parse_when(value, invalid=invalid)
 
 
 def _enable_verbose_diagnostics():
@@ -434,89 +423,16 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
     )
     try:
         async with session.client(account, mutation_safe=mutation_safe) as tg:
-            if args.command == "dialogs":
-                data = await dialogs_cmd.fetch_dialogs(
-                    tg,
-                    limit=args.limit,
-                    unread_only=args.unread_only,
-                    kind=args.kind,
-                )
-                return data, dialogs_cmd.to_rows(data)
-            if args.command == "read":
-                data = await read_cmd.fetch_messages(
-                    tg,
-                    args.chat,
-                    limit=args.limit,
-                    before_id=args.before_id,
-                    after_id=args.after_id,
-                    since=args.since,
-                    until=args.until,
-                    topic=args.topic,
-                )
-                return data, read_cmd.to_rows(data)
-            if args.command == "search":
-                if args.all:
-                    data = await search_cmd.fetch_search_all(
-                        tg, args.query, limit=args.limit
-                    )
-                else:
-                    data = await search_cmd.fetch_search(
-                        tg,
-                        args.chat,
-                        args.query,
-                        limit=args.limit,
-                        from_user=args.from_user,
-                        since=args.since,
-                    )
-                return data, search_cmd.to_rows(data)
-            if args.command == "latest":
-                data = await search_cmd.fetch_latest(tg, args.chat)
-                return data, search_cmd.to_rows(data)
-            if args.command == "message":
-                data = await read_cmd.fetch_message(
-                    tg, args.chat, args.message_id, context=args.context
-                )
-                return data, search_cmd.to_rows(data)
-            if args.command == "info":
-                data = (
-                    await info_cmd.fetch_info_full(tg, args.chat)
-                    if args.full
-                    else await info_cmd.fetch_info(tg, args.chat)
-                )
-                return data, info_cmd.to_rows(data)
-            if args.command == "count":
-                data = await info_cmd.fetch_count(tg, args.chat)
-                return data, info_cmd.to_rows(data)
-            if args.command == "resolve":
-                data = await identity_cmd.resolve(tg, args.ref)
-                return data, identity_cmd.to_rows(data)
-            if args.command == "mutual-chats":
-                data = await identity_cmd.mutual_chats(tg, args.ref)
-                return data, identity_cmd.mutual_chats_to_rows(data)
+            read_operation = read_ops.from_cli(args)
+            if read_operation is not None:
+                result = await read_ops.execute(tg, read_operation)
+                return result.data, result.rows
             if args.command == "batch":
                 ops = batch_cmd.parse_ops(args.batch_lines)
                 results, first_exit = await batch_cmd.run_batch(
                     tg, ops, fail_fast=bool(getattr(args, "fail_fast", False))
                 )
                 return {"_batch_results": results, "_batch_exit": first_exit}, []
-            if args.command == "thread":
-                data = await thread_cmd.fetch_thread(
-                    tg,
-                    args.chat,
-                    args.message_id,
-                    depth=args.depth,
-                    want_replies=args.replies,
-                    replies_limit=args.limit,
-                )
-                return data, thread_cmd.to_rows(data)
-            if args.command == "contacts":
-                if args.contacts_command == "list":
-                    data = await identity_cmd.contacts_list(tg)
-                else:
-                    data = await identity_cmd.contacts_search(
-                        tg, args.query, use_global=args.use_global
-                    )
-                return data, identity_cmd.contacts_to_rows(data)
             if args.command == "media" and args.media_command == "download":
                 message_ids_raw = getattr(args, "message_ids", None)
                 bulk = bool(
@@ -564,15 +480,6 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                     progress=progress,
                 )
                 return data, media_cmd.to_rows(data)
-            if args.command == "media" and args.media_command == "manifest":
-                data = await media_cmd.manifest(
-                    tg,
-                    args.source,
-                    kind=args.media_type,
-                    since=args.since,
-                    limit=args.limit,
-                )
-                return data, media_cmd.manifest_to_rows(data)
             if args.command == "send":
                 if args.preview:
                     data = await send_cmd.prepare(
