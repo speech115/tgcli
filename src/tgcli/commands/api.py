@@ -161,7 +161,15 @@ async def call(client, name: str, params_json: str) -> dict:
 
         enforce_resolve_phone_cooldown()
     result = await client(await build_request(client, name, params_json))
-    return {"method": name, "result": _sanitize_result(result.to_dict())}
+    return {"method": name, "result": _serialize_rpc_result(result)}
+
+
+def _serialize_rpc_result(result):
+    """TLObjects expose to_dict(); Bool/int/None RPCs return bare JSON scalars."""
+    to_dict = getattr(result, "to_dict", None)
+    if callable(to_dict):
+        return _sanitize_result(to_dict())
+    return _sanitize_result(result)
 
 
 def _sanitize_result(value):

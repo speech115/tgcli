@@ -461,7 +461,9 @@ tg api <Namespace.method> --params '<json>' [--write] [--confirm <method>]
   and `account.resetAuthorization` is always exit 2. Authorised raw writes
   append one JSONL audit object before dispatch.
 - `--json` output: `{"method": "users.getFullUser", "result": {…}}` where
-  `result` is the TL object as a dict.
+  `result` is the TL object as a dict, or a JSON scalar (`true`/`false`,
+  number, `null`) when the RPC returns a bare Bool/int/null instead of a
+  TLObject (e.g. `account.updateStatus`).
 - **Stability exemption:** `result` mirrors the Telegram TL layer of the
   pinned Telethon version and may change when that pin is upgraded; the §3
   stability rules do not apply inside `result`. Everything outside `result`

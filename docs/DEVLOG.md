@@ -13,6 +13,57 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Fix tg api bool/scalar RPC serialization (Composer)
+**Did:** bug fix for live finding: `tg api account.updateStatus --write`
+reached Telegram then crashed on `bool.to_dict()`. Added failing unit test
+and `_serialize_rpc_result` so TLObjects still use `to_dict()` while bare
+Bool/int/null pass through `_sanitize_result`. CONTRACT §6 notes scalar
+`result`. Suite: `81` api-related tests green; ruff + pyright clean.
+**Decided:** serialize scalars as JSON values in `result` (additive contract
+clarification), not wrap them in a fake TL dict.
+**Learned:** many MTProto writes return Bool; the previous envelope assumed
+every RPC result was a TLObject.
+**Next:** open PR for `claude/fix-api-bool-result` (live recheck on main:
+`{"method":"account.updateStatus","result":false}` exit 0).
+
+## 2026-07-23 — Remainder live checks without clone (Composer)
+**Did:** finished non-clone live remainder on `main`. PASS: accounts list,
+media manifest (+ `--type photo`), info `--full`, search `--all`, message
+`--context`, `stories.getPeerStories`, export subscribers `--limit 201` →
+exit 2 (ADR-0031), custom_emoji id as decimal string + HTML send with
+`<tg-emoji>`, send `--file`+caption+`--silent` then delete, api hard-deny
+`auth.logOut` → exit 2, resolvePhone invalid + local cooldown → exit 5.
+**Decided:** none (verification).
+**Learned:** `tg api account.updateStatus --write` reaches Telegram (Bool
+ok) but crashes: `AttributeError: 'bool' object has no attribute 'to_dict'`
+in `commands/api.py` `call()` — bool/int RPC results are not handled.
+**Next:** owner call — fix bool/scalar sanitize in `tg api` (bug), or stop.
+
+## 2026-07-23 — Extended live checks on main beyond bench (Composer)
+**Did:** owner-requested live pass for commands outside smoke/bench on
+`main`, mostly via Saved Messages. PASS: doctor, contacts list/search,
+resolve `@CrwDdy`, thread (parent+reply then cleanup delete), HTML
+send/edit preview→commit, forward me→me, mark-unread/read, dialog
+pin/unpin, delete preview→commit. Left visible proof in Saved Messages
+(HTML-edited message + its forward). Initial script falsely flagged
+`resolve me` (exit 0; shape is `{peer:{id,…}}`, not top-level `id`) —
+recheck confirmed PASS.
+**Decided:** none (verification only).
+**Learned:** `resolve me` returns a `peer` envelope; do not assert bare `id`.
+**Next:** none unless owner wants phone-resolve or custom-emoji send.
+
+## 2026-07-23 — Live smoke + bench on main (Composer)
+**Did:** ran owner-requested live verification on account `main` (no clone).
+`TGCLI_LIVE_SMOKE=1 .venv/bin/pytest tests/live -q` → `8 passed` (~8.5s).
+`.venv/bin/python scripts/bench.py --account main` → `13/13 PASS`, 0 skip,
+0 fail, ~16.4s total. Bench wrote one Saved Messages ping and exercised
+read/search/message/info/count/api/send/media-download/export paths.
+**Decided:** none (verification only).
+**Learned:** no FloodWait on this run; export-messages and export-subscribers
+both PASS (subscribers default `@mir_ivanova`).
+**Next:** optional deeper checks (doctor/contacts/edit-delete-forward preview)
+if needed; clone stays owner-gated separately.
+
 ## 2026-07-23 — PR #18 review fixes: export limit, emoji id string, resolvePhone cooldown, ADR-0031 (Composer)
 **Did:** addressed Bugbot/Standards/Spec/thermo-nuclear findings on
 `claude/agent-quick-wins`. (1) Broadcast `export subscribers --limit > 200`
