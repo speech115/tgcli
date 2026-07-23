@@ -66,3 +66,25 @@ The project is feature-complete and in production use. Default posture:
 
 User-facing conversation: Russian. Code, comments, docs in this repo,
 commits, CLI output: English.
+
+## Cursor Cloud specific instructions
+
+- Tooling is `uv`-managed. Standard commands are in `.github/workflows/ci.yml`
+  and the "Engineering Rules" above: `uv run pytest -q`, `uv run ruff check .`,
+  `uv run ruff format --check .`, `uv run pyright`, and the coverage gate
+  `uv run python scripts/check-coverage.py`. Run the CLI with `uv run tg ...`.
+- `uv` installs to `~/.local/bin` and is added to PATH via `~/.bashrc`
+  (`. "$HOME/.local/bin/env"`); non-login/non-interactive shells may need
+  `PATH="$HOME/.local/bin:$PATH"` prefixed. The startup update script runs
+  `uv sync`.
+- Live Telegram commands (`dialogs`, `read`, `send`, `clone sync`, etc.) need
+  real credentials: an account in `~/.config/tgcli/config.toml` with a valid
+  `api_id`/`api_hash` (from https://my.telegram.org) plus an authenticated
+  `*.session` file under `~/.local/state/tgcli/sessions/`. These are user
+  secrets and are never in the repo, so those commands cannot run in a fresh
+  cloud VM without them.
+- Offline commands need no network/credentials and are the way to verify the
+  build end-to-end: `tg accounts list`, `tg doctor` (filesystem/session health),
+  `tg clone status`, and the pre-network write gates (`--readonly` /
+  `TGCLI_NO_SEND=1` return exit code 2 / `BLOCKED`). `tg doctor` requires a
+  config file to exist; without one it exits 3 (`CONFIG`).
