@@ -17,6 +17,24 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — PR #28 rebase and typed-discriminator review (Codex)
+**Did:** completed the interrupted rebase of the read-operation registry onto
+`main`, preserving both sides of the DEVLOG conflict, then reviewed the whole
+diff on independent Spec and Standards axes. The review reproduced one real
+defect: operation dataclasses accepted an override such as
+`Dialogs(..., name="read")`, letting the string-keyed dispatcher select a
+handler for the wrong variant. Added a red regression and made every operation
+name an immutable `ClassVar[Literal[...]]`. Focused registry tests: 33 passed.
+Final post-PR33 rebase gate: `736 passed, 8 skipped`; Ruff check/format passed;
+Pyright reported 0 errors; coverage passed 23 namespaces.
+**Decided:** the registry remains keyed by the documented operation names, but
+the discriminator belongs to the closed typed variant and is not constructor
+input. ADR-0034 and the public CLI contract remain unchanged.
+**Learned:** a frozen dataclass does not make a defaulted discriminator safe
+when callers can still replace it during construction.
+**Next:** rebase this reviewed branch onto the just-merged PR #33, update PR
+#28, wait for fresh green CI, then merge and delete the final feature branch.
+
 ## 2026-07-23 — PR #33 independent boundary review (Codex)
 **Did:** reviewed the rebased quote-fallback split from `main` on both Spec and
 Standards axes. Added red regressions for two confirmed defects: the
@@ -57,7 +75,6 @@ the same way: the guard stayed with the resolver, the placement argument went
 with the renderer.
 **Next:** independent Spec + Standards review of PR #31 (and this stacked
 seam PR) before merge.
-
 ## 2026-07-23 — Review of the quote-reply branch: two resolver defects (Claude Opus 4.8)
 **Did:** reviewed PR #31 against its plan and ADR-0036, then fixed the two
 defects the review found in `clone/quotes.py`. (1) `_place_thread` walked

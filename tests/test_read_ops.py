@@ -56,6 +56,16 @@ def test_registry_covers_the_operation_union_exactly():
     assert read_ops.BATCH_OP_NAMES == OPERATION_NAMES
 
 
+def test_operation_discriminator_cannot_be_overridden():
+    with pytest.raises(TypeError, match="unexpected keyword argument 'name'"):
+        read_ops.Dialogs(
+            limit=50,
+            unread_only=False,
+            kind=None,
+            name="read",
+        )
+
+
 def test_every_operation_is_covered_by_this_file():
     assert set(CLI_INVOCATIONS) == OPERATION_NAMES
     assert set(BATCH_PAYLOADS) == OPERATION_NAMES

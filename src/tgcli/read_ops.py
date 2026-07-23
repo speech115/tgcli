@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Awaitable, Callable, NoReturn, TypeAlias
+from typing import Any, Awaitable, Callable, ClassVar, Literal, NoReturn, TypeAlias
 
 from tgcli.commands import dialogs as dialogs_cmd
 from tgcli.commands import identity as identity_cmd
@@ -21,7 +21,7 @@ class Dialogs:
     limit: int
     unread_only: bool
     kind: str | None
-    name: str = "dialogs"
+    name: ClassVar[Literal["dialogs"]] = "dialogs"
 
 
 @dataclass(frozen=True)
@@ -33,7 +33,7 @@ class Read:
     since: datetime | None
     until: datetime | None
     topic: int | None
-    name: str = "read"
+    name: ClassVar[Literal["read"]] = "read"
 
 
 @dataclass(frozen=True)
@@ -44,13 +44,13 @@ class Search:
     all: bool
     from_user: str | None
     since: datetime | None
-    name: str = "search"
+    name: ClassVar[Literal["search"]] = "search"
 
 
 @dataclass(frozen=True)
 class Latest:
     chat: str
-    name: str = "latest"
+    name: ClassVar[Literal["latest"]] = "latest"
 
 
 @dataclass(frozen=True)
@@ -58,44 +58,44 @@ class Message:
     chat: str
     message_id: int
     context: int
-    name: str = "message"
+    name: ClassVar[Literal["message"]] = "message"
 
 
 @dataclass(frozen=True)
 class Info:
     chat: str
     full: bool
-    name: str = "info"
+    name: ClassVar[Literal["info"]] = "info"
 
 
 @dataclass(frozen=True)
 class Count:
     chat: str
-    name: str = "count"
+    name: ClassVar[Literal["count"]] = "count"
 
 
 @dataclass(frozen=True)
 class Resolve:
     ref: str
-    name: str = "resolve"
+    name: ClassVar[Literal["resolve"]] = "resolve"
 
 
 @dataclass(frozen=True)
 class MutualChats:
     ref: str
-    name: str = "mutual-chats"
+    name: ClassVar[Literal["mutual-chats"]] = "mutual-chats"
 
 
 @dataclass(frozen=True)
 class ContactsList:
-    name: str = "contacts.list"
+    name: ClassVar[Literal["contacts.list"]] = "contacts.list"
 
 
 @dataclass(frozen=True)
 class ContactsSearch:
     query: str
     use_global: bool
-    name: str = "contacts.search"
+    name: ClassVar[Literal["contacts.search"]] = "contacts.search"
 
 
 @dataclass(frozen=True)
@@ -104,7 +104,7 @@ class MediaManifest:
     kind: str | None
     since: datetime | None
     limit: int
-    name: str = "media.manifest"
+    name: ClassVar[Literal["media.manifest"]] = "media.manifest"
 
 
 @dataclass(frozen=True)
@@ -114,7 +114,7 @@ class Thread:
     depth: int
     want_replies: bool
     replies_limit: int
-    name: str = "thread"
+    name: ClassVar[Literal["thread"]] = "thread"
 
 
 ReadOperation: TypeAlias = (
