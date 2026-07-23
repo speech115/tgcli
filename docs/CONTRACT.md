@@ -515,13 +515,20 @@ tg api <Namespace.method> --params '<json>' [--write] [--confirm <method>]
 
 ```
 tg export messages <chat> --output <path> [--limit <n>]
+    [--after-id <id>] [--append] [--resume]
 tg export subscribers <channel> --output <path> [--limit <n>]
 ```
 
 - `--output` is required. It is the only destination for the export records;
-  the command writes a sibling temporary file and replaces the destination only
-  after the complete export succeeds. An existing destination is unchanged on
-  a failed export.
+  without `--append`/`--resume`, the command writes a sibling temporary file and
+  replaces the destination only after the complete export succeeds. An existing
+  destination is unchanged on a failed full export.
+- `--after-id N` exports only messages with `id > N` (Telethon `min_id`).
+- `--append` appends JSONL lines to an existing file (creating it if missing).
+  It requires `--after-id` or `--resume`; otherwise exit 2 (`BLOCKED`).
+- `--resume` reads the last non-empty JSONL line's message `id` from
+  `--output`, then behaves as `--append --after-id <that>`. Missing, empty, or
+  corrupt last line → exit 1. No sidecar state file.
 - `messages` iterates through a Telethon takeout session from oldest to newest.
   The destination is UTF-8 JSONL: one `read`-shape message object per line,
   with `id`, `date`, `from`, `text`, `media`, and `reply_to` fields.
@@ -540,6 +547,9 @@ tg export subscribers <channel> --output <path> [--limit <n>]
 - Success on `--json` is one completion document:
   `{"export":{"kind":"messages|subscribers","format":"jsonl|csv",
   "path":"<path>","count":42,"dialog":{"id":-1001234,"name":"Channel"}}}`.
+  When `--after-id`, `--append`, or `--resume` is used on messages, the
+  document also includes additive `"after_id"` (int or null) and
+  `"appended"` (bool). `count` is this run's written rows only.
   `--plain` emits one TSV row in the frozen order `kind,format,path,count`.
 - A `TakeoutInitDelayError` exits 5 as `FLOOD_WAIT`, includes
   `retry_after`, and tells the user to retry after that many seconds.

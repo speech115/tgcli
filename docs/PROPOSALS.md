@@ -100,7 +100,7 @@ transaction language without real atomicity; out of scope for v1.
 
 | Item | Value | Effort | Status |
 |---|---|---|---|
-| `export messages --after-id --append` / `--resume` | med | S | missing |
+| `export messages --after-id --append` / `--resume` | med | S | **shipped** (ADR-0032 slice 3) |
 | `export bundle <chat> --output dir/` | med | M | missing |
 | `media download --since/--type/--all/--message-ids` | med | M | missing (per-message only) |
 | `media manifest` | med | S | **shipped** (ADR-0029 slice 3) |

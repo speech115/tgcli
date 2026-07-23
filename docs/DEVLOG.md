@@ -13,6 +13,14 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Slice 3: incremental export messages (Composer)
+**Did:** ADR-0032 slice 3 — `export messages --after-id/--append/--resume`.
+Append requires a cursor; resume parses last JSONL `id` (fail closed).
+CONTRACT/PROPOSALS/DEVLOG updated.
+**Decided:** none beyond ADR-0032 grilling.
+**Learned:** none.
+**Next:** Slice 4 — bulk media download.
+
 ## 2026-07-23 — Slice 2: dialog archive and mute (Composer)
 **Did:** ADR-0032 slice 2 — `dialog archive|unarchive|mute|unmute`. Mute
 requires `--until` or `--forever` (exit 2 otherwise). Same pin-style

@@ -346,6 +346,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_export_messages.add_argument("chat", help="@username, t.me link, or dialog id")
     p_export_messages.add_argument("--output", required=True, type=Path)
     p_export_messages.add_argument("--limit", type=int)
+    p_export_messages.add_argument(
+        "--after-id",
+        type=int,
+        dest="after_id",
+        help="export only messages with id greater than this",
+    )
+    p_export_messages.add_argument(
+        "--append",
+        action="store_true",
+        help="append JSONL (requires --after-id or --resume)",
+    )
+    p_export_messages.add_argument(
+        "--resume",
+        action="store_true",
+        help="append from last JSONL message id in --output",
+    )
     p_export_subscribers = export_sub.add_parser("subscribers", parents=[global_flags])
     p_export_subscribers.add_argument(
         "channel", help="@username, t.me link, or dialog id"
@@ -577,7 +593,13 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
             if args.command == "export":
                 if args.export_kind == "messages":
                     data = await export_cmd.export_messages(
-                        tg, args.chat, args.output, limit=args.limit
+                        tg,
+                        args.chat,
+                        args.output,
+                        limit=args.limit,
+                        after_id=getattr(args, "after_id", None),
+                        append=bool(getattr(args, "append", False)),
+                        resume=bool(getattr(args, "resume", False)),
                     )
                 else:
                     data = await export_cmd.export_subscribers(
