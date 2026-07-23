@@ -27,7 +27,28 @@ request; resolve it with `gh pr view` and fall back to `gh issue view`.
   `gh issue view <number> --comments`.
 - `/to-tickets` creates GitHub issues and records blocking edges with native
   issue dependencies when available.
-- `/wayfinder` uses one issue labelled `wayfinder:map` plus linked child
-  issues. If native sub-issues or dependencies are unavailable, use a task
-  list in the map and explicit `Blocked by: #<number>` lines.
 
+## Wayfinding operations
+
+`/wayfinder` uses one map issue plus child decision issues.
+
+- **Map:** create one issue labelled `wayfinder:map`. Its body owns
+  Notes, Decisions-so-far, and Fog.
+- **Child:** link each decision ticket as a native GitHub sub-issue. Use a
+  task list in the map plus `Part of #<map>` in the child only when sub-issues
+  are unavailable. Label the child `wayfinder:<type>`, where type is
+  `research`, `prototype`, `grilling`, or `task`.
+- **Blocking edge:** use GitHub's native issue-dependency endpoint:
+  `POST repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by` with
+  `issue_id=<blocker-database-id>`. Fetch that numeric database id with
+  `gh api repos/<owner>/<repo>/issues/<number> --jq .id`; do not pass the
+  `#number` or GraphQL `node_id`. If dependencies are unavailable, put
+  `Blocked by: #<number>, ...` at the top of the child.
+- **Frontier:** list the map's open children in map order. Exclude assigned
+  children and any child whose `issue_dependencies_summary.blocked_by` is
+  non-zero (or whose fallback `Blocked by` issue remains open). The first
+  remaining child is the next claimable ticket.
+- **Claim:** `gh issue edit <number> --add-assignee @me`. Claiming is the
+  session's first tracker write.
+- **Resolve:** comment with the answer, close the child, then append a compact
+  pointer to its result under the map's Decisions-so-far section.

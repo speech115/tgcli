@@ -17,7 +17,7 @@ Template:
 **Did:** configured the repository for the Matt Pocock engineering flows:
 GitHub Issues as the tracker, canonical triage-label routing, and single-context
 domain docs that preserve `docs/decisions/` as the only ADR directory. Added
-`docs/agents/`, ADR-0033, CLAUDE routing, and MAP/index entries; created the
+`docs/agents/`, ADR-0033, AGENTS/CLAUDE routing, and MAP/index entries; created the
 four missing GitHub labels (`needs-triage`, `needs-info`, `ready-for-agent`,
 `ready-for-human`; `wontfix` already existed). Full gate: 664 passed, 8
 skipped; Ruff check/format, Pyright, and 23-namespace coverage passed.

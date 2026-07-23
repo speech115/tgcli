@@ -9,10 +9,23 @@ Canonical behavior contract for every AI agent working in this repo.
 3. [docs/ISSUES.md](docs/ISSUES.md) — current scope: deferred work and re-entry gates.
 4. Relevant ADRs before touching an area they govern — start from the
    index in [docs/decisions/README.md](docs/decisions/README.md).
+5. When using installed engineering flows, read the matching repository
+   routing under [docs/agents/](docs/agents/): issue tracker, triage labels,
+   and domain-document discovery.
 
 [docs/PLAN.md](docs/PLAN.md) (completed master plan) and
 [docs/CLONE.md](docs/CLONE.md) (clone chronicle) are historical
 background, not current scope.
+
+## Agent Skills
+
+- Work items live in GitHub Issues; pull requests are not an incoming triage
+  surface. See [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md).
+- Triage flows use the canonical label mapping in
+  [docs/agents/triage-labels.md](docs/agents/triage-labels.md).
+- This is a single-context repository. `docs/decisions/` is the only ADR
+  directory; do not create `docs/adr/`. See
+  [docs/agents/domain.md](docs/agents/domain.md).
 
 ## Maintenance Mode (ADR-0026, since 2026-07-17)
 

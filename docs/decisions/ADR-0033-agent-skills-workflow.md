@@ -23,8 +23,8 @@ depend on implicit machine state.
    only when domain modeling produces durable vocabulary.
 4. `docs/decisions/` remains the only ADR directory. Engineering skills must
    not create a parallel `docs/adr/` tree.
-5. Repository-local routing lives under `docs/agents/` and is referenced from
-   `CLAUDE.md`; `AGENTS.md` remains the canonical behavioral contract.
+5. Repository-local routing lives under `docs/agents/`. `AGENTS.md` exposes it
+   to every agent; `CLAUDE.md` remains a thin runtime adapter.
 
 ## Consequences
 
@@ -32,4 +32,3 @@ depend on implicit machine state.
   relying on user-level skill installation details.
 - Existing ADR history remains canonical and unambiguous.
 - The setup adds no runtime behavior, dependency, or CLI contract change.
-
