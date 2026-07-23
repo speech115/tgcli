@@ -41,6 +41,7 @@ def _msg(message_id=10, *, reply_to=None, message="body", entities=None):
         entities=entities,
         media=None,
         noforwards=False,
+        peer_id=types.PeerChannel(4454061248),
     )
 
 
@@ -51,12 +52,21 @@ SOURCE = SimpleNamespace(id=2, noforwards=False)
 class FakeClient:
     """Minimal client surface for quotes.resolve reachability probes."""
 
-    def __init__(self, *, entities=None, readable=None, input_peers=None):
+    def __init__(self, *, entities=None, readable=None, input_peers=None, chats=None):
         self.entities = entities or {}
         self.readable = readable if readable is not None else {}
         self.input_peers = input_peers or {}
+        self.chats = chats
         self.entity_calls = []
         self.message_calls = []
+        self.history_calls = []
+
+    async def __call__(self, request):
+        """Raw request surface — only ``GetHistory`` for forbidden-peer titles."""
+        if self.chats is None:
+            raise TypeError("client is not callable in this test")
+        self.history_calls.append(request)
+        return SimpleNamespace(messages=[], chats=list(self.chats), users=[])
 
     def _key(self, peer):
         if isinstance(peer, types.PeerChannel):
@@ -229,6 +239,65 @@ def test_foreign_peer_unreachable_renders_fallback():
     assert resolved.reply_to is None or resolved.reply_to.quote_text is None
     assert resolved.quote_flattened is not None
     assert resolved.quote_flattened["reason"] == "unreachable"
+
+
+def _forbidden_fallback(chats):
+    peer = types.PeerChannel(2275285084)
+    header = types.MessageReplyHeader(
+        reply_to_msg_id=1244,
+        reply_to_peer_id=peer,
+        quote_text="foreign quote",
+        reply_to_top_id=2373,
+    )
+    messages = [_msg(2374, reply_to=header, message="author text")]
+    leg = _discussion(discussion_id_map={2373: 900})
+    plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
+    client = FakeClient(chats=chats)  # get_entity raises → unreachable
+    ctx = _ctx(client)
+    resolved = asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
+    return resolved, client, (messages, plan, leg, ctx)
+
+
+def test_forbidden_peer_title_comes_from_the_enclosing_history_response():
+    """Telegram ships the banned channel's title as ``ChannelForbidden``."""
+    resolved, client, (messages, plan, leg, ctx) = _forbidden_fallback(
+        [
+            SimpleNamespace(id=4454061248, title="Злой чат"),
+            SimpleNamespace(id=2275285084, title="Свободный Капиталюга"),
+        ]
+    )
+
+    assert resolved.body_prefix is not None
+    assert resolved.body_prefix.startswith("Свободный Капиталюга\n")
+    assert "id 2275285084" not in resolved.body_prefix
+    # The blockquote still covers exactly the quote, not the title line.
+    (blockquote,) = resolved.body_prefix_entities
+    assert isinstance(blockquote, types.MessageEntityBlockquote)
+    assert blockquote.offset == attribution.utf16_len("Свободный Капиталюга\n")
+    assert blockquote.length == attribution.utf16_len("foreign quote")
+    # Titles are cached per run: a second resolve must not re-request history.
+    asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
+    assert len(client.history_calls) == 1
+
+
+def test_forbidden_peer_title_ignores_a_chat_whose_id_merely_contains_the_peer():
+    """`-100`-prefixed and lookalike ids must not be mistaken for the peer."""
+    resolved, _client, _ = _forbidden_fallback(
+        [
+            SimpleNamespace(id=1072275285084, title="Якунин | Про прибыль Messages"),
+            SimpleNamespace(id=22752850841, title="Decoy"),
+        ]
+    )
+
+    assert resolved.body_prefix is not None
+    assert resolved.body_prefix.startswith("id 2275285084\n")
+
+
+def test_forbidden_peer_without_a_title_keeps_the_bare_id():
+    resolved, _client, _ = _forbidden_fallback([])
+
+    assert resolved.body_prefix is not None
+    assert resolved.body_prefix.startswith("id 2275285084\n")
 
 
 def test_reachable_then_rejected_degrades_to_fallback():

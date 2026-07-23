@@ -11,7 +11,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, cast
 
 from telethon import errors as telethon_errors
-from telethon.tl import types
+from telethon.tl import functions, types
 
 from tgcli.clone import attribution, discussion, replies, transport
 
@@ -29,6 +29,7 @@ class ResolveContext:
     anchor_cache: dict = field(default_factory=dict)
     peer_reachable: dict = field(default_factory=dict)
     peer_entities: dict = field(default_factory=dict)
+    peer_titles: dict = field(default_factory=dict)
 
 
 def _peer_cache_key(peer) -> tuple:
@@ -44,9 +45,11 @@ def _peer_cache_key(peer) -> tuple:
     )
 
 
-def _peer_label(peer, entity) -> str:
+def _peer_label(peer, entity, title: str | None = None) -> str:
     if entity is not None:
         return attribution.display_name(entity)
+    if title:
+        return title
     if isinstance(peer, types.PeerChannel):
         return f"id {peer.channel_id}"
     if isinstance(peer, types.PeerUser):
@@ -97,8 +100,9 @@ def _fallback_plan(
     *,
     reason: str,
     entity=None,
+    peer_title: str | None = None,
 ) -> transport.TransportPlan:
-    title = _peer_label(classified.peer, entity)
+    title = _peer_label(classified.peer, entity, peer_title)
     prefix, prefix_entities = fallback_prefix(title, classified.quote_text)
     placement = None
     if classified.top_id is not None:
@@ -140,6 +144,48 @@ async def _probe_reachable(ctx: ResolveContext, peer) -> tuple[bool, object | No
     ctx.peer_reachable[key] = reachable
     ctx.peer_entities[key] = entity
     return reachable, entity
+
+
+async def _peer_title(ctx: ResolveContext, peer, message) -> str | None:
+    """Title of a peer the account cannot open, read off the enclosing response.
+
+    Telegram ships ``ChannelForbidden`` / ``ChatForbidden`` — id and title, no
+    access hash — in the same history response that carried the quoting
+    message. That is how official clients label a quote from a channel the
+    account is banned from, and it is the only place the title is available:
+    resolving the bare ``PeerChannel`` raises ``ChannelPrivateError``.
+    """
+    key = _peer_cache_key(peer)
+    if key in ctx.peer_titles:
+        return ctx.peer_titles[key]
+    enclosing = getattr(message, "peer_id", None)
+    if enclosing is None:
+        return None
+    history = None
+    try:
+        history = await ctx.tg(
+            functions.messages.GetHistoryRequest(
+                peer=enclosing,
+                offset_id=message.id + 1,
+                offset_date=None,
+                add_offset=0,
+                limit=1,
+                max_id=0,
+                min_id=0,
+                hash=0,
+            )
+        )
+    except (ValueError, TypeError, telethon_errors.RPCError):
+        history = None
+    title = None
+    for chat in getattr(history, "chats", None) or ():
+        # Match the plain channel id, never the -100-prefixed form: the source
+        # response can carry an unrelated chat whose id merely contains it.
+        if getattr(chat, "id", None) == key[1]:
+            title = getattr(chat, "title", None) or None
+            break
+    ctx.peer_titles[key] = title
+    return title
 
 
 async def _input_peer(ctx: ResolveContext, peer):
@@ -278,6 +324,31 @@ async def _place_thread(
     return _reuploaded(replace(plan, reply_to=reply_to))
 
 
+async def _unreachable_fallback(
+    messages,
+    plan: transport.TransportPlan,
+    classified: replies.Classification,
+    ctx: ResolveContext,
+    entity=None,
+) -> transport.TransportPlan:
+    # A resolved entity already carries a display name; only the peers we could
+    # not open need the title read off the enclosing history response.
+    title = (
+        None
+        if entity is not None
+        else await _peer_title(ctx, classified.peer, messages[0])
+    )
+    return _fallback_plan(
+        messages,
+        plan,
+        classified,
+        ctx,
+        reason="unreachable",
+        entity=entity,
+        peer_title=title,
+    )
+
+
 async def resolve(
     messages, plan: transport.TransportPlan, leg, source, ctx: ResolveContext
 ) -> transport.TransportPlan:
@@ -304,13 +375,11 @@ async def resolve(
             if reply_to is not None:
                 plan = _reuploaded(replace(plan, reply_to=reply_to))
             else:
-                plan = _fallback_plan(
-                    messages, plan, classified, ctx, reason="unreachable", entity=entity
+                plan = await _unreachable_fallback(
+                    messages, plan, classified, ctx, entity=entity
                 )
         else:
-            plan = _fallback_plan(
-                messages, plan, classified, ctx, reason="unreachable", entity=entity
-            )
+            plan = await _unreachable_fallback(messages, plan, classified, ctx)
 
     return await _place_thread(messages, plan, leg, ctx)
 
