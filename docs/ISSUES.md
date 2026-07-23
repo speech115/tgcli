@@ -61,17 +61,19 @@ Until then the cheap mitigation is operational, not code: keep
 `~/.config/tgcli/` and `~/.local/state/tgcli/` inside the machine backup
 so a disk failure does not mean re-authorizing every account.
 
-## MSG-001 — Messaging tail: albums, scheduling, reactions, pin, entities
+## MSG-001 — Messaging tail: albums, scheduling, reactions, pin
 
-**Status:** deferred by ADR-0028. **Re-entry trigger:** the first real
-agent task that needs one of these, named explicitly by the owner.
+**Status:** partially completed by ADR-0030 (outgoing `--format` +
+`custom_emoji` harvest). **Remaining / re-entry trigger:** the first real
+agent task that needs one of the leftovers, named explicitly by the owner.
 
 The v1.1 working set (ADR-0028) covers reply, single file with caption,
-forum topic, silent, edit, delete, forward, mark-read. Deliberately left
-out until a concrete task demands them: albums (`--album a.jpg b.jpg`),
-scheduled sends, `react`, `pin`, protect-content, and explicit
-entities/formatting control. Each lands as flags or a small command under
-the existing preview→commit model; none needs a new subsystem.
+forum topic, silent, edit, delete, forward, mark-read. ADR-0030 added
+`--format {plain,md,html}` on `send`/`edit` and additive `custom_emoji` on
+the universal message JSON. Still deferred: albums (`--album a.jpg b.jpg`),
+scheduled sends, `react`, `pin`, protect-content, and a raw `entities`
+passthrough. Each lands as flags or a small command under the existing
+preview→commit model; none needs a new subsystem.
 
 ## FEED-001 — `tg changes`: daemonless change feed
 

@@ -187,6 +187,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_send.add_argument("chat", nargs="?", help="target for --preview")
     p_send.add_argument("text", nargs="?", help="message text for --preview")
+    p_send.add_argument(
+        "--format",
+        choices=("plain", "md", "html"),
+        default="md",
+        dest="format",
+        help="rich-text format of TEXT/caption (html supports quote/spoiler/custom emoji)",
+    )
     p_send.add_argument("--preview", action="store_true")
     p_send.add_argument("--commit", metavar="PREVIEW_ID")
     p_send.add_argument("--reply-to", type=int, dest="reply_to")
@@ -201,6 +208,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_edit.add_argument("chat", nargs="?")
     p_edit.add_argument("message_id", nargs="?", type=int)
     p_edit.add_argument("text", nargs="?")
+    p_edit.add_argument(
+        "--format",
+        choices=("plain", "md", "html"),
+        default="plain",
+        dest="format",
+        help="rich-text format of TEXT (html supports quote/spoiler/custom emoji)",
+    )
     p_edit.add_argument("--preview", action="store_true")
     p_edit.add_argument("--commit", metavar="PREVIEW_ID")
 
@@ -372,6 +386,7 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                         caption=args.caption,
                         topic=args.topic,
                         silent=args.silent,
+                        fmt=args.format,
                     )
                 else:
                     data = await send_cmd.commit(
@@ -383,7 +398,7 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
             if args.command == "edit":
                 if args.preview:
                     data = await mutate_cmd.prepare_edit(
-                        tg, args.chat, args.message_id, args.text
+                        tg, args.chat, args.message_id, args.text, args.format
                     )
                 else:
                     data = await mutate_cmd.commit_edit(

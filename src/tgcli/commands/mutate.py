@@ -5,7 +5,7 @@ import secrets
 from telethon.errors import MessageNotModifiedError
 from telethon.tl import functions
 
-from tgcli import chatref, safety
+from tgcli import chatref, formatting, safety
 from tgcli.commands.read import sanitize_plain_text
 from tgcli.confirm import confirmed_ids
 from tgcli.errors import NotFoundError
@@ -29,7 +29,10 @@ def _random_id() -> int:
     return secrets.randbelow(2**63 - 1) + 1
 
 
-async def prepare_edit(tg, chat: str, message_id: int, text: str) -> dict:
+async def prepare_edit(
+    tg, chat: str, message_id: int, text: str, fmt: str = "plain"
+) -> dict:
+    formatting.render(text, fmt)  # validate format early; raises on unknown fmt
     entity = await _entity(tg, chat)
     message = await _message(tg, entity, message_id)
     stored = safety.create_preview(
@@ -39,16 +42,22 @@ async def prepare_edit(tg, chat: str, message_id: int, text: str) -> dict:
             "message_id": message_id,
             "old_text": message.text or "",
             "text": text,
+            "format": fmt,
         }
     )
-    keys = ("preview_id", "message_id", "old_text", "text", "expires_at")
+    keys = ("preview_id", "message_id", "old_text", "text", "format", "expires_at")
     return {key: stored[key] for key in keys}
 
 
 async def commit_edit(tg, preview_id: str, payload: dict) -> dict:
+    body, entities = formatting.render(payload["text"], payload.get("format", "plain"))
     try:
         message = await tg.edit_message(
-            payload["chat"], payload["message_id"], payload["text"]
+            chatref.parse(payload["chat"]),
+            payload["message_id"],
+            body,
+            formatting_entities=entities,
+            parse_mode=None,
         )
         message_id = message.id
     except MessageNotModifiedError:
@@ -139,6 +148,7 @@ def to_rows(data: dict) -> list[tuple]:
                 data["message_id"],
                 sanitize_plain_text(data["old_text"]),
                 sanitize_plain_text(data["text"]),
+                data.get("format", "plain"),
             )
         ]
     if "text" in data:

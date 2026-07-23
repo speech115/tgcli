@@ -51,9 +51,12 @@ selected account session, does one operation, and exits.
 | Preview a send | `tg --json send @channel "Hello" --preview` |
 | Preview a reply/topic/silent send | `tg --json send CHAT "TEXT" --preview --reply-to ID --topic ID --silent` |
 | Preview a file send | `tg --json send CHAT --file PATH --caption "TEXT" --preview` |
+| Preview a formatted send | `tg --json send CHAT "<b>bold</b> <tg-spoiler>hidden</tg-spoiler>" --format html --preview` |
 | Commit a preview | `tg --json send --commit p_9f3a` |
 | Preview an edit | `tg --json edit @channel 42 "Corrected text" --preview` |
+| Preview a formatted edit | `tg --json edit CHAT 42 "<b>bold</b> <blockquote expandable>quote</blockquote>" --format html --preview` |
 | Commit an edit | `tg --json edit --commit p_9f3a` |
+| Harvest custom-emoji ids from a post | `tg --json message @channel 42` → read `custom_emoji[].id` |
 | Preview a deletion | `tg --json delete @channel 42 --preview` |
 | Commit a deletion | `tg --json delete --commit p_9f3a` |
 | Preview a forward | `tg --json forward @source 42 @destination --preview` |
@@ -69,6 +72,22 @@ selected account session, does one operation, and exits.
 
 Send is deliberately two-step: preview first, then commit its single-use ID.
 Previews expire after five minutes.
+
+## Formatting and custom emoji
+
+`send` and `edit` take `--format {plain,md,html}`. `edit` defaults to `plain`
+(verbatim, no entities); `send` defaults to `md`. Use `html` for the full
+Telegram entity set: `<b>`/`<i>`/`<u>`/`<s>`, `<blockquote>` and
+`<blockquote expandable>`, `<tg-spoiler>`, `<code>`/`<pre>`, `<a href>`, and
+`<tg-emoji emoji-id="ID">glyph</tg-emoji>` for custom (premium) emoji. Offsets
+are UTF-16-correct, so emoji do not shift the markup.
+
+Custom emoji cannot be invented — reuse real ids. Every read
+(`read`/`search`/`message`/`export`) now returns `custom_emoji` per message:
+`{id, emoji, offset, length}`, where `id` is the reusable `emoji-id`. Harvest an
+id from any readable post (e.g. read a channel that uses the emoji you want),
+then drop `<tg-emoji emoji-id="ID">` into a `--format html` send/edit. Sending
+custom emoji requires the account to have Telegram Premium.
 
 ## Correspondence recipes
 

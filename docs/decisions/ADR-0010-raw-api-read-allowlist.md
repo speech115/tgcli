@@ -2,7 +2,8 @@
 
 Status: accepted (2026-07-10); allowlist expanded to 35 methods after the
 2026-07-10 batch review, then to 36 methods on 2026-07-21 when ADR-0029
-reconsidered `contacts.resolvePhone`
+reconsidered `contacts.resolvePhone`, then to 40 methods on 2026-07-22 when
+four read-only `stories.*` methods were added for story-viewer analytics
 
 Supersedes: ADR-0008's phase-2 read-classification rule
 
@@ -22,14 +23,16 @@ A batch review on 2026-07-10 expanded it to the 35 methods below. On
 2026-07-21, ADR-0029 reconsidered `contacts.resolvePhone` for the identity
 layer (`tg resolve` on a `+phone` ref) and moved it into the allowlist,
 bringing the total to 36; see that method's note under `contacts` below.
-Every method not listed exits 2 before configuration loading, session
-acquisition, or network dispatch.
+On 2026-07-22 four read-only `stories.*` methods were added (story-viewer
+analytics via `tg api`), bringing the total to 40. Every method not listed
+exits 2 before configuration loading, session acquisition, or network
+dispatch.
 
 New raw API methods require an ADR-0010 update and a regression test proving
 the exact method reaches the dispatcher. Method names and namespaces are never
 used as evidence that an operation is read-only.
 
-### Allowlist (36 methods, reviewed 2026-07-10; `contacts.resolvePhone` added 2026-07-21)
+### Allowlist (40 methods; `contacts.resolvePhone` 2026-07-21; `stories.*` 2026-07-22)
 
 messages (18): `messages.getHistory`, `messages.getMessages`,
 `messages.getReplies`, `messages.getDiscussionMessage`, `messages.search`,
@@ -59,6 +62,10 @@ photos (1): `photos.getUserPhotos`
 
 stats (4): `stats.getBroadcastStats`, `stats.getMegagroupStats`,
 `stats.getMessageStats`, `stats.getMessagePublicForwards`
+
+stories (4): `stories.getPeerStories`, `stories.getStoriesArchive`,
+`stories.getStoriesByID`, `stories.getStoryViewsList` (read-only story and
+viewer analytics; no story publish/delete/pin methods)
 
 ### Reviewed and rejected (2026-07-10)
 

@@ -233,6 +233,59 @@ def test_export_subscribers_writes_header_and_quoted_rows(
     assert fake.iter_participants_calls == [(fake._entities["@chan"], None)]
 
 
+def test_export_broadcast_subscribers_unions_prefix_searches(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    """Broadcast channels hard-cap getParticipants at one page; prefix-union past it."""
+    from telethon.tl import functions
+
+    from tgcli.commands import export as export_mod
+
+    monkeypatch.setattr(export_mod, "_PARTICIPANTS_PAGE", 2)
+    monkeypatch.setattr(export_mod, "_SEARCH_REFINE_ALPHABET", "ab")
+
+    def member(user_id, username):
+        return ns(
+            id=user_id,
+            username=username,
+            first_name=username,
+            last_name=None,
+            phone=None,
+            bot=False,
+        )
+
+    users = {
+        1: member(1, "a1"),
+        2: member(2, "a2"),
+        3: member(3, "b1"),
+    }
+    entity = ns(id=-1001234, title="Channel", broadcast=True)
+    fake = FakeClient(
+        entities={"@chan": entity},
+        participants_count=3,
+        participant_search={
+            "": [users[1], users[2]],
+            "a": [users[1], users[2]],
+            "b": [users[3]],
+        },
+    )
+    make_session_fake(monkeypatch, fake)
+    destination = tmp_path / "subscribers.csv"
+
+    assert (
+        main(["--json", "export", "subscribers", "@chan", "--output", str(destination)])
+        == 0
+    )
+
+    assert json.loads(capsys.readouterr().out)["export"]["count"] == 3
+    assert {row["id"] for row in csv.DictReader(destination.open())} == {"1", "2", "3"}
+    assert fake.iter_participants_calls == []
+    assert any(
+        isinstance(req, functions.channels.GetParticipantsRequest)
+        for req in fake.call_requests
+    )
+
+
 def test_export_subscribers_neutralizes_formula_cells(
     config_env, monkeypatch, tmp_path
 ):

@@ -16,6 +16,8 @@ class FakeClient:
         search_messages=None,
         message_total=None,
         participants=(),
+        participants_count=None,
+        participant_search=None,
         resolve_phone_result=None,
         contacts_result=None,
         contacts_search_result=None,
@@ -27,6 +29,8 @@ class FakeClient:
         self._search_messages = search_messages or {}
         self._message_total = message_total
         self._participants = list(participants)
+        self._participants_count = participants_count
+        self._participant_search = participant_search
         self._resolve_phone_result = resolve_phone_result
         self._contacts_result = contacts_result
         self._contacts_search_result = contacts_search_result
@@ -156,6 +160,22 @@ class FakeClient:
                     "contacts_search_result was configured"
                 )
             return self._contacts_search_result
+        if isinstance(request, functions.channels.GetFullChannelRequest):
+            if self._participants_count is None:
+                raise AssertionError(
+                    "FakeClient received GetFullChannelRequest but no "
+                    "participants_count was configured"
+                )
+            return ns(full_chat=ns(participants_count=self._participants_count))
+        if isinstance(request, functions.channels.GetParticipantsRequest):
+            if self._participant_search is None:
+                raise AssertionError(
+                    "FakeClient received GetParticipantsRequest but no "
+                    "participant_search was configured"
+                )
+            query = getattr(request.filter, "q", "")
+            users = list(self._participant_search.get(query, ()))
+            return ns(users=users, count=len(users))
         raise AssertionError(f"FakeClient received unexpected raw request: {request!r}")
 
 

@@ -13,6 +13,105 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Close WIP: formatting/export/stories docs + export test (Composer)
+**Did:** finished the uncommitted 2026-07-22 WIP on `claude/agent-quick-wins`.
+Added a reproducing unit test that broadcast `export subscribers` unions
+prefix searches past the page cap (FakeClient hooks for
+`GetFullChannel`/`GetParticipants`). Wrote ADR-0030 (outgoing `--format` +
+`custom_emoji`); expanded ADR-0010 to 40 methods (`stories.*`); updated
+MAP, CONTRACT (broadcast subscriber walk), ISSUES MSG-001, FEATURES,
+ADR-0028 deferred note. Formatted `export.py` / `test_cli_send.py`.
+**Decided:** formatting lands as ADR-0030 (MSG-001 partial), not a silent
+CONTRACT-only change; stories stay an ADR-0010 allowlist bump.
+**Learned:** existing subscriber tests still hit `iter_participants` because
+the fake channel entity has no `broadcast=True` — the aggressive path needs
+an explicit broadcast fixture.
+**Next:** commit the WIP (one or more commits), then push / open PR for
+`claude/agent-quick-wins`; resume ADR-0029 slices 2–3 when ready.
+
+## 2026-07-22 — Full broadcast-subscriber export + stories read allowlist (Claude Opus 4.8)
+**Did:** (1) `export subscribers` now returns every member of a broadcast
+channel instead of the 200 Telegram caps a single `getParticipants` at. New
+`_iter_all_channel_members` (`src/tgcli/commands/export.py`) unions saturating
+prefix searches over a latin+digit+cyrillic alphabet, deepening any prefix that
+fills a full 200-page, deduping by id, stopping once the reported member total
+is reached. Aggressive path triggers only for broadcast channels when no small
+`--limit` is set (`limit is None or limit > 200`); megagroups and explicit small
+limits keep the plain single-pass `iter_participants`. Verified on
+@mir_ivanova: 200 → 280/281 members. (2) Added four read-only `stories.*`
+methods (`getPeerStories`, `getStoryViewsList`, `getStoriesArchive`,
+`getStoriesByID`) to `READ_METHOD_ALLOWLIST` (`src/tgcli/commands/api.py`) +
+the reviewed-list test, so story-viewer analytics work via `tg api`.
+**Decided:** raw `GetParticipantsRequest` + **sequential** issue, not
+`iter_participants` and not concurrency. `iter_participants` fires a second
+request per search purely to compute a `count` we discard (2× the calls);
+issuing prefix queries concurrently reliably trips server flood-wait (measured:
+8 concurrent = 5.6s dominated by one flood-stalled call, vs 8 sequential =
+3.2s @ ~0.4s each). Net: naive full enumeration 3:19 → tuned 1:07.
+**Learned:** for **broadcast** channels the 200 cap is hard for both
+`ChannelParticipantsRecent` and `ChannelParticipantsSearch('')` — `offset>200`
+returns zero rows and `.count` itself reads 200, so pagination can't see past
+it. Prefix-substring search is the only escape and its wall-time floor is set
+by Telegram's getParticipants flood-limit, not local work. Emoji/CJK-only
+display names with no searchable char can leave a member unreachable (got
+280 of a reported 281), so early-break on total may not fire — acceptable.
+**Next:** consider a `--fast`/`--complete` toggle if the ~1min full sweep is
+too slow for interactive use on large channels.
+
+## 2026-07-22 — Fix edit-commit peer + add `edit --format` (Claude Opus 4.8)
+**Did:** two changes to the edit surface. (1) Bugfix: `commit_edit` passed the
+raw stored `chat` string straight to `tg.edit_message`, so editing a private
+channel by numeric `-100…` id died with `Cannot find any entity`. Wrapped it in
+`chatref.parse()` to match `commit_forward`/`send.commit`
+(`src/tgcli/commands/mutate.py:50`). (2) Feature: new `src/tgcli/formatting.py`
+(`render(text, fmt)` → `(clean_text, entities|None)`), a `--format
+{plain,md,html}` flag on `tg edit` (default `plain`), threaded through the
+preview payload and re-rendered at commit into explicit `formatting_entities`.
+`html` reuses Telethon's HTML parser (bold/italic/underline/strike, blockquote +
+`expandable`, code/pre, links, `tg-emoji` custom emoji) and subclasses it to add
+`<tg-spoiler>` / `<span class="tg-spoiler">`, which Telethon 1.44 does not emit.
+Added `tests/test_formatting.py` (10) + 3 CLI tests; updated the edit fakes to
+accept the new kwargs. 594 passed. Updated CONTRACT (edit preview row gains
+`format`; new `--format` paragraph).
+**Decided:** `edit` defaults to `plain` = parse disabled (verbatim TEXT, no
+entities), deliberately *not* inheriting the client Markdown default that
+`send` documents — surgical edits should be literal unless formatting is asked
+for. Formatting is stored as the raw markup + format name in the preview and
+re-rendered at commit, keeping the preview payload JSON-safe. Extends ADR-0028.
+**Learned:** Telethon 1.44's HTML parser already handles expandable blockquote
+and `tg-emoji`, but silently drops spoiler tags (no entity, text kept) — easy to
+miss without checking entity types. Telegram entity offsets are UTF-16 code
+units, so surrogate-pair emoji (💸) must shift following offsets by 2; the
+subclass inherits Telethon's `add_surrogate`/`strip_text` machinery to get this
+right (covered by a dedicated test).
+**Next:** consider mirroring `--format` onto `send` for parity (send still uses
+the client Markdown default), and surfacing entities in `tg message` read output
+so formatted posts can be verified without a raw TL call.
+
+## 2026-07-22 — `send --format` parity + custom-emoji harvest (Claude Opus 4.8)
+**Did:** (1) mirrored `--format {plain,md,html}` onto `send` (default `md`, so
+existing behavior + CONTRACT hold), routing prepare/commit through
+`formatting.render` instead of the client's implicit `_parse_message_text`;
+`format` is stored in the preview payload and appended to the send preview row.
+(2) Added custom-emoji harvesting: `message_to_dict` now emits `custom_emoji`, a
+list of `{id, emoji, offset, length}` extracted from `MessageEntityCustomEmoji`,
+so ids can be pulled from any readable post (e.g. тень.exe) and reused as
+`<tg-emoji emoji-id="ID">` in `--format html`. Glyphs are sliced with Telethon
+surrogate helpers (UTF-16). Updated 5 exact-match message fixtures + 3 CONTRACT
+JSON examples, added 4 send tests + 1 read test. 598 passed.
+**Decided:** `send` keeps `md` as default (composition convenience, documented),
+while `edit` stays `plain` (surgical, literal) — deliberate asymmetry. Custom
+emoji surfaced on the universal message shape rather than a bespoke command, so
+`read`/`search`/`message`/`export` all expose ids uniformly (additive field).
+**Learned:** entity offsets index into `Message.message` (raw), not the
+`.text` property (which re-renders markup) — slicing `.text` would drift when
+markup is present; fakes only carry `.text`, so the helper prefers `.message`
+and falls back. Telethon 1.44 `MessageEntityCustomEmoji.document_id` is the same
+id `<tg-emoji emoji-id>` consumes, so harvest→reuse round-trips without a map.
+**Next:** optionally let `--format html` accept a shorthand for pasting a raw
+unicode+id pair, and add an `entities` passthrough for the long tail (underline
+mixes, nested quotes) if a real post needs it.
+
 ## 2026-07-21 — Slice 1: resolve + contacts commands (Claude Sonnet 5)
 **Did:** executed ADR-0029 slice 1 (`fae503f`..`7102c6b`): allowlisted
 `contacts.resolvePhone` as a read method (ADR-0010), added `tg resolve REF`

@@ -61,6 +61,7 @@ def test_message_json_matches_contract(config_env, monkeypatch, capsys):
             "outgoing": False,
             "forwarded_from": None,
             "reactions": [],
+            "custom_emoji": [],
             "topic_id": None,
             "grouped_id": None,
             "is_service": False,

@@ -30,10 +30,14 @@ class MutateClient(FakeClient):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.edited = []
+        self.edited_entities = []
         self.deleted = []
 
-    async def edit_message(self, chat, message_id, text):
+    async def edit_message(
+        self, chat, message_id, text, *, formatting_entities=None, parse_mode=()
+    ):
         self.edited.append((chat, message_id, text))
+        self.edited_entities.append(formatting_entities)
         return ns(id=message_id)
 
     async def delete_messages(self, chat, ids, revoke=True):
@@ -51,8 +55,11 @@ class ForwardClient(MutateClient):
 
 
 class ConvergedEditClient(MutateClient):
-    async def edit_message(self, chat, message_id, text):
+    async def edit_message(
+        self, chat, message_id, text, *, formatting_entities=None, parse_mode=()
+    ):
         self.edited.append((chat, message_id, text))
+        self.edited_entities.append(formatting_entities)
         if len(self.edited) > 1:
             raise MessageNotModifiedError(request=None)
         return ns(id=message_id)
@@ -156,6 +163,72 @@ def test_edit_commit_edits_and_audits(config_env, monkeypatch, capsys):
         for line in safety.audit_path().read_text().splitlines()
     ]
     assert actions == ["edit", "edit-result"]
+
+
+def test_edit_preview_records_format(config_env, monkeypatch, capsys):
+    client = make_client()
+    make_session_fake(monkeypatch, client)
+
+    assert (
+        main(
+            [
+                "edit",
+                "@chan",
+                "2",
+                "до <tg-spoiler>секрет</tg-spoiler>",
+                "--format",
+                "html",
+                "--preview",
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    preview = json.loads(capsys.readouterr().out)
+    assert preview["format"] == "html"
+    assert client.edited == []
+
+
+def test_edit_commit_html_sends_entities(config_env, monkeypatch, capsys):
+    from telethon.tl.types import MessageEntityBold, MessageEntitySpoiler
+
+    preview = safety.create_preview(
+        {
+            "kind": "edit",
+            "chat": "@chan",
+            "message_id": 2,
+            "old_text": "old",
+            "text": "<b>жир</b> <tg-spoiler>секрет</tg-spoiler>",
+            "format": "html",
+        }
+    )
+    client = make_client()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["edit", "--commit", preview["preview_id"], "--json"]) == 0
+    assert client.edited == [("@chan", 2, "жир секрет")]
+    entities = client.edited_entities[0]
+    assert [type(e) for e in entities] == [MessageEntityBold, MessageEntitySpoiler]
+
+
+def test_edit_commit_plain_sends_no_entities(config_env, monkeypatch):
+    preview = safety.create_preview(
+        {
+            "kind": "edit",
+            "chat": "@chan",
+            "message_id": 2,
+            "old_text": "old",
+            "text": "**literal** <b>tags</b>",
+            "format": "plain",
+        }
+    )
+    client = make_client()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["edit", "--commit", preview["preview_id"], "--json"]) == 0
+    assert client.edited == [("@chan", 2, "**literal** <b>tags</b>")]
+    assert client.edited_entities[0] is None
 
 
 def test_edit_commit_keeps_preview_pending_when_result_audit_fails(

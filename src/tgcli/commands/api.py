@@ -49,6 +49,10 @@ READ_METHOD_ALLOWLIST = frozenset(
         "stats.getMegagroupStats",
         "stats.getMessagePublicForwards",
         "stats.getMessageStats",
+        "stories.getStoriesArchive",
+        "stories.getStoriesByID",
+        "stories.getPeerStories",
+        "stories.getStoryViewsList",
         "users.getFullUser",
         "users.getUsers",
     }

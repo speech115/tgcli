@@ -46,6 +46,11 @@ REVIEWED_READ_METHODS = [
     "stats.getMegagroupStats",
     "stats.getMessagePublicForwards",
     "stats.getMessageStats",
+    # stories (4)
+    "stories.getStoriesArchive",
+    "stories.getStoriesByID",
+    "stories.getPeerStories",
+    "stories.getStoryViewsList",
     # users (2)
     "users.getFullUser",
     "users.getUsers",

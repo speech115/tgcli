@@ -70,12 +70,18 @@ them as channels; broadcast channels remain `channel`.
                "text": "hello", "media": null, "media_info": null,
                "reply_to": null, "permalink": null, "edited_at": null,
                "outgoing": false, "forwarded_from": null, "reactions": [],
+               "custom_emoji": [],
                "topic_id": null, "grouped_id": null, "is_service": false}],
  "page": {"oldest_id": 42, "newest_id": 42}}
 ```
 
 All message-shape additions since 0.1 are additive; `media` remains the Telethon
-class name string, `media_info` carries structured metadata.
+class name string, `media_info` carries structured metadata. `custom_emoji` is a
+(possibly empty) list of the message's custom (premium) emoji as
+`{"id", "emoji", "offset", "length"}`, where `id` is the reusable `document_id`
+(the `emoji-id` accepted by `--format html`) and `emoji` is the fallback unicode
+glyph; offsets are UTF-16 code units. This lets an agent harvest custom-emoji ids
+from any readable post and reuse them when composing formatted messages.
 
 `read` accepts `--before-id INT` (messages older than an id), `--after-id INT`
 (messages newer than an id), `--since ISO`, `--until ISO`, and `--topic INT`
@@ -92,6 +98,7 @@ newest-first output and stops when it reaches the lower date boundary.
                "text": "hello", "media": null, "media_info": null,
                "reply_to": null, "permalink": null, "edited_at": null,
                "outgoing": false, "forwarded_from": null, "reactions": [],
+               "custom_emoji": [],
                "topic_id": null, "grouped_id": null, "is_service": false}]}
 ```
 
@@ -122,6 +129,7 @@ one message in that same shape:
              "text": "hello", "media": null, "media_info": null,
              "reply_to": null, "permalink": null, "edited_at": null,
              "outgoing": false, "forwarded_from": null, "reactions": [],
+             "custom_emoji": [],
              "topic_id": null, "grouped_id": null, "is_service": false}}
 ```
 
@@ -221,8 +229,8 @@ columns; its additive fields are JSON-only. `resolve` outputs one row:
 search` output the same four columns, one row per contact; `scope` is
 JSON-only.
 `media download` outputs `path`, `bytes`, `resumed`, `parallel`. `send` preview
-rows retain their existing columns and append `file`, `reply_to`. `edit` preview
-rows are `preview_id`, `message_id`, `old_text`, `text`; `delete` preview rows
+rows retain their existing columns and append `file`, `reply_to`, `format`. `edit` preview
+rows are `preview_id`, `message_id`, `old_text`, `text`, `format`; `delete` preview rows
 are `preview_id`, `message_id`, `text`; `forward` preview rows are
 `preview_id`, `source`, `message_id`, `destination`. Send, edit, delete, and
 forward commit rows are `preview_id`, `message_id`. `mark-read` rows are
@@ -250,10 +258,24 @@ original path cannot change the sent bytes. The snapshot is removed after
 success or any upload, request, or confirmation failure. MIME type and Telegram
 filename continue to derive from the original path. `--caption` requires
 `--file`; a file send cannot take positional text. The stored preview
-additionally includes the target, `kind: "send"`, and a positive `random_id`
-for the later idempotent commit path. Text and captions use the Telethon
-client's default parse mode, preserving the existing Markdown-to-entity
-behavior of high-level sends.
+additionally includes the target, `kind: "send"`, the chosen `format`, and a
+positive `random_id` for the later idempotent commit path. `send` accepts
+`--format {plain,md,html}` (default `md`, preserving the historical
+Markdown-to-entity behavior for text and captions); `plain` sends verbatim and
+`html` uses the same entity set as `edit --format html` (bold/italic/quote/
+expandable quote/spoiler/code/links/`tg-emoji` custom emoji). The commit
+re-renders from the stored `format` and passes explicit entities.
+`tg edit CHAT MESSAGE_ID TEXT --preview [--format {plain,md,html}]` records the
+chosen format in the preview (default `plain`). Unlike `send`, edit does not
+apply the client's default parse mode: `plain` sends TEXT verbatim with no
+entities (parse disabled), so literal `*`, `_`, `<` survive. `md` uses Telethon
+Markdown. `html` supports the full entity set — `<b>`/`<i>`/`<u>`/`<s>`,
+`<blockquote>` and `<blockquote expandable>`, `<tg-spoiler>` (or
+`<span class="tg-spoiler">`), `<code>`/`<pre>`, `<a href>`, and
+`<tg-emoji emoji-id="…">` custom emoji. Offsets are computed in UTF-16 code
+units, so surrogate-pair emoji shift following entities correctly. The commit
+re-renders TEXT from the stored `format` and passes explicit
+`formatting_entities`.
 Previews expire after five minutes. A send commit moves its preview through
 `.json` → `.pending` → `.used`: a failed commit may be re-committed; Telegram
 deduplicates by `random_id` within the preview TTL. Only a confirmed send marks
@@ -408,7 +430,12 @@ tg export subscribers <channel> --output <path> [--limit <n>]
   `id,username,first_name,last_name,phone,is_bot`; standard CSV quoting is
   used for field values. Username and name cells beginning with `=`, `+`, `-`,
   or `@` are prefixed with a single quote so spreadsheet programs do not
-  interpret them as formulas.
+  interpret them as formulas. For **broadcast** channels, when `--limit` is
+  omitted or greater than 200, tgcli unions saturating prefix searches over
+  `channels.getParticipants` to walk past Telegram's hard 200-row cap for a
+  single query; megagroups and explicit small limits keep a single
+  `iter_participants` pass. Emoji/CJK-only display names with no searchable
+  character may leave a member unreachable.
 - Success on `--json` is one completion document:
   `{"export":{"kind":"messages|subscribers","format":"jsonl|csv",
   "path":"<path>","count":42,"dialog":{"id":-1001234,"name":"Channel"}}}`.

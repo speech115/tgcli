@@ -37,6 +37,7 @@ def test_message_to_dict_projects_message_contract():
         "outgoing": False,
         "forwarded_from": None,
         "reactions": [],
+        "custom_emoji": [],
         "topic_id": None,
         "grouped_id": None,
         "is_service": False,
@@ -98,6 +99,27 @@ def test_message_to_dict_exposes_agent_fields():
     assert data["is_service"] is False
     assert data["media_info"] is None
     assert data["topic_id"] is None
+
+
+def test_message_to_dict_extracts_custom_emoji_ids():
+    from telethon.tl.types import MessageEntityCustomEmoji
+
+    # "🔥" is a surrogate pair (UTF-16 length 2): the entity covers offset 0..2.
+    message = _ns(
+        id=7,
+        date=None,
+        sender_id=1,
+        sender=None,
+        text="🔥 жги",
+        message="🔥 жги",
+        media=None,
+        reply_to_msg_id=None,
+        entities=[MessageEntityCustomEmoji(offset=0, length=2, document_id=5555)],
+    )
+    data = message_to_dict(message)
+    assert data["custom_emoji"] == [
+        {"id": 5555, "emoji": "🔥", "offset": 0, "length": 2}
+    ]
 
 
 def test_message_to_dict_media_topic_and_private_permalink():
