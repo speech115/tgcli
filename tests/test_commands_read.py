@@ -32,6 +32,7 @@ def test_message_to_dict_projects_message_contract():
         "media": None,
         "media_info": None,
         "reply_to": None,
+        "quote_text": None,
         "permalink": None,
         "edited_at": None,
         "outgoing": False,
@@ -42,6 +43,58 @@ def test_message_to_dict_projects_message_contract():
         "grouped_id": None,
         "is_service": False,
     }
+
+
+def test_message_to_dict_keeps_same_chat_reply_as_bare_id():
+    from telethon.tl import types
+
+    entity = ns(id=4454061248, title="Discussion")
+    message = ns(
+        id=2374,
+        date=None,
+        sender_id=1,
+        sender=None,
+        text="comment",
+        media=None,
+        reply_to_msg_id=1244,
+        reply_to=types.MessageReplyHeader(
+            reply_to_msg_id=1244,
+            reply_to_peer_id=types.PeerChannel(4454061248),
+            quote_text="same-chat quote",
+        ),
+    )
+
+    data = message_to_dict(message, entity)
+    assert data["reply_to"] == 1244
+    assert data["quote_text"] == "same-chat quote"
+
+
+def test_message_to_dict_distinguishes_foreign_peer_reply_from_source_2374():
+    """Cross-chat quote: bare reply_to id would resolve against the wrong chat."""
+    from telethon.tl import types
+
+    entity = ns(id=4454061248, title="Discussion")
+    quote = "что это де-факто не наставничество…"
+    message = ns(
+        id=2374,
+        date=None,
+        sender_id=1,
+        sender=None,
+        text="comment",
+        media=None,
+        reply_to_msg_id=1244,
+        reply_to=types.MessageReplyHeader(
+            reply_to_msg_id=1244,
+            reply_to_peer_id=types.PeerChannel(2275285084),
+            quote_text=quote,
+            reply_to_top_id=2373,
+        ),
+    )
+
+    data = message_to_dict(message, entity)
+    assert data["reply_to"] == {"id": 1244, "peer": -1002275285084}
+    assert data["quote_text"] == quote
+    assert data["reply_to"] != 1244
 
 
 async def test_fetch_message_missing_message_raises_not_found():

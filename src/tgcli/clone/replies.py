@@ -1,39 +1,39 @@
-"""Validate and rebuild clone reply metadata (ADR-0019/0021)."""
+"""Classify clone reply headers (ADR-0019/0021/0036).
+
+Resolution of classifications into ``InputReplyToMessage`` or a rendered
+fallback lives in ``clone.quotes``; this module stays synchronous and client-free.
+"""
+
+from dataclasses import dataclass
 
 from telethon.tl import types
 
 from tgcli.clone import attribution
 from tgcli.errors import PolicyError
 
+_FLATTEN_FIELDS = ("todo_item_id", "poll_option")
 
-def _signature(header, source, forum=False):
-    if header is None:
-        return None
-    if isinstance(header, types.MessageReplyStoryHeader):
-        peer = header.peer
-        peer_id = getattr(peer, "user_id", None) or getattr(peer, "channel_id", None)
-        if (
-            peer_id is None
-            or isinstance(header.story_id, bool)
-            or not isinstance(header.story_id, int)
-            or header.story_id <= 0
-        ):
-            raise PolicyError("clone Story reply shape is not supported")
-        return ("story", type(peer).__name__, peer_id, header.story_id)
-    if not isinstance(header, types.MessageReplyHeader):
-        raise PolicyError("clone reply shape is not supported")
-    unsupported = ("todo_item_id", "poll_option", "reply_from", "reply_media")
-    # reply_to_ephemeral exists on some Telethon builds but not the pinned
-    # 1.44 stub; getattr keeps the reject path without a pyright false positive.
-    if (
-        header.reply_to_scheduled
-        or getattr(header, "reply_to_ephemeral", False)
-        or any(getattr(header, field) is not None for field in unsupported)
-    ):
-        raise PolicyError("clone reply shape is not supported")
-    peer = header.reply_to_peer_id
-    if peer is not None and not attribution.same_peer(peer, source):
-        raise PolicyError("cross-peer clone replies are not supported")
+
+@dataclass(frozen=True)
+class Classification:
+    kind: str
+    parent_id: int | None = None
+    top_id: int | None = None
+    quote_text: str | None = None
+    quote_entities: tuple = ()
+    quote_offset: int | None = None
+    peer: object | None = None
+
+
+def _quote_fields(header) -> tuple[str | None, tuple, int | None]:
+    return (
+        header.quote_text,
+        tuple(header.quote_entities or ()),
+        header.quote_offset,
+    )
+
+
+def _validate_parent_and_quote(header) -> None:
     parent_id, top_id = header.reply_to_msg_id, header.reply_to_top_id
     if parent_id is None or any(
         isinstance(item, bool)
@@ -57,58 +57,125 @@ def _signature(header, source, forum=False):
         )
     ):
         raise PolicyError("clone reply quote is invalid")
-    if header.forum_topic:
-        if not forum:
-            raise PolicyError("clone reply shape is not supported")
-        if header.reply_to_top_id is None:
-            return ("forum-place", parent_id)
-        return (
-            "forum-reply",
-            top_id,
-            parent_id,
-            header.quote_text,
-            tuple(header.quote_entities or ()),
-            header.quote_offset,
-        )
-    return (
-        parent_id,
-        top_id,
-        header.quote_text,
-        tuple(header.quote_entities or ()),
-        header.quote_offset,
-    )
 
 
-def target(messages, leg, source):
+def _peer_matches_id(peer, peer_id: int | None) -> bool:
+    if peer is None or peer_id is None:
+        return False
+    if isinstance(peer, types.PeerChannel):
+        return peer.channel_id == peer_id
+    if isinstance(peer, types.PeerUser):
+        return peer.user_id == peer_id
+    if isinstance(peer, types.PeerChat):
+        return peer.chat_id == peer_id
+    return False
+
+
+def _other_source_peer_id(leg) -> int | None:
+    clone_state = leg.clone_state
+    if leg.map_field == "discussion_id_map":
+        return clone_state.source_peer_id
+    return clone_state.discussion_source_peer_id
+
+
+def _other_dest_for(leg, source_id: int) -> int | None:
+    clone_state = leg.clone_state
+    if leg.map_field == "discussion_id_map":
+        return clone_state.dest_for(source_id)
+    return clone_state.discussion_dest_for(source_id)
+
+
+def _classify_header(header, leg, source) -> Classification | None:
+    if header is None:
+        return None
+    if isinstance(header, types.MessageReplyStoryHeader):
+        peer = header.peer
+        peer_id = getattr(peer, "user_id", None) or getattr(peer, "channel_id", None)
+        if (
+            peer_id is None
+            or isinstance(header.story_id, bool)
+            or not isinstance(header.story_id, int)
+            or header.story_id <= 0
+        ):
+            raise PolicyError("clone Story reply shape is not supported")
+        return Classification(kind="flatten")
+    if not isinstance(header, types.MessageReplyHeader):
+        raise PolicyError("clone reply shape is not supported")
+    # reply_to_ephemeral exists on some Telethon builds but not the pinned
+    # 1.44 stub; getattr keeps the path without a pyright false positive.
+    if (
+        header.reply_to_scheduled
+        or getattr(header, "reply_to_ephemeral", False)
+        or any(getattr(header, field) is not None for field in _FLATTEN_FIELDS)
+    ):
+        return Classification(kind="flatten")
+    _validate_parent_and_quote(header)
     forum = leg.destination_kind == "forum"
-    signatures = [
-        _signature(getattr(message, "reply_to", None), source, forum)
+    parent_id = header.reply_to_msg_id
+    assert isinstance(parent_id, int)
+    top_id = header.reply_to_top_id
+    quote_text, quote_entities, quote_offset = _quote_fields(header)
+    peer = header.reply_to_peer_id
+
+    def result(kind: str, *, clear_top: bool = False) -> Classification:
+        return Classification(
+            kind=kind,
+            parent_id=parent_id,
+            top_id=None if clear_top else top_id,
+            quote_text=quote_text,
+            quote_entities=quote_entities,
+            quote_offset=quote_offset,
+            peer=peer,
+        )
+
+    if peer is not None and not attribution.same_peer(peer, source):
+        if _peer_matches_id(peer, _other_source_peer_id(leg)):
+            if _other_dest_for(leg, parent_id) is not None:
+                return result("mapped-cross-leg")
+            return result("flatten")
+        return result("foreign-peer")
+    if header.forum_topic:
+        if not forum or header.reply_to_top_id is None:
+            return result("flatten")
+        return (
+            result("mapped-in-leg", clear_top=True)
+            if leg.dest_for(parent_id) is not None
+            else result("flatten", clear_top=True)
+        )
+    if leg.dest_for(parent_id) is not None:
+        return result("mapped-in-leg")
+    return result("flatten")
+
+
+def target(messages, leg, source) -> Classification | None:
+    classifications = [
+        _classify_header(getattr(message, "reply_to", None), leg, source)
         for message in messages
     ]
-    leading = signatures[0]
-    if leading is None and any(item is not None for item in signatures[1:]):
+    leading = classifications[0]
+    if leading is None and any(item is not None for item in classifications[1:]):
         raise PolicyError("clone album reply appears after its leading item")
     if leading is not None and any(
-        item is not None and item != leading for item in signatures[1:]
+        item is not None and item != leading for item in classifications[1:]
     ):
         raise PolicyError("clone album reply metadata is inconsistent")
-    if leading is None:
+    return leading
+
+
+def input_reply(classified: Classification, leg) -> types.InputReplyToMessage | None:
+    """Build the native reply input for a mapped-in-leg classification."""
+    if classified.kind != "mapped-in-leg" or classified.parent_id is None:
         return None
-    if leading[0] in {"story", "forum-place"}:
-        return None
-    if leading[0] == "forum-reply":
-        _, _, parent_id, quote_text, quote_entities, quote_offset = leading
-        top_id = None
-    else:
-        parent_id, top_id, quote_text, quote_entities, quote_offset = leading
-    destination_id = leg.dest_for(parent_id)
+    destination_id = leg.dest_for(classified.parent_id)
     if destination_id is None:
         return None
-    top_destination_id = leg.dest_for(top_id) if top_id is not None else None
+    top_destination_id = (
+        leg.dest_for(classified.top_id) if classified.top_id is not None else None
+    )
     return types.InputReplyToMessage(
         reply_to_msg_id=destination_id,
         top_msg_id=top_destination_id,
-        quote_text=quote_text,
-        quote_entities=list(quote_entities) or None,
-        quote_offset=quote_offset,
+        quote_text=classified.quote_text,
+        quote_entities=list(classified.quote_entities) or None,
+        quote_offset=classified.quote_offset,
     )

@@ -68,7 +68,8 @@ them as channels; broadcast channels remain `channel`.
  "messages": [{"id": 42, "date": "2026-07-06T10:00:00+00:00",
                "from": {"id": 111, "name": "Alice", "username": null},
                "text": "hello", "media": null, "media_info": null,
-               "reply_to": null, "permalink": null, "edited_at": null,
+               "reply_to": null, "quote_text": null, "permalink": null,
+               "edited_at": null,
                "outgoing": false, "forwarded_from": null, "reactions": [],
                "custom_emoji": [],
                "topic_id": null, "grouped_id": null, "is_service": false}],
@@ -83,7 +84,11 @@ as a **decimal string** (so IEEE-754 JSON number parsers cannot round it; the
 string is the `emoji-id` accepted by `--format html`) and `emoji` is the
 fallback unicode glyph; offsets are UTF-16 code units. This lets an agent
 harvest custom-emoji ids from any readable post and reuse them when composing
-formatted messages.
+formatted messages. `reply_to` is the parent message id as an int for same-chat
+replies (and when `reply_to_peer_id` is absent); for a cross-chat quote reply it
+is `{"id": <msg_id>, "peer": <bot-api peer id>}` so the id is not resolved
+against the chat being read. `quote_text` is the quoted fragment string when
+the reply header carries one, otherwise `null`.
 
 `read` accepts `--before-id INT` (messages older than an id), `--after-id INT`
 (messages newer than an id), `--since ISO`, `--until ISO`, and `--topic INT`
@@ -98,7 +103,8 @@ newest-first output and stops when it reaches the lower date boundary.
  "messages": [{"id": 42, "date": "2026-07-06T10:00:00+00:00",
                "from": {"id": 111, "name": "Alice", "username": null},
                "text": "hello", "media": null, "media_info": null,
-               "reply_to": null, "permalink": null, "edited_at": null,
+               "reply_to": null, "quote_text": null, "permalink": null,
+               "edited_at": null,
                "outgoing": false, "forwarded_from": null, "reactions": [],
                "custom_emoji": [],
                "topic_id": null, "grouped_id": null, "is_service": false}]}
@@ -129,7 +135,8 @@ one message in that same shape:
  "message": {"id": 42, "date": "2026-07-06T10:00:00+00:00",
              "from": {"id": 111, "name": "Alice", "username": null},
              "text": "hello", "media": null, "media_info": null,
-             "reply_to": null, "permalink": null, "edited_at": null,
+             "reply_to": null, "quote_text": null, "permalink": null,
+             "edited_at": null,
              "outgoing": false, "forwarded_from": null, "reactions": [],
              "custom_emoji": [],
              "topic_id": null, "grouped_id": null, "is_service": false}}
@@ -868,11 +875,27 @@ attributed message uses a native author-preserving forward for this fallback.
 If only the nested top root is unavailable, the mapped direct parent remains
 linked. `MessageReplyStoryHeader` also flattens and reports because it has no
 message id to map. In forum clones, placement-only topic headers are not replies;
-real in-topic replies map both their parent and topic. Non-forum clones reject
-forum reply headers. Cross-peer, scheduled, ephemeral, todo, poll-option,
-reply-from, reply-media, malformed quote, and inconsistent album reply shapes
-exit 2 before audit or mutation. Supported quote text, entities, and offset are
-retained.
+real in-topic replies map both their parent and topic. Non-forum clones, and
+headers that carry scheduled/ephemeral/todo/poll-option targets, flatten the
+reply relation and continue (ADR-0036). Cross-chat quote replies are resolved by
+target reachability (ADR-0036): a mapped target (same leg or the other leg's
+post→anchor path) keeps a native `InputReplyToMessage` with quote text/entities/
+offset; a foreign peer the account can read is quoted in place; an unreachable
+or send-rejected foreign peer is rendered as a text fallback (peer title line,
+blockquote quote, author's unmodified body) and recorded in `quote_flattened`
+as `{"id", "peer", "reason"}`. The fallback's peer line is the title Telegram
+ships alongside the quoting message (`ChannelForbidden` carries one even for a
+peer the account is banned from), falling back to `id <n>` when the response
+names no such chat. A quote whose stored fragment no longer matches its parent
+— the parent was edited after the quote was made — is refused by Telegram with
+`QUOTE_TEXT_INVALID`; the send is retried once with the fragment dropped and
+the reply link kept, reported as `reason: "quote-rejected"`. `reply_from` /
+`reply_media` are server-rendered decorations and are ignored. Malformed quote
+metadata, an invalid reply parent, and inconsistent album reply shapes still
+exit 2 before audit or mutation.
+When a run plants at least one quote fallback it finishes copying, writes the
+full result document (including advanced cursors), and exits 2 (`PartialFailure`
+with `PolicyError` cause); a run that plants none exits 0.
 
 Reupload sends text and webpage messages with `sendMessage`, photos/documents
 with `sendMedia`, and albums with per-item `uploadMedia` followed by one
@@ -893,7 +916,7 @@ FloodWait persists the clone cooldown and exits 5 without advancing the current
 message. JSON:
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"cursor":5,"discussion_cursor":0,"more":false,"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}}}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"cursor":5,"discussion_cursor":0,"more":false,"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}}}
 ```
 
 After message copying, `sync` snapshots the source's audience (ADR-0024). The
@@ -910,7 +933,8 @@ destination is never populated with collected users. Roster collection is
 best-effort and never fails a sync whose messages already copied.
 
 Plain sync columns are `copied`, `forwarded`, `reuploaded`, `snapshots`,
-`reply_flattened`, `skipped_service`, `skipped_unsupported_count`,
-`topics_created`, `cursor`, `clone_id`, `source_peer_id`,
-`destination_peer_id`, `more`, `skipped_autoforward`, `discussion_cursor`. The
-`participants` roster is JSON-only; the plain row does not carry it.
+`reply_flattened`, `quote_flattened_count`, `skipped_service`,
+`skipped_unsupported_count`, `topics_created`, `cursor`, `clone_id`,
+`source_peer_id`, `destination_peer_id`, `more`, `skipped_autoforward`,
+`discussion_cursor`. The `participants` roster is JSON-only; the plain row does
+not carry it.

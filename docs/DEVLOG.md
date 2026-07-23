@@ -17,6 +17,115 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Review of the quote-reply branch: two resolver defects (Claude Opus 4.8)
+**Did:** reviewed PR #31 against its plan and ADR-0036, then fixed the two
+defects the review found in `clone/quotes.py`. (1) `_place_thread` walked
+`reply_to_msg_id` against the source discussion group even when the header
+named another peer, so a foreign parent id colliding with an anchor produced
+a native quote reply at an unrelated destination post *and* the fallback
+prefix — ADR-0036 §4's silent failure. The walk now takes `reply_to_top_id`
+alone unless the parent lives in this group. (2) `degrade_to_fallback` reset
+`reply_to` to `None`, discarding the thread anchor `_place_thread` had already
+resolved; `dest_for(top)` cannot recover it because a discussion top is an
+auto-forward anchor that never enters the leg's map, so a rejected foreign
+quote landed outside its thread. Placement now carries over. Also removed a
+no-op `if`/`pass` block, an unused `ctx` parameter, and the duplicated
+forbidden-peer error tuple. Two regression tests, both verified red against
+the pre-fix module. 701 passed, 8 skipped; ruff + pyright + architecture green.
+**Decided:** absorb the churn inside the reviewed 500-line ceiling for
+`quotes.py` instead of a fourth bump — the file is 498 after folding
+`_peer_label` onto `_peer_cache_key` and inlining `_input_peer`.
+**Learned:** the branch's own quiet-trap test for source 2374 passes with the
+foreign-parent walk intact, because its context has no `source_group`; the
+trap only fires on the discussion leg, which is exactly where it lives.
+**Next:** the `replies.target` classification is recomputed two to three times
+per batch (decide → resolve → degrade), and `decide`'s `reply_flattened` is
+provisional until `resolve` runs — worth threading the classification through
+when the seam gets the look the previous entry asked for.
+
+## 2026-07-23 — Clone quote replies: live run and two field fixes (Claude Opus 4.8)
+**Did:** consolidated four stray branches into `cursor/clone-quote-replies`
+(the other three were strict subsets; PR #30 was auto-closed by the rename
+and replaced by #31). Ran the owner-approved live verification against clone
+`4fa28c42…` after backing up its state: the 2374 fallback by `--limit 1`,
+then the full catch-up to discussion source 2405 (`copied: 26`,
+`more: false`). Two defects surfaced only in the live run and are fixed
+here: (1) an unopenable quote peer was labelled `id 2275285084` — the title
+is in the `ChannelForbidden` entry Telegram ships with the quoting message,
+so `quotes._peer_title` reads it from there; (2) `QUOTE_TEXT_INVALID`
+crashed the whole batch, now `quotes.drop_stale_quote` retries once without
+the fragment and keeps the reply link. Fallback source line gained the
+`Переслано от:` label at the owner's request. CONTRACT updated for both.
+699 passed, 8 skipped; ruff + pyright + architecture green.
+**Decided:** a rejected quote drops the fragment and keeps the reply rather
+than rendering the text fallback — the link is valid, only the stale
+fragment is not, and native threading is worth more than a fragment the
+parent no longer contains. Live-run permission for `tg clone sync` lives in
+gitignored `.claude/settings.local.json`, not the committed project file:
+write access to the owner's Telegram is not a team-wide rule.
+**Learned:** Telegram carries a banned-from channel's title in the enclosing
+history response — resolving the bare `PeerChannel` raises
+`ChannelPrivateError`, so the response is the only place the name exists.
+Telethon has no named class for `QUOTE_TEXT_INVALID`; it arrives as a plain
+`BadRequestError` and must be matched on the message prefix. GitHub's branch
+rename API did not retarget the open PR — it closed it.
+**Next:** `quotes.py` grew 380 → 500 lines across three ceiling bumps in one
+session; the seam wants a look before more lands on it.
+
+## 2026-07-23 — Clone quote replies slice 3 (Composer)
+**Did:** implemented ADR-0036 slice 3. Sync collects `quote_flattened`
+`{"id","peer","reason"}` rows from `TransportPlan`; a run that planted any
+fallback finishes work, writes the result document, and raises
+`PartialFailure` with `PolicyError` exit 2. JSON gains `quote_flattened`;
+plain gains `quote_flattened_count`. CONTRACT §clone-sync updated (reject
+sentence for reply-from/media/cross-peer removed). `PartialFailure` carries
+optional `rows` for plain emit. Architecture ceilings: `cli.py` 215,
+`clone.py` 910. Inverted foreign-peer sync tests to expect exit 2 + rows.
+**Decided:** empty `quote_flattened` still exits 0; only planted fallbacks
+are a partial failure (ADR-0036 §5).
+**Learned:** ruff format expands a one-line `emit_plain(...)` past the old
+`cli.py` ceiling, so the reviewed budget had to move with the rows seam.
+**Next:** slice 4 leftovers are already mostly landed (MAP/quotes ceiling);
+full gate + owner-gated live smoke of the wedged clone — do not mutate
+Telegram without owner review.
+
+## 2026-07-23 — Clone quote replies slice 2 (Composer)
+**Did:** implemented ADR-0036 slice 2. Added `clone/quotes.py` async
+resolver (mapped same-leg, mapped cross-leg via post map → destination
+anchor, foreign-peer reachability cache, unreachable/rejected → rendered
+fallback using `attribution.with_prefix` for UTF-16 shifts). Folded
+`comments._remap` into `quotes.resolve` / `_place_thread`; both legs run
+the same resolution step from `copy_batch`. Wired `send_with_degrade` for
+reachable-then-rejected foreign quotes. Quiet-trap tests for 😴 UTF-16
+offsets and source-2374 wrong-map (discussion 1244). Updated MAP,
+architecture ceilings (`quotes.py` 380, `clone.py` 900).
+**Decided:** `TransportPlan` gains internal `body_prefix` /
+`quote_flattened` seams for slice 3 reporting without changing CONTRACT
+exit semantics yet.
+**Learned:** fake sync clients must raise `ValueError` on unknown peers
+(not assert) now that resolve probes reachability on every foreign header.
+**Next:** slice 3 — `quote_flattened` in sync JSON + `PartialFailure` exit.
+
+## 2026-07-23 — Clone quote replies slices 0–1 (Composer)
+**Did:** implemented plan slices 0 and 1 for ADR-0036. Slice 0:
+`message_to_dict` now emits `quote_text` and, for cross-chat quotes, 
+`reply_to` as `{"id", "peer"}` instead of a bare id that resolves against
+the wrong chat; CONTRACT + live smoke shape updated. Slice 1:
+`clone/replies.py` is a pure classifier
+(`mapped-in-leg` / `mapped-cross-leg` / `foreign-peer` / `flatten`, stop on
+invalid parent/quote/album/unrecognized header); `reply_from`/`reply_media`
+no longer reject; transport consumes the classification and still builds
+`InputReplyToMessage` only for mapped-in-leg (cross-leg/foreign flatten until
+slice 2). Fixtures for source 2374/2378. Full gate: 680 passed, 8 skipped;
+ruff + pyright + architecture + coverage green.
+**Decided:** until `clone/quotes.py` lands, foreign-peer and mapped-cross-leg
+flatten rather than wedge — progress with recorded loss beats a stuck cursor.
+**Learned:** `topics.placement_only` is true for any forum_topic header
+without a top id, including on non-forum destinations; reply_flattened must
+gate that exception on `destination_kind == "forum"`.
+**Next:** slice 2 — `clone/quotes.py` resolver (native quote / rendered
+fallback by reachability).
+
 ## 2026-07-23 — Close the `mutual-chats --plain` test gap (Claude Opus 4.8)
 **Did:** added `test_mutual_chats_plain_output_sanitizes_and_lists_chats` to
 `tests/test_cli_mutual_chats.py` — asserts the frozen TSV column order

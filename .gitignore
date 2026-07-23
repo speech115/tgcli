@@ -11,3 +11,6 @@ audit.jsonl
 downloads/
 .superpowers/
 .worktrees/
+
+# Claude Code personal overrides (permissions tied to this machine/account)
+.claude/settings.local.json

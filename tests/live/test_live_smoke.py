@@ -124,7 +124,15 @@ def assert_dialog_shape(dialog):
 
 
 def assert_message_shape(message):
-    assert {"id", "date", "from", "text", "media", "reply_to"} <= message.keys()
+    assert {
+        "id",
+        "date",
+        "from",
+        "text",
+        "media",
+        "reply_to",
+        "quote_text",
+    } <= message.keys()
     assert isinstance(message["id"], int)
     assert message["date"] is None or isinstance(message["date"], str)
     assert {"id", "name"} <= message["from"].keys()
@@ -132,4 +140,15 @@ def assert_message_shape(message):
     assert message["from"]["name"] is None or isinstance(message["from"]["name"], str)
     assert isinstance(message["text"], str)
     assert message["media"] is None or isinstance(message["media"], str)
-    assert message["reply_to"] is None or isinstance(message["reply_to"], int)
+    reply_to = message["reply_to"]
+    assert (
+        reply_to is None
+        or isinstance(reply_to, int)
+        or (
+            isinstance(reply_to, dict)
+            and set(reply_to) == {"id", "peer"}
+            and isinstance(reply_to["id"], int)
+            and isinstance(reply_to["peer"], int)
+        )
+    )
+    assert message["quote_text"] is None or isinstance(message["quote_text"], str)

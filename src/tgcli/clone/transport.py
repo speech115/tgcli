@@ -11,14 +11,32 @@ class TransportPlan:
     reply_to: object | None
     reply_flattened: bool
     needs_author: bool
+    # Quote fallback body (ADR-0036); applied before author attribution.
+    body_prefix: str | None = None
+    body_prefix_entities: tuple = ()
+    # Per-batch quote fallback row for sync reporting (ADR-0036).
+    quote_flattened: dict | None = None
 
 
 def decide(messages, leg, source) -> TransportPlan:
-    reply_to = replies.target(messages, leg, source)
+    classified = replies.target(messages, leg, source)
     header = getattr(messages[0], "reply_to", None)
-    reply_flattened = (
-        header is not None and reply_to is None and not topics.placement_only(header)
-    )
+    if classified is None:
+        reply_to = None
+        reply_flattened = False
+    elif classified.kind == "mapped-in-leg":
+        reply_to = replies.input_reply(classified, leg)
+        reply_flattened = False
+    elif classified.kind == "flatten":
+        reply_to = None
+        # Forum placement-only headers on a forum destination are not a lost reply.
+        reply_flattened = not (
+            leg.destination_kind == "forum" and topics.placement_only(header)
+        )
+    else:
+        # foreign-peer / mapped-cross-leg: quotes.resolve fills reply_to or fallback.
+        reply_to = None
+        reply_flattened = True
     if len(messages) == 1 and fidelity.supports(messages[0]):
         mode = "snapshots"
     elif (

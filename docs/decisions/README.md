@@ -42,6 +42,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0033](ADR-0033-agent-skills-workflow.md) | GitHub issue flow, triage labels, and single-context agent docs | accepted |
 | [0034](ADR-0034-shared-read-operation-seam.md) | Shared typed read-operation seam for interactive CLI and batch | accepted |
 | [0035](ADR-0035-cli-entry-split.md) | CLI entry split into parser/preflight/dispatch; budgets become ceilings | accepted |
+| [0036](ADR-0036-clone-quote-replies.md) | Clone classifies quote replies by target reachability; understood-but-untransferable degrades and reports instead of wedging | accepted |
 
 Notes on supersessions:
 

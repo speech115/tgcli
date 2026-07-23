@@ -170,7 +170,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.json:
             output.emit_json(err.data)
         elif args.plain:
-            output.emit_plain(err.data.get("rows") or [])
+            output.emit_plain(
+                err.rows if err.rows is not None else err.data.get("rows") or []
+            )
         else:
             output.emit_error(err, as_json=False)
         error_code = err.code

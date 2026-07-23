@@ -106,23 +106,37 @@ async def author_of(tg, source, message, me, cache: dict, cooldown) -> Author:
     return _identify(entity, getattr(message, "sender_id", None))
 
 
-def prefixed(text: str, entities, author: Author | None) -> tuple[str, list | None]:
+def utf16_len(text: str) -> int:
+    return len(text.encode("utf-16-le")) // 2
+
+
+def with_prefix(
+    text: str, entities, prefix: str, prefix_entities=()
+) -> tuple[str, list | None]:
+    """Prepend ``prefix`` and shift body entity offsets by its UTF-16 length."""
     original = list(entities or ())
-    if author is None:
+    if not prefix:
         return text, original or None
-    prefix = f"{author.text}: \n\n"
-    shift = len(prefix.encode("utf-16-le")) // 2
-    result = []
-    if author.mention_user_id is not None:
-        result.append(
-            types.MessageEntityMentionName(
-                offset=0,
-                length=len(author.text.encode("utf-16-le")) // 2,
-                user_id=author.mention_user_id,
-            )
-        )
+    shift = utf16_len(prefix)
+    result = [copy(entity) for entity in prefix_entities]
     for entity in original:
         shifted_entity = copy(entity)
         shifted_entity.offset += shift
         result.append(shifted_entity)
     return prefix + text, result or None
+
+
+def prefixed(text: str, entities, author: Author | None) -> tuple[str, list | None]:
+    if author is None:
+        return with_prefix(text, entities, "", ())
+    prefix = f"{author.text}: \n\n"
+    mention = ()
+    if author.mention_user_id is not None:
+        mention = (
+            types.MessageEntityMentionName(
+                offset=0,
+                length=utf16_len(author.text),
+                user_id=author.mention_user_id,
+            ),
+        )
+    return with_prefix(text, entities, prefix, mention)

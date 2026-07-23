@@ -39,8 +39,16 @@ class PartialFailure(TgcliError):
 
     code = "PARTIAL"
 
-    def __init__(self, message: str, data: dict, *, cause: TgcliError):
+    def __init__(
+        self,
+        message: str,
+        data: dict,
+        *,
+        cause: TgcliError,
+        rows: list | None = None,
+    ):
         super().__init__(message)
         self.data = data
         self.cause = cause
         self.exit_code = cause.exit_code
+        self.rows = rows
