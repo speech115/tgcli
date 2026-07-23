@@ -108,7 +108,9 @@ def _prepare_previews(parser: argparse.ArgumentParser, args) -> None:
             ):
                 parser.error("send --commit accepts only a preview id")
             safety.enforce_mutation_allowed(args.readonly)
-            args.preview_payload = safety.begin_commit(args.commit, expected_kind="send")
+            args.preview_payload = safety.begin_commit(
+                args.commit, expected_kind="send"
+            )
         elif not (
             args.preview
             and args.chat is not None

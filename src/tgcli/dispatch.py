@@ -164,9 +164,7 @@ async def _download_media(tg, args, account) -> tuple[dict, list[tuple]]:
         output.note(f"downloaded {current}/{total if total is not None else '?'} bytes")
 
     if bulk:
-        ids = (
-            media_cmd.parse_message_ids(message_ids_raw) if message_ids_raw else None
-        )
+        ids = media_cmd.parse_message_ids(message_ids_raw) if message_ids_raw else None
         data = await media_cmd.download_media_bulk(
             tg,
             args.source,
