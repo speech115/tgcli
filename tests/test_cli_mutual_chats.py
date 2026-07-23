@@ -81,6 +81,34 @@ def test_mutual_chats_empty_list_is_success(config_env, monkeypatch, capsys):
     assert data["count"] == 0
 
 
+def test_mutual_chats_plain_output_sanitizes_and_lists_chats(
+    config_env, monkeypatch, capsys
+):
+    user = ns(
+        id=111,
+        first_name="Alice",
+        last_name=None,
+        username="alice",
+        bot=False,
+        contact=True,
+    )
+    group = ns(id=200, title="Shared\nGroup", username="sha\tred", megagroup=True)
+    channel = ns(id=300, title="Broadcast", username=None, broadcast=True)
+    client = FakeClient(
+        entities={"@alice": user},
+        common_chats_result=ns(chats=[group, channel]),
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["mutual-chats", "@alice", "--plain"]) == 0
+
+    out = capsys.readouterr().out.strip("\n")
+    assert out.split("\n") == [
+        "200\tgroup\tsha red\tShared Group",
+        "300\tchannel\t\tBroadcast",
+    ]
+
+
 def test_mutual_chats_missing_user_exits_4(config_env, monkeypatch):
     client = FakeClient(entities={})
     make_session_fake(monkeypatch, client)
