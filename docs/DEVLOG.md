@@ -17,6 +17,28 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Release 1.1.0: changelog and version discipline (Claude Opus 4.8)
+**Did:** cut the catch-up release. Added root `CHANGELOG.md` (Keep a Changelog,
+one section per release, every bullet naming its ADR), bumped `1.0.0 → 1.1.0`
+in `pyproject.toml` and `src/tgcli/__init__.py`, wrote ADR-0038 with its index
+row, added the release rule to AGENTS.md doc discipline, and indexed
+CHANGELOG.md in MAP.md. Gates: ruff check + format clean, `736 passed, 8
+skipped`, `tg --version` → `1.1.0`.
+**Decided:** ADR-0038 — semver is measured over `docs/CONTRACT.md`, so an
+additive surface is a minor bump; one feature = one tagged release, with the
+CHANGELOG section and version bump landing in the same commit as the feature.
+1.1.0 is the only section that bundles several ADR waves (0028…0037).
+**Learned:** the version had drifted for 93 commits and ten ADRs, so the notes
+had to be reconstructed from `git log` — the exact cost rule 3 of ADR-0038
+exists to prevent. Owner also opened two genuinely new features (Telegram
+voice transcription, message drafts); neither appears anywhere in ISSUES.md or
+PROPOSALS.md, and both are reachable in the pinned Telethon 1.44
+(`messages.transcribeAudio`, `messages.saveDraft` / `client.get_drafts`).
+**Next:** grill the transcription + drafts scope into an ADR — the open
+questions are the `pending=True` async transcription result under a daemonless
+CLI, premium/trial quota preflight, and whether transcription counts as a read
+under `TGCLI_READONLY`.
+
 ## 2026-07-23 — PR #28 rebase and typed-discriminator review (Codex)
 **Did:** completed the interrupted rebase of the read-operation registry onto
 `main`, preserving both sides of the DEVLOG conflict, then reviewed the whole
