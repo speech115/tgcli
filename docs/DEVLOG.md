@@ -17,6 +17,30 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — ADR-0040: wacli-review adoption scope (Claude Opus 4.8)
+**Did:** owner-driven grilling + domain-modeling session over the four wacli
+items in `docs/PROPOSALS.md`. Wrote `ADR-0040` (adopt `store stats|cleanup`
+and offline-by-default `doctor --connect`; defer `--events` and `tg spec`),
+added its README index row, marked the four PROPOSALS statuses, and wrote the
+scoped plan `docs/superpowers/plans/2026-07-23-wacli-store-doctor.md` (2 slices,
+4 tasks) intended for execution by another agent (Cursor). Docs only — no code.
+**Decided:** ADR-0040. `store cleanup` reaps spent previews (`.used`) and
+expired `.json` only; the **audit log and sessions are untouchable by design**
+(a cleanup that could erase the audit trail hands an agent a cover-tracks
+button, against ADR-0005). `.pending` protected (ADR-0028 `random_id`). Relics
+reported by `stats`, never auto-deleted. `doctor` goes offline-first, live
+checks behind `--connect` (companion to ACCOUNTS-001). Deferred with triggers:
+`--events` → FEED-001 (event stream is a CONTRACT §3 contract, design once);
+`tg spec` → demonstrated drift pain + explicit overturn of ADR-0028 (ADR-0034
+already weakened its objection).
+**Learned:** terminology trap — "draft" is taken by ADR-0039 (Telegram drafts),
+so the safety record stays **preview**; a terminal one is a **spent preview**,
+not a "burnt draft". Measured state: 51/59 previews are spent `.used` bodies at
+`0644`, kept forever — the privacy driver; cleanup tightens them to `0600`.
+**Next:** Cursor executes the plan (`docs/superpowers/plans/2026-07-23-wacli-store-doctor.md`)
+slice by slice — `store` first, then `doctor --connect` — TDD per task per
+ADR-0026, patch release per ADR-0038.
+
 ## 2026-07-23 — Ship 1.1.0 + 1.1.1, tag the release stack (Claude Opus 4.8)
 **Did:** owner declared the milestone, so finished the Codex-prepared release
 stack. Merged `claude/release-1.1.0` (#36 → main, merge `ccb690d`), the stacked

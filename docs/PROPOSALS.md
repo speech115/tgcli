@@ -253,10 +253,16 @@ ISSUES.md, not here.)
 
 | Item | Value | Effort | Status |
 |---|---|---|---|
-| `tg store stats` / `store cleanup` | med-high | S | missing |
-| `--events` NDJSON lifecycle stream | med-high | M | missing |
-| `tg doctor` offline by default + `--connect` | med | S | missing |
-| `tg spec --json` | med | S | **re-proposal against ADR-0028** |
+| `tg store stats` / `store cleanup` | med-high | S | **adopted — [ADR-0040](decisions/ADR-0040-wacli-review-adoption-scope.md)** |
+| `--events` NDJSON lifecycle stream | med-high | M | **deferred → FEED-001 (ADR-0040)** |
+| `tg doctor` offline by default + `--connect` | med | S | **adopted — [ADR-0040](decisions/ADR-0040-wacli-review-adoption-scope.md)** |
+| `tg spec --json` | med | S | **deferred — needs overturning ADR-0028 (ADR-0040)** |
+
+Owner decision 2026-07-23 (grilling + domain-modeling session): adopt the two
+local/offline items (`store`, `doctor --connect`); defer the two that carry a
+forward cost (`--events` is a contract best designed with FEED-001; `tg spec`
+requires overturning ADR-0028 and should wait for demonstrated drift pain).
+Scope and boundaries in [ADR-0040](decisions/ADR-0040-wacli-review-adoption-scope.md).
 
 **`tg store`.** Nothing ever cleans `~/.local/state/tgcli`. Measured
 2026-07-23 on the owner's machine: 59 preview files of which **51 are `.used`**
