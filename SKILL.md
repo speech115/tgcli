@@ -60,6 +60,9 @@ selected account session, does one operation, and exits.
 | Preview a file send | `tg --json send CHAT --file PATH --caption "TEXT" --preview` |
 | Preview a formatted send | `tg --json send CHAT "<b>bold</b> <tg-spoiler>hidden</tg-spoiler>" --format html --preview` |
 | Commit a preview | `tg --json send --commit p_9f3a` |
+| Propose a draft without sending | `tg --json draft set CHAT "TEXT" --preview` then `--commit` |
+| Show / list drafts | `tg --json draft show CHAT` / `tg --json draft list` |
+| Clear a draft | `tg --json draft clear CHAT --preview` then `--commit` |
 | Preview an edit | `tg --json edit @channel 42 "Corrected text" --preview` |
 | Preview a formatted edit | `tg --json edit CHAT 42 "<b>bold</b> <blockquote expandable>quote</blockquote>" --format html --preview` |
 | Commit an edit | `tg --json edit --commit p_9f3a` |

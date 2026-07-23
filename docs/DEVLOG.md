@@ -54,6 +54,164 @@ Telegram's server-side history/search model.
 **Next:** independently verify every wacli disposition and current-branch
 dependency before merge.
 
+## 2026-07-23 — ADR-0039 topic-only retry correction (Codex)
+**Did:** normalized the desired retry snapshot through the exact
+`InputReplyToMessage` shape sent to Telegram. A topic-only draft stores its
+topic as `reply_to_msg_id` with no `top_msg_id`; the regression simulates a
+save that completed before result auditing failed and proves its retry is
+accepted rather than misclassified as a human overwrite.
+**Decided:** retry equality follows the actual TL request, not raw CLI flag
+names, while the full observed-state mismatch still fails closed.
+**Learned:** `--topic` alone is intentionally encoded differently from a
+reply-within-topic, so comparing unnormalized CLI payload fields is unsafe.
+**Next:** final independent re-review of the stale-preview guard.
+
+## 2026-07-23 — ADR-0039 full-state stale-draft correction (Codex)
+**Did:** final review found that the first stale-preview guard compared only
+text. Draft previews now persist a JSON-safe internal snapshot of text, reply,
+topic, and every Telethon formatting entity; commit re-reads immediately before
+`saveDraft`, rejects any observed mismatch, and still accepts a retry whose
+complete state already equals the requested one. Added same-text reply and
+formatting-entity regressions; public preview JSON is unchanged.
+**Decided:** ADR-0039 now explicitly records the bounded guarantee: Telegram
+has no conditional-save/version token, so the final read→save race is a
+residual risk rather than an untruthfully claimed CAS guarantee.
+**Learned:** checking text alone treats changed reply/thread metadata and rich
+formatting as invisible, exactly where a human's prepared draft needs safety.
+**Next:** independent re-review of the full-state guard, then rebase onto the
+corrected release stack and tag only after merge.
+
+## 2026-07-23 — ADR-0039 drafts whole-diff review corrections (Codex)
+**Did:** independently reviewed the `claude/release-1.1.0...claude/drafts`
+drafts slice on Spec and Standards axes, then fixed three confirmed safety and
+contract defects. `SaveDraft` now treats Telegram's idempotent
+`MessageNotModifiedError` as success; commit re-reads the draft and refuses a
+human change made after preview, while accepting a retry whose requested draft
+already exists; and `draft set --commit` now rejects an extra `--format` flag.
+Added permanent public-seam regressions and documented the stale-preview rule
+in CONTRACT. Raised the reviewed `preflight.py` architecture ceiling to its
+actual 203 lines with the paired architecture regression.
+**Decided:** these are narrow corrections required by ADR-0039's existing
+preview safety and commit-only contract, not a new behavior decision or ADR.
+The inherited ADR-0038 changelog wording and `v1.1.1` tag remain release-merge
+work owned by the stacked release flow.
+**Learned:** `messages.saveDraft` has both bare-`Bool` and
+`MessageNotModifiedError` no-op paths; a retryable preview must distinguish a
+human overwrite from a save that already completed before result auditing.
+**Next:** rebase this committed slice onto the corrected 1.1.0 release, then
+tag `v1.1.1` only after the feature is merged.
+
+## 2026-07-23 — wacli review: backlog items + FEED-001 blocker (Claude Opus 4.8)
+**Did:** owner-requested review of [wacli](https://wacli.sh/) (openclaw's
+WhatsApp CLI, sibling of the gogcli lineage) for what transfers to tgcli, with
+a second opinion from GPT as input. Docs only, no code. `docs/PROPOSALS.md`:
+new "Agent surface" subsection — `tg store`, `--events`, `doctor --connect`,
+`tg spec`, plus a checked-and-rejected note. `docs/ISSUES.md` FEED-001: a
+session-lock blocker and a design-input block (deletion tombstones, loud gaps,
+story-viewer scope warning). Written on `claude/drafts` because that branch was
+checked out and switching under a concurrently running session was the larger
+risk.
+**Decided:** everything stays behind the ADR-0026 gate — proposals, not work.
+wacli's SQLite+FTS5 mirror, `sync --follow`, and in-tool webhooks are non-goals:
+they compensate for WhatsApp having no server-side search and no readable
+history, which Telegram has. `tg spec` is recorded as an explicit re-proposal
+against ADR-0028, not a fresh idea.
+**Learned:** three findings that only came from checking instead of assuming.
+(1) FEED-001 as agreed is unbuildable: `LOCK_EX | LOCK_NB` held for a whole
+invocation means a `tg changes --wait 30` poller starves every other command on
+the account — the feed would break the workflow it exists for; wacli solved the
+same collision with send-delegation, which for us is a daemon by another name.
+(2) `stories.getStoryViewsList` has been read-allowlisted since ADR-0010, so the
+story-viewer lead workflow needs no new subsystem at all. (3) Nothing prunes
+`~/.local/state/tgcli`: 51 of 59 preview files are burnt `.used` bodies kept
+forever at `0644`, `audit.jsonl` is 1.1 MB unbounded, and 340 KB belongs to the
+removed `tg mirror`. Also: the second-opinion review cited wacli accurately but
+misstated tgcli's own state (claimed `gap` was already in the agreed FEED-001
+shape; proposed an `accounts add` duplicating `accounts import`) — same lesson
+as 2026-07-18, verify review claims against the repo.
+**Next:** run the real lead scenario against `tg api stories.getStoryViewsList`
+and see what is actually missing before opening FEED-001 or ACCOUNTS-001.
+
+**Addendum (second pass over remaining wacli pages).** Added to PROPOSALS:
+`accounts show`/`remove` (our surface has `import`+`list` but not the other
+half; both belong in the ACCOUNTS-001 PR, and `show` is the offline branch of
+`doctor --connect`), and a `kind: temporary|permanent` field on bulk-media
+`failed` (stateless take on wacli's unavailable-media dedup — no local DB
+needed). Corrected provenance: wacli's `spec` is a documentation page, not a
+command, so `tg spec` is my own idea prompted by the review, not an import —
+fixed the wording in PROPOSALS. Rejected on inspection: `--read-only` media
+with `--output` (we are already stricter — download never sits behind the gate
+because it does not mutate Telegram); `history coverage/backfill` (cures
+WhatsApp's unreadable history, which Telegram does not have); contacts
+aliases/tags and `import-system` (workflow data / platform binding, belong in
+an external `tg-agent`, not the core).
+
+## 2026-07-23 — ADR-0039 review fixes (Composer)
+**Did:** closed independent Spec+Standards findings on `claude/drafts`:
+audit timing + `TGCLI_NO_SEND` tests; `_save_draft` asserts bare `bool`
+result; commit re-fetches via `draft show` so `date`/reply fields are real;
+FakeClient mirrors `SaveDraft` into peer dialogs; live smoke asserts md
+strip (`**` gone), `--reply-to`, and non-null `date`. Gate: `755 passed,
+9 skipped`; live draft smoke green.
+**Decided:** commit JSON is a post-save re-read, not a local synthesis.
+**Learned:** instance `__call__` assignment is ignored by Python; capture
+RPC results via a FakeClient subclass.
+**Next:** re-run Spec+Standards on the fix commit if desired; open PR;
+tag `v1.1.1` after merge.
+
+## 2026-07-23 — Message drafts ADR-0039 / v1.1.1 (Composer)
+**Did:** implemented `tg draft set|show|clear|list` on `claude/drafts`. Reads
+landed as `draft.show`/`draft.list` in `read_ops`; set/clear use preview→commit
+with `old_text` (`expected_kind` `draft-set`/`draft-clear`). Own draft JSON
+object; boundary test asserts `SaveDraftRequest` + Bool. CONTRACT/SKILL/MAP/
+CHANGELOG + patch bump to 1.1.1. Live smoke covers markdown set, show, no-op
+set, clear, and clear-of-empty.
+**Decided:** ADR-0039 as grilled — no `draft send`, no `--file` in v1; set
+mirrors `send` format defaults.
+**Learned:** Telethon `Draft` hides entities/`top_msg_id`; read path uses TL
+`DraftMessage` directly. `utils.get_peer_id` rejects SimpleNamespace fakes —
+resolve users/chats by peer type + id instead.
+**Next:** independent Spec+Standards whole-diff review; tag `v1.1.1` after
+merge.
+
+## 2026-07-23 — Correct ADR-0038 release semantics (Codex)
+**Did:** corrected the release records after an independent `main...HEAD`
+review: the policy now applies to fixes as well as features, CHANGELOG states
+that patches carry individual changes while the owner declares minors, and all
+1.1.0 bullets name their governing ADR. Final repository-local `.venv` gate:
+`736 passed, 8 skipped`; ruff check/format clean; Pyright 0 errors; coverage
+23 namespaces. No behavior files changed.
+**Decided:** ADR-0038 remains a release-policy decision, not a CLI contract
+change; preserve the append-only DEVLOG record of the superseded mechanical
+minor-bump wording and add this correction rather than rewriting history.
+**Learned:** an ADR amendment can leave its original release note internally
+consistent but contradicted by surrounding consumer and agent documentation;
+the tag is also part of the release contract, not an optional follow-up.
+**Next:** merge the release branch. After merge, create and publish the
+`v1.1.0` tag from the merged release commit.
+
+## 2026-07-23 — Release 1.1.0: changelog and version discipline (Claude Opus 4.8)
+**Did:** cut the catch-up release. Added root `CHANGELOG.md` (Keep a Changelog,
+one section per release, every bullet naming its ADR), bumped `1.0.0 → 1.1.0`
+in `pyproject.toml` and `src/tgcli/__init__.py`, wrote ADR-0038 with its index
+row, added the release rule to AGENTS.md doc discipline, and indexed
+CHANGELOG.md in MAP.md. Gates: ruff check + format clean, `736 passed, 8
+skipped`, `tg --version` → `1.1.0`.
+**Decided:** ADR-0038 — semver is measured over `docs/CONTRACT.md`, so an
+additive surface is a minor bump; one feature = one tagged release, with the
+CHANGELOG section and version bump landing in the same commit as the feature.
+1.1.0 is the only section that bundles several ADR waves (0028…0037).
+**Learned:** the version had drifted for 93 commits and ten ADRs, so the notes
+had to be reconstructed from `git log` — the exact cost rule 3 of ADR-0038
+exists to prevent. Owner also opened two genuinely new features (Telegram
+voice transcription, message drafts); neither appears anywhere in ISSUES.md or
+PROPOSALS.md, and both are reachable in the pinned Telethon 1.44
+(`messages.transcribeAudio`, `messages.saveDraft` / `client.get_drafts`).
+**Next:** grill the transcription + drafts scope into an ADR — the open
+questions are the `pending=True` async transcription result under a daemonless
+CLI, premium/trial quota preflight, and whether transcription counts as a read
+under `TGCLI_READONLY`.
+
 ## 2026-07-23 — PR #28 rebase and typed-discriminator review (Codex)
 **Did:** completed the interrupted rebase of the read-operation registry onto
 `main`, preserving both sides of the DEVLOG conflict, then reviewed the whole

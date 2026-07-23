@@ -29,6 +29,8 @@ CLI_INVOCATIONS = {
     "contacts.search": ["contacts", "search", "term"],
     "media.manifest": ["media", "manifest", "@chat"],
     "thread": ["thread", "@chat", "7"],
+    "draft.show": ["draft", "show", "@chat"],
+    "draft.list": ["draft", "list"],
 }
 
 BATCH_PAYLOADS = {
@@ -45,6 +47,8 @@ BATCH_PAYLOADS = {
     "contacts.search": {"op": "contacts.search", "query": "term"},
     "media.manifest": {"op": "media.manifest", "source": "@chat"},
     "thread": {"op": "thread", "chat": "@chat", "message_id": 7},
+    "draft.show": {"op": "draft.show", "chat": "@chat"},
+    "draft.list": {"op": "draft.list"},
 }
 
 OPERATION_NAMES = frozenset(

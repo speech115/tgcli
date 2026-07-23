@@ -44,6 +44,8 @@ row here in the same commit (AGENTS.md rule, extending
 | [0035](ADR-0035-cli-entry-split.md) | CLI entry split into parser/preflight/dispatch; budgets become ceilings | accepted |
 | [0036](ADR-0036-clone-quote-replies.md) | Clone classifies quote replies by target reachability; understood-but-untransferable degrades and reports instead of wedging | accepted |
 | [0037](ADR-0037-clone-quote-fallback-seam.md) | Split clone quote fallback rendering (`quote_fallback.py`) from the async resolver (`quotes.py`) | accepted |
+| [0038](ADR-0038-versioned-releases-changelog.md) | Tagged patch release per feature; minor is an owner-declared milestone; `CHANGELOG.md` section + bump land with the feature | accepted |
+| [0039](ADR-0039-message-drafts.md) | `tg draft set\|show\|clear\|list`: set/clear under preview→commit with `old_text`, reads in the registry, own JSON object | accepted |
 
 Notes on supersessions:
 
