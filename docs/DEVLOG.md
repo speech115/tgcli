@@ -17,6 +17,24 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Ship 1.1.0 + 1.1.1, tag the release stack (Claude Opus 4.8)
+**Did:** owner declared the milestone, so finished the Codex-prepared release
+stack. Merged `claude/release-1.1.0` (#36 → main, merge `ccb690d`), the stacked
+`claude/drafts` (#37, retargeted to main, merge `c24d857`), and the independent
+`claude/wacli-review` (#35, resolving one DEVLOG top-of-log conflict by keeping
+both workstreams). Tagged `v1.1.0` on `ccb690d` and `v1.1.1` on `c24d857` from
+their merge commits and pushed both. This commit drops the `(pending tag)`
+markers now that the tags exist and repoints the CHANGELOG compare links at the
+tags.
+**Decided:** tags live on the first-parent merge commits so `v1.1.0` is the
+release without drafts and `v1.1.1` is release + drafts; the CHANGELOG must not
+keep a `(pending tag)` marker after the tag is real.
+**Learned:** a stacked feature branch rebased onto its base merges into main
+conflict-free because it already contains the base's doc entries; only the
+independent branch collides on the append-newest-first DEVLOG head.
+**Next:** none required — 1.1.x is shipped and tagged. Future work stays behind
+the ADR-0026 gate (MSG-001 / FEED-001 / ACCOUNTS-001).
+
 ## 2026-07-23 — Repair the wacli review branch (Codex)
 **Did:** corrected the reviewed branch's five factual/design defects: gap
 recovery no longer claims `read --after-id` can reconstruct old edits or
