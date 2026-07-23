@@ -11,7 +11,7 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
-## [1.1.1] — 2026-07-23 (pending tag)
+## [1.1.1] — 2026-07-23
 
 ### Added
 
@@ -21,7 +21,7 @@ lives in [docs/DEVLOG.md](docs/DEVLOG.md).
   race remains explicit. `show`/`list` are typed read ops (batch + readonly).
   Own draft JSON object, not a message shape. No `draft send` (ADR-0039).
 
-## [1.1.0] — 2026-07-23 (pending tag)
+## [1.1.0] — 2026-07-23
 
 Agent-correspondence release: everything an agent needs to read a dialog
 precisely, act on single messages, and pull data out in bulk. All changes are
@@ -82,5 +82,6 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
-[1.1.0]: https://github.com/speech115/tgcli/compare/v1.0.0...claude/release-1.1.0
+[1.1.1]: https://github.com/speech115/tgcli/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/speech115/tgcli/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/speech115/tgcli/releases/tag/v1.0.0
