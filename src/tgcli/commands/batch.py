@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 from telethon import errors as telethon_errors
@@ -37,9 +38,21 @@ ALLOWED_OPS = frozenset(
 )
 
 
+def _parse_when(value: Any, field: str) -> datetime | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise PolicyError(f"batch {field} must be an ISO 8601 string")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise PolicyError(f"batch {field} must be an ISO 8601 string") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed
+
+
 def parse_ops(raw_lines: list[str]) -> list[dict[str, Any]]:
-    if len(raw_lines) > BATCH_OP_CAP:
-        raise PolicyError(f"tg batch accepts at most {BATCH_OP_CAP} ops per invocation")
     ops: list[dict[str, Any]] = []
     for index, line in enumerate(raw_lines, start=1):
         text = line.strip()
@@ -78,8 +91,8 @@ async def _dispatch(tg, payload: dict[str, Any]) -> dict[str, Any]:
             limit=int(payload.get("limit", 20)),
             after_id=payload.get("after_id"),
             before_id=payload.get("before_id"),
-            since=payload.get("since"),
-            until=payload.get("until"),
+            since=_parse_when(payload.get("since"), "read.since"),
+            until=_parse_when(payload.get("until"), "read.until"),
             topic=payload.get("topic"),
         )
     if op == "search":
@@ -93,7 +106,7 @@ async def _dispatch(tg, payload: dict[str, Any]) -> dict[str, Any]:
             payload["query"],
             limit=int(payload.get("limit", 20)),
             from_user=payload.get("from"),
-            since=payload.get("since"),
+            since=_parse_when(payload.get("since"), "search.since"),
         )
     if op == "latest":
         return await search_cmd.fetch_latest(tg, payload["chat"])
@@ -125,7 +138,7 @@ async def _dispatch(tg, payload: dict[str, Any]) -> dict[str, Any]:
             tg,
             payload["source"],
             kind=payload.get("type"),
-            since=payload.get("since"),
+            since=_parse_when(payload.get("since"), "media.manifest.since"),
             limit=int(payload.get("limit", 100)),
         )
     if op == "thread":
@@ -191,16 +204,7 @@ async def run_batch(
                 }
             )
             if first_exit is None:
-                first_exit = 1
+                first_exit = TgcliError.exit_code
             if fail_fast:
                 break
     return results, first_exit
-
-
-def emit_results(results: list[dict[str, Any]]) -> None:
-    """Write batch JSONL to stdout (contract data only)."""
-    import sys
-
-    for item in results:
-        sys.stdout.write(json.dumps(item, ensure_ascii=False) + "\n")
-    sys.stdout.flush()

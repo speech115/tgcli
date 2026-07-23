@@ -1,6 +1,7 @@
 from tgcli.errors import (
     ConfigError,
     NotFoundError,
+    PartialFailure,
     PolicyError,
     RateLimitError,
     TgcliError,
@@ -20,3 +21,13 @@ def test_error_carries_code_and_details():
     assert err.code == "FLOOD_WAIT"
     assert err.details == {"retry_after": 42}
     assert str(err) == "flood"
+
+
+def test_partial_failure_inherits_exit_code_from_typed_cause():
+    err = PartialFailure(
+        "partial",
+        {"items": [], "failed": [{"message_id": 1}]},
+        cause=RateLimitError("flood", retry_after=42),
+    )
+
+    assert err.exit_code == 5

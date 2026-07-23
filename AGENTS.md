@@ -44,6 +44,10 @@ The project is feature-complete and in production use. Default posture:
 
 - TDD: failing test → minimal code → green → commit. No production code
   without a test that demanded it.
+- Test behavior at public seams. CLI work is verified through arguments,
+  stdout/stderr, JSON, and exit codes. A new or changed Telegram RPC also
+  needs a boundary test that asserts the exact Telethon request and input
+  types; permissive fakes are not proof that Telegram will accept a request.
 - YAGNI aggressively. This project replaces a 200k-LOC stack; the whole
   point is staying small. New abstraction needs an ADR.
 - Stateless: no background processes, no state outside
@@ -52,19 +56,44 @@ The project is feature-complete and in production use. Default posture:
 - stdout is sacred: only contract data. Debug/progress/warnings → stderr.
 - Never commit: `.env`, `*.session`, audit logs, downloaded media,
   anything under `~/.local/state/tgcli/`.
-- Run `pytest -q`, `ruff check .`, `ruff format --check .`, and `pyright`
-  before every commit (CI enforces all four — ADR-0027). Quote real output
-  in PRs, never "tests pass".
+- Run `uv run pytest -q`, `uv run ruff check .`,
+  `uv run ruff format --check .`, `uv run pyright`, and
+  `uv run python scripts/check-coverage.py` before every commit. Quote real
+  output in PRs, never "tests pass".
+
+## Implementation and Review Workflow
+
+- Keep a PR to one coherent slice, or two tightly coupled slices. Unrelated
+  onboarding, tooling, cleanup, and product behavior belong in separate PRs.
+- The implementation agent owns the red → green loop and the focused tests.
+  Green focused tests or green CI are necessary, not sufficient evidence that
+  the PR is ready.
+- Before merge, perform an independent whole-diff review from the merge-base.
+  Prefer a different agent or a fresh review context; the implementation
+  agent must not be the only final reviewer of its own work.
+- Review on two axes:
+  1. **Spec:** every ADR/plan/CONTRACT requirement is implemented, and no
+     unapproved behavior was added.
+  2. **Standards:** AGENTS, module ownership, stdout, exit-code, safety,
+     audit, documentation, and code-smell rules are respected.
+- Adversarial review is mandatory for CLI boundaries: invalid and combined
+  flags, empty input, caps, ISO date coercion, partial failures, readonly
+  gates, audit timing, and exact external-library types where applicable.
+- Every confirmed review defect starts with a permanent reproducing test,
+  then the minimal fix. Rerun the full gate after all review fixes; do not
+  present focused checks as final proof.
+- If mocked tests cannot prove external behavior, add a safe live smoke.
+  Telegram mutations remain owner-gated and must never be inferred from a
+  review or verification request.
 
 ## Git
 
 - Branch: `claude/<topic>` or `codex/<topic>`.
 - Commit: single-line imperative summary (`Add dialogs command`).
-- After a requested slice/task is green (`pytest -q`, `ruff check .`,
-  `ruff format --check .`, `pyright`) and docs are updated, **commit and
-  push the feature branch** in the same turn — do not wait for a separate
-  "commit" / "push" ask. Still never push to `main` without an explicit
-  current-session request.
+- After a requested slice/task passes the full gate and docs are updated,
+  **commit and push the feature branch** in the same turn — do not wait for
+  a separate "commit" / "push" ask. Still never push to `main` without an
+  explicit current-session request.
 - Never push to `main` without an explicit current-session request.
 
 ## Language

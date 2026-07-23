@@ -1,11 +1,15 @@
 import json
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 import pytest
+from telethon import errors as telethon_errors
 
 from tests.conftest import FakeClient, make_session_fake, ns
+from tests.test_cli_media import _media_message
 from tgcli import cli
 from tgcli.cli import main
-from tgcli.errors import NotFoundError
+from tgcli.errors import ConfigError, NotFoundError
 
 
 SAMPLE = """
@@ -121,3 +125,150 @@ def test_media_download_rejects_over_100_ids(config_env, monkeypatch):
 def test_media_download_rejects_message_id_with_bulk_flags(config_env, monkeypatch):
     make_session_fake(monkeypatch, FakeClient())
     assert main(["media", "download", "@chan", "42", "--message-ids", "1,2"]) == 2
+
+
+def test_media_download_message_ids_combine_with_filters_and_limit(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    messages = {
+        10: _media_message(10, "photo", date=datetime(2026, 7, 22, tzinfo=UTC)),
+        11: _media_message(11, "video", date=datetime(2026, 7, 18, tzinfo=UTC)),
+        12: _media_message(12, "video", date=datetime(2026, 7, 22, tzinfo=UTC)),
+        13: _media_message(13, "video", date=datetime(2026, 7, 23, tzinfo=UTC)),
+    }
+    make_session_fake(
+        monkeypatch,
+        FakeClient(
+            messages=list(messages.values()),
+            entities={"@chan": ns(id=5, title="C")},
+        ),
+    )
+    downloaded = []
+
+    async def fake_download(tg, source, account_alias, **kwargs):
+        downloaded.append(source.message_id)
+        path = tmp_path / f"{source.message_id}.bin"
+        path.write_bytes(b"x")
+        return {
+            "source": f"@chan:{source.message_id}",
+            "path": str(path),
+            "bytes": 1,
+            "resumed": False,
+            "parallel": 1,
+        }
+
+    monkeypatch.setattr(cli.media_cmd, "download_media", fake_download)
+
+    assert (
+        main(
+            [
+                "--json",
+                "media",
+                "download",
+                "@chan",
+                "--message-ids",
+                "10,11,12,13",
+                "--type",
+                "video",
+                "--since",
+                "2026-07-20T00:00:00+00:00",
+                "--limit",
+                "1",
+                "--output",
+                str(tmp_path),
+            ]
+        )
+        == 0
+    )
+    data = json.loads(capsys.readouterr().out)
+    assert downloaded == [12]
+    assert [item["message_id"] for item in data["items"]] == [12]
+
+
+def test_media_download_type_filter_skips_text_only_explicit_id(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    text = _media_message(10, "photo", date=datetime(2026, 7, 22, tzinfo=UTC))
+    text.media = None
+    text.file = None
+    video = _media_message(11, "video", date=datetime(2026, 7, 22, tzinfo=UTC))
+    client = FakeClient(
+        messages=[text, video],
+        entities={"@chan": ns(id=5, title="C")},
+    )
+    make_session_fake(monkeypatch, client)
+
+    async def fake_download(tg, source, account_alias, **kwargs):
+        path = tmp_path / f"{source.message_id}.bin"
+        path.write_bytes(b"x")
+        return {
+            "source": f"@chan:{source.message_id}",
+            "path": str(path),
+            "bytes": 1,
+            "resumed": False,
+            "parallel": 1,
+        }
+
+    monkeypatch.setattr(cli.media_cmd, "download_media", fake_download)
+
+    assert (
+        main(
+            [
+                "--json",
+                "media",
+                "download",
+                "@chan",
+                "--message-ids",
+                "10,11",
+                "--type",
+                "video",
+                "--output",
+                str(tmp_path),
+            ]
+        )
+        == 0
+    )
+    data = json.loads(capsys.readouterr().out)
+    assert data["failed"] == []
+    assert [item["message_id"] for item in data["items"]] == [11]
+
+
+def test_media_download_session_revoked_keeps_auth_exit_code(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    client = FakeClient(entities={"@chan": ns(id=5, title="C")})
+
+    @asynccontextmanager
+    async def fake_session(account, *, mutation_safe=False):
+        try:
+            yield client
+        except telethon_errors.SessionRevokedError as exc:
+            raise ConfigError("session needs reauthentication") from exc
+
+    async def fake_resolve(tg, source, account_alias):
+        return ns(id=5), _media_message(source.message_id, "video")
+
+    async def revoked_download(tg, source, account_alias, **kwargs):
+        raise telethon_errors.SessionRevokedError(request=None)
+
+    monkeypatch.setattr(cli.session, "client", fake_session)
+    monkeypatch.setattr(cli.media_cmd, "resolve_message", fake_resolve)
+    monkeypatch.setattr(cli.media_cmd, "download_media", revoked_download)
+
+    assert (
+        main(
+            [
+                "--json",
+                "media",
+                "download",
+                "@chan",
+                "--message-ids",
+                "10",
+                "--output",
+                str(tmp_path),
+            ]
+        )
+        == 3
+    )
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"]["code"] == "CONFIG"

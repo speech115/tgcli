@@ -1,5 +1,6 @@
 """Shared client-side throttle for contacts.resolvePhone."""
 
+import fcntl
 import math
 import time
 from pathlib import Path
@@ -16,6 +17,10 @@ def _cooldown_path() -> Path:
     return state_dir() / "resolve-phone.cooldown"
 
 
+def _cooldown_lock_path() -> Path:
+    return state_dir() / "resolve-phone.cooldown.lock"
+
+
 def enforce_resolve_phone_cooldown(*, now: float | None = None) -> None:
     """Raise RateLimitError if another resolvePhone ran too recently.
 
@@ -25,16 +30,18 @@ def enforce_resolve_phone_cooldown(*, now: float | None = None) -> None:
     moment = time.time() if now is None else now
     path = _cooldown_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        try:
-            last = float(path.read_text().strip())
-        except (OSError, ValueError):
-            last = 0.0
-        wait = RESOLVE_PHONE_COOLDOWN_S - (moment - last)
-        if wait > 0:
-            retry_after = max(1, math.ceil(wait))
-            raise RateLimitError(
-                f"contacts.resolvePhone cooldown: retry after {retry_after}s",
-                retry_after=retry_after,
-            )
-    path.write_text(f"{moment}\n")
+    with _cooldown_lock_path().open("a+") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        if path.exists():
+            try:
+                last = float(path.read_text().strip())
+            except (OSError, ValueError):
+                last = 0.0
+            wait = RESOLVE_PHONE_COOLDOWN_S - (moment - last)
+            if wait > 0:
+                retry_after = max(1, math.ceil(wait))
+                raise RateLimitError(
+                    f"contacts.resolvePhone cooldown: retry after {retry_after}s",
+                    retry_after=retry_after,
+                )
+        path.write_text(f"{moment}\n")

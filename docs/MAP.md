@@ -64,7 +64,7 @@ tgcli/
 │   │   ├── mutate.py          [done]    tg edit|delete|forward preview / commit; tg mark-read|mark-unread (ADR-0028/0029)
 │   │   ├── doctor.py          [done]    tg doctor environment/session health report (ADR-0028)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
-│   │   ├── export.py          [done]    tg export messages|subscribers (phase 5; ADR-0031 broadcast walk)
+│   │   ├── export.py          [done]    tg export messages|subscribers (+ incremental messages ADR-0032; broadcast walk ADR-0031)
 │   │   └── clone.py           [done]    clone status/init/sync surface (ADR-0017…0025; all live gates passed)
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)

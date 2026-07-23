@@ -39,7 +39,8 @@ class PartialFailure(TgcliError):
 
     code = "PARTIAL"
 
-    def __init__(self, message: str, data: dict, *, exit_code: int = 1):
+    def __init__(self, message: str, data: dict, *, cause: TgcliError):
         super().__init__(message)
         self.data = data
-        self.exit_code = exit_code
+        self.cause = cause
+        self.exit_code = cause.exit_code

@@ -314,6 +314,46 @@ def test_export_broadcast_rejects_limit_above_page(
     assert fake.call_requests == []
 
 
+def test_export_broadcast_propagates_member_total_flood_wait(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    from telethon.tl import functions
+
+    class FloodClient(FakeClient):
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, functions.channels.GetFullChannelRequest):
+                raise telethon_errors.FloodWaitError(request=request, capture=17)
+            return await super().__call__(request)
+
+    entity = ns(id=-1001234, title="Channel", broadcast=True)
+    fake = FloodClient(
+        entities={"@chan": entity},
+        participant_search={"": []},
+    )
+    make_session_fake(monkeypatch, fake)
+    destination = tmp_path / "subscribers.csv"
+
+    assert (
+        main(
+            [
+                "--json",
+                "export",
+                "subscribers",
+                "@chan",
+                "--output",
+                str(destination),
+            ]
+        )
+        == 5
+    )
+    assert json.loads(capsys.readouterr().err)["error"]["retry_after"] == 17
+    assert not any(
+        isinstance(request, functions.channels.GetParticipantsRequest)
+        for request in fake.call_requests
+    )
+
+
 def test_export_subscribers_neutralizes_formula_cells(
     config_env, monkeypatch, tmp_path
 ):

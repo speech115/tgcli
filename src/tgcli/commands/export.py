@@ -5,6 +5,8 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
+from telethon import errors as telethon_errors
+
 from tgcli import chatref
 from tgcli.commands.read import _dialog_name, message_to_dict
 from tgcli.errors import ExportError, NotFoundError
@@ -193,6 +195,8 @@ async def _channel_member_total(tg, entity) -> int | None:
     try:
         full = await tg(functions.channels.GetFullChannelRequest(entity))
         return full.full_chat.participants_count
+    except telethon_errors.FloodWaitError:
+        raise
     except Exception:
         return None
 
