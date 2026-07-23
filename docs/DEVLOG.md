@@ -13,6 +13,14 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Slice 2: dialog archive and mute (Composer)
+**Did:** ADR-0032 slice 2 — `dialog archive|unarchive|mute|unmute`. Mute
+requires `--until` or `--forever` (exit 2 otherwise). Same pin-style
+gate/audit, no preview. CONTRACT/SKILL/PROPOSALS/MAP updated.
+**Decided:** forever = `mute_until = 2**31-1`; unmute = `0`.
+**Learned:** none.
+**Next:** Slice 3 — incremental export messages.
+
 ## 2026-07-23 — Slice 1: tg mutual-chats (Composer)
 **Did:** ADR-0032 slice 1 — `tg mutual-chats <user>` over
 `messages.GetCommonChatsRequest` (limit 100). Returns `{peer, chats, count}`;

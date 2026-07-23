@@ -414,6 +414,26 @@ tg dialog unpin CHAT
 Plain rows are `dialog_id`, `pinned|unpinned`.
 
 ```
+tg dialog archive CHAT
+tg dialog unarchive CHAT
+tg dialog mute CHAT (--until ISO8601 | --forever)
+tg dialog unmute CHAT
+```
+
+`dialog archive` / `unarchive` / `mute` / `unmute` follow the same direct
+gating and audit timing as pin (ADR-0032): no preview. Archive moves the
+dialog into Telegram folder id `1`; unarchive restores folder id `0`. Mute
+requires exactly one of `--until <ISO8601>` or `--forever` (omitting both is
+exit 2 `BLOCKED`; both together is also exit 2). Forever uses Telegram's
+`mute_until = 2**31-1`; `--until` is parsed as ISO 8601 (naive values are
+UTC). Unmute sets `mute_until = 0`. Success JSON:
+`{"dialog":{"id":…},"archived":true|false}` or
+`{"dialog":{"id":…},"muted":true|false,"until":null|<ISO>}` (`until` is
+null for forever mute and for unmute). Audit verbs: `dialog-archive`,
+`dialog-unarchive`, `dialog-mute`, `dialog-unmute`. Plain rows:
+`dialog_id`, `archived|unarchived` or `muted-forever|muted-until:<ISO>|unmuted`.
+
+```
 tg thread CHAT MESSAGE_ID [--replies] [--depth N] [--limit N]
 ```
 

@@ -69,6 +69,8 @@ selected account session, does one operation, and exits.
 | Mark a dialog read | `tg --json mark-read @channel` |
 | Mark a dialog unread | `tg --json mark-unread @channel` |
 | Pin / unpin a dialog | `tg --json dialog pin @channel` / `tg --json dialog unpin @channel` |
+| Archive / unarchive a dialog | `tg --json dialog archive @channel` / `tg --json dialog unarchive @channel` |
+| Mute / unmute a dialog | `tg --json dialog mute @channel --until ISO` / `--forever` / `unmute` |
 | Check local health | `tg --json doctor` |
 | Export messages | `tg --json export messages @channel --output messages.jsonl` |
 | Export subscribers | `tg --json export subscribers @channel --output subscribers.csv` |

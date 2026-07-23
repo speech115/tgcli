@@ -195,6 +195,8 @@ class FakeClient:
             (
                 functions.messages.MarkDialogUnreadRequest,
                 functions.messages.ToggleDialogPinRequest,
+                functions.folders.EditPeerFoldersRequest,
+                functions.account.UpdateNotifySettingsRequest,
             ),
         ):
             return True

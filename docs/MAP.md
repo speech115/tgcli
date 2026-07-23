@@ -56,7 +56,7 @@ tgcli/
 │   │   ├── search.py          [done]    tg search / latest / message (phase 2)
 │   │   ├── info.py            [done]    tg info / count (phase 2)
 │   │   ├── identity.py        [done]    tg resolve / contacts / mutual-chats (ADR-0029/0032)
-│   │   ├── dialog.py          [done]    tg dialog pin/unpin (inbox state; ADR-0029)
+│   │   ├── dialog.py          [done]    tg dialog pin/unpin/archive/mute (ADR-0029/0032)
 │   │   ├── thread.py          [done]    tg thread reply-chain read (ADR-0029)
 │   │   ├── media.py           [done]    tg media download|manifest (phase 3; ADR-0029)
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)

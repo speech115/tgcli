@@ -305,6 +305,30 @@ def build_parser() -> argparse.ArgumentParser:
         "unpin", help="Unpin a dialog", parents=[global_flags]
     )
     p_dialog_unpin.add_argument("chat")
+    p_dialog_archive = dialog_sub.add_parser(
+        "archive", help="Archive a dialog", parents=[global_flags]
+    )
+    p_dialog_archive.add_argument("chat")
+    p_dialog_unarchive = dialog_sub.add_parser(
+        "unarchive", help="Unarchive a dialog", parents=[global_flags]
+    )
+    p_dialog_unarchive.add_argument("chat")
+    p_dialog_mute = dialog_sub.add_parser(
+        "mute", help="Mute a dialog", parents=[global_flags]
+    )
+    p_dialog_mute.add_argument("chat")
+    p_dialog_mute.add_argument(
+        "--until", help="unmute at this ISO 8601 timestamp (UTC if naive)"
+    )
+    p_dialog_mute.add_argument(
+        "--forever",
+        action="store_true",
+        help="mute indefinitely (explicit; omit is not forever)",
+    )
+    p_dialog_unmute = dialog_sub.add_parser(
+        "unmute", help="Unmute a dialog", parents=[global_flags]
+    )
+    p_dialog_unmute.add_argument("chat")
 
     p_api = sub.add_parser(
         "api", help="Call an allowlisted raw TL method", parents=[global_flags]
@@ -526,9 +550,27 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                 data = await mutate_cmd.mark_unread(tg, args.chat)
                 return data, mutate_cmd.to_rows(data)
             if args.command == "dialog":
-                data = await dialog_cmd.set_pinned(
-                    tg, args.chat, pinned=args.dialog_command == "pin"
-                )
+                cmd = args.dialog_command
+                if cmd in ("pin", "unpin"):
+                    data = await dialog_cmd.set_pinned(
+                        tg, args.chat, pinned=cmd == "pin"
+                    )
+                elif cmd in ("archive", "unarchive"):
+                    data = await dialog_cmd.set_archived(
+                        tg, args.chat, archived=cmd == "archive"
+                    )
+                elif cmd == "mute":
+                    data = await dialog_cmd.set_muted(
+                        tg,
+                        args.chat,
+                        muted=True,
+                        until=getattr(args, "until", None),
+                        forever=bool(getattr(args, "forever", False)),
+                    )
+                elif cmd == "unmute":
+                    data = await dialog_cmd.set_muted(tg, args.chat, muted=False)
+                else:
+                    raise AssertionError(f"unhandled dialog command: {cmd}")
                 return data, dialog_cmd.to_rows(data)
             if args.command == "api":
                 return await api_cmd.call(tg, args.method, args.params), []

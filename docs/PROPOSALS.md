@@ -112,8 +112,8 @@ this is about the *export/download* side.
 
 | Item | Value | Effort | Status |
 |---|---|---|---|
-| `tg dialog archive/unarchive` | med | S | missing (`folders.editPeerFolders`) |
-| `tg dialog mute/unmute [--until]` | med | S | missing (`updateNotifySettings`) |
+| `tg dialog archive/unarchive` | med | S | **shipped** (ADR-0032 slice 2) |
+| `tg dialog mute/unmute [--until]` | med | S | **shipped** (ADR-0032 slice 2; mute requires `--until` or `--forever`) |
 | `tg dialog pin/unpin` | med | XS | **shipped** (ADR-0029 slice 2) |
 | `tg dialog mark-unread` | med | XS | **shipped** as top-level `tg mark-unread` (ADR-0029 slice 2) |
 
