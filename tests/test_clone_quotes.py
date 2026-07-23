@@ -267,13 +267,14 @@ def test_forbidden_peer_title_comes_from_the_enclosing_history_response():
         ]
     )
 
+    head = f"{quotes.FALLBACK_SOURCE_LABEL} Свободный Капиталюга\n"
     assert resolved.body_prefix is not None
-    assert resolved.body_prefix.startswith("Свободный Капиталюга\n")
+    assert resolved.body_prefix.startswith(head)
     assert "id 2275285084" not in resolved.body_prefix
-    # The blockquote still covers exactly the quote, not the title line.
+    # The blockquote still covers exactly the quote, not the label line.
     (blockquote,) = resolved.body_prefix_entities
     assert isinstance(blockquote, types.MessageEntityBlockquote)
-    assert blockquote.offset == attribution.utf16_len("Свободный Капиталюга\n")
+    assert blockquote.offset == attribution.utf16_len(head)
     assert blockquote.length == attribution.utf16_len("foreign quote")
     # Titles are cached per run: a second resolve must not re-request history.
     asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
@@ -290,14 +291,18 @@ def test_forbidden_peer_title_ignores_a_chat_whose_id_merely_contains_the_peer()
     )
 
     assert resolved.body_prefix is not None
-    assert resolved.body_prefix.startswith("id 2275285084\n")
+    assert resolved.body_prefix.startswith(
+        f"{quotes.FALLBACK_SOURCE_LABEL} id 2275285084\n"
+    )
 
 
 def test_forbidden_peer_without_a_title_keeps_the_bare_id():
     resolved, _client, _ = _forbidden_fallback([])
 
     assert resolved.body_prefix is not None
-    assert resolved.body_prefix.startswith("id 2275285084\n")
+    assert resolved.body_prefix.startswith(
+        f"{quotes.FALLBACK_SOURCE_LABEL} id 2275285084\n"
+    )
 
 
 def test_reachable_then_rejected_degrades_to_fallback():

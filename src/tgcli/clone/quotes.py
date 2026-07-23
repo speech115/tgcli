@@ -76,10 +76,15 @@ def _reuploaded(plan: transport.TransportPlan) -> transport.TransportPlan:
     )
 
 
+# Source label for a quote that could not stay a native reply. Russian, to
+# match the clones this tool actually runs; one place to change.
+FALLBACK_SOURCE_LABEL = "Переслано от:"
+
+
 def fallback_prefix(title: str, quote_text: str | None) -> tuple[str, tuple]:
-    """Peer title line, then the quote as a blockquote, then a blank line."""
+    """Labelled peer line, the quote as a blockquote, then a blank line."""
     quote = quote_text or ""
-    head = f"{title}\n"
+    head = f"{FALLBACK_SOURCE_LABEL} {title}\n"
     prefix = f"{head}{quote}\n\n"
     entities: tuple = ()
     if quote:

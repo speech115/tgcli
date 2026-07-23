@@ -20,7 +20,7 @@ CEILINGS = {
     "src/tgcli/read_ops.py": 413,
     "src/tgcli/commands/clone.py": 910,
     "src/tgcli/clone/state.py": 287,
-    "src/tgcli/clone/quotes.py": 450,
+    "src/tgcli/clone/quotes.py": 460,
 }
 
 # Modules that must reach read commands only through the read_ops seam
