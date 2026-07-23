@@ -12,8 +12,8 @@ from pathlib import Path
 
 
 CEILINGS = {
-    "src/tgcli/cli.py": 236,
-    "src/tgcli/parser.py": 401,
+    "src/tgcli/cli.py": 241,
+    "src/tgcli/parser.py": 407,
     "src/tgcli/preflight.py": 203,
     "src/tgcli/dispatch.py": 245,
     "src/tgcli/commands/batch.py": 96,

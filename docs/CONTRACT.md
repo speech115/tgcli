@@ -9,6 +9,10 @@ Any change here lands in the same commit as the code change (AGENTS.md).
 tg [global-flags] <command> [subcommand] [args] [options]
 ```
 
+Commands include offline local-state helpers (`store`, `clone status`,
+`accounts import`) that need no config or Telegram session, plus the usual
+account-scoped surface (`doctor`, reads, mutations, …).
+
 Global flags (available on every command):
 
 | Flag | Meaning |
@@ -555,6 +559,30 @@ Each stdout line is `{"ok":true,"op":"…","data":{…}}` or
 `{"ok":false,"op":"…","error":{"code":"…","message":"…"}}`. Process exit is
 **0 only if every op succeeded**; otherwise the first failure's exit code
 (full JSONL still written unless `--fail-fast` stops after the first error).
+
+## 5.05 Local State (`tg store`; ADR-0040)
+
+```
+tg store stats
+```
+
+Offline inventory of `TGCLI_STATE_DIR` (default `~/.local/state/tgcli/`).
+No config and no Telegram session. `--json` emits:
+
+```json
+{"previews":{"live":{"count":2,"bytes":120},"expired":{"count":1,"bytes":40},
+ "spent":{"count":3,"bytes":90},"pending":{"count":1,"bytes":30}},
+ "audit_log":{"bytes":20},"invocations":{"bytes":0},
+ "sessions":{"count":1,"bytes":4096},"clones":{"bytes":0},"downloads":{"bytes":0},
+ "relics":[{"name":"labs","bytes":11}]}
+```
+
+Preview buckets are classified from each file's stored `expires_at` (not mtime):
+`live` = `.json` within TTL, `expired` = `.json` past TTL, `spent` = `.used`,
+`pending` = `.pending`. Relic directories (`mirrors`, `mirror-lab`, `labs`,
+`probes`) are reported when present and never auto-deleted.
+
+`--plain` columns: `category`, `count` (nullable for size-only rows), `bytes`.
 
 ## 5.1 Environment Health (`tg doctor`; ADR-0028)
 

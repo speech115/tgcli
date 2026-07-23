@@ -56,6 +56,12 @@ def build_parser() -> argparse.ArgumentParser:
         "doctor", help="Check environment and session health", parents=[global_flags]
     )
 
+    p_store = sub.add_parser(
+        "store", help="Inspect and clean local state", parents=[global_flags]
+    )
+    store_sub = p_store.add_subparsers(dest="store_command", required=True)
+    store_sub.add_parser("stats", help="Inventory local state", parents=[global_flags])
+
     p_read = sub.add_parser(
         "read", help="Read recent messages from a dialog", parents=[global_flags]
     )
