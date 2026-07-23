@@ -76,8 +76,26 @@ needs a client, which is why it cannot live in `replies.py`.
   both legs run (ADR-0036 §6), and fold `_remap`'s thread-root rewrite into it
   rather than leaving two anchor walks.
 - Tests: resolver unit tests with a faked client for each of mapped-same-leg,
-  mapped-cross-leg, reachable, unreachable, and reachable-then-rejected;
-  entity-offset assertions on the rendered fallback.
+  mapped-cross-leg, reachable, unreachable, and reachable-then-rejected.
+
+Two traps in this slice fail quietly, so both get a named test rather than a
+review pass.
+
+**Entity offsets are UTF-16, not characters.** Prefixing shifts every entity in
+the author's text, and Python string length is the wrong unit. A test written
+over ASCII passes while real messages skew. Use source 2374's actual quote,
+which contains 😴 — a surrogate pair — and assert exact offsets against a
+message carrying an entity after the prefix. `clone/attribution.py` already has
+the correct helper; the failure mode is reimplementing it rather than calling
+it.
+
+**Two id maps sit next to each other.** `id_map` and `discussion_id_map` both
+answer `dest_for` and both hold plausible ids, so resolving a target against
+the wrong one yields a reply that points at a real but unrelated message and
+looks correct in every output. Source 2374 is the live proof: its
+`reply_to_msg_id` 1244 addresses a third channel, while the discussion group
+has its own unrelated 1244. Assert that 2374 resolves to a fallback and never
+to a mapped destination.
 
 ## Slice 3 — report the degradation
 
@@ -105,11 +123,28 @@ needs a client, which is why it cannot live in `replies.py`.
 
 ## Live verification
 
-Read-only first: `tg clone status` on the wedged clone. Then one real
-`tg clone sync` against the live clone, which must copy source 2374 with a
-rendered fallback, 2378 with a native quote pointed at destination 773, and the
-remaining backlog through source 2394 — then exit nonzero with exactly one
-`quote_flattened` row. Confirm placement by reading the destination thread.
+**Stop here and get the owner's review before any Telegram mutation.** Slices 0
+through 4 land, gates pass, and the branch waits. What follows writes into a
+real channel under an account with Telegram rate limits, and it does not
+unwind: a sent message advances the cursor and enters the id map, so deleting
+it afterwards leaves the state describing a message that no longer exists.
+
+1. Copy the clone's state file aside first —
+   `~/.local/state/tgcli/clones/4fa28c42….json` — as the repo has done before
+   (`*.pre-repair-*.bak`). It is the only way back from a bad run.
+2. Read-only: `tg clone status`.
+3. `tg clone sync --limit 1` and stop. This copies source 2374 alone, which is
+   the fallback case. Read the destination thread by eye: peer title line,
+   quote as a blockquote, author's text unmodified, correct thread placement,
+   no attached photo. Confirm the run exited nonzero with exactly one
+   `quote_flattened` row.
+4. Only then run without `--limit` to take 2378 natively — its quote must point
+   at destination 773, not at the source channel — and the rest of the backlog
+   through source 2394. Expect exit 0 from here on, since 2374 was the only
+   fallback.
+
+A FloodWait at any step persists the clone cooldown and exits 5; wait it out
+rather than retrying, and do not clear the cooldown by hand.
 
 Deliberately out of scope: no backfill of earlier `reply_flattened` losses
 (Telegram fixes `reply_to` at send time), no `reply_media` carriage, and no
