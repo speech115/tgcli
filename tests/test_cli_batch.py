@@ -189,10 +189,11 @@ def test_batch_maps_flood_wait_to_exit_5(config_env, monkeypatch, capsys):
     client = FakeClient(dialogs=[make_dialog()])
     make_session_fake(monkeypatch, client)
 
-    async def boom(*args, **kwargs):
+    async def boom():
         raise telethon_errors.FloodWaitError(request=None, capture=3)
+        yield
 
-    monkeypatch.setattr("tgcli.commands.batch.dialogs_cmd.fetch_dialogs", boom)
+    client.iter_dialogs = boom
     monkeypatch.setattr(
         "sys.stdin",
         type(

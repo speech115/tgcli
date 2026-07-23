@@ -13,6 +13,47 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Shared read-operation architecture deepening (Codex)
+**Did:** ran the scoped architecture-health survey over `cli.py`, clone
+workflows/state, related history, tests, and ADRs; wrote the self-contained
+before/after report to the OS temp directory; and selected the active
+interactive/batch read seam over a mechanical clone split. Published spec
+#23 and tracer tickets #24/#25. Added the closed typed `read_ops` module for
+all 13 shared reads, moved batch and interactive dispatch behind it, and added
+an exact-baseline/ownership architecture checker to CI. Permanent checker
+regressions cover absolute/direct-symbol/relative imports, mixed
+`media.manifest` dispatch, and unrecorded baseline shrinkage. Final full gate:
+672 passed, 8 skipped; Ruff check/format clean; Pyright 0 errors; architecture
+check passed; 23-namespace coverage passed.
+**Decided:** ADR-0034. Interactive argparse/process/output and batch
+JSONL/sequencing/error envelopes stay separate adapters; coercion and command
+selection live in one deep typed module. CONTRACT is unchanged because flags,
+JSON, TSV, exits, safety, and Telegram requests are unchanged.
+**Learned:** the strongest hotspot was not raw clone line count but duplicated
+knowledge across two currently changing adapters; the 2026-07-23 ISO fix was
+concrete evidence. Independent Spec + Standards review found ratchet bypasses
+through direct/relative imports and the mixed media module; four red
+regressions plus the relative-import regression now fail those paths closed.
+**Next:** publish the implementation PR, wait for green CI and mergeability,
+then merge without running Telegram mutations.
+
+## 2026-07-23 — Engineering skill flow setup (Codex)
+**Did:** configured the repository for the Matt Pocock engineering flows:
+GitHub Issues as the tracker, canonical triage-label routing, and single-context
+domain docs that preserve `docs/decisions/` as the only ADR directory. Added
+`docs/agents/`, ADR-0033, AGENTS/CLAUDE routing, and MAP/index entries; created the
+four missing GitHub labels (`needs-triage`, `needs-info`, `ready-for-agent`,
+`ready-for-human`; `wontfix` already existed). Full gate: 664 passed, 8
+skipped; Ruff check/format, Pyright, and 23-namespace coverage passed.
+**Decided:** `CONTEXT.md` remains lazy and should appear only when domain
+modeling produces durable vocabulary. Pull requests are implementation
+artifacts, not an incoming triage surface.
+**Learned:** the generic flow defaults use `docs/adr/`, which would duplicate
+tgcli's established `docs/decisions/`; repository-local routing must override
+that default explicitly.
+**Next:** hand off the line-budget evidence to a fresh architecture-health
+session and run the scoped deepening survey.
+
 ## 2026-07-23 — Retrospective PR fixes and review correction (Codex)
 **Did:** audited merged PRs 18, 20, and 21 from the last whole-branch review
 point; confirmed PR 19 never merged. Added regression coverage and minimal
