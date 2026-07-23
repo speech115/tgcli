@@ -132,7 +132,7 @@ def _reply_peer_matches_chat(peer, entity) -> bool:
     return False
 
 
-def _reply_to(message, entity=None):
+def _reply_to(message, entity=None) -> int | dict | None:
     msg_id = message.reply_to_msg_id
     if msg_id is None:
         return None

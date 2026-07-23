@@ -106,6 +106,48 @@ def test_album_reply_after_leading_item_is_rejected():
         replies.target([_msg(), _msg(header)], _posts(), SOURCE)
 
 
+def test_album_with_matching_foreign_peer_headers_classifies_once():
+    """Two items carrying the same foreign-peer header compare equal by value,
+    so the album is consistent rather than falsely rejected."""
+
+    def header():
+        return types.MessageReplyHeader(
+            reply_to_msg_id=5, reply_to_peer_id=types.PeerChannel(999)
+        )
+
+    classified = replies.target([_msg(header()), _msg(header())], _posts(), SOURCE)
+    assert classified.kind == "foreign-peer"
+
+
+def test_album_with_divergent_foreign_peers_is_rejected():
+    first = types.MessageReplyHeader(
+        reply_to_msg_id=5, reply_to_peer_id=types.PeerChannel(999)
+    )
+    second = types.MessageReplyHeader(
+        reply_to_msg_id=5, reply_to_peer_id=types.PeerChannel(1000)
+    )
+    with pytest.raises(PolicyError, match="inconsistent"):
+        replies.target([_msg(first), _msg(second)], _posts(), SOURCE)
+
+
+def test_cross_leg_target_not_yet_mapped_flattens():
+    """A comment quoting a source post that never mapped (deleted/unsupported)
+    flattens instead of pointing at a nonexistent destination."""
+    header = types.MessageReplyHeader(
+        reply_to_msg_id=789,
+        reply_to_peer_id=types.PeerChannel(2),
+        quote_text="quoted post",
+        reply_to_top_id=2377,
+    )
+    classified = replies.target(
+        [_msg(header)],
+        _discussion(discussion_id_map={2377: 901}),
+        DISCUSSION_SOURCE,
+    )
+    assert classified.kind == "flatten"
+    assert classified.parent_id == 789
+
+
 def test_source_2374_foreign_quote_classifies_as_foreign_peer():
     header = types.MessageReplyHeader(
         reply_to_msg_id=1244,
