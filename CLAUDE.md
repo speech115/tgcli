@@ -3,14 +3,32 @@
 Canonical contract: [AGENTS.md](AGENTS.md). Read it first, then
 [docs/MAP.md](docs/MAP.md) and the tail of [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## Agent skills
+
+### Issue tracker
+
+Work items live in GitHub Issues. See
+[docs/agents/issue-tracker.md](docs/agents/issue-tracker.md).
+
+### Triage labels
+
+The repository uses the five canonical engineering-flow labels. See
+[docs/agents/triage-labels.md](docs/agents/triage-labels.md).
+
+### Domain docs
+
+This is a single-context repository; `docs/decisions/` remains the only ADR
+directory. See [docs/agents/domain.md](docs/agents/domain.md).
+
 ## Language
 Respond in Russian. Code, commits, docs, CLI output stay in English.
 
 ## Quick Orientation
-- Master plan and current phase: [docs/PLAN.md](docs/PLAN.md)
+- Current scope and re-entry gates: [docs/ISSUES.md](docs/ISSUES.md)
+- Historical master plan: [docs/PLAN.md](docs/PLAN.md)
 - CLI output/exit-code contract: [docs/CONTRACT.md](docs/CONTRACT.md)
 - Decisions (ADR): [docs/decisions/](docs/decisions/)
-- Test command: `pytest -q` from repo root (uv-managed venv, see pyproject.toml)
+- Test command: `uv run pytest -q` from repo root
 
 ## Hard Rules
 - No daemons or background processes — this project exists because the

@@ -13,6 +13,23 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Engineering skill flow setup (Codex)
+**Did:** configured the repository for the Matt Pocock engineering flows:
+GitHub Issues as the tracker, canonical triage-label routing, and single-context
+domain docs that preserve `docs/decisions/` as the only ADR directory. Added
+`docs/agents/`, ADR-0033, CLAUDE routing, and MAP/index entries; created the
+four missing GitHub labels (`needs-triage`, `needs-info`, `ready-for-agent`,
+`ready-for-human`; `wontfix` already existed). Full gate: 664 passed, 8
+skipped; Ruff check/format, Pyright, and 23-namespace coverage passed.
+**Decided:** `CONTEXT.md` remains lazy and should appear only when domain
+modeling produces durable vocabulary. Pull requests are implementation
+artifacts, not an incoming triage surface.
+**Learned:** the generic flow defaults use `docs/adr/`, which would duplicate
+tgcli's established `docs/decisions/`; repository-local routing must override
+that default explicitly.
+**Next:** hand off the line-budget evidence to a fresh architecture-health
+session and run the scoped deepening survey.
+
 ## 2026-07-23 — Retrospective PR fixes and review correction (Codex)
 **Did:** audited merged PRs 18, 20, and 21 from the last whole-branch review
 point; confirmed PR 19 never merged. Added regression coverage and minimal
