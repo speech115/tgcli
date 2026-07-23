@@ -616,17 +616,21 @@ age is measured from each preview's stored `expires_at` (mtime fallback).
 
 With `--confirm`, `removed` is populated and `would_remove` is empty.
 
-## 5.1 Environment Health (`tg doctor`; ADR-0028)
+## 5.1 Environment Health (`tg doctor`; ADR-0028 / ADR-0040)
 
 ```
-tg doctor [--account ALIAS]
+tg doctor [--account ALIAS] [--connect]
 ```
 
-`doctor` is a read-only Telegram health report: without `--account`, it checks
-every configured account; with it, it checks only that account. It reports the
-session-file presence, whether the session lock can be acquired, whether the
-local preview state directory is writable, and whether Telegram authorizes the
-session. It does not mutate Telegram.
+`doctor` is a read-only health report: without `--account`, it checks every
+configured account; with it, it checks only that account. **By default it is
+offline** — config/session file presence, lock freeness, state writability,
+preview/audit permission tightness, and total state size — and does not open a
+Telegram client. Live authorization (`get_me`) runs only under `--connect`.
+
+When `--connect` is absent, `checks.authorized` is `null` (unknown), not
+`false`. Per-account `ok` reflects only local checks offline; with `--connect`,
+`ok` also requires `authorized: true`.
 
 The health checks make short-lived local probes: for an existing session they
 may create and acquire its `.lock` file, and they create then remove a
@@ -637,14 +641,17 @@ locked and creates no lock file. These probes do not mutate Telegram.
 
 ```json
 {"accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
-"checks":{"session_file":true,"lock_free":true,"state_writable":true,"authorized":true},
-"user":{"id":1,"username":"me","name":"Me"},"ok":true}],"ok":true}
+"checks":{"session_file":true,"lock_free":true,"state_writable":true,
+"preview_perms_ok":true,"audit_perms_ok":true,"state_size":4096,"authorized":null},
+"user":null,"ok":true}],"ok":true}
 ```
 
+With `--connect`, `authorized` is a boolean and `user` is populated on success.
 Any ordinary online exception, including a session/configuration failure, is
 represented as `checks.error`, with `authorized: false`, `user: null`, and
 `ok: false` for that account. `--plain` uses frozen columns: `alias`, `status`
-(`ok|fail`), `username`, `failures`.
+(`ok|fail|unknown`), `username`, `failures`. `unknown` means local checks
+passed and authorization was not probed.
 
 When `doctor` itself runs, it always exits 0; consult the top-level `ok` and
 per-account `ok` values for health failures. An invalid or unreadable config,

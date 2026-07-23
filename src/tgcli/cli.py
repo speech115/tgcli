@@ -148,9 +148,12 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
         data = accounts_cmd.list_accounts(config)
         return data, accounts_cmd.to_rows(data)
     if args.command == "doctor":
-        data = asyncio.run(
-            asyncio.wait_for(doctor_cmd.run(config, args.account), timeout=args.timeout)
-        )
+        connect = bool(getattr(args, "connect", False))
+        coro = doctor_cmd.run(config, args.account, connect=connect)
+        if connect:
+            data = asyncio.run(asyncio.wait_for(coro, timeout=args.timeout))
+        else:
+            data = asyncio.run(coro)
         return data, doctor_cmd.to_rows(data)
 
     account = resolve_account(config, args.account)

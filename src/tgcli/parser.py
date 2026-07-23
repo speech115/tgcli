@@ -60,8 +60,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_dialogs.add_argument("--unread-only", action="store_true")
     p_dialogs.add_argument("--kind", choices=["user", "group", "channel"])
 
-    sub.add_parser(
+    p_doctor = sub.add_parser(
         "doctor", help="Check environment and session health", parents=[global_flags]
+    )
+    p_doctor.add_argument(
+        "--connect",
+        action="store_true",
+        help="also probe Telegram authorization (live)",
     )
 
     p_store = sub.add_parser(

@@ -17,6 +17,20 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — ADR-0040 slice 2: offline-first `tg doctor` (Cursor)
+**Did:** executed plan Task 4. `tg doctor` is offline by default (session file,
+lock, state writability, preview/audit perms, `state_size`); live `authorized`
+probe only under `--connect`. Offline `authorized` is `null`; plain status
+`unknown`. CLI skips network timeout wrap when offline. CONTRACT §5.1 updated;
+patch 1.1.3. ACCOUNTS-001 companion: a broken session still gets a local
+diagnosis. Full gate green.
+**Decided:** `ok` from local checks only when offline; with `--connect`, `ok`
+also requires `authorized`. `state_size` is informational and never fails `ok`.
+**Learned:** pre-existing `_writable` lacked an explicit `return True` after
+the probe (implicit `None`); restored while touching the module.
+**Next:** owner tags 1.1.2 / 1.1.3; independent Spec+Standards review of the
+whole-diff before merge.
+
 ## 2026-07-23 — ADR-0040 slice 1: `tg store` (Cursor)
 **Did:** executed plan Tasks 1–3. `tg store stats` inventories previews
 (live/expired/spent/pending), audit/invocations/sessions/clones/downloads, and

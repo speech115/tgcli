@@ -72,7 +72,7 @@ tgcli/
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── draft.py           [done]    tg draft set|show|clear|list (ADR-0039)
 │   │   ├── mutate.py          [done]    tg edit|delete|forward preview / commit; tg mark-read|mark-unread (ADR-0028/0029)
-│   │   ├── doctor.py          [done]    tg doctor environment/session health report (ADR-0028)
+│   │   ├── doctor.py          [done]    tg doctor offline-first health; --connect live (ADR-0028/0040)
 │   │   ├── store.py           [done]    tg store stats|cleanup local-state inventory (ADR-0040)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (+ incremental messages ADR-0032; broadcast walk ADR-0031)

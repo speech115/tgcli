@@ -11,6 +11,14 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.1.3] — 2026-07-23
+
+### Changed
+
+- **`tg doctor` offline by default** — local checks always; live authorization
+  only with `--connect`. Offline `authorized` is `null`; plain status may be
+  `unknown` (ADR-0040).
+
 ## [1.1.2] — 2026-07-23
 
 ### Added
