@@ -7,6 +7,7 @@ This file must always match the real tree (AGENTS.md rule).
 tgcli/
 ├── README.md                  [done]    vision + principles
 ├── .github/workflows/ci.yml   [done]    CI: ruff + pyright + pytest + coverage gate on push/PR (ADR-0027)
+├── .cursor/rules/             [done]    Cursor always-apply maintenance/TDD/docs rule
 ├── AGENTS.md                  [done]    agent contract, doc discipline
 ├── CLAUDE.md                  [done]    Claude adapter → AGENTS.md
 ├── SKILL.md                   [done]    agent command routing and safety contract (phase 6)
@@ -20,8 +21,8 @@ tgcli/
 │   ├── PROPOSALS.md           [done]    unvetted owner wishlist backlog (2026-07-21); each item needs owner+ADR
 │   ├── DEVLOG.md              [done]    session-by-session agent log
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── decisions/             [done]    ADR-0001…0031 + README.md index (ADR-0026 maintenance mode)
-│   └── superpowers/plans/     [done]    completed v1 plans; mirror plans superseded by clone spec (ADR-0017)
+│   ├── decisions/             [done]    ADR-0001…0032 + README.md index (ADR-0026 maintenance mode)
+│   └── superpowers/plans/     [done]    completed v1 plans; ADR-0032 data-plumbing plan (2026-07-23)
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
 │   ├── cli.py                 [done]    argparse tree, global flags, dispatch, exit-code mapping
@@ -49,15 +50,16 @@ tgcli/
 │   │   ├── roster.py          [done]    best-effort source participant snapshot → JSONL sidecar (ADR-0024)
 │   │   └── legs.py            [done]    Leg seam sharing the batch path between the posts and discussion legs (ADR-0023)
 │   └── commands/
+│   │   ├── batch.py           [done]    tg batch read-only JSONL runner (ADR-0032)
 │   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
 │   │   ├── read.py            [done]    tg read <chat>                (phase 1)
 │   │   ├── search.py          [done]    tg search / latest / message (phase 2)
 │   │   ├── info.py            [done]    tg info / count (phase 2)
-│   │   ├── identity.py        [done]    tg resolve / contacts (peer discovery)
-│   │   ├── dialog.py          [done]    tg dialog pin/unpin (inbox state; ADR-0029)
+│   │   ├── identity.py        [done]    tg resolve / contacts / mutual-chats (ADR-0029/0032)
+│   │   ├── dialog.py          [done]    tg dialog pin/unpin/archive/mute (ADR-0029/0032)
 │   │   ├── thread.py          [done]    tg thread reply-chain read (ADR-0029)
-│   │   ├── media.py           [done]    tg media download|manifest (phase 3; ADR-0029)
+│   │   ├── media.py           [done]    tg media download|manifest (+ bulk download ADR-0032)
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── mutate.py          [done]    tg edit|delete|forward preview / commit; tg mark-read|mark-unread (ADR-0028/0029)
 │   │   ├── doctor.py          [done]    tg doctor environment/session health report (ADR-0028)

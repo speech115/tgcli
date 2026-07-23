@@ -46,8 +46,9 @@ Everything below has no code path today and is not in ISSUES.md.
 > **Graduated 2026-07-21 / shipped 2026-07-23:** `resolve`, `contacts
 > list/search`, `media manifest`, `dialog pin/unpin` + `mark-unread`, and
 > `thread` shipped under **ADR-0029** (all three plan slices). Still genuinely
-> backlog: `mutual-chats`, bulk media download, incremental export, `batch`,
-> `dialog archive/mute`, and the community/stats/security verticals.
+> backlog: `export bundle`, and the community/stats/security verticals.
+> ADR-0032 shipped: `mutual-chats`, `dialog archive/mute`, incremental
+> export, bulk media download, and read-only `tg batch`.
 
 **Value** = leverage; **Effort**: `XS` hours / `S` ~a day / `M` days+ADR /
 `L` multi-day vertical + ADR; **Status**: `raw-only` = reachable via `tg api`
@@ -78,7 +79,7 @@ allowlisted calls but no task-first wrapper.
 | `tg resolve` | high | S | **shipped** (ADR-0029 slice 1) |
 | `tg contacts list` | med | S | **shipped** (ADR-0029 slice 1) |
 | `tg contacts search` | med | S | **shipped** (ADR-0029 slice 1) |
-| `tg mutual-chats <@user>` | med | S | raw-only (`getCommonChats`) |
+| `tg mutual-chats <@user>` | med | S | **shipped** (ADR-0032 slice 1) |
 
 ### Thread reading
 
@@ -90,7 +91,7 @@ allowlisted calls but no task-first wrapper.
 
 | Item | Value | Effort | Status |
 |---|---|---|---|
-| `tg batch --json` (JSONL in/out) | med-high | M | missing |
+| `tg batch --json` (JSONL in/out) | med-high | M | **shipped** (ADR-0032 slice 5; RO, cap 100, no doctor) |
 
 One auth + one connection for N reads; less session-lock contention.
 **First version read-only only** — batch mutations would be a home-grown
@@ -100,9 +101,9 @@ transaction language without real atomicity; out of scope for v1.
 
 | Item | Value | Effort | Status |
 |---|---|---|---|
-| `export messages --after-id --append` / `--resume` | med | S | missing |
+| `export messages --after-id --append` / `--resume` | med | S | **shipped** (ADR-0032 slice 3) |
 | `export bundle <chat> --output dir/` | med | M | missing |
-| `media download --since/--type/--all/--message-ids` | med | M | missing (per-message only) |
+| `media download --since/--type/--all/--message-ids` | med | M | **shipped** (ADR-0032 slice 4; no `--all`, hard cap 100) |
 | `media manifest` | med | S | **shipped** (ADR-0029 slice 3) |
 
 Note: incremental *reading* is already covered by `read --after-id/--since`;
@@ -112,8 +113,8 @@ this is about the *export/download* side.
 
 | Item | Value | Effort | Status |
 |---|---|---|---|
-| `tg dialog archive/unarchive` | med | S | missing (`folders.editPeerFolders`) |
-| `tg dialog mute/unmute [--until]` | med | S | missing (`updateNotifySettings`) |
+| `tg dialog archive/unarchive` | med | S | **shipped** (ADR-0032 slice 2) |
+| `tg dialog mute/unmute [--until]` | med | S | **shipped** (ADR-0032 slice 2; mute requires `--until` or `--forever`) |
 | `tg dialog pin/unpin` | med | XS | **shipped** (ADR-0029 slice 2) |
 | `tg dialog mark-unread` | med | XS | **shipped** as top-level `tg mark-unread` (ADR-0029 slice 2) |
 

@@ -49,9 +49,12 @@ selected account session, does one operation, and exits.
 | Count messages | `tg --json count @channel` |
 | Resolve a peer | `tg --json resolve @user` / `tg --json resolve +995…` |
 | List / search contacts | `tg --json contacts list` / `tg --json contacts search "query"` |
+| Mutual chats with a user | `tg --json mutual-chats @user` |
+| Read-only batch (JSONL) | `tg batch <<'EOF'` / pipe JSONL ops (max 100; no doctor/mutations) |
 | Media inventory (no download) | `tg --json media manifest @channel --type photo --limit 50` |
 | Reply chain | `tg --json thread CHAT MESSAGE_ID [--replies] [--depth 20]` |
 | Download media | `tg --json media download https://t.me/channel/42 --parallel 4` |
+| Bulk download media | `tg --json media download @chan --message-ids 1,2 --output DIR` (max 100) |
 | Preview a send | `tg --json send @channel "Hello" --preview` |
 | Preview a reply/topic/silent send | `tg --json send CHAT "TEXT" --preview --reply-to ID --topic ID --silent` |
 | Preview a file send | `tg --json send CHAT --file PATH --caption "TEXT" --preview` |
@@ -68,6 +71,8 @@ selected account session, does one operation, and exits.
 | Mark a dialog read | `tg --json mark-read @channel` |
 | Mark a dialog unread | `tg --json mark-unread @channel` |
 | Pin / unpin a dialog | `tg --json dialog pin @channel` / `tg --json dialog unpin @channel` |
+| Archive / unarchive a dialog | `tg --json dialog archive @channel` / `tg --json dialog unarchive @channel` |
+| Mute / unmute a dialog | `tg --json dialog mute @channel --until ISO` / `--forever` / `unmute` |
 | Check local health | `tg --json doctor` |
 | Export messages | `tg --json export messages @channel --output messages.jsonl` |
 | Export subscribers | `tg --json export subscribers @channel --output subscribers.csv` |

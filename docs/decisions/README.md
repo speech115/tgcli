@@ -38,6 +38,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0029](ADR-0029-discovery-inbox-scope.md) | discovery & inbox quick-wins: resolve (+resolvePhone allowlist), contacts, media manifest, mark-unread/dialog pin, thread | accepted |
 | [0030](ADR-0030-outgoing-formatting.md) | outgoing `--format {plain,md,html}` + additive `custom_emoji` harvest (MSG-001 partial) | accepted |
 | [0031](ADR-0031-broadcast-subscriber-export.md) | full broadcast `export subscribers` via prefix-union; block `--limit > 200` | accepted |
+| [0032](ADR-0032-data-plumbing-inbox-ergonomics.md) | data plumbing & inbox ergonomics: mutual-chats, archive/mute, incremental export, bulk media, RO batch | accepted |
 
 Notes on supersessions:
 

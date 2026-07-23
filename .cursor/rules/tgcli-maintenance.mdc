@@ -1,0 +1,64 @@
+---
+description: tgcli maintenance mode, TDD, and docs discipline for Cursor agents
+alwaysApply: true
+---
+
+# tgcli — Cursor agent rules
+
+Canonical contract: `AGENTS.md`. Read `docs/MAP.md` and the tail of
+`docs/DEVLOG.md` before substantial work. Scope lives in `docs/ISSUES.md`
+and unvetted ideas in `docs/PROPOSALS.md`.
+
+## Maintenance mode (ADR-0026)
+
+- Do **not** add features or behavior changes unless the owner explicitly
+  requests them. Then: ADR + scoped plan — never a new PLAN.md phase.
+- Bug fix = reproducing test first, then the minimal fix.
+- When unsure fix vs feature, ask the owner.
+
+## TDD and verification
+
+```
+failing test → minimal code → green → docs → commit (if asked)
+```
+
+Before claiming done, run from the repo venv:
+
+```bash
+.venv/bin/pytest -q
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
+.venv/bin/pyright
+```
+
+## Docs discipline
+
+- Every session appends one entry to `docs/DEVLOG.md`.
+- Architectural change → new ADR + index row in `docs/decisions/README.md`.
+- Module add/move/remove → update `docs/MAP.md` in the same change.
+- CLI flags / JSON / exit codes → update `docs/CONTRACT.md` in the same change.
+
+## Hard constraints
+
+- No daemons or background processes.
+- stdout is contract data only; debug/progress → stderr.
+- Never commit `.env`, `*.session`, audit logs, or `~/.local/state/tgcli/`.
+- Branch: `claude/<topic>` or `codex/<topic>`. Do not push `main` unless
+  the owner asks in the current session.
+
+## Language
+
+User conversation: Russian. Code, comments, docs, commits, CLI: English.
+
+## How to task this agent (examples)
+
+```
+# Good — scoped, gated
+Fix: tg api crashes on bool RPC result. Reproducing test first.
+
+# Good — explicit feature gate
+Implement MSG-001 albums only. ADR + plan before code.
+
+# Bad — invites scope creep
+Improve tgcli / add more commands / make it better.
+```

@@ -13,6 +13,77 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Slice 5: read-only tg batch (Composer)
+**Did:** ADR-0032 slice 5 — `tg batch` JSONL runner (cap 100, RO allowlist,
+any failure → nonzero exit, `--fail-fast`, no doctor). New
+`commands/batch.py`; CONTRACT/MAP/SKILL/PROPOSALS updated.
+**Decided:** stdin parsed before session open so allowlist/cap fail closed.
+**Learned:** none.
+**Next:** owner live smoke of archive/mute and a small batch against main.
+
+## 2026-07-23 — Slice 4: bulk media download (Composer)
+**Did:** ADR-0032 slice 4 — `media download --message-ids` and filter
+`--type/--since/--limit` (cap 100). PartialFailure emits JSON with
+`failed[]` and nonzero exit. CONTRACT/SKILL/PROPOSALS/MAP updated.
+**Decided:** PartialFailure exception carries result document for stdout.
+**Learned:** none.
+**Next:** Slice 5 — read-only `tg batch`.
+
+## 2026-07-23 — Slice 3: incremental export messages (Composer)
+**Did:** ADR-0032 slice 3 — `export messages --after-id/--append/--resume`.
+Append requires a cursor; resume parses last JSONL `id` (fail closed).
+CONTRACT/PROPOSALS/DEVLOG updated.
+**Decided:** none beyond ADR-0032 grilling.
+**Learned:** none.
+**Next:** Slice 4 — bulk media download.
+
+## 2026-07-23 — Slice 2: dialog archive and mute (Composer)
+**Did:** ADR-0032 slice 2 — `dialog archive|unarchive|mute|unmute`. Mute
+requires `--until` or `--forever` (exit 2 otherwise). Same pin-style
+gate/audit, no preview. CONTRACT/SKILL/PROPOSALS/MAP updated.
+**Decided:** forever = `mute_until = 2**31-1`; unmute = `0`.
+**Learned:** none.
+**Next:** Slice 3 — incremental export messages.
+
+## 2026-07-23 — Slice 1: tg mutual-chats (Composer)
+**Did:** ADR-0032 slice 1 — `tg mutual-chats <user>` over
+`messages.GetCommonChatsRequest` (limit 100). Returns `{peer, chats, count}`;
+empty chats ok; non-user peer exit 2; missing user exit 4. CONTRACT/SKILL/
+PROPOSALS/MAP updated. Tests in `tests/test_cli_mutual_chats.py`.
+**Decided:** bots allowed as the mutual peer (Telegram supports getCommonChats
+on bots that share groups); groups/channels as the ref stay blocked.
+**Learned:** none.
+**Next:** Slice 2 — dialog archive/mute.
+
+## 2026-07-23 — ADR-0032 data plumbing scope + plan (Composer)
+**Did:** owner-approved PROPOSALS package (mutual-chats, dialog
+archive/mute, incremental export, bulk media, RO `tg batch`) grilled and
+accepted as ADR-0032; wrote the ADR, index row, MAP decisions line, and
+`docs/superpowers/plans/2026-07-23-data-plumbing.md`. Out of scope remains
+export bundle / MSG-001 / FEED-001 / ACCOUNTS-001 / moderation verticals.
+**Decided:** ADR-0032. One PR with five slice commits; mute requires
+`--until` or `--forever`; batch and bulk media hard-capped at 100; batch
+exit nonzero on any failed op; doctor not in batch allowlist.
+**Learned:** grilling closed the agent footguns before code.
+**Next:** Slice 1 — `tg mutual-chats`.
+
+## 2026-07-23 — Cursor onboarding + pyright reply_to_ephemeral (Composer)
+**Did:** Cursor first-session track C+A from the orientation plan. Added
+always-apply rule `.cursor/rules/tgcli-maintenance.mdc` (maintenance mode,
+TDD, docs discipline, how-to-task examples). Mapped it in `docs/MAP.md`.
+Fixed frozen pyright baseline in `clone/replies.py` via
+`getattr(header, "reply_to_ephemeral", False)` plus a unit test that
+rejects ephemeral reply shapes. Verified: `tg doctor --json` ok (3
+accounts); `.venv/bin/pytest -q` → 627 passed, 8 skipped; ruff clean;
+pyright 0 errors.
+**Decided:** gated product work (MSG-001 / FEED-001 / PROPOSALS) stays
+owner-triggered after onboarding; no ADR for the getattr hardening.
+**Learned:** system `pytest` outside `.venv` fails collection; always use
+`.venv/bin/pytest`. Sandbox blocks session locks / invocation journal —
+doctor needs unrestricted FS for live auth checks.
+**Next:** owner picks one gated item (`tg batch`, albums, `tg changes`,
+or `accounts login`) or a live Telegram task.
+
 ## 2026-07-23 — Fix tg api bool/scalar RPC serialization (Composer)
 **Did:** bug fix for live finding: `tg api account.updateStatus --write`
 reached Telegram then crashed on `bool.to_dict()`. Added failing unit test

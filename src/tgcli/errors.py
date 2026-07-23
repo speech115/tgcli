@@ -32,3 +32,14 @@ class RateLimitError(TgcliError):
 
 class ExportError(TgcliError):
     code = "RUNTIME"
+
+
+class PartialFailure(TgcliError):
+    """Command produced a result document but should exit nonzero (ADR-0032)."""
+
+    code = "PARTIAL"
+
+    def __init__(self, message: str, data: dict, *, exit_code: int = 1):
+        super().__init__(message)
+        self.data = data
+        self.exit_code = exit_code

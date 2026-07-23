@@ -11,6 +11,7 @@ from telethon import errors as telethon_errors
 from tgcli import __version__, invocations, output, safety, session
 from tgcli.commands import accounts as accounts_cmd
 from tgcli.commands import api as api_cmd
+from tgcli.commands import batch as batch_cmd
 from tgcli.commands import clone as clone_cmd
 from tgcli.commands import dialog as dialog_cmd
 from tgcli.commands import dialogs as dialogs_cmd
@@ -25,7 +26,7 @@ from tgcli.commands import search as search_cmd
 from tgcli.commands import send as send_cmd
 from tgcli.commands import thread as thread_cmd
 from tgcli.config import load_config, resolve_account
-from tgcli.errors import PolicyError, RateLimitError, TgcliError
+from tgcli.errors import PartialFailure, PolicyError, RateLimitError, TgcliError
 
 
 LOGGER = logging.getLogger(__name__)
@@ -158,6 +159,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_resolve.add_argument("ref", help="+phone, @username, t.me link, or dialog id")
 
+    p_mutual = sub.add_parser(
+        "mutual-chats",
+        help="List chats shared with a user",
+        parents=[global_flags],
+    )
+    p_mutual.add_argument("ref", help="@username, t.me link, or user id")
+
+    p_batch = sub.add_parser(
+        "batch",
+        help="Run read-only ops from JSONL stdin (ADR-0032)",
+        parents=[global_flags],
+    )
+    p_batch.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="stop after the first failed op",
+    )
+
     p_thread = sub.add_parser(
         "thread",
         help="Read a reply chain (ancestors; optional replies)",
@@ -206,8 +225,30 @@ def build_parser() -> argparse.ArgumentParser:
     p_download = media_sub.add_parser("download", parents=[global_flags])
     p_download.add_argument("source", help="t.me link or chat reference")
     p_download.add_argument("message_id", nargs="?", type=int)
-    p_download.add_argument("--output", help="final output path")
+    p_download.add_argument(
+        "--output", help="final output path or bulk output directory"
+    )
     p_download.add_argument("--parallel", type=int, default=1)
+    p_download.add_argument(
+        "--message-ids",
+        dest="message_ids",
+        help="comma-separated message ids for bulk download (max 100)",
+    )
+    p_download.add_argument(
+        "--type",
+        dest="media_type",
+        choices=list(media_cmd.MEDIA_KINDS),
+        help="bulk: keep only this media kind",
+    )
+    p_download.add_argument(
+        "--since", help="bulk: ISO 8601 lower bound on message date"
+    )
+    p_download.add_argument(
+        "--limit",
+        type=int,
+        dest="download_limit",
+        help="bulk filter mode max items (default 100, max 100)",
+    )
     p_manifest = media_sub.add_parser(
         "manifest",
         help="List media in a chat without downloading",
@@ -298,6 +339,30 @@ def build_parser() -> argparse.ArgumentParser:
         "unpin", help="Unpin a dialog", parents=[global_flags]
     )
     p_dialog_unpin.add_argument("chat")
+    p_dialog_archive = dialog_sub.add_parser(
+        "archive", help="Archive a dialog", parents=[global_flags]
+    )
+    p_dialog_archive.add_argument("chat")
+    p_dialog_unarchive = dialog_sub.add_parser(
+        "unarchive", help="Unarchive a dialog", parents=[global_flags]
+    )
+    p_dialog_unarchive.add_argument("chat")
+    p_dialog_mute = dialog_sub.add_parser(
+        "mute", help="Mute a dialog", parents=[global_flags]
+    )
+    p_dialog_mute.add_argument("chat")
+    p_dialog_mute.add_argument(
+        "--until", help="unmute at this ISO 8601 timestamp (UTC if naive)"
+    )
+    p_dialog_mute.add_argument(
+        "--forever",
+        action="store_true",
+        help="mute indefinitely (explicit; omit is not forever)",
+    )
+    p_dialog_unmute = dialog_sub.add_parser(
+        "unmute", help="Unmute a dialog", parents=[global_flags]
+    )
+    p_dialog_unmute.add_argument("chat")
 
     p_api = sub.add_parser(
         "api", help="Call an allowlisted raw TL method", parents=[global_flags]
@@ -315,6 +380,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_export_messages.add_argument("chat", help="@username, t.me link, or dialog id")
     p_export_messages.add_argument("--output", required=True, type=Path)
     p_export_messages.add_argument("--limit", type=int)
+    p_export_messages.add_argument(
+        "--after-id",
+        type=int,
+        dest="after_id",
+        help="export only messages with id greater than this",
+    )
+    p_export_messages.add_argument(
+        "--append",
+        action="store_true",
+        help="append JSONL (requires --after-id or --resume)",
+    )
+    p_export_messages.add_argument(
+        "--resume",
+        action="store_true",
+        help="append from last JSONL message id in --output",
+    )
     p_export_subscribers = export_sub.add_parser("subscribers", parents=[global_flags])
     p_export_subscribers.add_argument(
         "channel", help="@username, t.me link, or dialog id"
@@ -409,6 +490,15 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
             if args.command == "resolve":
                 data = await identity_cmd.resolve(tg, args.ref)
                 return data, identity_cmd.to_rows(data)
+            if args.command == "mutual-chats":
+                data = await identity_cmd.mutual_chats(tg, args.ref)
+                return data, identity_cmd.mutual_chats_to_rows(data)
+            if args.command == "batch":
+                ops = batch_cmd.parse_ops(args.batch_lines)
+                results, first_exit = await batch_cmd.run_batch(
+                    tg, ops, fail_fast=bool(getattr(args, "fail_fast", False))
+                )
+                return {"_batch_results": results, "_batch_exit": first_exit}, []
             if args.command == "thread":
                 data = await thread_cmd.fetch_thread(
                     tg,
@@ -428,13 +518,43 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                     )
                 return data, identity_cmd.contacts_to_rows(data)
             if args.command == "media" and args.media_command == "download":
-                source = media_cmd.parse_source(args.source, args.message_id)
+                message_ids_raw = getattr(args, "message_ids", None)
+                bulk = bool(
+                    message_ids_raw
+                    or getattr(args, "media_type", None)
+                    or getattr(args, "since", None)
+                    or getattr(args, "download_limit", None) is not None
+                )
+                if bulk and args.message_id is not None:
+                    raise PolicyError(
+                        "do not pass a single message_id with bulk media flags"
+                    )
 
                 def progress(current: int, total: int | None) -> None:
                     output.note(
                         f"downloaded {current}/{total if total is not None else '?'} bytes"
                     )
 
+                if bulk:
+                    ids = (
+                        media_cmd.parse_message_ids(message_ids_raw)
+                        if message_ids_raw
+                        else None
+                    )
+                    data = await media_cmd.download_media_bulk(
+                        tg,
+                        args.source,
+                        account.alias,
+                        message_ids=ids,
+                        kind=getattr(args, "media_type", None),
+                        since=getattr(args, "since", None),
+                        limit=getattr(args, "download_limit", None),
+                        output=args.output,
+                        progress=progress,
+                    )
+                    return data, media_cmd.bulk_to_rows(data)
+
+                source = media_cmd.parse_source(args.source, args.message_id)
                 data = await media_cmd.download_media(
                     tg,
                     source,
@@ -516,16 +636,40 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
                 data = await mutate_cmd.mark_unread(tg, args.chat)
                 return data, mutate_cmd.to_rows(data)
             if args.command == "dialog":
-                data = await dialog_cmd.set_pinned(
-                    tg, args.chat, pinned=args.dialog_command == "pin"
-                )
+                cmd = args.dialog_command
+                if cmd in ("pin", "unpin"):
+                    data = await dialog_cmd.set_pinned(
+                        tg, args.chat, pinned=cmd == "pin"
+                    )
+                elif cmd in ("archive", "unarchive"):
+                    data = await dialog_cmd.set_archived(
+                        tg, args.chat, archived=cmd == "archive"
+                    )
+                elif cmd == "mute":
+                    data = await dialog_cmd.set_muted(
+                        tg,
+                        args.chat,
+                        muted=True,
+                        until=getattr(args, "until", None),
+                        forever=bool(getattr(args, "forever", False)),
+                    )
+                elif cmd == "unmute":
+                    data = await dialog_cmd.set_muted(tg, args.chat, muted=False)
+                else:
+                    raise AssertionError(f"unhandled dialog command: {cmd}")
                 return data, dialog_cmd.to_rows(data)
             if args.command == "api":
                 return await api_cmd.call(tg, args.method, args.params), []
             if args.command == "export":
                 if args.export_kind == "messages":
                     data = await export_cmd.export_messages(
-                        tg, args.chat, args.output, limit=args.limit
+                        tg,
+                        args.chat,
+                        args.output,
+                        limit=args.limit,
+                        after_id=getattr(args, "after_id", None),
+                        append=bool(getattr(args, "append", False)),
+                        resume=bool(getattr(args, "resume", False)),
                     )
                 else:
                     data = await export_cmd.export_subscribers(
@@ -602,16 +746,21 @@ def main(argv: list[str] | None = None) -> int:
                     parser.error("search requires CHAT QUERY (or --all QUERY)")
                 except SystemExit:
                     return 1
+        if args.command == "batch":
+            args.batch_lines = sys.stdin.read().splitlines()
+            # Fail closed on allowlist/cap before opening a session.
+            batch_cmd.parse_ops(args.batch_lines)
         if args.command in ("read", "search") or (
-            args.command == "media" and args.media_command == "manifest"
+            args.command == "media" and args.media_command in ("manifest", "download")
         ):
             try:
                 args.since = _parse_when(
                     parser, getattr(args, "since", None), "--since"
                 )
-                args.until = _parse_when(
-                    parser, getattr(args, "until", None), "--until"
-                )
+                if args.command != "media" or args.media_command == "manifest":
+                    args.until = _parse_when(
+                        parser, getattr(args, "until", None), "--until"
+                    )
             except SystemExit:
                 return 1
         if args.command == "clone" and args.clone_command == "sync":
@@ -624,6 +773,11 @@ def main(argv: list[str] | None = None) -> int:
             safety.enforce_mutation_allowed(args.readonly)
         if args.command == "dialog":
             safety.enforce_mutation_allowed(args.readonly)
+            if args.dialog_command == "mute":
+                dialog_cmd.validate_mute_flags(
+                    until=getattr(args, "until", None),
+                    forever=bool(getattr(args, "forever", False)),
+                )
         mutation_positionals = {
             "edit": ("chat", "message_id", "text"),
             "delete": ("chat", "message_id"),
@@ -791,6 +945,15 @@ def main(argv: list[str] | None = None) -> int:
                         },
                     )
                     safety.finish_commit(args.commit)
+    except PartialFailure as err:
+        if args.json:
+            output.emit_json(err.data)
+        elif args.plain:
+            output.emit_plain(err.data.get("rows") or [])
+        else:
+            output.emit_error(err, as_json=False)
+        error_code = err.code
+        exit_code = err.exit_code
     except TgcliError as err:
         output.emit_error(err, as_json=args.json)
         error_code = err.code
@@ -799,18 +962,22 @@ def main(argv: list[str] | None = None) -> int:
         error_code = "UNHANDLED"
         raise
     else:
-        if args.json:
-            output.emit_json(data)
-        elif args.plain:
-            output.emit_plain(rows)
+        if args.command == "batch":
+            batch_cmd.emit_results(data["_batch_results"])
+            exit_code = data["_batch_exit"] or 0
         else:
-            output.emit_plain(
-                [
-                    (" | ".join("" if cell is None else str(cell) for cell in row),)
-                    for row in rows
-                ]
-            )
-        exit_code = 0
+            if args.json:
+                output.emit_json(data)
+            elif args.plain:
+                output.emit_plain(rows)
+            else:
+                output.emit_plain(
+                    [
+                        (" | ".join("" if cell is None else str(cell) for cell in row),)
+                        for row in rows
+                    ]
+                )
+            exit_code = 0
     finally:
         duration_ms = int((time.monotonic() - started) * 1000)
         if args.verbose:

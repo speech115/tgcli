@@ -23,9 +23,11 @@ def _signature(header, source, forum=False):
     if not isinstance(header, types.MessageReplyHeader):
         raise PolicyError("clone reply shape is not supported")
     unsupported = ("todo_item_id", "poll_option", "reply_from", "reply_media")
+    # reply_to_ephemeral exists on some Telethon builds but not the pinned
+    # 1.44 stub; getattr keeps the reject path without a pyright false positive.
     if (
         header.reply_to_scheduled
-        or header.reply_to_ephemeral
+        or getattr(header, "reply_to_ephemeral", False)
         or any(getattr(header, field) is not None for field in unsupported)
     ):
         raise PolicyError("clone reply shape is not supported")

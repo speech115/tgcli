@@ -62,6 +62,13 @@ def test_forum_topic_reply_shape_is_rejected():
         replies.target([_msg(header)], _clone_state(), SOURCE)
 
 
+def test_ephemeral_reply_shape_is_rejected():
+    header = types.MessageReplyHeader(reply_to_msg_id=5)
+    object.__setattr__(header, "reply_to_ephemeral", True)
+    with pytest.raises(PolicyError, match="reply shape"):
+        replies.target([_msg(header)], _clone_state(), SOURCE)
+
+
 def test_album_reply_after_leading_item_is_rejected():
     header = types.MessageReplyHeader(reply_to_msg_id=5)
     with pytest.raises(PolicyError, match="leading item"):

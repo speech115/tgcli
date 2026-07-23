@@ -208,6 +208,28 @@ to `<query>` and returns its `users` mapped the same way, with
 `--global` results are capped at 50 (`contacts.search`'s own `limit`
 argument); there is no flag to raise it.
 
+```
+tg mutual-chats <user>
+```
+
+`tg mutual-chats <user> --json`:
+```json
+{"peer": {"id": 111, "type": "user", "username": "alice",
+          "display_name": "Alice Smith", "is_contact": true,
+          "is_bot": false},
+ "chats": [{"id": 200, "type": "group", "username": "shared",
+            "display_name": "Shared Group", "is_contact": false,
+            "is_bot": false}],
+ "count": 1}
+```
+
+`mutual-chats` resolves `<user>` like `resolve` (non-phone refs) and calls
+`messages.getCommonChats` with `limit` 100. `peer` is the resolved user/bot;
+`chats` are common groups/channels mapped through the same `peer` shape.
+An empty `chats` list is success (`count` 0). A missing user is exit 4. A
+non-user/non-bot peer (group or channel) is exit 2 (`BLOCKED`). Plain rows
+are one TSV line per chat: `id`, `type`, `username`, `display_name`.
+
 `tg media download <t.me/link|chat> [message_id] --json`:
 ```json
 {"source": "@channel:42", "path": "/Users/me/Downloads/clip.mp4",
@@ -221,6 +243,18 @@ existing final path is refused and never overwritten. Progress is emitted only
 to stderr. Single-stream transfer resumes a matching interrupted partial file
 from `~/.local/state/tgcli/downloads/`; `--parallel N` is opt-in, requires a
 positive `N`, and starts a fresh offset-based transfer.
+
+Bulk mode (ADR-0032) activates with `--message-ids id,id` and/or filter flags
+`--type` / `--since` / `--limit` on a chat reference (no single `message_id`).
+Do not combine a positional `message_id` with bulk flags (exit 2). Hard cap
+**100** downloads per invocation (`--message-ids` length and filter `--limit`;
+default filter limit 100). `--output` is a destination directory. Success /
+partial JSON:
+`{"dialog":{…},"items":[{"message_id","path","bytes","resumed"}],"count":N,
+"failed":[{"message_id","error"}]}`. Per-item NotFound goes into `failed` and
+continues; FloodWait/auth/policy stop the loop. Any non-empty `failed` →
+nonzero exit (typically 4) while still emitting the JSON document on
+`--json`; successful files remain on disk. Unbounded `--all` is not offered.
 
 ```
 tg media manifest CHAT [--type photo|video|audio|voice|document] [--since ISO] [--limit N]
@@ -392,6 +426,26 @@ tg dialog unpin CHAT
 Plain rows are `dialog_id`, `pinned|unpinned`.
 
 ```
+tg dialog archive CHAT
+tg dialog unarchive CHAT
+tg dialog mute CHAT (--until ISO8601 | --forever)
+tg dialog unmute CHAT
+```
+
+`dialog archive` / `unarchive` / `mute` / `unmute` follow the same direct
+gating and audit timing as pin (ADR-0032): no preview. Archive moves the
+dialog into Telegram folder id `1`; unarchive restores folder id `0`. Mute
+requires exactly one of `--until <ISO8601>` or `--forever` (omitting both is
+exit 2 `BLOCKED`; both together is also exit 2). Forever uses Telegram's
+`mute_until = 2**31-1`; `--until` is parsed as ISO 8601 (naive values are
+UTC). Unmute sets `mute_until = 0`. Success JSON:
+`{"dialog":{"id":…},"archived":true|false}` or
+`{"dialog":{"id":…},"muted":true|false,"until":null|<ISO>}` (`until` is
+null for forever mute and for unmute). Audit verbs: `dialog-archive`,
+`dialog-unarchive`, `dialog-mute`, `dialog-unmute`. Plain rows:
+`dialog_id`, `archived|unarchived` or `muted-forever|muted-until:<ISO>|unmuted`.
+
+```
 tg thread CHAT MESSAGE_ID [--replies] [--depth N] [--limit N]
 ```
 
@@ -405,6 +459,25 @@ comment/forum thread (`message.replies`); otherwise `replies` stays `[]` and
 `note` is `"no cheap reply thread for this message; replies omitted"`.
 `--limit` caps replies (default 50). Plain rows are the same message TSV as
 `read`, one row per root then ancestors then replies.
+
+## 5.0 Read-only batch (`tg batch`; ADR-0032)
+
+```
+tg batch [--fail-fast] < ops.jsonl
+```
+
+`batch` reads JSONL ops from stdin and writes one JSON result object per
+line to stdout under a **single** account session. Hard cap **100** ops
+(excess → exit 2 before network). Allowlisted `op` values:
+`dialogs`, `read`, `search`, `latest`, `message`, `info`, `count`,
+`resolve`, `mutual-chats`, `contacts.list`, `contacts.search`,
+`media.manifest`, `thread`. Mutations, `doctor`, `export`, `clone`,
+`media.download`, `api`, and `accounts` are rejected (exit 2).
+
+Each stdout line is `{"ok":true,"op":"…","data":{…}}` or
+`{"ok":false,"op":"…","error":{"code":"…","message":"…"}}`. Process exit is
+**0 only if every op succeeded**; otherwise the first failure's exit code
+(full JSONL still written unless `--fail-fast` stops after the first error).
 
 ## 5.1 Environment Health (`tg doctor`; ADR-0028)
 
@@ -473,13 +546,20 @@ tg api <Namespace.method> --params '<json>' [--write] [--confirm <method>]
 
 ```
 tg export messages <chat> --output <path> [--limit <n>]
+    [--after-id <id>] [--append] [--resume]
 tg export subscribers <channel> --output <path> [--limit <n>]
 ```
 
 - `--output` is required. It is the only destination for the export records;
-  the command writes a sibling temporary file and replaces the destination only
-  after the complete export succeeds. An existing destination is unchanged on
-  a failed export.
+  without `--append`/`--resume`, the command writes a sibling temporary file and
+  replaces the destination only after the complete export succeeds. An existing
+  destination is unchanged on a failed full export.
+- `--after-id N` exports only messages with `id > N` (Telethon `min_id`).
+- `--append` appends JSONL lines to an existing file (creating it if missing).
+  It requires `--after-id` or `--resume`; otherwise exit 2 (`BLOCKED`).
+- `--resume` reads the last non-empty JSONL line's message `id` from
+  `--output`, then behaves as `--append --after-id <that>`. Missing, empty, or
+  corrupt last line → exit 1. No sidecar state file.
 - `messages` iterates through a Telethon takeout session from oldest to newest.
   The destination is UTF-8 JSONL: one `read`-shape message object per line,
   with `id`, `date`, `from`, `text`, `media`, and `reply_to` fields.
@@ -498,6 +578,9 @@ tg export subscribers <channel> --output <path> [--limit <n>]
 - Success on `--json` is one completion document:
   `{"export":{"kind":"messages|subscribers","format":"jsonl|csv",
   "path":"<path>","count":42,"dialog":{"id":-1001234,"name":"Channel"}}}`.
+  When `--after-id`, `--append`, or `--resume` is used on messages, the
+  document also includes additive `"after_id"` (int or null) and
+  `"appended"` (bool). `count` is this run's written rows only.
   `--plain` emits one TSV row in the frozen order `kind,format,path,count`.
 - A `TakeoutInitDelayError` exits 5 as `FLOOD_WAIT`, includes
   `retry_after`, and tells the user to retry after that many seconds.
