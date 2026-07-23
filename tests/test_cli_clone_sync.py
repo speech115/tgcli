@@ -978,6 +978,7 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
         "reuploaded": 0,
         "snapshots": 0,
         "reply_flattened": 0,
+        "quote_flattened": [],
         "skipped_service": 0,
         "skipped_unsupported": [],
         "skipped_autoforward": 0,
@@ -1363,7 +1364,7 @@ def test_clone_sync_topic_recovery_reuses_mapping_after_copy_failure(
 def test_clone_sync_copies_cross_peer_forum_header_without_wedging(
     config_env, monkeypatch, capsys
 ):
-    """Foreign-peer forum header: probe fails → quote fallback, cursor advances."""
+    """Foreign-peer forum header: probe fails → quote fallback, PartialFailure."""
     clone_state = seed_clone(kind="forum", title="Forum chat")
     clone_state.record_topic(2, 1002)
     clone_state.cursor = 2
@@ -1383,11 +1384,12 @@ def test_clone_sync_copies_cross_peer_forum_header_without_wedging(
     client.destination_last_id = 1002
     make_session_fake(monkeypatch, client)
 
-    assert main(["clone", "sync", "@source", "--json"]) == 0
+    assert main(["clone", "sync", "@source", "--json"]) == 2
 
     sync = json.loads(capsys.readouterr().out)["sync"]
     assert sync["copied"] == 1
     assert sync["reuploaded"] == 1
+    assert sync["quote_flattened"] == [{"id": 5, "peer": 321, "reason": "unreachable"}]
     saved = state.load(clone_state.clone_id)
     assert saved.cursor == 5
     assert saved.dest_for(5) is not None
@@ -1836,7 +1838,7 @@ def test_clone_sync_reuploads_basic_group_reply_with_prefix(
 def test_clone_sync_copies_basic_group_foreign_peer_reply_without_wedging(
     config_env, monkeypatch, capsys
 ):
-    """Different-source-peer reply: unreachable probe → fallback, still copies."""
+    """Different-source-peer reply: unreachable probe → fallback + PartialFailure."""
     clone_state = seed_clone(kind="basic", title="Legacy group")
     clone_state.record_mapping(1, 1001)
     clone_state.cursor = 1
@@ -1849,12 +1851,80 @@ def test_clone_sync_copies_basic_group_foreign_peer_reply_without_wedging(
     client.destination_last_id = 1001
     make_session_fake(monkeypatch, client)
 
-    assert main(["clone", "sync", "@source", "--json"]) == 0
+    assert main(["clone", "sync", "@source", "--json"]) == 2
 
     sync = json.loads(capsys.readouterr().out)["sync"]
     assert sync["copied"] == 1
     assert sync["reuploaded"] == 1
+    assert sync["quote_flattened"] == [{"id": 2, "peer": 456, "reason": "unreachable"}]
     assert state.load(clone_state.clone_id).dest_for(2) is not None
+
+
+def test_clone_sync_quote_fallback_exits_partial_with_result_document(
+    config_env, monkeypatch, capsys
+):
+    """Unreachable foreign quote completes the run, emits JSON, exits PolicyError."""
+    clone_state = seed_clone()
+    clone_state.record_mapping(1, 1)
+    clone_state.cursor = 1
+    state.save(clone_state)
+    reply = types.MessageReplyHeader(
+        reply_to_msg_id=1244,
+        reply_to_peer_id=types.PeerChannel(2275285084),
+        quote_text="что это де-факто не наставничество",
+    )
+    client = CloneReuploadClient([message(2, reply_to=reply)])
+    client.destination_last_id = 1
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+
+    captured = capsys.readouterr()
+    assert "reply shape is not supported" not in captured.err
+    result = json.loads(captured.out)
+    sync = result["sync"]
+    assert sync["copied"] == 1
+    assert sync["quote_flattened"] == [
+        {"id": 2, "peer": 2275285084, "reason": "unreachable"}
+    ]
+    assert state.load(clone_state.clone_id).cursor == 2
+
+
+def test_clone_sync_quote_fallback_plain_reports_count_and_exits_nonzero(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    clone_state.record_mapping(1, 1)
+    clone_state.cursor = 1
+    state.save(clone_state)
+    reply = types.MessageReplyHeader(
+        reply_to_msg_id=9, reply_to_peer_id=types.PeerChannel(99)
+    )
+    client = CloneReuploadClient([message(2, reply_to=reply)])
+    client.destination_last_id = 1
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--plain"]) == 2
+
+    cols = capsys.readouterr().out.rstrip().split("\t")
+    assert cols[0] == "1"  # copied
+    assert cols[4] == "0"  # reply_flattened
+    assert cols[5] == "1"  # quote_flattened_count
+    assert cols[10] == clone_state.clone_id
+
+
+def test_clone_sync_clean_run_has_empty_quote_flattened(
+    config_env, monkeypatch, capsys
+):
+    seed_clone()
+    client = CloneSyncClient([message(2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["quote_flattened"] == []
+    assert sync["copied"] == 1
 
 
 def test_clone_sync_reports_attributed_unmapped_reply_forward_fallback(
@@ -2054,6 +2124,7 @@ def test_clone_sync_skips_service_and_reports_unsupported_messages(
         "reuploaded": 0,
         "snapshots": 0,
         "reply_flattened": 0,
+        "quote_flattened": [],
         "skipped_service": 1,
         "skipped_unsupported": [
             {"id": 2, "kind": "MessageMediaPoll"},
@@ -2248,6 +2319,7 @@ def test_clone_sync_keeps_grouped_id_zero_album_atomic_and_in_position(
         "reuploaded": 0,
         "snapshots": 0,
         "reply_flattened": 0,
+        "quote_flattened": [],
         "skipped_service": 0,
         "skipped_unsupported": [],
         "skipped_autoforward": 0,
@@ -2722,6 +2794,7 @@ def test_clone_sync_plain_output_has_contract_columns(config_env, monkeypatch, c
     assert capsys.readouterr().out.rstrip().split("\t") == [
         "1",
         "1",
+        "0",
         "0",
         "0",
         "0",

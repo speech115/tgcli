@@ -23,7 +23,7 @@ from tgcli.clone import (
     topics,
     transport,
 )
-from tgcli.errors import NotFoundError, PolicyError, RateLimitError
+from tgcli.errors import NotFoundError, PartialFailure, PolicyError, RateLimitError
 
 
 def _entry(s: state.CloneState) -> dict:
@@ -686,7 +686,7 @@ async def _forward_batch(
         leg.record_mapping(source_id, destination_id)
     leg.cursor = source_ids[-1]
     state.save(clone_state)
-    return len(source_ids), plan.mode, plan.reply_flattened
+    return len(source_ids), plan.mode, plan.reply_flattened, plan.quote_flattened
 
 
 async def sync_text(
@@ -745,6 +745,7 @@ async def sync_text(
         return _mutate(tg, request, clone_state)
 
     reply_flattened = 0
+    quote_flattened: list[dict] = []
     author_cache = {}
     more = False
     posts_leg = legs.posts(clone_state)
@@ -775,7 +776,7 @@ async def sync_text(
                 counters,
                 account_alias=account_alias,
             )
-        batch_copied, mode, flattened = await quotes.send_with_degrade(
+        batch_copied, mode, flattened, flattened_quote = await quotes.send_with_degrade(
             lambda active_plan: _forward_batch(
                 tg,
                 source,
@@ -798,6 +799,8 @@ async def sync_text(
         copied += batch_copied
         transport_counts[mode] += batch_copied
         reply_flattened += int(flattened)
+        if flattened_quote is not None:
+            quote_flattened.append(flattened_quote)
         copied_batches += 1
 
     async for event in batching.plan(
@@ -846,7 +849,7 @@ async def sync_text(
     participants = await roster.collect(tg, clone_state, source_entity)
     clone_state.last_synced_at = datetime.now(UTC).isoformat()
     state.save(clone_state)
-    return {
+    data = {
         "clone": {
             "id": clone_state.clone_id,
             "source": {
@@ -862,12 +865,21 @@ async def sync_text(
             **transport_counts,
             **counters,
             "reply_flattened": reply_flattened,
+            "quote_flattened": quote_flattened,
             "cursor": clone_state.cursor,
             "discussion_cursor": clone_state.discussion_cursor,
             "more": more,
             "participants": participants,
         },
     }
+    if quote_flattened:
+        raise PartialFailure(
+            f"clone sync finished with {len(quote_flattened)} quote fallback(s)",
+            data,
+            cause=PolicyError("clone planted quote fallback(s)"),
+            rows=sync_rows(data),
+        )
+    return data
 
 
 def sync_rows(data: dict) -> list[tuple]:
@@ -880,6 +892,7 @@ def sync_rows(data: dict) -> list[tuple]:
             sync["reuploaded"],
             sync["snapshots"],
             sync["reply_flattened"],
+            len(sync["quote_flattened"]),
             sync["skipped_service"],
             len(sync["skipped_unsupported"]),
             sync["topics_created"],

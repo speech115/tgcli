@@ -17,6 +17,23 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Clone quote replies slice 3 (Composer)
+**Did:** implemented ADR-0036 slice 3. Sync collects `quote_flattened`
+`{"id","peer","reason"}` rows from `TransportPlan`; a run that planted any
+fallback finishes work, writes the result document, and raises
+`PartialFailure` with `PolicyError` exit 2. JSON gains `quote_flattened`;
+plain gains `quote_flattened_count`. CONTRACT §clone-sync updated (reject
+sentence for reply-from/media/cross-peer removed). `PartialFailure` carries
+optional `rows` for plain emit. Architecture ceilings: `cli.py` 215,
+`clone.py` 910. Inverted foreign-peer sync tests to expect exit 2 + rows.
+**Decided:** empty `quote_flattened` still exits 0; only planted fallbacks
+are a partial failure (ADR-0036 §5).
+**Learned:** ruff format expands a one-line `emit_plain(...)` past the old
+`cli.py` ceiling, so the reviewed budget had to move with the rows seam.
+**Next:** slice 4 leftovers are already mostly landed (MAP/quotes ceiling);
+full gate + owner-gated live smoke of the wedged clone — do not mutate
+Telegram without owner review.
+
 ## 2026-07-23 — Clone quote replies slice 2 (Composer)
 **Did:** implemented ADR-0036 slice 2. Added `clone/quotes.py` async
 resolver (mapped same-leg, mapped cross-leg via post map → destination

@@ -14,7 +14,7 @@ class TransportPlan:
     # Quote fallback body (ADR-0036); applied before author attribution.
     body_prefix: str | None = None
     body_prefix_entities: tuple = ()
-    # Internal seam for slice 3 reporting; not yet part of the CLI contract.
+    # Per-batch quote fallback row for sync reporting (ADR-0036).
     quote_flattened: dict | None = None
 
 
