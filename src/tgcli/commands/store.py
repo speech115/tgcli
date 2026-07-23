@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+from tgcli.output import note
+from tgcli.safety import PREVIEW_TTL
 
 RELIC_NAMES = ("mirrors", "mirror-lab", "labs", "probes")
 _PREVIEW_BUCKETS = ("live", "expired", "spent", "pending")
@@ -33,6 +36,13 @@ def _preview_expires_at(path: Path) -> datetime | None:
         return datetime.fromisoformat(record["expires_at"])
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
         return None
+
+
+def _preview_age_anchor(path: Path) -> datetime:
+    expires = _preview_expires_at(path)
+    if expires is not None:
+        return expires
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
 
 
 def _classify_preview(path: Path, *, now: datetime) -> str | None:
@@ -112,3 +122,105 @@ def stats_rows(data: dict) -> list[tuple]:
     for relic in data["relics"]:
         rows.append((f"relic.{relic['name']}", None, relic["bytes"]))
     return rows
+
+
+def _pending_far_past_ttl(path: Path, *, now: datetime) -> bool:
+    """Pending holds random_id; only reclaim when past expires_at by a full TTL."""
+    expires = _preview_expires_at(path)
+    if expires is None:
+        return now - _preview_age_anchor(path) >= PREVIEW_TTL
+    return now >= expires + PREVIEW_TTL
+
+
+def _deletable_paths(
+    root: Path,
+    *,
+    older_than: timedelta | None,
+    include_pending: bool,
+    now: datetime,
+) -> list[Path]:
+    preview_root = root / "previews"
+    if not preview_root.is_dir():
+        return []
+    selected: list[Path] = []
+    for path in sorted(preview_root.iterdir()):
+        if not path.is_file():
+            continue
+        bucket = _classify_preview(path, now=now)
+        if bucket in ("spent", "expired"):
+            eligible = True
+        elif bucket == "pending" and include_pending:
+            eligible = _pending_far_past_ttl(path, now=now)
+        else:
+            eligible = False
+        if not eligible:
+            continue
+        if older_than is not None and now - _preview_age_anchor(path) < older_than:
+            continue
+        selected.append(path)
+    return selected
+
+
+def cleanup(
+    root: Path,
+    *,
+    older_than: timedelta | None = None,
+    include_pending: bool = False,
+    confirm: bool = False,
+    now: datetime | None = None,
+) -> dict:
+    now = now or datetime.now(UTC)
+    selected = _deletable_paths(
+        root, older_than=older_than, include_pending=include_pending, now=now
+    )
+    bytes_total = sum(_file_bytes(path) for path in selected)
+    names = [path.name for path in selected]
+    removed: list[str] = []
+    would_remove: list[str] = []
+    if confirm:
+        for path in selected:
+            path.unlink(missing_ok=True)
+            removed.append(path.name)
+    else:
+        would_remove = list(names)
+
+    inventory = scan(root, now=now)
+    result = {
+        "removed": removed,
+        "would_remove": would_remove,
+        "bytes": bytes_total,
+        "confirmed": confirm,
+        "kept": {
+            "audit_log": True,
+            "sessions": True,
+            "relics": [item["name"] for item in inventory["relics"]],
+        },
+    }
+    if not confirm and selected:
+        kib = bytes_total // 1024
+        note(
+            f"{len(selected)} artefacts ({kib} KB) would be removed; "
+            "re-run with --confirm"
+        )
+    return result
+
+
+def cleanup_rows(data: dict) -> list[tuple]:
+    names = data["removed"] if data["confirmed"] else data["would_remove"]
+    return [
+        ("confirmed", data["confirmed"]),
+        ("count", len(names)),
+        ("bytes", data["bytes"]),
+        ("files", ",".join(names) or None),
+    ]
+
+
+def parse_older_than(value: str) -> timedelta:
+    """Accept an integer day count or Nd/Nh forms (e.g. 7, 7d, 12h)."""
+    raw = value.strip().lower()
+    if raw.isdigit():
+        return timedelta(days=int(raw))
+    if len(raw) >= 2 and raw[:-1].isdigit() and raw[-1] in ("d", "h"):
+        amount = int(raw[:-1])
+        return timedelta(days=amount) if raw[-1] == "d" else timedelta(hours=amount)
+    raise ValueError(f"invalid --older-than duration: {value!r}")

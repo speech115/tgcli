@@ -132,6 +132,16 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
     if args.command == "store" and args.store_command == "stats":
         data = store_cmd.stats(session.state_dir())
         return data, store_cmd.stats_rows(data)
+    if args.command == "store" and args.store_command == "cleanup":
+        if args.confirm:
+            safety.enforce_mutation_allowed(args.readonly)
+        data = store_cmd.cleanup(
+            session.state_dir(),
+            older_than=getattr(args, "older_than", None),
+            include_pending=bool(getattr(args, "include_pending", False)),
+            confirm=bool(args.confirm),
+        )
+        return data, store_cmd.cleanup_rows(data)
 
     config = load_config()
     if args.command == "accounts":

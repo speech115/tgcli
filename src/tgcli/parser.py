@@ -12,6 +12,14 @@ from pathlib import Path
 
 from tgcli import __version__
 from tgcli.commands import media as media_cmd
+from tgcli.commands import store as store_cmd
+
+
+def _older_than_type(value: str):
+    try:
+        return store_cmd.parse_older_than(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -61,6 +69,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     store_sub = p_store.add_subparsers(dest="store_command", required=True)
     store_sub.add_parser("stats", help="Inventory local state", parents=[global_flags])
+    p_cleanup = store_sub.add_parser(
+        "cleanup", help="Reap spent/expired previews", parents=[global_flags]
+    )
+    p_cleanup.add_argument(
+        "--older-than",
+        dest="older_than",
+        type=_older_than_type,
+        help="only artefacts older than N days (or Nd/Nh)",
+    )
+    p_cleanup.add_argument(
+        "--include-pending",
+        action="store_true",
+        help="also remove .pending previews far past TTL",
+    )
+    p_cleanup.add_argument(
+        "--confirm",
+        action="store_true",
+        help="actually delete; without this, dry-run only",
+    )
 
     p_read = sub.add_parser(
         "read", help="Read recent messages from a dialog", parents=[global_flags]

@@ -584,6 +584,34 @@ Preview buckets are classified from each file's stored `expires_at` (not mtime):
 
 `--plain` columns: `category`, `count` (nullable for size-only rows), `bytes`.
 
+```
+tg store cleanup [--older-than Nd|Nh|N] [--include-pending] [--confirm]
+```
+
+Reaps **spent** (`.used`) and **expired** (`.json` past TTL) previews under
+the state root. Default is dry-run: stdout lists what would be removed and
+stderr prints a one-line `--confirm` hint. With `--confirm`, those files are
+deleted. Never touches `audit.jsonl`, `sessions/`, live `.json` within TTL, or
+relic directories. `.pending` files are protected (ADR-0028 `random_id`) and are
+eligible only with `--include-pending` and only when far past TTL
+(`expires_at + PREVIEW_TTL`).
+
+`--older-than` accepts an integer day count (`7`) or `Nd`/`Nh` (`7d`, `12h`);
+age is measured from each preview's stored `expires_at` (mtime fallback).
+
+`store cleanup --confirm` mutates local state, so `--readonly` /
+`TGCLI_READONLY=1` blocks it with exit 2 before any deletion. Dry-run (no
+`--confirm`) is always allowed.
+
+`--json` emits:
+
+```json
+{"removed":[],"would_remove":["p_spent0.used","p_expired.json"],"bytes":130,
+ "confirmed":false,"kept":{"audit_log":true,"sessions":true,"relics":["labs"]}}
+```
+
+With `--confirm`, `removed` is populated and `would_remove` is empty.
+
 ## 5.1 Environment Health (`tg doctor`; ADR-0028)
 
 ```
