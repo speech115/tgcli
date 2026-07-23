@@ -109,6 +109,86 @@ transaction language without real atomicity; out of scope for v1.
 Note: incremental *reading* is already covered by `read --after-id/--since`;
 this is about the *export/download* side.
 
+**`failed` should distinguish temporary from permanent (XS).** wacli only
+marks media unavailable once both the phone and the CDN path are confirmed
+gone, so later runs skip genuinely dead rows. We have no local DB to hold such
+a flag and never will, but the *problem* transfers: today bulk
+`media download` records `{"message_id", "error"}` in `failed`
+(`src/tgcli/commands/media.py`) with no kind, so a re-run re-fetches
+permanently dead messages (`FILE_REFERENCE_EXPIRED` on a deleted source) and
+fails them again — wasted traffic and FLOOD_WAIT on a channel backup. Add a
+`kind: "temporary" | "permanent"` to each `failed` entry so a stateless caller
+can decide whether to retry. Fits the existing shape; no state.
+
+### Accounts surface symmetry (from the wacli review)
+
+wacli's account model is `list / add / use / show / remove`. Its selection
+chain is broader than ours: `--store` → `--account` → env → default → legacy,
+while `tgcli.config.resolve_account()` deliberately has only explicit
+`--account` → `TGCLI_ACCOUNT` → `default_account`. A direct store override and
+legacy fallback do not transfer to tgcli's configured-session model. Our
+command surface is still asymmetric: `tg accounts import` + `list` exist,
+`show` and `remove` do not. Both are the missing half of the new-machine /
+broken-session story behind ACCOUNTS-001.
+
+| Item | Value | Effort | Status |
+|---|---|---|---|
+| `tg accounts show <alias>` | med | S | missing |
+| `tg accounts remove <alias>` | low-med | XS | missing |
+
+- **`show`** — session path, lock state, and presence of local authorization
+  material, *without opening a connection*. Only a live `--connect` probe can
+  establish that Telegram still accepts that material after a server-side
+  revoke. This is the account-scoped offline branch of `doctor --connect`
+  (see the Agent-surface subsection); design them as one command, not two.
+- **`remove`** — drop an account from config; today that means hand-editing the
+  TOML plus deleting the `.session`. A config mutation, not a Telegram one —
+  fits the existing gate trivially.
+
+Not worth importing: `add` (our `import` already creates an account from the
+old stack) and `use` (a persistent "current account" is cross-invocation state
+that just duplicates the working `--account`). Both `show` and `remove` land in
+the same PR as ACCOUNTS-001.
+
+### Checked and rejected (wacli media / read-only)
+
+- `--read-only` media download with explicit `--output`: wacli allows it
+  because writing a file you named is not a store mutation. We are already
+  stricter-correct — `media download` never sits behind the `--readonly` gate
+  (`preflight.py`) because downloading to disk changes nothing in Telegram.
+  Nothing to add.
+
+### Coverage sweep of the wacli pages (2026-07-23)
+
+The first pass covered 26 wacli doc pages (12 in the main review + 14 swept by
+two cheap sub-agents), with findings re-checked against the tgcli code. Review
+then found two more pages in the current published surface, `calls` and
+`companion integrations`; both are included in the dispositions below. Most
+pages produced nothing new because their surfaces are already-have or meta:
+
+- **ALREADY-HAVE:** `channels`, `chats` (our `dialog`/`mark-*`), `version`,
+  and `help` (argparse gives both). Profile *reads* too:
+  `users.getFullUser` and `photos.getUserPhotos` are already read-allowlisted,
+  so reading a profile works via `tg api` today. A sibling release branch
+  proposes `CHANGELOG.md` + ADR-0038 version discipline, but neither is in this
+  branch or `main`; do not count it as current behavior until it lands.
+- **SKIP:** `groups` (creation is a moderation-vertical gap, already parked
+  there), `contacts-import-system` (platform binding + external name source,
+  belongs in `tg-agent`), `install`/`overview`/`quickstart`/`docs` (meta), and
+  Homebrew packaging (uv is the deliberate choice — see the Go-vs-Python note).
+  `calls` is a WhatsApp-store event log with no equivalent approved Telegram
+  call workflow. `companion integrations` recommends JSON/events/read-only
+  database access; tgcli already has JSON/TSV and read-only `batch`, while a
+  mirrored database is deliberately out of scope.
+
+Three genuine but low-value gaps, recorded for completeness, none urgent:
+
+| Item | Value | Effort | Note |
+|---|---|---|---|
+| `tg completion bash\|zsh\|fish` | low | S | Human-only QoL; agents never need it. We are argparse, so this needs `argcomplete` or a hand-rolled generator — **not** Click as a naive port assumes. |
+| `tg profile set --bio/--name/--photo` | low | S | Self-account mutation → existing gate. Profile *read* is already raw-only; only the write half is missing. Niche for a correspondence tool. |
+| `tg presence typing/recording` | low | XS | Genuine gap but marginal under statelessness: a one-shot invocation sets the indicator and disconnects, so it vanishes almost immediately. Only meaningful if bundled into the same connection as a send. |
+
 ### Dialog state management
 
 | Item | Value | Effort | Status |
@@ -159,6 +239,75 @@ valuable as a channel-owner product.
 Listing is a straightforward read. `terminate` (`resetAuthorization`) can lock
 the user out → hardened confirmation (exact device-id entry). Relevant given
 the 2026-07 revocation incident behind ACCOUNTS-001.
+
+### Agent surface — from the wacli review (2026-07-23)
+
+Reviewed [wacli](https://wacli.sh/), openclaw's WhatsApp CLI and a sibling of
+the gogcli lineage tgcli inherited, for transferable decisions. Most of it does
+not transfer: its local SQLite + FTS5 mirror, `sync --follow`, and in-tool
+webhook fan-out all compensate for a protocol with no server-side search and no
+readable history. Telegram has both, so a mirror inside tgcli would buy a second
+source of truth and nothing else. Four items survive the filter. (A fifth
+finding — session-lock contention — is a blocker on FEED-001, recorded in
+ISSUES.md, not here.)
+
+| Item | Value | Effort | Status |
+|---|---|---|---|
+| `tg store stats` / `store cleanup` | med-high | S | missing |
+| `--events` NDJSON lifecycle stream | med-high | M | missing |
+| `tg doctor` offline by default + `--connect` | med | S | missing |
+| `tg spec --json` | med | S | **re-proposal against ADR-0028** |
+
+**`tg store`.** Nothing ever cleans `~/.local/state/tgcli`. Measured
+2026-07-23 on the owner's machine: 59 preview files of which **51 are `.used`**
+— burnt previews retained forever, one of them 17 KB of message text, mode
+`0644`; `audit.jsonl` at 1.1 MB and unbounded; and 340 KB under `mirrors/`,
+`mirror-lab/`, `labs/`, `probes/` left by the removed `tg mirror` surface and
+old experiments. The state root itself is `0700`, so nothing leaks off-account,
+but stale message bodies with no expiry are still the wrong default. wacli's
+shape fits directly: `store stats` plus `store cleanup [--older-than N]
+[--dry-run] [--confirm]`, with the same explicit disclaimer that it only
+touches local artefacts and never Telegram. Also fixes the permission
+inconsistency: `audit.jsonl` is `0600` while `invocations.jsonl` and previews
+are `0644`.
+
+**`--events`.** `tg clone sync`, `tg export messages`, and bulk `media
+download` run silently and emit only on completion — an agent cannot
+distinguish a live run from a hung one. wacli emits one NDJSON lifecycle event
+per stderr line; that stream choice fits CONTRACT §2 unchanged (stderr already
+owns progress) and does not compete with the single stdout document.
+`clone.py` already counts `copied_batches`. Needs an ADR: which commands opt
+in, the event vocabulary, and whether events are contract-stable.
+
+**`tg doctor --connect`.** Today `doctor` performs a live probe whenever the
+session file exists and its lock is free; missing or busy sessions already get
+a limited local report. That live authorization check cannot succeed when the
+session is revoked or the network is down — precisely when broader local
+diagnostics are still needed. wacli splits it: offline by default (store
+layout, local auth material, locks), while `--connect` adds live
+authorization/connectivity checks. Our offline branch would cover config
+validity, file permissions, session presence, lock state, and state size
+without claiming server authorization. Natural companion to ACCOUNTS-001,
+which needs a diagnosis path that works on a broken session.
+
+**`tg spec`.** *Not a wacli import* — wacli's `spec` is a documentation page,
+not a command; the review only prompted the re-examination. Listed here for
+provenance. Rejected by ADR-0028 as "a second source of truth that drifts".
+That objection was right at the time and is weaker now: ADR-0034 made
+`parser.py` grammar-only, so a generated spec is a projection of the single
+source rather than a copy of it. The value is that an agent asks the binary
+what it can do instead of trusting `SKILL.md` to have kept up. Any re-entry
+must overturn the ADR-0028 line explicitly. Shell completion is the same
+generator with a different renderer — bundle it or drop it, not a separate
+item.
+
+**Checked and rejected.** wacli distinguishes "server accepted" from
+"delivered to recipient" because WhatsApp is E2E and a device may fail to
+decrypt the first copy. In Telegram a returned `message_id` means the message
+is on the server in the chat, so `tg send --commit`'s
+`{"preview_id", "message_id"}` already carries the honest meaning; no new field
+needed. `--pick N` for ambiguous recipients is likewise moot — Telegram
+usernames are unique, and display-name search already returns a list.
 
 ---
 

@@ -17,6 +17,43 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Repair the wacli review branch (Codex)
+**Did:** corrected the reviewed branch's five factual/design defects: gap
+recovery no longer claims `read --after-id` can reconstruct old edits or
+deletions; account selection describes tgcli's actual three-step resolution;
+offline account/doctor checks no longer claim server authorization; the docs
+coverage statement includes `calls` and `companion integrations`; and the
+ADR-0038/CHANGELOG statement is explicitly a sibling-branch dependency, not
+current `main` behavior. Final independent review also removed a premature
+deletion-event JSON shape and corrected doctor's conditional live-probe
+description. Restored the missing original-session DEVLOG entry.
+Repo-local final gate: `.venv/bin/pytest -q` — `736 passed, 8 skipped in
+4.97s`; Ruff check passed; Ruff format reported `113 files already formatted`;
+Pyright reported `0 errors, 0 warnings, 0 informations`; coverage reported
+`coverage OK: 23 namespaces`. The equivalent `uv run` gate could not start
+because approval-service usage limits blocked access to uv's shared cache; the
+branch's existing GitHub CI was green before these docs-only fixes.
+**Decided:** FEED-001's exact gap schema remains an ADR decision. The backlog
+may state required truthfulness and recovery limits, but it must not freeze a
+JSON contract before that ADR.
+**Learned:** an `after_id` replay closes creation gaps only; it cannot recover
+edits or deletions whose message IDs predate the cursor.
+**Next:** run independent whole-branch review, then merge only after the
+ADR-0038 wording remains truthful against the final branch graph.
+
+## 2026-07-23 — Review wacli for transferable decisions (Cursor)
+**Did:** reviewed wacli's documented surface against tgcli and recorded
+unvetted agent/account/media ideas in PROPOSALS plus lock-contention and
+event-recovery inputs under the already-deferred FEED-001. No product behavior
+changed.
+**Decided:** every new item remains behind ADR-0026's explicit owner + ADR +
+scoped-plan gate; FEED-001 still needs its own design decision.
+**Learned:** a long-running feed conflicts with tgcli's exclusive per-session
+lock, and WhatsApp's local-mirror solutions do not transfer wholesale to
+Telegram's server-side history/search model.
+**Next:** independently verify every wacli disposition and current-branch
+dependency before merge.
+
 ## 2026-07-23 — ADR-0039 topic-only retry correction (Codex)
 **Did:** normalized the desired retry snapshot through the exact
 `InputReplyToMessage` shape sent to Telegram. A topic-only draft stores its

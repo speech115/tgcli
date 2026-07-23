@@ -87,3 +87,58 @@ Shape agreed in principle: a foreground command
 (`tg changes --cursor C [--wait N]`) that returns
 `{events: [...], next_cursor}` and exits — no daemon, consistent with
 ADR-0002.
+
+### Blocker: session-lock contention (found 2026-07-23)
+
+The agreed shape has a hole that must be closed *before* the rest of the
+design, because it can change the command's shape.
+
+`session.client()` takes `LOCK_EX | LOCK_NB` per session file and holds it
+for the whole invocation (`src/tgcli/session.py`). A poller that loops
+`tg changes --wait 30` therefore owns the lock ~100% of the time, and every
+other command on that account — `tg send`, `tg read`, `tg api` — fails with
+"session is busy". That breaks exactly the workflow the feed exists to
+enable: observe an event, fetch the peer, prepare a draft. A feed that
+monopolises the account is worse than no feed.
+
+wacli hit the same wall and solved it by delegation: when `sync --follow`
+holds the store, `send` hands the message to that process instead of
+erroring. That implies IPC, which for us is a daemon by another name
+(ADR-0002). Three candidate resolutions, none free:
+
+- **`--wait` yields the lock** between poll cycles; other commands get a
+  bounded `--lock-wait` instead of instant failure. Keeps one session,
+  costs reconnect churn and makes "busy" a timing lottery.
+- **Second session for the poller** (own `.session`, own lock). Simplest and
+  fully daemonless, but Telegram counts it as another authorized device, and
+  ACCOUNTS-001 has to be able to create it.
+- **Feed folded into `tg batch`** — one connection performs the poll *and*
+  the follow-up reads, so contention never arises for the common case.
+  Narrows the design to scripted consumers.
+
+Whichever wins, `--wait` semantics and the lock contract are the same
+decision and must be settled together.
+
+### Design input from the wacli review (2026-07-23)
+
+- **Deletions are events, not absences.** wacli never treats a vanished row
+  as proof of deletion: deleted messages keep an explicit tombstone
+  (`deleted_at`, `deletion_reason`) and a purge ledger prevents a later sync
+  from resurrecting purged payloads. The feed equivalent is an explicit
+  deletion event, whose exact type name and fields remain for the future ADR.
+  A consumer must never have to infer a deletion from a re-read that came back
+  shorter than expected.
+- **A gap must be loud.** When the cursor cannot be honoured (updates-state
+  too old, session gap), the result must report the gap instead of silently
+  returning a short list that reads as "nothing happened". A
+  `read --after-id` hint can recover newly created messages only; it cannot
+  reconstruct edits or deletions of older messages. The future ADR therefore
+  has to distinguish recoverable creation history from lost edit/deletion
+  events and define an explicit rebaseline contract. The exact gap JSON waits
+  for that decision rather than pretending one read closes every event class.
+- **Story viewers are out of scope, deliberately.** The lead-generation
+  workflow that makes a feed attractive does not arrive through updates at
+  all: `stories.getStoryViewsList` is a poll-only read and is already
+  read-allowlisted (`src/tgcli/commands/api.py`, ADR-0010). Scoping FEED-001
+  as if it covered story viewers would build a subsystem for something it
+  cannot deliver — check the raw call against the real scenario first.
