@@ -122,6 +122,11 @@ def test_live_draft_set_show_clear_idempotent():
 
     Uses Saved Messages. Leaves the draft empty on success.
     """
+    latest = run_tg("--json", "latest", "me")
+    assert latest.returncode == 0, latest.stderr
+    reply_to = json.loads(latest.stdout)["message"]["id"]
+    assert isinstance(reply_to, int)
+
     marker = "tgcli-draft-live **bold**"
 
     preview = run_tg(
@@ -130,6 +135,8 @@ def test_live_draft_set_show_clear_idempotent():
         "set",
         "me",
         marker,
+        "--reply-to",
+        str(reply_to),
         "--preview",
     )
     assert preview.returncode == 0, preview.stderr
@@ -139,16 +146,30 @@ def test_live_draft_set_show_clear_idempotent():
     assert commit.returncode == 0, commit.stderr
     draft = json.loads(commit.stdout)["draft"]
     assert draft["is_empty"] is False
-    assert "bold" in draft["text"]
+    assert draft["text"] == "tgcli-draft-live bold"
+    assert "**" not in draft["text"]
+    assert draft["reply_to_msg_id"] == reply_to
+    assert draft["date"] is not None
 
     show = run_tg("--json", "draft", "show", "me")
     assert show.returncode == 0, show.stderr
     shown = json.loads(show.stdout)["draft"]
     assert shown["is_empty"] is False
-    assert "bold" in shown["text"]
+    assert shown["text"] == "tgcli-draft-live bold"
+    assert "**" not in shown["text"]
+    assert shown["reply_to_msg_id"] == reply_to
 
     # Repeated identical set must not fail (Telegram *NotModified class).
-    again_preview = run_tg("--json", "draft", "set", "me", marker, "--preview")
+    again_preview = run_tg(
+        "--json",
+        "draft",
+        "set",
+        "me",
+        marker,
+        "--reply-to",
+        str(reply_to),
+        "--preview",
+    )
     assert again_preview.returncode == 0, again_preview.stderr
     again = run_tg(
         "--json",

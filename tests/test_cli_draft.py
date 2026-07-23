@@ -166,7 +166,19 @@ def test_draft_set_preview_and_commit_saves_exact_request(
     config_env, monkeypatch, capsys
 ):
     entity = _user()
-    client = FakeClient(
+
+    class CaptureClient(FakeClient):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.save_results: list[object] = []
+
+        async def __call__(self, request):
+            result = await super().__call__(request)
+            if isinstance(request, functions.messages.SaveDraftRequest):
+                self.save_results.append(result)
+            return result
+
+    client = CaptureClient(
         entities={"@alice": entity},
         peer_dialogs_result=_peer_dialogs(
             types.DraftMessage(message="old", date=None), entity
@@ -209,6 +221,9 @@ def test_draft_set_preview_and_commit_saves_exact_request(
     assert result["preview_id"] == preview["preview_id"]
     assert result["draft"]["text"] == "hi"
     assert result["draft"]["is_empty"] is False
+    assert result["draft"]["date"] is not None
+    assert result["draft"]["reply_to_msg_id"] == 42
+    assert result["draft"]["topic_id"] == 7
 
     saves = [
         request
@@ -224,9 +239,9 @@ def test_draft_set_preview_and_commit_saves_exact_request(
     assert isinstance(request.reply_to, types.InputReplyToMessage)
     assert request.reply_to.reply_to_msg_id == 42
     assert request.reply_to.top_msg_id == 7
-    assert request is not None
-    # FakeClient returns a bare True Bool — the crash class from 1.1.0.
-    assert client.call_requests  # exercised through __call__
+    assert len(client.save_results) == 1
+    assert type(client.save_results[0]) is bool
+    assert client.save_results[0] is True
 
 
 def test_draft_clear_preview_and_commit(config_env, monkeypatch, capsys):
@@ -295,7 +310,10 @@ def test_draft_set_rejects_wrong_preview_kind(config_env, monkeypatch, capsys):
     assert main(["draft", "set", "--commit", stored["preview_id"], "--json"]) == 2
 
 
-def test_draft_set_commit_blocked_under_readonly(config_env, monkeypatch, capsys):
+@pytest.mark.parametrize("flag", ["--readonly", "TGCLI_READONLY", "TGCLI_NO_SEND"])
+def test_draft_set_commit_blocked_by_mutation_gates(
+    config_env, monkeypatch, capsys, flag
+):
     entity = _user()
     client = FakeClient(
         entities={"@alice": entity},
@@ -306,23 +324,12 @@ def test_draft_set_commit_blocked_under_readonly(config_env, monkeypatch, capsys
     assert main(["draft", "set", "@alice", "x", "--preview", "--json"]) == 0
     preview_id = json.loads(capsys.readouterr().out)["preview_id"]
 
-    assert main(["--readonly", "draft", "set", "--commit", preview_id, "--json"]) == 2
-    err = capsys.readouterr().err.lower()
-    assert "readonly" in err or "no-send" in err
-
-
-def test_draft_set_commit_blocked_by_env(config_env, monkeypatch, capsys):
-    entity = _user()
-    client = FakeClient(
-        entities={"@alice": entity},
-        peer_dialogs_result=_peer_dialogs(types.DraftMessageEmpty(), entity),
-    )
-    make_session_fake(monkeypatch, client)
-    assert main(["draft", "set", "@alice", "x", "--preview", "--json"]) == 0
-    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
-
-    monkeypatch.setenv("TGCLI_READONLY", "1")
-    assert main(["draft", "set", "--commit", preview_id]) == 2
+    if flag.startswith("TGCLI_"):
+        monkeypatch.setenv(flag, "1")
+        argv = ["draft", "set", "--commit", preview_id, "--json"]
+    else:
+        argv = [flag, "draft", "set", "--commit", preview_id, "--json"]
+    assert main(argv) == 2
 
 
 def test_draft_show_allowed_under_readonly(config_env, monkeypatch, capsys):
@@ -333,3 +340,90 @@ def test_draft_show_allowed_under_readonly(config_env, monkeypatch, capsys):
     )
     make_session_fake(monkeypatch, client)
     assert main(["--readonly", "draft", "show", "@alice", "--json"]) == 0
+
+
+def test_draft_set_commit_audits(config_env, monkeypatch, capsys):
+    entity = _user()
+    client = FakeClient(
+        entities={"@alice": entity},
+        peer_dialogs_result=_peer_dialogs(types.DraftMessageEmpty(), entity),
+    )
+
+    async def input_peer(key):
+        return types.InputPeerUser(user_id=5, access_hash=7)
+
+    client.get_input_entity = input_peer  # type: ignore[method-assign]
+    make_session_fake(monkeypatch, client)
+
+    assert main(["draft", "set", "@alice", "hi", "--preview", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+    assert main(["draft", "set", "--commit", preview_id, "--json"]) == 0
+    assert main(["draft", "set", "--commit", preview_id]) == 2
+
+    actions = [
+        json.loads(line)["action"]
+        for line in safety.audit_path().read_text().splitlines()
+    ]
+    assert actions == ["draft-set", "draft-set-result"]
+
+
+def test_draft_clear_commit_audits(config_env, monkeypatch, capsys):
+    entity = _user()
+    client = FakeClient(
+        entities={"@alice": entity},
+        peer_dialogs_result=_peer_dialogs(
+            types.DraftMessage(message="wipe", date=None), entity
+        ),
+    )
+
+    async def input_peer(key):
+        return types.InputPeerUser(user_id=5, access_hash=7)
+
+    client.get_input_entity = input_peer  # type: ignore[method-assign]
+    make_session_fake(monkeypatch, client)
+
+    assert main(["draft", "clear", "@alice", "--preview", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+    assert main(["draft", "clear", "--commit", preview_id, "--json"]) == 0
+
+    actions = [
+        json.loads(line)["action"]
+        for line in safety.audit_path().read_text().splitlines()
+    ]
+    assert actions == ["draft-clear", "draft-clear-result"]
+
+
+def test_draft_set_keeps_preview_pending_when_result_audit_fails(
+    config_env, monkeypatch, capsys
+):
+    from tgcli.errors import PolicyError
+
+    entity = _user()
+    client = FakeClient(
+        entities={"@alice": entity},
+        peer_dialogs_result=_peer_dialogs(types.DraftMessageEmpty(), entity),
+    )
+
+    async def input_peer(key):
+        return types.InputPeerUser(user_id=5, access_hash=7)
+
+    client.get_input_entity = input_peer  # type: ignore[method-assign]
+    make_session_fake(monkeypatch, client)
+
+    assert main(["draft", "set", "@alice", "hi", "--preview", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+    original_append_audit = safety.append_audit
+
+    def fail_result_audit(action, account, details):
+        if action == "draft-set-result":
+            raise PolicyError("cannot write audit record: disk full")
+        original_append_audit(action, account, details)
+
+    monkeypatch.setattr(safety, "append_audit", fail_result_audit)
+    assert main(["draft", "set", "--commit", preview_id]) == 2
+    pending = safety.previews_dir() / f"{preview_id}.pending"
+    assert pending.exists()
+    assert not pending.with_suffix(".used").exists()
+
+    monkeypatch.setattr(safety, "append_audit", original_append_audit)
+    assert main(["draft", "set", "--commit", preview_id, "--json"]) == 0

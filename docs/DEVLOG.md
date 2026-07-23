@@ -17,6 +17,64 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — wacli review: backlog items + FEED-001 blocker (Claude Opus 4.8)
+**Did:** owner-requested review of [wacli](https://wacli.sh/) (openclaw's
+WhatsApp CLI, sibling of the gogcli lineage) for what transfers to tgcli, with
+a second opinion from GPT as input. Docs only, no code. `docs/PROPOSALS.md`:
+new "Agent surface" subsection — `tg store`, `--events`, `doctor --connect`,
+`tg spec`, plus a checked-and-rejected note. `docs/ISSUES.md` FEED-001: a
+session-lock blocker and a design-input block (deletion tombstones, loud gaps,
+story-viewer scope warning). Written on `claude/drafts` because that branch was
+checked out and switching under a concurrently running session was the larger
+risk.
+**Decided:** everything stays behind the ADR-0026 gate — proposals, not work.
+wacli's SQLite+FTS5 mirror, `sync --follow`, and in-tool webhooks are non-goals:
+they compensate for WhatsApp having no server-side search and no readable
+history, which Telegram has. `tg spec` is recorded as an explicit re-proposal
+against ADR-0028, not a fresh idea.
+**Learned:** three findings that only came from checking instead of assuming.
+(1) FEED-001 as agreed is unbuildable: `LOCK_EX | LOCK_NB` held for a whole
+invocation means a `tg changes --wait 30` poller starves every other command on
+the account — the feed would break the workflow it exists for; wacli solved the
+same collision with send-delegation, which for us is a daemon by another name.
+(2) `stories.getStoryViewsList` has been read-allowlisted since ADR-0010, so the
+story-viewer lead workflow needs no new subsystem at all. (3) Nothing prunes
+`~/.local/state/tgcli`: 51 of 59 preview files are burnt `.used` bodies kept
+forever at `0644`, `audit.jsonl` is 1.1 MB unbounded, and 340 KB belongs to the
+removed `tg mirror`. Also: the second-opinion review cited wacli accurately but
+misstated tgcli's own state (claimed `gap` was already in the agreed FEED-001
+shape; proposed an `accounts add` duplicating `accounts import`) — same lesson
+as 2026-07-18, verify review claims against the repo.
+**Next:** run the real lead scenario against `tg api stories.getStoryViewsList`
+and see what is actually missing before opening FEED-001 or ACCOUNTS-001.
+
+**Addendum (second pass over remaining wacli pages).** Added to PROPOSALS:
+`accounts show`/`remove` (our surface has `import`+`list` but not the other
+half; both belong in the ACCOUNTS-001 PR, and `show` is the offline branch of
+`doctor --connect`), and a `kind: temporary|permanent` field on bulk-media
+`failed` (stateless take on wacli's unavailable-media dedup — no local DB
+needed). Corrected provenance: wacli's `spec` is a documentation page, not a
+command, so `tg spec` is my own idea prompted by the review, not an import —
+fixed the wording in PROPOSALS. Rejected on inspection: `--read-only` media
+with `--output` (we are already stricter — download never sits behind the gate
+because it does not mutate Telegram); `history coverage/backfill` (cures
+WhatsApp's unreadable history, which Telegram does not have); contacts
+aliases/tags and `import-system` (workflow data / platform binding, belong in
+an external `tg-agent`, not the core).
+
+## 2026-07-23 — ADR-0039 review fixes (Composer)
+**Did:** closed independent Spec+Standards findings on `claude/drafts`:
+audit timing + `TGCLI_NO_SEND` tests; `_save_draft` asserts bare `bool`
+result; commit re-fetches via `draft show` so `date`/reply fields are real;
+FakeClient mirrors `SaveDraft` into peer dialogs; live smoke asserts md
+strip (`**` gone), `--reply-to`, and non-null `date`. Gate: `755 passed,
+9 skipped`; live draft smoke green.
+**Decided:** commit JSON is a post-save re-read, not a local synthesis.
+**Learned:** instance `__call__` assignment is ignored by Python; capture
+RPC results via a FakeClient subclass.
+**Next:** re-run Spec+Standards on the fix commit if desired; open PR;
+tag `v1.1.1` after merge.
+
 ## 2026-07-23 — Message drafts ADR-0039 / v1.1.1 (Composer)
 **Did:** implemented `tg draft set|show|clear|list` on `claude/drafts`. Reads
 landed as `draft.show`/`draft.list` in `read_ops`; set/clear use preview→commit

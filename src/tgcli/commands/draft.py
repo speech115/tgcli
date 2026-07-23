@@ -205,9 +205,9 @@ async def prepare_clear(tg, chat: str) -> dict:
     return {key: stored[key] for key in keys}
 
 
-async def _save_draft(tg, payload: dict, *, message: str, entities) -> None:
+async def _save_draft(tg, payload: dict, *, message: str, entities) -> bool:
     peer = await tg.get_input_entity(chatref.parse(payload["chat"]))
-    await tg(
+    result = await tg(
         functions.messages.SaveDraftRequest(
             peer=peer,
             message=message,
@@ -215,28 +215,24 @@ async def _save_draft(tg, payload: dict, *, message: str, entities) -> None:
             reply_to=_reply_header(payload),
         )
     )
+    # messages.saveDraft returns a bare Bool — the type that crashed tg api
+    # in the 1.1.0 cycle. Accept both True (changed) and False (no-op).
+    if type(result) is not bool:
+        raise TypeError(f"saveDraft returned {type(result).__name__}, expected bool")
+    return result
 
 
 async def commit_set(tg, preview_id: str, payload: dict) -> dict:
     body, entities = formatting.render(payload["text"], payload.get("format", "md"))
     await _save_draft(tg, payload, message=body, entities=entities)
-    entity = await _entity(tg, payload["chat"])
-    draft_tl = types.DraftMessage(
-        message=body,
-        date=None,
-        entities=entities,
-        reply_to=_reply_header(payload),
-    )
-    return {"preview_id": preview_id, "draft": draft_to_dict(entity, draft_tl)}
+    shown = await fetch_show(tg, payload["chat"])
+    return {"preview_id": preview_id, "draft": shown["draft"]}
 
 
 async def commit_clear(tg, preview_id: str, payload: dict) -> dict:
     await _save_draft(tg, payload, message="", entities=None)
-    entity = await _entity(tg, payload["chat"])
-    return {
-        "preview_id": preview_id,
-        "draft": draft_to_dict(entity, types.DraftMessageEmpty()),
-    }
+    shown = await fetch_show(tg, payload["chat"])
+    return {"preview_id": preview_id, "draft": shown["draft"]}
 
 
 def mutation_to_rows(data: dict) -> list[tuple]:

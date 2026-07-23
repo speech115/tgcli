@@ -147,7 +147,9 @@ class FakeClient:
         return next((message for message in self._messages if message.id == ids), None)
 
     async def __call__(self, request):
-        from telethon.tl import functions
+        from datetime import UTC, datetime
+
+        from telethon.tl import functions, types
 
         self.call_requests.append(request)
         if isinstance(request, functions.contacts.ResolvePhoneRequest):
@@ -209,6 +211,20 @@ class FakeClient:
                 )
             return self._all_drafts_result
         if isinstance(request, functions.messages.SaveDraftRequest):
+            if (
+                self._peer_dialogs_result is not None
+                and self._peer_dialogs_result.dialogs
+            ):
+                dialog = self._peer_dialogs_result.dialogs[0]
+                if request.message:
+                    dialog.draft = types.DraftMessage(
+                        message=request.message,
+                        date=datetime.now(UTC),
+                        entities=request.entities,
+                        reply_to=request.reply_to,
+                    )
+                else:
+                    dialog.draft = types.DraftMessageEmpty()
             return True
         if isinstance(
             request,
