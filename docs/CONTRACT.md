@@ -239,6 +239,65 @@ An empty `chats` list is success (`count` 0). A missing user is exit 4. A
 non-user/non-bot peer (group or channel) is exit 2 (`BLOCKED`). Plain rows
 are one TSV line per chat: `id`, `type`, `username`, `display_name`.
 
+```
+tg draft show CHAT
+tg draft list
+tg draft set CHAT TEXT --preview [--format {plain,md,html}] \
+  [--reply-to MESSAGE_ID] [--topic TOPIC_ID]
+tg draft set --commit PREVIEW_ID
+tg draft clear CHAT --preview
+tg draft clear --commit PREVIEW_ID
+```
+
+Message drafts (ADR-0039) leave prepared text in a dialog input box without
+sending it. There is no `draft send`: the human presses send in the Telegram
+client. `set` mirrors `send`'s formatting defaults (`--format` default `md`)
+and reply/topic flags; `--file` is out of scope for v1.
+
+`tg draft show CHAT --json` returns one draft object (not a message):
+
+```json
+{"draft": {"chat": {"id": 111, "name": "Alice"}, "text": "hello",
+ "custom_emoji": [], "reply_to_msg_id": null, "topic_id": null,
+ "date": "2026-07-23T12:00:00+00:00", "is_empty": false}}
+```
+
+An empty or missing draft is still success with `text: ""`, `is_empty: true`,
+and `date: null`. `date` is the draft's last-edited time, not a send time.
+`custom_emoji` follows the same `{id, emoji, offset, length}` shape as
+messages (ADR-0030).
+
+`tg draft list --json` returns `{"drafts":[…]}` — every non-empty draft on
+the account, each in the same object shape. `show` and `list` are typed read
+operations (`draft.show`, `draft.list`) and are available under
+`TGCLI_READONLY` and inside `tg batch`.
+
+`draft set` / `draft clear` use the same preview→commit handshake as `edit`.
+A set preview carries `old_text` (the current draft body that will be
+overwritten), `text`, `format`, `reply_to`, `topic`, and `to`:
+
+```json
+{"preview_id":"p_9f3a","to":{"id":111,"name":"Alice"},"old_text":"half-written",
+ "text":"**reply**","format":"md","reply_to":42,"topic":null,
+ "expires_at":"2026-07-23T12:05:00+00:00"}
+```
+
+A clear preview carries `old_text` and `to` only. Commits return
+`{"preview_id":"p_9f3a","draft":{…}}` with the resulting draft object.
+`--commit` accepts only a preview id (`expected_kind` `draft-set` /
+`draft-clear`). Preview creation is non-mutating and permitted under
+readonly gates; commit is blocked by `--readonly` / `TGCLI_READONLY` /
+`TGCLI_NO_SEND`. Authorised commits append `draft-set` /
+`draft-clear` audit records before the network call and
+`draft-set-result` / `draft-clear-result` after success.
+Immediately before saving, a commit re-reads the complete observable draft
+state — text, reply, topic, and every formatting entity — and fails closed
+(exit 2) if it no longer matches the preview's internal snapshot. A matching
+requested state is treated as the successful retry of an already-applied save.
+Telegram exposes no conditional-save/version token, so an edit made after that
+read and before `saveDraft` remains a residual race; callers must make a new
+preview after any blocked commit.
+
 `tg media download <t.me/link|chat> [message_id] --json`:
 ```json
 {"source": "@channel:42", "path": "/Users/me/Downloads/clip.mp4",
@@ -292,12 +351,16 @@ columns; its additive fields are JSON-only. `resolve` outputs one row:
 search` output the same four columns, one row per contact; `scope` is
 JSON-only.
 `media download` outputs `path`, `bytes`, `resumed`, `parallel`. `media
-manifest` outputs `message_id`, `type`, `size`, `mime`, `filename`. `send` preview
+manifest` outputs `message_id`, `type`, `size`, `mime`, `filename`. `draft show`
+and `draft list` output `chat_id`, `chat_name`, `text`, `is_empty`. `send` preview
 rows retain their existing columns and append `file`, `reply_to`, `format`. `edit` preview
 rows are `preview_id`, `message_id`, `old_text`, `text`, `format`; `delete` preview rows
 are `preview_id`, `message_id`, `text`; `forward` preview rows are
-`preview_id`, `source`, `message_id`, `destination`. Send, edit, delete, and
-forward commit rows are `preview_id`, `message_id`. `mark-read` rows are
+`preview_id`, `source`, `message_id`, `destination`. `draft set` preview rows are
+`preview_id`, `chat_id`, `old_text`, `text`, `format`; `draft clear` preview rows
+are `preview_id`, `chat_id`, `old_text`, empty text, empty format. Send, edit, delete, and
+forward commit rows are `preview_id`, `message_id`. Draft set/clear commit rows are
+`preview_id`, `chat_id`, `text`, `is_empty`. `mark-read` rows are
 `dialog_id`, `read`.
 
 ```
@@ -345,10 +408,10 @@ Previews expire after five minutes. A send commit moves its preview through
 deduplicates by `random_id` within the preview TTL. Only a confirmed send marks
 the preview used, and only after its result audit record persists. Commit JSON
 is `{"preview_id": "p_9f3a", "message_id": 42}`.
-All `--preview` invocations for `send`, `edit`, `delete`, and `forward` are
-non-mutating:
+All `--preview` invocations for `send`, `edit`, `delete`, `forward`,
+`draft set`, and `draft clear` are non-mutating:
 they may resolve or read a Telegram target and write a local preview record,
-but never send, edit, or delete a Telegram message. They remain permitted with
+but never send, edit, delete, or save a Telegram draft. They remain permitted with
 `--readonly`, `TGCLI_READONLY=1`, or `TGCLI_NO_SEND=1`. Those gates apply to
 `--commit` only, before configuration, session, audit, or mutation work.
 Every authorised send commit appends one JSON object to
@@ -485,7 +548,7 @@ ops. ISO date fields use the same parsing as their standalone commands
 Allowlisted `op` values:
 `dialogs`, `read`, `search`, `latest`, `message`, `info`, `count`,
 `resolve`, `mutual-chats`, `contacts.list`, `contacts.search`,
-`media.manifest`, `thread`. Mutations, `doctor`, `export`, `clone`,
+`media.manifest`, `thread`, `draft.show`, `draft.list`. Mutations, `doctor`, `export`, `clone`,
 `media.download`, `api`, and `accounts` are rejected (exit 2).
 
 Each stdout line is `{"ok":true,"op":"…","data":{…}}` or

@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any, Awaitable, Callable, ClassVar, Literal, NoReturn, TypeAlias
 
 from tgcli.commands import dialogs as dialogs_cmd
+from tgcli.commands import draft as draft_cmd
 from tgcli.commands import identity as identity_cmd
 from tgcli.commands import info as info_cmd
 from tgcli.commands import media as media_cmd
@@ -117,6 +118,17 @@ class Thread:
     name: ClassVar[Literal["thread"]] = "thread"
 
 
+@dataclass(frozen=True)
+class Draft:
+    chat: str
+    name: ClassVar[Literal["draft.show"]] = "draft.show"
+
+
+@dataclass(frozen=True)
+class Drafts:
+    name: ClassVar[Literal["draft.list"]] = "draft.list"
+
+
 ReadOperation: TypeAlias = (
     Dialogs
     | Read
@@ -131,6 +143,8 @@ ReadOperation: TypeAlias = (
     | ContactsSearch
     | MediaManifest
     | Thread
+    | Draft
+    | Drafts
 )
 
 
@@ -343,6 +357,18 @@ _SPECS: dict[str, _Spec] = {
         ),
         rows=thread_cmd.to_rows,
     ),
+    "draft.show": _Spec(
+        cli=lambda a: Draft(a.chat),
+        batch=lambda p: Draft(p["chat"]),
+        fetch=lambda tg, op: draft_cmd.fetch_show(tg, op.chat),
+        rows=draft_cmd.show_to_rows,
+    ),
+    "draft.list": _Spec(
+        cli=lambda a: Drafts(),
+        batch=lambda p: Drafts(),
+        fetch=lambda tg, op: draft_cmd.fetch_list(tg),
+        rows=draft_cmd.list_to_rows,
+    ),
 }
 
 BATCH_OP_NAMES = frozenset(_SPECS)
@@ -358,6 +384,12 @@ def _cli_op_name(args) -> str | None:
         return "contacts.list" if args.contacts_command == "list" else "contacts.search"
     if args.command == "media":
         return "media.manifest" if args.media_command == "manifest" else None
+    if args.command == "draft":
+        if args.draft_command == "show":
+            return "draft.show"
+        if args.draft_command == "list":
+            return "draft.list"
+        return None
     return args.command if args.command in _SPECS else None
 
 

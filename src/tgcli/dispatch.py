@@ -14,6 +14,7 @@ from tgcli.commands import api as api_cmd
 from tgcli.commands import batch as batch_cmd
 from tgcli.commands import clone as clone_cmd
 from tgcli.commands import dialog as dialog_cmd
+from tgcli.commands import draft as draft_cmd
 from tgcli.commands import export as export_cmd
 from tgcli.commands import media as media_cmd
 from tgcli.commands import mutate as mutate_cmd
@@ -137,6 +138,8 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
                     tg, args.source, account.alias, limit=args.limit
                 )
                 return data, clone_cmd.sync_rows(data)
+            if args.command == "draft":
+                return await _run_draft(tg, args)
             raise AssertionError(f"unhandled network command: {args.command}")
     except telethon_errors.TakeoutInitDelayError as exc:
         raise RateLimitError(
@@ -147,6 +150,37 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
         raise RateLimitError(
             f"rate limited for {exc.seconds}s", retry_after=exc.seconds
         ) from exc
+
+
+async def _run_draft(tg, args) -> tuple[dict, list[tuple]]:
+    if args.draft_command == "set":
+        if args.preview:
+            data = await draft_cmd.prepare_set(
+                tg,
+                args.chat,
+                args.text,
+                fmt=args.format,
+                reply_to=args.reply_to,
+                topic=args.topic,
+            )
+        else:
+            data = await draft_cmd.commit_set(
+                tg,
+                args.commit,  # type: ignore  # preview load guards None
+                args.preview_payload,
+            )
+        return data, draft_cmd.mutation_to_rows(data)
+    if args.draft_command == "clear":
+        if args.preview:
+            data = await draft_cmd.prepare_clear(tg, args.chat)
+        else:
+            data = await draft_cmd.commit_clear(
+                tg,
+                args.commit,  # type: ignore  # preview load guards None
+                args.preview_payload,
+            )
+        return data, draft_cmd.mutation_to_rows(data)
+    raise AssertionError(f"unhandled draft command: {args.draft_command}")
 
 
 async def _download_media(tg, args, account) -> tuple[dict, list[tuple]]:

@@ -117,6 +117,94 @@ def test_live_raw_api_get_full_user_has_envelope():
     assert isinstance(data["result"], dict)
 
 
+def test_live_draft_set_show_clear_idempotent():
+    """ADR-0039 live gate: markdown draft, reply header, no-op set/clear.
+
+    Uses Saved Messages. Leaves the draft empty on success.
+    """
+    latest = run_tg("--json", "latest", "me")
+    assert latest.returncode == 0, latest.stderr
+    reply_to = json.loads(latest.stdout)["message"]["id"]
+    assert isinstance(reply_to, int)
+
+    marker = "tgcli-draft-live **bold**"
+
+    preview = run_tg(
+        "--json",
+        "draft",
+        "set",
+        "me",
+        marker,
+        "--reply-to",
+        str(reply_to),
+        "--preview",
+    )
+    assert preview.returncode == 0, preview.stderr
+    preview_id = json.loads(preview.stdout)["preview_id"]
+
+    commit = run_tg("--json", "draft", "set", "--commit", preview_id)
+    assert commit.returncode == 0, commit.stderr
+    draft = json.loads(commit.stdout)["draft"]
+    assert draft["is_empty"] is False
+    assert draft["text"] == "tgcli-draft-live bold"
+    assert "**" not in draft["text"]
+    assert draft["reply_to_msg_id"] == reply_to
+    assert draft["date"] is not None
+
+    show = run_tg("--json", "draft", "show", "me")
+    assert show.returncode == 0, show.stderr
+    shown = json.loads(show.stdout)["draft"]
+    assert shown["is_empty"] is False
+    assert shown["text"] == "tgcli-draft-live bold"
+    assert "**" not in shown["text"]
+    assert shown["reply_to_msg_id"] == reply_to
+
+    # Repeated identical set must not fail (Telegram *NotModified class).
+    again_preview = run_tg(
+        "--json",
+        "draft",
+        "set",
+        "me",
+        marker,
+        "--reply-to",
+        str(reply_to),
+        "--preview",
+    )
+    assert again_preview.returncode == 0, again_preview.stderr
+    again = run_tg(
+        "--json",
+        "draft",
+        "set",
+        "--commit",
+        json.loads(again_preview.stdout)["preview_id"],
+    )
+    assert again.returncode == 0, again.stderr
+
+    clear_preview = run_tg("--json", "draft", "clear", "me", "--preview")
+    assert clear_preview.returncode == 0, clear_preview.stderr
+    cleared = run_tg(
+        "--json",
+        "draft",
+        "clear",
+        "--commit",
+        json.loads(clear_preview.stdout)["preview_id"],
+    )
+    assert cleared.returncode == 0, cleared.stderr
+    assert json.loads(cleared.stdout)["draft"]["is_empty"] is True
+
+    # Clear of already-empty draft must not fail.
+    empty_preview = run_tg("--json", "draft", "clear", "me", "--preview")
+    assert empty_preview.returncode == 0, empty_preview.stderr
+    empty_clear = run_tg(
+        "--json",
+        "draft",
+        "clear",
+        "--commit",
+        json.loads(empty_preview.stdout)["preview_id"],
+    )
+    assert empty_clear.returncode == 0, empty_clear.stderr
+
+
 def assert_dialog_shape(dialog):
     assert {"id", "name"} <= dialog.keys()
     assert isinstance(dialog["id"], int)

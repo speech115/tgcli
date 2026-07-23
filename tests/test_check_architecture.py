@@ -8,12 +8,12 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "check-architecture.py"
 CEILINGS = {
-    "src/tgcli/cli.py": 215,
-    "src/tgcli/parser.py": 375,
-    "src/tgcli/preflight.py": 170,
-    "src/tgcli/dispatch.py": 211,
+    "src/tgcli/cli.py": 236,
+    "src/tgcli/parser.py": 401,
+    "src/tgcli/preflight.py": 203,
+    "src/tgcli/dispatch.py": 245,
     "src/tgcli/commands/batch.py": 96,
-    "src/tgcli/read_ops.py": 382,
+    "src/tgcli/read_ops.py": 414,
     "src/tgcli/commands/clone.py": 910,
     "src/tgcli/clone/state.py": 287,
     "src/tgcli/clone/quotes.py": 365,
@@ -162,7 +162,7 @@ def test_architecture_check_rejects_growth_past_the_ceiling(tmp_path):
     result = _run(tmp_path)
 
     assert result.returncode == 1
-    assert "src/tgcli/cli.py has 216 lines; reviewed ceiling is 215" in result.stdout
+    assert "src/tgcli/cli.py has 237 lines; reviewed ceiling is 236" in result.stdout
 
 
 def test_repository_passes_architecture_check():
