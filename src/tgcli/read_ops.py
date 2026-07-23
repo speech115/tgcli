@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Callable, NoReturn, TypeAlias
+from typing import Any, Awaitable, Callable, NoReturn, TypeAlias
 
 from tgcli.commands import dialogs as dialogs_cmd
 from tgcli.commands import identity as identity_cmd
@@ -133,24 +133,6 @@ ReadOperation: TypeAlias = (
     | Thread
 )
 
-BATCH_OP_NAMES = frozenset(
-    {
-        "dialogs",
-        "read",
-        "search",
-        "latest",
-        "message",
-        "info",
-        "count",
-        "resolve",
-        "mutual-chats",
-        "contacts.list",
-        "contacts.search",
-        "media.manifest",
-        "thread",
-    }
-)
-
 
 @dataclass(frozen=True)
 class Result:
@@ -186,228 +168,215 @@ def _batch_when(value: Any, field: str) -> datetime | None:
     return parse_when(value, invalid=invalid)
 
 
-def from_cli(args) -> ReadOperation | None:
-    if args.command == "dialogs":
-        return Dialogs(args.limit, args.unread_only, args.kind)
-    if args.command == "read":
-        return Read(
-            args.chat,
-            args.limit,
-            args.before_id,
-            args.after_id,
-            args.since,
-            args.until,
-            args.topic,
-        )
-    if args.command == "search":
-        return Search(
-            args.chat,
-            args.query,
-            args.limit,
-            args.all,
-            args.from_user,
-            args.since,
-        )
-    if args.command == "latest":
-        return Latest(args.chat)
-    if args.command == "message":
-        return Message(args.chat, args.message_id, args.context)
-    if args.command == "info":
-        return Info(args.chat, args.full)
-    if args.command == "count":
-        return Count(args.chat)
-    if args.command == "resolve":
-        return Resolve(args.ref)
-    if args.command == "mutual-chats":
-        return MutualChats(args.ref)
+async def _fetch_search(tg, op: Search) -> dict[str, Any]:
+    if op.all:
+        return await search_cmd.fetch_search_all(tg, op.query, limit=op.limit)
+    if op.chat is None:
+        raise AssertionError("scoped search requires a chat")
+    return await search_cmd.fetch_search(
+        tg,
+        op.chat,
+        op.query,
+        limit=op.limit,
+        from_user=op.from_user,
+        since=op.since,
+    )
+
+
+async def _fetch_info(tg, op: Info) -> dict[str, Any]:
+    if op.full:
+        return await info_cmd.fetch_info_full(tg, op.chat)
+    return await info_cmd.fetch_info(tg, op.chat)
+
+
+@dataclass(frozen=True)
+class _Spec:
+    """One operation's four adapters, kept adjacent so they cannot drift apart.
+
+    `cli` builds the operation from an argparse namespace, `batch` from a JSONL
+    payload, `fetch` runs it, `rows` renders the `--plain` projection of what it
+    returned. Adding a read operation means adding one row here; the CLI
+    allowlist, the batch allowlist, and dispatch all derive from this table.
+    """
+
+    cli: Callable[[Any], ReadOperation]
+    batch: Callable[[dict[str, Any]], ReadOperation]
+    fetch: Callable[[Any, Any], Awaitable[dict[str, Any]]]
+    rows: Callable[[dict[str, Any]], list[tuple]]
+
+
+_SPECS: dict[str, _Spec] = {
+    "dialogs": _Spec(
+        cli=lambda a: Dialogs(a.limit, a.unread_only, a.kind),
+        batch=lambda p: Dialogs(
+            int(p.get("limit", 50)),
+            bool(p.get("unread_only", False)),
+            p.get("kind"),
+        ),
+        fetch=lambda tg, op: dialogs_cmd.fetch_dialogs(
+            tg, limit=op.limit, unread_only=op.unread_only, kind=op.kind
+        ),
+        rows=dialogs_cmd.to_rows,
+    ),
+    "read": _Spec(
+        cli=lambda a: Read(
+            a.chat, a.limit, a.before_id, a.after_id, a.since, a.until, a.topic
+        ),
+        batch=lambda p: Read(
+            p["chat"],
+            int(p.get("limit", 20)),
+            p.get("before_id"),
+            p.get("after_id"),
+            _batch_when(p.get("since"), "read.since"),
+            _batch_when(p.get("until"), "read.until"),
+            p.get("topic"),
+        ),
+        fetch=lambda tg, op: read_cmd.fetch_messages(
+            tg,
+            op.chat,
+            limit=op.limit,
+            before_id=op.before_id,
+            after_id=op.after_id,
+            since=op.since,
+            until=op.until,
+            topic=op.topic,
+        ),
+        rows=read_cmd.to_rows,
+    ),
+    "search": _Spec(
+        cli=lambda a: Search(a.chat, a.query, a.limit, a.all, a.from_user, a.since),
+        # A global search carries no chat, sender, or date scope.
+        batch=lambda p: Search(
+            None if p.get("all") else p["chat"],
+            p["query"],
+            int(p.get("limit", 20)),
+            bool(p.get("all")),
+            None if p.get("all") else p.get("from"),
+            None if p.get("all") else _batch_when(p.get("since"), "search.since"),
+        ),
+        fetch=_fetch_search,
+        rows=search_cmd.to_rows,
+    ),
+    "latest": _Spec(
+        cli=lambda a: Latest(a.chat),
+        batch=lambda p: Latest(p["chat"]),
+        fetch=lambda tg, op: search_cmd.fetch_latest(tg, op.chat),
+        rows=search_cmd.to_rows,
+    ),
+    "message": _Spec(
+        cli=lambda a: Message(a.chat, a.message_id, a.context),
+        batch=lambda p: Message(
+            p["chat"], int(p["message_id"]), int(p.get("context", 0))
+        ),
+        fetch=lambda tg, op: read_cmd.fetch_message(
+            tg, op.chat, op.message_id, context=op.context
+        ),
+        rows=search_cmd.to_rows,
+    ),
+    "info": _Spec(
+        cli=lambda a: Info(a.chat, a.full),
+        batch=lambda p: Info(p["chat"], bool(p.get("full"))),
+        fetch=_fetch_info,
+        rows=info_cmd.to_rows,
+    ),
+    "count": _Spec(
+        cli=lambda a: Count(a.chat),
+        batch=lambda p: Count(p["chat"]),
+        fetch=lambda tg, op: info_cmd.fetch_count(tg, op.chat),
+        rows=info_cmd.to_rows,
+    ),
+    "resolve": _Spec(
+        cli=lambda a: Resolve(a.ref),
+        batch=lambda p: Resolve(p["ref"]),
+        fetch=lambda tg, op: identity_cmd.resolve(tg, op.ref),
+        rows=identity_cmd.to_rows,
+    ),
+    "mutual-chats": _Spec(
+        cli=lambda a: MutualChats(a.ref),
+        batch=lambda p: MutualChats(p["ref"]),
+        fetch=lambda tg, op: identity_cmd.mutual_chats(tg, op.ref),
+        rows=identity_cmd.mutual_chats_to_rows,
+    ),
+    "contacts.list": _Spec(
+        cli=lambda a: ContactsList(),
+        batch=lambda p: ContactsList(),
+        fetch=lambda tg, op: identity_cmd.contacts_list(tg),
+        rows=identity_cmd.contacts_to_rows,
+    ),
+    "contacts.search": _Spec(
+        cli=lambda a: ContactsSearch(a.query, a.use_global),
+        batch=lambda p: ContactsSearch(p["query"], bool(p.get("global", False))),
+        fetch=lambda tg, op: identity_cmd.contacts_search(
+            tg, op.query, use_global=op.use_global
+        ),
+        rows=identity_cmd.contacts_to_rows,
+    ),
+    "media.manifest": _Spec(
+        cli=lambda a: MediaManifest(a.source, a.media_type, a.since, a.limit),
+        batch=lambda p: MediaManifest(
+            p["source"],
+            p.get("type"),
+            _batch_when(p.get("since"), "media.manifest.since"),
+            int(p.get("limit", 100)),
+        ),
+        fetch=lambda tg, op: media_cmd.manifest(
+            tg, op.source, kind=op.kind, since=op.since, limit=op.limit
+        ),
+        rows=media_cmd.manifest_to_rows,
+    ),
+    "thread": _Spec(
+        cli=lambda a: Thread(a.chat, a.message_id, a.depth, a.replies, a.limit),
+        batch=lambda p: Thread(
+            p["chat"],
+            int(p["message_id"]),
+            int(p.get("depth", 20)),
+            bool(p.get("replies", False)),
+            int(p.get("limit", 50)),
+        ),
+        fetch=lambda tg, op: thread_cmd.fetch_thread(
+            tg,
+            op.chat,
+            op.message_id,
+            depth=op.depth,
+            want_replies=op.want_replies,
+            replies_limit=op.replies_limit,
+        ),
+        rows=thread_cmd.to_rows,
+    ),
+}
+
+BATCH_OP_NAMES = frozenset(_SPECS)
+
+
+def _cli_op_name(args) -> str | None:
+    """The op a CLI invocation maps to, or None if it is not a read command.
+
+    Two commands fan out to more than one op; every other read command's name
+    is its op name.
+    """
     if args.command == "contacts":
-        if args.contacts_command == "list":
-            return ContactsList()
-        return ContactsSearch(args.query, args.use_global)
-    if args.command == "media" and args.media_command == "manifest":
-        return MediaManifest(
-            args.source,
-            args.media_type,
-            args.since,
-            args.limit,
-        )
-    if args.command == "thread":
-        return Thread(
-            args.chat,
-            args.message_id,
-            args.depth,
-            args.replies,
-            args.limit,
-        )
-    return None
+        return "contacts.list" if args.contacts_command == "list" else "contacts.search"
+    if args.command == "media":
+        return "media.manifest" if args.media_command == "manifest" else None
+    return args.command if args.command in _SPECS else None
+
+
+def from_cli(args) -> ReadOperation | None:
+    name = _cli_op_name(args)
+    return None if name is None else _SPECS[name].cli(args)
 
 
 def from_batch(payload: dict[str, Any]) -> ReadOperation:
     op = payload["op"]
-    if op == "dialogs":
-        return Dialogs(
-            int(payload.get("limit", 50)),
-            bool(payload.get("unread_only", False)),
-            payload.get("kind"),
-        )
-    if op == "read":
-        return Read(
-            payload["chat"],
-            int(payload.get("limit", 20)),
-            payload.get("before_id"),
-            payload.get("after_id"),
-            _batch_when(payload.get("since"), "read.since"),
-            _batch_when(payload.get("until"), "read.until"),
-            payload.get("topic"),
-        )
-    if op == "search":
-        return Search(
-            None if payload.get("all") else payload["chat"],
-            payload["query"],
-            int(payload.get("limit", 20)),
-            bool(payload.get("all")),
-            None if payload.get("all") else payload.get("from"),
-            (
-                None
-                if payload.get("all")
-                else _batch_when(payload.get("since"), "search.since")
-            ),
-        )
-    if op == "latest":
-        return Latest(payload["chat"])
-    if op == "message":
-        return Message(
-            payload["chat"],
-            int(payload["message_id"]),
-            int(payload.get("context", 0)),
-        )
-    if op == "info":
-        return Info(payload["chat"], bool(payload.get("full")))
-    if op == "count":
-        return Count(payload["chat"])
-    if op == "resolve":
-        return Resolve(payload["ref"])
-    if op == "mutual-chats":
-        return MutualChats(payload["ref"])
-    if op == "contacts.list":
-        return ContactsList()
-    if op == "contacts.search":
-        return ContactsSearch(
-            payload["query"],
-            bool(payload.get("global", False)),
-        )
-    if op == "media.manifest":
-        return MediaManifest(
-            payload["source"],
-            payload.get("type"),
-            _batch_when(payload.get("since"), "media.manifest.since"),
-            int(payload.get("limit", 100)),
-        )
-    if op == "thread":
-        return Thread(
-            payload["chat"],
-            int(payload["message_id"]),
-            int(payload.get("depth", 20)),
-            bool(payload.get("replies", False)),
-            int(payload.get("limit", 50)),
-        )
-    raise PolicyError(f"unhandled batch op: {op!r}")
+    spec = _SPECS.get(op)
+    if spec is None:
+        raise PolicyError(f"unhandled batch op: {op!r}")
+    return spec.batch(payload)
 
 
 async def execute(tg, operation: ReadOperation) -> Result:
-    if isinstance(operation, Dialogs):
-        data = await dialogs_cmd.fetch_dialogs(
-            tg,
-            limit=operation.limit,
-            unread_only=operation.unread_only,
-            kind=operation.kind,
-        )
-        return Result(data, dialogs_cmd.to_rows(data))
-    if isinstance(operation, Read):
-        data = await read_cmd.fetch_messages(
-            tg,
-            operation.chat,
-            limit=operation.limit,
-            before_id=operation.before_id,
-            after_id=operation.after_id,
-            since=operation.since,
-            until=operation.until,
-            topic=operation.topic,
-        )
-        return Result(data, read_cmd.to_rows(data))
-    if isinstance(operation, Search):
-        if operation.all:
-            data = await search_cmd.fetch_search_all(
-                tg,
-                operation.query,
-                limit=operation.limit,
-            )
-        else:
-            if operation.chat is None:
-                raise AssertionError("scoped search requires a chat")
-            data = await search_cmd.fetch_search(
-                tg,
-                operation.chat,
-                operation.query,
-                limit=operation.limit,
-                from_user=operation.from_user,
-                since=operation.since,
-            )
-        return Result(data, search_cmd.to_rows(data))
-    if isinstance(operation, Latest):
-        data = await search_cmd.fetch_latest(tg, operation.chat)
-        return Result(data, search_cmd.to_rows(data))
-    if isinstance(operation, Message):
-        data = await read_cmd.fetch_message(
-            tg,
-            operation.chat,
-            operation.message_id,
-            context=operation.context,
-        )
-        return Result(data, search_cmd.to_rows(data))
-    if isinstance(operation, Info):
-        data = (
-            await info_cmd.fetch_info_full(tg, operation.chat)
-            if operation.full
-            else await info_cmd.fetch_info(tg, operation.chat)
-        )
-        return Result(data, info_cmd.to_rows(data))
-    if isinstance(operation, Count):
-        data = await info_cmd.fetch_count(tg, operation.chat)
-        return Result(data, info_cmd.to_rows(data))
-    if isinstance(operation, Resolve):
-        data = await identity_cmd.resolve(tg, operation.ref)
-        return Result(data, identity_cmd.to_rows(data))
-    if isinstance(operation, MutualChats):
-        data = await identity_cmd.mutual_chats(tg, operation.ref)
-        return Result(data, identity_cmd.mutual_chats_to_rows(data))
-    if isinstance(operation, ContactsList):
-        data = await identity_cmd.contacts_list(tg)
-        return Result(data, identity_cmd.contacts_to_rows(data))
-    if isinstance(operation, ContactsSearch):
-        data = await identity_cmd.contacts_search(
-            tg,
-            operation.query,
-            use_global=operation.use_global,
-        )
-        return Result(data, identity_cmd.contacts_to_rows(data))
-    if isinstance(operation, MediaManifest):
-        data = await media_cmd.manifest(
-            tg,
-            operation.source,
-            kind=operation.kind,
-            since=operation.since,
-            limit=operation.limit,
-        )
-        return Result(data, media_cmd.manifest_to_rows(data))
-    if isinstance(operation, Thread):
-        data = await thread_cmd.fetch_thread(
-            tg,
-            operation.chat,
-            operation.message_id,
-            depth=operation.depth,
-            want_replies=operation.want_replies,
-            replies_limit=operation.replies_limit,
-        )
-        return Result(data, thread_cmd.to_rows(data))
-    raise AssertionError(f"unhandled read operation: {operation!r}")
+    spec = _SPECS.get(operation.name)
+    if spec is None:
+        raise AssertionError(f"unhandled read operation: {operation!r}")
+    data = await spec.fetch(tg, operation)
+    return Result(data, spec.rows(data))
