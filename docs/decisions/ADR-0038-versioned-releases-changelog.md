@@ -29,14 +29,16 @@ session had to do.
    released version, each bullet naming the ADR that governs it. It is
    short by design: a reader who wants detail follows the ADR link.
 2. **Semver is measured over `docs/CONTRACT.md`** — flags, JSON shapes,
-   exit codes. Since JSON changes are additive-only (AGENTS.md rule), a
-   growing surface is a **minor** bump; a bug fix with no contract change
-   is a **patch**; a contract break would be **major** and needs its own
-   ADR.
-3. **One feature, one release.** A merged feature branch that changes the
-   contract bumps the version and lands its CHANGELOG section in the same
-   commit as the bump, then gets a `vX.Y.Z` tag. Versions are not allowed
-   to accumulate unreleased work again.
+   exit codes — but the **minor** digit is a milestone the owner declares,
+   not an automatic consequence of shipping. Concretely: a feature or a fix
+   ships as a **patch**, because the surface only ever grows additively
+   (AGENTS.md rule) and additive growth breaks nobody; the owner raises the
+   minor when the accumulated set is worth announcing as one; a contract
+   break is **major** and needs its own ADR.
+3. **One feature, one release.** A merged feature branch bumps the patch
+   version and lands its CHANGELOG section in the same commit as the bump,
+   then gets a `vX.Y.Z` tag. Versions are not allowed to accumulate
+   unreleased work again.
 4. **Version lives in two files** — `pyproject.toml` and
    `src/tgcli/__init__.py` (which `tg --version` prints). Both move
    together.
@@ -52,3 +54,12 @@ session had to do.
   merged without its CHANGELOG section is now an incomplete feature.
 - 1.1.0 is the catch-up release covering ADR-0028…0037 in one section; it
   is the only section that will ever bundle several ADR waves.
+- The minor digit carries owner intent instead of arithmetic: 1.2.0 will
+  mean "a set worth announcing", not "some command was added". The price is
+  that the digits alone no longer tell a reader that a new command exists —
+  `CHANGELOG.md` is the only place that says so, which is what makes rule 1
+  mandatory rather than nice-to-have.
+- Rule 2 was written mechanically in the first draft of this ADR ("additive
+  growth is a minor bump") and revised before this ADR was ever published,
+  when the owner declared the first post-1.1.0 features patches. Recorded
+  here because the mechanical version is the obvious one to drift back to.

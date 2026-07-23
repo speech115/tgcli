@@ -54,9 +54,10 @@ The project is feature-complete and in production use. Default posture:
 - **`docs/MAP.md` must match reality.** Added/moved/removed a module — update
   the map in the same commit.
 - **A feature that changes `docs/CONTRACT.md` ships as a release** (ADR-0038):
-  bump the version in `pyproject.toml` and `src/tgcli/__init__.py`, add the
-  `CHANGELOG.md` section naming its ADR, all in the same commit — then tag
-  `vX.Y.Z`. Never let unreleased contract changes accumulate.
+  bump the **patch** version in `pyproject.toml` and `src/tgcli/__init__.py`,
+  add the `CHANGELOG.md` section naming its ADR, all in the same commit —
+  then tag `vX.Y.Z`. Never let unreleased contract changes accumulate. The
+  minor digit is raised only when the owner declares a milestone.
 - **`docs/CONTRACT.md` is versioned law.** Any change to CLI flags, JSON
   shapes, or exit codes updates CONTRACT.md in the same commit. Breaking
   changes require an ADR.
