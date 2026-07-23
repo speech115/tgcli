@@ -40,6 +40,21 @@ async def test_call_serializes_tl_result_in_raw_api_envelope():
 
 
 @pytest.mark.asyncio
+async def test_call_serializes_bool_rpc_result_in_raw_api_envelope():
+    """account.updateStatus and similar RPCs return a bare bool, not a TLObject."""
+
+    class Client(FakeClient):
+        async def __call__(self, request):
+            assert request.__class__.__name__ == "UpdateStatusRequest"
+            return True
+
+    assert await call(Client(), "account.updateStatus", '{"offline": false}') == {
+        "method": "account.updateStatus",
+        "result": True,
+    }
+
+
+@pytest.mark.asyncio
 async def test_build_request_resolves_alias_only_for_peer_typed_field():
     class Client:
         def __init__(self):
