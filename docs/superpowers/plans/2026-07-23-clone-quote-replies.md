@@ -121,7 +121,15 @@ to a mapped destination.
   entry.
 - Full gate: `uv run pytest -q`, ruff lint + format, pyright basic.
 
-## Live verification
+## Live verification — done 2026-07-23, owner-approved
+
+Slices 0–4 landed and the run below was executed with the owner watching. State
+backed up to `…4fa28c42….pre-quotes-20260723T140740Z.bak` first. Step 3 planted
+the 2374 fallback and was read by eye; step 4 caught the discussion leg up to
+source 2405 (`more: false`). Two defects surfaced only here, both fixed on this
+branch: the unopenable peer was labelled `id 2275285084` instead of its title,
+and a quote whose parent had been edited since crashed the batch with
+`QUOTE_TEXT_INVALID`. The original text of the section follows.
 
 **Stop here and get the owner's review before any Telegram mutation.** Slices 0
 through 4 land, gates pass, and the branch waits. What follows writes into a

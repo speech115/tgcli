@@ -883,9 +883,16 @@ post→anchor path) keeps a native `InputReplyToMessage` with quote text/entitie
 offset; a foreign peer the account can read is quoted in place; an unreachable
 or send-rejected foreign peer is rendered as a text fallback (peer title line,
 blockquote quote, author's unmodified body) and recorded in `quote_flattened`
-as `{"id", "peer", "reason"}`. `reply_from` / `reply_media` are server-rendered
-decorations and are ignored. Malformed quote metadata, an invalid reply parent,
-and inconsistent album reply shapes still exit 2 before audit or mutation.
+as `{"id", "peer", "reason"}`. The fallback's peer line is the title Telegram
+ships alongside the quoting message (`ChannelForbidden` carries one even for a
+peer the account is banned from), falling back to `id <n>` when the response
+names no such chat. A quote whose stored fragment no longer matches its parent
+— the parent was edited after the quote was made — is refused by Telegram with
+`QUOTE_TEXT_INVALID`; the send is retried once with the fragment dropped and
+the reply link kept, reported as `reason: "quote-rejected"`. `reply_from` /
+`reply_media` are server-rendered decorations and are ignored. Malformed quote
+metadata, an invalid reply parent, and inconsistent album reply shapes still
+exit 2 before audit or mutation.
 When a run plants at least one quote fallback it finishes copying, writes the
 full result document (including advanced cursors), and exits 2 (`PartialFailure`
 with `PolicyError` cause); a run that plants none exits 0.

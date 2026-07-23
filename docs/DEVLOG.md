@@ -17,6 +17,35 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — Clone quote replies: live run and two field fixes (Claude Opus 4.8)
+**Did:** consolidated four stray branches into `cursor/clone-quote-replies`
+(the other three were strict subsets; PR #30 was auto-closed by the rename
+and replaced by #31). Ran the owner-approved live verification against clone
+`4fa28c42…` after backing up its state: the 2374 fallback by `--limit 1`,
+then the full catch-up to discussion source 2405 (`copied: 26`,
+`more: false`). Two defects surfaced only in the live run and are fixed
+here: (1) an unopenable quote peer was labelled `id 2275285084` — the title
+is in the `ChannelForbidden` entry Telegram ships with the quoting message,
+so `quotes._peer_title` reads it from there; (2) `QUOTE_TEXT_INVALID`
+crashed the whole batch, now `quotes.drop_stale_quote` retries once without
+the fragment and keeps the reply link. Fallback source line gained the
+`Переслано от:` label at the owner's request. CONTRACT updated for both.
+699 passed, 8 skipped; ruff + pyright + architecture green.
+**Decided:** a rejected quote drops the fragment and keeps the reply rather
+than rendering the text fallback — the link is valid, only the stale
+fragment is not, and native threading is worth more than a fragment the
+parent no longer contains. Live-run permission for `tg clone sync` lives in
+gitignored `.claude/settings.local.json`, not the committed project file:
+write access to the owner's Telegram is not a team-wide rule.
+**Learned:** Telegram carries a banned-from channel's title in the enclosing
+history response — resolving the bare `PeerChannel` raises
+`ChannelPrivateError`, so the response is the only place the name exists.
+Telethon has no named class for `QUOTE_TEXT_INVALID`; it arrives as a plain
+`BadRequestError` and must be matched on the message prefix. GitHub's branch
+rename API did not retarget the open PR — it closed it.
+**Next:** `quotes.py` grew 380 → 500 lines across three ceiling bumps in one
+session; the seam wants a look before more lands on it.
+
 ## 2026-07-23 — Clone quote replies slice 3 (Composer)
 **Did:** implemented ADR-0036 slice 3. Sync collects `quote_flattened`
 `{"id","peer","reason"}` rows from `TransportPlan`; a run that planted any
