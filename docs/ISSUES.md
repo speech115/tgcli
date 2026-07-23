@@ -125,14 +125,17 @@ decision and must be settled together.
   as proof of deletion: deleted messages keep an explicit tombstone
   (`deleted_at`, `deletion_reason`) and a purge ledger prevents a later sync
   from resurrecting purged payloads. The feed equivalent is an explicit
-  `{"type": "message_deleted", "chat_id", "message_id", "deleted_at"}` event.
-  A consumer must never have to infer a deletion from a re-read that came
-  back shorter than expected.
-- **A gap must be loud.** The agreed shape needs a third field. When the
-  cursor cannot be honoured (updates-state too old, session gap), the result
-  carries `gap: true` plus a recovery hint naming the read that closes it
-  (`{"chat": ..., "after_id": ...}`), instead of silently returning a short
-  list that reads as "nothing happened".
+  deletion event, whose exact type name and fields remain for the future ADR.
+  A consumer must never have to infer a deletion from a re-read that came back
+  shorter than expected.
+- **A gap must be loud.** When the cursor cannot be honoured (updates-state
+  too old, session gap), the result must report the gap instead of silently
+  returning a short list that reads as "nothing happened". A
+  `read --after-id` hint can recover newly created messages only; it cannot
+  reconstruct edits or deletions of older messages. The future ADR therefore
+  has to distinguish recoverable creation history from lost edit/deletion
+  events and define an explicit rebaseline contract. The exact gap JSON waits
+  for that decision rather than pretending one read closes every event class.
 - **Story viewers are out of scope, deliberately.** The lead-generation
   workflow that makes a feed attractive does not arrive through updates at
   all: `stories.getStoryViewsList` is a poll-only read and is already

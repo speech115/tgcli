@@ -122,20 +122,24 @@ can decide whether to retry. Fits the existing shape; no state.
 
 ### Accounts surface symmetry (from the wacli review)
 
-wacli's account model is `list / add / use / show / remove`; the
-active-account resolution order (`--store` → `--account` → env →
-`default_account` → legacy) already matches ours in `config.py`, so nothing to
-copy there. But our surface is asymmetric: `tg accounts import` + `list` exist,
-`show` and `remove` do not. Both are the missing half of the
-new-machine / broken-session story behind ACCOUNTS-001.
+wacli's account model is `list / add / use / show / remove`. Its selection
+chain is broader than ours: `--store` → `--account` → env → default → legacy,
+while `tgcli.config.resolve_account()` deliberately has only explicit
+`--account` → `TGCLI_ACCOUNT` → `default_account`. A direct store override and
+legacy fallback do not transfer to tgcli's configured-session model. Our
+command surface is still asymmetric: `tg accounts import` + `list` exist,
+`show` and `remove` do not. Both are the missing half of the new-machine /
+broken-session story behind ACCOUNTS-001.
 
 | Item | Value | Effort | Status |
 |---|---|---|---|
 | `tg accounts show <alias>` | med | S | missing |
 | `tg accounts remove <alias>` | low-med | XS | missing |
 
-- **`show`** — session path, lock holder, authorized state, *without opening a
-  connection*. This is literally the offline branch of `doctor --connect`
+- **`show`** — session path, lock state, and presence of local authorization
+  material, *without opening a connection*. Only a live `--connect` probe can
+  establish that Telegram still accepts that material after a server-side
+  revoke. This is the account-scoped offline branch of `doctor --connect`
   (see the Agent-surface subsection); design them as one command, not two.
 - **`remove`** — drop an account from config; today that means hand-editing the
   TOML plus deleting the `.session`. A config mutation, not a Telegram one —
@@ -154,21 +158,28 @@ the same PR as ACCOUNTS-001.
   (`preflight.py`) because downloading to disk changes nothing in Telegram.
   Nothing to add.
 
-### Full-coverage sweep of the remaining wacli pages (2026-07-23)
+### Coverage sweep of the wacli pages (2026-07-23)
 
-All 26 wacli doc pages were read (12 in the main review + the rest swept by two
-cheap sub-agents, findings re-checked against the tgcli code). The remaining 14
-pages produced almost nothing new — most are already-have or meta:
+The first pass covered 26 wacli doc pages (12 in the main review + 14 swept by
+two cheap sub-agents), with findings re-checked against the tgcli code. Review
+then found two more pages in the current published surface, `calls` and
+`companion integrations`; both are included in the dispositions below. Most
+pages produced nothing new because their surfaces are already-have or meta:
 
 - **ALREADY-HAVE:** `channels`, `chats` (our `dialog`/`mark-*`), `version`,
-  `help` (argparse gives both), and — the sub-agents missed this — release
-  discipline (`CHANGELOG.md` + ADR-0038 already do one-feature-one-release).
-  Profile *reads* too: `users.getFullUser` and `photos.getUserPhotos` are
-  already read-allowlisted, so reading a profile works via `tg api` today.
+  and `help` (argparse gives both). Profile *reads* too:
+  `users.getFullUser` and `photos.getUserPhotos` are already read-allowlisted,
+  so reading a profile works via `tg api` today. A sibling release branch
+  proposes `CHANGELOG.md` + ADR-0038 version discipline, but neither is in this
+  branch or `main`; do not count it as current behavior until it lands.
 - **SKIP:** `groups` (creation is a moderation-vertical gap, already parked
   there), `contacts-import-system` (platform binding + external name source,
   belongs in `tg-agent`), `install`/`overview`/`quickstart`/`docs` (meta), and
   Homebrew packaging (uv is the deliberate choice — see the Go-vs-Python note).
+  `calls` is a WhatsApp-store event log with no equivalent approved Telegram
+  call workflow. `companion integrations` recommends JSON/events/read-only
+  database access; tgcli already has JSON/TSV and read-only `batch`, while a
+  mirrored database is deliberately out of scope.
 
 Three genuine but low-value gaps, recorded for completeness, none urgent:
 
@@ -268,13 +279,16 @@ owns progress) and does not compete with the single stdout document.
 `clone.py` already counts `copied_batches`. Needs an ADR: which commands opt
 in, the event vocabulary, and whether events are contract-stable.
 
-**`tg doctor --connect`.** Today `doctor` always opens a session, so it cannot
-run when the session is revoked or the network is down — precisely when it is
-needed. wacli splits it: offline by default (store layout, auth state, locks),
-`--connect` adds live checks. Our offline branch would cover config validity,
-file permissions, session presence, lock holder, and state size. Natural
-companion to ACCOUNTS-001, which needs a diagnosis path that works on a broken
-session.
+**`tg doctor --connect`.** Today `doctor` performs a live probe whenever the
+session file exists and its lock is free; missing or busy sessions already get
+a limited local report. That live authorization check cannot succeed when the
+session is revoked or the network is down — precisely when broader local
+diagnostics are still needed. wacli splits it: offline by default (store
+layout, local auth material, locks), while `--connect` adds live
+authorization/connectivity checks. Our offline branch would cover config
+validity, file permissions, session presence, lock state, and state size
+without claiming server authorization. Natural companion to ACCOUNTS-001,
+which needs a diagnosis path that works on a broken session.
 
 **`tg spec`.** *Not a wacli import* — wacli's `spec` is a documentation page,
 not a command; the review only prompted the re-examination. Listed here for
