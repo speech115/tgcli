@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import sys
 import time
 from datetime import UTC, datetime
@@ -13,7 +14,13 @@ from telethon import errors as telethon_errors
 from tgcli import authclient, desktop, login_state, safety
 from tgcli.commands.accounts import _append_config_block
 from tgcli.config import Config, default_config_path, load_config
-from tgcli.errors import ConfigError, PolicyError, RateLimitError, TgcliError
+from tgcli.errors import (
+    ConfigError,
+    NotFoundError,
+    PolicyError,
+    RateLimitError,
+    TgcliError,
+)
 from tgcli.formatting import mask_phone
 from tgcli.output import note
 from tgcli.session import state_dir
@@ -22,6 +29,17 @@ from tgcli.session import state_dir
 class LoginTimeoutError(TgcliError):
     exit_code = 1
     code = "TIMEOUT"
+
+
+_ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _validate_new_alias(alias: str) -> None:
+    if not alias or not _ALIAS_RE.match(alias):
+        raise ConfigError(
+            f"invalid account alias {alias!r}; "
+            "use letters, digits, underscore, or hyphen only"
+        )
 
 
 def login_rows(data: dict) -> list[tuple]:
@@ -184,7 +202,10 @@ async def start_login(
         config, alias, api_id=api_id, api_hash=api_hash
     )
     await _probe_if_needed(config, alias, force=force)
+    if is_new:
+        _validate_new_alias(alias)
     method = "phone" if phone else "qr"
+    _audit_login(alias, method=method, outcome="started", phone=phone)
     attempt = login_state.create_attempt(
         alias,
         method,
@@ -308,6 +329,11 @@ async def _qr_wait(
             except telethon_errors.PasswordHashInvalidError as exc:
                 login_state.update_attempt(login_id, next="password")
                 raise ConfigError("invalid cloud password") from exc
+            except telethon_errors.FloodWaitError as exc:
+                raise RateLimitError(
+                    f"FLOOD_WAIT; retry after {exc.seconds}s",
+                    retry_after=exc.seconds,
+                ) from exc
             break
 
     return await _finish_authorized(
@@ -345,6 +371,11 @@ async def _complete_password(
     except telethon_errors.PasswordHashInvalidError as exc:
         login_state.update_attempt(login_id, next="password")
         raise ConfigError("invalid cloud password") from exc
+    except telethon_errors.FloodWaitError as exc:
+        raise RateLimitError(
+            f"FLOOD_WAIT; retry after {exc.seconds}s",
+            retry_after=exc.seconds,
+        ) from exc
     return None
 
 
@@ -367,13 +398,13 @@ async def continue_login(
     async with authclient.unauthorized_client(
         staged, attempt["api_id"], attempt["api_hash"]
     ) as client:
-        if needs_password or (method == "qr"):
+        if needs_password:
             pending = await _complete_password(
                 client, attempt, password_stdin=password_stdin
             )
             if pending is not None:
                 return pending
-        else:
+        elif method == "phone":
             # Phone path: submit confirmation code first.
             resolved_code = _collect_code(code=code)
             phone = attempt["phone"]
@@ -404,6 +435,10 @@ async def continue_login(
                     f"FLOOD_WAIT; retry after {exc.seconds}s",
                     retry_after=exc.seconds,
                 ) from exc
+        else:
+            raise NotFoundError(
+                f"login_id {login_id!r} is not awaiting a password; start login again"
+            )
 
         return await _finish_authorized(
             client,

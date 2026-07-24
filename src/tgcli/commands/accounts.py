@@ -148,45 +148,53 @@ def remove_account(
         )
     path = state_dir() / "sessions" / f"{config.accounts[alias].session}.session"
     bak = Path(str(path) + ".bak")
-    if _lock_held(path):
-        raise PolicyError(
-            f"session {path.stem!r} is busy (another tg process is using it); "
-            "retry in a few seconds"
+    lock_path = path.with_suffix(".lock")
+    lock = lock_path.open("w")
+    try:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise PolicyError(
+                f"session {path.stem!r} is busy (another tg process is using it); "
+                "retry in a few seconds"
+            ) from exc
+
+        session_existed = path.is_file()
+        backup_existed = bak.is_file()
+
+        def _status(existed: bool) -> str:
+            if keep_session:
+                return "kept" if existed else "absent"
+            return "deleted" if existed else "absent"
+
+        session_status = _status(session_existed)
+        backup_status = _status(backup_existed)
+
+        safety.append_audit(
+            "accounts-remove",
+            alias,
+            {
+                "session": session_status,
+                "backup": backup_status,
+                "keep_session": keep_session,
+            },
         )
 
-    session_existed = path.is_file()
-    backup_existed = bak.is_file()
+        config_path = default_config_path()
+        _remove_config_block(config_path, alias)
+        if not keep_session:
+            path.unlink(missing_ok=True)
+            bak.unlink(missing_ok=True)
 
-    def _status(existed: bool) -> str:
-        if keep_session:
-            return "kept" if existed else "absent"
-        return "deleted" if existed else "absent"
-
-    session_status = _status(session_existed)
-    backup_status = _status(backup_existed)
-
-    safety.append_audit(
-        "accounts-remove",
-        alias,
-        {
+        return {
+            "alias": alias,
+            "config": "removed",
             "session": session_status,
             "backup": backup_status,
-            "keep_session": keep_session,
-        },
-    )
-
-    config_path = default_config_path()
-    _remove_config_block(config_path, alias)
-    if not keep_session:
-        path.unlink(missing_ok=True)
-        bak.unlink(missing_ok=True)
-
-    return {
-        "alias": alias,
-        "config": "removed",
-        "session": session_status,
-        "backup": backup_status,
-    }
+        }
+    finally:
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        lock.close()
 
 
 def remove_rows(data: dict) -> list[tuple]:

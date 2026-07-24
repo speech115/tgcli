@@ -33,6 +33,20 @@ def test_ask_secret_osascript_argv_has_no_secret(monkeypatch):
     assert "with hidden answer" in captured[0][2]
 
 
+def test_ask_secret_preserves_leading_trailing_spaces(monkeypatch):
+    monkeypatch.setattr(desktop.sys, "platform", "darwin")
+    monkeypatch.setattr(desktop.shutil, "which", lambda name: f"/bin/{name}")
+
+    def fake_run(argv, **kwargs):
+        return SimpleNamespace(
+            returncode=0,
+            stdout="button returned:OK, text returned:  spaced secret  \n",
+        )
+
+    monkeypatch.setattr(desktop.subprocess, "run", fake_run)
+    assert desktop.ask_secret("T", "P", hidden=True) == "  spaced secret  "
+
+
 def test_ask_secret_hidden_false_omits_hidden_clause(monkeypatch):
     monkeypatch.setattr(desktop.sys, "platform", "darwin")
     monkeypatch.setattr(desktop.shutil, "which", lambda name: f"/bin/{name}")

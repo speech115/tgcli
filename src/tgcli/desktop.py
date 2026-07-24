@@ -51,8 +51,9 @@ def _ask_osascript(title: str, prompt: str, *, hidden: bool) -> str:
     text = result.stdout
     marker = "text returned:"
     if marker in text:
-        return text.split(marker, 1)[1].strip()
-    return text.strip()
+        value = text.split(marker, 1)[1]
+        return value.rstrip("\r\n")
+    return text.rstrip("\r\n")
 
 
 def open_url(url: str) -> bool:

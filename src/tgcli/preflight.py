@@ -111,9 +111,15 @@ def _prepare_login(args) -> None:
                 raise PolicyError(f"accounts login --continue rejects {flag}")
         if getattr(args, "force", False):
             raise PolicyError("accounts login --continue rejects --force")
+        if getattr(args, "timeout", None) is not None:
+            raise PolicyError("accounts login --continue rejects --timeout")
+        if hasattr(args, "qr_format"):
+            raise PolicyError("accounts login --continue rejects --qr-format")
         return
     if args.alias is None:
         raise PolicyError("accounts login requires ALIAS (or --continue LOGIN_ID)")
+    if getattr(args, "code", None) is not None:
+        raise PolicyError("accounts login rejects --code without --continue")
     api_id = getattr(args, "api_id", None)
     api_hash = getattr(args, "api_hash", None)
     if (api_id is None) ^ (api_hash is None):

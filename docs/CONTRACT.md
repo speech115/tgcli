@@ -846,6 +846,11 @@ Step completed but more needed (exit 0):
  "login_id": "l_…", "expires_at": "2026-07-24T12:00:00+00:00"}
 ```
 
+`--plain` emits frozen TSV columns: `alias`, `method`, `status`, `next`,
+`login_id`, `phone` (masked), `session`. Pending steps may leave `next`,
+`login_id`, or `session` empty; authorized success fills `session` and may
+clear `next`.
+
 Exit codes (existing set): 0 step ok including `"next": "code"|"password"`;
 1 QR wait timed out (attempt kept; error names `login_id`); 2 readonly /
 authorized-without-`--force` / `--continue` flag conflicts; 3 invalid code /

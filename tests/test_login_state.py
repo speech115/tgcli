@@ -77,17 +77,11 @@ def test_promote_atomic_when_replace_fails_midway(state, monkeypatch):
     with pytest.raises(OSError, match="simulated"):
         login_state.promote(login_id, dest, keep_backup=True)
 
-    # Destination still intact (old or already bak'd + new not yet placed).
-    # After first replace, dest is gone (moved to bak) and staged still exists;
-    # second replace failed — dest must not be a torn half-write.
-    assert dest.exists() is False or dest.read_bytes() in (
-        b"old-session",
-        b"new-session",
-    )
+    # Destination restored to old content after failed staged move.
+    assert dest.exists()
+    assert dest.read_bytes() == b"old-session"
     bak = Path(str(dest) + ".bak")
-    # Old content preserved in bak after the first successful replace.
-    assert bak.exists()
-    assert bak.read_bytes() == b"old-session"
+    assert not bak.exists()
     assert staged.exists()  # second replace failed; staged still there
 
 

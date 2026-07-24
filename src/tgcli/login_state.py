@@ -137,7 +137,16 @@ def promote(
         if destination.exists() and keep_backup:
             os.replace(destination, bak)
             backup_path = bak
-        os.replace(staged, destination)
+            try:
+                os.replace(staged, destination)
+            except Exception:
+                # Restore the working session if the staged move failed.
+                if bak.is_file() and not destination.exists():
+                    os.replace(bak, destination)
+                    backup_path = None
+                raise
+        else:
+            os.replace(staged, destination)
         # Drop the attempt json (and any leftover staged journal) after the
         # session has landed; staged itself is already moved.
         path = _attempt_path(login_id)

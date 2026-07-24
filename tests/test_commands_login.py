@@ -427,7 +427,7 @@ async def test_audit_before_promote(env, fake_client, monkeypatch):
         qr_format="link",
         password_stdin=False,
     )
-    assert order == ["audit", "promote"]
+    assert order == ["audit", "audit", "promote"]
 
 
 @pytest.mark.asyncio
@@ -581,3 +581,156 @@ def test_cli_qr_json_url_on_stderr(env, fake_client, capsys):
     assert data["status"] == "authorized"
     assert "tg://login" in captured.err
     assert "tg://login" not in captured.out
+
+
+@pytest.mark.parametrize(
+    "alias",
+    ["/tmp/x", "../x", "a.b", ""],
+)
+@pytest.mark.asyncio
+async def test_new_alias_rejects_invalid_stems(env, fake_client, alias):
+    with pytest.raises(ConfigError, match="invalid account alias"):
+        await login_cmd.start_login(
+            load_config(),
+            alias,
+            phone=None,
+            api_id=1,
+            api_hash="h",
+            force=False,
+            timeout=30,
+            qr_format="link",
+            password_stdin=False,
+        )
+
+
+@pytest.mark.asyncio
+async def test_new_alias_accepts_valid_stem(env, fake_client):
+    data = await login_cmd.start_login(
+        load_config(),
+        "valid-alias_9",
+        phone=None,
+        api_id=1,
+        api_hash="h",
+        force=False,
+        timeout=30,
+        qr_format="link",
+        password_stdin=False,
+    )
+    assert data["status"] == "authorized"
+    assert (env["state"] / "sessions" / "valid-alias_9.session").is_file()
+
+
+@pytest.mark.asyncio
+async def test_audit_fail_closed_before_attempt(env, fake_client, monkeypatch):
+    calls: list[dict] = []
+
+    def fail_on_started(action, account, details):
+        calls.append(details)
+        if details.get("outcome") == "started":
+            raise PolicyError("audit unavailable")
+
+    monkeypatch.setattr(login_cmd.safety, "append_audit", fail_on_started)
+    with pytest.raises(PolicyError, match="audit"):
+        await login_cmd.start_login(
+            load_config(),
+            "tmp",
+            phone=None,
+            api_id=1,
+            api_hash="h",
+            force=False,
+            timeout=30,
+            qr_format="link",
+            password_stdin=False,
+        )
+    assert calls == [{"method": "qr", "outcome": "started"}]
+    assert list((env["state"] / "logins").glob("l_*.json")) == []
+
+
+@pytest.mark.asyncio
+async def test_continue_password_flood_wait_keeps_attempt(
+    env, fake_client, monkeypatch
+):
+    from telethon.errors import FloodWaitError
+
+    fake_client.qr.set_wait("password")
+    pending = await login_cmd.start_login(
+        load_config(),
+        "tmp",
+        phone=None,
+        api_id=1,
+        api_hash="h",
+        force=False,
+        timeout=30,
+        qr_format="link",
+        password_stdin=False,
+    )
+    fake_client._sign_in_error = FloodWaitError(request=None, capture=45)
+    monkeypatch.setattr("sys.stdin", SimpleNamespace(readline=lambda: "pw\n"))
+    with pytest.raises(Exception) as excinfo:
+        await login_cmd.continue_login(
+            login_id=pending["login_id"], code=None, password_stdin=True
+        )
+    assert excinfo.value.exit_code == 5
+    assert excinfo.value.details["retry_after"] == 45
+    assert (env["state"] / "logins" / f"{pending['login_id']}.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_continue_qr_without_password_step_rejects(env, fake_client):
+    record = login_state.create_attempt("tmp", "qr", api_id=1, api_hash="h", phone=None)
+    login_id = record["login_id"]
+    login_state.staged_session_path(login_id).write_bytes(b"staged")
+    with pytest.raises(Exception) as excinfo:
+        await login_cmd.continue_login(
+            login_id=login_id, code=None, password_stdin=False
+        )
+    assert excinfo.value.exit_code == 4
+    assert fake_client.sign_in_calls == []
+
+
+def test_continue_rejects_timeout(env, capsys):
+    code = main(
+        [
+            "accounts",
+            "login",
+            "--continue",
+            "l_abc",
+            "--timeout",
+            "30",
+            "--json",
+        ]
+    )
+    assert code == 2
+
+
+def test_continue_rejects_qr_format(env, capsys):
+    code = main(
+        [
+            "accounts",
+            "login",
+            "--continue",
+            "l_abc",
+            "--qr-format",
+            "text",
+            "--json",
+        ]
+    )
+    assert code == 2
+
+
+def test_initial_login_rejects_code_without_continue(env, capsys):
+    code = main(
+        [
+            "accounts",
+            "login",
+            "tmp",
+            "--api-id",
+            "1",
+            "--api-hash",
+            "h",
+            "--code",
+            "12345",
+            "--json",
+        ]
+    )
+    assert code == 2

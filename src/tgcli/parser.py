@@ -99,7 +99,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_login.add_argument(
         "--qr-format",
         choices=("link", "text"),
-        default="link",
+        default=argparse.SUPPRESS,
         help="QR payload shape (default: link)",
     )
     p_login.add_argument(
