@@ -17,6 +17,16 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — Fix __version__ drift after 1.2.1 tag (Composer)
+**Did:** `src/tgcli/__init__.py` still had `__version__ = "1.2.0"` while
+`pyproject.toml` and tag `v1.2.1` were already 1.2.1; bumped the string to
+match. Did not move or retag `v1.2.1`.
+**Decided:** patch-on-patch for the missed package string only; annotated
+tag stays on the merge commit.
+**Learned:** release checklist must verify `__init__.__version__` against
+pyproject in the same commit as the bump.
+**Next:** merge the fix PR once CI is green.
+
 ## 2026-07-24 — Release 1.2.1: merge ADR-0044 (Composer)
 **Did:** reviewed PR #50 (CI green; cancelled push job was concurrency);
 merged to `main` as `58bdde6`; tagged and pushed `v1.2.1` on the merge
