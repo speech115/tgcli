@@ -945,10 +945,11 @@ absent), and `replace` echoes the flag. JSON:
 ```
 
 `peers_to_create` is how many `CreateChannelRequest` calls this commit would
-make: `0` when a destination peer id is already recorded, `1` for a
-posts-only init (`--no-comments`, non-broadcast, or a broadcast with no
-linked discussion), or `2` when a broadcast source has a linked discussion
-and no destination is recorded yet. `account_flood` mirrors the
+make: `0` when a destination peer id is already recorded and `--replace` is
+not set, `1` for a posts-only init (`--no-comments`, non-broadcast, or a
+broadcast with no linked discussion), or `2` when a broadcast source has a
+linked discussion and no destination is recorded yet (or `--replace` will
+supersede the slot). `account_flood` mirrors the
 account-scoped flood record (ADR-0045): `cooldown_until` / 
 `last_peer_created_at` as ISO timestamps or null. Both fields are data for
 the caller — they never block preview. `--no-comments` is stored in the

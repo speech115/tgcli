@@ -143,7 +143,12 @@ async def preview_init(
     total = (await tg.get_messages(entity, limit=0)).total
     clone_id = state.clone_id(me.id, entity.id)
     peers_to_create = await _peers_to_create(
-        tg, entity, source_kind, clone_id, no_comments=no_comments
+        tg,
+        entity,
+        source_kind,
+        clone_id,
+        no_comments=no_comments,
+        replace=replace,
     )
     account_flood = flood.load(me.id)
     preview = safety.create_preview(
@@ -179,13 +184,17 @@ async def preview_init(
 
 
 async def _peers_to_create(
-    tg, entity, source_kind, clone_id, *, no_comments: bool
+    tg, entity, source_kind, clone_id, *, no_comments: bool, replace: bool = False
 ) -> int:
     try:
         existing = state.load(clone_id)
     except PolicyError:
         existing = None
-    if existing is not None and existing.destination_peer_id is not None:
+    if (
+        not replace
+        and existing is not None
+        and existing.destination_peer_id is not None
+    ):
         return 0
     if no_comments or source_kind != "broadcast":
         return 1

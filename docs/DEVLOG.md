@@ -39,12 +39,16 @@ review; owner merges and tags `v1.2.3`.
 `_with_cooldown` / `_enforce_cooldown` + `CreateChannelRequest` peer stamps;
 `clone init --no-comments` → `comments: "disabled"`; preview
 `peers_to_create` + `account_flood`; CONTRACT/MAP/SKILL/guide; CHANGELOG
-1.2.3 + version bump. Gate + PR next.
+1.2.3 + version bump. Opened PR #53; reviewer found three minors (MAP
+0049 range, `--replace` peers hint, empty DEVLOG body) — fixing on the
+same branch.
 **Decided:** follow ADR-0045 literally; list_clones skips `account-*.json`
-sidecars so status stays clean.
+sidecars so status stays clean; `--replace` preview must count peers as if
+the slot will be superseded.
 **Learned:** preview now issues `GetFullChannelRequest` for broadcasts to
-compute `peers_to_create` (except `--no-comments` / recorded destination).
-**Next:** reviewer → green CI → merge → tag `v1.2.3`; then ADR-0046.
+compute `peers_to_create` (except `--no-comments` / recorded destination
+without `--replace`).
+**Next:** green CI → merge → tag `v1.2.3`; then ADR-0046.
 
 ## 2026-07-24 — Live measurement verdict + ADR-0046/0047/0048 (Claude Fable 5)
 **Did:** finished the икона live runbook far enough to settle the speed
@@ -93,6 +97,13 @@ before commit.
 **Next:** executor implements plan tasks 1–6 (TDD, gate, PR, reviewer).
 
 ## 2026-07-24 — Fix __version__ drift after 1.2.1 tag (Composer)
+**Did:** after tagging 1.2.1, `src/tgcli/__init__.py` still said 1.2.0 while
+`pyproject.toml` was 1.2.1. Bumped `__version__` to match and noted the
+same-day drift lesson for ADR-0038 releases.
+**Decided:** every versioned release must bump **both** files in the same
+commit (now restated in the flood-containment plan).
+**Learned:** tag + CHANGELOG alone are not enough if `__init__` drifts.
+**Next:** continue maintenance releases with the dual-bump check.
 
 ## 2026-07-24 — 1.2.2: idempotent avatar copy; mirror-era flood research (Claude Fable 5)
 **Did:** owner's screenshots showed repeated "photo updated" service

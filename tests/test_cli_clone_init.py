@@ -268,6 +268,25 @@ def test_clone_init_preview_peers_to_create_zero_when_destination_recorded(
     assert result["peers_to_create"] == 0
 
 
+def test_clone_init_preview_peers_to_create_nonzero_on_replace_with_recorded_destination(
+    config_env, monkeypatch, capsys
+):
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel"
+    )
+    clone_state.destination_peer_id = 999
+    state.save(clone_state)
+    client = CloneInitClient()
+    client.linked = linked_group()
+    client.destination = channel(999, "[Clone] Source channel", creator=True)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--replace", "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["peers_to_create"] == 2
+    assert result["supersede"]["replace"] is True
+
+
 def test_clone_init_preview_includes_account_flood_record(
     config_env, monkeypatch, capsys
 ):
