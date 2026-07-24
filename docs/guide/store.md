@@ -17,7 +17,7 @@ Read-only inventory of the state root by category:
 {"previews":{"live":{"count":2,"bytes":120},"expired":{"count":1,"bytes":40},
  "spent":{"count":3,"bytes":90},"pending":{"count":1,"bytes":30}},
  "previews_world_readable":0,
- "logins":{"live":{"count":1,"bytes":80},"expired":{"count":0,"bytes":0}},
+ "logins":{"live":{"count":2,"bytes":80},"expired":{"count":0,"bytes":0}},
  "audit_log":{"bytes":20},"invocations":{"bytes":0},
  "sessions":{"count":1,"bytes":4096},
  "session_backups":{"count":1,"bytes":4096},

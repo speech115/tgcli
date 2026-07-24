@@ -573,7 +573,7 @@ No config and no Telegram session. `--json` emits:
 {"previews":{"live":{"count":2,"bytes":120},"expired":{"count":1,"bytes":40},
  "spent":{"count":3,"bytes":90},"pending":{"count":1,"bytes":30}},
  "previews_world_readable":0,
- "logins":{"live":{"count":1,"bytes":80},"expired":{"count":0,"bytes":0}},
+ "logins":{"live":{"count":2,"bytes":80},"expired":{"count":0,"bytes":0}},
  "audit_log":{"bytes":20},"invocations":{"bytes":0},
  "sessions":{"count":1,"bytes":4096},
  "session_backups":{"count":1,"bytes":4096},
@@ -585,8 +585,9 @@ Preview buckets are classified from each file's stored `expires_at` (not mtime):
 `live` = `.json` within TTL, `expired` = `.json` past TTL, `spent` = `.used`,
 `pending` = `.pending`. `previews_world_readable` counts preview files with any
 other-user permission bit set (legacy `0644` bodies). Login attempts under
-`logins/` are classified by `LOGIN_TTL` (30 minutes); each count includes the
-attempt json and its staged session. `session_backups` reports
+`logins/` are classified by `LOGIN_TTL` (30 minutes); `count` is the number of
+files in each attempt pair (json and staged session, plus journal when present)
+and `bytes` is their total size. `session_backups` reports
 `sessions/*.session.bak` and is never deleted by cleanup. Relic directories
 (`mirrors`, `mirror-lab`, `labs`, `probes`) are reported when present and never
 auto-deleted. New previews are written mode `0600`; `store cleanup` also

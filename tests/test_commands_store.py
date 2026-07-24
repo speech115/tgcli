@@ -307,8 +307,8 @@ def test_stats_reports_logins_and_session_backups(tmp_path, monkeypatch):
 
     data = store_cmd.scan(tmp_path, now=NOW)
 
-    assert data["logins"]["live"]["count"] == 1
-    assert data["logins"]["expired"]["count"] == 1
+    assert data["logins"]["live"]["count"] == 2
+    assert data["logins"]["expired"]["count"] == 2
     assert data["logins"]["live"]["bytes"] > 0
     assert data["session_backups"]["count"] == 1
     assert data["session_backups"]["bytes"] == len(b"backup-bytes")

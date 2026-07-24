@@ -17,6 +17,26 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — ADR-0042 independent review fixes (Composer)
+**Did:** closed the independent Spec+Standards findings on the login stack.
+Promotion restores the destination from `.bak` if the second rename fails;
+new aliases must match `^[A-Za-z0-9_-]+$`; `accounts-login` writes
+`outcome=started` before creating an attempt; password-step `FloodWait`
+maps to exit 5; QR `--continue` only when `next=password`; `accounts remove`
+holds the session lock across delete; preflight rejects `--code` without
+`--continue` and `--timeout`/`--qr-format` with `--continue`; osascript
+secrets keep leading/trailing spaces; `store stats` counts each login-pair
+file; CONTRACT documents login `--plain` columns and the logins count rule.
+Full gate green after the fixes.
+**Decided:** keep audit-before-RPC as a started record plus authorized-before-
+promote; do not invent a second audit subsystem. Live acceptance on a
+secondary throwaway alias remains the owner merge gate (ADR-0042 §13).
+**Learned:** the promote atomicity test had been asserting a torn destination
+as acceptable — the plan required destination intact, and the test was the
+bug.
+**Next:** owner live acceptance on a throwaway alias; then merge plan → #46 →
+#47 → #48 and tag `v1.2.0`.
+
 ## 2026-07-24 — ADR-0042 Slice 4: store logins + docs + release 1.2.0 (Cursor)
 **Did:** `store stats`/`cleanup` learn `logins/{live,expired}` (json + staged
 session) and report `session_backups` (never deleted). Guide pages

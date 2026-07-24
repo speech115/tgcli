@@ -80,15 +80,20 @@ def _classify_login(path: Path, *, now: datetime) -> str | None:
     return "live" if expires > now else "expired"
 
 
-def _login_pair_bytes(directory: Path, login_id: str) -> int:
+def _login_pair_stats(directory: Path, login_id: str) -> tuple[int, int]:
+    """Return (file_count, bytes) for an attempt's json + staged session files."""
+    count = 0
     total = 0
     for name in (
         f"{login_id}.json",
         f"{login_id}.session",
         f"{login_id}.session-journal",
     ):
-        total += _file_bytes(directory / name)
-    return total
+        path = directory / name
+        if path.is_file():
+            count += 1
+            total += _file_bytes(path)
+    return count, total
 
 
 def scan(root: Path, *, now: datetime | None = None) -> dict:
@@ -125,8 +130,9 @@ def scan(root: Path, *, now: datetime | None = None) -> dict:
             bucket = _classify_login(path, now=now)
             if bucket is None:
                 continue
-            logins[bucket]["count"] += 1
-            logins[bucket]["bytes"] += _login_pair_bytes(logins_root, login_id)
+            file_count, size = _login_pair_stats(logins_root, login_id)
+            logins[bucket]["count"] += file_count
+            logins[bucket]["bytes"] += size
 
     sessions_dir = root / "sessions"
     session_files = (
