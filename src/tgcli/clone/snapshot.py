@@ -107,7 +107,7 @@ async def _capture_breakdown(
     peer,
     account_alias: str,
     invoke,
-) -> tuple[types.MessageMediaPoll, bytes, dict[str, Any]]:
+) -> tuple[types.MessageMediaPoll, bytes | None, dict[str, Any]]:
     option = bytes(media.poll.answers[0].option)  # type: ignore[arg-type]
     cast = functions.messages.SendVoteRequest(
         peer=peer, msg_id=message.id, options=[option]
@@ -140,11 +140,23 @@ async def _capture_breakdown(
 
     results = _results_from_updates(updates)
     if results is None or not _breakdown_available(results):
+        retract_error: BaseException | None = None
         try:
             await retract_vote()
-        except _RetractFailed:
-            pass
-        raise RuntimeError("poll vote did not reveal a breakdown")
+        except _RetractFailed as exc:
+            retract_error = exc.args[0] if exc.args else exc
+        note(
+            "warning: clone poll vote did not reveal a breakdown for message "
+            f"{message.id}"
+        )
+        marker: dict[str, Any] = {
+            "message_id": message.id,
+            "status": "capture_failed",
+            "error": "poll vote did not reveal a breakdown",
+        }
+        if retract_error is not None:
+            marker["retract_error"] = str(retract_error)
+        return media, None, marker
     captured = types.MessageMediaPoll(poll=media.poll, results=results)
     try:
         await retract_vote()

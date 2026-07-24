@@ -285,27 +285,44 @@ async def test_render_retract_failure_marks_loud_outcome(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_render_retracts_even_when_cast_updates_lack_breakdown(monkeypatch):
-    monkeypatch.setattr(snapshot.safety, "append_audit", lambda *a, **k: None)
+    """Cast without UpdateMessagePoll still retracts and degrades (ADR-0048)."""
+    notes = []
+    audits = []
+    monkeypatch.setattr(
+        "tgcli.clone.snapshot.note",
+        lambda msg: notes.append(msg),
+    )
+    monkeypatch.setattr(
+        snapshot.safety,
+        "append_audit",
+        lambda kind, alias, payload: audits.append((kind, alias, payload)),
+    )
 
     async def invoke(awaitable):
         return await awaitable
 
     client = VoteClient(cast_updates=SimpleNamespace(updates=[]))
     message = _anonymous_open_poll_message()
-    with pytest.raises(RuntimeError, match="did not reveal"):
-        await snapshot.render(
-            client,
-            message,
-            peer=object(),
-            account_alias="main",
-            invoke=invoke,
-        )
+    text, _, marker = await snapshot.render(
+        client,
+        message,
+        peer=object(),
+        account_alias="main",
+        invoke=invoke,
+    )
     votes = [
         req
         for req in client.requests
         if isinstance(req, functions.messages.SendVoteRequest)
     ]
     assert [req.options for req in votes] == [[b"0"], []]
+    assert snapshot.BREAKDOWN_UNAVAILABLE in text
+    assert marker["status"] == "capture_failed"
+    assert [kind for kind, _, _ in audits] == [
+        "clone-sync-poll-vote",
+        "clone-sync-poll-retract",
+    ]
+    assert any("did not reveal" in item.lower() for item in notes)
 
 
 @pytest.mark.asyncio

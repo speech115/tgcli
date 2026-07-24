@@ -17,6 +17,17 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — Babysit PR #58: capture_failed after empty reveal (Composer)
+**Did:** remote already retracted on missing breakdown but still raised
+`RuntimeError` (failing the sync). Changed to warn + honest placeholder +
+`poll_votes` status `capture_failed` (CONTRACT list updated). Kept FloodWait
+propagation from the harden commit.
+**Decided:** sync must not abort a poll-less reveal after a successful retract;
+ADR-0048 wants an honest card, not exit-nonzero.
+**Learned:** parallel agents landed the retract-first harden minutes apart —
+rebase onto tip, then upgrade the failure posture.
+**Next:** gate → push; continue babysitting open stack #54/#56/#57/#58.
+
 ## 2026-07-24 — ADR-0048 review: retract safety (Composer)
 **Did:** independent Spec+Standards review of PR #58 after reviewer
 subagents hit API limits. Must-fixes: (1) always attempt retract if cast

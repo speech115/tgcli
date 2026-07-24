@@ -1201,7 +1201,7 @@ message. JSON:
 ```
 
 `sync.poll_votes` is an additive list of per-poll markers from the ADR-0048
-capture path (`status` of `captured`, `skipped`, or `retract_failed`, plus
+capture path (`status` of `captured`, `skipped`, `capture_failed`, or `retract_failed`, plus
 `reason` / `error` when applicable). Empty when no poll needed capture.
 
 After message copying, `sync` snapshots the source's audience (ADR-0024). The
