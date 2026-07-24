@@ -68,6 +68,20 @@ class SyncProgress:
         self._total = total
         self._copied = copied
         self._write = write
+        self._total_resolved = total is not None
+
+    async def resolve_total(
+        self, tg, entity, invoke: Callable[[Awaitable[Any]], Awaitable[Any]]
+    ) -> None:
+        """Fetch `~total` once, lazily, on the first batch that reports.
+
+        A sync with nothing to copy spends no RPC on a cosmetic number — the
+        idle keep-up-to-date call stays as cheap as it was (ADR-0045).
+        """
+        if self._total_resolved:
+            return
+        self._total_resolved = True
+        self._total = await approximate_total(tg, entity, invoke)
 
     def _prefix(self) -> str:
         total = "?" if self._total is None else self._total

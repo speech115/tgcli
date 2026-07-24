@@ -924,11 +924,7 @@ async def sync_text(
     posts_leg = legs.posts(clone_state)
     resolve_ctx = quotes.ResolveContext(tg=tg, mutate=mutate, destination=destination)
     progress = clone_progress.SyncProgress(
-        source_entity.id,
-        total=await clone_progress.approximate_total(
-            tg, source_entity, lambda awaitable: _with_cooldown(awaitable, clone_state)
-        ),
-        copied=len(clone_state.id_map),
+        source_entity.id, copied=len(clone_state.id_map)
     )
 
     async def copy_batch(messages, leg, source, dest) -> None:
@@ -943,6 +939,9 @@ async def sync_text(
             leg.cursor = messages[-1].id
             state.save(clone_state)
             return
+        await progress.resolve_total(
+            tg, source_entity, lambda awaitable: _with_cooldown(awaitable, clone_state)
+        )
         plan = transport.decide(messages, leg, source)
         plan = await quotes.resolve(messages, plan, leg, source, resolve_ctx)
         topic_dest = None

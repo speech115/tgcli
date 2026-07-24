@@ -54,7 +54,17 @@ and 7 `clone-init-discussion-link` audit entries are the retry storm, versus
 2562 `GetFileRequest` chunks). Throughput: 9.6 s/message (Джарвис, zero
 FloodWait) vs 160.6 s/message (икона, 14 FloodWait exits).
 
-**Next:** reviewer → CI → PR → owner merges and tags `v1.2.7`. The икона
+**Review fixes (same session):** the independent reviewer found two Major
+items, both fixed on this branch with tests first. (1) ADR-0049 claimed "zero
+flood impact" while `approximate_total` spent an RPC every run — the total is
+now resolved lazily inside the first copying batch, so an idle
+keep-up-to-date sync spends none, and the ADR/CHANGELOG say what it actually
+costs. (2) The FloodWait-passthrough branch of `approximate_total` had no
+test; `FloodWaitError` subclasses `RPCError`, so the except-order is
+load-bearing and a future merge of those branches would silently sync on a
+hot account. Both covered now (968 passed).
+
+**Next:** CI → PR → owner merges and tags `v1.2.7`. The икона
 clone is still stuck at cursor 83 with message 84 logged but unmapped and
 the comments leg untouched — resuming it stays owner-gated.
 

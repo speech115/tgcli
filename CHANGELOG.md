@@ -20,7 +20,9 @@ lives in [docs/DEVLOG.md](docs/DEVLOG.md).
   total, `comments` / `roster` phase lines, and a ~5 MB mark during each
   reupload transfer naming the file and direction (ADR-0049). Plain lines
   only; stdout stays exactly one JSON document. Informative, not contract
-  data — silence with `2>/dev/null`.
+  data — silence with `2>/dev/null`. The approximate total costs one
+  `messages.getHistory(limit=0)`, resolved lazily so a sync with nothing new
+  spends no extra RPC.
 
 ### Changed
 

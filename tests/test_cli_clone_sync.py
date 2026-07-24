@@ -3337,3 +3337,56 @@ def test_sync_error_stays_the_final_stderr_line_after_progress(
     error = json.loads(lines[-1])["error"]
     assert error["code"] == "FLOOD_WAIT"
     assert error["retry_after"] == 17
+
+
+def test_sync_with_nothing_to_copy_asks_for_no_approximate_total(
+    config_env, monkeypatch, capsys
+):
+    """ADR-0045: an idle keep-up-to-date sync must not spend an extra RPC."""
+    clone_state = seed_clone()
+    clone_state.record_mapping(2, 1)
+    clone_state.cursor = 2
+    state.save(clone_state)
+
+    class CountingClient(CloneSyncClient):
+        def __init__(self, messages):
+            super().__init__(messages)
+            self.total_requests = 0
+
+        async def get_messages(self, entity, limit=None):
+            if entity is self.source:
+                self.total_requests += 1
+            return await super().get_messages(entity, limit=limit)
+
+    client = CountingClient([message(2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 0
+    assert client.total_requests == 0
+
+
+def test_sync_flood_wait_on_the_approximate_total_arms_the_cooldown(
+    config_env, monkeypatch, capsys
+):
+    """The best-effort total must never swallow FloodWait (ADR-0045)."""
+    clone_state = seed_clone()
+
+    class FloodingTotalClient(CloneSyncClient):
+        async def get_messages(self, entity, limit=None):
+            if entity is self.source:
+                raise telethon_errors.FloodWaitError(request=None, capture=29)
+            return await super().get_messages(entity, limit=limit)
+
+    client = FloodingTotalClient([message(2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+
+    error = json.loads(capsys.readouterr().err.splitlines()[-1])["error"]
+    assert error["code"] == "FLOOD_WAIT"
+    assert error["retry_after"] == 29
+    assert client.requests == []
+    saved = state.load(clone_state.clone_id)
+    assert saved.cooldown_deadline() is not None
