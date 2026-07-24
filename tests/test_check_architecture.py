@@ -169,3 +169,28 @@ def test_repository_passes_architecture_check():
     result = _run(Path(__file__).parents[1])
 
     assert result.returncode == 0, result.stdout
+
+
+def test_architecture_check_rejects_write_text_in_state_module(tmp_path):
+    _write_minimal_tree(tmp_path)
+    module = tmp_path / "src/tgcli/login_state.py"
+    module.write_text("def save(path, text):\n    path.write_text(text)\n")
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 1
+    assert "login_state.py:2 calls write_text" in result.stdout
+    assert "tgcli.atomic.replace_text" in result.stdout
+
+
+def test_architecture_check_accepts_atomic_writer_in_state_module(tmp_path):
+    _write_minimal_tree(tmp_path)
+    module = tmp_path / "src/tgcli/login_state.py"
+    module.write_text(
+        "from tgcli import atomic\n\n"
+        "def save(path, text):\n    atomic.replace_text(path, text)\n"
+    )
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 0, result.stdout

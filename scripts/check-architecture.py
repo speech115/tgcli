@@ -44,6 +44,37 @@ EXCLUSIVE_READ_MODULES = {
     "thread",
 }
 
+# Modules that write files read back later under the config/state roots must
+# replace them atomically via tgcli.atomic — a bare `write_text` can be seen
+# half-written by a concurrent invocation (the 1.2.0 store-cleanup vs live
+# login race). Exports and probe files (media, doctor) are exempt: nothing
+# re-reads them as state.
+STATE_WRITER_MODULES = (
+    "src/tgcli/safety.py",
+    "src/tgcli/login_state.py",
+    "src/tgcli/resolve_phone.py",
+    "src/tgcli/config.py",
+    "src/tgcli/commands/accounts.py",
+    "src/tgcli/commands/store.py",
+    "src/tgcli/clone/state.py",
+)
+
+
+def _state_write_errors(path: Path, relative: str) -> list[str]:
+    tree = ast.parse(path.read_text(), filename=str(path))
+    errors: list[str] = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "write_text"
+        ):
+            errors.append(
+                f"{relative}:{node.lineno} calls write_text; state files must "
+                "go through tgcli.atomic.replace_text"
+            )
+    return errors
+
 
 def _import_from_module(node: ast.ImportFrom, package: tuple[str, ...]) -> str:
     if node.level == 0:
@@ -130,6 +161,12 @@ def check(root: Path) -> list[str]:
         if not path.exists():
             continue
         errors.extend(sorted(_read_ownership_errors(path, relative)))
+
+    for relative in STATE_WRITER_MODULES:
+        path = root / relative
+        if not path.exists():
+            continue
+        errors.extend(_state_write_errors(path, relative))
     return errors
 
 

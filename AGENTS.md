@@ -45,6 +45,9 @@ The project is feature-complete and in production use. Default posture:
 - **Every working session** appends one entry to `docs/DEVLOG.md`
   (template inside the file). No entry — the session did not happen.
   `docs/DEVLOG-v1.md` is closed: never append to it.
+  Live-acceptance notes may name test-account aliases, but keep incident
+  detail about real accounts impersonal (what broke and the fix — not which
+  live account it happened to); never phone numbers or session material.
 - **Every architectural decision** (new dependency, new module, changed
   contract, changed safety behavior) gets an ADR in `docs/decisions/`
   using the next number: `ADR-NNNN-slug.md`, plus its row in the index
@@ -77,12 +80,18 @@ The project is feature-complete and in production use. Default posture:
   `~/.config/tgcli/` (config) and `~/.local/state/tgcli/` (sessions,
   locks, audit, cache).
 - stdout is sacred: only contract data. Debug/progress/warnings → stderr.
+- State files that are read back later are replaced atomically via
+  `tgcli.atomic.replace_text`, never `write_text`
+  (`scripts/check-architecture.py` enforces this for state-writing modules).
+- **Mirror-fix rule:** fixed a bug class in one subsystem — grep for the
+  sibling subsystems that share the pattern and port the fix plus its
+  regression test in the same commit. (The preview mtime-fallback existed
+  while logins shipped without it; that gap became the 1.2.0 critical.)
 - Never commit: `.env`, `*.session`, audit logs, downloaded media,
   anything under `~/.local/state/tgcli/`.
-- Run `uv run pytest -q`, `uv run ruff check .`,
-  `uv run ruff format --check .`, `uv run pyright`, and
-  `uv run python scripts/check-coverage.py` before every commit. Quote real
-  output in PRs, never "tests pass".
+- Run `./scripts/gate.sh` (ruff check + format, architecture, pyright,
+  pytest, coverage matrix, docs gate — the exact CI steps) before every
+  commit. Quote real output in PRs, never "tests pass".
 
 ## Implementation and Review Workflow
 
@@ -118,6 +127,13 @@ The project is feature-complete and in production use. Default posture:
   a separate "commit" / "push" ask. Still never push to `main` without an
   explicit current-session request.
 - Never push to `main` without an explicit current-session request.
+- Never merge a PR while its head-SHA checks are pending or red — wait with
+  `gh pr checks N --watch`. The repo has no enforced branch protection;
+  this rule is the protection.
+- Review-fix commits go onto the head of the PR under review, not onto a
+  new branch. One branch per slice, not per review round.
+- Releases and stacked-PR merges follow
+  [docs/agents/release.md](docs/agents/release.md) literally.
 
 ## Language
 

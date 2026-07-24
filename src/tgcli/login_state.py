@@ -12,10 +12,10 @@ import json
 import os
 import re
 import secrets
-import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from tgcli import atomic
 from tgcli.errors import ConfigError, NotFoundError, PolicyError
 from tgcli.session import state_dir
 
@@ -29,22 +29,7 @@ def _write_attempt(path: Path, record: dict) -> None:
     A mid-write truncate would otherwise be classified as expired by a
     concurrent `store cleanup --confirm` and take the staged session with it.
     """
-    directory = path.parent
-    fd, tmp_name = tempfile.mkstemp(prefix=".login-", suffix=".tmp", dir=directory)
-    try:
-        with os.fdopen(fd, "w") as handle:
-            handle.write(json.dumps(record))
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(tmp_name, 0o600)
-        os.replace(tmp_name, path)
-    except Exception:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
-    os.chmod(path, 0o600)
+    atomic.replace_text(path, json.dumps(record))
 
 
 def logins_dir() -> Path:

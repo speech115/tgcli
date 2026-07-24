@@ -34,7 +34,7 @@ def _file_bytes(path: Path) -> int:
         return 0
 
 
-def _preview_expires_at(path: Path) -> datetime | None:
+def _record_expires_at(path: Path) -> datetime | None:
     try:
         record = json.loads(path.read_text())
         return datetime.fromisoformat(record["expires_at"])
@@ -42,11 +42,26 @@ def _preview_expires_at(path: Path) -> datetime | None:
         return None
 
 
-def _preview_age_anchor(path: Path) -> datetime:
-    expires = _preview_expires_at(path)
+def _record_age_anchor(path: Path) -> datetime:
+    expires = _record_expires_at(path)
     if expires is not None:
         return expires
     return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+
+
+def _classify_ttl_record(path: Path, *, now: datetime, ttl: timedelta) -> str:
+    """live/expired for any `expires_at`-carrying json under the state root.
+
+    One classifier for every bucket: an unreadable `expires_at` (truncated
+    mid-write, or hand-edited) falls back to mtime + ttl, so a record written
+    moments ago is never reaped as expired. Previews learned this the hard
+    way; logins repeated it before growing the same guard — the shared helper
+    is what stops a third bucket from repeating it again.
+    """
+    expires = _record_expires_at(path)
+    if expires is None:
+        return "expired" if now - _record_age_anchor(path) >= ttl else "live"
+    return "live" if expires > now else "expired"
 
 
 def _classify_preview(path: Path, *, now: datetime) -> str | None:
@@ -57,44 +72,18 @@ def _classify_preview(path: Path, *, now: datetime) -> str | None:
         return "pending"
     if suffix != ".json":
         return None
-    expires = _preview_expires_at(path)
-    if expires is None:
-        # Unreadable expires_at — truncated mid-write, or hand-edited. Fall back
-        # to mtime so a preview created moments ago is never reaped as expired.
-        return "expired" if now - _preview_age_anchor(path) >= PREVIEW_TTL else "live"
-    return "live" if expires > now else "expired"
+    return _classify_ttl_record(path, now=now, ttl=PREVIEW_TTL)
 
 
 def _empty_bucket() -> dict:
     return {"count": 0, "bytes": 0}
 
 
-def _login_expires_at(path: Path) -> datetime | None:
-    try:
-        record = json.loads(path.read_text())
-        return datetime.fromisoformat(record["expires_at"])
-    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-        return None
-
-
-def _login_age_anchor(path: Path) -> datetime:
-    expires = _login_expires_at(path)
-    if expires is not None:
-        return expires
-    return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
-
-
 def _classify_login(path: Path, *, now: datetime) -> str | None:
     """Classify a login-attempt json; staged sessions are paired by stem."""
     if path.suffix != ".json":
         return None
-    expires = _login_expires_at(path)
-    if expires is None:
-        # Unreadable expires_at — truncated mid-write, or hand-edited. Fall
-        # back to mtime so a live attempt being updated is never reaped as
-        # expired (mirrors _classify_preview).
-        return "expired" if now - _login_age_anchor(path) >= LOGIN_TTL else "live"
-    return "live" if expires > now else "expired"
+    return _classify_ttl_record(path, now=now, ttl=LOGIN_TTL)
 
 
 def _login_pair_stats(directory: Path, login_id: str) -> tuple[int, int]:
@@ -219,9 +208,9 @@ def stats_rows(data: dict) -> list[tuple]:
 
 def _pending_far_past_ttl(path: Path, *, now: datetime) -> bool:
     """Pending holds random_id; only reclaim when past expires_at by a full TTL."""
-    expires = _preview_expires_at(path)
+    expires = _record_expires_at(path)
     if expires is None:
-        return now - _preview_age_anchor(path) >= PREVIEW_TTL
+        return now - _record_age_anchor(path) >= PREVIEW_TTL
     return now >= expires + PREVIEW_TTL
 
 
@@ -247,7 +236,7 @@ def _deletable_paths(
                 eligible = False
             if not eligible:
                 continue
-            if older_than is not None and now - _preview_age_anchor(path) < older_than:
+            if older_than is not None and now - _record_age_anchor(path) < older_than:
                 continue
             selected.append(path)
 

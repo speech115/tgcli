@@ -17,6 +17,28 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — Process hardening after the 1.2.0 retro (Claude Fable)
+**Did:** ADR-0043. Extracted the three patterns the 1.2.0 review caught
+diverging: `tgcli/atomic.py` (atomic state replacement, adopted by safety/
+login_state/accounts/resolve_phone), `session.lock_held()` (single no-side-
+effect probe, adopted by doctor + accounts show), `store._classify_ttl_record`
+(one mtime-fallback classifier for previews and logins). Architecture check
+now bans `write_text` in state-writing modules (AST rule + tests). New
+`tests/test_contract_exit_codes.py` pins the CONTRACT §4 table and the
+exit-3-vs-4 fork. CI runs on every branch push with per-ref concurrency;
+`scripts/gate.sh` is the one-command full gate. AGENTS.md: mirror-fix rule,
+wait-for-CI-before-merge, review-fixes-on-PR-head, DEVLOG redaction rule,
+gate.sh as the pre-commit command. New `docs/agents/release.md` runbook and
+`.claude/agents/reviewer.md` repo-local reviewer with Bash and the briefing
+baked in. MAP updated.
+**Decided:** ADR-0043 — shared seams enforced by the gate, not by
+convention; no CONTRACT change, so no release (ADR-0038 does not trigger).
+**Learned:** every 1.2.0 code defect was a copy of an existing pattern that
+lost its guard in transit — the fix for a pattern-drift bug class is a
+shared helper plus a fail-closed check, not a review checklist item.
+**Next:** owner review of the ADR-0043 PR; consider adding future
+state-writing modules to `STATE_WRITER_MODULES` as they appear.
+
 ## 2026-07-24 — 1.2.0 shipped: review verified, stack merged, tagged (Claude Fable)
 **Did:** independently verified every review fix in `6f9ef22` against the
 diff (all findings closed, tests present) and re-ran the full gate locally

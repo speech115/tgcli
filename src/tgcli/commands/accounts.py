@@ -1,12 +1,10 @@
 import fcntl
 import json
-import os
 import sqlite3
-import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from tgcli import safety
+from tgcli import atomic, safety, session
 from tgcli.config import Config, default_config_path, load_config
 from tgcli.errors import ConfigError, NotFoundError, PolicyError
 from tgcli.output import note
@@ -36,27 +34,6 @@ def _account_session_path(config: Config, alias: str) -> Path:
     return state_dir() / "sessions" / f"{config.accounts[alias].session}.session"
 
 
-def _lock_held(session_file: Path) -> bool:
-    """Return True if another process holds the session lock.
-
-    Opens the lock path, tries LOCK_EX|LOCK_NB, and releases immediately on
-    success. Never waits and never leaves the lock held.
-    """
-    lock_path = session_file.with_suffix(".lock")
-    try:
-        handle = lock_path.open("w")
-    except OSError:
-        return False
-    try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        fcntl.flock(handle, fcntl.LOCK_UN)
-        return False
-    except BlockingIOError:
-        return True
-    finally:
-        handle.close()
-
-
 def show_account(config: Config, alias: str) -> dict:
     path = _account_session_path(config, alias)
     bak = Path(str(path) + ".bak")
@@ -74,10 +51,7 @@ def show_account(config: Config, alias: str) -> dict:
         "exists": exists,
         "bytes": bytes_count,
         "modified": modified,
-        # Probe only when the session file exists — opening the lock path
-        # with "w" would otherwise create a stray .lock for a missing session
-        # (CONTRACT §5.1; same guard as doctor).
-        "locked": exists and _lock_held(path),
+        "locked": session.lock_held(path),
         "backup": str(bak) if bak.is_file() else None,
         "authorized": None,
     }
@@ -113,23 +87,7 @@ def _remove_config_block(config_path: Path, alias: str) -> None:
         if skipping:
             continue
         kept.append(line)
-    new_text = "".join(kept)
-    directory = config_path.parent
-    fd, tmp_name = tempfile.mkstemp(prefix=".config-", suffix=".tmp", dir=directory)
-    try:
-        with os.fdopen(fd, "w") as handle:
-            handle.write(new_text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(tmp_name, 0o600)
-        os.replace(tmp_name, config_path)
-    except Exception:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
-    os.chmod(config_path, 0o600)
+    atomic.replace_text(config_path, "".join(kept))
 
 
 def remove_account(
