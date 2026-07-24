@@ -130,7 +130,10 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
                     )
                 else:
                     data = await clone_cmd.preview_init(
-                        tg, args.source, replace=args.replace
+                        tg,
+                        args.source,
+                        replace=args.replace,
+                        no_comments=args.no_comments,
                     )
                 return data, clone_cmd.init_rows(data)
             if args.command == "clone" and args.clone_command == "sync":

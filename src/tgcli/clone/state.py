@@ -123,7 +123,11 @@ class CloneState:
         return max(self.discussion_id_map.values(), default=None)
 
     def set_cooldown(self, deadline: datetime) -> None:
-        self.retry_not_before = _require_aware(deadline).isoformat()
+        aware = _require_aware(deadline)
+        current = self.cooldown_deadline()
+        if current is not None and current > aware:
+            aware = current
+        self.retry_not_before = aware.isoformat()
 
     def cooldown_deadline(self) -> datetime | None:
         return (
@@ -190,7 +194,7 @@ class CloneState:
         discussion_source_peer_id = data.get("discussion_source_peer_id")
         discussion_destination_peer_id = data.get("discussion_destination_peer_id")
         if (
-            comments not in {"enabled", "unavailable", "none"}
+            comments not in {"enabled", "unavailable", "none", "disabled"}
             or type(discussion_id_map) is not dict
             or any(
                 type(k) is not str

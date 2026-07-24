@@ -384,6 +384,15 @@ def test_set_cooldown_requires_timezone_aware():
         s.set_cooldown(datetime(2026, 7, 15, 12, 0))
 
 
+def test_set_cooldown_keeps_later_deadline():
+    s = _fresh()
+    longer = datetime(2026, 7, 15, 12, 30, tzinfo=UTC)
+    shorter = datetime(2026, 7, 15, 12, 5, tzinfo=UTC)
+    s.set_cooldown(longer)
+    s.set_cooldown(shorter)
+    assert s.cooldown_deadline() == longer
+
+
 def test_record_mapping_and_dest_for():
     s = _fresh()
     s.record_mapping(12, 5)
@@ -418,6 +427,18 @@ def test_discussion_mapping_roundtrips():
     assert loaded.discussion_dest_for(3) == 4
     assert loaded.discussion_cursor == 9
     assert loaded.comments == "enabled"
+
+
+def test_disabled_comments_roundtrips():
+    clone_state = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="S"
+    )
+    clone_state.comments = "disabled"
+    state.save(clone_state)
+    loaded = state.load(clone_state.clone_id)
+    assert loaded.comments == "disabled"
+    assert loaded.discussion_id_map == {}
+    assert loaded.discussion_cursor == 0
 
 
 def test_max_destination_id_excludes_discussion_ids():

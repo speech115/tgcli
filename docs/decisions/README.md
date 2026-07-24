@@ -51,6 +51,11 @@ row here in the same commit (AGENTS.md rule, extending
 | [0042](ADR-0042-accounts-login.md) | `tg accounts login` QR-first + phone fallback, native-dialog secret channel, staged session promoted only on confirmation; `show`/`remove` close the account lifecycle | accepted |
 | [0043](ADR-0043-process-hardening.md) | Shared atomic-write/lock-probe/TTL-classify seams with a fail-closed `write_text` ban; executable exit-code table; one-command gate; release runbook and reviewer subagent | accepted |
 | [0044](ADR-0044-clone-title-prefix.md) | Tool-created clone peers (destination + discussion group) titled `[Clone] {name}` via one `attribution.destination_title` seam; state `source_title` stays clean; retro via idempotent init re-run | accepted |
+| [0045](ADR-0045-clone-flood-containment.md) | Account-scoped clone FloodWait cooldown (restores the mirror-era guard); `clone init --no-comments` (posts-only clone, `comments: "disabled"`); preview flood hints (`peers_to_create`, `account_flood`) | accepted |
+| [0046](ADR-0046-clone-destination-ergonomics.md) | Init mutes tool-created peers and files them into the "Clone" dialog folder; best-effort with honest markers, additive `ergonomics` JSON | accepted |
+| [0047](ADR-0047-clone-parallel-chunk-transfer.md) | Reupload transfers file chunks with constant parallelism 4 (striped download + parallel part upload); sends and batch order stay sequential; measured basis: transfer = 92–98% of sync wall time | accepted |
+| [0048](ADR-0048-clone-poll-breakdown-vote.md) | Poll snapshots cast-and-retract a transient vote on anonymous open non-quiz polls to capture the per-option breakdown (own vote subtracted); other polls get an honest "breakdown unavailable" line | accepted |
+| [0049](ADR-0049-clone-sync-progress.md) | `clone sync` emits plain single-line progress to stderr by default (batch counter, per-file transfer %, phase lines) via the shared media progress seam; non-contractual format, silenced by `2>/dev/null` | accepted |
 
 Notes on supersessions:
 

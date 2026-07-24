@@ -897,7 +897,9 @@ comment threads. State and every `status`/`init`/`sync` response carry a
 `"unavailable"` (linked group exists but is unreadable — the channel still
 clones posts-only, and the marker is permanent; there is no backfill, only a
 fresh clone against a new destination, reached with `init --replace` — see
-below), or `"none"` (no linked group, or a non-broadcast source). Existing
+below), `"disabled"` (owner opted out of the discussion leg with
+`init --no-comments`; posts-only forever for this state slot — ADR-0045), or
+`"none"` (no linked group, or a non-broadcast source). Existing
 clones from before this feature have `comments: "none"` and are never
 retroactively upgraded in place.
 
@@ -905,6 +907,7 @@ retroactively upgraded in place.
 tg clone status [SOURCE]
 tg clone init SOURCE
 tg clone init SOURCE --replace
+tg clone init SOURCE --no-comments
 tg clone init SOURCE --commit PREVIEW_ID
 tg clone sync SOURCE [--limit N]
 ```
@@ -938,8 +941,23 @@ exists, `readable` is whether it loads under the current version (`null` when
 absent), and `replace` echoes the flag. JSON:
 
 ```json
-{"preview_id":"p_...","expires_at":"...","clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":null,"status":"planned","commit_required":true},"approximate_message_count":321,"protected":false,"supersede":{"existing":false,"readable":null,"replace":false}}
+{"preview_id":"p_...","expires_at":"...","clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":null,"status":"planned","commit_required":true},"approximate_message_count":321,"protected":false,"supersede":{"existing":false,"readable":null,"replace":false},"peers_to_create":1,"account_flood":{"cooldown_until":null,"last_peer_created_at":null}}
 ```
+
+`peers_to_create` is how many `CreateChannelRequest` calls this commit would
+make: `0` when a destination peer id is already recorded and `--replace` is
+not set, `1` for a posts-only init (`--no-comments`, non-broadcast, or a
+broadcast with no linked discussion), or `2` when a broadcast source has a
+linked discussion and no destination is recorded yet (or `--replace` will
+supersede the slot). `account_flood` mirrors the
+account-scoped flood record (ADR-0045): `cooldown_until` / 
+`last_peer_created_at` as ISO timestamps or null. Both fields are data for
+the caller — they never block preview. `--no-comments` is stored in the
+preview payload and honored at commit; it creates a posts-only clone with
+`comments: "disabled"`, creates one peer, and links nothing. Re-running
+init with `--no-comments` against a slot whose state already has
+`comments: "enabled"` is exit 2 (`PolicyError`) — the flag cannot orphan an
+existing linked group (use `--replace` for a fresh posts-only clone).
 
 `init SOURCE --commit PREVIEW_ID` requires a matching unexpired clone-init
 preview. `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block before
@@ -1015,9 +1033,15 @@ Every create, title-edit, description-edit, and avatar-edit attempt appends a
 fail-closed shared audit record before dispatch. A profile-copy failure exits 2
 while retaining the recorded destination for a new-preview retry; it never
 creates a second destination. Telegram FloodWait during profile reads, downloads,
-uploads, or edits persists `retry_not_before` in clone state; later commit
-attempts exit 5 locally while that deadline is active. Init keeps the global
-60-second default timeout.
+uploads, or edits persists `retry_not_before` in clone state **and** arms an
+account-scoped cooldown record under
+`TGCLI_STATE_DIR/clones/account-<account_user_id>.json` (ADR-0045). Later
+`clone init --commit` and `clone sync` for **any** clone of that account exit 5
+locally (no network) while either the per-clone or the account deadline is
+active — `retry_after` is computed from `max(per-clone, account)`. Read-only
+surfaces (`clone status`, init preview) are never blocked. A roster FloodWait
+(ADR-0024) still arms neither cooldown. Init keeps the global 60-second
+default timeout.
 
 `sync SOURCE` requires initialized state and a private creator-owned destination
 of the source-dependent kind. It verifies the destination tail before reading
@@ -1065,6 +1089,8 @@ level `sync.clone` object itself carries no `comments` field). `--limit N`
 is not split between phases — phase 1 spends the full budget first, and
 phase 2 only starts if phase 1 did not stop on the limit; a run that stops
 inside phase 2 leaves comments lagging posts until the next invocation.
+When `comments` is `"disabled"`, `"unavailable"`, or `"none"`, the comment
+phase and the discussion roster snapshot are skipped entirely.
 Telegram's own auto-forwards of channel posts into the discussion group
 (recognized by `fwd_from.saved_from_peer`/`saved_from_msg_id` matching the
 source channel and post) are read-only anchors, never copied, and counted in

@@ -116,6 +116,8 @@ def test_collect_marks_channel_unavailable_when_not_admin():
 
 
 def test_collect_defers_on_floodwait_and_discards_partial():
+    from tgcli.clone import flood as account_flood
+
     clone_state = seed()
     flood = telethon_errors.FloodWaitError(request=None)
     flood.seconds = 30
@@ -126,6 +128,8 @@ def test_collect_defers_on_floodwait_and_discards_partial():
     assert read_lines(clone_state) == []
     # a roster flood must not arm the main clone cooldown
     assert clone_state.cooldown_deadline() is None
+    # nor the account-scoped cooldown (ADR-0045 / ADR-0024)
+    assert account_flood.cooldown_deadline(clone_state.account_user_id) is None
 
 
 def test_collect_gathers_discussion_group_when_comments_enabled():

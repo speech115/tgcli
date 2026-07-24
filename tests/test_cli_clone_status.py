@@ -53,6 +53,21 @@ def test_status_lists_all_clones_as_json(capsys):
     assert beta["source"]["kind"] == "megagroup"
 
 
+def test_status_ignores_account_flood_sidecar_and_survives_cooldown(capsys):
+    from datetime import UTC, datetime, timedelta
+
+    from tgcli.clone import flood
+
+    _seed(42, 111, "Alpha", dest=222)
+    flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    assert [c["source"]["title"] for c in payload["clones"]] == ["Alpha"]
+    assert not any(c.get("unreadable") for c in payload["clones"])
+
+
 def test_status_empty_when_no_clones(capsys):
     code, out = _run(capsys, ["clone", "status", "--json"])
     assert code == 0

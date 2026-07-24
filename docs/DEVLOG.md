@@ -17,6 +17,94 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — Babysit PR #53 Bugbot fixes (Composer)
+**Did:** on `claude/flood-containment` / PR #53, fixed two Bugbot findings with
+reproducing tests first: (1) re-init without `--no-comments` no longer
+re-enables discussion on a `comments: "disabled"` slot (sticky posts-only);
+(2) `flood.arm_cooldown` and mirror-fix `CloneState.set_cooldown` keep the
+later deadline instead of shortening an active cooldown. Pushed review-fix
+commit; watching PR-event CI.
+**Decided:** treat CONTRACT "posts-only forever for this state slot" as sticky
+at commit regardless of preview flag; shortening a FloodWait deadline is never
+correct containment.
+**Learned:** cancelled push-event CI still marks GitHub `mergeable_state`
+unstable even when the PR-event run is green — babysit on the PR-event head
+SHA, not the cancelled duplicate.
+**Next:** green PR CI + resolve Bugbot threads; independent Spec+Standards
+review; owner merges and tags `v1.2.3`.
+
+## 2026-07-24 — ADR-0045 flood containment implementation (Composer)
+**Did:** implemented plan tasks 1–6 on `claude/flood-containment`:
+`clone/flood.py` account record (atomic writes); wired account cooldown into
+`_with_cooldown` / `_enforce_cooldown` + `CreateChannelRequest` peer stamps;
+`clone init --no-comments` → `comments: "disabled"`; preview
+`peers_to_create` + `account_flood`; CONTRACT/MAP/SKILL/guide; CHANGELOG
+1.2.3 + version bump. Opened PR #53; reviewer found three minors (MAP
+0049 range, `--replace` peers hint, empty DEVLOG body) — fixing on the
+same branch.
+**Decided:** follow ADR-0045 literally; list_clones skips `account-*.json`
+sidecars so status stays clean; `--replace` preview must count peers as if
+the slot will be superseded.
+**Learned:** preview now issues `GetFullChannelRequest` for broadcasts to
+compute `peers_to_create` (except `--no-comments` / recorded destination
+without `--replace`).
+**Next:** green CI → merge → tag `v1.2.3`; then ADR-0046.
+
+## 2026-07-24 — Live measurement verdict + ADR-0046/0047/0048 (Claude Fable 5)
+**Did:** finished the икона live runbook far enough to settle the speed
+question: init completed the discussion link with zero avatar re-uploads
+(the 1.2.2 guard's first live save), then two timestamped `-v` sync
+samples. Sample 1: 43.9s / 5 messages — upload 56.6%, download 35.7%,
+send 2.7%. Sample 2 (590s, killed by explicit `--timeout`, cursor 50/69
+saved): download 79.4% (one video = 2562 `GetFileRequest` chunks), upload
+18.9%, send 0.8%. **Chunk transfer is 92–98% of sync wall time; the
+bottleneck is inside single files, not across messages.** Wrote ADR-0046
+(mute + "Clone" folder), ADR-0047 (parallel chunk transfer, constant 4),
+ADR-0048 (transient poll vote for the breakdown) plus the combined plan
+`2026-07-24-clone-ergonomics-and-transfer.md`; rebased the branch onto
+1.2.2 main.
+**Decided:** ADR-0046/0047/0048, all owner-commissioned today. The
+"parallelize across messages" idea from the original speed discussion is
+dead — the numbers point inside the file.
+**Learned:** poll snapshots showing `0% · 0` per option with a correct
+total are Telegram data availability (breakdown revealed only to voters /
+closed polls), not a clone defect — the owner chose vote-and-retract over
+a placeholder for anonymous polls. Also: `clone sync` honors an explicit
+`--timeout` mid-batch and resumes cleanly from the saved cursor.
+**Next:** executor runs plans (flood containment → ergonomics → transfer
+→ polls → progress), each ADR its own PR + tagged release; resume икона
+sync to completion meanwhile. Late addition, same session: ADR-0049
+(sync progress lines on stderr, owner-commissioned after watching a
+silent background sync) + plan Part D; progress should land before or
+with the ADR-0047 transfer work so parallel transfer reports through the
+same callback.
+
+## 2026-07-24 — ADR-0045: flood containment scope + plan (Claude Fable 5)
+**Did:** owner-commissioned after the day's flood incident (3 peers in
+~45 min, ~13-min link flood, agent retry loop). Wrote ADR-0045 and the
+scoped plan `docs/superpowers/plans/2026-07-24-flood-containment.md`
+(6 tasks) on branch `claude/flood-containment`. Docs only — no code.
+**Decided:** ADR-0045 — (1) account-scoped clone FloodWait cooldown,
+restoring the guard mirror had and the clone rewrite dropped (per-clone
+`retry_not_before` stays as a second scope); (2) `clone init
+--no-comments` → `comments: "disabled"`, cannot orphan an existing linked
+group; (3) preview hints `peers_to_create` + `account_flood`, data not
+policy. Telethon settings deliberately unchanged.
+**Learned:** the containment framing that survived the owner discussion:
+peer-creation floods cannot be engineered away, only made rare (fewer
+mutations), cheap (no escalation after the first flood), and visible
+before commit.
+**Next:** executor implements plan tasks 1–6 (TDD, gate, PR, reviewer).
+
+## 2026-07-24 — Fix __version__ drift after 1.2.1 tag (Composer)
+**Did:** after tagging 1.2.1, `src/tgcli/__init__.py` still said 1.2.0 while
+`pyproject.toml` was 1.2.1. Bumped `__version__` to match and noted the
+same-day drift lesson for ADR-0038 releases.
+**Decided:** every versioned release must bump **both** files in the same
+commit (now restated in the flood-containment plan).
+**Learned:** tag + CHANGELOG alone are not enough if `__init__` drifts.
+**Next:** continue maintenance releases with the dual-bump check.
+
 ## 2026-07-24 — 1.2.2: idempotent avatar copy; mirror-era flood research (Claude Fable 5)
 **Did:** owner's screenshots showed repeated "photo updated" service
 messages on all three clone peers; audit log confirmed `clone-init-avatar`
