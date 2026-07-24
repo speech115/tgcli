@@ -39,8 +39,12 @@ closed polls), not a clone defect — the owner chose vote-and-retract over
 a placeholder for anonymous polls. Also: `clone sync` honors an explicit
 `--timeout` mid-batch and resumes cleanly from the saved cursor.
 **Next:** executor runs plans (flood containment → ergonomics → transfer
-→ polls), each ADR its own PR + tagged release; resume икона sync to
-completion meanwhile.
+→ polls → progress), each ADR its own PR + tagged release; resume икона
+sync to completion meanwhile. Late addition, same session: ADR-0049
+(sync progress lines on stderr, owner-commissioned after watching a
+silent background sync) + plan Part D; progress should land before or
+with the ADR-0047 transfer work so parallel transfer reports through the
+same callback.
 
 ## 2026-07-24 — ADR-0045: flood containment scope + plan (Claude Fable 5)
 **Did:** owner-commissioned after the day's flood incident (3 peers in

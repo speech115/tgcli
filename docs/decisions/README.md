@@ -55,6 +55,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0046](ADR-0046-clone-destination-ergonomics.md) | Init mutes tool-created peers and files them into the "Clone" dialog folder; best-effort with honest markers, additive `ergonomics` JSON | accepted |
 | [0047](ADR-0047-clone-parallel-chunk-transfer.md) | Reupload transfers file chunks with constant parallelism 4 (striped download + parallel part upload); sends and batch order stay sequential; measured basis: transfer = 92–98% of sync wall time | accepted |
 | [0048](ADR-0048-clone-poll-breakdown-vote.md) | Poll snapshots cast-and-retract a transient vote on anonymous open non-quiz polls to capture the per-option breakdown (own vote subtracted); other polls get an honest "breakdown unavailable" line | accepted |
+| [0049](ADR-0049-clone-sync-progress.md) | `clone sync` emits plain single-line progress to stderr by default (batch counter, per-file transfer %, phase lines) via the shared media progress seam; non-contractual format, silenced by `2>/dev/null` | accepted |
 
 Notes on supersessions:
 

@@ -822,6 +822,61 @@ def test_clone_init_create_flood_wait_persists_cooldown(
     assert len(client.requests) == 1
 
 
+def test_clone_init_commit_blocks_under_account_cooldown_before_network(
+    config_env, monkeypatch, capsys
+):
+    from datetime import UTC, datetime, timedelta
+
+    from tgcli.clone import flood
+
+    flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
+    client = CloneInitClient()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 5
+    )
+    err = json.loads(capsys.readouterr().err)
+    assert err["retry_after"] > 0
+    assert client.requests == []
+
+
+def test_clone_init_preview_not_blocked_by_account_cooldown(
+    config_env, monkeypatch, capsys
+):
+    from datetime import UTC, datetime, timedelta
+
+    from tgcli.clone import flood
+
+    flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
+    client = CloneInitClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["status"] == "planned"
+    assert client.requests == []
+
+
+def test_clone_init_create_records_peer_created_timestamp(
+    config_env, monkeypatch, capsys
+):
+    from tgcli.clone import flood
+
+    client = CloneInitClient()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    record = flood.load(42)
+    assert record["last_peer_created_at"] is not None
+
+
 def test_clone_init_commit_blocks_multiple_marker_matches_without_mutation(
     config_env, monkeypatch, capsys
 ):

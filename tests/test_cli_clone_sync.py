@@ -2749,6 +2749,78 @@ def test_clone_sync_flood_wait_persists_cooldown_without_advancing(
     assert client.session_mutation_safe is True
 
 
+def test_clone_sync_flood_wait_arms_account_cooldown_for_other_clones(
+    config_env, monkeypatch, capsys
+):
+    from datetime import UTC, datetime, timedelta
+
+    from tgcli.clone import flood
+
+    seed_clone()
+    other = state.CloneState.new(
+        account_user_id=42,
+        source_peer_id=456,
+        source_title="Other channel",
+        source_kind="broadcast",
+    )
+    other.destination_peer_id = 888
+    state.save(other)
+
+    class FloodClient(CloneSyncClient):
+        async def __call__(self, request):
+            self.requests.append(request)
+            raise telethon_errors.FloodWaitError(request=request, capture=600)
+
+    client = FloodClient([message(2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+    assert flood.cooldown_deadline(42) is not None
+    first_requests = len(client.requests)
+
+    class OtherClient(CloneSyncClient):
+        def __init__(self):
+            super().__init__([])
+            self.source = channel(456, "Other channel")
+            self.destination = channel(888, "Other channel", creator=True)
+
+        async def get_entity(self, ref):
+            if isinstance(ref, types.PeerChannel):
+                if ref.channel_id == 888:
+                    return self.destination
+                raise ValueError("peer not found")
+            assert ref == "@other"
+            return self.source
+
+    other_client = OtherClient()
+    make_session_fake(monkeypatch, other_client)
+
+    assert main(["clone", "sync", "@other", "--json"]) == 5
+    err = json.loads(capsys.readouterr().err)
+    assert err["retry_after"] > 0
+    assert other_client.requests == []
+    assert first_requests == 1
+
+
+def test_clone_sync_account_cooldown_blocks_before_network(
+    config_env, monkeypatch, capsys
+):
+    from datetime import UTC, datetime, timedelta
+
+    from tgcli.clone import flood
+
+    seed_clone()
+    flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
+
+    client = CloneSyncClient([message(2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+    err = json.loads(capsys.readouterr().err)
+    assert err["retry_after"] > 0
+    assert client.requests == []
+
+
 def test_clone_sync_readonly_blocks_before_config_or_session(monkeypatch):
     from tgcli import cli
 

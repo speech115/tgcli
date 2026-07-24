@@ -58,6 +58,7 @@ STATE_WRITER_MODULES = (
     "src/tgcli/commands/media.py",
     "src/tgcli/commands/store.py",
     "src/tgcli/clone/state.py",
+    "src/tgcli/clone/flood.py",
 )
 
 

@@ -126,3 +126,35 @@ after ADR-0047 lands; separate decision).
       (destination message t.me/c/3514350021/31): re-sync after an edit
       or re-clone scenario per owner instruction; verify percentages
       appear and source poll totals are unchanged afterwards.
+
+## Part D — ADR-0049 sync progress (separate PR + release)
+
+Scope: [ADR-0049](../../decisions/ADR-0049-clone-sync-progress.md).
+Best implemented **before or together with Part B** — ADR-0047's parallel
+transfer must report through the same progress callback.
+
+### D1. Shared progress seam
+
+- [ ] Extract the chunk-cadence progress pattern from `media.py`
+      (`PROGRESS_EVERY_CHUNKS`, the `progress(current, total)` callback)
+      into a shared helper both `media download` and clone reupload use
+      (ADR-0043: one seam, not a copy). Existing media tests stay green.
+
+### D2. Progress lines in clone sync
+
+- [ ] Tests (capsys): per-batch line
+      `[sync <id>] <n>/~<total> · <transport>` on stderr; transfer lines
+      every ~5 MB with filename, direction, MB and percent; comments-leg
+      and roster phase lines; stdout stays exactly one JSON document;
+      lines contain no `\r` or ANSI codes.
+- [ ] Test: `--json` mode emits the same stderr lines.
+- [ ] Implement: batch counter from `approximate_message_count`
+      (best-effort `~total`), wired through `copy_batch` and
+      `_reupload_batch` download/upload loops.
+- [ ] CONTRACT §2 note: stderr progress line shape documented as
+      informative, non-contractual.
+
+### D3. Release
+
+- [ ] CHANGELOG + double version bump; DEVLOG; PR → reviewer → CI →
+      merge → tag.
