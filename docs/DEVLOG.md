@@ -17,6 +17,23 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — ADR-0042 Slices 2–3: QR + phone login (Cursor)
+**Did:** implemented Tasks 3–8. New modules `desktop.py` (osascript/open
+escape hatch), `authclient.py` (unauthorized client + probe),
+`login_state.py` (`logins/` attempts + atomic promote),
+`commands/login.py` (QR default, phone+code, `--continue`, cloud password
+via dialog/`--password-stdin` never argv). `mask_phone` in `formatting.py`.
+CONTRACT §10 login shapes and exit mapping. Architecture ceilings raised to
+measured `cli.py` 293, `parser.py` 496, `preflight.py` 231. Gate: 840
+passed / 9 skipped, ruff/pyright/coverage/architecture/docs clean.
+**Decided:** no design drift from ADR-0042. Password collection refuses the
+automatic stdin fallback unless `--password-stdin` (headless → `next:
+password` at exit 0).
+**Learned:** `qr.wait` timeout vs overall `--timeout` needs an explicit
+deadline loop with `recreate`; a single wait is not enough.
+**Next:** Slice 4 — `store` logins bucket, guide/SKILL/ISSUES updates, release
+`1.2.0`.
+
 ## 2026-07-24 — ADR-0042 Slice 1: `accounts show` / `remove` (Cursor)
 **Did:** implemented offline account lifecycle from
 `docs/superpowers/plans/2026-07-24-accounts-login.md` Tasks 1–2.
