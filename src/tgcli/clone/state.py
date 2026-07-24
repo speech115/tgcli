@@ -57,6 +57,7 @@ class CloneState:
     discussion_cursor: int = 0
     discussion_id_map: dict[str, int] = field(default_factory=dict)
     comments: str = "none"
+    avatar_photo_ids: dict[str, int] = field(default_factory=dict)
 
     @classmethod
     def new(
@@ -82,6 +83,12 @@ class CloneState:
 
     def record_mapping(self, source_id: int, destination_id: int) -> None:
         self.id_map[str(source_id)] = destination_id
+
+    def record_avatar(self, source_peer_id: int, photo_id: int) -> None:
+        self.avatar_photo_ids[str(source_peer_id)] = photo_id
+
+    def avatar_for(self, source_peer_id: int) -> int | None:
+        return self.avatar_photo_ids.get(str(source_peer_id))
 
     def dest_for(self, source_id: int) -> int | None:
         return self.id_map.get(str(source_id))
@@ -147,6 +154,7 @@ class CloneState:
             "discussion_cursor": self.discussion_cursor,
             "discussion_id_map": self.discussion_id_map,
             "comments": self.comments,
+            "avatar_photo_ids": self.avatar_photo_ids,
         }
 
     @classmethod
@@ -227,6 +235,7 @@ class CloneState:
             discussion_cursor=discussion_cursor,
             discussion_id_map=dict(discussion_id_map),
             comments=comments,
+            avatar_photo_ids=dict(data.get("avatar_photo_ids", {})),
         )
 
 

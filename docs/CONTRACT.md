@@ -1005,7 +1005,9 @@ re-run edits only on mismatch — so an existing clone adopts the prefix via
 a plain `clone init` without creating peers. Init then copies a non-empty
 channel or basic-group description, or User bio, and copies a non-empty
 static source avatar before returning `status: ready`. Empty source fields
-cause no mutation.
+cause no mutation. The avatar copy is idempotent: the copied source photo id
+is recorded in clone state and a re-run skips the copy (no upload, no
+`EditPhoto`, no audit record) until the source avatar changes.
 Avatar bytes use a temporary directory that is removed on success or failure.
 Animated or video avatar motion is not preserved (ADR-0020).
 
