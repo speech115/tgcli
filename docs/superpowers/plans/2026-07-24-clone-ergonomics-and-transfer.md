@@ -33,28 +33,28 @@ after ADR-0047 lands; separate decision).
 
 ### A1. Mute tool-created peers
 
-- [ ] Boundary tests: after commit init, exactly one
+- [x] Boundary tests: after commit init, exactly one
       `account.UpdateNotifySettingsRequest` per tool-created peer with a
       far-future `mute_until`; already-muted peer (fake reports muted) →
       no request; failure → warning on stderr, `ergonomics.muted: false`,
       exit still 0.
-- [ ] Implement in the init commit path after the link step; idempotence
+- [x] Implement in the init commit path after the link step; idempotence
       via reading current notify settings.
 
 ### A2. "Clone" folder
 
-- [ ] Boundary tests: `GetDialogFiltersRequest` read; existing filter
+- [x] Boundary tests: `GetDialogFiltersRequest` read; existing filter
       titled `Clone` → `UpdateDialogFilterRequest` with peers appended
       (`folder: "added"`, or `"present"` when both already there); no
       filter → created with lowest free id; folder/peer limits or RPC
       failure → `folder: "unavailable"` + stderr warning, exit 0.
-- [ ] Implement; both peers (destination + discussion when enabled).
-- [ ] CONTRACT: `ergonomics` object in the init commit JSON example +
+- [x] Implement; both peers (destination + discussion when enabled).
+- [x] CONTRACT: `ergonomics` object in the init commit JSON example +
       prose; best-effort semantics documented.
 
 ### A3. Release
 
-- [ ] CHANGELOG section at the next free patch version + bump in **both**
+- [x] CHANGELOG section at the next free patch version + bump in **both**
       `pyproject.toml` and `src/tgcli/__init__.py`; DEVLOG entry; PR →
       reviewer → CI → merge → tag.
 - [ ] Live check: `tg clone init 3802378977` re-run — both икона peers

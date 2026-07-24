@@ -11,6 +11,15 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.4] — 2026-07-24
+
+### Added
+
+- `clone init --commit` mutes tool-created peers forever and files them into
+  the Telegram folder `Clone`, reporting
+  `ergonomics: {muted, folder}` (ADR-0046). Best-effort: failures warn on
+  stderr and never fail init.
+
 ## [1.2.3] — 2026-07-24
 
 ### Added
@@ -166,6 +175,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.4]: https://github.com/speech115/tgcli/compare/v1.2.3...v1.2.4
 [1.2.3]: https://github.com/speech115/tgcli/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/speech115/tgcli/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/speech115/tgcli/compare/v1.2.0...v1.2.1

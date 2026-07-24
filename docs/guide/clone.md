@@ -54,6 +54,11 @@ tg --json clone init SOURCE --commit PREVIEW_ID
 | `--replace` | supersede an incompatible or stale clone state slot; declared at preview time, honored at commit |
 | `--no-comments` | posts-only clone (`comments: "disabled"`); creates one peer, skips discussion; declared at preview time |
 
+Commit also mutes tool-created peers forever and files them into the Telegram
+folder `Clone` (best-effort). JSON reports `ergonomics: {muted, folder}` —
+`"added"` / `"present"` / `"unavailable"` for the folder. Failures warn on
+stderr and never fail init. Re-run init on an existing clone to retrofit.
+
 `peers_to_create` is 0 / 1 / 2 depending on whether a destination is already
 recorded and whether this commit would also create a discussion group.
 `account_flood` shows any account-scoped FloodWait cooldown. Exit 5 on

@@ -79,6 +79,10 @@ class CloneInitClient:
         self.linked_monoforum_id = None
         self.linked_history_error = None
         self.discussion = None
+        self.notify_mute_until = {}
+        self.dialog_filters = []
+        self.notify_error = None
+        self.folder_error = None
 
     async def get_entity(self, ref):
         if isinstance(ref, types.PeerChannel):
@@ -88,6 +92,10 @@ class CloneInitClient:
             raise ValueError(f"no entity: {ref!r}")
         assert ref == "@source"
         return self.source
+
+    async def get_input_entity(self, ref):
+        entity = ref if hasattr(ref, "id") else await self.get_entity(ref)
+        return types.InputPeerChannel(channel_id=entity.id, access_hash=0)
 
     async def get_me(self):
         return SimpleNamespace(id=42)
@@ -119,6 +127,36 @@ class CloneInitClient:
 
     async def __call__(self, request):
         self.requests.append(request)
+        if isinstance(request, functions.account.GetNotifySettingsRequest):
+            if self.notify_error is not None:
+                raise self.notify_error
+            peer = request.peer.peer
+            channel_id = getattr(peer, "channel_id", None)
+            mute_until = self.notify_mute_until.get(channel_id)
+            return SimpleNamespace(mute_until=mute_until)
+        if isinstance(request, functions.account.UpdateNotifySettingsRequest):
+            if self.notify_error is not None:
+                raise self.notify_error
+            peer = request.peer.peer
+            self.notify_mute_until[peer.channel_id] = request.settings.mute_until
+            return True
+        if isinstance(request, functions.messages.GetDialogFiltersRequest):
+            if self.folder_error is not None:
+                raise self.folder_error
+            return SimpleNamespace(
+                filters=list(self.dialog_filters), tags_enabled=False
+            )
+        if isinstance(request, functions.messages.UpdateDialogFilterRequest):
+            if self.folder_error is not None:
+                raise self.folder_error
+            self.dialog_filters = [
+                item
+                for item in self.dialog_filters
+                if getattr(item, "id", None) != request.id
+            ]
+            if request.filter is not None:
+                self.dialog_filters.append(request.filter)
+            return True
         if isinstance(request, functions.channels.GetFullChannelRequest):
             own = request.channel is self.source
             return SimpleNamespace(
@@ -416,11 +454,18 @@ def test_clone_init_commit_creates_and_records_destination(
     assert saved.destination_peer_id == 999
     assert saved.source_title == "Source channel"
     assert client.session_mutation_safe is True
-    assert [type(request) for request in client.requests] == [
-        functions.channels.CreateChannelRequest,
-        functions.channels.EditTitleRequest,
-        functions.channels.GetFullChannelRequest,
-    ]
+    assert any(
+        isinstance(item, functions.channels.CreateChannelRequest)
+        for item in client.requests
+    )
+    assert any(
+        isinstance(item, functions.channels.EditTitleRequest)
+        for item in client.requests
+    )
+    assert any(
+        isinstance(item, functions.account.UpdateNotifySettingsRequest)
+        for item in client.requests
+    )
     [title_edit] = [
         item
         for item in client.requests
@@ -774,10 +819,14 @@ def test_clone_init_commit_adopts_half_created_marker_channel(
 
     result = json.loads(capsys.readouterr().out)
     assert result["clone"]["destination"]["id"] == 999
-    assert [type(request) for request in client.requests] == [
-        functions.channels.EditTitleRequest,
-        functions.channels.GetFullChannelRequest,
-    ]
+    assert not any(
+        isinstance(item, functions.channels.CreateChannelRequest)
+        for item in client.requests
+    )
+    assert any(
+        isinstance(item, functions.channels.EditTitleRequest)
+        for item in client.requests
+    )
     assert state.load(clone_state.clone_id).destination_peer_id == 999
 
 
@@ -853,9 +902,18 @@ def test_clone_init_commit_reuses_recorded_destination_without_mutation(
         "id": 999,
         "title": "[Clone] Source channel",
     }
-    assert [type(request) for request in client.requests] == [
-        functions.channels.GetFullChannelRequest,
-    ]
+    assert not any(
+        isinstance(item, functions.channels.CreateChannelRequest)
+        for item in client.requests
+    )
+    assert not any(
+        isinstance(item, functions.channels.EditTitleRequest)
+        for item in client.requests
+    )
+    assert any(
+        isinstance(item, functions.channels.GetFullChannelRequest)
+        for item in client.requests
+    )
 
 
 def test_clone_init_commit_retitles_legacy_unprefixed_destination(
@@ -1146,6 +1204,184 @@ def test_init_marks_unreadable_discussion_group_unavailable(
     )
 
 
+def test_clone_init_mutes_created_peers_forever(config_env, monkeypatch, capsys):
+    from tgcli.commands.dialog import MUTE_FOREVER_UNTIL
+
+    client = CloneInitClient()
+    client.linked = linked_group()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["ergonomics"] == {"muted": True, "folder": "added"}
+    mutes = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.account.UpdateNotifySettingsRequest)
+    ]
+    assert len(mutes) == 2
+    assert {item.settings.mute_until for item in mutes} == {MUTE_FOREVER_UNTIL}
+    muted_ids = {item.peer.peer.channel_id for item in mutes}
+    assert muted_ids == {999, 1001}
+    [folder_update] = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.messages.UpdateDialogFilterRequest)
+    ]
+    included = {peer.channel_id for peer in folder_update.filter.include_peers}
+    assert included == {999, 1001}
+
+
+def test_clone_init_unresolved_discussion_marks_muted_false(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.linked = linked_group()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    original_get_entity = client.get_entity
+
+    async def flaky_get_entity(ref):
+        if isinstance(ref, types.PeerChannel) and ref.channel_id == 1001:
+            raise ValueError("discussion gone")
+        return await original_get_entity(ref)
+
+    client.get_entity = flaky_get_entity  # type: ignore[method-assign]
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert result["ergonomics"]["muted"] is False
+    assert "warning: clone mute skipped for discussion peer" in captured.err
+
+
+def test_clone_init_skips_mute_when_already_forever(config_env, monkeypatch, capsys):
+    from tgcli.commands.dialog import MUTE_FOREVER_UNTIL
+
+    client = CloneInitClient()
+    client.notify_mute_until = {999: MUTE_FOREVER_UNTIL}
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    mutes = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.account.UpdateNotifySettingsRequest)
+    ]
+    assert mutes == []
+    assert json.loads(capsys.readouterr().out)["ergonomics"]["muted"] is True
+
+
+def test_clone_init_mute_failure_warns_and_keeps_exit_0(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.notify_error = RuntimeError("notify denied")
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert result["ergonomics"]["muted"] is False
+    assert "warning: clone mute failed" in captured.err
+
+
+def test_clone_init_reuses_existing_clone_folder(config_env, monkeypatch, capsys):
+    client = CloneInitClient()
+    client.dialog_filters = [
+        types.DialogFilter(
+            id=7,
+            title=types.TextWithEntities(text="Clone", entities=[]),
+            pinned_peers=[],
+            include_peers=[types.InputPeerChannel(channel_id=50, access_hash=0)],
+            exclude_peers=[],
+        )
+    ]
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["ergonomics"]["folder"] == "added"
+    [update] = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.messages.UpdateDialogFilterRequest)
+    ]
+    assert update.id == 7
+    included = {peer.channel_id for peer in update.filter.include_peers}
+    assert included == {50, 999}
+
+
+def test_clone_init_folder_present_when_peers_already_included(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.destination = channel(999, "[Clone] Source channel", creator=True)
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel"
+    )
+    clone_state.destination_peer_id = 999
+    state.save(clone_state)
+    client.dialog_filters = [
+        types.DialogFilter(
+            id=7,
+            title=types.TextWithEntities(text="Clone", entities=[]),
+            pinned_peers=[],
+            include_peers=[types.InputPeerChannel(channel_id=999, access_hash=0)],
+            exclude_peers=[],
+        )
+    ]
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["ergonomics"]["folder"] == "present"
+    assert not any(
+        isinstance(item, functions.messages.UpdateDialogFilterRequest)
+        for item in client.requests
+    )
+
+
+def test_clone_init_folder_unavailable_on_rpc_failure(config_env, monkeypatch, capsys):
+    client = CloneInitClient()
+    client.folder_error = RuntimeError("filters denied")
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert result["ergonomics"]["folder"] == "unavailable"
+    assert "warning: clone folder unavailable" in captured.err
+
+
 def test_init_without_linked_chat_records_no_comments(config_env, monkeypatch, capsys):
     """linked_chat_id None: comments == "none", no extra requests."""
     client = CloneInitClient()
@@ -1162,11 +1398,23 @@ def test_init_without_linked_chat_records_no_comments(config_env, monkeypatch, c
     saved = state.load(result["clone"]["id"])
     assert saved.comments == "none"
     assert saved.discussion_source_peer_id is None
-    assert [type(request) for request in client.requests] == [
+    core = [
+        type(request)
+        for request in client.requests
+        if type(request)
+        in {
+            functions.channels.CreateChannelRequest,
+            functions.channels.EditTitleRequest,
+            functions.channels.GetFullChannelRequest,
+        }
+    ]
+    assert core == [
         functions.channels.CreateChannelRequest,
         functions.channels.EditTitleRequest,
         functions.channels.GetFullChannelRequest,
     ]
+    assert result["ergonomics"]["muted"] is True
+    assert result["ergonomics"]["folder"] in {"added", "present"}
 
 
 def test_clone_init_preview_records_no_comments_choice(config_env, monkeypatch, capsys):
