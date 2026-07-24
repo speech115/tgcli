@@ -13,7 +13,7 @@ from telethon import errors as telethon_errors
 
 from tgcli import authclient, desktop, login_state, safety
 from tgcli.commands.accounts import _append_config_block
-from tgcli.config import Config, default_config_path, load_config
+from tgcli.config import Account, Config, default_config_path, load_config
 from tgcli.errors import (
     ConfigError,
     NotFoundError,
@@ -86,13 +86,23 @@ def _resolve_credentials(
     return api_id, api_hash, True
 
 
-async def _probe_if_needed(config: Config, alias: str, *, force: bool) -> None:
-    account = config.accounts.get(alias)
-    if account is None:
-        return
+async def _probe_if_needed(
+    config: Config,
+    alias: str,
+    *,
+    force: bool,
+    api_id: int,
+    api_hash: str,
+) -> None:
     path = _destination_path(_session_stem(config, alias))
     if not path.is_file():
         return
+    account = config.accounts.get(alias)
+    if account is None:
+        # Orphan session for a not-yet-configured alias: probe with the
+        # credentials the caller just supplied so we never overwrite a still-
+        # authorized key without --force.
+        account = Account(alias=alias, api_id=api_id, api_hash=api_hash, session=alias)
     if await authclient.probe_authorized(account):
         if not force:
             raise PolicyError(
@@ -110,10 +120,16 @@ def _collect_password(*, password_stdin: bool) -> str | None:
 
 def _collect_code(*, code: str | None) -> str:
     if code == "-":
-        return sys.stdin.readline().rstrip("\n")
-    if code is not None:
-        return code
-    return desktop.ask_secret("tgcli", "Telegram confirmation code", hidden=False)
+        value = sys.stdin.readline().rstrip("\n")
+    elif code is not None:
+        value = code
+    elif desktop.dialog_available():
+        value = desktop.ask_secret("tgcli", "Telegram confirmation code", hidden=False)
+    else:
+        raise ConfigError("confirmation code required; pass --code VALUE or --code -")
+    if not value:
+        raise ConfigError("confirmation code required; pass --code VALUE or --code -")
+    return value
 
 
 def _user_dict(me) -> dict:
@@ -201,7 +217,9 @@ async def start_login(
     resolved_id, resolved_hash, is_new = _resolve_credentials(
         config, alias, api_id=api_id, api_hash=api_hash
     )
-    await _probe_if_needed(config, alias, force=force)
+    await _probe_if_needed(
+        config, alias, force=force, api_id=resolved_id, api_hash=resolved_hash
+    )
     if is_new:
         _validate_new_alias(alias)
     method = "phone" if phone else "qr"
@@ -216,7 +234,9 @@ async def start_login(
     login_id = attempt["login_id"]
     staged = login_state.staged_session_path(login_id)
     dest = _destination_path(_session_stem(config, alias))
-    keep_backup = (not is_new) and dest.exists()
+    # Backup whenever the destination exists — including an orphan session for
+    # a not-yet-configured alias (e.g. promote succeeded, config append failed).
+    keep_backup = dest.exists()
 
     try:
         async with authclient.unauthorized_client(
@@ -423,7 +443,10 @@ async def continue_login(
                 )
                 if pending is not None:
                     return pending
-            except telethon_errors.PhoneCodeInvalidError as exc:
+            except (
+                telethon_errors.PhoneCodeInvalidError,
+                telethon_errors.PhoneCodeEmptyError,
+            ) as exc:
                 raise ConfigError("invalid confirmation code") from exc
             except telethon_errors.PhoneCodeExpiredError as exc:
                 login_state.discard_attempt(login_id)

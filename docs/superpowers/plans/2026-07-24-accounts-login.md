@@ -72,13 +72,15 @@ consequences); `osascript` and `open` are invoked as subprocesses.
 ```
 tg accounts login ALIAS [--phone PHONE] [--api-id N] [--api-hash H]
                         [--force] [--timeout SECONDS] [--qr-format link|text]
-                        [--code VALUE|-] [--password-stdin]
+                        [--password-stdin]
 tg accounts login --continue LOGIN_ID [--code VALUE|-] [--password-stdin]
 tg accounts show ALIAS
 tg accounts remove ALIAS [--confirm] [--keep-session]
 ```
 
 - No `--phone` ⇒ QR path. `--phone` ⇒ phone path.
+- `--code` is accepted only with `--continue` (the confirmation-code step);
+  the initial invocation rejects it.
 - `--api-id`/`--api-hash` are required together and only for an alias absent
   from config; passing them for an existing alias is an argparse error.
 - `--continue` takes no `ALIAS` (the attempt records it) and rejects
@@ -152,7 +154,10 @@ verify their results.
 - Lock state is read **without blocking and without stealing the lock**: open
   the `.lock` path, attempt `LOCK_EX | LOCK_NB`, release immediately if it
   succeeded. Never leaves the lock held; never waits.
-- An alias absent from config is exit 4, not an empty document.
+- An alias absent from config is exit 4 (`NotFoundError`), not an empty
+  document — deliberate: `accounts show|remove` look up a named registry
+  entry the way `read` looks up a dialog; `--account` on other commands is
+  exit 3 via `resolve_account` (config-resolution for the operating context).
 
 **Tests:** all four combinations of {in config, not in config} × {session file
 present, absent}; `.bak` present and absent; locked and unlocked (hold the lock
@@ -306,7 +311,7 @@ refuses when the destination lock is held.
    is available (headless, no `--password-stdin`), persist the attempt and
    return `{"status": "pending", "next": "password", "login_id": …}` with
    exit 0.
-7. On success: disconnect, `promote(...)`, write the audit record, emit the
+7. On success: disconnect, write the audit record, `promote(...)`, emit the
    terminal JSON.
 
 **Rules:** the audit record is written **before** promotion (fails closed,

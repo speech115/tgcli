@@ -12,6 +12,7 @@ import json
 import os
 import re
 import secrets
+import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -20,6 +21,30 @@ from tgcli.session import state_dir
 
 LOGIN_TTL = timedelta(minutes=30)
 _LOGIN_ID_RE = re.compile(r"^l_[A-Za-z0-9_-]+$")
+
+
+def _write_attempt(path: Path, record: dict) -> None:
+    """Atomically replace an attempt json at mode 0600.
+
+    A mid-write truncate would otherwise be classified as expired by a
+    concurrent `store cleanup --confirm` and take the staged session with it.
+    """
+    directory = path.parent
+    fd, tmp_name = tempfile.mkstemp(prefix=".login-", suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(json.dumps(record))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp_name, 0o600)
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+    os.chmod(path, 0o600)
 
 
 def logins_dir() -> Path:
@@ -66,8 +91,7 @@ def create_attempt(
         "expires_at": (now + LOGIN_TTL).isoformat(),
     }
     path = _attempt_path(login_id)
-    path.write_text(json.dumps(record))
-    os.chmod(path, 0o600)
+    _write_attempt(path, record)
     return record
 
 
@@ -91,8 +115,7 @@ def update_attempt(login_id: str, **fields) -> dict:
     record = load_attempt(login_id)
     record.update(fields)
     path = _attempt_path(login_id)
-    path.write_text(json.dumps(record))
-    os.chmod(path, 0o600)
+    _write_attempt(path, record)
     return record
 
 

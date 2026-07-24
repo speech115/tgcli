@@ -8,6 +8,7 @@ import stat
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from tgcli.login_state import LOGIN_TTL
 from tgcli.output import note
 from tgcli.safety import PREVIEW_TTL
 
@@ -68,15 +69,31 @@ def _empty_bucket() -> dict:
     return {"count": 0, "bytes": 0}
 
 
+def _login_expires_at(path: Path) -> datetime | None:
+    try:
+        record = json.loads(path.read_text())
+        return datetime.fromisoformat(record["expires_at"])
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _login_age_anchor(path: Path) -> datetime:
+    expires = _login_expires_at(path)
+    if expires is not None:
+        return expires
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+
+
 def _classify_login(path: Path, *, now: datetime) -> str | None:
     """Classify a login-attempt json; staged sessions are paired by stem."""
     if path.suffix != ".json":
         return None
-    try:
-        record = json.loads(path.read_text())
-        expires = datetime.fromisoformat(record["expires_at"])
-    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-        return "expired"
+    expires = _login_expires_at(path)
+    if expires is None:
+        # Unreadable expires_at — truncated mid-write, or hand-edited. Fall
+        # back to mtime so a live attempt being updated is never reaped as
+        # expired (mirrors _classify_preview).
+        return "expired" if now - _login_age_anchor(path) >= LOGIN_TTL else "live"
     return "live" if expires > now else "expired"
 
 

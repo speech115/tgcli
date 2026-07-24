@@ -262,6 +262,43 @@ def test_unparsable_preview_falls_back_to_mtime(tmp_path, monkeypatch):
     assert not stale.exists()
 
 
+def _write_unparsable_login(root: Path, login_id: str, *, mtime: datetime) -> Path:
+    """A login attempt truncated mid-write: valid name, unreadable expires_at."""
+    directory = root / "logins"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{login_id}.json"
+    path.write_text('{"login_id": "l_torn", "expires_at": "half-writ')
+    (directory / f"{login_id}.session").write_bytes(b"staged-key")
+    stamp = mtime.timestamp()
+    os.utime(path, (stamp, stamp))
+    return path
+
+
+def test_unparsable_login_falls_back_to_mtime(tmp_path, monkeypatch):
+    """A live attempt mid-update must survive store cleanup --confirm."""
+    from tgcli.login_state import LOGIN_TTL
+
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    fresh = _write_unparsable_login(
+        tmp_path, "l_torn", mtime=NOW - timedelta(minutes=1)
+    )
+    stale = _write_unparsable_login(
+        tmp_path, "l_stale", mtime=NOW - LOGIN_TTL - timedelta(minutes=1)
+    )
+
+    data = store_cmd.scan(tmp_path, now=NOW)
+
+    assert data["logins"]["live"]["count"] == 2  # json + staged session
+    assert data["logins"]["expired"]["count"] == 2
+
+    store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
+
+    assert fresh.exists(), "a login attempt written moments ago must survive cleanup"
+    assert (tmp_path / "logins" / "l_torn.session").exists()
+    assert not stale.exists()
+    assert not (tmp_path / "logins" / "l_stale.session").exists()
+
+
 def test_cleanup_confirm_allowed_under_no_send(tmp_path, monkeypatch, capsys):
     """TGCLI_NO_SEND guards Telegram sends, not local-state housekeeping."""
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))

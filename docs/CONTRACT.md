@@ -49,8 +49,8 @@ Flag beats env, env beats config.
 | 0 | success | |
 | 1 | runtime error | network, unexpected exception |
 | 2 | blocked by safety policy | `--readonly` + mutating command, `TGCLI_NO_SEND` |
-| 3 | config/auth error | missing account, dead session, bad api_id |
-| 4 | not found | unknown dialog, message id, media |
+| 3 | config/auth error | missing `--account` / `default_account`, dead session, bad api_id |
+| 4 | not found | unknown dialog, message id, media; unknown alias on `accounts show\|remove` (lookup) |
 | 5 | rate limited | FloodWait longer than threshold; `retry_after` in error JSON |
 
 ## 5. Core JSON Shapes (phase 1–3)
@@ -777,7 +777,7 @@ tg accounts show ALIAS
 tg accounts remove ALIAS [--confirm] [--keep-session]
 tg accounts login ALIAS [--phone PHONE] [--api-id N] [--api-hash H]
                         [--force] [--timeout SECONDS] [--qr-format link|text]
-                        [--code VALUE|-] [--password-stdin]
+                        [--password-stdin]
 tg accounts login --continue LOGIN_ID [--code VALUE|-] [--password-stdin]
 ```
 
@@ -803,8 +803,11 @@ exits 3.
 `accounts show` is strictly offline (ADR-0042 §11): config presence, resolved
 session path, existence, size, mtime (ISO-8601 UTC), whether the account lock
 is currently held, and the `.bak` slot. `authorized` is always `null`. An
-alias absent from config exits 4. Lock state is probed with
-`LOCK_EX | LOCK_NB` and released immediately — never stolen, never waited on.
+alias absent from config exits 4 (lookup of a named registry entry —
+`NotFoundError`; distinct from `--account` config resolution, which is exit 3).
+Lock state is probed only when the session file exists — a missing session
+creates no lock file (same rule as `doctor`, §5.1). The probe uses
+`LOCK_EX | LOCK_NB` and is released immediately — never stolen, never waited on.
 
 ```json
 {"alias": "main", "in_config": true, "session": "/…/sessions/main.session",
@@ -836,9 +839,12 @@ together and only for an alias absent from config. `--continue` takes no
 `ALIAS` and rejects `--phone` / `--api-id` / `--api-hash` / `--force`.
 `--timeout` defaults to **120** seconds on the QR path when unset. The cloud
 password is never accepted as an argv value; use a native dialog or
-`--password-stdin`. `--readonly` / `TGCLI_READONLY=1` block login; `TGCLI_NO_SEND`
-does not. A still-authorized existing session refuses without `--force`
-(exit 2). Promotion by atomic rename is the only writer of
+`--password-stdin`. `--code` is accepted only with `--continue`; headless
+environments without a dialog must pass `--code VALUE` or `--code -` rather
+than blocking on stdin. `--readonly` / `TGCLI_READONLY=1` block login;
+`TGCLI_NO_SEND` does not. A still-authorized existing session refuses without
+`--force` (exit 2) — including an orphan session file for an alias not yet in
+config. Promotion by atomic rename is the only writer of
 `sessions/<alias>.session`; attempt state lives under `logins/`.
 
 Terminal success:

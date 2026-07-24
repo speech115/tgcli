@@ -31,6 +31,17 @@ def test_create_attempt_mode_and_fields(state):
     assert path.is_file()
     assert oct(path.stat().st_mode & 0o777) == "0o600"
     assert oct((state / "logins").stat().st_mode & 0o777) == "0o700"
+    # Atomic write: no leftover tempfile beside the attempt.
+    assert list((state / "logins").glob(".login-*.tmp")) == []
+
+
+def test_update_attempt_rewrites_atomically(state):
+    record = login_state.create_attempt("main", "qr", api_id=1, api_hash="h", now=NOW)
+    updated = login_state.update_attempt(record["login_id"], phone_code_hash="abc")
+    assert updated["phone_code_hash"] == "abc"
+    path = state / "logins" / f"{record['login_id']}.json"
+    assert '"phone_code_hash": "abc"' in path.read_text()
+    assert list((state / "logins").glob(".login-*.tmp")) == []
 
 
 def test_id_validation_rejects_traversal(state):

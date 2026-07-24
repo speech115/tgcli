@@ -6,6 +6,7 @@ This file must always match the real tree (AGENTS.md rule).
 ```
 tgcli/
 ├── README.md                  [done]    landing page: features, install, quickstart, doc index
+├── CONTEXT.md                 [done]    root glossary (account/auth vocabulary; ADR-0033/0042)
 ├── CHANGELOG.md               [done]    released versions ↔ ADRs (semver over CONTRACT.md)
 ├── .github/workflows/ci.yml   [done]    CI: ruff + architecture + pyright + pytest + coverage gates (ADR-0027/0034)
 ├── .cursor/rules/             [done]    Cursor always-apply maintenance/TDD/docs rule

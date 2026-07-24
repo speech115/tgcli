@@ -27,6 +27,16 @@ lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 - `store stats` / `store cleanup` learn the `logins/` bucket and report
   `session_backups` (`.bak`); cleanup reaps expired attempts only.
 
+### Fixed
+
+- `store cleanup` no longer treats a login attempt truncated mid-write as
+  expired (mtime fallback mirrors previews); attempt JSON is written atomically.
+- QR login for a new alias backs up an existing destination session and
+  requires `--force` when that orphan file is still authorized.
+- Headless phone confirmation requires `--code` / `--code -` instead of
+  blocking on stdin; empty codes are rejected before `sign_in`.
+- `accounts show` for a missing session creates no stray `.lock` file.
+
 ## [1.1.3] — 2026-07-23
 
 ### Changed

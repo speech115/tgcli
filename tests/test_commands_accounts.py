@@ -84,6 +84,8 @@ def test_show_in_config_session_absent(env):
     assert data["backup"] is None
     assert data["authorized"] is None
     assert data["session"].endswith("work.session")
+    # CONTRACT §5.1 / doctor: a missing session creates no lock file.
+    assert not (env["state"] / "sessions" / "work.session.lock").exists()
 
 
 def test_show_unknown_alias_exit_4(env, capsys):

@@ -99,10 +99,12 @@ channel.
 
 8. **Gates.** `--readonly` / `TGCLI_READONLY` block login — it changes local
    state and the account's device list, and a readonly flag that lets it
-   through means nothing. `TGCLI_NO_SEND` does **not** apply: ADR-0040 scopes it
-   to Telegram sends, and an agent running with it permanently set must still be
-   able to repair a session. Acknowledged strain: `auth.sendCode` does cause
-   Telegram to deliver a code to the user's other devices.
+   through means nothing. `TGCLI_NO_SEND` does **not** apply: that flag guards
+   Telegram *message-producing* mutations (ADR-0005; the same line
+   `enforce_local_mutation_allowed` draws for `store cleanup`), and an agent
+   that keeps it permanently set must still be able to repair a session.
+   Acknowledged strain: `auth.sendCode` does cause Telegram to deliver a code
+   to the user's other devices.
 
 9. **Audit, with redaction.** Login writes an audit record (fails closed before
    the mutation, ADR-0005/0011) carrying alias, method (`qr`/`phone`), outcome
@@ -120,7 +122,11 @@ channel.
 11. **`accounts show` is strictly offline.** Path, mtime, lock state, config
     presence, `.bak` presence — no connection. The live probe already exists
     twice (`doctor --connect`, and login's own result); a third copy would be a
-    third place to handle revoke and FLOOD_WAIT identically.
+    third place to handle revoke and FLOOD_WAIT identically. An alias absent
+    from config is exit 4 (`NotFoundError`), not exit 3: `accounts show|remove`
+    look up a named registry entry the way `read` looks up a dialog, whereas
+    `--account` on other commands is a config-resolution failure for the
+    operating context (`ConfigError`, exit 3 via `resolve_account`).
 
 12. **`accounts remove` is the one command allowed to delete a session file**,
     for the named alias only and behind `--confirm`. This does not weaken

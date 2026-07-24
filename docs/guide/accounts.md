@@ -52,15 +52,17 @@ tg --json accounts login --continue LOGIN_ID --password-stdin   # headless 2FA
 | `--timeout SECONDS` | QR wait budget (default 120 when unset). |
 | `--qr-format link\|text` | Deep link (default) or bare token payload. |
 | `--continue LOGIN_ID` | Resume a pending attempt (no `ALIAS`). |
-| `--code VALUE\|-` | Confirmation code, or `-` to read one line from stdin. |
+| `--code VALUE\|-` | Confirmation code on `--continue` only; `-` reads one line from stdin. |
 | `--password-stdin` | Read the cloud password from stdin (never argv). |
 
 `--readonly` / `TGCLI_READONLY=1` block login. `TGCLI_NO_SEND` does **not**.
-On macOS the cloud password is collected through a native dialog when one is
-available; headless environments return `"next": "password"` at exit 0 and
-resume with `--continue` + `--password-stdin`. Attempt state lives under
-`logins/` and is promoted into `sessions/<alias>.session` only after Telegram
-confirms — a failed attempt cannot damage a working session.
+On macOS the cloud password and confirmation code are collected through a
+native dialog when one is available. Headless environments must pass
+`--code VALUE` or `--code -` for the phone confirmation step; for 2FA they
+return `"next": "password"` at exit 0 and resume with `--continue` +
+`--password-stdin`. Attempt state lives under `logins/` and is promoted into
+`sessions/<alias>.session` only after Telegram confirms — a failed attempt
+cannot damage a working session.
 
 Telegram Settings → Devices shows tgcli connections as **tgcli** with the
 installed tgcli version, rather than an architecture-only label such as

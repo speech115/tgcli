@@ -17,6 +17,26 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — ADR-0042 independent-review fixes (Composer)
+**Did:** closed every finding from the stacked-PR review on tip
+`cursor/accounts-login-release-371f`. Critical: `_classify_login` mtime
+fallback + atomic attempt writes (`login_state._write_attempt`) with
+regression tests. Major: QR `keep_backup = dest.exists()` for new aliases;
+`_probe_if_needed` probes orphan sessions with caller credentials; headless
+`_collect_code` requires `--code` and rejects empty values;
+`PhoneCodeEmptyError` → exit 3. Minor: `accounts show` no longer creates a
+stray `.lock` when the session is missing. Docs: plan Task 5 audit-before-
+promote order, `CONTEXT.md` in MAP.md, ADR-0042 §8/§11 (NO_SEND rationale
+without false ADR-0040 cite; exit-4 lookup fork), CONTRACT synopsis drops
+`--code` from the primary login line, guide headless notes, CHANGELOG Fixed.
+**Decided:** unknown alias on `accounts show|remove` stays exit 4
+(registry lookup); `--account` stays exit 3 (config resolution) — documented
+fork, not a silent drift.
+**Learned:** `feature-dev:code-reviewer` subagents cannot run Bash — the
+orchestrator must materialize diffs/worktrees before sending them.
+**Next:** push `fix/adr-0042-review-fixes` onto the release PR tip and
+re-run the stacked merge.
+
 ## 2026-07-24 — Telegram Devices labels tgcli sessions clearly (Composer)
 **Did:** regular and staged-login Telethon clients now send one shared device
 identity: `device_model=tgcli`, OS family, and package version. Added exact
