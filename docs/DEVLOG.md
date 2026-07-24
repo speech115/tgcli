@@ -17,6 +17,28 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — ADR-0042 live acceptance on recklessou (Composer)
+**Did:** live-acceptance against secondary account RecklessOU via throwaway
+`tmp-login` (never `main`). QR deep link: `open` succeeds on
+`ru.keepcoder.Telegram`, token recreate fires repeatedly, but no confirmation
+sheet appears — fell back to phone path per ADR/plan. Phone path: wrong code
+→ exit 3 with attempt kept; correct code authorized and promoted; `accounts
+show` + `dialogs --limit 1` worked. `--force` without flag refused (exit 2);
+`--force --phone` replaced the session and left exactly one `.session.bak`.
+`accounts remove --confirm` deleted config/session/bak; recklessou remained
+usable. Caught and fixed a live bug: post-promote second `disconnect` in
+`unauthorized_client` crashed with `sqlite3.OperationalError: no such table:
+entities` (exit 1 despite successful promote); now skips disconnect when
+already closed. Cloud-password step was not reached — Telegram did not raise
+`SessionPasswordNeededError` on these phone logins despite owner-reported 2FA.
+**Decided:** keepcoder macOS client does not present `tg://login` confirmation
+sheet; phone fallback is the proven recovery path on this machine. Owner still
+terminates the extra device in the Telegram app.
+**Learned:** CLI success must be judged after context-manager cleanup, not only
+after promote; double-disconnect after moving the staged SQLite is fatal.
+**Next:** owner terminates leftover device(s) in Telegram Settings → Devices;
+merge plan → #46 → #47 → #48; tag `v1.2.0`.
+
 ## 2026-07-24 — ADR-0042 final CLI blocker fixes (Composer)
 **Did:** added CLI regression coverage proving `accounts login --continue`
 without an explicit timeout reaches attempt lookup instead of being blocked by
