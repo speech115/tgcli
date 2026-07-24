@@ -17,6 +17,17 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — ADR-0047 review fixes: download FloodWait tests (Composer)
+**Did:** addressed [Review ADR-0047 PR diff] findings on
+`claude/clone-parallel-chunk-transfer` / PR #57: CLI-boundary test for
+striped-download FloodWait during reupload (exit 5 + cooldown, no send);
+unit tests for `download_striped` / `upload_parts` FloodWait unwrap (uses
+previously dead `flood_on_part` fake). No merge.
+**Decided:** treat download-side FloodWait as in-scope for ADR-0047 §4
+transfer guarantee; keep findings as permanent regression tests.
+**Learned:** —
+**Next:** gate → push review commit on #57; owner merges when ready.
+
 ## 2026-07-24 — ADR-0047 parallel chunk transfer (Composer)
 **Did:** implemented Part B on `claude/clone-parallel-chunk-transfer`:
 shared `tgcli/transfer.py` seam (`download_striped` + `upload_parts` with

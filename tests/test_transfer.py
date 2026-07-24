@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
 from tgcli import transfer
@@ -164,6 +165,55 @@ async def test_upload_parts_failure_cancels_sibling_workers(tmp_path):
         isinstance(req, functions.upload.SaveFilePartRequest) and req.file_part == 0
         for req in tg.requests
     )
+
+
+@pytest.mark.asyncio
+async def test_upload_parts_flood_wait_surfaces_unwrapped(tmp_path):
+    path = tmp_path / "multi.bin"
+    path.write_bytes(b"z" * (512 * 1024))
+    tg = FakeUploadTelegram(flood_on_part=0)
+
+    with pytest.raises(telethon_errors.FloodWaitError) as raised:
+        await transfer.upload_parts(tg, path, parallel=4)
+
+    assert raised.value.seconds == 3
+    assert any(
+        isinstance(req, functions.upload.SaveFilePartRequest) and req.file_part == 0
+        for req in tg.requests
+    )
+
+
+@pytest.mark.asyncio
+async def test_download_striped_flood_wait_surfaces_unwrapped(tmp_path):
+    class FloodTelegram(FakeStrideTelegram):
+        async def iter_download(
+            self, media, *, offset=0, request_size=None, stride=None
+        ):
+            self.calls.append(
+                {
+                    "media": media,
+                    "offset": offset,
+                    "request_size": request_size,
+                    "stride": stride,
+                }
+            )
+            raise telethon_errors.FloodWaitError(request=None, capture=12)
+            yield  # pragma: no cover
+
+    tg = FloodTelegram()
+    destination = tmp_path / "out.bin"
+
+    with pytest.raises(telethon_errors.FloodWaitError) as raised:
+        await transfer.download_striped(
+            tg,
+            media=object(),
+            destination=destination,
+            size=2 * transfer.CHUNK_SIZE,
+            parallel=2,
+        )
+
+    assert raised.value.seconds == 12
+    assert not destination.exists()
 
 
 @pytest.mark.asyncio

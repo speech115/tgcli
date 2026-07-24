@@ -3012,6 +3012,55 @@ def test_clone_sync_reupload_striped_download_for_large_media(
     assert client.part_requests
 
 
+def test_clone_sync_reupload_striped_download_flood_wait_exits_5(
+    config_env, monkeypatch, capsys
+):
+    from tgcli.transfer import CHUNK_SIZE
+
+    clone_state = seed_clone()
+    document = types.MessageMediaDocument(
+        document=SimpleNamespace(
+            mime_type="application/octet-stream",
+            attributes=[],
+            size=2 * CHUNK_SIZE,
+        )
+    )
+    msg = message(2, message="big", media=document)
+    msg.file = SimpleNamespace(size=2 * CHUNK_SIZE)
+
+    class FloodDownloadClient(CloneReuploadClient):
+        async def iter_download(
+            self, media, *, offset=0, request_size=None, stride=None
+        ):
+            raise telethon_errors.FloodWaitError(request=None, capture=45)
+            yield  # pragma: no cover
+
+        async def download_media(self, message, file=None):
+            raise AssertionError("large media must not use sequential download_media")
+
+    client = FloodDownloadClient([msg], protected=True)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+    err = json.loads(capsys.readouterr().err)["error"]
+    assert err["retry_after"] == 45
+    assert client.part_requests == []
+    assert not any(
+        isinstance(
+            req,
+            (
+                functions.messages.SendMediaRequest,
+                functions.messages.SendMessageRequest,
+                functions.messages.SendMultiMediaRequest,
+            ),
+        )
+        for req in client.requests
+    )
+    saved = state.load(clone_state.clone_id)
+    assert saved.cursor == 0
+    assert saved.cooldown_deadline() is not None
+
+
 def test_clone_sync_reupload_part_flood_wait_exits_5_without_send(
     config_env, monkeypatch, capsys
 ):
