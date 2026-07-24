@@ -17,6 +17,61 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-23 — ADR-0040 slice 2: offline-first `tg doctor` (Cursor)
+**Did:** executed plan Task 4. `tg doctor` is offline by default (session file,
+lock, state writability, preview/audit perms, `state_size`); live `authorized`
+probe only under `--connect`. Offline `authorized` is `null`; plain status
+`unknown`. CLI skips network timeout wrap when offline. CONTRACT §5.1 updated;
+patch 1.1.3. ACCOUNTS-001 companion: a broken session still gets a local
+diagnosis. Full gate green.
+**Decided:** `ok` from local checks only when offline; with `--connect`, `ok`
+also requires `authorized`. `state_size` is informational and never fails `ok`.
+**Learned:** moved `_writable`'s `return True` out of the `try` to below the
+`finally` — behaviourally identical (the old `return True` already ran before
+the cleanup), a readability nudge, not a bug fix.
+**Next:** owner tags 1.1.2 / 1.1.3; independent Spec+Standards review of the
+whole-diff before merge.
+
+## 2026-07-23 — ADR-0040 slice 1: `tg store` (Cursor)
+**Did:** executed plan Tasks 1–3. `tg store stats` inventories previews
+(live/expired/spent/pending), audit/invocations/sessions/clones/downloads, and
+relic dirs. `tg store cleanup` dry-runs by default; `--confirm` deletes spent
+`.used` + expired `.json` only; `--include-pending` only when far past TTL;
+`--older-than` Nd/Nh; blocked under `--readonly` (exit 2). Preview writes and
+confirmed cleanup tighten modes to `0600`; `stats` reports
+`previews_world_readable`. CONTRACT §5.05, MAP, patch 1.1.2. Full gate green.
+**Decided:** held ADR-0040 boundaries — audit log and sessions never enter the
+deletable set; relics report-only; dry-run does not chmod (mutation stays behind
+`--confirm`).
+**Learned:** argparse `argument_default=SUPPRESS` on global parents does not
+suppress subparser `store_true` defaults; architecture ceilings must move with
+cli/parser growth in the same commit as the fixture mirror.
+**Next:** Slice 2 — `tg doctor` offline by default, live checks behind `--connect`.
+
+## 2026-07-23 — ADR-0040: wacli-review adoption scope (Claude Opus 4.8)
+**Did:** owner-driven grilling + domain-modeling session over the four wacli
+items in `docs/PROPOSALS.md`. Wrote `ADR-0040` (adopt `store stats|cleanup`
+and offline-by-default `doctor --connect`; defer `--events` and `tg spec`),
+added its README index row, marked the four PROPOSALS statuses, and wrote the
+scoped plan `docs/superpowers/plans/2026-07-23-wacli-store-doctor.md` (2 slices,
+4 tasks) intended for execution by another agent (Cursor). Docs only — no code.
+**Decided:** ADR-0040. `store cleanup` reaps spent previews (`.used`) and
+expired `.json` only; the **audit log and sessions are untouchable by design**
+(a cleanup that could erase the audit trail hands an agent a cover-tracks
+button, against ADR-0005). `.pending` protected (ADR-0028 `random_id`). Relics
+reported by `stats`, never auto-deleted. `doctor` goes offline-first, live
+checks behind `--connect` (companion to ACCOUNTS-001). Deferred with triggers:
+`--events` → FEED-001 (event stream is a CONTRACT §3 contract, design once);
+`tg spec` → demonstrated drift pain + explicit overturn of ADR-0028 (ADR-0034
+already weakened its objection).
+**Learned:** terminology trap — "draft" is taken by ADR-0039 (Telegram drafts),
+so the safety record stays **preview**; a terminal one is a **spent preview**,
+not a "burnt draft". Measured state: 51/59 previews are spent `.used` bodies at
+`0644`, kept forever — the privacy driver; cleanup tightens them to `0600`.
+**Next:** Cursor executes the plan (`docs/superpowers/plans/2026-07-23-wacli-store-doctor.md`)
+slice by slice — `store` first, then `doctor --connect` — TDD per task per
+ADR-0026, patch release per ADR-0038.
+
 ## 2026-07-23 — Ship 1.1.0 + 1.1.1, tag the release stack (Claude Opus 4.8)
 **Did:** owner declared the milestone, so finished the Codex-prepared release
 stack. Merged `claude/release-1.1.0` (#36 → main, merge `ccb690d`), the stacked

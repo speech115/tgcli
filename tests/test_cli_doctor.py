@@ -57,7 +57,7 @@ def test_doctor_reports_all_accounts(config_env, monkeypatch, capsys):
     _touch_session("main")
     _fake_client(monkeypatch)
 
-    assert main(["doctor", "--json"]) == 0
+    assert main(["doctor", "--connect", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     by_alias = {item["alias"]: item for item in data["accounts"]}
     assert by_alias["main"]["ok"] is True
@@ -73,7 +73,7 @@ def test_doctor_single_account(config_env, monkeypatch, capsys):
     _touch_session("main")
     _fake_client(monkeypatch)
 
-    assert main(["doctor", "--account", "main", "--json"]) == 0
+    assert main(["doctor", "--connect", "--account", "main", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert [item["alias"] for item in data["accounts"]] == ["main"]
     assert data["ok"] is True
@@ -91,7 +91,7 @@ def test_doctor_reports_config_error_in_payload(config_env, monkeypatch, capsys)
 
     monkeypatch.setattr(session, "client", unavailable_session)
 
-    assert main(["doctor", "--account", "main", "--json"]) == 0
+    assert main(["doctor", "--connect", "--account", "main", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     report = data["accounts"][0]
     assert report["checks"]["authorized"] is False
@@ -112,7 +112,7 @@ def test_doctor_reports_runtime_error_in_payload(config_env, monkeypatch, capsys
 
     monkeypatch.setattr(session, "client", failing_session)
 
-    assert main(["doctor", "--account", "main", "--json"]) == 0
+    assert main(["doctor", "--connect", "--account", "main", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     report = data["accounts"][0]
     assert report["checks"]["authorized"] is False
@@ -132,4 +132,5 @@ def test_doctor_missing_session_does_not_create_lock(config_env, capsys):
     report = data["accounts"][0]
     assert report["checks"]["session_file"] is False
     assert report["checks"]["lock_free"] is False
+    assert report["checks"]["authorized"] is None
     assert not (sessions / "spare.lock").exists()

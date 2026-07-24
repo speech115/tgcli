@@ -11,6 +11,26 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.1.3] — 2026-07-23
+
+### Changed
+
+- **`tg doctor` offline by default** — local checks always; live authorization
+  only with `--connect`. Offline `authorized` is `null`; plain status may be
+  `unknown` (ADR-0040).
+- New local checks `preview_perms_ok` / `audit_perms_ok`. Installations with
+  legacy `0644` previews will report `ok: false` until tightened; `doctor`
+  prints the remedy (`tg store cleanup --confirm`) to stderr.
+
+## [1.1.2] — 2026-07-23
+
+### Added
+
+- **Local state inventory and cleanup** — `tg store stats` / `tg store cleanup`
+  (ADR-0040). Offline-only. Cleanup reaps spent/expired previews behind
+  `--confirm`; never touches the audit log or sessions. New previews are mode
+  `0600`.
+
 ## [1.1.1] — 2026-07-23
 
 ### Added

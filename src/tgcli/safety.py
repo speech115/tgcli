@@ -21,6 +21,16 @@ def enforce_mutation_allowed(readonly: bool) -> None:
         raise PolicyError("mutation blocked by TGCLI_NO_SEND")
 
 
+def enforce_local_mutation_allowed(readonly: bool) -> None:
+    """Block a local-state mutation (ADR-0040).
+
+    `TGCLI_NO_SEND` deliberately does not apply: it guards Telegram sends, and
+    housekeeping under the state root reaches no network.
+    """
+    if readonly or os.environ.get("TGCLI_READONLY") == "1":
+        raise PolicyError("mutation blocked by readonly mode")
+
+
 def previews_dir() -> Path:
     return state_dir() / "previews"
 
@@ -36,7 +46,9 @@ def create_preview(payload: dict, *, now: datetime | None = None) -> dict:
     record = {"payload": payload, "expires_at": expires_at.isoformat()}
     directory = previews_dir()
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{preview_id}.json").write_text(json.dumps(record))
+    path = directory / f"{preview_id}.json"
+    path.write_text(json.dumps(record))
+    os.chmod(path, 0o600)
     return {"preview_id": preview_id, "expires_at": record["expires_at"], **payload}
 
 
@@ -47,6 +59,7 @@ def consume_preview(preview_id: str, *, now: datetime | None = None) -> dict:
     try:
         consumed_path = path.with_suffix(".used")
         path.replace(consumed_path)
+        os.chmod(consumed_path, 0o600)
         record = json.loads(consumed_path.read_text())
     except FileNotFoundError:
         raise PolicyError("preview is already used or does not exist") from None
@@ -85,6 +98,7 @@ def begin_commit(
         _validate_preview_kind(record["payload"], expected_kind)
         try:
             path.replace(pending)
+            os.chmod(pending, 0o600)
         except FileNotFoundError:
             if not pending.exists():
                 raise PolicyError("preview is already used or does not exist") from None
@@ -96,6 +110,7 @@ def begin_commit(
     now = now or datetime.now(UTC)
     if now >= datetime.fromisoformat(record["expires_at"]):
         raise PolicyError("preview has expired")
+    os.chmod(pending, 0o600)
     return record["payload"]
 
 
@@ -104,7 +119,9 @@ def finish_commit(preview_id: str) -> None:
         raise PolicyError("preview is already used or does not exist")
     pending = previews_dir() / f"{preview_id}.pending"
     try:
-        pending.replace(pending.with_suffix(".used"))
+        used = pending.with_suffix(".used")
+        pending.replace(used)
+        os.chmod(used, 0o600)
     except FileNotFoundError:
         pass
 

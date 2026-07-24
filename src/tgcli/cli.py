@@ -14,9 +14,11 @@ from tgcli import dispatch, invocations, output, preflight, safety
 from tgcli.commands import accounts as accounts_cmd
 from tgcli.commands import clone as clone_cmd
 from tgcli.commands import doctor as doctor_cmd
+from tgcli.commands import store as store_cmd
 from tgcli.config import load_config, resolve_account
 from tgcli.errors import PartialFailure, TgcliError
 from tgcli.parser import build_parser
+from tgcli import session
 
 
 LOGGER = logging.getLogger(__name__)
@@ -127,15 +129,31 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
     if args.command == "clone" and args.clone_command == "status":
         data = clone_cmd.list_clones(args.source)
         return data, clone_cmd.status_rows(data)
+    if args.command == "store" and args.store_command == "stats":
+        data = store_cmd.stats(session.state_dir())
+        return data, store_cmd.stats_rows(data)
+    if args.command == "store" and args.store_command == "cleanup":
+        if args.confirm:
+            safety.enforce_local_mutation_allowed(args.readonly)
+        data = store_cmd.cleanup(
+            session.state_dir(),
+            older_than=getattr(args, "older_than", None),
+            include_pending=bool(getattr(args, "include_pending", False)),
+            confirm=bool(args.confirm),
+        )
+        return data, store_cmd.cleanup_rows(data)
 
     config = load_config()
     if args.command == "accounts":
         data = accounts_cmd.list_accounts(config)
         return data, accounts_cmd.to_rows(data)
     if args.command == "doctor":
-        data = asyncio.run(
-            asyncio.wait_for(doctor_cmd.run(config, args.account), timeout=args.timeout)
-        )
+        connect = bool(getattr(args, "connect", False))
+        coro = doctor_cmd.run(config, args.account, connect=connect)
+        if connect:
+            data = asyncio.run(asyncio.wait_for(coro, timeout=args.timeout))
+        else:
+            data = asyncio.run(coro)
         return data, doctor_cmd.to_rows(data)
 
     account = resolve_account(config, args.account)

@@ -9,6 +9,10 @@ Any change here lands in the same commit as the code change (AGENTS.md).
 tg [global-flags] <command> [subcommand] [args] [options]
 ```
 
+Commands include offline local-state helpers (`store`, `clone status`,
+`accounts import`) that need no config or Telegram session, plus the usual
+account-scoped surface (`doctor`, reads, mutations, …).
+
 Global flags (available on every command):
 
 | Flag | Meaning |
@@ -556,17 +560,78 @@ Each stdout line is `{"ok":true,"op":"…","data":{…}}` or
 **0 only if every op succeeded**; otherwise the first failure's exit code
 (full JSONL still written unless `--fail-fast` stops after the first error).
 
-## 5.1 Environment Health (`tg doctor`; ADR-0028)
+## 5.05 Local State (`tg store`; ADR-0040)
 
 ```
-tg doctor [--account ALIAS]
+tg store stats
 ```
 
-`doctor` is a read-only Telegram health report: without `--account`, it checks
-every configured account; with it, it checks only that account. It reports the
-session-file presence, whether the session lock can be acquired, whether the
-local preview state directory is writable, and whether Telegram authorizes the
-session. It does not mutate Telegram.
+Offline inventory of `TGCLI_STATE_DIR` (default `~/.local/state/tgcli/`).
+No config and no Telegram session. `--json` emits:
+
+```json
+{"previews":{"live":{"count":2,"bytes":120},"expired":{"count":1,"bytes":40},
+ "spent":{"count":3,"bytes":90},"pending":{"count":1,"bytes":30}},
+ "previews_world_readable":0,
+ "audit_log":{"bytes":20},"invocations":{"bytes":0},
+ "sessions":{"count":1,"bytes":4096},"clones":{"bytes":0},"downloads":{"bytes":0},
+ "relics":[{"name":"labs","bytes":11}]}
+```
+
+Preview buckets are classified from each file's stored `expires_at` (not mtime):
+`live` = `.json` within TTL, `expired` = `.json` past TTL, `spent` = `.used`,
+`pending` = `.pending`. `previews_world_readable` counts preview files with any
+other-user permission bit set (legacy `0644` bodies). Relic directories
+(`mirrors`, `mirror-lab`, `labs`, `probes`) are reported when present and never
+auto-deleted. New previews are written mode `0600`; `store cleanup` also
+tightens surviving preview modes to `0600`.
+
+`--plain` columns: `category`, `count` (nullable for size-only rows), `bytes`.
+
+```
+tg store cleanup [--older-than Nd|Nh|N] [--include-pending] [--confirm]
+```
+
+Reaps **spent** (`.used`) and **expired** (`.json` past TTL) previews under
+the state root. Default is dry-run: stdout lists what would be removed and
+stderr prints a one-line `--confirm` hint. With `--confirm`, those files are
+deleted. Never touches `audit.jsonl`, `sessions/`, live `.json` within TTL, or
+relic directories. `.pending` files are protected (ADR-0028 `random_id`) and are
+eligible only with `--include-pending` and only when far past TTL
+(`expires_at + PREVIEW_TTL`).
+
+`--older-than` accepts an integer day count (`7`) or `Nd`/`Nh` (`7d`, `12h`);
+age is measured from each preview's stored `expires_at` (mtime fallback).
+
+`store cleanup --confirm` mutates local state, so `--readonly` /
+`TGCLI_READONLY=1` blocks it with exit 2 before any deletion. Dry-run (no
+`--confirm`) is always allowed. `TGCLI_NO_SEND=1` does **not** block it: that
+guard is for Telegram sends, and cleanup reaches no network.
+
+`--json` emits:
+
+```json
+{"removed":[],"would_remove":["p_spent0.used","p_expired.json"],"bytes":130,
+ "confirmed":false,"kept":{"audit_log":true,"sessions":true,"relics":["labs"]}}
+```
+
+With `--confirm`, `removed` is populated and `would_remove` is empty.
+
+## 5.1 Environment Health (`tg doctor`; ADR-0028 / ADR-0040)
+
+```
+tg doctor [--account ALIAS] [--connect]
+```
+
+`doctor` is a read-only health report: without `--account`, it checks every
+configured account; with it, it checks only that account. **By default it is
+offline** — config/session file presence, lock freeness, state writability,
+preview/audit permission tightness, and total state size — and does not open a
+Telegram client. Live authorization (`get_me`) runs only under `--connect`.
+
+When `--connect` is absent, `checks.authorized` is `null` (unknown), not
+`false`. Per-account `ok` reflects only local checks offline; with `--connect`,
+`ok` also requires `authorized: true`.
 
 The health checks make short-lived local probes: for an existing session they
 may create and acquire its `.lock` file, and they create then remove a
@@ -577,14 +642,19 @@ locked and creates no lock file. These probes do not mutate Telegram.
 
 ```json
 {"accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
-"checks":{"session_file":true,"lock_free":true,"state_writable":true,"authorized":true},
-"user":{"id":1,"username":"me","name":"Me"},"ok":true}],"ok":true}
+"checks":{"session_file":true,"lock_free":true,"state_writable":true,
+"preview_perms_ok":true,"audit_perms_ok":true,"state_size":4096,"authorized":null},
+"user":null,"ok":true}],"ok":true}
 ```
 
+With `--connect`, `authorized` is a boolean and `user` is populated on success.
 Any ordinary online exception, including a session/configuration failure, is
 represented as `checks.error`, with `authorized: false`, `user: null`, and
 `ok: false` for that account. `--plain` uses frozen columns: `alias`, `status`
-(`ok|fail`), `username`, `failures`.
+(`ok|fail|unknown`), `username`, `failures`. `unknown` means local checks
+passed and authorization was not probed. When `preview_perms_ok` is false,
+`doctor` prints a one-line remedy hint to **stderr** (`tg store cleanup
+--confirm`); stdout stays the JSON/rows document only.
 
 When `doctor` itself runs, it always exits 0; consult the top-level `ok` and
 per-account `ok` values for health failures. An invalid or unreadable config,
