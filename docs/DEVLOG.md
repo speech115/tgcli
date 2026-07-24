@@ -33,6 +33,17 @@ SHA, not the cancelled duplicate.
 **Next:** green PR CI + resolve Bugbot threads; independent Spec+Standards
 review; owner merges and tags `v1.2.3`.
 
+## 2026-07-24 — ADR-0046 merged as 1.2.4 (Composer)
+**Did:** PR #55 reviewed (honest mute marker + both-peers folder test),
+CI green, merged to main, tagged `v1.2.4` at `b8f6570`. Live retrofit of
+икона peers remains owner-gated. Started branch
+`claude/clone-parallel-chunk-transfer` for ADR-0047.
+**Decided:** continue the ADR sequence without waiting on live mute/folder
+smoke (best-effort, retrofit via re-init).
+**Learned:** cancelled push-run CI + Bugbot "skipping" is the steady state
+for this repo's PR checks; PR-event `test` SUCCESS is the merge gate.
+**Next:** implement ADR-0047 parallel chunk transfer (TDD → gate → PR).
+
 ## 2026-07-24 — ADR-0046 clone destination ergonomics (Composer)
 **Did:** after merging/tagging 1.2.3 (ADR-0045 / PR #53), implemented
 ADR-0046 Part A on `claude/clone-destination-ergonomics`:
