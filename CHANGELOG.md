@@ -102,6 +102,8 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.1.3]: https://github.com/speech115/tgcli/compare/v1.1.2...v1.1.3
+[1.1.2]: https://github.com/speech115/tgcli/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/speech115/tgcli/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/speech115/tgcli/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/speech115/tgcli/releases/tag/v1.0.0
