@@ -49,8 +49,8 @@ Flag beats env, env beats config.
 | 0 | success | |
 | 1 | runtime error | network, unexpected exception |
 | 2 | blocked by safety policy | `--readonly` + mutating command, `TGCLI_NO_SEND` |
-| 3 | config/auth error | missing account, dead session, bad api_id |
-| 4 | not found | unknown dialog, message id, media |
+| 3 | config/auth error | missing `--account` / `default_account`, dead session, bad api_id |
+| 4 | not found | unknown dialog, message id, media; unknown alias on `accounts show\|remove` (lookup) |
 | 5 | rate limited | FloodWait longer than threshold; `retry_after` in error JSON |
 
 ## 5. Core JSON Shapes (phase 1–3)
@@ -573,15 +573,22 @@ No config and no Telegram session. `--json` emits:
 {"previews":{"live":{"count":2,"bytes":120},"expired":{"count":1,"bytes":40},
  "spent":{"count":3,"bytes":90},"pending":{"count":1,"bytes":30}},
  "previews_world_readable":0,
+ "logins":{"live":{"count":2,"bytes":80},"expired":{"count":0,"bytes":0}},
  "audit_log":{"bytes":20},"invocations":{"bytes":0},
- "sessions":{"count":1,"bytes":4096},"clones":{"bytes":0},"downloads":{"bytes":0},
+ "sessions":{"count":1,"bytes":4096},
+ "session_backups":{"count":1,"bytes":4096},
+ "clones":{"bytes":0},"downloads":{"bytes":0},
  "relics":[{"name":"labs","bytes":11}]}
 ```
 
 Preview buckets are classified from each file's stored `expires_at` (not mtime):
 `live` = `.json` within TTL, `expired` = `.json` past TTL, `spent` = `.used`,
 `pending` = `.pending`. `previews_world_readable` counts preview files with any
-other-user permission bit set (legacy `0644` bodies). Relic directories
+other-user permission bit set (legacy `0644` bodies). Login attempts under
+`logins/` are classified by `LOGIN_TTL` (30 minutes); `count` is the number of
+files in each attempt pair (json and staged session, plus journal when present)
+and `bytes` is their total size. `session_backups` reports
+`sessions/*.session.bak` and is never deleted by cleanup. Relic directories
 (`mirrors`, `mirror-lab`, `labs`, `probes`) are reported when present and never
 auto-deleted. New previews are written mode `0600`; `store cleanup` also
 tightens surviving preview modes to `0600`.
@@ -593,12 +600,15 @@ tg store cleanup [--older-than Nd|Nh|N] [--include-pending] [--confirm]
 ```
 
 Reaps **spent** (`.used`) and **expired** (`.json` past TTL) previews under
-the state root. Default is dry-run: stdout lists what would be removed and
+the state root, and **expired** login attempts under `logins/` (json + staged
+session). Default is dry-run: stdout lists what would be removed and
 stderr prints a one-line `--confirm` hint. With `--confirm`, those files are
-deleted. Never touches `audit.jsonl`, `sessions/`, live `.json` within TTL, or
-relic directories. `.pending` files are protected (ADR-0028 `random_id`) and are
-eligible only with `--include-pending` and only when far past TTL
-(`expires_at + PREVIEW_TTL`).
+deleted. Never touches `audit.jsonl`, `sessions/` (including `.bak`), live
+login attempts, live `.json` within TTL, or relic directories. `.pending` files are
+protected (ADR-0028 `random_id`) and are eligible only with `--include-pending`
+and only when far past TTL (`expires_at + PREVIEW_TTL`). Staged sessions are
+attempt state (under `logins/`), not account sessions — cleanup distinguishes
+them by directory.
 
 `--older-than` accepts an integer day count (`7`) or `Nd`/`Nh` (`7d`, `12h`);
 age is measured from each preview's stored `expires_at` (mtime fallback).
@@ -612,7 +622,8 @@ guard is for Telegram sends, and cleanup reaches no network.
 
 ```json
 {"removed":[],"would_remove":["p_spent0.used","p_expired.json"],"bytes":130,
- "confirmed":false,"kept":{"audit_log":true,"sessions":true,"relics":["labs"]}}
+ "confirmed":false,"kept":{"audit_log":true,"sessions":true,
+ "session_backups":true,"relics":["labs"]}}
 ```
 
 With `--confirm`, `removed` is populated and `would_remove` is empty.
@@ -766,7 +777,7 @@ tg accounts show ALIAS
 tg accounts remove ALIAS [--confirm] [--keep-session]
 tg accounts login ALIAS [--phone PHONE] [--api-id N] [--api-hash H]
                         [--force] [--timeout SECONDS] [--qr-format link|text]
-                        [--code VALUE|-] [--password-stdin]
+                        [--password-stdin]
 tg accounts login --continue LOGIN_ID [--code VALUE|-] [--password-stdin]
 ```
 
@@ -792,8 +803,11 @@ exits 3.
 `accounts show` is strictly offline (ADR-0042 §11): config presence, resolved
 session path, existence, size, mtime (ISO-8601 UTC), whether the account lock
 is currently held, and the `.bak` slot. `authorized` is always `null`. An
-alias absent from config exits 4. Lock state is probed with
-`LOCK_EX | LOCK_NB` and released immediately — never stolen, never waited on.
+alias absent from config exits 4 (lookup of a named registry entry —
+`NotFoundError`; distinct from `--account` config resolution, which is exit 3).
+Lock state is probed only when the session file exists — a missing session
+creates no lock file (same rule as `doctor`, §5.1). The probe uses
+`LOCK_EX | LOCK_NB` and is released immediately — never stolen, never waited on.
 
 ```json
 {"alias": "main", "in_config": true, "session": "/…/sessions/main.session",
@@ -825,9 +839,12 @@ together and only for an alias absent from config. `--continue` takes no
 `ALIAS` and rejects `--phone` / `--api-id` / `--api-hash` / `--force`.
 `--timeout` defaults to **120** seconds on the QR path when unset. The cloud
 password is never accepted as an argv value; use a native dialog or
-`--password-stdin`. `--readonly` / `TGCLI_READONLY=1` block login; `TGCLI_NO_SEND`
-does not. A still-authorized existing session refuses without `--force`
-(exit 2). Promotion by atomic rename is the only writer of
+`--password-stdin`. `--code` is accepted only with `--continue`; headless
+environments without a dialog must pass `--code VALUE` or `--code -` rather
+than blocking on stdin. `--readonly` / `TGCLI_READONLY=1` block login;
+`TGCLI_NO_SEND` does not. A still-authorized existing session refuses without
+`--force` (exit 2) — including an orphan session file for an alias not yet in
+config. Promotion by atomic rename is the only writer of
 `sessions/<alias>.session`; attempt state lives under `logins/`.
 
 Terminal success:

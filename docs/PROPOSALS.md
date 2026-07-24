@@ -127,14 +127,14 @@ chain is broader than ours: `--store` → `--account` → env → default → le
 while `tgcli.config.resolve_account()` deliberately has only explicit
 `--account` → `TGCLI_ACCOUNT` → `default_account`. A direct store override and
 legacy fallback do not transfer to tgcli's configured-session model. Our
-command surface is still asymmetric: `tg accounts import` + `list` exist,
-`show` and `remove` do not. Both are the missing half of the new-machine /
-broken-session story behind ACCOUNTS-001.
+command surface was asymmetric: `tg accounts import` + `list` existed while
+`show` and `remove` did not. Both shipped in ADR-0042 / `1.2.0` as the
+missing half of the new-machine / broken-session story behind ACCOUNTS-001.
 
 | Item | Value | Effort | Status |
 |---|---|---|---|
-| `tg accounts show <alias>` | med | S | missing |
-| `tg accounts remove <alias>` | low-med | XS | missing |
+| `tg accounts show <alias>` | med | S | graduated — ADR-0042 / 1.2.0 |
+| `tg accounts remove <alias>` | low-med | XS | graduated — ADR-0042 / 1.2.0 |
 
 - **`show`** — session path, lock state, and presence of local authorization
   material, *without opening a connection*. Only a live `--connect` probe can

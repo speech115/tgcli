@@ -17,6 +17,116 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — ADR-0042 independent-review fixes (Composer)
+**Did:** closed every finding from the stacked-PR review on tip
+`cursor/accounts-login-release-371f`. Critical: `_classify_login` mtime
+fallback + atomic attempt writes (`login_state._write_attempt`) with
+regression tests. Major: QR `keep_backup = dest.exists()` for new aliases;
+`_probe_if_needed` probes orphan sessions with caller credentials; headless
+`_collect_code` requires `--code` and rejects empty values;
+`PhoneCodeEmptyError` → exit 3. Minor: `accounts show` no longer creates a
+stray `.lock` when the session is missing. Docs: plan Task 5 audit-before-
+promote order, `CONTEXT.md` in MAP.md, ADR-0042 §8/§11 (NO_SEND rationale
+without false ADR-0040 cite; exit-4 lookup fork), CONTRACT synopsis drops
+`--code` from the primary login line, guide headless notes, CHANGELOG Fixed.
+**Decided:** unknown alias on `accounts show|remove` stays exit 4
+(registry lookup); `--account` stays exit 3 (config resolution) — documented
+fork, not a silent drift.
+**Learned:** `feature-dev:code-reviewer` subagents cannot run Bash — the
+orchestrator must materialize diffs/worktrees before sending them.
+**Next:** push `fix/adr-0042-review-fixes` onto the release PR tip and
+re-run the stacked merge.
+
+## 2026-07-24 — Telegram Devices labels tgcli sessions clearly (Composer)
+**Did:** regular and staged-login Telethon clients now send one shared device
+identity: `device_model=tgcli`, OS family, and package version. Added exact
+constructor boundary tests, ADR-0042 §15, accounts guide and changelog notes.
+Live check on the secondary `teamsyncsage` authorization returned
+`device_model=tgcli`, `system_version=Darwin`; release connections report
+`app_version=1.2.0`.
+**Decided:** stable product identity is safer than Telethon's architecture-only
+default (`arm64`), which made live device cleanup ambiguous.
+**Learned:** Telegram updates the current authorization metadata on the next
+connection; existing tgcli sessions do not need reauthorization just to gain
+the clearer label.
+**Next:** restore the accidentally terminated `recklessou` session if needed,
+mark #46–#48 ready, then merge the stack and tag `v1.2.0`.
+
+## 2026-07-24 — ADR-0042 live acceptance on recklessou (Composer)
+**Did:** live-acceptance against secondary account RecklessOU via throwaway
+`tmp-login` (never `main`). QR deep link: `open` succeeds on
+`ru.keepcoder.Telegram`, token recreate fires repeatedly, but no confirmation
+sheet appears — fell back to phone path per ADR/plan. Phone path: wrong code
+→ exit 3 with attempt kept; correct code authorized and promoted; `accounts
+show` + `dialogs --limit 1` worked. `--force` without flag refused (exit 2);
+`--force --phone` replaced the session and left exactly one `.session.bak`.
+`accounts remove --confirm` deleted config/session/bak; recklessou remained
+usable. Caught and fixed a live bug: post-promote second `disconnect` in
+`unauthorized_client` crashed with `sqlite3.OperationalError: no such table:
+entities` (exit 1 despite successful promote); now skips disconnect when
+already closed. Owner later confirmed the cloud-password native dialog **did**
+appear and succeed during `recklessou` reauthorization after the accidental
+session termination; earlier live notes that Telegram never asked for 2FA were
+wrong for that recovery path.
+**Decided:** keepcoder macOS client does not present `tg://login` confirmation
+sheet; phone fallback is the proven recovery path on this machine. Owner still
+terminates the extra device in the Telegram app.
+**Learned:** CLI success must be judged after context-manager cleanup, not only
+after promote; double-disconnect after moving the staged SQLite is fatal.
+Native osascript password dialog works for 2FA on phone-path continue.
+**Next:** owner terminates leftover device(s) in Telegram Settings → Devices;
+merge plan → #46 → #47 → #48; tag `v1.2.0`.
+
+## 2026-07-24 — ADR-0042 final CLI blocker fixes (Composer)
+**Did:** added CLI regression coverage proving `accounts login --continue`
+without an explicit timeout reaches attempt lookup instead of being blocked by
+the global timeout default. `accounts remove --confirm` now creates the
+sessions directory before taking its lock, so a configured account with no
+state tree is removed cleanly with session/backup reported absent. Full gate:
+855 passed, 9 skipped; ruff, format, pyright, coverage, architecture, docs
+green.
+**Decided:** suppress the global timeout default specifically for login
+continuations; explicit `--timeout` remains rejected by preflight.
+**Learned:** direct command-function tests did not cover the CLI default
+backfill order, and remove's held-lock fix needed an empty-state-tree case.
+**Next:** owner live acceptance on a secondary throwaway alias.
+
+## 2026-07-24 — ADR-0042 independent review fixes (Composer)
+**Did:** closed the independent Spec+Standards findings on the login stack.
+Promotion restores the destination from `.bak` if the second rename fails;
+new aliases must match `^[A-Za-z0-9_-]+$`; `accounts-login` writes
+`outcome=started` before creating an attempt; password-step `FloodWait`
+maps to exit 5; QR `--continue` only when `next=password`; `accounts remove`
+holds the session lock across delete; preflight rejects `--code` without
+`--continue` and `--timeout`/`--qr-format` with `--continue`; osascript
+secrets keep leading/trailing spaces; `store stats` counts each login-pair
+file; CONTRACT documents login `--plain` columns and the logins count rule.
+Full gate green after the fixes.
+**Decided:** keep audit-before-RPC as a started record plus authorized-before-
+promote; do not invent a second audit subsystem. Live acceptance on a
+secondary throwaway alias remains the owner merge gate (ADR-0042 §13).
+**Learned:** the promote atomicity test had been asserting a torn destination
+as acceptable — the plan required destination intact, and the test was the
+bug.
+**Next:** owner live acceptance on a throwaway alias; then merge plan → #46 →
+#47 → #48 and tag `v1.2.0`.
+
+## 2026-07-24 — ADR-0042 Slice 4: store logins + docs + release 1.2.0 (Cursor)
+**Did:** `store stats`/`cleanup` learn `logins/{live,expired}` (json + staged
+session) and report `session_backups` (never deleted). Guide pages
+(`accounts`, `safety`, `store`, `doctor`), `SKILL.md`, `ISSUES.md`
+(ACCOUNTS-001 closed, backup note kept), `PROPOSALS.md` (show/remove
+graduated). Version `1.1.3` → `1.2.0` with CHANGELOG section naming
+ADR-0042. Architecture ceilings unchanged from Slices 2–3.
+**Decided:** owner-declared minor per ADR-0042 §14 / ADR-0038; tagging
+`v1.2.0` remains the owner's post-merge action. Live acceptance against a
+secondary account remains the merge gate and was not run in this cloud
+environment.
+**Learned:** check-docs fails closed on invented guide flags — routing new
+commands through the live parser first kept the guide gate green.
+**Next:** independent whole-diff Spec + Standards review from the
+merge-base; owner live acceptance on a throwaway alias.
+
 ## 2026-07-24 — ADR-0042 Slices 2–3: QR + phone login (Cursor)
 **Did:** implemented Tasks 3–8. New modules `desktop.py` (osascript/open
 escape hatch), `authclient.py` (unauthorized client + probe),

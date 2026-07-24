@@ -31,7 +31,11 @@ selected account session, does one operation, and exits.
 | Task | Wrapped command |
 |---|---|
 | List configured accounts | `tg --json accounts list` |
+| Show offline account / session status | `tg --json accounts show ALIAS` |
+| Authorize / re-authorize a session | `tg --json accounts login ALIAS` (QR) / `--phone` / `--continue LOGIN_ID` |
+| Remove a configured account | `tg --json accounts remove ALIAS --confirm` |
 | Import old-stack sessions | `tg --json accounts import` |
+| The session died / a new machine | `tg --json accounts login ALIAS …` then `tg --json accounts show ALIAS` |
 | List dialogs | `tg --json dialogs --limit 50` |
 | List unread dialogs | `tg --json dialogs --unread-only` |
 | Filter dialogs by kind | `tg --json dialogs --kind channel` |

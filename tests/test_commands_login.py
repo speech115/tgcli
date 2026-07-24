@@ -223,6 +223,51 @@ async def test_force_required_when_authorized(env, fake_client):
 
 
 @pytest.mark.asyncio
+async def test_new_alias_orphan_session_requires_force(env, fake_client):
+    """Orphan session for an unconfigured alias still needs --force."""
+    (env["state"] / "sessions" / "tmp.session").write_bytes(b"orphan-live")
+    fake_client._authorized_probe = True
+    with pytest.raises(PolicyError, match="--force"):
+        await login_cmd.start_login(
+            load_config(),
+            "tmp",
+            phone=None,
+            api_id=1,
+            api_hash="h",
+            force=False,
+            timeout=30,
+            qr_format="link",
+            password_stdin=False,
+        )
+
+
+@pytest.mark.asyncio
+async def test_new_alias_orphan_session_keeps_backup(env, fake_client):
+    """QR promote for a new alias must .bak an existing destination file."""
+    orphan = env["state"] / "sessions" / "tmp.session"
+    orphan.write_bytes(b"orphan-previous")
+    fake_client._authorized_probe = False
+
+    data = await login_cmd.start_login(
+        load_config(),
+        "tmp",
+        phone=None,
+        api_id=1,
+        api_hash="h",
+        force=False,
+        timeout=30,
+        qr_format="link",
+        password_stdin=False,
+    )
+    assert data["status"] == "authorized"
+    assert data["backup"] is not None
+    bak = env["state"] / "sessions" / "tmp.session.bak"
+    assert bak.is_file()
+    assert bak.read_bytes() == b"orphan-previous"
+    assert orphan.read_bytes() == b"staged"
+
+
+@pytest.mark.asyncio
 async def test_no_probe_when_session_absent(env, fake_client, monkeypatch):
     probes = []
 
@@ -490,6 +535,70 @@ async def test_phone_code_invalid_keeps_attempt(env, fake_client):
             login_id=pending["login_id"], code="00000", password_stdin=False
         )
     assert (env["state"] / "logins" / f"{pending['login_id']}.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_phone_code_empty_keeps_attempt(env, fake_client):
+    from telethon.errors import PhoneCodeEmptyError
+
+    pending = await login_cmd.start_login(
+        load_config(),
+        "tmp",
+        phone="+79991234589",
+        api_id=1,
+        api_hash="h",
+        force=False,
+        timeout=30,
+        qr_format="link",
+        password_stdin=False,
+    )
+    fake_client._sign_in_error = PhoneCodeEmptyError(request=None)
+    with pytest.raises(ConfigError, match="code"):
+        await login_cmd.continue_login(
+            login_id=pending["login_id"], code="x", password_stdin=False
+        )
+    assert (env["state"] / "logins" / f"{pending['login_id']}.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_headless_code_requires_flag(env, fake_client):
+    """Without a dialog or --code, headless must not block on stdin."""
+    pending = await login_cmd.start_login(
+        load_config(),
+        "tmp",
+        phone="+79991234589",
+        api_id=1,
+        api_hash="h",
+        force=False,
+        timeout=30,
+        qr_format="link",
+        password_stdin=False,
+    )
+    with pytest.raises(ConfigError, match="--code"):
+        await login_cmd.continue_login(
+            login_id=pending["login_id"], code=None, password_stdin=False
+        )
+    assert (env["state"] / "logins" / f"{pending['login_id']}.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_empty_code_rejected_before_sign_in(env, fake_client):
+    pending = await login_cmd.start_login(
+        load_config(),
+        "tmp",
+        phone="+79991234589",
+        api_id=1,
+        api_hash="h",
+        force=False,
+        timeout=30,
+        qr_format="link",
+        password_stdin=False,
+    )
+    with pytest.raises(ConfigError, match="--code"):
+        await login_cmd.continue_login(
+            login_id=pending["login_id"], code="", password_stdin=False
+        )
+    assert fake_client.sign_in_calls == []
 
 
 @pytest.mark.asyncio

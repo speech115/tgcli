@@ -11,6 +11,32 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.0] — 2026-07-24
+
+### Added
+
+- **Account lifecycle closes** — `tg accounts login` (QR by default, phone +
+  confirmation code fallback), `tg accounts show`, and `tg accounts remove`
+  (ADR-0042). Cloud password via native dialog or `--password-stdin`, never
+  argv. Login attempts live under `logins/` and promote into
+  `sessions/<alias>.session` only after Telegram confirms. Owner-declared
+  minor milestone.
+- Telegram Settings → Devices identifies regular and login sessions as
+  **tgcli** with the package version, instead of architecture-only labels such
+  as `arm64`.
+- `store stats` / `store cleanup` learn the `logins/` bucket and report
+  `session_backups` (`.bak`); cleanup reaps expired attempts only.
+
+### Fixed
+
+- `store cleanup` no longer treats a login attempt truncated mid-write as
+  expired (mtime fallback mirrors previews); attempt JSON is written atomically.
+- QR login for a new alias backs up an existing destination session and
+  requires `--force` when that orphan file is still authorized.
+- Headless phone confirmation requires `--code` / `--code -` instead of
+  blocking on stdin; empty codes are rejected before `sign_in`.
+- `accounts show` for a missing session creates no stray `.lock` file.
+
 ## [1.1.3] — 2026-07-23
 
 ### Changed
@@ -102,6 +128,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.0]: https://github.com/speech115/tgcli/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/speech115/tgcli/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/speech115/tgcli/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/speech115/tgcli/compare/v1.1.0...v1.1.1

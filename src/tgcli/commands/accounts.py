@@ -74,7 +74,10 @@ def show_account(config: Config, alias: str) -> dict:
         "exists": exists,
         "bytes": bytes_count,
         "modified": modified,
-        "locked": _lock_held(path),
+        # Probe only when the session file exists — opening the lock path
+        # with "w" would otherwise create a stray .lock for a missing session
+        # (CONTRACT §5.1; same guard as doctor).
+        "locked": exists and _lock_held(path),
         "backup": str(bak) if bak.is_file() else None,
         "authorized": None,
     }

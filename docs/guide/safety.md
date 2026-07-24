@@ -49,9 +49,9 @@ Three gates stop a mutation before it reaches Telegram:
 
 | Gate | Scope | Blocks |
 | --- | --- | --- |
-| `--readonly` | this invocation only | every mutation: `send`/`edit`/`delete`/`forward`/`draft` commits, `mark-read`/`mark-unread`, every `dialog` subcommand, `clone init --commit`/`clone sync`, `tg api --write`, **and** local-only `store cleanup --confirm` |
+| `--readonly` | this invocation only | every mutation: `send`/`edit`/`delete`/`forward`/`draft` commits, `mark-read`/`mark-unread`, every `dialog` subcommand, `clone init --commit`/`clone sync`, `tg api --write`, local-only `store cleanup --confirm`, **`accounts login`**, and **`accounts remove --confirm`** |
 | `TGCLI_READONLY=1` | every invocation in the environment | same set as `--readonly` |
-| `TGCLI_NO_SEND=1` | every invocation in the environment | the same Telegram-reaching mutations as `--readonly`, but **not** `store cleanup --confirm` — that command never touches the network, so the no-send guard does not apply to it |
+| `TGCLI_NO_SEND=1` | every invocation in the environment | the same Telegram-reaching mutations as `--readonly`, but **not** `store cleanup --confirm`, **`accounts login`**, or **`accounts remove --confirm`** — those either never send, or (for login) must remain available when an agent keeps `TGCLI_NO_SEND` set permanently |
 
 `TGCLI_NO_SEND=1` is the narrower switch: it exists specifically to stop
 Telegram sends while still letting local housekeeping (`tg store cleanup
