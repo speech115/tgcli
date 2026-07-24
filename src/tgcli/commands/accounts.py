@@ -1,10 +1,14 @@
 import fcntl
 import json
+import os
 import sqlite3
+import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
+from tgcli import safety
 from tgcli.config import Config, default_config_path, load_config
-from tgcli.errors import ConfigError, NotFoundError
+from tgcli.errors import ConfigError, NotFoundError, PolicyError
 from tgcli.output import note
 from tgcli.session import state_dir
 
@@ -24,6 +28,169 @@ def list_accounts(config: Config) -> dict:
 
 def to_rows(data: dict) -> list[tuple]:
     return [(entry["alias"], entry["session"]) for entry in data["accounts"]]
+
+
+def _account_session_path(config: Config, alias: str) -> Path:
+    if alias not in config.accounts:
+        raise NotFoundError(f"unknown account alias: {alias!r}")
+    return state_dir() / "sessions" / f"{config.accounts[alias].session}.session"
+
+
+def _lock_held(session_file: Path) -> bool:
+    """Return True if another process holds the session lock.
+
+    Opens the lock path, tries LOCK_EX|LOCK_NB, and releases immediately on
+    success. Never waits and never leaves the lock held.
+    """
+    lock_path = session_file.with_suffix(".lock")
+    try:
+        handle = lock_path.open("w")
+    except OSError:
+        return False
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        return False
+    except BlockingIOError:
+        return True
+    finally:
+        handle.close()
+
+
+def show_account(config: Config, alias: str) -> dict:
+    path = _account_session_path(config, alias)
+    bak = Path(str(path) + ".bak")
+    exists = path.is_file()
+    bytes_count: int | None = None
+    modified: str | None = None
+    if exists:
+        stat = path.stat()
+        bytes_count = stat.st_size
+        modified = datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat()
+    return {
+        "alias": alias,
+        "in_config": True,
+        "session": str(path),
+        "exists": exists,
+        "bytes": bytes_count,
+        "modified": modified,
+        "locked": _lock_held(path),
+        "backup": str(bak) if bak.is_file() else None,
+        "authorized": None,
+    }
+
+
+def show_rows(data: dict) -> list[tuple]:
+    return [
+        (
+            data["alias"],
+            data["exists"],
+            data["bytes"],
+            data["modified"],
+            data["locked"],
+            data["backup"],
+            data["authorized"],
+        )
+    ]
+
+
+def _remove_config_block(config_path: Path, alias: str) -> None:
+    """Drop `[accounts.<alias>]` while preserving unrelated text and comments."""
+    text = config_path.read_text()
+    header = f"[accounts.{alias}]"
+    lines = text.splitlines(keepends=True)
+    kept: list[str] = []
+    skipping = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            skipping = stripped == header
+            if skipping:
+                continue
+        if skipping:
+            continue
+        kept.append(line)
+    new_text = "".join(kept)
+    directory = config_path.parent
+    fd, tmp_name = tempfile.mkstemp(prefix=".config-", suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(new_text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp_name, 0o600)
+        os.replace(tmp_name, config_path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+    os.chmod(config_path, 0o600)
+
+
+def remove_account(
+    config: Config,
+    alias: str,
+    *,
+    confirm: bool,
+    keep_session: bool,
+) -> dict:
+    if alias not in config.accounts:
+        raise NotFoundError(f"unknown account alias: {alias!r}")
+    if not confirm:
+        note(f"refusing to remove account {alias!r}; re-run with --confirm")
+        raise PolicyError(f"refusing to remove account {alias!r} without --confirm")
+    if config.default_account == alias:
+        raise PolicyError(
+            f"refusing to remove default_account {alias!r}; "
+            "edit default_account in config first"
+        )
+    path = state_dir() / "sessions" / f"{config.accounts[alias].session}.session"
+    bak = Path(str(path) + ".bak")
+    if _lock_held(path):
+        raise PolicyError(
+            f"session {path.stem!r} is busy (another tg process is using it); "
+            "retry in a few seconds"
+        )
+
+    session_existed = path.is_file()
+    backup_existed = bak.is_file()
+
+    def _status(existed: bool) -> str:
+        if keep_session:
+            return "kept" if existed else "absent"
+        return "deleted" if existed else "absent"
+
+    session_status = _status(session_existed)
+    backup_status = _status(backup_existed)
+
+    safety.append_audit(
+        "accounts-remove",
+        alias,
+        {
+            "session": session_status,
+            "backup": backup_status,
+            "keep_session": keep_session,
+        },
+    )
+
+    config_path = default_config_path()
+    _remove_config_block(config_path, alias)
+    if not keep_session:
+        path.unlink(missing_ok=True)
+        bak.unlink(missing_ok=True)
+
+    return {
+        "alias": alias,
+        "config": "removed",
+        "session": session_status,
+        "backup": backup_status,
+    }
+
+
+def remove_rows(data: dict) -> list[tuple]:
+    return [(data["alias"], data["config"], data["session"], data["backup"])]
 
 
 def _source_dir(source_root: Path, alias: str) -> Path:

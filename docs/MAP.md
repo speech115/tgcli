@@ -26,7 +26,7 @@ tgcli/
 │   ├── guide/                 [done]    user-facing task pages, 22 + index (ADR-0041)
 │   ├── assets/                [done]    README banner (SVG)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033)
-│   ├── decisions/             [done]    ADR-0001…0041 + README.md index (ADR-0026 maintenance mode)
+│   ├── decisions/             [done]    ADR-0001…0042 + README.md index (ADR-0026 maintenance mode)
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -62,7 +62,7 @@ tgcli/
 │   │   └── legs.py            [done]    Leg seam sharing the batch path between the posts and discussion legs (ADR-0023)
 │   └── commands/
 │   │   ├── batch.py           [done]    tg batch read-only JSONL runner (ADR-0032)
-│   │   ├── accounts.py        [done]    tg accounts list|import      (phase 1/6; SQLite backup migration)
+│   │   ├── accounts.py        [done]    tg accounts list|import|show|remove (phase 1/6; ADR-0042 Slice 1)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
 │   │   ├── read.py            [done]    tg read <chat>                (phase 1)
 │   │   ├── search.py          [done]    tg search / latest / message (phase 2)

@@ -144,6 +144,19 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
         return data, store_cmd.cleanup_rows(data)
 
     config = load_config()
+    if args.command == "accounts" and args.subcommand == "show":
+        data = accounts_cmd.show_account(config, args.alias)
+        return data, accounts_cmd.show_rows(data)
+    if args.command == "accounts" and args.subcommand == "remove":
+        if args.confirm:
+            safety.enforce_local_mutation_allowed(args.readonly)
+        data = accounts_cmd.remove_account(
+            config,
+            args.alias,
+            confirm=bool(args.confirm),
+            keep_session=bool(getattr(args, "keep_session", False)),
+        )
+        return data, accounts_cmd.remove_rows(data)
     if args.command == "accounts":
         data = accounts_cmd.list_accounts(config)
         return data, accounts_cmd.to_rows(data)
