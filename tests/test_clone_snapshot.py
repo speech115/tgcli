@@ -108,31 +108,43 @@ def test_story_render_links_known_username():
 
 
 class VoteClient:
-    def __init__(self, *, retract_ok=True):
+    def __init__(
+        self,
+        *,
+        retract_ok=True,
+        cast_updates=None,
+        flood_on_retract=False,
+    ):
         self.requests = []
         self.retract_ok = retract_ok
+        self.flood_on_retract = flood_on_retract
+        self.cast_updates = cast_updates
 
     async def __call__(self, request):
         self.requests.append(request)
         if isinstance(request, functions.messages.SendVoteRequest):
-            if request.options == [] and not self.retract_ok:
-                raise telethon_errors.RPCError(request, "RETRACT", 400)
-            if request.options:
-                return SimpleNamespace(
-                    updates=[
-                        types.UpdateMessagePoll(
-                            poll_id=1,
-                            results=types.PollResults(
-                                results=[
-                                    types.PollAnswerVoters(option=b"0", voters=5),
-                                    types.PollAnswerVoters(option=b"1", voters=6),
-                                ],
-                                total_voters=11,
-                            ),
-                        )
-                    ]
-                )
-            return SimpleNamespace(updates=[])
+            if request.options == []:
+                if self.flood_on_retract:
+                    raise telethon_errors.FloodWaitError(request=request, capture=30)
+                if not self.retract_ok:
+                    raise telethon_errors.RPCError(request, "RETRACT", 400)
+                return SimpleNamespace(updates=[])
+            if self.cast_updates is not None:
+                return self.cast_updates
+            return SimpleNamespace(
+                updates=[
+                    types.UpdateMessagePoll(
+                        poll_id=1,
+                        results=types.PollResults(
+                            results=[
+                                types.PollAnswerVoters(option=b"0", voters=5),
+                                types.PollAnswerVoters(option=b"1", voters=6),
+                            ],
+                            total_voters=11,
+                        ),
+                    )
+                ]
+            )
         raise AssertionError(f"unexpected request {request!r}")
 
 
@@ -269,3 +281,48 @@ async def test_render_retract_failure_marks_loud_outcome(monkeypatch):
     assert "40% · 4 голоса" in text
     assert marker["status"] == "retract_failed"
     assert any("retract" in item.lower() for item in notes)
+
+
+@pytest.mark.asyncio
+async def test_render_retracts_even_when_cast_updates_lack_breakdown(monkeypatch):
+    monkeypatch.setattr(snapshot.safety, "append_audit", lambda *a, **k: None)
+
+    async def invoke(awaitable):
+        return await awaitable
+
+    client = VoteClient(cast_updates=SimpleNamespace(updates=[]))
+    message = _anonymous_open_poll_message()
+    with pytest.raises(RuntimeError, match="did not reveal"):
+        await snapshot.render(
+            client,
+            message,
+            peer=object(),
+            account_alias="main",
+            invoke=invoke,
+        )
+    votes = [
+        req
+        for req in client.requests
+        if isinstance(req, functions.messages.SendVoteRequest)
+    ]
+    assert [req.options for req in votes] == [[b"0"], []]
+
+
+@pytest.mark.asyncio
+async def test_render_retract_flood_wait_propagates(monkeypatch):
+    monkeypatch.setattr(snapshot.safety, "append_audit", lambda *a, **k: None)
+
+    async def invoke(awaitable):
+        return await awaitable
+
+    client = VoteClient(flood_on_retract=True)
+    message = _anonymous_open_poll_message()
+    with pytest.raises(telethon_errors.FloodWaitError) as raised:
+        await snapshot.render(
+            client,
+            message,
+            peer=object(),
+            account_alias="main",
+            invoke=invoke,
+        )
+    assert raised.value.seconds == 30

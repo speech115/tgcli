@@ -95,6 +95,10 @@ def _results_from_updates(updates) -> types.PollResults | None:
     return None
 
 
+class _RetractFailed(Exception):
+    """Internal: retract failed with a non-FloodWait error after warning."""
+
+
 async def _capture_breakdown(
     tg,
     message,
@@ -114,10 +118,6 @@ async def _capture_breakdown(
         {"message_id": message.id, "option": option.hex()},
     )
     updates = await invoke(tg(cast))
-    results = _results_from_updates(updates)
-    if results is None or not _breakdown_available(results):
-        raise RuntimeError("poll vote did not reveal a breakdown")
-    captured = types.MessageMediaPoll(poll=media.poll, results=results)
     retract = functions.messages.SendVoteRequest(
         peer=peer, msg_id=message.id, options=[]
     )
@@ -126,14 +126,37 @@ async def _capture_breakdown(
         account_alias,
         {"message_id": message.id},
     )
+
+    async def retract_vote() -> None:
+        try:
+            await invoke(tg(retract))
+        except telethon_errors.FloodWaitError:
+            raise
+        except (telethon_errors.RPCError, OSError) as exc:
+            note(
+                f"warning: clone poll vote retract failed for message {message.id}: {exc}"
+            )
+            raise _RetractFailed(exc) from exc
+
+    results = _results_from_updates(updates)
+    if results is None or not _breakdown_available(results):
+        try:
+            await retract_vote()
+        except _RetractFailed:
+            pass
+        raise RuntimeError("poll vote did not reveal a breakdown")
+    captured = types.MessageMediaPoll(poll=media.poll, results=results)
     try:
-        await invoke(tg(retract))
-    except (telethon_errors.RPCError, OSError) as exc:
-        note(f"warning: clone poll vote retract failed for message {message.id}: {exc}")
+        await retract_vote()
+    except _RetractFailed as exc:
         return (
             captured,
             option,
-            {"message_id": message.id, "status": "retract_failed", "error": str(exc)},
+            {
+                "message_id": message.id,
+                "status": "retract_failed",
+                "error": str(exc.args[0] if exc.args else exc),
+            },
         )
     return captured, option, {"message_id": message.id, "status": "captured"}
 

@@ -17,6 +17,17 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — ADR-0048 review: retract safety (Composer)
+**Did:** independent Spec+Standards review of PR #58 after reviewer
+subagents hit API limits. Must-fixes: (1) always attempt retract if cast
+succeeded but updates lack a breakdown; (2) let `FloodWaitError` on retract
+propagate (exit 5 / cooldown) instead of swallowing as `retract_failed`.
+Regression tests added. No merge.
+**Decided:** non-FloodWait retract failures stay soft (warn + marker);
+FloodWait stays hard.
+**Learned:** —
+**Next:** gate → push on #58; owner merges #57 then #58.
+
 ## 2026-07-24 — ADR-0048 poll breakdown vote (Composer)
 **Did:** on `claude/clone-poll-breakdown-vote` (stacked on ADR-0047): honest
 breakdown-unavailable placeholder; transient cast+retract for anonymous open
