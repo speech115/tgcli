@@ -40,7 +40,11 @@ async def unauthorized_client(path: Path, api_id: int, api_hash: str):
         await tg.connect()
         yield tg
     finally:
-        await tg.disconnect()  # type: ignore[func-returns-value]
+        # Login may disconnect before promote so SQLite releases the staged
+        # file; a second disconnect would recreate an empty DB at the old path
+        # and raise (no entities table) after the session was moved.
+        if tg.is_connected():
+            await tg.disconnect()  # type: ignore[func-returns-value]
         fcntl.flock(lock, fcntl.LOCK_UN)
         lock.close()
 

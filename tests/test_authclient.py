@@ -18,13 +18,19 @@ class _FakeTg:
         self.revoke = revoke
         self.connected = False
         self.disconnected = False
+        self.disconnect_calls = 0
 
     async def connect(self):
         if self.raise_on_connect is not None:
             raise self.raise_on_connect
         self.connected = True
 
+    def is_connected(self):
+        return self.connected
+
     async def disconnect(self):
+        self.disconnect_calls += 1
+        self.connected = False
         self.disconnected = True
 
     async def is_user_authorized(self):
@@ -88,6 +94,21 @@ async def test_unauthorized_client_disconnects_on_body_error(tmp_path, monkeypat
         async with authclient.unauthorized_client(path, 1, "hash"):
             raise RuntimeError("boom")
 
+    assert fake.disconnected
+
+
+@pytest.mark.asyncio
+async def test_unauthorized_client_skips_disconnect_if_already_closed(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "staged.session"
+    fake = _FakeTg()
+    monkeypatch.setattr(authclient, "TelegramClient", lambda *a, **k: fake)
+
+    async with authclient.unauthorized_client(path, 1, "hash") as client:
+        await client.disconnect()
+
+    assert fake.disconnect_calls == 1
     assert fake.disconnected
 
 
