@@ -51,7 +51,8 @@ tgcli/
 │   ├── desktop.py             [done]    osascript/open escape hatch for secrets and tg:// links (ADR-0042)
 │   ├── authclient.py          [done]    unauthorized Telethon client + auth probe (ADR-0042)
 │   ├── login_state.py         [done]    logins/ attempt state and session promotion (ADR-0042)
-│   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045)
+│   ├── transfer.py            [done]    striped download + parallel Save*FilePart upload (ADR-0047)
+│   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045/0046/0047)
 │   │   ├── state.py           [done]    atomic JSON state, mappings, cooldown
 │   │   ├── flood.py           [done]    account-scoped FloodWait cooldown + peer-created stamp (ADR-0045)
 │   │   ├── ergonomics.py      [done]    mute forever + "Clone" dialog filter for tool-created peers (ADR-0046)
@@ -87,7 +88,7 @@ tgcli/
 │   │   ├── store.py           [done]    tg store stats|cleanup; previews + logins + session_backups (ADR-0040/0042)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (+ incremental messages ADR-0032; broadcast walk ADR-0031)
-│   │   └── clone.py           [done]    clone status/init/sync surface (ADR-0017…0025/0045; all live gates passed)
+│   │   └── clone.py           [done]    clone status/init/sync surface (ADR-0017…0025/0045/0046/0047; all live gates passed)
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/

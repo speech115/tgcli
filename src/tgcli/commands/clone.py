@@ -28,6 +28,13 @@ from tgcli.clone import (
 )
 from tgcli.errors import NotFoundError, PartialFailure, PolicyError, RateLimitError
 from tgcli.output import note
+from tgcli.transfer import (
+    CHUNK_SIZE,
+    CLONE_TRANSFER_PARALLEL,
+    download_striped,
+    media_byte_size,
+    upload_parts,
+)
 
 
 def _entry(s: state.CloneState) -> dict:
@@ -574,7 +581,15 @@ def init_rows(data: dict) -> list[tuple]:
 
 
 async def _uploaded_media(tg, message, path, clone_state):
-    input_file = await _with_cooldown(tg.upload_file(str(path)), clone_state)
+    async def invoke(awaitable):
+        return await _with_cooldown(awaitable, clone_state)
+
+    input_file = await upload_parts(
+        tg,
+        path,
+        parallel=CLONE_TRANSFER_PARALLEL,
+        invoke=invoke,
+    )
     if isinstance(message.media, types.MessageMediaPhoto):
         return types.InputMediaUploadedPhoto(file=input_file)
     document = message.media.document
@@ -583,6 +598,30 @@ async def _uploaded_media(tg, message, path, clone_state):
         mime_type=getattr(document, "mime_type", None) or "application/octet-stream",
         attributes=list(getattr(document, "attributes", None) or ()),
     )
+
+
+async def _download_for_reupload(tg, message, workdir: Path, clone_state) -> Path:
+    target = workdir / f"src-{message.id}"
+    size = media_byte_size(message)
+    if size is not None and size > CHUNK_SIZE:
+        await _with_cooldown(
+            download_striped(
+                tg,
+                message.media,
+                target,
+                size=size,
+                parallel=CLONE_TRANSFER_PARALLEL,
+            ),
+            clone_state,
+        )
+        return target
+    downloaded = await _with_cooldown(
+        tg.download_media(message, file=target),
+        clone_state,
+    )
+    if downloaded is None:
+        raise PolicyError(f"clone media download failed at source message {message.id}")
+    return Path(downloaded)
 
 
 def _body_text(message, author, plan) -> tuple[str, list | None]:
@@ -609,15 +648,9 @@ async def _reupload_batch(
             media = getattr(message, "media", None)
             if media is None or isinstance(media, types.MessageMediaWebPage):
                 continue
-            downloaded = await _with_cooldown(
-                tg.download_media(message, file=Path(workdir) / f"src-{message.id}"),
-                clone_state,
+            downloads[message.id] = await _download_for_reupload(
+                tg, message, Path(workdir), clone_state
             )
-            if downloaded is None:
-                raise PolicyError(
-                    f"clone media download failed at source message {message.id}"
-                )
-            downloads[message.id] = Path(downloaded)
         safety.append_audit(
             "clone-sync-reupload",
             account_alias,

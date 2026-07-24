@@ -178,6 +178,7 @@ class CloneReuploadClient(CloneSyncClient):
         self.source.noforwards = protected
         self.downloads = []
         self.uploads = []
+        self.part_requests = []
 
     async def download_media(self, message, file=None):
         path = Path(f"{file}.bin")
@@ -188,10 +189,20 @@ class CloneReuploadClient(CloneSyncClient):
     async def upload_file(self, path):
         self.uploads.append(path)
         return types.InputFile(
-            id=len(self.uploads), parts=1, name=Path(path).name, md5_checksum=""
+            id=len(self.uploads), parts=1, name=Path(path).name, md5_checksum=b""
         )
 
     async def __call__(self, request):
+        if isinstance(
+            request,
+            (
+                functions.upload.SaveFilePartRequest,
+                functions.upload.SaveBigFilePartRequest,
+            ),
+        ):
+            self.part_requests.append(request)
+            self.uploads.append(f"part-{request.file_part}")
+            return True
         if isinstance(
             request,
             (
@@ -2915,3 +2926,128 @@ def test_clone_sync_plain_output_has_contract_columns(config_env, monkeypatch, c
         "0",
         "0",
     ]
+
+
+def test_clone_sync_reupload_upload_issues_save_file_part_requests(
+    config_env, monkeypatch, capsys
+):
+    seed_clone()
+    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+
+    class MultiPartClient(CloneReuploadClient):
+        async def download_media(self, message, file=None):
+            path = Path(f"{file}.bin")
+            path.write_bytes(b"x" * (128 * 1024 + 10))
+            self.downloads.append(path)
+            return str(path)
+
+    client = MultiPartClient(
+        [message(2, message="caption", media=photo)], protected=True
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    capsys.readouterr()
+
+    parts = [
+        req
+        for req in client.part_requests
+        if isinstance(req, functions.upload.SaveFilePartRequest)
+    ]
+    assert [req.file_part for req in sorted(parts, key=lambda r: r.file_part)] == [0, 1]
+    assert len({req.file_id for req in parts}) == 1
+    [send] = [
+        req
+        for req in client.requests
+        if isinstance(req, functions.messages.SendMediaRequest)
+    ]
+    assert isinstance(send.media.file, types.InputFile)
+    assert send.media.file.parts == 2
+
+
+def test_clone_sync_reupload_striped_download_for_large_media(
+    config_env, monkeypatch, capsys
+):
+    from tgcli.transfer import CHUNK_SIZE
+
+    seed_clone()
+    document = types.MessageMediaDocument(
+        document=SimpleNamespace(
+            mime_type="application/octet-stream",
+            attributes=[],
+            size=2 * CHUNK_SIZE,
+        )
+    )
+    msg = message(2, message="big", media=document)
+    msg.file = SimpleNamespace(size=2 * CHUNK_SIZE)
+
+    class StripedClient(CloneReuploadClient):
+        def __init__(self, messages, *, protected=False):
+            super().__init__(messages, protected=protected)
+            self.iter_download_calls = []
+
+        async def iter_download(
+            self, media, *, offset=0, request_size=None, stride=None
+        ):
+            self.iter_download_calls.append(
+                {
+                    "offset": offset,
+                    "request_size": request_size,
+                    "stride": stride,
+                }
+            )
+            yield bytes([65 + offset // CHUNK_SIZE]) * CHUNK_SIZE
+
+        async def download_media(self, message, file=None):
+            raise AssertionError("large media must not use sequential download_media")
+
+    client = StripedClient([msg], protected=True)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    capsys.readouterr()
+
+    assert {call["offset"] for call in client.iter_download_calls} == {0, CHUNK_SIZE}
+    assert {call["stride"] for call in client.iter_download_calls} == {2 * CHUNK_SIZE}
+    assert client.part_requests
+
+
+def test_clone_sync_reupload_part_flood_wait_exits_5_without_send(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+
+    class FloodPartClient(CloneReuploadClient):
+        async def download_media(self, message, file=None):
+            path = Path(f"{file}.bin")
+            path.write_bytes(b"x" * (128 * 1024 + 10))
+            self.downloads.append(path)
+            return str(path)
+
+        async def __call__(self, request):
+            if isinstance(request, functions.upload.SaveFilePartRequest):
+                self.part_requests.append(request)
+                raise telethon_errors.FloodWaitError(request=request, capture=90)
+            return await super().__call__(request)
+
+    client = FloodPartClient([message(2, media=photo)], protected=True)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+    err = json.loads(capsys.readouterr().err)["error"]
+    assert err["retry_after"] == 90
+    assert not any(
+        isinstance(
+            req,
+            (
+                functions.messages.SendMediaRequest,
+                functions.messages.SendMessageRequest,
+                functions.messages.SendMultiMediaRequest,
+            ),
+        )
+        for req in client.requests
+    )
+    saved = state.load(clone_state.clone_id)
+    assert saved.cursor == 0
+    assert saved.cooldown_deadline() is not None

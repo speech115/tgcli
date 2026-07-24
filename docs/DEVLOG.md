@@ -17,6 +17,23 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — ADR-0047 parallel chunk transfer (Composer)
+**Did:** implemented Part B on `claude/clone-parallel-chunk-transfer`:
+shared `tgcli/transfer.py` seam (`download_striped` + `upload_parts` with
+constant parallelism 4); `media.py` parallel download now calls the seam;
+clone reupload uses striped download for large media and concurrent
+`Save*FilePart` uploads; ExceptionGroup peeled so FloodWait still exits 5.
+Tests cover offsets, multi-part SaveFilePart boundary, striped download,
+and part-FloodWait. CHANGELOG/version 1.2.5 + MAP. Live re-measure remains
+owner-gated.
+**Decided:** keep sequential `download_media` when size is unknown or
+≤512KiB; always upload through `upload_parts` (even single-part) so the
+Telethon request types are asserted at the public seam.
+**Learned:** `asyncio.TaskGroup` must unwrap to the first worker exception
+or dispatch never sees `FloodWaitError` (ExceptionGroup → not exit 5).
+**Next:** `./scripts/gate.sh` → reviewer → PR → CI → merge → tag `v1.2.5`;
+then ADR-0048.
+
 ## 2026-07-24 — Babysit PR #53 Bugbot fixes (Composer)
 **Did:** on `claude/flood-containment` / PR #53, fixed two Bugbot findings with
 reproducing tests first: (1) re-init without `--no-comments` no longer

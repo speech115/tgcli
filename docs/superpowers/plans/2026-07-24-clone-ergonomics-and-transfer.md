@@ -65,22 +65,22 @@ after ADR-0047 lands; separate decision).
 
 ### B1. Striped download in reupload
 
-- [ ] Extract/reuse the stride pattern from `media.py`
+- [x] Extract/reuse the stride pattern from `media.py`
       (`_download_parallel`) as a shared helper (ADR-0043: shared seam,
       not a copy) usable by `_reupload_batch` for each media message.
-- [ ] Tests: chunks written at correct offsets; single-chunk files take
+- [x] Tests: chunks written at correct offsets; single-chunk files take
       the sequential path; failure of one worker aborts the batch before
       any send.
 
 ### B2. Parallel part upload
 
-- [ ] Boundary tests: N workers issue `SaveFilePartRequest` /
+- [x] Boundary tests: N workers issue `SaveFilePartRequest` /
       `SaveBigFilePartRequest` for distinct `file_part` indices of one
       file; the finalizing `InputFile`/`InputFileBig` carries the correct
       part count; small files unaffected; FloodWait in any worker cancels
       siblings and surfaces exit 5 with cooldown armed.
-- [ ] Implement with constant parallelism 4.
-- [ ] Confirm ordering: sends remain sequential; cursor/state discipline
+- [x] Implement with constant parallelism 4.
+- [x] Confirm ordering: sends remain sequential; cursor/state discipline
       untouched (existing tests must stay green unmodified).
 
 ### B3. Verify and release
@@ -91,7 +91,7 @@ after ADR-0047 lands; separate decision).
       Baseline (2026-07-24, live): sample 1 — 43.9s/5 msgs, upload 56.6%,
       download 35.7%, send 2.7%; sample 2 — 590s, download 79.4%
       (GetFile × 2562), upload 18.9%, send 0.8%. Transfer share 92–98%.
-- [ ] CHANGELOG + double version bump; PR → reviewer → CI → merge → tag.
+- [x] CHANGELOG + double version bump; PR → reviewer → CI → merge → tag.
 
 ## Part C — ADR-0048 poll breakdown (separate PR + release)
 
