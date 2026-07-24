@@ -11,6 +11,16 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.2] — 2026-07-24
+
+### Fixed
+
+- `clone init` re-runs no longer re-upload an unchanged source avatar onto
+  the destination (and discussion group). The copied source photo id is
+  recorded in clone state and the copy is skipped until the source avatar
+  changes — previously every re-run posted a "photo updated" service
+  message and spent three mutating calls per peer.
+
 ## [1.2.1] — 2026-07-24
 
 ### Changed
@@ -139,6 +149,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.2]: https://github.com/speech115/tgcli/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/speech115/tgcli/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/speech115/tgcli/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/speech115/tgcli/compare/v1.1.2...v1.1.3

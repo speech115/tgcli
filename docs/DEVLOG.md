@@ -17,7 +17,30 @@ Template:
 **Next:** the single most useful next step
 ```
 
-## 2026-07-24 — Fix __version__ drift after 1.2.1 tag (Composer)
+## 2026-07-24 — 1.2.2: idempotent avatar copy; mirror-era flood research (Claude Fable 5)
+**Did:** owner's screenshots showed repeated "photo updated" service
+messages on all three clone peers; audit log confirmed `clone-init-avatar`
+fired on every init re-run (3× on one destination in two minutes) because
+`_copy_profile` had no guard — title and about were idempotent, avatar was
+not. Fixed from a reproducing test: `CloneState.avatar_photo_ids` records
+the copied source photo id per source peer; the copy is skipped until the
+source photo id changes. CONTRACT prose, CHANGELOG `1.2.2`, version bump in
+*both* pyproject and `__init__` (the same-day drift lesson), clone.py/state.py
+ceilings 919/296. Separately, a research subagent recovered the deleted
+mirror code and compared flood posture with clone.
+**Decided:** avatar idempotence is a bug fix under ADR-0026 (the design
+intent — idempotent re-init — existed; the guard was missing), no ADR.
+**Learned:** research verdict on "mirror never flooded": (1) mirror created
+at most one peer per source ever, never copied avatars/about, had no
+discussion peer — clone init on a channel with comments creates 2 peers
+plus profile mutations; (2) Telethon settings did not regress (both eras
+`flood_sleep_threshold=0`); (3) real regression: mirror's FloodWait
+cooldown was **account-scoped** and enforced before every mutating command,
+clone's `retry_not_before` is per-clone — nothing stops the next `init`
+against a *different* source from firing into an active flood window.
+An account-scoped cooldown gate is the transferable fix (needs ADR).
+**Next:** owner decision on the account-scoped clone cooldown + `--no-comments`
++ preview flood-risk hints (candidate ADR-0045).
 **Did:** `src/tgcli/__init__.py` still had `__version__ = "1.2.0"` while
 `pyproject.toml` and tag `v1.2.1` were already 1.2.1; bumped the string to
 match. Did not move or retag `v1.2.1`.

@@ -604,6 +604,65 @@ def test_clone_init_avatar_download_failure_keeps_destination_retryable(
     assert "clone-init-avatar" not in [record["action"] for record in audits]
 
 
+def test_clone_init_rerun_skips_unchanged_avatar(config_env, monkeypatch, capsys):
+    client = CloneInitClient()
+    client.source.photo = SimpleNamespace(photo_id=555)
+    make_session_fake(monkeypatch, client)
+
+    preview = stored_preview()
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    capsys.readouterr()
+    assert state.load(state.clone_id(42, 123)).avatar_for(123) == 555
+
+    preview = stored_preview()
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    capsys.readouterr()
+
+    edits = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.channels.EditPhotoRequest)
+    ]
+    assert len(edits) == 1
+    audits = [json.loads(line) for line in safety.audit_path().read_text().splitlines()]
+    assert [record["action"] for record in audits].count("clone-init-avatar") == 1
+
+
+def test_clone_init_rerun_recopies_changed_avatar(config_env, monkeypatch, capsys):
+    client = CloneInitClient()
+    client.source.photo = SimpleNamespace(photo_id=555)
+    make_session_fake(monkeypatch, client)
+
+    preview = stored_preview()
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    capsys.readouterr()
+
+    client.source.photo = SimpleNamespace(photo_id=556)
+    preview = stored_preview()
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    capsys.readouterr()
+
+    edits = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.channels.EditPhotoRequest)
+    ]
+    assert len(edits) == 2
+    assert state.load(state.clone_id(42, 123)).avatar_for(123) == 556
+
+
 def test_clone_init_commit_adopts_half_created_marker_channel(
     config_env, monkeypatch, capsys
 ):

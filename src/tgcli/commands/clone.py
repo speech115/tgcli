@@ -216,8 +216,14 @@ async def _mutate(tg, request, clone_state: state.CloneState):
     return await _with_cooldown(tg(request), clone_state)
 
 
-async def _copy_profile(tg, source, destination, account_alias, clone_id, cooldown):
-    """Copies about/avatar onto destination; returns the source's full chat."""
+async def _copy_profile(tg, source, destination, account_alias, clone_state, cooldown):
+    """Copies about/avatar onto destination; returns the source's full chat.
+
+    The avatar copy is idempotent: the copied source photo id is recorded in
+    clone state, so an init re-run skips the download/upload/EditPhoto chain
+    (and its service message) until the source avatar actually changes.
+    """
+    clone_id = clone_state.clone_id
     if isinstance(source, types.User):
         full = await cooldown(tg(functions.users.GetFullUserRequest(source)))  # type: ignore  # Telethon resolves the entity
         about = getattr(full.full_user, "about", None) or ""
@@ -254,6 +260,9 @@ async def _copy_profile(tg, source, destination, account_alias, clone_id, cooldo
         photo, (types.ChatPhotoEmpty, types.UserProfilePhotoEmpty)
     ):
         return full_chat
+    photo_id = getattr(photo, "photo_id", None)
+    if photo_id is not None and clone_state.avatar_for(source.id) == photo_id:
+        return full_chat
     with tempfile.TemporaryDirectory(prefix="tgcli-clone-avatar-") as workdir:
         downloaded = await cooldown(
             tg.download_profile_photo(source, file=Path(workdir) / "avatar")
@@ -277,6 +286,9 @@ async def _copy_profile(tg, source, destination, account_alias, clone_id, cooldo
                 )
             )
         )
+        if photo_id is not None:
+            clone_state.record_avatar(source.id, photo_id)
+            state.save(clone_state)
     return full_chat
 
 
@@ -330,7 +342,7 @@ async def _init_discussion(
     if getattr(group, "title", None) != title:
         await mutate(functions.channels.EditTitleRequest(channel=group, title=title))
         group.title = title
-    await _copy_profile(tg, source_group, group, account_alias, clone_id, cooldown)
+    await _copy_profile(tg, source_group, group, account_alias, clone_state, cooldown)
     safety.append_audit(
         "clone-init-discussion-link", account_alias, {"clone_id": clone_id}
     )
@@ -443,7 +455,7 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
         entity,
         destination,
         account_alias,
-        clone_id,
+        clone_state,
         lambda awaitable: _with_cooldown(awaitable, clone_state),
     )
     await _init_discussion(
