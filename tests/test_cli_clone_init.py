@@ -1254,6 +1254,34 @@ def test_clone_init_unresolved_discussion_marks_muted_false(
     assert "warning: clone mute skipped for discussion peer" in captured.err
 
 
+def test_clone_init_private_discussion_lookup_keeps_exit_0(
+    config_env, monkeypatch, capsys
+):
+    """Telethon ChannelPrivateError on discussion get_entity must not fail init."""
+    client = CloneInitClient()
+    client.linked = linked_group()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    original_get_entity = client.get_entity
+
+    async def private_get_entity(ref):
+        if isinstance(ref, types.PeerChannel) and ref.channel_id == 1001:
+            raise telethon_errors.ChannelPrivateError(request=None)
+        return await original_get_entity(ref)
+
+    client.get_entity = private_get_entity  # type: ignore[method-assign]
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert result["ergonomics"]["muted"] is False
+    assert "warning: clone mute skipped for discussion peer" in captured.err
+
+
 def test_clone_init_skips_mute_when_already_forever(config_env, monkeypatch, capsys):
     from tgcli.commands.dialog import MUTE_FOREVER_UNTIL
 

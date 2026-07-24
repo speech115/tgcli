@@ -17,6 +17,18 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — Babysit PR #55: discussion lookup best-effort (Composer)
+**Did:** PR #55 (ADR-0046) was already merged as `v1.2.4`. Triaged the one
+unresolved Bugbot thread: discussion peer `get_entity` for mute/folder only
+caught `ValueError`, so `ChannelPrivateError` could fail init. Added
+reproducing CLI test, broadened the catch to best-effort `Exception` (warn +
+`muted=false`, exit 0) on `cursor/adr-0046-clone-features-e6a5`.
+**Decided:** post-merge follow-up fix; no CONTRACT/version bump — behavior
+already required by ADR-0046 / CONTRACT.
+**Learned:** owner can merge while Bugbot is still posting; babysit must
+still land confirmed findings even after merge.
+**Next:** gate → push → open follow-up PR; independent review before merge.
+
 ## 2026-07-24 — Babysit PR #53 Bugbot fixes (Composer)
 **Did:** on `claude/flood-containment` / PR #53, fixed two Bugbot findings with
 reproducing tests first: (1) re-init without `--no-comments` no longer
