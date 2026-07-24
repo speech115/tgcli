@@ -44,13 +44,16 @@ show` + `dialogs --limit 1` worked. `--force` without flag refused (exit 2);
 usable. Caught and fixed a live bug: post-promote second `disconnect` in
 `unauthorized_client` crashed with `sqlite3.OperationalError: no such table:
 entities` (exit 1 despite successful promote); now skips disconnect when
-already closed. Cloud-password step was not reached — Telegram did not raise
-`SessionPasswordNeededError` on these phone logins despite owner-reported 2FA.
+already closed. Owner later confirmed the cloud-password native dialog **did**
+appear and succeed during `recklessou` reauthorization after the accidental
+session termination; earlier live notes that Telegram never asked for 2FA were
+wrong for that recovery path.
 **Decided:** keepcoder macOS client does not present `tg://login` confirmation
 sheet; phone fallback is the proven recovery path on this machine. Owner still
 terminates the extra device in the Telegram app.
 **Learned:** CLI success must be judged after context-manager cleanup, not only
 after promote; double-disconnect after moving the staged SQLite is fatal.
+Native osascript password dialog works for 2FA on phone-path continue.
 **Next:** owner terminates leftover device(s) in Telegram Settings → Devices;
 merge plan → #46 → #47 → #48; tag `v1.2.0`.
 
