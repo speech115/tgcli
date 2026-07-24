@@ -17,6 +17,25 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — ADR-0045: flood containment scope + plan (Claude Fable 5)
+**Did:** owner-commissioned after the day's flood incident (3 peers in
+~45 min, ~13-min link flood, agent retry loop). Wrote ADR-0045 and the
+scoped plan `docs/superpowers/plans/2026-07-24-flood-containment.md`
+(6 tasks) on branch `claude/flood-containment`. Docs only — no code.
+**Decided:** ADR-0045 — (1) account-scoped clone FloodWait cooldown,
+restoring the guard mirror had and the clone rewrite dropped (per-clone
+`retry_not_before` stays as a second scope); (2) `clone init
+--no-comments` → `comments: "disabled"`, cannot orphan an existing linked
+group; (3) preview hints `peers_to_create` + `account_flood`, data not
+policy. Telethon settings deliberately unchanged.
+**Learned:** the containment framing that survived the owner discussion:
+peer-creation floods cannot be engineered away, only made rare (fewer
+mutations), cheap (no escalation after the first flood), and visible
+before commit.
+**Next:** executor implements plan tasks 1–6 (TDD, gate, PR, reviewer).
+
+## 2026-07-24 — Fix __version__ drift after 1.2.1 tag (Composer)
+
 ## 2026-07-24 — 1.2.2: idempotent avatar copy; mirror-era flood research (Claude Fable 5)
 **Did:** owner's screenshots showed repeated "photo updated" service
 messages on all three clone peers; audit log confirmed `clone-init-avatar`
