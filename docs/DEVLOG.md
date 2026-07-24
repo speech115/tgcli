@@ -17,6 +17,29 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — Review Cursor's ADR-0040 work, ship 1.1.2/1.1.3 (Claude Opus 4.8)
+**Did:** reviewed PR #40 against the plan — all 4 tasks executed, gate
+reproduced locally (782 → 785 passed). Found and fixed four defects in
+`1ed3bda`: (1) a preview with an unreadable `expires_at` was classified
+`expired` and reaped, so a torn mid-write preview could be deleted by a
+concurrent cleanup — now falls back to mtime, as the plan required for the age
+anchor only; (2) `store cleanup --confirm` was gated on
+`enforce_mutation_allowed`, so `TGCLI_NO_SEND=1` blocked local housekeeping —
+split out `enforce_local_mutation_allowed` (readonly only); (3) the new
+`preview_perms_ok` check turns every existing install `ok: false` on legacy
+`0644` previews with no remedy in sight — `doctor` now prints
+`tg store cleanup --confirm` to stderr; (4) the slice-2 DEVLOG entry claimed a
+`_writable` bug that never existed on main — corrected. Merged #40 (#39 was a
+strict subset), tagged, and published the first GitHub Releases.
+**Decided:** tags point at the version-bump commits (`7f0e304` → v1.1.2,
+`f65aa44` → v1.1.3), not the merge commit — both tags had landed on `1ecefe4`
+and were force-moved while the release was minutes old and unpulled.
+**Learned:** the repo had **7 tags and zero published Releases**, so GitHub
+showed no version at all — a tag is not a Release. v1.1.2/v1.1.3 are now
+published from the CHANGELOG sections; v1.0.0/v1.1.0/v1.1.1 remain tag-only.
+**Next:** optionally backfill Releases for the older tags; ADR-0040's deferred
+items (`--events` → FEED-001, `tg spec`) stay closed until their triggers fire.
+
 ## 2026-07-23 — ADR-0040 slice 2: offline-first `tg doctor` (Cursor)
 **Did:** executed plan Task 4. `tg doctor` is offline by default (session file,
 lock, state writability, preview/audit perms, `state_size`); live `authorized`
