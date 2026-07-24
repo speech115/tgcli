@@ -94,7 +94,7 @@ Site: `src/tgcli/commands/clone.py`, `_init_discussion` — currently
       in the existing format.
 - [x] `pyproject.toml`: version `1.2.0` → `1.2.1`.
 - [x] DEVLOG entry for the implementation session.
-- [ ] PR → reviewer subagent → green CI → merge → tag `v1.2.1` per
+- [x] PR → reviewer subagent → green CI → merge → tag `v1.2.1` per
       `docs/agents/release.md`.
 
 ## Live runbook (owner session; after merge)

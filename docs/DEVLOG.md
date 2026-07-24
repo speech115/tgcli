@@ -17,6 +17,18 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — Release 1.2.1: merge ADR-0044 (Composer)
+**Did:** reviewed PR #50 (CI green; cancelled push job was concurrency);
+merged to `main` as `58bdde6`; tagged and pushed `v1.2.1` on the merge
+commit. Code tasks 1–5 of the title-prefix plan are done.
+**Decided:** ship without further code changes; login_state `now=` flake
+fix rides the same patch as intended.
+**Learned:** `gh pr checks` can show a cancelled `test` alongside a green
+PR `test` after push/PR concurrency — ignore cancelled, trust the PR-event
+run on the head SHA.
+**Next:** live runbook tasks 6–9 — retro-rename Джарвис, commission икона,
+measure reupload, full sync.
+
 ## 2026-07-24 — Implement ADR-0044 clone title prefix (Composer)
 **Did:** `attribution.destination_title`; init renames destination + discussion
 to `[Clone] {name}` idempotently; CONTRACT examples/prose; CHANGELOG + bump to
