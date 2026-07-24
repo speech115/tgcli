@@ -15,7 +15,7 @@ Design lineage: [openclaw/gogcli](https://github.com/openclaw/gogcli) (architect
 - **Reading and search** — dialogs with unread/kind filters, id- and date-paginated reads, per-dialog and global search, reply threads, message context windows, contacts, mutual chats, and a read-only JSONL batch mode.
 - **Safe correspondence** — `send`, `edit`, `delete`, `forward`, and `draft` all go through preview → commit with single-use ids, a 5-minute TTL, `random_id` retry confirmation, and an append-only audit log.
 - **Media and export** — manifest before download, bulk filtered downloads, JSONL message export with `--resume`, and CSV subscriber export for broadcast channels.
-- **Chat clone** — copy broadcast channels, non-forum supergroups, and private dialogs with native forwards plus protected-content reupload. See [docs/CLONE.md](docs/CLONE.md).
+- **Chat clone** — copy broadcast channels, megagroup supergroups (forum and non-forum), legacy basic groups, and private dialogs into tool-created destinations, with native forwards plus protected-content reupload. See [docs/guide/clone.md](docs/guide/clone.md).
 - **Raw TL escape hatch** — `tg api` reaches the long tail of the pinned Telethon layer behind a default-deny read allowlist, an explicit `--write` gate, typed confirmations for destructive verbs, and a permanent denylist.
 - **Diagnostics and hygiene** — `tg doctor` reports locally by default (`--connect` for live checks); `tg store stats` / `tg store cleanup` inspect and reclaim local state without ever touching sessions or the audit log.
 
@@ -86,15 +86,17 @@ Chat references accept `@username`, a `t.me/` link, or a numeric dialog id; `tg 
 
 ## Documentation
 
+Full guide: **[docs/guide/](docs/guide/README.md)**
+
 | Area | Pages |
 | --- | --- |
-| **Contract** | [CLI automation contract](docs/CONTRACT.md) — invocation, streams, exit codes, JSON shapes |
-| **Agent usage** | [SKILL.md](SKILL.md) — command routing table, correspondence recipes, safety gates |
-| **Coverage** | [feature matrix](docs/FEATURES.md) — every TL namespace with `wrapped` / `api` / `excluded` status |
-| **Clone** | [chat clone](docs/CLONE.md) |
-| **Decisions** | [ADR index](docs/decisions/README.md) — 40 accepted decisions |
-| **Project** | [map](docs/MAP.md) · [scope and re-entry gates](docs/ISSUES.md) · [devlog](docs/DEVLOG.md) · [changelog](CHANGELOG.md) |
-| **Contributing** | [AGENTS.md](AGENTS.md) — the behavior contract every agent and human follows here |
+| **Start** | [overview](docs/guide/overview.md) · [install](docs/guide/install.md) · [quickstart](docs/guide/quickstart.md) · [accounts](docs/guide/accounts.md) |
+| **Reading** | [dialogs](docs/guide/dialogs.md) · [read](docs/guide/read.md) · [search](docs/guide/search.md) · [contacts](docs/guide/contacts.md) · [batch](docs/guide/batch.md) |
+| **Writing** | [send](docs/guide/send.md) · [editing](docs/guide/editing.md) · [forward](docs/guide/forward.md) · [drafts](docs/guide/drafts.md) · [formatting](docs/guide/formatting.md) · [inbox](docs/guide/inbox.md) |
+| **Data** | [media](docs/guide/media.md) · [export](docs/guide/export.md) · [clone](docs/guide/clone.md) |
+| **Operations** | [doctor](docs/guide/doctor.md) · [store](docs/guide/store.md) · [safety](docs/guide/safety.md) · [api](docs/guide/api.md) |
+| **Reference** | [CLI contract](docs/CONTRACT.md) · [feature matrix](docs/FEATURES.md) · [ADR index](docs/decisions/README.md) · [changelog](CHANGELOG.md) |
+| **Agents** | [SKILL.md](SKILL.md) — routing table and recipes · [AGENTS.md](AGENTS.md) — the contract every agent follows here |
 
 ## Configuration
 

@@ -5,7 +5,7 @@ This file must always match the real tree (AGENTS.md rule).
 
 ```
 tgcli/
-├── README.md                  [done]    vision + principles
+├── README.md                  [done]    landing page: features, install, quickstart, doc index
 ├── CHANGELOG.md               [done]    released versions ↔ ADRs (semver over CONTRACT.md)
 ├── .github/workflows/ci.yml   [done]    CI: ruff + architecture + pyright + pytest + coverage gates (ADR-0027/0034)
 ├── .cursor/rules/             [done]    Cursor always-apply maintenance/TDD/docs rule
@@ -23,8 +23,10 @@ tgcli/
 │   ├── DEVLOG.md              [done]    session-by-session agent log (post-1.0.0)
 │   ├── DEVLOG-v1.md           [done]    closed log of the phases 0–7 build
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
+│   ├── guide/                 [done]    user-facing task pages, 22 + index (ADR-0041)
+│   ├── assets/                [done]    README banner (SVG)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033)
-│   ├── decisions/             [done]    ADR-0001…0040 + README.md index (ADR-0026 maintenance mode)
+│   ├── decisions/             [done]    ADR-0001…0041 + README.md index (ADR-0026 maintenance mode)
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -82,6 +84,7 @@ tgcli/
 └── scripts/
     ├── install-link.sh        [done]    symlink tg → PATH (phase 6 cutover)
     ├── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
+    ├── check-docs.py          [done]    fail-closed guide gate: flags, commands, links (ADR-0041)
     ├── bench.py               [done]    live benchmark: every command against a real account
     ├── seed_demo_channel.py   [done]    manual demo-channel seeding for clone visual acceptance
     └── check-architecture.py  [done]    module ownership + per-file line ceilings (ADR-0034)

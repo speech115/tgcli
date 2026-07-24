@@ -17,6 +17,39 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — ADR-0041: user-facing guide, 22 pages + fail-closed docs gate (Claude Opus 4.8 orchestrating 5 Sonnet subagents)
+**Did:** owner asked to split user-facing docs out of the engineering tree.
+Wrote ADR-0041 + index row, `docs/guide/README.md` (index), and orchestrated
+five parallel Sonnet subagents writing 22 pages (Start / Reading / Writing /
+Data / Operations), each handed a written page spec, the captured `--help` for
+all 51 command paths, and a hard "verify every flag, invent nothing, never
+touch Telegram" rule. Added `scripts/check-docs.py` — walks the live argparse
+tree and fails closed on unknown flags, unknown `tg <command>`, or dead
+relative links — and wired it into CI. Updated MAP.md and the README doc
+table. Gate: 785 passed / 9 skipped, ruff clean, ruff format clean, pyright
+0 errors, coverage OK (23 namespaces), architecture passed, check-docs 23
+pages / 0 problems.
+**Decided:** ownership boundaries are explicit in the ADR — CONTRACT.md stays
+versioned law and **wins over the guide on any conflict**; SKILL.md stays the
+agent routing table and is not replaced; `docs/CLONE.md` stays closed history
+with `guide/clone.md` as the current page. The guide is only acceptable
+because it is machine-checked; without `check-docs.py` this ADR would have
+been a mistake.
+**Learned:** the checker earned its keep immediately. It caught an invented
+`--dest-type` flag in a generated page, and cross-checking `clone.md` against
+CONTRACT §11 exposed a **pre-existing docs bug**: README and the SKILL.md
+frontmatter both claimed clone supports "non-forum supergroups", which has
+been stale since ADR-0022 added forum topics — the contract accepts forum and
+non-forum megagroups, legacy basic groups, and dialogs. Both fixed here. Two
+subagents independently flagged the same discrepancy, which is what made it
+credible. Also corrected `overview.md`'s claim that reads touch no local state
+(they write the metadata-only invocation journal).
+**Next:** owner reviews the three stacked PRs, merged bottom-up:
+`claude/devlog-adr-0040-close` → `claude/readme-wacli-style` →
+`claude/docs-user-guide`. Owner decided **no `LICENSE` file for now**; the
+repo-metadata command (topics) stays optional while the repository is private,
+since GitHub does not index private repositories by topic.
+
 ## 2026-07-24 — README restyled after wacli; docs-site question answered (Claude Opus 4.8)
 **Did:** owner asked for GitHub presentation in the style of
 [openclaw/wacli](https://github.com/openclaw/wacli). Studied that README and

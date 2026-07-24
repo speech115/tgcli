@@ -1,0 +1,101 @@
+# Clone a chat
+
+`tg clone` copies a supported chat's history into a private, tool-created destination and lets you catch it up later. It replaced an earlier `tg mirror` implementation; **[docs/CLONE.md](../CLONE.md) is a historical chronicle of that development, not current behaviour — this page is the current one** (see [ADR-0017](../decisions/ADR-0017-clone-supersedes-mirror.md)).
+
+## What can be cloned
+
+Accepted source kinds, per [CONTRACT.md §11](../CONTRACT.md):
+
+| Source kind | Destination |
+| --- | --- |
+| Broadcast channel | private owned broadcast channel |
+| Megagroup supergroup, non-forum | private owned broadcast channel |
+| Megagroup supergroup, forum | private owned forum megagroup, with a 1:1 topic map |
+| Live legacy basic group | private owned broadcast channel |
+| Private one-to-one dialog (including bots) | private owned broadcast channel |
+
+Basic groups that migrated to a supergroup, deactivated groups, and any other peer shape exit 2 with a source-specific policy message. A broadcast source with a readable linked discussion group additionally gets a second destination megagroup cloning its comments ([ADR-0023](../decisions/ADR-0023-clone-channel-comments.md); attribution for megagroups/dialogs is [ADR-0021](../decisions/ADR-0021-clone-attributed-sources.md), forum topics are [ADR-0022](../decisions/ADR-0022-clone-forum-topics.md)). Destinations are always tool-created — cloning into a pre-existing or shared chat is not supported, and destinations are never deleted automatically.
+
+## Check clone status
+
+```bash
+tg --json clone status [SOURCE]
+```
+
+`status` is local and read-only: it never loads config or opens a Telegram session. Without `SOURCE` it lists every clone state file; with `SOURCE` it filters by exact numeric source id or a case-insensitive title substring.
+
+```json
+{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination_id":999,"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled"}]}
+```
+
+`--plain` columns: `source_peer_id`, `source_title`, `source_kind`, `destination_peer_id`, `cursor`, `copied`, `last_synced_at`, `comments`.
+
+## Initialize a clone: preview then commit
+
+`init` is the only clone step gated by preview → commit. Running it without `--commit` is the preview: a read-only network call that resolves the source, checks its kind is accepted, and stages the destination creation behind a five-minute single-use `preview_id`. Nothing is created yet.
+
+```bash
+tg --json clone init SOURCE
+```
+
+```json
+{"preview_id":"p_...","expires_at":"...","clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":null,"status":"planned","commit_required":true},"approximate_message_count":321,"protected":false,"supersede":{"existing":false,"readable":null,"replace":false}}
+```
+
+Then commit to actually create the destination:
+
+```bash
+tg --json clone init SOURCE --commit PREVIEW_ID
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--commit PREVIEW_ID` | consume the preview and create/recover the destination |
+| `--replace` | supersede an incompatible or stale clone state slot; declared at preview time, honored at commit |
+
+```json
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":{"id":999,"title":"Source"},"comments":"none","status":"ready","commit_required":false}}
+```
+
+`--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block `--commit` before config, session, or Telegram work; the read-only preview step is not blocked by those gates. Because `clone_id` is deterministic per source, one source maps to one state slot forever — a stale or version-mismatched slot fails commit closed (exit 2) until you re-run `init SOURCE --replace`, which archives the old state file (never the old Telegram destination) and starts a fresh destination pair.
+
+## Sync: copy and catch up
+
+```bash
+tg --json clone sync SOURCE
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--limit N` | copy at most N message batches this run; must be positive |
+
+`sync` requires an initialized clone and reads new source history from the saved cursor forward (`reverse=True`, `min_id=cursor`), so destination order matches source order. It first verifies the destination's tail is exactly what tgcli expects (only Telegram service rows past the last confirmed message); an unexpected tail message exits 2 for manual repair before any copying. `--limit` caps this run; if source rows remain, the JSON reports `"more":true` and the next invocation resumes at the saved cursor. Sync has no implicit overall timeout.
+
+```json
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"skipped_unsupported":[],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"cursor":5,"discussion_cursor":0,"more":false,"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":null},"discussion":{"peer_id":null,"status":"none","count":0,"reason":null}}}}
+```
+
+`--plain` columns: `copied`, `forwarded`, `reuploaded`, `snapshots`, `reply_flattened`, `quote_flattened_count`, `skipped_service`, `skipped_unsupported_count`, `topics_created`, `cursor`, `clone_id`, `source_peer_id`, `destination_peer_id`, `more`, `skipped_autoforward`, `discussion_cursor`.
+
+## Native forward vs reupload
+
+Each message batch picks one of two transports:
+
+- **Native forward** — cheap, no download/upload. Broadcast sources forward with `drop_author=True` for the channel's own posts (clone reads as native content), and `drop_author=False` for posts that are themselves re-forwards, restoring the original forward header ([ADR-0025](../decisions/ADR-0025-clone-preserve-reforward-header.md)). Megagroup, forum, basic-group, and dialog sources always forward with `drop_author=False`, keeping Telegram's author attribution.
+- **Download/reupload** — used whenever the source or message has `noforwards` (protected), or the message has a mapped reply that native forwarding cannot attach. Reuploads from an attributed source prepend `<display name>: ` to the text/caption to preserve authorship, since a reupload cannot carry Telegram's forward header. A protected source can never be forwarded, so it always reuploads and any re-forward origin is lost.
+
+Unsupported message kinds (dice, etc.) advance the cursor and are reported in `skipped_unsupported`, never silently dropped. TTL/view-once media is also reported there rather than forwarded or downloaded.
+
+## What clone does not do
+
+- No watcher and no background process: a clone destination does not stay live in sync with its source. `sync` is an explicit, foreground invocation you run again whenever you want to catch up.
+- No choice of destination kind: it always follows the source kind.
+- No cloning into a pre-existing or shared chat — destinations are always freshly created (or recovered) by `init`.
+- No automatic retry loop across FloodWait: a rate-limited sync exits 5 and you re-run `sync` after the reported cooldown.
+
+## See also
+
+- [export.md](export.md) — one-shot data extraction instead of a live destination chat
+- [../CONTRACT.md](../CONTRACT.md) — §11 canonical clone contract
+- [../CLONE.md](../CLONE.md) — historical chronicle, not current behaviour
+- [../../SKILL.md](../../SKILL.md) — one-line invocation recipes

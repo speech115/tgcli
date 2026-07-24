@@ -1,6 +1,6 @@
 ---
 name: tgcli
-description: Stateless Telegram CLI for reading dialogs, searching, safe message correspondence, downloading media, exporting data, and copying channels, non-forum supergroups, and private dialogs. Use it for any live Telegram task instead of the old MCP daemons.
+description: Stateless Telegram CLI for reading dialogs, searching, safe message correspondence, downloading media, exporting data, and copying channels, supergroups, and private dialogs. Use it for any live Telegram task instead of the old MCP daemons.
 ---
 
 # tgcli
