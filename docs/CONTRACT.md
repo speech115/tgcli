@@ -1081,7 +1081,19 @@ Service messages advance the cursor and increment `skipped_service` without
 audit or Telegram mutation. Polls become human-readable static result cards with
 a Russian heading, question, options, Unicode progress bars, counts, rounded
 percentages, and total voters; no timestamps or implementation labels are
-shown. Story references become two-line `Stories недоступна` placeholders whose
+shown. When `total_voters > 0` but Telegram has not revealed the per-option
+breakdown, the card shows `распределение по вариантам недоступно` instead of
+misleading `0% · 0` rows (ADR-0048). For anonymous, open, non-quiz polls in that
+state, sync may cast a transient vote, read the revealed results, retract the
+vote, and subtract the own vote from the rendered totals; public polls, quizzes,
+and closed polls never vote. `--readonly` / `TGCLI_NO_SEND` never reach a poll
+at all: they block `clone sync` as a whole before config/session work (see
+below), so no transient vote can be cast under them. The snapshot renderer
+re-checks the same two gates and keeps the honest placeholder, which matters
+only if it is ever driven outside `clone sync`. Cast and retract each append an
+audit record; a
+retract failure warns on stderr and adds a `poll_votes` marker — sync does not
+abort. Story references become two-line `Stories недоступна` placeholders whose
 resolved author name/title is a clickable `t.me` link when possible; Story IDs
 are not shown. Both use the audited `clone-sync-snapshot` path, receive
 source-to-destination mappings, and count as copied. Truly unsupported kinds
@@ -1189,8 +1201,12 @@ FloodWait persists the clone cooldown and exits 5 without advancing the current
 message. JSON:
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"cursor":5,"discussion_cursor":0,"more":false,"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}}}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}}}
 ```
+
+`sync.poll_votes` is an additive list of per-poll markers from the ADR-0048
+capture path (`status` of `captured`, `skipped`, `capture_failed`, or `retract_failed`, plus
+`reason` / `error` when applicable). Empty when no poll needed capture.
 
 After message copying, `sync` snapshots the source's audience (ADR-0024). The
 `participants` object reports, per source-side peer (`source` = the cloned

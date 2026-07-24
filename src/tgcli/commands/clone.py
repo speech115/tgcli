@@ -759,6 +759,7 @@ async def _forward_batch(
     plan,
     *,
     topic_dest=None,
+    poll_votes: list | None = None,
 ):
     source_ids = [message.id for message in messages]
     random_ids = [secrets.randbelow(2**63 - 1) + 1 for _ in messages]
@@ -777,7 +778,15 @@ async def _forward_batch(
             lambda awaitable: _with_cooldown(awaitable, clone_state),
         )
     if plan.mode == "snapshots":
-        rendered_text, rendered_entities = await snapshot.render(tg, messages[0])
+        rendered_text, rendered_entities, poll_marker = await snapshot.render(
+            tg,
+            messages[0],
+            peer=source,
+            account_alias=account_alias,
+            invoke=lambda awaitable: _with_cooldown(awaitable, clone_state),
+        )
+        if poll_marker is not None and poll_votes is not None:
+            poll_votes.append(poll_marker)
         text, entities = attribution.with_prefix(
             rendered_text,
             rendered_entities,
@@ -899,6 +908,7 @@ async def sync_text(
 
     reply_flattened = 0
     quote_flattened: list[dict] = []
+    poll_votes: list[dict] = []
     author_cache = {}
     more = False
     posts_leg = legs.posts(clone_state)
@@ -942,6 +952,7 @@ async def sync_text(
                 author_cache,
                 active_plan,
                 topic_dest=topic_dest,
+                poll_votes=poll_votes,
             ),
             list(messages),
             plan,
@@ -1019,6 +1030,7 @@ async def sync_text(
             **counters,
             "reply_flattened": reply_flattened,
             "quote_flattened": quote_flattened,
+            "poll_votes": poll_votes,
             "cursor": clone_state.cursor,
             "discussion_cursor": clone_state.discussion_cursor,
             "more": more,

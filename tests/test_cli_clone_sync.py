@@ -74,7 +74,7 @@ def message(message_id, **overrides):
     return SimpleNamespace(**values)
 
 
-def poll_media(*, multiple_choice=False):
+def poll_media(*, multiple_choice=False, results=None, total_voters=10, **poll_flags):
     answers = [
         types.PollAnswer(
             text=types.TextWithEntities(text="First", entities=[]), option=b"a"
@@ -83,6 +83,11 @@ def poll_media(*, multiple_choice=False):
             text=types.TextWithEntities(text="Second", entities=[]), option=b"b"
         ),
     ]
+    if results is None:
+        results = [
+            types.PollAnswerVoters(option=b"a", voters=4),
+            types.PollAnswerVoters(option=b"b", voters=6),
+        ]
     return types.MessageMediaPoll(
         poll=types.Poll(
             id=77,
@@ -90,13 +95,11 @@ def poll_media(*, multiple_choice=False):
             answers=answers,
             hash=0,
             multiple_choice=multiple_choice,
+            **poll_flags,
         ),
         results=types.PollResults(
-            results=[
-                types.PollAnswerVoters(option=b"a", voters=4),
-                types.PollAnswerVoters(option=b"b", voters=6),
-            ],
-            total_voters=10,
+            results=results,
+            total_voters=total_voters,
         ),
     )
 
@@ -203,6 +206,24 @@ class CloneReuploadClient(CloneSyncClient):
             self.part_requests.append(request)
             self.uploads.append(f"part-{request.file_part}")
             return True
+        if isinstance(request, functions.messages.SendVoteRequest):
+            self.requests.append(request)
+            if request.options:
+                return SimpleNamespace(
+                    updates=[
+                        types.UpdateMessagePoll(
+                            poll_id=1,
+                            results=types.PollResults(
+                                results=[
+                                    types.PollAnswerVoters(option=b"a", voters=5),
+                                    types.PollAnswerVoters(option=b"b", voters=6),
+                                ],
+                                total_voters=11,
+                            ),
+                        )
+                    ]
+                )
+            return SimpleNamespace(updates=[])
         if isinstance(
             request,
             (
@@ -1025,6 +1046,7 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
         "snapshots": 0,
         "reply_flattened": 0,
         "quote_flattened": [],
+        "poll_votes": [],
         "skipped_service": 0,
         "skipped_unsupported": [],
         "skipped_autoforward": 0,
@@ -2171,6 +2193,7 @@ def test_clone_sync_skips_service_and_reports_unsupported_messages(
         "snapshots": 0,
         "reply_flattened": 0,
         "quote_flattened": [],
+        "poll_votes": [],
         "skipped_service": 1,
         "skipped_unsupported": [
             {"id": 2, "kind": "MessageMediaPoll"},
@@ -2242,6 +2265,50 @@ def test_clone_sync_replaces_poll_with_result_snapshot(
     assert "snapshot" not in request.message.casefold()
     assert "clone" not in request.message.casefold()
     assert state.load(clone_state.clone_id).dest_for(2) == 2
+
+
+def test_clone_sync_poll_without_breakdown_casts_and_retracts_vote(
+    config_env, monkeypatch, capsys
+):
+    seed_clone()
+    media = poll_media(results=[], total_voters=10, public_voters=False, quiz=False)
+    client = CloneReuploadClient([message(2, media=media)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    votes = [
+        req
+        for req in client.requests
+        if isinstance(req, functions.messages.SendVoteRequest)
+    ]
+    assert len(votes) == 2
+    assert votes[0].options == [b"a"]
+    assert votes[1].options == []
+    [send] = [
+        req
+        for req in client.requests
+        if isinstance(req, functions.messages.SendMessageRequest)
+    ]
+    assert "40% · 4 голоса" in send.message
+    assert "Проголосовало: 10" in send.message
+    assert out["sync"]["poll_votes"] == [{"message_id": 2, "status": "captured"}]
+
+
+def test_clone_sync_no_send_blocks_before_reaching_a_poll(monkeypatch):
+    """TGCLI_NO_SEND cannot let a poll vote slip through, because it stops
+    the whole sync in preflight (ADR-0048 §4). The renderer's own gate is a
+    second line of defence, unit-tested in test_clone_snapshot.py."""
+    from tgcli import cli
+
+    monkeypatch.setenv("TGCLI_NO_SEND", "1")
+    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
+    monkeypatch.setattr(
+        session, "client", lambda account: pytest.fail("session opened")
+    )
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+    assert not safety.audit_path().exists()
 
 
 def test_clone_sync_replaces_unavailable_story_with_named_placeholder(
@@ -2366,6 +2433,7 @@ def test_clone_sync_keeps_grouped_id_zero_album_atomic_and_in_position(
         "snapshots": 0,
         "reply_flattened": 0,
         "quote_flattened": [],
+        "poll_votes": [],
         "skipped_service": 0,
         "skipped_unsupported": [],
         "skipped_autoforward": 0,

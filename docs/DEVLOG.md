@@ -17,6 +17,68 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — Re-review of the open #54–#58 stack (Claude Opus 4.8 orchestrating 3 Sonnet subagents)
+**Did:** owner asked for a second pass over how the ADR-0045..0048 slices were
+executed. Three subagents re-ran the full gate per branch in isolated
+worktrees (#54: 921 passed / 9 skipped + architecture check; #56: 923/9; #57:
+934/9; #58: 944/9) and diffed each PR against its ADR. Confirmed both open
+follow-ups fix real bugs: cooldown fired *after* `get_entity`/`get_me` in
+`commit_init`/`sync_text` (#54), and discussion `get_entity` caught only
+`ValueError` while `ChannelPrivateError`/`ChatAdminRequiredError` are
+`RPCError` subclasses (#56). Fixed two things the subagents missed or left
+open: restored the DEVLOG entry PR #54 had overwritten instead of appending,
+and corrected ADR-0048 §4 + CONTRACT, which claimed `--readonly`/
+`TGCLI_NO_SEND` "skip the vote and keep the placeholder" when preflight
+actually blocks the whole sync with exit 2. Replaced the CLI test that
+monkeypatched `safety.enforce_mutation_allowed` (it tested a path unreachable
+in the real CLI) with an honest boundary test.
+**Decided:** document the gate as it behaves rather than loosen preflight —
+blocking the whole sync is stricter than the ADR promised, so the prose moves,
+not the code. Keep the renderer's own gate as second-line defence and say so.
+Recorded the one state retract cannot reach (cast accepted server-side but the
+response is lost) as a known consequence instead of adding a speculative RPC.
+**Learned:** the red `test` check on all four PRs was `cancelled` push-event
+runs, not failures — `mergeable_state: UNSTABLE` follows from that, as an
+earlier DEVLOG entry already warned. Also: DEVLOG diffs deserve reading as
+code — a subagent reviewing #54 read the entry as boilerplate and missed 17
+deleted lines of history.
+**Next:** owner merges #54 → #56 → #57 (tag `v1.2.5`); #58 after this fix.
+
+## 2026-07-24 — Babysit PR #58: capture_failed after empty reveal (Composer)
+**Did:** remote already retracted on missing breakdown but still raised
+`RuntimeError` (failing the sync). Changed to warn + honest placeholder +
+`poll_votes` status `capture_failed` (CONTRACT list updated). Kept FloodWait
+propagation from the harden commit.
+**Decided:** sync must not abort a poll-less reveal after a successful retract;
+ADR-0048 wants an honest card, not exit-nonzero.
+**Learned:** parallel agents landed the retract-first harden minutes apart —
+rebase onto tip, then upgrade the failure posture.
+**Next:** gate → push; continue babysitting open stack #54/#56/#57/#58.
+
+## 2026-07-24 — ADR-0048 review: retract safety (Composer)
+**Did:** independent Spec+Standards review of PR #58 after reviewer
+subagents hit API limits. Must-fixes: (1) always attempt retract if cast
+succeeded but updates lack a breakdown; (2) let `FloodWaitError` on retract
+propagate (exit 5 / cooldown) instead of swallowing as `retract_failed`.
+Regression tests added. No merge.
+**Decided:** non-FloodWait retract failures stay soft (warn + marker);
+FloodWait stays hard.
+**Learned:** —
+**Next:** gate → push on #58; owner merges #57 then #58.
+
+## 2026-07-24 — ADR-0048 poll breakdown vote (Composer)
+**Did:** on `claude/clone-poll-breakdown-vote` (stacked on ADR-0047): honest
+breakdown-unavailable placeholder; transient cast+retract for anonymous open
+non-quiz polls with own-vote subtraction; `sync.poll_votes` markers; CONTRACT
+1.2.6 / CHANGELOG / dual version bump. Live икона poll check remains
+owner-gated. Will not merge without explicit owner ask.
+**Decided:** vote soft-gated by `TGCLI_NO_SEND`/`TGCLI_READONLY` inside
+snapshot even when sync itself is a mutation; results come from
+`UpdateMessagePoll` after `SendVoteRequest`.
+**Learned:** —
+**Next:** gate → PR (base = flood-transfer branch or main after #57) →
+reviewer → CI; owner merges #57 then #58 and tags.
+
 ## 2026-07-24 — ADR-0047 review fixes: download FloodWait tests (Composer)
 **Did:** addressed [Review ADR-0047 PR diff] findings on
 `claude/clone-parallel-chunk-transfer` / PR #57: CLI-boundary test for

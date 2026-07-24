@@ -97,30 +97,30 @@ after ADR-0047 lands; separate decision).
 
 ### C1. Honest placeholder (all paths)
 
-- [ ] Test: poll with `total_voters > 0` and empty `results.results` →
+- [x] Test: poll with `total_voters > 0` and empty `results.results` →
       snapshot renders the "распределение по вариантам недоступно" line
       instead of `0% · 0` per option; polls with a breakdown render as
       today.
-- [ ] Implement in `clone/snapshot.py`.
+- [x] Implement in `clone/snapshot.py`.
 
 ### C2. Transient vote capture
 
-- [ ] Boundary tests: anonymous open non-quiz poll without breakdown →
+- [x] Boundary tests: anonymous open non-quiz poll without breakdown →
       exactly one `SendVoteRequest` (cast), a results read, one
       `SendVoteRequest` with empty options (retract), audit records for
       both; snapshot numbers have the own vote subtracted (chosen option
       −1, total −1) and match the pre-vote totals.
-- [ ] Tests for exclusions: public poll / quiz / closed poll → **zero**
+- [x] Tests for exclusions: public poll / quiz / closed poll → **zero**
       vote requests, placeholder or native results as available.
-- [ ] Tests for gates: `--readonly` / `TGCLI_NO_SEND` → no vote, snapshot
+- [x] Tests for gates: `--readonly` / `TGCLI_NO_SEND` → no vote, snapshot
       degrades to placeholder, sync continues.
-- [ ] Test: retract failure → loud stderr warning + additive JSON marker
+- [x] Test: retract failure → loud stderr warning + additive JSON marker
       in the sync report; sync does not abort.
-- [ ] Implement; CONTRACT prose + sync JSON marker in the same commit.
+- [x] Implement; CONTRACT prose + sync JSON marker in the same commit.
 
 ### C3. Release
 
-- [ ] CHANGELOG + double version bump; DEVLOG; PR → reviewer → CI →
+- [x] CHANGELOG + double version bump; DEVLOG; PR → reviewer → CI →
       merge → tag.
 - [ ] Live check on the икона discussion poll
       (destination message t.me/c/3514350021/31): re-sync after an edit
