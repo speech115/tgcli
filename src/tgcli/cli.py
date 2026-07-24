@@ -49,8 +49,14 @@ def _restore_diagnostics(configured) -> None:
 
 def _apply_global_defaults(args) -> None:
     """Backfill global flags argparse suppressed on the subparser it matched."""
-    no_default_timeout = args.command == "export" or (
-        args.command == "clone" and args.clone_command == "sync"
+    no_default_timeout = (
+        args.command == "export"
+        or (args.command == "clone" and args.clone_command == "sync")
+        or (
+            args.command == "accounts"
+            and args.subcommand == "login"
+            and getattr(args, "continue_id", None)
+        )
     )
     defaults = {
         "account": None,

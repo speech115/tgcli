@@ -703,6 +703,21 @@ def test_continue_rejects_timeout(env, capsys):
     assert code == 2
 
 
+def test_continue_without_timeout_reaches_attempt_lookup(env, capsys):
+    code = main(
+        [
+            "accounts",
+            "login",
+            "--continue",
+            "l_missing",
+            "--json",
+        ]
+    )
+    assert code == 4
+    error = json.loads(capsys.readouterr().err)["error"]
+    assert error["code"] == "NOT_FOUND"
+
+
 def test_continue_rejects_qr_format(env, capsys):
     code = main(
         [

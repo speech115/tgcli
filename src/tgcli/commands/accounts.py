@@ -148,6 +148,7 @@ def remove_account(
         )
     path = state_dir() / "sessions" / f"{config.accounts[alias].session}.session"
     bak = Path(str(path) + ".bak")
+    path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = path.with_suffix(".lock")
     lock = lock_path.open("w")
     try:

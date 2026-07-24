@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 CEILINGS = {
-    "src/tgcli/cli.py": 293,
+    "src/tgcli/cli.py": 299,
     "src/tgcli/parser.py": 496,
     "src/tgcli/preflight.py": 237,
     "src/tgcli/dispatch.py": 245,

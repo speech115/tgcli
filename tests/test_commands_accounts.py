@@ -195,6 +195,19 @@ def test_remove_confirm_deletes_block_and_files(env, capsys):
     assert oct(env["config"].stat().st_mode & 0o777) == "0o600"
 
 
+def test_remove_confirm_with_missing_state_tree(env):
+    (env["state"] / "sessions").rmdir()
+    env["state"].rmdir()
+
+    data = accounts_cmd.remove_account(
+        load_config(), "work", confirm=True, keep_session=False
+    )
+
+    assert data["session"] == "absent"
+    assert data["backup"] == "absent"
+    assert "work" not in load_config().accounts
+
+
 def test_remove_keep_session(env, capsys):
     path = _session(env, "work")
     bak = Path(str(path) + ".bak")
