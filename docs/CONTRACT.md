@@ -34,6 +34,18 @@ Flag beats env, env beats config.
 - **stderr** — everything else: progress, hints, warnings, error messages.
   With `--json`, the final error is also mirrored to stderr as a single-line
   JSON object: `{"error": {"code": "FLOOD_WAIT", "message": "...", "retry_after": 42}}`.
+  It is the **last** line of stderr, not the whole stream: progress and
+  warnings legitimately precede it.
+- `clone sync` prints progress to stderr in every mode, including `--json`
+  (ADR-0049): `[sync <source_id>] <n>/~<total> · <activity>`, where `<n>` is
+  messages copied into the destination so far (earlier runs included),
+  `<total>` the best-effort source message count (`?` when unavailable), and
+  `<activity>` a transport (`forwarded` / `reuploaded` / `snapshots`), a phase
+  (`comments`, `roster`), or a ~5 MB transfer mark
+  (`reupload · <file> · download|upload <done>/<size> MB (<pct>%)`). These
+  lines are plain — no `\r`, cursor control, or color — and **informative,
+  not contract data**: the shape may change without a version bump, agents
+  must not parse it, and `2>/dev/null` silences it.
 
 ## 3. Stability Rules
 

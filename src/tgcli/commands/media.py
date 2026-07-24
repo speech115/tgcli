@@ -19,14 +19,13 @@ from tgcli.errors import (
     TgcliError,
 )
 from tgcli.session import state_dir
-from tgcli.transfer import CHUNK_SIZE, download_striped
+from tgcli.transfer import PROGRESS_EVERY_CHUNKS, CHUNK_SIZE, download_striped
 
 
 PRIVATE_LINK = re.compile(r"(?:https?://)?t\.me/c/(\d+)/(\d+)/?$")
 PUBLIC_LINK = re.compile(r"(?:https?://)?t\.me/([A-Za-z0-9_]+)/([1-9]\d*)/?$")
 
 CHECKPOINT_EVERY_CHUNKS = 16
-PROGRESS_EVERY_CHUNKS = 16
 MAX_FILENAME_BYTES = 200
 
 

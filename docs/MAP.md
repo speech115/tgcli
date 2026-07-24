@@ -51,8 +51,8 @@ tgcli/
 │   ├── desktop.py             [done]    osascript/open escape hatch for secrets and tg:// links (ADR-0042)
 │   ├── authclient.py          [done]    unauthorized Telethon client + auth probe (ADR-0042)
 │   ├── login_state.py         [done]    logins/ attempt state and session promotion (ADR-0042)
-│   ├── transfer.py            [done]    striped download + parallel Save*FilePart upload (ADR-0047)
-│   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045/0046/0047)
+│   ├── transfer.py            [done]    striped download + parallel Save*FilePart upload, one progress cadence (ADR-0047/0049)
+│   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045/0046/0047/0049)
 │   │   ├── state.py           [done]    atomic JSON state, mappings, cooldown
 │   │   ├── flood.py           [done]    account-scoped FloodWait cooldown + peer-created stamp (ADR-0045)
 │   │   ├── ergonomics.py      [done]    mute forever + "Clone" dialog filter for tool-created peers (ADR-0046)
@@ -68,6 +68,7 @@ tgcli/
 │   │   ├── discussion.py      [done]    linked-chat detection, discussion group create/link/recover, anchor lookup (ADR-0023)
 │   │   ├── comments.py        [done]    phase-2 sync leg: copies the discussion group (thread remap via quotes.resolve)
 │   │   ├── roster.py          [done]    best-effort source participant snapshot → JSONL sidecar (ADR-0024)
+│   │   ├── progress.py        [done]    plain stderr sync progress lines: batches, phases, ~5 MB transfer marks (ADR-0049)
 │   │   └── legs.py            [done]    Leg seam sharing the batch path between the posts and discussion legs (ADR-0023)
 │   └── commands/
 │   │   ├── batch.py           [done]    tg batch read-only JSONL runner (ADR-0032)

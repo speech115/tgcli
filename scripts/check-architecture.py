@@ -18,7 +18,10 @@ CEILINGS = {
     "src/tgcli/dispatch.py": 248,
     "src/tgcli/commands/batch.py": 96,
     "src/tgcli/read_ops.py": 414,
-    "src/tgcli/commands/clone.py": 1072,
+    # +21 for ADR-0049: the progress emitter lives in clone/progress.py, but
+    # the reporter still has to be threaded down the sync → batch → transfer
+    # call chain that clone.py owns.
+    "src/tgcli/commands/clone.py": 1093,
     "src/tgcli/clone/state.py": 300,
     "src/tgcli/clone/quotes.py": 365,
     "src/tgcli/clone/quote_fallback.py": 127,

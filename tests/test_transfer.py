@@ -233,3 +233,65 @@ async def test_upload_parts_uses_invoke_wrapper(tmp_path):
     assert handle.parts == 1
     assert seen == [True]
     assert len(tg.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_download_striped_reports_progress_on_the_shared_cadence(tmp_path):
+    """ADR-0049: the striped download reports through the one shared cadence."""
+
+    class MultiChunkTelegram(FakeStrideTelegram):
+        async def iter_download(
+            self, media, *, offset=0, request_size=None, stride=None
+        ):
+            self.calls.append({"offset": offset, "stride": stride})
+            for index in range(transfer.PROGRESS_EVERY_CHUNKS + 1):
+                yield b"q" * transfer.CHUNK_SIZE
+
+    tg = MultiChunkTelegram()
+    destination = tmp_path / "out.bin"
+    size = (transfer.PROGRESS_EVERY_CHUNKS + 1) * transfer.CHUNK_SIZE
+    seen: list[tuple[int, int]] = []
+
+    await transfer.download_striped(
+        tg,
+        media=object(),
+        destination=destination,
+        size=size,
+        parallel=1,
+        progress=lambda current, total: seen.append((current, total)),
+    )
+
+    assert seen, "striped download must report progress"
+    assert {total for _, total in seen} == {size}
+    assert seen[0][0] == transfer.PROGRESS_EVERY_CHUNKS * transfer.CHUNK_SIZE
+    assert seen[-1][0] == size
+
+
+@pytest.mark.asyncio
+async def test_upload_parts_reports_progress_with_uploaded_and_total_bytes(tmp_path):
+    """ADR-0049: the upload leg reports bytes through the same callback shape."""
+    path = tmp_path / "multi.bin"
+    payload = b"z" * (512 * 1024)
+    path.write_bytes(payload)
+    tg = FakeUploadTelegram()
+    seen: list[tuple[int, int]] = []
+
+    handle = await transfer.upload_parts(
+        tg,
+        path,
+        parallel=1,
+        progress=lambda current, total: seen.append((current, total)),
+    )
+
+    assert handle.parts > 1
+    assert seen, "upload must report progress"
+    assert {total for _, total in seen} == {len(payload)}
+    assert seen[-1][0] == len(payload)
+    assert all(current <= len(payload) for current, _ in seen)
+
+
+def test_media_download_shares_the_one_progress_cadence():
+    """ADR-0043/0049: one seam, not a copy of the constant."""
+    from tgcli.commands import media
+
+    assert media.PROGRESS_EVERY_CHUNKS is transfer.PROGRESS_EVERY_CHUNKS
