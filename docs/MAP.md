@@ -59,7 +59,7 @@ tgcli/
 │   │   ├── fidelity.py        [done]    media capability classification
 │   │   ├── batching.py        [done]    pure batch planner: albums, service skips
 │   │   ├── transport.py       [done]    pure forward/reupload/snapshot decision
-│   │   ├── snapshot.py        [done]    truthful poll/story text rendering
+│   │   ├── snapshot.py        [done]    truthful poll/story text rendering (+ ADR-0048 vote capture)
 │   │   ├── attribution.py     [done]    source kinds, author-identity ladder, UTF-16 prefix + mention shifts (ADR-0023)
 │   │   ├── replies.py         [done]    reply classification (ADR-0036); mapped-in-leg input rebuild
 │   │   ├── quote_fallback.py  [done]    rendered quote degradation: prefix, body, stale-quote strip (ADR-0037)
@@ -88,7 +88,7 @@ tgcli/
 │   │   ├── store.py           [done]    tg store stats|cleanup; previews + logins + session_backups (ADR-0040/0042)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (+ incremental messages ADR-0032; broadcast walk ADR-0031)
-│   │   └── clone.py           [done]    clone status/init/sync surface (ADR-0017…0025/0045/0046/0047; all live gates passed)
+│   │   └── clone.py           [done]    clone status/init/sync surface (ADR-0017…0025/0045/0046/0047/0048; all live gates passed)
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/

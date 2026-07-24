@@ -17,6 +17,19 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — ADR-0048 poll breakdown vote (Composer)
+**Did:** on `claude/clone-poll-breakdown-vote` (stacked on ADR-0047): honest
+breakdown-unavailable placeholder; transient cast+retract for anonymous open
+non-quiz polls with own-vote subtraction; `sync.poll_votes` markers; CONTRACT
+1.2.6 / CHANGELOG / dual version bump. Live икона poll check remains
+owner-gated. Will not merge without explicit owner ask.
+**Decided:** vote soft-gated by `TGCLI_NO_SEND`/`TGCLI_READONLY` inside
+snapshot even when sync itself is a mutation; results come from
+`UpdateMessagePoll` after `SendVoteRequest`.
+**Learned:** —
+**Next:** gate → PR (base = flood-transfer branch or main after #57) →
+reviewer → CI; owner merges #57 then #58 and tags.
+
 ## 2026-07-24 — ADR-0047 review fixes: download FloodWait tests (Composer)
 **Did:** addressed [Review ADR-0047 PR diff] findings on
 `claude/clone-parallel-chunk-transfer` / PR #57: CLI-boundary test for
