@@ -17,6 +17,34 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — ADR-0047 review fixes: download FloodWait tests (Composer)
+**Did:** addressed [Review ADR-0047 PR diff] findings on
+`claude/clone-parallel-chunk-transfer` / PR #57: CLI-boundary test for
+striped-download FloodWait during reupload (exit 5 + cooldown, no send);
+unit tests for `download_striped` / `upload_parts` FloodWait unwrap (uses
+previously dead `flood_on_part` fake). No merge.
+**Decided:** treat download-side FloodWait as in-scope for ADR-0047 §4
+transfer guarantee; keep findings as permanent regression tests.
+**Learned:** —
+**Next:** gate → push review commit on #57; owner merges when ready.
+
+## 2026-07-24 — ADR-0047 parallel chunk transfer (Composer)
+**Did:** implemented Part B on `claude/clone-parallel-chunk-transfer`:
+shared `tgcli/transfer.py` seam (`download_striped` + `upload_parts` with
+constant parallelism 4); `media.py` parallel download now calls the seam;
+clone reupload uses striped download for large media and concurrent
+`Save*FilePart` uploads; ExceptionGroup peeled so FloodWait still exits 5.
+Tests cover offsets, multi-part SaveFilePart boundary, striped download,
+and part-FloodWait. CHANGELOG/version 1.2.5 + MAP. Live re-measure remains
+owner-gated.
+**Decided:** keep sequential `download_media` when size is unknown or
+≤512KiB; always upload through `upload_parts` (even single-part) so the
+Telethon request types are asserted at the public seam.
+**Learned:** `asyncio.TaskGroup` must unwrap to the first worker exception
+or dispatch never sees `FloodWaitError` (ExceptionGroup → not exit 5).
+**Next:** `./scripts/gate.sh` → reviewer → PR → CI → merge → tag `v1.2.5`;
+then ADR-0048.
+
 ## 2026-07-24 — Babysit PR #55: discussion lookup best-effort (Composer)
 **Did:** PR #55 (ADR-0046) was already merged as `v1.2.4`. Triaged the one
 unresolved Bugbot thread: discussion peer `get_entity` for mute/folder only
@@ -60,6 +88,17 @@ unstable even when the PR-event run is green — babysit on the PR-event head
 SHA, not the cancelled duplicate.
 **Next:** green PR CI + resolve Bugbot threads; independent Spec+Standards
 review; owner merges and tags `v1.2.3`.
+
+## 2026-07-24 — ADR-0046 merged as 1.2.4 (Composer)
+**Did:** PR #55 reviewed (honest mute marker + both-peers folder test),
+CI green, merged to main, tagged `v1.2.4` at `b8f6570`. Live retrofit of
+икона peers remains owner-gated. Started branch
+`claude/clone-parallel-chunk-transfer` for ADR-0047.
+**Decided:** continue the ADR sequence without waiting on live mute/folder
+smoke (best-effort, retrofit via re-init).
+**Learned:** cancelled push-run CI + Bugbot "skipping" is the steady state
+for this repo's PR checks; PR-event `test` SUCCESS is the merge gate.
+**Next:** implement ADR-0047 parallel chunk transfer (TDD → gate → PR).
 
 ## 2026-07-24 — ADR-0046 clone destination ergonomics (Composer)
 **Did:** after merging/tagging 1.2.3 (ADR-0045 / PR #53), implemented

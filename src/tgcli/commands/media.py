@@ -1,6 +1,5 @@
 """Media download command helpers (Phase 3; Telethon-only)."""
 
-import asyncio
 from dataclasses import dataclass
 import hashlib
 import json
@@ -20,11 +19,12 @@ from tgcli.errors import (
     TgcliError,
 )
 from tgcli.session import state_dir
+from tgcli.transfer import CHUNK_SIZE, download_striped
 
 
 PRIVATE_LINK = re.compile(r"(?:https?://)?t\.me/c/(\d+)/(\d+)/?$")
 PUBLIC_LINK = re.compile(r"(?:https?://)?t\.me/([A-Za-z0-9_]+)/([1-9]\d*)/?$")
-CHUNK_SIZE = 512 * 1024
+
 CHECKPOINT_EVERY_CHUNKS = 16
 PROGRESS_EVERY_CHUNKS = 16
 MAX_FILENAME_BYTES = 200
@@ -282,41 +282,14 @@ async def _download_parallel(
             f"media size is unavailable for parallel download: {source.message_id}"
         )
 
-    with part_path.open("xb") as handle:
-        handle.truncate(total)
-    descriptor = os.open(part_path, os.O_WRONLY)
-    downloaded = 0
-    chunks_since_progress = 0
-
-    async def worker(index: int) -> None:
-        nonlocal downloaded, chunks_since_progress
-        offset = index * CHUNK_SIZE
-        async for chunk in tg.iter_download(
-            message.media,
-            offset=offset,
-            stride=parallel * CHUNK_SIZE,
-            request_size=CHUNK_SIZE,
-        ):
-            data = bytes(chunk)
-            os.pwrite(descriptor, data, offset)
-            offset += parallel * CHUNK_SIZE
-            downloaded += len(data)
-            chunks_since_progress += 1
-            if progress and chunks_since_progress >= PROGRESS_EVERY_CHUNKS:
-                progress(downloaded, total)
-                chunks_since_progress = 0
-
-    try:
-        await asyncio.gather(*(worker(index) for index in range(parallel)))
-    except BaseException:
-        part_path.unlink(missing_ok=True)
-        raise
-    finally:
-        os.close(descriptor)
-
-    if progress and chunks_since_progress:
-        progress(downloaded, total)
-
+    await download_striped(
+        tg,
+        message.media,
+        part_path,
+        size=total,
+        parallel=parallel,
+        progress=progress,
+    )
     os.replace(part_path, destination)
     return {
         "source": _source_label(source),
