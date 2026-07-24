@@ -949,7 +949,7 @@ source kind still match the preview, then creates or recovers one private
 creator-owned destination of the source-dependent kind. JSON:
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":{"id":999,"title":"Source"},"comments":"none","status":"ready","commit_required":false}}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":{"id":999,"title":"[Clone] Source"},"comments":"none","status":"ready","commit_required":false}}
 ```
 
 Plain init columns are unchanged by comments support: `status`, `clone_id`,
@@ -960,7 +960,8 @@ private owned megagroup titled `<creation_marker>-discussion`, using the
 same crash-recovery marker-scan discipline as the destination channel (a
 crash between group-create and `SetDiscussionGroupRequest` recovers by
 re-adopting the marked group and relinking — idempotent). Its
-title/about/avatar are copied from the source discussion group, then
+about/avatar are copied from the source discussion group and its title is
+set to `[Clone] ` + the source group's display name (ADR-0044), then
 `channels.SetDiscussionGroupRequest` links it to the destination channel
 strictly before `sync` sends the first post. A linked source group that
 cannot be read (private, not a member) skips group creation entirely and
@@ -995,10 +996,16 @@ honors the payload. Without `--replace`, the version-mismatch exit-2 message
 ends `; re-run clone init --replace to supersede it`; a v2 destination is never
 silently reused as if the flag had been passed.
 
-After creation or recovery, init applies the source title/display name, copies a
-non-empty channel or basic-group description, or User bio, and copies a
-non-empty static source avatar before returning `status: ready`. Empty source
-fields cause no mutation.
+After creation or recovery, init titles tool-created peers with a visible
+`[Clone] ` prefix (ADR-0044): the destination becomes
+`[Clone] {source_title}` and a discussion group becomes
+`[Clone] {display_name(source_group)}`. `source.title` in JSON and
+`CloneState.source_title` stay unprefixed. The rename is idempotent — a
+re-run edits only on mismatch — so an existing clone adopts the prefix via
+a plain `clone init` without creating peers. Init then copies a non-empty
+channel or basic-group description, or User bio, and copies a non-empty
+static source avatar before returning `status: ready`. Empty source fields
+cause no mutation.
 Avatar bytes use a temporary directory that is removed on success or failure.
 Animated or video avatar motion is not preserved (ADR-0020).
 
@@ -1143,7 +1150,7 @@ FloodWait persists the clone cooldown and exits 5 without advancing the current
 message. JSON:
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"cursor":5,"discussion_cursor":0,"more":false,"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}}}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"cursor":5,"discussion_cursor":0,"more":false,"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}}}
 ```
 
 After message copying, `sync` snapshots the source's audience (ADR-0024). The

@@ -317,15 +317,25 @@ def test_clone_init_commit_creates_and_records_destination(
     result = json.loads(capsys.readouterr().out)
     assert result["clone"]["status"] == "ready"
     assert result["clone"]["commit_required"] is False
-    assert result["clone"]["destination"] == {"id": 999, "title": "Source channel"}
+    assert result["clone"]["destination"] == {
+        "id": 999,
+        "title": "[Clone] Source channel",
+    }
     saved = state.load(result["clone"]["id"])
     assert saved.destination_peer_id == 999
+    assert saved.source_title == "Source channel"
     assert client.session_mutation_safe is True
     assert [type(request) for request in client.requests] == [
         functions.channels.CreateChannelRequest,
         functions.channels.EditTitleRequest,
         functions.channels.GetFullChannelRequest,
     ]
+    [title_edit] = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.channels.EditTitleRequest)
+    ]
+    assert title_edit.title == "[Clone] Source channel"
     audits = [json.loads(line) for line in safety.audit_path().read_text().splitlines()]
     assert [record["action"] for record in audits] == [
         "clone-init-create",
@@ -504,7 +514,7 @@ def test_clone_init_commit_copies_private_dialog_profile(
         "title": "Alex Smith",
         "kind": "dialog",
     }
-    assert client.destination.title == "Alex Smith"
+    assert client.destination.title == "[Clone] Alex Smith"
     assert client.destination.about == "Dialog bio"
     assert any(
         isinstance(item, functions.users.GetFullUserRequest) for item in client.requests
@@ -527,7 +537,7 @@ def test_clone_init_commit_copies_basic_group_profile(config_env, monkeypatch, c
     assert main(["clone", "init", "@source", "--commit", preview_id, "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
-    assert client.destination.title == "Legacy group"
+    assert client.destination.title == "[Clone] Legacy group"
     assert client.destination.about == "Group description"
     assert any(
         isinstance(item, functions.messages.GetFullChatRequest)
@@ -679,6 +689,35 @@ def test_clone_init_commit_reuses_recorded_destination_without_mutation(
     clone_state.destination_peer_id = 999
     state.save(clone_state)
     client = CloneInitClient()
+    client.destination = channel(999, "[Clone] Source channel", creator=True)
+    make_session_fake(monkeypatch, client)
+
+    preview = stored_preview()
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["destination"] == {
+        "id": 999,
+        "title": "[Clone] Source channel",
+    }
+    assert [type(request) for request in client.requests] == [
+        functions.channels.GetFullChannelRequest,
+    ]
+
+
+def test_clone_init_commit_retitles_legacy_unprefixed_destination(
+    config_env, monkeypatch, capsys
+):
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel"
+    )
+    clone_state.creation_marker = f"tgcli-clone-{clone_state.clone_id[:12]}"
+    clone_state.destination_peer_id = 999
+    state.save(clone_state)
+    client = CloneInitClient()
     client.destination = channel(999, "Source channel", creator=True)
     make_session_fake(monkeypatch, client)
 
@@ -689,10 +728,17 @@ def test_clone_init_commit_reuses_recorded_destination_without_mutation(
     )
 
     result = json.loads(capsys.readouterr().out)
-    assert result["clone"]["destination"] == {"id": 999, "title": "Source channel"}
-    assert [type(request) for request in client.requests] == [
-        functions.channels.GetFullChannelRequest,
+    assert result["clone"]["destination"] == {
+        "id": 999,
+        "title": "[Clone] Source channel",
+    }
+    [title_edit] = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.channels.EditTitleRequest)
     ]
+    assert title_edit.title == "[Clone] Source channel"
+    assert client.destination.title == "[Clone] Source channel"
 
 
 def test_clone_init_create_flood_wait_persists_cooldown(
@@ -787,15 +833,61 @@ def test_init_creates_and_links_discussion_group(config_env, monkeypatch, capsys
         and item.enabled is False
         for item in client.requests
     )
-    assert client.discussion.title == "Source chat"
+    assert client.discussion.title == "[Clone] Source chat"
     saved = state.load(result["clone"]["id"])
     assert saved.comments == "enabled"
     assert saved.discussion_source_peer_id == 777
     assert saved.discussion_destination_peer_id == 1001
     assert saved.discussion_linked is True
+    [discussion_title] = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.channels.EditTitleRequest)
+        and item.channel is client.discussion
+    ]
+    assert discussion_title.title == "[Clone] Source chat"
     audits = [json.loads(line) for line in safety.audit_path().read_text().splitlines()]
     assert "clone-init-discussion-create" in [record["action"] for record in audits]
     assert "clone-init-discussion-link" in [record["action"] for record in audits]
+
+
+def test_init_discussion_title_is_idempotent_on_rerun(config_env, monkeypatch, capsys):
+    """Re-init against an already-prefixed discussion group issues no title edit."""
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel"
+    )
+    clone_state.creation_marker = f"tgcli-clone-{clone_state.clone_id[:12]}"
+    clone_state.destination_peer_id = 999
+    clone_state.discussion_destination_peer_id = 1001
+    clone_state.discussion_linked = True
+    clone_state.comments = "enabled"
+    clone_state.discussion_source_peer_id = 777
+    state.save(clone_state)
+    client = CloneInitClient()
+    client.destination = channel(999, "[Clone] Source channel", creator=True)
+    client.linked = linked_group()
+    client.discussion = channel(
+        1001,
+        "[Clone] Source chat",
+        creator=True,
+        broadcast=False,
+        megagroup=True,
+        forum=False,
+    )
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+
+    capsys.readouterr()
+    assert not any(
+        isinstance(item, functions.channels.EditTitleRequest)
+        for item in client.requests
+    )
+    assert client.discussion.title == "[Clone] Source chat"
 
 
 @pytest.mark.parametrize(

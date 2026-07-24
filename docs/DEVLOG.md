@@ -17,6 +17,21 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — Implement ADR-0044 clone title prefix (Composer)
+**Did:** `attribution.destination_title`; init renames destination + discussion
+to `[Clone] {name}` idempotently; CONTRACT examples/prose; CHANGELOG + bump to
+`1.2.1`; tests for exact EditTitle titles, legacy retro-rename, and discussion
+idempotence. Also unblocked the gate: `login_state.update_attempt` now accepts
+`now=` (same as `load_attempt`) so the fixed-clock unit tests stop flaking
+after wall-clock passes the baked-in `NOW` TTL. Gate green on branch
+`claude/clone-title-prefix`.
+**Decided:** no speedup code in this release — measurement remains the
+post-merge live runbook (plan tasks 6–9).
+**Learned:** the existing "reuse recorded destination without mutation" test
+had to become two cases (already-prefixed = no edit; legacy unprefixed =
+retro EditTitle), matching ADR-0044's retro-via-init decision.
+**Next:** PR → reviewer → green CI → merge → tag `v1.2.1`; then live runbook.
+
 ## 2026-07-24 — ADR-0044: clone title prefix + speed-measurement plan (Claude Fable 5)
 **Did:** grilled the owner's clone-speed plan (born from a live clone of a
 protected channel taking ~6 min for 70 posts); wrote ADR-0044 (`[Clone] `

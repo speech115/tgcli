@@ -37,7 +37,9 @@ def test_create_attempt_mode_and_fields(state):
 
 def test_update_attempt_rewrites_atomically(state):
     record = login_state.create_attempt("main", "qr", api_id=1, api_hash="h", now=NOW)
-    updated = login_state.update_attempt(record["login_id"], phone_code_hash="abc")
+    updated = login_state.update_attempt(
+        record["login_id"], phone_code_hash="abc", now=NOW
+    )
     assert updated["phone_code_hash"] == "abc"
     path = state / "logins" / f"{record['login_id']}.json"
     assert '"phone_code_hash": "abc"' in path.read_text()
@@ -139,7 +141,9 @@ def test_update_and_discard(state):
     record = login_state.create_attempt(
         "main", "phone", api_id=1, api_hash="h", phone="+7999", now=NOW
     )
-    updated = login_state.update_attempt(record["login_id"], phone_code_hash="hash123")
+    updated = login_state.update_attempt(
+        record["login_id"], phone_code_hash="hash123", now=NOW
+    )
     assert updated["phone_code_hash"] == "hash123"
     staged = login_state.staged_session_path(record["login_id"])
     staged.write_bytes(b"x")

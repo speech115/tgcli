@@ -9,6 +9,12 @@ from telethon.tl import types
 from tgcli.clone import attribution
 
 
+def test_destination_title_prefixes_source_name():
+    assert (
+        attribution.destination_title("Джарвис ⚔ ИИздец") == "[Clone] Джарвис ⚔ ИИздец"
+    )
+
+
 def test_prefixed_without_author_keeps_text_and_entities():
     entity = types.MessageEntityBold(offset=0, length=4)
     text, entities = attribution.prefixed("жирный", [entity], None)

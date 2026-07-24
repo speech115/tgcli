@@ -39,9 +39,9 @@ Do not touch `transport.py`, `batching.py`, or media code.
 
 ### 1. Helper seam — `attribution.destination_title`
 
-- [ ] Test in `tests/` (next to existing attribution tests):
+- [x] Test in `tests/` (next to existing attribution tests):
       `destination_title("Джарвис ⚔ ИИздец") == "[Clone] Джарвис ⚔ ИИздец"`.
-- [ ] Implement in `src/tgcli/clone/attribution.py` (lives beside
+- [x] Implement in `src/tgcli/clone/attribution.py` (lives beside
       `display_name`, the other naming rule):
 
       ```python
@@ -56,15 +56,15 @@ Site: `src/tgcli/commands/clone.py` — the `EditTitleRequest` block after
 destination creation/adoption (currently compares
 `destination.title != clone_state.source_title`).
 
-- [ ] Update `tests/test_cli_clone_init.py`: init renames the created
+- [x] Update `tests/test_cli_clone_init.py`: init renames the created
       channel to `[Clone] Source` (assert the exact `EditTitleRequest`
       title argument — boundary-test rule).
-- [ ] New idempotence test: destination already titled `[Clone] Source` →
+- [x] New idempotence test: destination already titled `[Clone] Source` →
       re-init performs **no** `EditTitleRequest`.
-- [ ] Implement: compare against and rename to
+- [x] Implement: compare against and rename to
       `attribution.destination_title(clone_state.source_title)`; keep the
       `clone-init-title` audit unchanged.
-- [ ] Check the JSON assembly right below (destination `title` fields use
+- [x] Check the JSON assembly right below (destination `title` fields use
       `getattr(destination, "title", ...)` fallbacks): fallbacks must also
       go through `destination_title(...)` so JSON never reports an
       unprefixed title for a tool-created peer.
@@ -74,26 +74,26 @@ destination creation/adoption (currently compares
 Site: `src/tgcli/commands/clone.py`, `_init_discussion` — currently
 `title = attribution.display_name(source_group)` then compare-and-edit.
 
-- [ ] Update/extend the discussion init tests the same way (exact title in
+- [x] Update/extend the discussion init tests the same way (exact title in
       `EditTitleRequest`, idempotent re-run).
-- [ ] Implement: `title = attribution.destination_title(attribution.display_name(source_group))`.
+- [x] Implement: `title = attribution.destination_title(attribution.display_name(source_group))`.
 
 ### 4. CONTRACT.md
 
-- [ ] `clone init` commit example: `"destination":{"id":999,"title":"[Clone] Source"}`.
-- [ ] `clone sync` example: same destination title change.
-- [ ] Prose "init applies the source title/display name" → states the
+- [x] `clone init` commit example: `"destination":{"id":999,"title":"[Clone] Source"}`.
+- [x] `clone sync` example: same destination title change.
+- [x] Prose "init applies the source title/display name" → states the
       `[Clone] ` prefix on tool-created peers (destination + discussion),
       with `source.title` explicitly unprefixed.
-- [ ] Discussion section ("title/about/avatar are copied from the source
+- [x] Discussion section ("title/about/avatar are copied from the source
       discussion group") → title is copied *with the prefix*.
 
 ### 5. Release mechanics (ADR-0038)
 
-- [ ] `CHANGELOG.md`: new `1.2.1` section (Added/Changed as appropriate)
+- [x] `CHANGELOG.md`: new `1.2.1` section (Added/Changed as appropriate)
       in the existing format.
-- [ ] `pyproject.toml`: version `1.2.0` → `1.2.1`.
-- [ ] DEVLOG entry for the implementation session.
+- [x] `pyproject.toml`: version `1.2.0` → `1.2.1`.
+- [x] DEVLOG entry for the implementation session.
 - [ ] PR → reviewer subagent → green CI → merge → tag `v1.2.1` per
       `docs/agents/release.md`.
 
