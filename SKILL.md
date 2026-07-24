@@ -85,6 +85,7 @@ selected account session, does one operation, and exits.
 | Export subscribers | `tg --json export subscribers @channel --output subscribers.csv` |
 | List channel clones | `tg --json clone status` |
 | Preview a chat clone | `tg --json clone init SOURCE` |
+| Preview posts-only clone | `tg --json clone init SOURCE --no-comments` |
 | Commit clone destination creation | `tg --json clone init SOURCE --commit p_9f3a` |
 | Copy or catch up a chat | `tg --json clone sync SOURCE` |
 
@@ -157,6 +158,14 @@ and authorized writes are audited.
 `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block mutations before
 network work. A block is exit 2; do not retry it until the safety condition is
 intentionally changed.
+
+### Clone peer budget (ADR-0045)
+
+`clone init` creates 1–2 Telegram peers (channel, plus discussion group when
+comments are enabled). Prefer at most ~one peer-creating init per account per
+day. Check the preview's `peers_to_create` and `account_flood` before
+`--commit`. Exit 5 means wait out the full `retry_after` — never retry FloodWait
+in a tight loop. Use `--no-comments` when a posts-only clone is enough.
 
 `edit`, `delete`, and `forward` follow the same preview → commit rule as
 `send`. `mark-read`, `mark-unread`, and `dialog pin`/`unpin` are content-free

@@ -215,8 +215,79 @@ def test_clone_init_preview_reports_plan_without_mutation(
     assert result["approximate_message_count"] == 321
     assert result["protected"] is True
     assert result["preview_id"].startswith("p_")
-    assert client.requests == []
+    assert result["peers_to_create"] == 1
+    assert result["account_flood"] == {
+        "cooldown_until": None,
+        "last_peer_created_at": None,
+    }
+    assert [type(request) for request in client.requests] == [
+        functions.channels.GetFullChannelRequest
+    ]
     assert client.session_mutation_safe is False
+
+
+def test_clone_init_preview_peers_to_create_two_with_linked_discussion(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.linked = linked_group()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["peers_to_create"] == 2
+
+
+def test_clone_init_preview_peers_to_create_one_with_no_comments(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.linked = linked_group()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--no-comments", "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["peers_to_create"] == 1
+
+
+def test_clone_init_preview_peers_to_create_zero_when_destination_recorded(
+    config_env, monkeypatch, capsys
+):
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel"
+    )
+    clone_state.destination_peer_id = 999
+    state.save(clone_state)
+    client = CloneInitClient()
+    client.linked = linked_group()
+    client.destination = channel(999, "[Clone] Source channel", creator=True)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["peers_to_create"] == 0
+
+
+def test_clone_init_preview_includes_account_flood_record(
+    config_env, monkeypatch, capsys
+):
+    from datetime import UTC, datetime, timedelta
+
+    from tgcli.clone import flood
+
+    at = datetime.now(UTC) - timedelta(hours=2)
+    until = datetime.now(UTC) + timedelta(minutes=15)
+    flood.record_peer_created(42, at)
+    flood.arm_cooldown(42, until)
+    client = CloneInitClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["account_flood"] == {
+        "cooldown_until": until.isoformat(),
+        "last_peer_created_at": at.isoformat(),
+    }
 
 
 def test_clone_init_preview_accepts_nonforum_megagroup(config_env, monkeypatch, capsys):
@@ -311,6 +382,7 @@ def test_clone_init_commit_creates_and_records_destination(
     make_session_fake(monkeypatch, client)
     assert main(["clone", "init", "@source", "--json"]) == 0
     preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+    client.requests.clear()
 
     assert main(["clone", "init", "@source", "--commit", preview_id, "--json"]) == 0
 
@@ -838,7 +910,7 @@ def test_clone_init_commit_blocks_under_account_cooldown_before_network(
         main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
         == 5
     )
-    err = json.loads(capsys.readouterr().err)
+    err = json.loads(capsys.readouterr().err)["error"]
     assert err["retry_after"] > 0
     assert client.requests == []
 
@@ -857,7 +929,9 @@ def test_clone_init_preview_not_blocked_by_account_cooldown(
     assert main(["clone", "init", "@source", "--json"]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["clone"]["status"] == "planned"
-    assert client.requests == []
+    assert [type(request) for request in client.requests] == [
+        functions.channels.GetFullChannelRequest
+    ]
 
 
 def test_clone_init_create_records_peer_created_timestamp(
@@ -1067,6 +1141,75 @@ def test_init_without_linked_chat_records_no_comments(config_env, monkeypatch, c
     ]
 
 
+def test_clone_init_preview_records_no_comments_choice(config_env, monkeypatch, capsys):
+    client = CloneInitClient()
+    client.linked = linked_group()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--no-comments", "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    stored = json.loads(
+        (safety.previews_dir() / f"{result['preview_id']}.json").read_text()
+    )
+    assert stored["payload"]["no_comments"] is True
+
+
+def test_clone_init_commit_no_comments_creates_one_peer_and_disables(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.linked = linked_group()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--no-comments", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+
+    assert main(["clone", "init", "@source", "--commit", preview_id, "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["comments"] == "disabled"
+    creates = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.channels.CreateChannelRequest)
+    ]
+    assert len(creates) == 1
+    assert not creates[0].title.endswith("-discussion")
+    assert not any(
+        isinstance(item, functions.channels.SetDiscussionGroupRequest)
+        for item in client.requests
+    )
+    saved = state.load(result["clone"]["id"])
+    assert saved.comments == "disabled"
+    assert saved.discussion_linked is False
+    assert saved.discussion_destination_peer_id is None
+
+
+def test_clone_init_no_comments_over_enabled_is_policy_error(
+    config_env, monkeypatch, capsys
+):
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel"
+    )
+    clone_state.destination_peer_id = 999
+    clone_state.comments = "enabled"
+    clone_state.discussion_source_peer_id = 777
+    clone_state.discussion_destination_peer_id = 1001
+    clone_state.discussion_linked = True
+    state.save(clone_state)
+
+    client = CloneInitClient()
+    client.destination = channel(999, "[Clone] Source channel", creator=True)
+    client.linked = linked_group()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--no-comments", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+
+    assert main(["clone", "init", "@source", "--commit", preview_id, "--json"]) == 2
+    err = capsys.readouterr().err.casefold()
+    assert "no-comments" in err or "disabled" in err or "comments" in err
+
+
 def test_init_ignores_monoforum_links(config_env, monkeypatch, capsys):
     """linked_chat_id None + linked_monoforum_id set: comments == "none"."""
     client = CloneInitClient()
@@ -1257,7 +1400,9 @@ def test_clone_init_preview_reports_supersede_for_unreadable_state(
 
     result = json.loads(capsys.readouterr().out)
     assert result["supersede"] == {"existing": True, "readable": False, "replace": True}
-    assert client.requests == []
+    assert [type(request) for request in client.requests] == [
+        functions.channels.GetFullChannelRequest
+    ]
 
 
 def test_clone_init_replace_supersedes_unreadable_state_and_creates_fresh(

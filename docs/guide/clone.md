@@ -39,7 +39,7 @@ tg --json clone init SOURCE
 ```
 
 ```json
-{"preview_id":"p_...","expires_at":"...","clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":null,"status":"planned","commit_required":true},"approximate_message_count":321,"protected":false,"supersede":{"existing":false,"readable":null,"replace":false}}
+{"preview_id":"p_...","expires_at":"...","clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":null,"status":"planned","commit_required":true},"approximate_message_count":321,"protected":false,"supersede":{"existing":false,"readable":null,"replace":false},"peers_to_create":1,"account_flood":{"cooldown_until":null,"last_peer_created_at":null}}
 ```
 
 Then commit to actually create the destination:
@@ -52,6 +52,13 @@ tg --json clone init SOURCE --commit PREVIEW_ID
 | --- | --- |
 | `--commit PREVIEW_ID` | consume the preview and create/recover the destination |
 | `--replace` | supersede an incompatible or stale clone state slot; declared at preview time, honored at commit |
+| `--no-comments` | posts-only clone (`comments: "disabled"`); creates one peer, skips discussion; declared at preview time |
+
+`peers_to_create` is 0 / 1 / 2 depending on whether a destination is already
+recorded and whether this commit would also create a discussion group.
+`account_flood` shows any account-scoped FloodWait cooldown. Exit 5 on
+`init --commit` / `sync` means wait out `retry_after` fully — never retry in a
+loop. Prefer at most ~one peer-creating init per account per day.
 
 ```json
 {"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":{"id":999,"title":"Source"},"comments":"none","status":"ready","commit_required":false}}

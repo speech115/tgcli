@@ -54,7 +54,9 @@ def load(account_user_id: int) -> dict:
 def _save(account_user_id: int, record: dict) -> None:
     directory = state.clones_dir()
     directory.mkdir(parents=True, exist_ok=True)
-    atomic.replace_text(path_for(account_user_id), json.dumps(record, ensure_ascii=False))
+    atomic.replace_text(
+        path_for(account_user_id), json.dumps(record, ensure_ascii=False)
+    )
 
 
 def arm_cooldown(account_user_id: int, deadline: datetime) -> None:

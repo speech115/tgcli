@@ -420,6 +420,18 @@ def test_discussion_mapping_roundtrips():
     assert loaded.comments == "enabled"
 
 
+def test_disabled_comments_roundtrips():
+    clone_state = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="S"
+    )
+    clone_state.comments = "disabled"
+    state.save(clone_state)
+    loaded = state.load(clone_state.clone_id)
+    assert loaded.comments == "disabled"
+    assert loaded.discussion_id_map == {}
+    assert loaded.discussion_cursor == 0
+
+
 def test_max_destination_id_excludes_discussion_ids():
     clone_state = state.CloneState.new(
         account_user_id=1, source_peer_id=2, source_title="S"

@@ -463,6 +463,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="supersede an incompatible or stale clone: archive its state and "
         "start a fresh destination pair",
     )
+    p_clone_init.add_argument(
+        "--no-comments",
+        action="store_true",
+        help="create a posts-only clone without a discussion-group peer",
+    )
     p_clone_sync = clone_sub.add_parser("sync", parents=[global_flags])
     p_clone_sync.add_argument("source", help="source channel, supergroup, or dialog")
     p_clone_sync.add_argument("--limit", type=int)

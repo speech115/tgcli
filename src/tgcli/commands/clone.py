@@ -15,6 +15,7 @@ from tgcli.clone import (
     comments,
     discussion,
     fidelity,
+    flood,
     legs,
     quote_fallback,
     quotes,
@@ -88,7 +89,8 @@ def list_clones(source: str | None = None) -> dict:
         [
             entry
             for path in directory.glob("*.json")
-            if (entry := _load_entry(path, source)) is not None
+            if not path.name.startswith("account-")
+            and (entry := _load_entry(path, source)) is not None
         ]
         if directory.exists()
         else []
@@ -133,11 +135,17 @@ def _supersede_status(clone_id: str, replace: bool) -> dict:
     return {"existing": existing, "readable": readable, "replace": replace}
 
 
-async def preview_init(tg, source: str, *, replace: bool = False) -> dict:
+async def preview_init(
+    tg, source: str, *, replace: bool = False, no_comments: bool = False
+) -> dict:
     entity, source_kind, source_title = await _resolve_source(tg, source)
     me = await tg.get_me()
     total = (await tg.get_messages(entity, limit=0)).total
     clone_id = state.clone_id(me.id, entity.id)
+    peers_to_create = await _peers_to_create(
+        tg, entity, source_kind, clone_id, no_comments=no_comments
+    )
+    account_flood = flood.load(me.id)
     preview = safety.create_preview(
         {
             "kind": "clone-init",
@@ -147,6 +155,7 @@ async def preview_init(tg, source: str, *, replace: bool = False) -> dict:
             "source_title": source_title,
             "source_kind": source_kind,
             "replace": replace,
+            "no_comments": no_comments,
             "protected": bool(getattr(entity, "noforwards", False)),
             "approximate_message_count": total,
         }
@@ -164,7 +173,24 @@ async def preview_init(tg, source: str, *, replace: bool = False) -> dict:
         "approximate_message_count": total,
         "protected": preview["protected"],
         "supersede": _supersede_status(clone_id, replace),
+        "peers_to_create": peers_to_create,
+        "account_flood": account_flood,
     }
+
+
+async def _peers_to_create(
+    tg, entity, source_kind, clone_id, *, no_comments: bool
+) -> int:
+    try:
+        existing = state.load(clone_id)
+    except PolicyError:
+        existing = None
+    if existing is not None and existing.destination_peer_id is not None:
+        return 0
+    if no_comments or source_kind != "broadcast":
+        return 1
+    full = await tg(functions.channels.GetFullChannelRequest(entity))
+    return 2 if discussion.linked_chat_id(full.full_chat) is not None else 1
 
 
 def _is_private_owned_broadcast(entity, *, title: str | None = None) -> bool:
@@ -194,26 +220,40 @@ async def _marker_candidates(tg, marker: str, shape_ok) -> tuple[list[Any], list
 
 
 def _enforce_cooldown(clone_state: state.CloneState) -> None:
-    deadline = clone_state.cooldown_deadline()
-    if deadline is not None:
-        retry_after = ceil((deadline - datetime.now(UTC)).total_seconds())
-        if retry_after > 0:
-            raise RateLimitError(
-                f"rate limited for {retry_after}s", retry_after=retry_after
-            )
+    deadlines = [
+        deadline
+        for deadline in (
+            clone_state.cooldown_deadline(),
+            flood.cooldown_deadline(clone_state.account_user_id),
+        )
+        if deadline is not None
+    ]
+    if not deadlines:
+        return
+    deadline = max(deadlines)
+    retry_after = ceil((deadline - datetime.now(UTC)).total_seconds())
+    if retry_after > 0:
+        raise RateLimitError(
+            f"rate limited for {retry_after}s", retry_after=retry_after
+        )
 
 
 async def _with_cooldown(awaitable, clone_state):
     try:
         return await awaitable
     except telethon_errors.FloodWaitError as exc:
-        clone_state.set_cooldown(datetime.now(UTC) + timedelta(seconds=exc.seconds))
+        deadline = datetime.now(UTC) + timedelta(seconds=exc.seconds)
+        clone_state.set_cooldown(deadline)
         state.save(clone_state)
+        flood.arm_cooldown(clone_state.account_user_id, deadline)
         raise
 
 
 async def _mutate(tg, request, clone_state: state.CloneState):
-    return await _with_cooldown(tg(request), clone_state)
+    result = await _with_cooldown(tg(request), clone_state)
+    if isinstance(request, functions.channels.CreateChannelRequest):
+        flood.record_peer_created(clone_state.account_user_id, datetime.now(UTC))
+    return result
 
 
 async def _copy_profile(tg, source, destination, account_alias, clone_state, cooldown):
@@ -384,6 +424,12 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
     )
     if clone_state.source_kind != source_kind:
         raise PolicyError("clone source kind no longer matches initialized state")
+    no_comments = bool(payload.get("no_comments"))
+    if no_comments and clone_state.comments == "enabled":
+        raise PolicyError(
+            "clone init --no-comments cannot disable an existing linked discussion; "
+            "re-run with --replace to start a fresh posts-only clone"
+        )
     if clone_state.creation_marker is None:
         nonce = f"-{secrets.token_hex(3)}" if replace else ""
         clone_state.creation_marker = f"tgcli-clone-{clone_id[:12]}{nonce}"
@@ -458,9 +504,13 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
         clone_state,
         lambda awaitable: _with_cooldown(awaitable, clone_state),
     )
-    await _init_discussion(
-        tg, destination, clone_state, full_chat, account_alias, clone_id
-    )
+    if no_comments:
+        clone_state.comments = "disabled"
+        state.save(clone_state)
+    else:
+        await _init_discussion(
+            tg, destination, clone_state, full_chat, account_alias, clone_id
+        )
     return {
         "clone": {
             "id": clone_state.clone_id,

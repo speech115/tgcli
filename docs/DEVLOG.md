@@ -17,6 +17,19 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — ADR-0045 flood containment implementation (Composer)
+**Did:** implemented plan tasks 1–6 on `claude/flood-containment`:
+`clone/flood.py` account record (atomic writes); wired account cooldown into
+`_with_cooldown` / `_enforce_cooldown` + `CreateChannelRequest` peer stamps;
+`clone init --no-comments` → `comments: "disabled"`; preview
+`peers_to_create` + `account_flood`; CONTRACT/MAP/SKILL/guide; CHANGELOG
+1.2.3 + version bump. Gate + PR next.
+**Decided:** follow ADR-0045 literally; list_clones skips `account-*.json`
+sidecars so status stays clean.
+**Learned:** preview now issues `GetFullChannelRequest` for broadcasts to
+compute `peers_to_create` (except `--no-comments` / recorded destination).
+**Next:** reviewer → green CI → merge → tag `v1.2.3`; then ADR-0046.
+
 ## 2026-07-24 — Live measurement verdict + ADR-0046/0047/0048 (Claude Fable 5)
 **Did:** finished the икона live runbook far enough to settle the speed
 question: init completed the discussion link with zero avatar re-uploads

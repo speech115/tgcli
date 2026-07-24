@@ -190,7 +190,7 @@ class CloneState:
         discussion_source_peer_id = data.get("discussion_source_peer_id")
         discussion_destination_peer_id = data.get("discussion_destination_peer_id")
         if (
-            comments not in {"enabled", "unavailable", "none"}
+            comments not in {"enabled", "unavailable", "none", "disabled"}
             or type(discussion_id_map) is not dict
             or any(
                 type(k) is not str

@@ -11,6 +11,23 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.3] — 2026-07-24
+
+### Added
+
+- `clone init --no-comments` creates a posts-only clone with
+  `comments: "disabled"` (no discussion peer, no comment sync) (ADR-0045).
+- Init preview JSON gains `peers_to_create` and `account_flood` so callers
+  can see peer-creation cost and flood posture before commit (ADR-0045).
+
+### Changed
+
+- A FloodWait on any mutating clone RPC now also arms an account-scoped
+  cooldown under `clones/account-<user_id>.json`. Later `init --commit` /
+  `sync` for every clone of that account exit 5 locally until the deadline
+  (ADR-0045). Per-clone `retry_not_before` remains; either scope blocks.
+  Roster floods still arm nothing (ADR-0024).
+
 ## [1.2.2] — 2026-07-24
 
 ### Fixed
@@ -149,6 +166,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.3]: https://github.com/speech115/tgcli/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/speech115/tgcli/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/speech115/tgcli/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/speech115/tgcli/compare/v1.1.3...v1.2.0
