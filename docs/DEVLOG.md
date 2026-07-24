@@ -17,6 +17,20 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — ADR-0042 final CLI blocker fixes (Composer)
+**Did:** added CLI regression coverage proving `accounts login --continue`
+without an explicit timeout reaches attempt lookup instead of being blocked by
+the global timeout default. `accounts remove --confirm` now creates the
+sessions directory before taking its lock, so a configured account with no
+state tree is removed cleanly with session/backup reported absent. Full gate:
+855 passed, 9 skipped; ruff, format, pyright, coverage, architecture, docs
+green.
+**Decided:** suppress the global timeout default specifically for login
+continuations; explicit `--timeout` remains rejected by preflight.
+**Learned:** direct command-function tests did not cover the CLI default
+backfill order, and remove's held-lock fix needed an empty-state-tree case.
+**Next:** owner live acceptance on a secondary throwaway alias.
+
 ## 2026-07-24 — ADR-0042 independent review fixes (Composer)
 **Did:** closed the independent Spec+Standards findings on the login stack.
 Promotion restores the destination from `.bak` if the second rename fails;
