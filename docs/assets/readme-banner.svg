@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="440" viewBox="0 0 1280 440" role="img" aria-label="tgcli — stateless Telegram CLI for humans, scripts, and AI agents">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1620"/>
+      <stop offset="100%" stop-color="#071018"/>
+    </linearGradient>
+    <linearGradient id="tg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2aabee"/>
+      <stop offset="100%" stop-color="#229ed9"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="440" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1280" height="3" fill="url(#tg)"/>
+
+  <g transform="translate(72,64)">
+    <rect x="0" y="0" width="56" height="56" rx="14" fill="url(#tg)"/>
+    <path d="M12 28 L44 15 L38 44 L29 35 L23 41 L23 32 Z" fill="#071018"/>
+    <text x="76" y="30" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="38" font-weight="700" fill="#eaf3f9">tgcli</text>
+    <text x="76" y="56" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="17" fill="#7e94a4">Telegram CLI: read, search, send &#183; no daemons, JSON everywhere</text>
+  </g>
+
+  <g transform="translate(72,168)">
+    <rect x="0" y="0" width="1136" height="212" rx="14" fill="#040d13" stroke="#173040"/>
+    <circle cx="26" cy="26" r="6" fill="#2a3f4d"/>
+    <circle cx="46" cy="26" r="6" fill="#2a3f4d"/>
+    <circle cx="66" cy="26" r="6" fill="#2a3f4d"/>
+    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="19">
+      <text x="28" y="74"><tspan fill="#4f6b7d">$</tspan> <tspan fill="#eaf3f9">tg --json dialogs --unread-only</tspan></text>
+      <text x="28" y="108"><tspan fill="#4f6b7d">$</tspan> <tspan fill="#eaf3f9">tg --json search --all </tspan><tspan fill="#7fd6a0">"invoice"</tspan><tspan fill="#eaf3f9"> --limit 20</tspan></text>
+      <text x="28" y="142"><tspan fill="#4f6b7d">$</tspan> <tspan fill="#eaf3f9">tg --json send @user </tspan><tspan fill="#7fd6a0">"hello"</tspan><tspan fill="#eaf3f9"> --preview</tspan></text>
+      <text x="28" y="176"><tspan fill="#4f6b7d">$</tspan> <tspan fill="#eaf3f9">tg --json send --commit p_9f3a</tspan><tspan fill="#4f6b7d">   # nothing leaves without this</tspan></text>
+    </g>
+  </g>
+</svg>
