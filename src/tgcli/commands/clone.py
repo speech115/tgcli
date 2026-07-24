@@ -531,11 +531,11 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
                     types.PeerChannel(clone_state.discussion_destination_peer_id)
                 )
             )
-        except Exception as exc:  # noqa: BLE001 — ergonomics best-effort; never fail init
+        except (ValueError, telethon_errors.RPCError):
             discussion_unresolved = True
             note(
                 "warning: clone mute skipped for discussion peer "
-                f"{clone_state.discussion_destination_peer_id}: {exc}"
+                f"{clone_state.discussion_destination_peer_id}: unresolved"
             )
     applied = await ergonomics.apply(tg, peers)
     if discussion_unresolved:

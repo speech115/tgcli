@@ -20,14 +20,16 @@ Template:
 ## 2026-07-24 — Babysit PR #55: discussion lookup best-effort (Composer)
 **Did:** PR #55 (ADR-0046) was already merged as `v1.2.4`. Triaged the one
 unresolved Bugbot thread: discussion peer `get_entity` for mute/folder only
-caught `ValueError`, so `ChannelPrivateError` could fail init. Added
-reproducing CLI test, broadened the catch to best-effort `Exception` (warn +
-`muted=false`, exit 0) on `cursor/adr-0046-clone-features-e6a5`.
+caught `ValueError`, so `ChannelPrivateError` could fail init. Follow-up on
+`cursor/adr-0046-clone-features-e6a5` / PR #56: catch
+`(ValueError, telethon_errors.RPCError)` (not bare `Exception`); parametrize
+the unresolved-discussion CLI test. Also restored #54 mergeability after
+#55 by resolving the clone.py architecture ceiling to 1027.
 **Decided:** post-merge follow-up fix; no CONTRACT/version bump — behavior
-already required by ADR-0046 / CONTRACT.
-**Learned:** owner can merge while Bugbot is still posting; babysit must
-still land confirmed findings even after merge.
-**Next:** gate → push → open follow-up PR; independent review before merge.
+already required by ADR-0046 / CONTRACT. Prefer typed RPC catch over BLE001.
+**Learned:** owner can merge while Bugbot is still posting; parallel agents
+may open the same fix — refine the open PR instead of duplicating.
+**Next:** green PR CI on #54/#56; owner merges; watch ADR-0047/48/49 PRs.
 
 ## 2026-07-24 — Babysit PR #53 Bugbot fixes (Composer)
 **Did:** on `claude/flood-containment` / PR #53, fixed two Bugbot findings with
