@@ -17,6 +17,25 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — ADR-0042 Slice 1: `accounts show` / `remove` (Cursor)
+**Did:** implemented offline account lifecycle from
+`docs/superpowers/plans/2026-07-24-accounts-login.md` Tasks 1–2.
+`tg accounts show ALIAS` reports config presence, session path/size/mtime,
+non-blocking lock probe, `.bak` slot, and always-null `authorized`.
+`tg accounts remove ALIAS [--confirm] [--keep-session]` is report-only
+without `--confirm` (exit 2), refuses `default_account` and a held lock,
+rewrites config atomically at mode `0600` preserving unrelated content, and
+audits `accounts-remove` before deletion. `TGCLI_NO_SEND` does not apply;
+`--readonly` blocks only `--confirm`. CONTRACT §10 updated; architecture
+ceilings raised to measured `cli.py` 267 and `parser.py` 461. Tests in
+`tests/test_commands_accounts.py`.
+**Decided:** followed ADR-0042 / the plan; no design change. Config section
+removal is line-oriented text filtering (not a TOML round-trip) so comments
+and sibling accounts survive.
+**Learned:** entry-layer ceilings were already exact; Slice 1 alone forced
+the first deliberate raise.
+**Next:** Slice 2 — client seam, `logins/` state, QR login path (Tasks 3–6).
+
 ## 2026-07-24 — ADR-0042: `tg accounts login` grilled and planned; three loose ends closed (Claude Opus 4.8)
 **Did:** closed the administrative tail — issue #34 (drafts shipped in 1.1.1),
 `CHANGELOG.md` compare links for `1.1.2`/`1.1.3`, and the inaccurate README

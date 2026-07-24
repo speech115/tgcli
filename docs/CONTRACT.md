@@ -758,19 +758,22 @@ the command result.
 `-v` / `--verbose` enables Python and Telethon debug logs on stderr for the
 current process. Stdout remains contract data in all output modes.
 
-## 10. Accounts (phase 6)
+## 10. Accounts (phase 6 / ADR-0042)
 
 ```
 tg accounts import [ALIAS ...] [--source-root PATH] [--force]
+tg accounts show ALIAS
+tg accounts remove ALIAS [--confirm] [--keep-session]
 ```
 
-This is a local-only command: it never opens a Telegram connection. With no
-aliases it tries `main`, `recklessou`, and `teamsyncsage`, and reports a
-missing old-stack source as a warning rather than failing. An explicitly named
-missing source exits 4. The command copies old-stack SQLite sessions with an
-online backup into `TGCLI_STATE_DIR/sessions`; an existing destination is left
-untouched unless `--force` is supplied. A busy destination lock or missing or
-unparseable credentials for a newly configured account exits 3.
+`accounts import` is a local-only command: it never opens a Telegram
+connection. With no aliases it tries `main`, `recklessou`, and `teamsyncsage`,
+and reports a missing old-stack source as a warning rather than failing. An
+explicitly named missing source exits 4. The command copies old-stack SQLite
+sessions with an online backup into `TGCLI_STATE_DIR/sessions`; an existing
+destination is left untouched unless `--force` is supplied. A busy destination
+lock or missing or unparseable credentials for a newly configured account
+exits 3.
 
 `--json` emits:
 
@@ -781,6 +784,36 @@ unparseable credentials for a newly configured account exits 3.
 ```
 
 `--plain` emits frozen TSV columns: `alias`, `status`, `config`.
+
+`accounts show` is strictly offline (ADR-0042 §11): config presence, resolved
+session path, existence, size, mtime (ISO-8601 UTC), whether the account lock
+is currently held, and the `.bak` slot. `authorized` is always `null`. An
+alias absent from config exits 4. Lock state is probed with
+`LOCK_EX | LOCK_NB` and released immediately — never stolen, never waited on.
+
+```json
+{"alias": "main", "in_config": true, "session": "/…/sessions/main.session",
+ "exists": true, "bytes": 32768, "modified": "2026-07-24T12:00:00+00:00",
+ "locked": false, "backup": "/…/sessions/main.session.bak", "authorized": null}
+```
+
+`--plain` emits: `alias`, `exists`, `bytes`, `modified`, `locked`, `backup`,
+`authorized`.
+
+`accounts remove` deletes the named `[accounts.<alias>]` block and, unless
+`--keep-session`, the session file and its `.bak`. Without `--confirm` it
+deletes nothing, prints a `--confirm` hint to stderr, and exits 2. It refuses
+(exit 2) when the account lock is held, when the alias is `default_account`,
+or under `--readonly` / `TGCLI_READONLY=1` with `--confirm`. `TGCLI_NO_SEND`
+does not apply. An unknown alias exits 4. The audit record `accounts-remove`
+is written before any deletion (fails closed).
+
+```json
+{"alias": "x", "config": "removed", "session": "deleted", "backup": "deleted"}
+```
+
+`session` / `backup` are `deleted`, `kept` (`--keep-session`), or `absent`.
+`--plain` emits: `alias`, `config`, `session`, `backup`.
 
 ## 11. Chat Clone (ADR-0017, ADR-0021, ADR-0022, ADR-0023)
 

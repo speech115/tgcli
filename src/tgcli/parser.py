@@ -54,6 +54,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_import.add_argument("aliases", nargs="*", metavar="ALIAS")
     p_import.add_argument("--source-root", type=Path, default=Path("~"))
     p_import.add_argument("--force", action="store_true")
+    p_show = accounts_sub.add_parser(
+        "show",
+        help="Show offline account and session status",
+        parents=[global_flags],
+    )
+    p_show.add_argument("alias", metavar="ALIAS")
+    p_remove = accounts_sub.add_parser(
+        "remove",
+        help="Remove a configured account",
+        parents=[global_flags],
+    )
+    p_remove.add_argument("alias", metavar="ALIAS")
+    p_remove.add_argument(
+        "--confirm",
+        action="store_true",
+        help="actually remove; without this, refuse",
+    )
+    p_remove.add_argument(
+        "--keep-session",
+        action="store_true",
+        help="leave the session file and .bak in place",
+    )
 
     p_dialogs = sub.add_parser("dialogs", help="List dialogs", parents=[global_flags])
     p_dialogs.add_argument("--limit", type=int, default=50)
