@@ -17,6 +17,24 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — Stack #54–#58 merged; 1.2.5 and 1.2.6 tagged (Claude Opus 4.8)
+**Did:** owner granted merge rights, so landed the whole open stack in order.
+#54 merged by the owner; then #56, #57, #58 — each needed `origin/main` merged
+into its branch first, with the full gate re-run after every conflict
+resolution (#56: 923 passed / 9 skipped; #57: 936/9; #58 and final main: 946/9,
+architecture check green each time). Tagged `v1.2.5` at #57 and `v1.2.6` at
+#58. No open PRs remain.
+**Decided:** resolve every `check-architecture` ceiling conflict to the file's
+*actual* post-merge length (1060, then 1072) rather than the higher of the two
+sides — a ratchet only ratchets if it tracks reality. DEVLOG conflicts resolved
+by keeping both entries, newest on top, never dropping one.
+**Learned:** merging a stacked PR one branch at a time makes the clone.py
+ceiling conflict three times; the ceiling is the single line that every clone
+slice touches, so a stack of clone PRs always serialises through it. Worth
+considering a computed ceiling instead of a literal.
+**Next:** ADR-0049 clone sync progress lines (Part D) is the only planned slice
+left; live re-measure of the ADR-0047 speedup stays owner-gated.
+
 ## 2026-07-24 — Re-review of the open #54–#58 stack (Claude Opus 4.8 orchestrating 3 Sonnet subagents)
 **Did:** owner asked for a second pass over how the ADR-0045..0048 slices were
 executed. Three subagents re-ran the full gate per branch in isolated
