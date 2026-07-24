@@ -17,6 +17,37 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — README restyled after wacli; docs-site question answered (Claude Opus 4.8)
+**Did:** owner asked for GitHub presentation in the style of
+[openclaw/wacli](https://github.com/openclaw/wacli). Studied that README and
+`wacli.sh` (custom static site built by `scripts/build-docs-site.mjs` from
+`docs/*.md`, published by `.github/workflows/pages.yml` behind a `CNAME`).
+Rewrote `README.md` to the same shape — banner, one-line pitch, third-party
+disclaimer, Features, Install, Quick start, Documentation table, Configuration
+(env + exit-code tables), one deep-dive section (preview → commit, the analogue
+of wacli's history-backfill section), Status, Credits, Maintainers. Added
+`docs/assets/readme-banner.svg` (Telegram-blue terminal card, no external
+fonts, renders in GitHub light and dark). Docs only; no code, no contract, no
+version bump. Gate: 785 passed / 9 skipped, ruff clean, architecture check
+passed.
+**Decided:** no docs site for now — recommended against porting the wacli.sh
+pattern while the repo is private (Pages on a private repo needs a paid plan
+and would publish a public site for a private tool) and while the readership is
+one owner plus agents that read `SKILL.md` and `docs/CONTRACT.md` straight off
+disk. Left the README's documentation table as the index instead. Deliberately
+did **not** add a `LICENSE` section or file — no license exists in the repo and
+picking one is the owner's call.
+**Learned:** `tg send --preview --json` has no `rendered` field (CONTRACT §5
+shape is `preview_id`/`to`/`text`/`file*`/`reply_to`/`topic`/`silent`/
+`expires_at`) and a phone number is a `tg resolve` input, not a general chat
+ref — both drafted wrong from memory and corrected against CONTRACT.md and
+`chatref.py`. Verify README claims against the contract, not against SKILL.md
+prose.
+**Next:** owner decides on the repo-metadata command (topics/description) and
+on whether a `LICENSE` file should exist; if the repo ever goes public,
+re-open the docs-site question — the wacli approach is ~300 lines of build
+script over the `docs/*.md` that already exist.
+
 ## 2026-07-24 — Review Cursor's ADR-0040 work, ship 1.1.2/1.1.3 (Claude Opus 4.8)
 **Did:** reviewed PR #40 against the plan — all 4 tasks executed, gate
 reproduced locally (782 → 785 passed). Found and fixed four defects in
