@@ -1218,6 +1218,40 @@ def test_clone_init_mutes_created_peers_forever(config_env, monkeypatch, capsys)
     assert {item.settings.mute_until for item in mutes} == {MUTE_FOREVER_UNTIL}
     muted_ids = {item.peer.peer.channel_id for item in mutes}
     assert muted_ids == {999, 1001}
+    [folder_update] = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.messages.UpdateDialogFilterRequest)
+    ]
+    included = {peer.channel_id for peer in folder_update.filter.include_peers}
+    assert included == {999, 1001}
+
+
+def test_clone_init_unresolved_discussion_marks_muted_false(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.linked = linked_group()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    original_get_entity = client.get_entity
+
+    async def flaky_get_entity(ref):
+        if isinstance(ref, types.PeerChannel) and ref.channel_id == 1001:
+            raise ValueError("discussion gone")
+        return await original_get_entity(ref)
+
+    client.get_entity = flaky_get_entity  # type: ignore[method-assign]
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert result["ergonomics"]["muted"] is False
+    assert "warning: clone mute skipped for discussion peer" in captured.err
 
 
 def test_clone_init_skips_mute_when_already_forever(config_env, monkeypatch, capsys):

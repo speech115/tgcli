@@ -27,6 +27,7 @@ from tgcli.clone import (
     transport,
 )
 from tgcli.errors import NotFoundError, PartialFailure, PolicyError, RateLimitError
+from tgcli.output import note
 
 
 def _entry(s: state.CloneState) -> dict:
@@ -522,6 +523,7 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
             tg, destination, clone_state, full_chat, account_alias, clone_id
         )
     peers = [destination]
+    discussion_unresolved = False
     if clone_state.discussion_destination_peer_id is not None:
         try:
             peers.append(
@@ -530,8 +532,14 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
                 )
             )
         except ValueError:
-            pass
+            discussion_unresolved = True
+            note(
+                "warning: clone mute skipped for discussion peer "
+                f"{clone_state.discussion_destination_peer_id}: unresolved"
+            )
     applied = await ergonomics.apply(tg, peers)
+    if discussion_unresolved:
+        applied["muted"] = False
     return {
         "clone": {
             "id": clone_state.clone_id,
