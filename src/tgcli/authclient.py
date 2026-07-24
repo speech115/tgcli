@@ -15,7 +15,7 @@ from telethon import errors as telethon_errors
 
 from tgcli.config import Account
 from tgcli.errors import ConfigError
-from tgcli.session import session_path
+from tgcli.session import client_identity, session_path
 
 
 @asynccontextmanager
@@ -35,7 +35,15 @@ async def unauthorized_client(path: Path, api_id: int, api_hash: str):
             f"session {path.stem!r} is busy (another tg process is using it); "
             "retry in a few seconds"
         ) from None
-    tg = TelegramClient(str(path), api_id, api_hash)
+    device_model, system_version, app_version = client_identity()
+    tg = TelegramClient(
+        str(path),
+        api_id,
+        api_hash,
+        device_model=device_model,
+        system_version=system_version,
+        app_version=app_version,
+    )
     try:
         await tg.connect()
         yield tg

@@ -99,6 +99,28 @@ async def test_revoked_session_during_command_raises_reauthentication_error(
             raise telethon_errors.SessionRevokedError(request=None)
 
 
+def test_make_client_sets_stable_telegram_device_identity(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_client(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr(session, "TelegramClient", fake_client)
+    monkeypatch.setattr(session.platform, "system", lambda: "TestOS")
+
+    result = session._make_client(Path(tmp_path / "regular"), ACCOUNT)
+
+    assert result is not None
+    assert captured["args"] == (str(tmp_path / "regular"), 1, "h")
+    assert captured["kwargs"] == {
+        "device_model": "tgcli",
+        "system_version": "TestOS",
+        "app_version": session.__version__,
+    }
+
+
 class FailingSender:
     def __init__(self, error_factory):
         self.error_factory = error_factory

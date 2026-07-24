@@ -141,6 +141,13 @@ channel.
     (`import`, `login`, `list`, `show`, `remove`), which is the statement a
     minor version exists to make.
 
+15. **Telegram Devices identifies every connection as `tgcli`.** Both regular
+    and staged-login clients pass a stable `device_model = "tgcli"`, the
+    package version as `app_version`, and only the OS family as
+    `system_version`. Telethon's architecture-only default (`arm64`) made
+    multiple tgcli authorizations indistinguishable during live cleanup and
+    caused the owner to terminate the wrong session.
+
 ## Consequences
 
 - **The entry layer's ceilings are raised deliberately.** `cli.py`,

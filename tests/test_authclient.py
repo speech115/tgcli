@@ -70,6 +70,39 @@ async def test_unauthorized_client_takes_and_releases_lock(tmp_path, monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_unauthorized_client_sets_same_telegram_device_identity(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "staged.session"
+    fake = _FakeTg()
+    captured = {}
+
+    def fake_client(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return fake
+
+    monkeypatch.setattr(authclient, "TelegramClient", fake_client)
+    monkeypatch.setattr(
+        authclient,
+        "client_identity",
+        lambda: ("tgcli", "TestOS", "1.2.0"),
+    )
+
+    async with authclient.unauthorized_client(path, 1, "hash"):
+        pass
+
+    assert captured == {
+        "args": (str(path), 1, "hash"),
+        "kwargs": {
+            "device_model": "tgcli",
+            "system_version": "TestOS",
+            "app_version": "1.2.0",
+        },
+    }
+
+
+@pytest.mark.asyncio
 async def test_unauthorized_client_busy_lock_raises(tmp_path, monkeypatch):
     path = tmp_path / "staged.session"
     lock = path.with_suffix(".lock").open("w")
