@@ -967,11 +967,22 @@ source kind still match the preview, then creates or recovers one private
 creator-owned destination of the source-dependent kind. JSON:
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":{"id":999,"title":"[Clone] Source"},"comments":"none","status":"ready","commit_required":false}}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":{"id":999,"title":"[Clone] Source"},"comments":"none","status":"ready","commit_required":false},"ergonomics":{"muted":true,"folder":"added"}}
 ```
 
+After the destination (and discussion group, when enabled) is ready, init
+best-effort mutes each tool-created peer forever and files them into the
+Telegram folder titled `Clone` (ADR-0046). `ergonomics.muted` is `true` when
+every peer is muted or was already muted; `false` if any mute RPC failed
+(stderr warning). `ergonomics.folder` is `"added"` when peers were written
+into the filter, `"present"` when they were already members, or
+`"unavailable"` on folder limits / RPC failure (stderr warning). Mute and
+folder failures never fail init (exit stays 0). Retrofit existing clones with
+a plain `clone init` re-run — no new peers.
+
 Plain init columns are unchanged by comments support: `status`, `clone_id`,
-`source_peer_id`, `destination_peer_id`. `comments` is JSON-only on `init`.
+`source_peer_id`, `destination_peer_id`. `comments` and `ergonomics` are
+JSON-only on `init`.
 
 For a broadcast source, commit also creates or recovers a second peer: a
 private owned megagroup titled `<creation_marker>-discussion`, using the

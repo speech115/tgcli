@@ -14,6 +14,7 @@ from tgcli.clone import (
     batching,
     comments,
     discussion,
+    ergonomics,
     fidelity,
     flood,
     legs,
@@ -520,6 +521,17 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
         await _init_discussion(
             tg, destination, clone_state, full_chat, account_alias, clone_id
         )
+    peers = [destination]
+    if clone_state.discussion_destination_peer_id is not None:
+        try:
+            peers.append(
+                await tg.get_entity(
+                    types.PeerChannel(clone_state.discussion_destination_peer_id)
+                )
+            )
+        except ValueError:
+            pass
+    applied = await ergonomics.apply(tg, peers)
     return {
         "clone": {
             "id": clone_state.clone_id,
@@ -535,7 +547,8 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
             "comments": clone_state.comments,
             "status": "ready",
             "commit_required": False,
-        }
+        },
+        "ergonomics": applied,
     }
 
 
