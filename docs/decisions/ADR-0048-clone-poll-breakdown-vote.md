@@ -35,12 +35,16 @@ the source poll.
    the misleading zeros with an explicit "распределение по вариантам
    недоступно" line (fixing the observed confusion for every path).
 4. **Safety posture.** The vote+retract pair is a mutation of a foreign
-   peer: it runs inside sync's existing mutation gates (`--readonly` /
-   `TGCLI_NO_SEND` block it — with the snapshot degrading to the
-   placeholder, not failing), each cast/retract appends an audit record,
-   and a FloodWait surfaces through the standard cooldown path. If the
-   retract fails, sync reports it loudly (stderr + JSON marker) so the
-   owner can retract manually — the vote must never linger silently.
+   peer: it runs inside sync's existing mutation gates. `--readonly` /
+   `TGCLI_NO_SEND` already block `clone sync` in preflight, before
+   config or session work, so no vote can be cast under them — the
+   run exits 2 rather than degrading a card. The renderer re-checks both
+   gates and falls back to the placeholder, but that is a second line of
+   defence for callers outside sync, not the sync path itself. Each
+   cast/retract appends an audit record, and a FloodWait surfaces through
+   the standard cooldown path. If the retract fails, sync reports it
+   loudly (stderr + JSON marker) so the owner can retract manually — the
+   vote must never linger silently.
 
 ## Consequences
 
@@ -53,5 +57,11 @@ the source poll.
   impact negligible.
 - A retract failure leaves a real vote standing in the source poll until
   manually removed; the loud marker makes that state visible.
+- A *cast* that fails after the server accepted it (transport error
+  between request and response) is the one state the retract path cannot
+  reach: the exception propagates and no retract is attempted, because
+  the tool cannot tell an accepted vote from a rejected one. The audit
+  record for the cast is written before the call, so the vote is still
+  traceable; recovering it stays manual.
 - CONTRACT: snapshot semantics prose updated; JSON sync report gains an
   additive marker for cast/retract outcomes.

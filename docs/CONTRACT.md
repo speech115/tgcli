@@ -1086,8 +1086,12 @@ breakdown, the card shows `распределение по вариантам н
 misleading `0% · 0` rows (ADR-0048). For anonymous, open, non-quiz polls in that
 state, sync may cast a transient vote, read the revealed results, retract the
 vote, and subtract the own vote from the rendered totals; public polls, quizzes,
-and closed polls never vote. `--readonly` / `TGCLI_NO_SEND` skip the vote and
-keep the honest placeholder. Cast and retract each append an audit record; a
+and closed polls never vote. `--readonly` / `TGCLI_NO_SEND` never reach a poll
+at all: they block `clone sync` as a whole before config/session work (see
+below), so no transient vote can be cast under them. The snapshot renderer
+re-checks the same two gates and keeps the honest placeholder, which matters
+only if it is ever driven outside `clone sync`. Cast and retract each append an
+audit record; a
 retract failure warns on stderr and adds a `poll_votes` marker — sync does not
 abort. Story references become two-line `Stories недоступна` placeholders whose
 resolved author name/title is a clickable `t.me` link when possible; Story IDs

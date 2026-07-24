@@ -2295,27 +2295,20 @@ def test_clone_sync_poll_without_breakdown_casts_and_retracts_vote(
     assert out["sync"]["poll_votes"] == [{"message_id": 2, "status": "captured"}]
 
 
-def test_clone_sync_poll_skips_vote_under_no_send(config_env, monkeypatch, capsys):
-    seed_clone()
-    monkeypatch.setenv("TGCLI_NO_SEND", "1")
-    monkeypatch.setattr("tgcli.safety.enforce_mutation_allowed", lambda readonly: None)
-    media = poll_media(results=[], total_voters=10)
-    client = CloneReuploadClient([message(2, media=media)])
-    make_session_fake(monkeypatch, client)
+def test_clone_sync_no_send_blocks_before_reaching_a_poll(monkeypatch):
+    """TGCLI_NO_SEND cannot let a poll vote slip through, because it stops
+    the whole sync in preflight (ADR-0048 §4). The renderer's own gate is a
+    second line of defence, unit-tested in test_clone_snapshot.py."""
+    from tgcli import cli
 
-    assert main(["clone", "sync", "@source", "--json"]) == 0
-    out = json.loads(capsys.readouterr().out)
-    assert not any(
-        isinstance(req, functions.messages.SendVoteRequest) for req in client.requests
+    monkeypatch.setenv("TGCLI_NO_SEND", "1")
+    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
+    monkeypatch.setattr(
+        session, "client", lambda account: pytest.fail("session opened")
     )
-    [send] = [
-        req
-        for req in client.requests
-        if isinstance(req, functions.messages.SendMessageRequest)
-    ]
-    assert "распределение по вариантам недоступно" in send.message
-    assert out["sync"]["poll_votes"][0]["status"] == "skipped"
-    assert out["sync"]["poll_votes"][0]["reason"] == "readonly"
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+    assert not safety.audit_path().exists()
 
 
 def test_clone_sync_replaces_unavailable_story_with_named_placeholder(
