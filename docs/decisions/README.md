@@ -48,6 +48,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0039](ADR-0039-message-drafts.md) | `tg draft set\|show\|clear\|list`: set/clear under preview→commit with `old_text`, reads in the registry, own JSON object | accepted |
 | [0040](ADR-0040-wacli-review-adoption-scope.md) | Adopt `store stats\|cleanup` (audit log + sessions untouchable) and offline-by-default `doctor --connect`; defer `--events` (→FEED-001) and `tg spec` (needs overturning ADR-0028) | accepted |
 | [0041](ADR-0041-user-facing-guide-split.md) | Add task-shaped `docs/guide/` pages between SKILL.md and CONTRACT.md; contract wins on conflict; no docs site while the repo is private | accepted |
+| [0042](ADR-0042-accounts-login.md) | `tg accounts login` QR-first + phone fallback, native-dialog secret channel, staged session promoted only on confirmation; `show`/`remove` close the account lifecycle | accepted |
 
 Notes on supersessions:
 

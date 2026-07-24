@@ -17,6 +17,39 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — ADR-0042: `tg accounts login` grilled and planned; three loose ends closed (Claude Opus 4.8)
+**Did:** closed the administrative tail — issue #34 (drafts shipped in 1.1.1),
+`CHANGELOG.md` compare links for `1.1.2`/`1.1.3`, and the inaccurate README
+claim that "every mutation is two invocations" (dialog-state mutations run in
+one). Then a full owner grill over ACCOUNTS-001 → new root `CONTEXT.md`
+(account/authorization vocabulary), `docs/decisions/ADR-0042-accounts-login.md`,
+and the scoped plan `docs/superpowers/plans/2026-07-24-accounts-login.md`
+(4 slices, 11 tasks). Docs-and-plan only, no source changed; gates green
+(785 passed, architecture and docs checks pass).
+**Decided:** twelve decisions, all in ADR-0042. Headline: QR login by default
+with a phone+code fallback; the cloud password collected through a native
+`osascript` dialog with a stdin fallback, never through `argv`; a login attempt
+is *not* a preview and lives in its own `logins/`; `sessions/<alias>.session`
+gets exactly one writer, promotion by atomic rename after Telegram confirms;
+`--readonly` blocks, `TGCLI_NO_SEND` does not; an incomplete handshake is exit 0
+plus `"next"`, not a new exit code; scope widened to `show`/`remove` so the
+account lifecycle closes; ships as the owner-declared minor `1.2.0`.
+**Learned:** four things that only came from checking. (1) All four entry-layer
+files — `cli.py` 254, `parser.py` 439, `preflight.py` 203, `dispatch.py` 245 —
+sit *exactly* at their `check-architecture.py` ceilings, so this feature cannot
+add a line without a deliberate ceiling raise. (2) The desktop client here is
+`ru.keepcoder.Telegram`, not Telegram Desktop: no `tdata`, no supported session
+extractor, so "just copy the session from the app" is closed on facts before
+judgement. (3) Telethon's own `QRLogin.url` docstring states the `tg://login`
+URI is meant to be opened by a logged-in Telegram app — that is what makes the
+deep link a real design, though the macOS handler registration is still
+unproven and is called out as the plan's one live-only assumption. (4) The
+ISSUES.md mitigation "keep the config and state dirs in a backup" is **still
+unmet** (`AutoBackup = 0`, destination fails to mount) — recovery rests entirely
+on this feature.
+**Next:** Cursor executes the plan, starting with Slice 1 (offline
+`accounts show` / `remove`), which ships on its own.
+
 ## 2026-07-24 — ADR-0041: user-facing guide, 22 pages + fail-closed docs gate (Claude Opus 4.8 orchestrating 5 Sonnet subagents)
 **Did:** owner asked to split user-facing docs out of the engineering tree.
 Wrote ADR-0041 + index row, `docs/guide/README.md` (index), and orchestrated
