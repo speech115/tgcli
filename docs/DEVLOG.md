@@ -17,6 +17,22 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — Babysit PR #53 Bugbot fixes (Composer)
+**Did:** on `claude/flood-containment` / PR #53, fixed two Bugbot findings with
+reproducing tests first: (1) re-init without `--no-comments` no longer
+re-enables discussion on a `comments: "disabled"` slot (sticky posts-only);
+(2) `flood.arm_cooldown` and mirror-fix `CloneState.set_cooldown` keep the
+later deadline instead of shortening an active cooldown. Pushed review-fix
+commit; watching PR-event CI.
+**Decided:** treat CONTRACT "posts-only forever for this state slot" as sticky
+at commit regardless of preview flag; shortening a FloodWait deadline is never
+correct containment.
+**Learned:** cancelled push-event CI still marks GitHub `mergeable_state`
+unstable even when the PR-event run is green — babysit on the PR-event head
+SHA, not the cancelled duplicate.
+**Next:** green PR CI + resolve Bugbot threads; independent Spec+Standards
+review; owner merges and tags `v1.2.3`.
+
 ## 2026-07-24 — ADR-0045 flood containment implementation (Composer)
 **Did:** implemented plan tasks 1–6 on `claude/flood-containment`:
 `clone/flood.py` account record (atomic writes); wired account cooldown into

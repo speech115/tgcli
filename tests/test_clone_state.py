@@ -384,6 +384,15 @@ def test_set_cooldown_requires_timezone_aware():
         s.set_cooldown(datetime(2026, 7, 15, 12, 0))
 
 
+def test_set_cooldown_keeps_later_deadline():
+    s = _fresh()
+    longer = datetime(2026, 7, 15, 12, 30, tzinfo=UTC)
+    shorter = datetime(2026, 7, 15, 12, 5, tzinfo=UTC)
+    s.set_cooldown(longer)
+    s.set_cooldown(shorter)
+    assert s.cooldown_deadline() == longer
+
+
 def test_record_mapping_and_dest_for():
     s = _fresh()
     s.record_mapping(12, 5)

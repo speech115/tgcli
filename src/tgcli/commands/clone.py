@@ -424,7 +424,7 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
     )
     if clone_state.source_kind != source_kind:
         raise PolicyError("clone source kind no longer matches initialized state")
-    no_comments = bool(payload.get("no_comments"))
+    no_comments = bool(payload.get("no_comments")) or clone_state.comments == "disabled"
     if no_comments and clone_state.comments == "enabled":
         raise PolicyError(
             "clone init --no-comments cannot disable an existing linked discussion; "

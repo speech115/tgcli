@@ -61,6 +61,16 @@ def test_arm_preserves_peer_created_timestamp():
     assert record["cooldown_until"] == deadline.isoformat()
 
 
+def test_arm_cooldown_keeps_later_deadline():
+    longer = datetime.now(UTC) + timedelta(minutes=30)
+    shorter = datetime.now(UTC) + timedelta(minutes=5)
+    flood.arm_cooldown(9, longer)
+    flood.arm_cooldown(9, shorter)
+
+    assert flood.load(9)["cooldown_until"] == longer.isoformat()
+    assert flood.cooldown_deadline(9) == datetime.fromisoformat(longer.isoformat())
+
+
 def test_failed_atomic_replace_preserves_previous_record(monkeypatch):
     deadline = datetime.now(UTC) + timedelta(minutes=1)
     flood.arm_cooldown(8, deadline)

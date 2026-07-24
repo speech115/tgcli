@@ -61,7 +61,11 @@ def _save(account_user_id: int, record: dict) -> None:
 
 def arm_cooldown(account_user_id: int, deadline: datetime) -> None:
     record = load(account_user_id)
-    record["cooldown_until"] = _require_aware(deadline).isoformat()
+    aware = _require_aware(deadline)
+    existing = cooldown_deadline(account_user_id)
+    if existing is not None and existing > aware:
+        aware = existing
+    record["cooldown_until"] = aware.isoformat()
     _save(account_user_id, record)
 
 
