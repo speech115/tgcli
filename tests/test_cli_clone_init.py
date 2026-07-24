@@ -980,6 +980,15 @@ def test_clone_init_commit_blocks_under_account_cooldown_before_network(
 
     flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
     client = CloneInitClient()
+
+    async def forbid_get_entity(*_args, **_kwargs):
+        raise AssertionError("get_entity must not run under account cooldown")
+
+    async def forbid_get_me():
+        raise AssertionError("get_me must not run under account cooldown")
+
+    client.get_entity = forbid_get_entity  # type: ignore[method-assign]
+    client.get_me = forbid_get_me  # type: ignore[method-assign]
     make_session_fake(monkeypatch, client)
     preview = stored_preview()
 
@@ -1227,9 +1236,18 @@ def test_clone_init_mutes_created_peers_forever(config_env, monkeypatch, capsys)
     assert included == {999, 1001}
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        ValueError("discussion gone"),
+        telethon_errors.ChannelPrivateError(request=None),
+        telethon_errors.ChatAdminRequiredError(request=None),
+    ],
+)
 def test_clone_init_unresolved_discussion_marks_muted_false(
-    config_env, monkeypatch, capsys
+    error, config_env, monkeypatch, capsys
 ):
+    """Discussion get_entity failures must warn and keep exit 0 (ADR-0046)."""
     client = CloneInitClient()
     client.linked = linked_group()
     make_session_fake(monkeypatch, client)
@@ -1239,7 +1257,7 @@ def test_clone_init_unresolved_discussion_marks_muted_false(
 
     async def flaky_get_entity(ref):
         if isinstance(ref, types.PeerChannel) and ref.channel_id == 1001:
-            raise ValueError("discussion gone")
+            raise error
         return await original_get_entity(ref)
 
     client.get_entity = flaky_get_entity  # type: ignore[method-assign]
