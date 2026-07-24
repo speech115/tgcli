@@ -17,6 +17,26 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — 1.2.0 shipped: review verified, stack merged, tagged (Claude Fable)
+**Did:** independently verified every review fix in `6f9ef22` against the
+diff (all findings closed, tests present) and re-ran the full gate locally
+(ruff, architecture, docs, 867 passed / 9 skipped). Pushed the fix onto the
+release tip, CI green. Merged the whole stack into main: PR #44, then
+#45→#46→#47→#48 sequentially with retarget-to-main between steps; one
+trivial CHANGELOG conflict (the `[1.2.0]` compare link vs #44's link
+backfill) resolved in merge commit `324442e`. Tagged **v1.2.0** on merge
+commit `057428b` and pushed. Deleted all merged remote and local branches —
+only `main` remains.
+**Decided:** review fixes ride the release PR head rather than a sixth
+stacked PR — the critical fix belonged to the PR that introduced the bug.
+**Learned:** `gh pr merge --delete-branch` on a stacked base races GitHub's
+retarget and can close the dependent PR; recovery is restore-ref → reopen →
+`gh pr edit --base main` → delete ref. Merge the rest with explicit retarget
+and no auto-delete. Reopened cursor PRs come back as drafts — `gh pr ready`
+before merge.
+**Next:** live-check `tg accounts show` against a real session on 1.2.0;
+ACCOUNTS-001 is closed, next trigger-gated tails are MSG-001/FEED-001.
+
 ## 2026-07-24 — ADR-0042 independent-review fixes (Composer)
 **Did:** closed every finding from the stacked-PR review on tip
 `cursor/accounts-login-release-371f`. Critical: `_classify_login` mtime
