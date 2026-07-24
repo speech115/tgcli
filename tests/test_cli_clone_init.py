@@ -922,6 +922,15 @@ def test_clone_init_commit_blocks_under_account_cooldown_before_network(
 
     flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
     client = CloneInitClient()
+
+    async def forbid_get_entity(*_args, **_kwargs):
+        raise AssertionError("get_entity must not run under account cooldown")
+
+    async def forbid_get_me():
+        raise AssertionError("get_me must not run under account cooldown")
+
+    client.get_entity = forbid_get_entity  # type: ignore[method-assign]
+    client.get_me = forbid_get_me  # type: ignore[method-assign]
     make_session_fake(monkeypatch, client)
     preview = stored_preview()
 

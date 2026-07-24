@@ -228,6 +228,20 @@ async def _marker_candidates(tg, marker: str, shape_ok) -> tuple[list[Any], list
     return valid, wrong_shape
 
 
+def _raise_if_cooling(deadline: datetime) -> None:
+    retry_after = ceil((deadline - datetime.now(UTC)).total_seconds())
+    if retry_after > 0:
+        raise RateLimitError(
+            f"rate limited for {retry_after}s", retry_after=retry_after
+        )
+
+
+def _enforce_account_cooldown(account_user_id: int) -> None:
+    deadline = flood.cooldown_deadline(account_user_id)
+    if deadline is not None:
+        _raise_if_cooling(deadline)
+
+
 def _enforce_cooldown(clone_state: state.CloneState) -> None:
     deadlines = [
         deadline
@@ -237,14 +251,8 @@ def _enforce_cooldown(clone_state: state.CloneState) -> None:
         )
         if deadline is not None
     ]
-    if not deadlines:
-        return
-    deadline = max(deadlines)
-    retry_after = ceil((deadline - datetime.now(UTC)).total_seconds())
-    if retry_after > 0:
-        raise RateLimitError(
-            f"rate limited for {retry_after}s", retry_after=retry_after
-        )
+    if deadlines:
+        _raise_if_cooling(max(deadlines))
 
 
 async def _with_cooldown(awaitable, clone_state):
@@ -401,6 +409,21 @@ async def _init_discussion(
 
 
 async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dict:
+    # Local cooldown gate first — CONTRACT/ADR-0045: no Telegram traffic while
+    # an account (or existing per-clone) deadline is active. Preview payload
+    # already carries account_user_id / source_peer_id.
+    account_user_id = payload["account_user_id"]
+    source_peer_id = payload["source_peer_id"]
+    early_id = state.clone_id(account_user_id, source_peer_id)
+    try:
+        early_state = state.load(early_id)
+    except PolicyError:
+        early_state = None
+    if early_state is not None:
+        _enforce_cooldown(early_state)
+    else:
+        _enforce_account_cooldown(account_user_id)
+
     entity, source_kind, _ = await _resolve_source(tg, source)
     me = await tg.get_me()
     if (
@@ -763,8 +786,13 @@ async def _forward_batch(
 async def sync_text(
     tg, source: str, account_alias: str, *, limit: int | None = None
 ) -> dict:
-    source_entity, source_kind, _ = await _resolve_source(tg, source)
+    # Account identity is local-session-bound via get_me; enforce the account
+    # cooldown before username/entity resolve so a hot account never hits
+    # further Telegram RPCs (ADR-0045). Per-clone deadline is checked after
+    # state load below.
     me = await tg.get_me()
+    _enforce_account_cooldown(me.id)
+    source_entity, source_kind, _ = await _resolve_source(tg, source)
     clone_state = state.load(state.clone_id(me.id, source_entity.id))
     if clone_state is None or clone_state.destination_peer_id is None:
         raise PolicyError("clone is not initialized; run clone init first")

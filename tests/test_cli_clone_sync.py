@@ -2847,12 +2847,22 @@ def test_clone_sync_account_cooldown_blocks_before_network(
     flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
 
     client = CloneSyncClient([message(2)])
+    entity_calls = []
+
+    original_get_entity = client.get_entity
+
+    async def tracking_get_entity(ref):
+        entity_calls.append(ref)
+        return await original_get_entity(ref)
+
+    client.get_entity = tracking_get_entity  # type: ignore[method-assign]
     make_session_fake(monkeypatch, client)
 
     assert main(["clone", "sync", "@source", "--json"]) == 5
     err = json.loads(capsys.readouterr().err)["error"]
     assert err["retry_after"] > 0
     assert client.requests == []
+    assert entity_calls == []
 
 
 def test_clone_sync_readonly_blocks_before_config_or_session(monkeypatch):

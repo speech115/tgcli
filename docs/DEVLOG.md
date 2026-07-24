@@ -17,21 +17,17 @@ Template:
 **Next:** the single most useful next step
 ```
 
-## 2026-07-24 — Babysit PR #53 Bugbot fixes (Composer)
-**Did:** on `claude/flood-containment` / PR #53, fixed two Bugbot findings with
-reproducing tests first: (1) re-init without `--no-comments` no longer
-re-enables discussion on a `comments: "disabled"` slot (sticky posts-only);
-(2) `flood.arm_cooldown` and mirror-fix `CloneState.set_cooldown` keep the
-later deadline instead of shortening an active cooldown. Pushed review-fix
-commit; watching PR-event CI.
-**Decided:** treat CONTRACT "posts-only forever for this state slot" as sticky
-at commit regardless of preview flag; shortening a FloodWait deadline is never
-correct containment.
-**Learned:** cancelled push-event CI still marks GitHub `mergeable_state`
-unstable even when the PR-event run is green — babysit on the PR-event head
-SHA, not the cancelled duplicate.
-**Next:** green PR CI + resolve Bugbot threads; independent Spec+Standards
-review; owner merges and tags `v1.2.3`.
+## 2026-07-24 — Babysit: post-merge cooldown-before-network (Composer)
+**Did:** PR #53 merged + tagged `v1.2.3` while babysitting. Follow-up branch
+`claude/flood-cooldown-before-network` fixes the remaining Bugbot finding:
+account cooldown must fire before Telegram entity resolve. `commit_init`
+gates from preview payload (zero RPCs); `sync_text` does `get_me` → account
+gate → resolve. Tests forbid `get_entity` under an active account cooldown.
+**Decided:** ship as a small post-release patch PR (not reopen #53).
+**Learned:** Bugbot can land a new thread after the merge push; keep watching
+head SHA even when mergeable looks green.
+**Next:** green CI on the follow-up PR; owner merges (and tags if CONTRACT
+unchanged — behavior-only, no CONTRACT edit).
 
 ## 2026-07-24 — ADR-0045 flood containment implementation (Composer)
 **Did:** implemented plan tasks 1–6 on `claude/flood-containment`:
