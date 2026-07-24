@@ -6,6 +6,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from tgcli import atomic
 from tgcli.errors import PolicyError
 from tgcli.session import state_dir
 
@@ -47,8 +48,7 @@ def create_preview(payload: dict, *, now: datetime | None = None) -> dict:
     directory = previews_dir()
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{preview_id}.json"
-    path.write_text(json.dumps(record))
-    os.chmod(path, 0o600)
+    atomic.replace_text(path, json.dumps(record))
     return {"preview_id": preview_id, "expires_at": record["expires_at"], **payload}
 
 

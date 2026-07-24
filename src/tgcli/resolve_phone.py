@@ -5,6 +5,7 @@ import math
 import time
 from pathlib import Path
 
+from tgcli import atomic
 from tgcli.errors import RateLimitError
 from tgcli.session import state_dir
 
@@ -44,4 +45,4 @@ def enforce_resolve_phone_cooldown(*, now: float | None = None) -> None:
                     f"contacts.resolvePhone cooldown: retry after {retry_after}s",
                     retry_after=retry_after,
                 )
-        path.write_text(f"{moment}\n")
+        atomic.replace_text(path, f"{moment}\n")

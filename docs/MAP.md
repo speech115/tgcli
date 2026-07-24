@@ -10,6 +10,7 @@ tgcli/
 ├── CHANGELOG.md               [done]    released versions ↔ ADRs (semver over CONTRACT.md)
 ├── .github/workflows/ci.yml   [done]    CI: ruff + architecture + pyright + pytest + coverage gates (ADR-0027/0034)
 ├── .cursor/rules/             [done]    Cursor always-apply maintenance/TDD/docs rule
+├── .claude/agents/            [done]    repo-local subagents (reviewer: independent pre-merge diff review)
 ├── AGENTS.md                  [done]    agent contract, doc discipline
 ├── CLAUDE.md                  [done]    Claude adapter → AGENTS.md
 ├── SKILL.md                   [done]    agent command routing and safety contract (phase 6)
@@ -26,7 +27,7 @@ tgcli/
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
 │   ├── guide/                 [done]    user-facing task pages, 22 + index (ADR-0041)
 │   ├── assets/                [done]    README banner (SVG)
-│   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033)
+│   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
 │   ├── decisions/             [done]    ADR-0001…0042 + README.md index (ADR-0026 maintenance mode)
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
@@ -39,7 +40,8 @@ tgcli/
 │   ├── errors.py              [done]    TgcliError hierarchy ↔ exit codes (CONTRACT.md §4)
 │   ├── chatref.py             [done]    chat reference normalization (numeric dialog id → int)
 │   ├── config.py              [done]    ~/.config/tgcli/config.toml, accounts registry, alias resolution
-│   ├── session.py             [done]    session locks + normal/mutation-safe TelegramClient factory
+│   ├── session.py             [done]    session locks (shared lock_held probe) + normal/mutation-safe TelegramClient factory
+│   ├── atomic.py              [done]    atomic state/config file replacement (the only sanctioned writer)
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
 │   ├── confirm.py             [done]    fail-closed random_id → message-id confirmation
@@ -87,6 +89,7 @@ tgcli/
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
+    ├── gate.sh                [done]    full pre-commit gate: the exact CI steps, one command
     ├── install-link.sh        [done]    symlink tg → PATH (phase 6 cutover)
     ├── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
     ├── check-docs.py          [done]    fail-closed guide gate: flags, commands, links (ADR-0041)

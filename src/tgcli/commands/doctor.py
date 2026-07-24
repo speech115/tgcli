@@ -1,27 +1,11 @@
 """Read-only environment and session health checks (ADR-0028 / ADR-0040)."""
 
-import fcntl
 import stat
 from pathlib import Path
 
 from tgcli import safety, session
 from tgcli.output import note
 from tgcli.config import Config, resolve_account
-
-
-def _lock_free(session_file: Path) -> bool:
-    try:
-        handle = open(session_file.with_suffix(".lock"), "w")
-    except OSError:
-        return False
-    try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        fcntl.flock(handle, fcntl.LOCK_UN)
-        return True
-    except BlockingIOError:
-        return False
-    finally:
-        handle.close()
 
 
 def _writable(directory: Path) -> bool:
@@ -89,7 +73,7 @@ async def check_account(account, *, connect: bool = False) -> dict:
     has_session_file = session_file.is_file()
     checks: dict = {
         "session_file": has_session_file,
-        "lock_free": has_session_file and _lock_free(session_file),
+        "lock_free": has_session_file and session.lock_held(session_file) is False,
         "state_writable": _writable(safety.previews_dir()),
         "preview_perms_ok": _preview_perms_ok(),
         "audit_perms_ok": _audit_perms_ok(),
