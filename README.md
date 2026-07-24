@@ -128,7 +128,7 @@ Config lives at `~/.config/tgcli/config.toml`; sessions, locks, previews, the au
 
 ## Preview → commit
 
-Reads are free; every mutation is two invocations. The first one resolves the peer, renders exactly what will be sent, and writes a single-use preview record. The second one commits that record by id — the text is never retyped, so what you reviewed is what goes out.
+Reads are free; every mutation that carries content — `send`, `edit`, `delete`, `forward`, `draft set|clear`, `clone init` — is two invocations. The first one resolves the peer, renders exactly what will be sent, and writes a single-use preview record. The second one commits that record by id — the text is never retyped, so what you reviewed is what goes out. Dialog-state mutations (`mark-read`, `dialog archive|mute`) have nothing to render, so they run in one invocation and are gated by `--readonly` / `TGCLI_READONLY` instead.
 
 ```bash
 tg --json send @channel "<b>bold</b> and a <tg-spoiler>secret</tg-spoiler>" \
