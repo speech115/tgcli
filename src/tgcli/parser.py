@@ -76,6 +76,41 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="leave the session file and .bak in place",
     )
+    p_login = accounts_sub.add_parser(
+        "login",
+        help="Authorize a session (QR by default, --phone fallback)",
+        parents=[global_flags],
+    )
+    p_login.add_argument("alias", nargs="?", metavar="ALIAS")
+    p_login.add_argument(
+        "--continue",
+        dest="continue_id",
+        metavar="LOGIN_ID",
+        help="resume a pending login attempt",
+    )
+    p_login.add_argument("--phone", help="authorize by phone + confirmation code")
+    p_login.add_argument("--api-id", dest="api_id", type=int)
+    p_login.add_argument("--api-hash", dest="api_hash")
+    p_login.add_argument(
+        "--force",
+        action="store_true",
+        help="replace a still-authorized session",
+    )
+    p_login.add_argument(
+        "--qr-format",
+        choices=("link", "text"),
+        default=argparse.SUPPRESS,
+        help="QR payload shape (default: link)",
+    )
+    p_login.add_argument(
+        "--code",
+        help="confirmation code, or - to read one line from stdin",
+    )
+    p_login.add_argument(
+        "--password-stdin",
+        action="store_true",
+        help="read the cloud password from stdin (never argv)",
+    )
 
     p_dialogs = sub.add_parser("dialogs", help="List dialogs", parents=[global_flags])
     p_dialogs.add_argument("--limit", type=int, default=50)

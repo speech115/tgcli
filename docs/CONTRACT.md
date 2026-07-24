@@ -764,6 +764,10 @@ current process. Stdout remains contract data in all output modes.
 tg accounts import [ALIAS ...] [--source-root PATH] [--force]
 tg accounts show ALIAS
 tg accounts remove ALIAS [--confirm] [--keep-session]
+tg accounts login ALIAS [--phone PHONE] [--api-id N] [--api-hash H]
+                        [--force] [--timeout SECONDS] [--qr-format link|text]
+                        [--code VALUE|-] [--password-stdin]
+tg accounts login --continue LOGIN_ID [--code VALUE|-] [--password-stdin]
 ```
 
 `accounts import` is a local-only command: it never opens a Telegram
@@ -814,6 +818,46 @@ is written before any deletion (fails closed).
 
 `session` / `backup` are `deleted`, `kept` (`--keep-session`), or `absent`.
 `--plain` emits: `alias`, `config`, `session`, `backup`.
+
+`accounts login` authorizes a session (ADR-0042). No `--phone` ⇒ QR path;
+`--phone` ⇒ phone + confirmation code. `--api-id` / `--api-hash` are required
+together and only for an alias absent from config. `--continue` takes no
+`ALIAS` and rejects `--phone` / `--api-id` / `--api-hash` / `--force`.
+`--timeout` defaults to **120** seconds on the QR path when unset. The cloud
+password is never accepted as an argv value; use a native dialog or
+`--password-stdin`. `--readonly` / `TGCLI_READONLY=1` block login; `TGCLI_NO_SEND`
+does not. A still-authorized existing session refuses without `--force`
+(exit 2). Promotion by atomic rename is the only writer of
+`sessions/<alias>.session`; attempt state lives under `logins/`.
+
+Terminal success:
+
+```json
+{"alias": "main", "method": "qr", "status": "authorized", "next": null,
+ "user": {"id": 123, "username": "x", "phone": "+7…89"},
+ "session": "/…/sessions/main.session",
+ "backup": "/…/sessions/main.session.bak"}
+```
+
+Step completed but more needed (exit 0):
+
+```json
+{"alias": "main", "method": "phone", "status": "pending", "next": "code",
+ "login_id": "l_…", "expires_at": "2026-07-24T12:00:00+00:00"}
+```
+
+`--plain` emits frozen TSV columns: `alias`, `method`, `status`, `next`,
+`login_id`, `phone` (masked), `session`. Pending steps may leave `next`,
+`login_id`, or `session` empty; authorized success fills `session` and may
+clear `next`.
+
+Exit codes (existing set): 0 step ok including `"next": "code"|"password"`;
+1 QR wait timed out (attempt kept; error names `login_id`); 2 readonly /
+authorized-without-`--force` / `--continue` flag conflicts; 3 invalid code /
+invalid cloud password / banned or invalid number / missing api credentials;
+4 unknown alias or unknown/expired `login_id`; 5 `FLOOD_WAIT` with
+`retry_after`. Phones in JSON, `--plain`, stderr, and audit are masked
+(`+7…89`); codes and passwords never appear there.
 
 ## 11. Chat Clone (ADR-0017, ADR-0021, ADR-0022, ADR-0023)
 

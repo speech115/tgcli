@@ -42,9 +42,12 @@ tgcli/
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
 │   ├── confirm.py             [done]    fail-closed random_id → message-id confirmation
-│   ├── formatting.py          [done]    outgoing --format {plain,md,html} → entities (ADR-0030)
+│   ├── formatting.py          [done]    outgoing --format {plain,md,html} → entities (ADR-0030); mask_phone (ADR-0042)
 │   ├── resolve_phone.py       [done]    shared contacts.resolvePhone cooldown (ADR-0029)
 │   ├── read_ops.py            [done]    typed read-operation seam shared by interactive CLI + batch (ADR-0034)
+│   ├── desktop.py             [done]    osascript/open escape hatch for secrets and tg:// links (ADR-0042)
+│   ├── authclient.py          [done]    unauthorized Telethon client + auth probe (ADR-0042)
+│   ├── login_state.py         [done]    logins/ attempt state and session promotion (ADR-0042)
 │   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023)
 │   │   ├── state.py           [done]    atomic JSON state, mappings, cooldown
 │   │   ├── fidelity.py        [done]    media capability classification
@@ -63,6 +66,7 @@ tgcli/
 │   └── commands/
 │   │   ├── batch.py           [done]    tg batch read-only JSONL runner (ADR-0032)
 │   │   ├── accounts.py        [done]    tg accounts list|import|show|remove (phase 1/6; ADR-0042 Slice 1)
+│   │   ├── login.py           [done]    tg accounts login QR/phone + --continue (ADR-0042)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
 │   │   ├── read.py            [done]    tg read <chat>                (phase 1)
 │   │   ├── search.py          [done]    tg search / latest / message (phase 2)

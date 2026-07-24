@@ -62,3 +62,12 @@ def render(text: str, fmt: str | None):
         parsed, entities = _parse_html(text)
         return parsed, entities or None
     raise ValueError(f"unknown format: {fmt!r}")
+
+
+def mask_phone(phone: str | None) -> str:
+    """Redact a phone for JSON, plain, stderr, and audit (ADR-0042)."""
+    if not phone:
+        return ""
+    if len(phone) <= 4:
+        return "…" + phone[-2:] if len(phone) >= 2 else "…"
+    return f"{phone[:2]}…{phone[-2:]}"
