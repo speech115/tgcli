@@ -55,6 +55,7 @@ STATE_WRITER_MODULES = (
     "src/tgcli/resolve_phone.py",
     "src/tgcli/config.py",
     "src/tgcli/commands/accounts.py",
+    "src/tgcli/commands/media.py",
     "src/tgcli/commands/store.py",
     "src/tgcli/clone/state.py",
 )

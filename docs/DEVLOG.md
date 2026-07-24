@@ -31,6 +31,12 @@ wait-for-CI-before-merge, review-fixes-on-PR-head, DEVLOG redaction rule,
 gate.sh as the pre-commit command. New `docs/agents/release.md` runbook and
 `.claude/agents/reviewer.md` repo-local reviewer with Bash and the briefing
 baked in. MAP updated.
+Independent review of the PR (per the reviewer briefing) found two gaps,
+both fixed with regression tests: `media.py` resume-state still used bare
+`write_text` and was missing from `STATE_WRITER_MODULES`; the unified
+`lock_held()` silently picked accounts' OSError semantics over doctor's —
+now tri-state (`None` = unprobeable), doctor flags it, `accounts show`
+reports not-locked.
 **Decided:** ADR-0043 — shared seams enforced by the gate, not by
 convention; no CONTRACT change, so no release (ADR-0038 does not trigger).
 **Learned:** every 1.2.0 code defect was a copy of an existing pattern that

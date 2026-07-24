@@ -51,7 +51,7 @@ def show_account(config: Config, alias: str) -> dict:
         "exists": exists,
         "bytes": bytes_count,
         "modified": modified,
-        "locked": session.lock_held(path),
+        "locked": session.lock_held(path) is True,
         "backup": str(bak) if bak.is_file() else None,
         "authorized": None,
     }

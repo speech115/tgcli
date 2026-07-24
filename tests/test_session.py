@@ -194,3 +194,39 @@ def test_regular_telethon_client_keeps_read_retry_defaults(tmp_path):
 
     assert tg._request_retries == 5
     assert tg.flood_sleep_threshold == 60
+
+
+def test_lock_held_missing_session_is_false_and_creates_no_lock(tmp_path):
+    session_file = tmp_path / "ghost.session"
+
+    assert session.lock_held(session_file) is False
+    assert not (tmp_path / "ghost.lock").exists()
+
+
+def test_lock_held_free_lock_is_false(tmp_path):
+    session_file = tmp_path / "t.session"
+    session_file.write_bytes(b"x")
+
+    assert session.lock_held(session_file) is False
+
+
+def test_lock_held_taken_lock_is_true(tmp_path):
+    session_file = tmp_path / "t.session"
+    session_file.write_bytes(b"x")
+    holder = (tmp_path / "t.lock").open("w")
+    try:
+        fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert session.lock_held(session_file) is True
+    finally:
+        fcntl.flock(holder, fcntl.LOCK_UN)
+        holder.close()
+
+
+def test_lock_held_unprobeable_lock_is_none(tmp_path):
+    """An unopenable lock path is unknown, not free: doctor must flag it,
+    accounts show must not invent a held lock."""
+    session_file = tmp_path / "t.session"
+    session_file.write_bytes(b"x")
+    (tmp_path / "t.lock").mkdir()
+
+    assert session.lock_held(session_file) is None

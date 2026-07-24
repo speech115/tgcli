@@ -22,13 +22,15 @@ def session_path(account: Account) -> Path:
     return state_dir() / "sessions" / f"{account.session}.session"
 
 
-def lock_held(session_file: Path) -> bool:
+def lock_held(session_file: Path) -> bool | None:
     """Probe whether another process holds this session's lock. Side-effect
     aware: a missing session is never locked and creates no lock file
     (CONTRACT §5.1), because opening the lock path would create it.
 
     Tries LOCK_EX|LOCK_NB and releases immediately on success — never waits,
-    never keeps the lock. Returns False when the probe is impossible.
+    never keeps the lock. Returns None when the probe is impossible (the lock
+    path cannot be opened): `accounts show` reports that as not locked, while
+    `doctor` treats an unprobeable lock as unhealthy — callers decide.
     """
     if not session_file.is_file():
         return False
@@ -36,7 +38,7 @@ def lock_held(session_file: Path) -> bool:
     try:
         handle = lock_path.open("w")
     except OSError:
-        return False
+        return None
     try:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         fcntl.flock(handle, fcntl.LOCK_UN)

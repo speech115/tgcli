@@ -139,3 +139,18 @@ def test_doctor_hints_the_remedy_for_loose_preview_modes(config_env, capsys):
     assert report["accounts"][0]["checks"]["preview_perms_ok"] is False
     assert report["ok"] is False
     assert "tg store cleanup --confirm" in captured.err
+
+
+def test_doctor_flags_unprobeable_lock_as_not_free(config_env, capsys):
+    """A lock path that cannot be opened is unhealthy, not silently free."""
+    from tgcli import session
+
+    _touch_session("main")
+    (session.state_dir() / "sessions" / "main.lock").mkdir()
+
+    code = main(["doctor", "--json"])
+
+    report = json.loads(capsys.readouterr().out)["accounts"][0]
+    assert report["checks"]["lock_free"] is False
+    assert report["ok"] is False
+    assert code == 0

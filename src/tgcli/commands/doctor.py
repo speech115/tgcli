@@ -73,7 +73,7 @@ async def check_account(account, *, connect: bool = False) -> dict:
     has_session_file = session_file.is_file()
     checks: dict = {
         "session_file": has_session_file,
-        "lock_free": has_session_file and not session.lock_held(session_file),
+        "lock_free": has_session_file and session.lock_held(session_file) is False,
         "state_writable": _writable(safety.previews_dir()),
         "preview_perms_ok": _preview_perms_ok(),
         "audit_perms_ok": _audit_perms_ok(),

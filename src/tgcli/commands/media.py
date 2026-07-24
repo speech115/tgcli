@@ -11,7 +11,7 @@ import re
 from telethon import functions
 from telethon import errors as telethon_errors
 
-from tgcli import chatref
+from tgcli import atomic, chatref
 from tgcli.errors import (
     NotFoundError,
     PartialFailure,
@@ -145,14 +145,15 @@ def _message_size(message) -> int | None:
 def _write_state(
     path: Path, source: MediaSource, destination: Path, offset: int
 ) -> None:
-    path.write_text(
+    atomic.replace_text(
+        path,
         json.dumps(
             {
                 "source": _source_label(source),
                 "destination": str(destination),
                 "offset": offset,
             }
-        )
+        ),
     )
 
 
