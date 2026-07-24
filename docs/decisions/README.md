@@ -50,6 +50,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0041](ADR-0041-user-facing-guide-split.md) | Add task-shaped `docs/guide/` pages between SKILL.md and CONTRACT.md; contract wins on conflict; no docs site while the repo is private | accepted |
 | [0042](ADR-0042-accounts-login.md) | `tg accounts login` QR-first + phone fallback, native-dialog secret channel, staged session promoted only on confirmation; `show`/`remove` close the account lifecycle | accepted |
 | [0043](ADR-0043-process-hardening.md) | Shared atomic-write/lock-probe/TTL-classify seams with a fail-closed `write_text` ban; executable exit-code table; one-command gate; release runbook and reviewer subagent | accepted |
+| [0044](ADR-0044-clone-title-prefix.md) | Tool-created clone peers (destination + discussion group) titled `[Clone] {name}` via one `attribution.destination_title` seam; state `source_title` stays clean; retro via idempotent init re-run | accepted |
 
 Notes on supersessions:
 

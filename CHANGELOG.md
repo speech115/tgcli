@@ -11,6 +11,17 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.1] — 2026-07-24
+
+### Changed
+
+- Clone destinations are titled `[Clone] {source_title}` (and discussion
+  groups `[Clone] {display_name}`) so tool-created peers are visually
+  distinct from their sources in the dialog list (ADR-0044).
+  `source.title` / `CloneState.source_title` stay unprefixed. Re-running
+  `clone init` on an existing clone applies the prefix idempotently
+  without creating peers.
+
 ## [1.2.0] — 2026-07-24
 
 ### Added
@@ -128,6 +139,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.1]: https://github.com/speech115/tgcli/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/speech115/tgcli/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/speech115/tgcli/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/speech115/tgcli/compare/v1.1.1...v1.1.2

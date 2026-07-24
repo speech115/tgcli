@@ -326,7 +326,7 @@ async def _init_discussion(
         raise PolicyError("clone discussion group is not a private owned megagroup")
     clone_state.discussion_destination_peer_id = group.id
     state.save(clone_state)
-    title = attribution.display_name(source_group)
+    title = attribution.destination_title(attribution.display_name(source_group))
     if getattr(group, "title", None) != title:
         await mutate(functions.channels.EditTitleRequest(channel=group, title=title))
         group.title = title
@@ -429,16 +429,15 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
         await topics.ensure_forum(
             lambda request: _mutate(tg, request, clone_state), destination
         )
-    if getattr(destination, "title", None) != clone_state.source_title:
+    titled = attribution.destination_title(clone_state.source_title)
+    if getattr(destination, "title", None) != titled:
         safety.append_audit("clone-init-title", account_alias, {"clone_id": clone_id})
         await _mutate(
             tg,
-            functions.channels.EditTitleRequest(
-                channel=destination, title=clone_state.source_title
-            ),
+            functions.channels.EditTitleRequest(channel=destination, title=titled),
             clone_state,
         )
-        destination.title = clone_state.source_title
+        destination.title = titled
     full_chat = await _copy_profile(
         tg,
         entity,
@@ -460,7 +459,7 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
             },
             "destination": {
                 "id": clone_state.destination_peer_id,
-                "title": getattr(destination, "title", clone_state.source_title),
+                "title": getattr(destination, "title", titled),
             },
             "comments": clone_state.comments,
             "status": "ready",

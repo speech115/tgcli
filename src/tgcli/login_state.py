@@ -96,8 +96,8 @@ def load_attempt(login_id: str, *, now: datetime | None = None) -> dict:
     return record
 
 
-def update_attempt(login_id: str, **fields) -> dict:
-    record = load_attempt(login_id)
+def update_attempt(login_id: str, *, now: datetime | None = None, **fields) -> dict:
+    record = load_attempt(login_id, now=now)
     record.update(fields)
     path = _attempt_path(login_id)
     _write_attempt(path, record)

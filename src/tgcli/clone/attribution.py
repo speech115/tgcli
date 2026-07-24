@@ -45,6 +45,11 @@ def display_name(entity) -> str:
     )
 
 
+def destination_title(title: str) -> str:
+    """Visible tool marking on tool-created peers (ADR-0044)."""
+    return f"[Clone] {title}"
+
+
 def same_peer(peer, source) -> bool:
     if isinstance(source, types.User):
         return isinstance(peer, types.PeerUser) and peer.user_id == source.id
