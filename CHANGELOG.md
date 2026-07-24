@@ -11,6 +11,16 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.7] — 2026-07-25
+
+### Changed
+
+- Clone posts leg: a protected (reupload/snapshot) channel post that is
+  itself a forward gains a truthful Russian `Переслано от <label>` body
+  prefix built only from `fwd_from` (`from_id` / `from_name` /
+  `post_author`, or bare `Переслано`); native forward path unchanged
+  (ADR-0050).
+
 ## [1.2.6] — 2026-07-24
 
 ### Changed

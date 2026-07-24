@@ -1139,8 +1139,12 @@ forwards with `drop_author=False`, so Telegram restores its original forward
 header pointing at the true origin, never at the cloned source channel (an album
 decides as one batch since every item shares the header). Only the native
 forwarded path preserves this header: a re-forward that also has a mapped reply,
-or any post from a protected source, travels by reupload and loses `fwd_from`.
-For attributed megagroup, forum, basic-group, and dialog sources, the
+or any post from a protected source, travels by reupload or snapshot and loses
+`fwd_from`. On those paths the clone prepends a Russian `Переслано от <label>`
+line built only from what `fwd_from` asserts (`from_id` / `from_name` /
+`post_author`, or the bare word `Переслано` when nothing resolves) — it never
+claims a discussion-group origin it cannot prove (ADR-0050). For attributed
+megagroup, forum, basic-group, and dialog sources, the
 same batch uses native forwarding with `drop_author=False`, retaining
 Telegram's author header.
 

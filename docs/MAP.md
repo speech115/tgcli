@@ -60,7 +60,7 @@ tgcli/
 │   │   ├── batching.py        [done]    pure batch planner: albums, service skips
 │   │   ├── transport.py       [done]    pure forward/reupload/snapshot decision
 │   │   ├── snapshot.py        [done]    truthful poll/story text rendering (+ ADR-0048 vote capture)
-│   │   ├── attribution.py     [done]    source kinds, author-identity ladder, UTF-16 prefix + mention shifts (ADR-0023)
+│   │   ├── attribution.py     [done]    source kinds, author-identity ladder, UTF-16 prefix + mention shifts; fwd_from Переслано от (ADR-0023/0050)
 │   │   ├── replies.py         [done]    reply classification (ADR-0036); mapped-in-leg input rebuild
 │   │   ├── quote_fallback.py  [done]    rendered quote degradation: prefix, body, stale-quote strip (ADR-0037)
 │   │   ├── quotes.py          [done]    async quote resolver: native InputReplyToMessage or fallback handoff (ADR-0036/0037)

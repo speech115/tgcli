@@ -769,14 +769,21 @@ async def _forward_batch(
     top_msg_id = None if topic_dest in (None, topics.GENERAL_TOPIC_ID) else topic_dest
     author = None
     if plan.needs_author:
-        author = await attribution.author_of(
-            tg,
-            source,
-            messages[0],
-            me,
-            author_cache,
-            lambda awaitable: _with_cooldown(awaitable, clone_state),
-        )
+
+        async def cooldown(awaitable):
+            return await _with_cooldown(awaitable, clone_state)
+
+        if (
+            leg.source_kind == "broadcast"
+            and getattr(messages[0], "fwd_from", None) is not None
+        ):
+            author = await attribution.forwarded_author_of(
+                tg, messages[0], author_cache, cooldown
+            )
+        else:
+            author = await attribution.author_of(
+                tg, source, messages[0], me, author_cache, cooldown
+            )
     if plan.mode == "snapshots":
         rendered_text, rendered_entities, poll_marker = await snapshot.render(
             tg,
