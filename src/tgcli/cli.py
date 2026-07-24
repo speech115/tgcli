@@ -14,6 +14,7 @@ from tgcli import dispatch, invocations, output, preflight, safety
 from tgcli.commands import accounts as accounts_cmd
 from tgcli.commands import clone as clone_cmd
 from tgcli.commands import doctor as doctor_cmd
+from tgcli.commands import login as login_cmd
 from tgcli.commands import store as store_cmd
 from tgcli.config import load_config, resolve_account
 from tgcli.errors import PartialFailure, TgcliError
@@ -157,6 +158,31 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
             keep_session=bool(getattr(args, "keep_session", False)),
         )
         return data, accounts_cmd.remove_rows(data)
+    if args.command == "accounts" and args.subcommand == "login":
+        timeout = args.timeout if timeout_supplied else 120.0
+        if getattr(args, "continue_id", None):
+            data = asyncio.run(
+                login_cmd.continue_login(
+                    login_id=args.continue_id,
+                    code=getattr(args, "code", None),
+                    password_stdin=bool(getattr(args, "password_stdin", False)),
+                )
+            )
+        else:
+            data = asyncio.run(
+                login_cmd.start_login(
+                    config,
+                    args.alias,
+                    phone=getattr(args, "phone", None),
+                    api_id=getattr(args, "api_id", None),
+                    api_hash=getattr(args, "api_hash", None),
+                    force=bool(getattr(args, "force", False)),
+                    timeout=timeout,
+                    qr_format=getattr(args, "qr_format", "link"),
+                    password_stdin=bool(getattr(args, "password_stdin", False)),
+                )
+            )
+        return data, login_cmd.login_rows(data)
     if args.command == "accounts":
         data = accounts_cmd.list_accounts(config)
         return data, accounts_cmd.to_rows(data)

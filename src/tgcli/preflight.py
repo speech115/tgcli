@@ -90,6 +90,34 @@ def _prepare_mutations(args) -> None:
                 until=getattr(args, "until", None),
                 forever=bool(getattr(args, "forever", False)),
             )
+    if args.command == "accounts" and args.subcommand == "login":
+        _prepare_login(args)
+
+
+def _prepare_login(args) -> None:
+    """Validate login flag combinations; gate with local-mutation readonly."""
+    # TGCLI_NO_SEND deliberately does not apply (ADR-0042 §8).
+    safety.enforce_local_mutation_allowed(args.readonly)
+    continue_id = getattr(args, "continue_id", None)
+    if continue_id:
+        if args.alias is not None:
+            raise PolicyError("accounts login --continue takes no ALIAS")
+        for flag, value in (
+            ("--phone", getattr(args, "phone", None)),
+            ("--api-id", getattr(args, "api_id", None)),
+            ("--api-hash", getattr(args, "api_hash", None)),
+        ):
+            if value is not None:
+                raise PolicyError(f"accounts login --continue rejects {flag}")
+        if getattr(args, "force", False):
+            raise PolicyError("accounts login --continue rejects --force")
+        return
+    if args.alias is None:
+        raise PolicyError("accounts login requires ALIAS (or --continue LOGIN_ID)")
+    api_id = getattr(args, "api_id", None)
+    api_hash = getattr(args, "api_hash", None)
+    if (api_id is None) ^ (api_hash is None):
+        raise PolicyError("--api-id and --api-hash are required together")
 
 
 def _prepare_previews(parser: argparse.ArgumentParser, args) -> None:
