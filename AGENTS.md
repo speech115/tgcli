@@ -132,6 +132,16 @@ The project is feature-complete and in production use. Default posture:
   this rule is the protection.
 - Review-fix commits go onto the head of the PR under review, not onto a
   new branch. One branch per slice, not per review round.
+- **A merged branch does not survive the session that merged it.** Delete it
+  as part of the merge, never "later": `gh pr merge N --merge
+  --delete-branch`, then clean the local side with `git branch -d <topic>`
+  and `git remote prune origin`. This applies to every merge, not only
+  releases.
+- Before ending a session that merged anything, `git branch -a` must show
+  nothing but `main` and branches with a still-open PR. Verify with
+  `git branch --merged main` — anything it lists besides `main` is garbage
+  and goes. Use `git branch -d` (never `-D`) so git refuses when a branch is
+  not actually contained.
 - Releases and stacked-PR merges follow
   [docs/agents/release.md](docs/agents/release.md) literally.
 

@@ -35,6 +35,15 @@ considering a computed ceiling instead of a literal.
 **Next:** ADR-0049 clone sync progress lines (Part D) is the only planned slice
 left; live re-measure of the ADR-0047 speedup stays owner-gated.
 
+**Follow-up (same session):** deleted all eleven merged branches (8 local, 11
+remote — `origin` and local now hold `main` only, `git branch --merged main`
+is clean) and promoted branch cleanup from a release-only step to an AGENTS.md
+"Git" rule: a merged branch does not survive the session that merged it, and a
+session that merged anything ends with `git branch -a` showing nothing but
+`main` plus still-open PRs. `docs/agents/release.md` now points at that rule
+instead of owning it. Owner asked for this because branches were piling up —
+the release doc had the step, but nothing outside a release ever read it.
+
 ## 2026-07-24 — Re-review of the open #54–#58 stack (Claude Opus 4.8 orchestrating 3 Sonnet subagents)
 **Did:** owner asked for a second pass over how the ADR-0045..0048 slices were
 executed. Three subagents re-ran the full gate per branch in isolated

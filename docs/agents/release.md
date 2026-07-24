@@ -30,7 +30,10 @@ A stack `main ← A ← B ← C` merges bottom-up, one PR at a time:
   the tag exists.
 - Delete merged branches **one at a time** (batch `git push --delete` may be
   blocked by the approval classifier; fallback:
-  `gh api -X DELETE repos/{owner}/{repo}/git/refs/heads/<branch>`).
+  `gh api -X DELETE repos/{owner}/{repo}/git/refs/heads/<branch>`). Prefer
+  `gh pr merge N --merge --delete-branch` so the ref never outlives the
+  merge — the AGENTS.md "Git" rule applies to every merge, release or not.
+  Finish with `git remote prune origin` so stale remote-tracking refs go too.
 - Before force-deleting a local branch, prove it is contained:
   `git cherry main <branch>` must show only `-` lines.
 - Append the release session to DEVLOG (merge order, tag sha, anything that
