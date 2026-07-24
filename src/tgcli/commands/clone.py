@@ -554,7 +554,7 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
                     types.PeerChannel(clone_state.discussion_destination_peer_id)
                 )
             )
-        except ValueError:
+        except (ValueError, telethon_errors.RPCError):
             discussion_unresolved = True
             note(
                 "warning: clone mute skipped for discussion peer "
