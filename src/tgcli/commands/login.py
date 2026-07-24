@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 from telethon import errors as telethon_errors
@@ -37,8 +38,13 @@ def login_rows(data: dict) -> list[tuple]:
     ]
 
 
-def _destination_path(alias: str) -> Path:
-    return state_dir() / "sessions" / f"{alias}.session"
+def _session_stem(config: Config, alias: str) -> str:
+    account = config.accounts.get(alias)
+    return account.session if account is not None else alias
+
+
+def _destination_path(session_stem: str) -> Path:
+    return state_dir() / "sessions" / f"{session_stem}.session"
 
 
 def _resolve_credentials(
@@ -66,7 +72,7 @@ async def _probe_if_needed(config: Config, alias: str, *, force: bool) -> None:
     account = config.accounts.get(alias)
     if account is None:
         return
-    path = _destination_path(account.session)
+    path = _destination_path(_session_stem(config, alias))
     if not path.is_file():
         return
     if await authclient.probe_authorized(account):
@@ -130,12 +136,12 @@ async def _finish_authorized(
     is_new: bool,
     api_id: int,
     api_hash: str,
+    dest: Path,
     keep_backup: bool,
 ) -> dict:
     me = await client.get_me()
     # Disconnect before promote so SQLite releases the staged file.
     await client.disconnect()
-    dest = _destination_path(alias)
     _audit_login(alias, method=method, outcome="authorized", phone=phone)
     backup = login_state.promote(login_id, dest, keep_backup=keep_backup)
     if is_new:
@@ -188,7 +194,8 @@ async def start_login(
     )
     login_id = attempt["login_id"]
     staged = login_state.staged_session_path(login_id)
-    keep_backup = (not is_new) and _destination_path(alias).exists()
+    dest = _destination_path(_session_stem(config, alias))
+    keep_backup = (not is_new) and dest.exists()
 
     try:
         async with authclient.unauthorized_client(
@@ -203,6 +210,7 @@ async def start_login(
                 is_new=is_new,
                 api_id=resolved_id,
                 api_hash=resolved_hash,
+                dest=dest,
                 keep_backup=keep_backup,
                 timeout=timeout,
                 qr_format=qr_format,
@@ -255,6 +263,7 @@ async def _qr_wait(
     is_new: bool,
     api_id: int,
     api_hash: str,
+    dest: Path,
     keep_backup: bool,
     timeout: float,
     qr_format: str,
@@ -269,19 +278,21 @@ async def _qr_wait(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise LoginTimeoutError(
-                f"QR login timed out; resume via --continue {login_id}",
+                f"QR login timed out after {timeout}s; start login again",
                 login_id=login_id,
             )
+        expires_in = (qr.expires - datetime.now(UTC)).total_seconds()
+        wait_timeout = min(remaining, max(expires_in, 0.1))
         try:
-            await qr.wait(timeout=remaining)
+            await qr.wait(timeout=wait_timeout)
             break
         except asyncio.TimeoutError:
             if time.monotonic() >= deadline:
                 raise LoginTimeoutError(
-                    f"QR login timed out; resume via --continue {login_id}",
+                    f"QR login timed out after {timeout}s; start login again",
                     login_id=login_id,
                 ) from None
-            qr = await qr.recreate()
+            await qr.recreate()
             _emit_qr(qr, qr_format=qr_format)
         except telethon_errors.SessionPasswordNeededError:
             password = _collect_password(password_stdin=password_stdin)
@@ -308,6 +319,7 @@ async def _qr_wait(
         is_new=is_new,
         api_id=api_id,
         api_hash=api_hash,
+        dest=dest,
         keep_backup=keep_backup,
     )
 
@@ -346,9 +358,9 @@ async def continue_login(
     alias = attempt["alias"]
     method = attempt["method"]
     staged = login_state.staged_session_path(login_id)
-    dest = _destination_path(alias)
-    keep_backup = dest.exists()
     config = load_config()
+    dest = _destination_path(_session_stem(config, alias))
+    keep_backup = dest.exists()
     is_new = alias not in config.accounts
     needs_password = attempt.get("next") == "password"
 
@@ -402,5 +414,6 @@ async def continue_login(
             is_new=is_new,
             api_id=attempt["api_id"],
             api_hash=attempt["api_hash"],
+            dest=dest,
             keep_backup=keep_backup,
         )

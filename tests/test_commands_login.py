@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -47,6 +48,10 @@ class FakeQR:
         self.recreate_calls = 0
         self.wait_calls = 0
         self._wait_behavior = "ok"
+        self._refresh_expires()
+
+    def _refresh_expires(self) -> None:
+        self.expires = datetime.now(UTC) + timedelta(seconds=30)
 
     def set_wait(self, behavior: str):
         self._wait_behavior = behavior
@@ -67,7 +72,8 @@ class FakeQR:
     async def recreate(self):
         self.recreate_calls += 1
         self.url = f"tg://login?token=tok-re{self.recreate_calls}"
-        return self
+        self._refresh_expires()
+        return None
 
 
 class FakeAuthClient:
@@ -141,6 +147,38 @@ def test_mask_phone_shapes():
     assert mask_phone("12") == "…12"
     assert mask_phone("") == ""
     assert mask_phone(None) == ""
+
+
+@pytest.mark.asyncio
+async def test_login_promotes_to_configured_session_stem(env, fake_client):
+    env["config"].write_text(
+        env["config"].read_text()
+        + """
+[accounts.work]
+api_id = 54321
+api_hash = "hash-work"
+session = "work-real"
+"""
+    )
+    old_session = env["state"] / "sessions" / "work-real.session"
+    old_session.write_bytes(b"old-live-session")
+    wrong_path = env["state"] / "sessions" / "work.session"
+
+    data = await login_cmd.start_login(
+        load_config(),
+        "work",
+        phone=None,
+        api_id=None,
+        api_hash=None,
+        force=True,
+        timeout=30,
+        qr_format="link",
+        password_stdin=False,
+    )
+    assert data["status"] == "authorized"
+    assert str(old_session) == data["session"]
+    assert not wrong_path.exists()
+    assert (env["state"] / "sessions" / "work-real.session.bak").is_file()
 
 
 @pytest.mark.asyncio
@@ -224,6 +262,7 @@ async def test_qr_timeout_keeps_attempt(env, fake_client):
         )
     assert excinfo.value.exit_code == 1
     assert "login_id" in excinfo.value.details
+    assert "--continue" not in str(excinfo.value)
     login_id = excinfo.value.details["login_id"]
     assert (env["state"] / "logins" / f"{login_id}.json").exists()
 
