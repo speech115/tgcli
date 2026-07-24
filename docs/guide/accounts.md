@@ -1,7 +1,8 @@
 # Accounts
 
-Managing configured accounts, choosing which one a command runs against, and
-how account entries map onto session files and their locks.
+Managing configured accounts, authorizing sessions, choosing which account a
+command runs against, and how account entries map onto session files and their
+locks ([ADR-0042](../decisions/ADR-0042-accounts-login.md)).
 
 ## List configured accounts
 
@@ -10,6 +11,68 @@ tg --json accounts list
 ```
 
 Reads `~/.config/tgcli/config.toml` only; opens no Telegram session.
+
+## Show offline account status
+
+```bash
+tg --json accounts show main
+```
+
+Strictly offline: config presence, resolved session path, existence, size,
+mtime, whether the account lock is currently held, and the `.bak` slot.
+`authorized` is always `null` — use `tg doctor --connect` for a live probe.
+An unknown alias exits 4.
+
+## Authorize a session: `accounts login`
+
+QR by default (no typed secret). Phone + confirmation code is the fallback.
+
+```bash
+# New alias — provide api credentials once
+tg --json accounts login tmp-login --api-id ID --api-hash HASH
+
+# Re-authorize an existing alias (refuses if still authorized unless --force)
+tg --json accounts login main --force
+
+# Bare token for an external QR renderer / phone camera
+tg --json accounts login tmp-login --api-id ID --api-hash HASH --qr-format text
+
+# Phone path
+tg --json accounts login tmp-login --phone +79991234589 --api-id ID --api-hash HASH
+tg --json accounts login --continue LOGIN_ID --code 12345
+tg --json accounts login --continue LOGIN_ID --password-stdin   # headless 2FA
+```
+
+| Flag | Effect |
+| --- | --- |
+| `ALIAS` | Account to authorize (omit with `--continue`). |
+| `--phone PHONE` | Use the phone + code path instead of QR. |
+| `--api-id` / `--api-hash` | Required together, only for an alias absent from config. |
+| `--force` | Replace a still-authorized session (previous file kept as `.bak`). |
+| `--timeout SECONDS` | QR wait budget (default 120 when unset). |
+| `--qr-format link\|text` | Deep link (default) or bare token payload. |
+| `--continue LOGIN_ID` | Resume a pending attempt (no `ALIAS`). |
+| `--code VALUE\|-` | Confirmation code, or `-` to read one line from stdin. |
+| `--password-stdin` | Read the cloud password from stdin (never argv). |
+
+`--readonly` / `TGCLI_READONLY=1` block login. `TGCLI_NO_SEND` does **not**.
+On macOS the cloud password is collected through a native dialog when one is
+available; headless environments return `"next": "password"` at exit 0 and
+resume with `--continue` + `--password-stdin`. Attempt state lives under
+`logins/` and is promoted into `sessions/<alias>.session` only after Telegram
+confirms — a failed attempt cannot damage a working session.
+
+## Remove an account
+
+```bash
+tg --json accounts remove work            # report-only, exit 2, hint --confirm
+tg --json accounts remove work --confirm
+tg --json accounts remove work --confirm --keep-session
+```
+
+Deletes the `[accounts.<alias>]` block and, unless `--keep-session`, the
+session file and its `.bak`. Refuses when the lock is held, when the alias is
+`default_account`, or under `--readonly` with `--confirm`.
 
 ## Import sessions from the old stack
 
@@ -100,6 +163,10 @@ resolved account's session.
 ## See also
 
 - [install.md](install.md) — creating the config entries this page assumes.
+- [safety.md](safety.md) — `--readonly` vs `TGCLI_NO_SEND` for login/remove.
+- [store.md](store.md) — `logins/` attempt litter and `.bak` inventory.
+- [doctor.md](doctor.md) — live authorization probe via `--connect`.
 - [overview.md](overview.md) — exit codes, including the config/auth code 3 used for lock and resolution failures.
 - [../decisions/ADR-0004-accounts-and-sessions.md](../decisions/ADR-0004-accounts-and-sessions.md) — why sessions and locks are shaped this way.
-- [../CONTRACT.md](../CONTRACT.md) — §10 for the `accounts import` JSON/TSV contract.
+- [../decisions/ADR-0042-accounts-login.md](../decisions/ADR-0042-accounts-login.md) — login, show, remove.
+- [../CONTRACT.md](../CONTRACT.md) — §10 for the accounts JSON/TSV contract.

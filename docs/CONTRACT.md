@@ -573,15 +573,21 @@ No config and no Telegram session. `--json` emits:
 {"previews":{"live":{"count":2,"bytes":120},"expired":{"count":1,"bytes":40},
  "spent":{"count":3,"bytes":90},"pending":{"count":1,"bytes":30}},
  "previews_world_readable":0,
+ "logins":{"live":{"count":1,"bytes":80},"expired":{"count":0,"bytes":0}},
  "audit_log":{"bytes":20},"invocations":{"bytes":0},
- "sessions":{"count":1,"bytes":4096},"clones":{"bytes":0},"downloads":{"bytes":0},
+ "sessions":{"count":1,"bytes":4096},
+ "session_backups":{"count":1,"bytes":4096},
+ "clones":{"bytes":0},"downloads":{"bytes":0},
  "relics":[{"name":"labs","bytes":11}]}
 ```
 
 Preview buckets are classified from each file's stored `expires_at` (not mtime):
 `live` = `.json` within TTL, `expired` = `.json` past TTL, `spent` = `.used`,
 `pending` = `.pending`. `previews_world_readable` counts preview files with any
-other-user permission bit set (legacy `0644` bodies). Relic directories
+other-user permission bit set (legacy `0644` bodies). Login attempts under
+`logins/` are classified by `LOGIN_TTL` (30 minutes); each count includes the
+attempt json and its staged session. `session_backups` reports
+`sessions/*.session.bak` and is never deleted by cleanup. Relic directories
 (`mirrors`, `mirror-lab`, `labs`, `probes`) are reported when present and never
 auto-deleted. New previews are written mode `0600`; `store cleanup` also
 tightens surviving preview modes to `0600`.
@@ -593,12 +599,15 @@ tg store cleanup [--older-than Nd|Nh|N] [--include-pending] [--confirm]
 ```
 
 Reaps **spent** (`.used`) and **expired** (`.json` past TTL) previews under
-the state root. Default is dry-run: stdout lists what would be removed and
+the state root, and **expired** login attempts under `logins/` (json + staged
+session). Default is dry-run: stdout lists what would be removed and
 stderr prints a one-line `--confirm` hint. With `--confirm`, those files are
-deleted. Never touches `audit.jsonl`, `sessions/`, live `.json` within TTL, or
-relic directories. `.pending` files are protected (ADR-0028 `random_id`) and are
-eligible only with `--include-pending` and only when far past TTL
-(`expires_at + PREVIEW_TTL`).
+deleted. Never touches `audit.jsonl`, `sessions/` (including `.bak`), live
+login attempts, live `.json` within TTL, or relic directories. `.pending` files are
+protected (ADR-0028 `random_id`) and are eligible only with `--include-pending`
+and only when far past TTL (`expires_at + PREVIEW_TTL`). Staged sessions are
+attempt state (under `logins/`), not account sessions — cleanup distinguishes
+them by directory.
 
 `--older-than` accepts an integer day count (`7`) or `Nd`/`Nh` (`7d`, `12h`);
 age is measured from each preview's stored `expires_at` (mtime fallback).
@@ -612,7 +621,8 @@ guard is for Telegram sends, and cleanup reaches no network.
 
 ```json
 {"removed":[],"would_remove":["p_spent0.used","p_expired.json"],"bytes":130,
- "confirmed":false,"kept":{"audit_log":true,"sessions":true,"relics":["labs"]}}
+ "confirmed":false,"kept":{"audit_log":true,"sessions":true,
+ "session_backups":true,"relics":["labs"]}}
 ```
 
 With `--confirm`, `removed` is populated and `would_remove` is empty.

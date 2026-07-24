@@ -30,7 +30,9 @@ Offline-first is deliberate: the live probe fails in exactly the two
 situations where you most need a diagnosis — a revoked session or a dead
 network — so an unconditional live check would be least available when it
 matters most. Local checks always run and always tell you something, even
-with no network at all.
+with no network at all. For a single-account offline view (path, mtime,
+lock, `.bak`) without walking every account, use
+`tg accounts show ALIAS` instead.
 
 ## Probe live authorization
 

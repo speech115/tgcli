@@ -17,6 +17,22 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — ADR-0042 Slice 4: store logins + docs + release 1.2.0 (Cursor)
+**Did:** `store stats`/`cleanup` learn `logins/{live,expired}` (json + staged
+session) and report `session_backups` (never deleted). Guide pages
+(`accounts`, `safety`, `store`, `doctor`), `SKILL.md`, `ISSUES.md`
+(ACCOUNTS-001 closed, backup note kept), `PROPOSALS.md` (show/remove
+graduated). Version `1.1.3` → `1.2.0` with CHANGELOG section naming
+ADR-0042. Architecture ceilings unchanged from Slices 2–3.
+**Decided:** owner-declared minor per ADR-0042 §14 / ADR-0038; tagging
+`v1.2.0` remains the owner's post-merge action. Live acceptance against a
+secondary account remains the merge gate and was not run in this cloud
+environment.
+**Learned:** check-docs fails closed on invented guide flags — routing new
+commands through the live parser first kept the guide gate green.
+**Next:** independent whole-diff Spec + Standards review from the
+merge-base; owner live acceptance on a throwaway alias.
+
 ## 2026-07-24 — ADR-0042 Slices 2–3: QR + phone login (Cursor)
 **Did:** implemented Tasks 3–8. New modules `desktop.py` (osascript/open
 escape hatch), `authclient.py` (unauthorized client + probe),

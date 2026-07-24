@@ -273,3 +273,64 @@ def test_cleanup_confirm_allowed_under_no_send(tmp_path, monkeypatch, capsys):
     assert "p_spent0.used" in data["removed"]
     assert not (tmp_path / "previews" / "p_spent0.used").exists()
     assert (tmp_path / "audit.jsonl").exists()
+
+
+def _write_login(
+    root: Path,
+    login_id: str,
+    *,
+    expires_at: datetime,
+    staged: bytes = b"staged",
+) -> None:
+    directory = root / "logins"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{login_id}.json").write_text(
+        json.dumps(
+            {
+                "login_id": login_id,
+                "alias": "tmp",
+                "method": "qr",
+                "expires_at": expires_at.isoformat(),
+            }
+        )
+    )
+    (directory / f"{login_id}.session").write_bytes(staged)
+
+
+def test_stats_reports_logins_and_session_backups(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    _seed_inventory(tmp_path)
+    _write_login(tmp_path, "l_live", expires_at=NOW + timedelta(minutes=10))
+    _write_login(tmp_path, "l_dead", expires_at=NOW - timedelta(minutes=1))
+    bak = tmp_path / "sessions" / "main.session.bak"
+    bak.write_bytes(b"backup-bytes")
+
+    data = store_cmd.scan(tmp_path, now=NOW)
+
+    assert data["logins"]["live"]["count"] == 1
+    assert data["logins"]["expired"]["count"] == 1
+    assert data["logins"]["live"]["bytes"] > 0
+    assert data["session_backups"]["count"] == 1
+    assert data["session_backups"]["bytes"] == len(b"backup-bytes")
+
+
+def test_cleanup_reaps_expired_logins_keeps_live_and_bak(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    _seed_inventory(tmp_path)
+    _write_login(tmp_path, "l_live", expires_at=NOW + timedelta(minutes=10))
+    _write_login(tmp_path, "l_dead", expires_at=NOW - timedelta(minutes=1))
+    bak = tmp_path / "sessions" / "main.session.bak"
+    bak.write_bytes(b"backup-bytes")
+
+    result = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
+
+    assert "l_dead.json" in result["removed"]
+    assert "l_dead.session" in result["removed"]
+    assert "l_live.json" not in result["removed"]
+    assert (tmp_path / "logins" / "l_live.json").exists()
+    assert (tmp_path / "logins" / "l_live.session").exists()
+    assert not (tmp_path / "logins" / "l_dead.json").exists()
+    assert not (tmp_path / "logins" / "l_dead.session").exists()
+    assert bak.exists()
+    assert (tmp_path / "sessions" / "main.session").exists()
+    assert result["kept"]["session_backups"] is True

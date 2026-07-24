@@ -13,6 +13,7 @@ from tgcli.safety import PREVIEW_TTL
 
 RELIC_NAMES = ("mirrors", "mirror-lab", "labs", "probes")
 _PREVIEW_BUCKETS = ("live", "expired", "spent", "pending")
+_LOGIN_BUCKETS = ("live", "expired")
 
 
 def _dir_bytes(path: Path) -> int:
@@ -67,6 +68,29 @@ def _empty_bucket() -> dict:
     return {"count": 0, "bytes": 0}
 
 
+def _classify_login(path: Path, *, now: datetime) -> str | None:
+    """Classify a login-attempt json; staged sessions are paired by stem."""
+    if path.suffix != ".json":
+        return None
+    try:
+        record = json.loads(path.read_text())
+        expires = datetime.fromisoformat(record["expires_at"])
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return "expired"
+    return "live" if expires > now else "expired"
+
+
+def _login_pair_bytes(directory: Path, login_id: str) -> int:
+    total = 0
+    for name in (
+        f"{login_id}.json",
+        f"{login_id}.session",
+        f"{login_id}.session-journal",
+    ):
+        total += _file_bytes(directory / name)
+    return total
+
+
 def scan(root: Path, *, now: datetime | None = None) -> dict:
     """Classify every artefact under the state root."""
     now = now or datetime.now(UTC)
@@ -87,9 +111,31 @@ def scan(root: Path, *, now: datetime | None = None) -> dict:
             if mode & (stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH):
                 world_readable += 1
 
+    logins = {name: _empty_bucket() for name in _LOGIN_BUCKETS}
+    logins_root = root / "logins"
+    if logins_root.is_dir():
+        seen: set[str] = set()
+        for path in logins_root.iterdir():
+            if not path.is_file() or path.suffix != ".json":
+                continue
+            login_id = path.stem
+            if login_id in seen:
+                continue
+            seen.add(login_id)
+            bucket = _classify_login(path, now=now)
+            if bucket is None:
+                continue
+            logins[bucket]["count"] += 1
+            logins[bucket]["bytes"] += _login_pair_bytes(logins_root, login_id)
+
     sessions_dir = root / "sessions"
     session_files = (
         [p for p in sessions_dir.glob("*.session") if p.is_file()]
+        if sessions_dir.is_dir()
+        else []
+    )
+    bak_files = (
+        [p for p in sessions_dir.glob("*.session.bak") if p.is_file()]
         if sessions_dir.is_dir()
         else []
     )
@@ -102,11 +148,16 @@ def scan(root: Path, *, now: datetime | None = None) -> dict:
     return {
         "previews": previews,
         "previews_world_readable": world_readable,
+        "logins": logins,
         "audit_log": {"bytes": _file_bytes(root / "audit.jsonl")},
         "invocations": {"bytes": _file_bytes(root / "invocations.jsonl")},
         "sessions": {
             "count": len(session_files),
             "bytes": sum(_file_bytes(path) for path in session_files),
+        },
+        "session_backups": {
+            "count": len(bak_files),
+            "bytes": sum(_file_bytes(path) for path in bak_files),
         },
         "clones": {"bytes": _dir_bytes(root / "clones")},
         "downloads": {"bytes": _dir_bytes(root / "downloads")},
@@ -123,9 +174,19 @@ def stats_rows(data: dict) -> list[tuple]:
     for name in _PREVIEW_BUCKETS:
         bucket = data["previews"][name]
         rows.append((f"previews.{name}", bucket["count"], bucket["bytes"]))
+    for name in _LOGIN_BUCKETS:
+        bucket = data["logins"][name]
+        rows.append((f"logins.{name}", bucket["count"], bucket["bytes"]))
     rows.append(("audit_log", None, data["audit_log"]["bytes"]))
     rows.append(("invocations", None, data["invocations"]["bytes"]))
     rows.append(("sessions", data["sessions"]["count"], data["sessions"]["bytes"]))
+    rows.append(
+        (
+            "session_backups",
+            data["session_backups"]["count"],
+            data["session_backups"]["bytes"],
+        )
+    )
     rows.append(("clones", None, data["clones"]["bytes"]))
     rows.append(("downloads", None, data["downloads"]["bytes"]))
     for relic in data["relics"]:
@@ -148,25 +209,51 @@ def _deletable_paths(
     include_pending: bool,
     now: datetime,
 ) -> list[Path]:
-    preview_root = root / "previews"
-    if not preview_root.is_dir():
-        return []
     selected: list[Path] = []
-    for path in sorted(preview_root.iterdir()):
-        if not path.is_file():
-            continue
-        bucket = _classify_preview(path, now=now)
-        if bucket in ("spent", "expired"):
-            eligible = True
-        elif bucket == "pending" and include_pending:
-            eligible = _pending_far_past_ttl(path, now=now)
-        else:
-            eligible = False
-        if not eligible:
-            continue
-        if older_than is not None and now - _preview_age_anchor(path) < older_than:
-            continue
-        selected.append(path)
+    preview_root = root / "previews"
+    if preview_root.is_dir():
+        for path in sorted(preview_root.iterdir()):
+            if not path.is_file():
+                continue
+            bucket = _classify_preview(path, now=now)
+            if bucket in ("spent", "expired"):
+                eligible = True
+            elif bucket == "pending" and include_pending:
+                eligible = _pending_far_past_ttl(path, now=now)
+            else:
+                eligible = False
+            if not eligible:
+                continue
+            if older_than is not None and now - _preview_age_anchor(path) < older_than:
+                continue
+            selected.append(path)
+
+    logins_root = root / "logins"
+    if logins_root.is_dir():
+        for path in sorted(logins_root.glob("l_*.json")):
+            if not path.is_file():
+                continue
+            if _classify_login(path, now=now) != "expired":
+                continue
+            # Age filter uses expires_at when readable.
+            try:
+                expires = datetime.fromisoformat(
+                    json.loads(path.read_text())["expires_at"]
+                )
+                anchor = expires
+            except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+                anchor = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+            if older_than is not None and now - anchor < older_than:
+                continue
+            login_id = path.stem
+            for name in (
+                f"{login_id}.json",
+                f"{login_id}.session",
+                f"{login_id}.session-journal",
+            ):
+                candidate = logins_root / name
+                if candidate.is_file():
+                    selected.append(candidate)
     return selected
 
 
@@ -210,6 +297,7 @@ def cleanup(
         "kept": {
             "audit_log": True,
             "sessions": True,
+            "session_backups": True,
             "relics": [item["name"] for item in inventory["relics"]],
         },
     }
