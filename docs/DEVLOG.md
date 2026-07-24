@@ -45,6 +45,34 @@ or dispatch never sees `FloodWaitError` (ExceptionGroup → not exit 5).
 **Next:** `./scripts/gate.sh` → reviewer → PR → CI → merge → tag `v1.2.5`;
 then ADR-0048.
 
+## 2026-07-24 — Babysit PR #55: discussion lookup best-effort (Composer)
+**Did:** PR #55 (ADR-0046) was already merged as `v1.2.4`. Triaged the one
+unresolved Bugbot thread: discussion peer `get_entity` for mute/folder only
+caught `ValueError`, so `ChannelPrivateError` could fail init. Follow-up on
+`cursor/adr-0046-clone-features-e6a5` / PR #56: catch
+`(ValueError, telethon_errors.RPCError)` (not bare `Exception`); parametrize
+the unresolved-discussion CLI test. Also restored #54 mergeability after
+#55 by resolving the clone.py architecture ceiling to 1027.
+**Decided:** post-merge follow-up fix; no CONTRACT/version bump — behavior
+already required by ADR-0046 / CONTRACT. Prefer typed RPC catch over BLE001.
+**Learned:** owner can merge while Bugbot is still posting; parallel agents
+may open the same fix — refine the open PR instead of duplicating.
+**Next:** green PR CI on #54/#56; owner merges; watch ADR-0047/48/49 PRs.
+
+## 2026-07-24 — Babysit: post-merge cooldown-before-network (Composer)
+**Did:** PR #53 merged + tagged `v1.2.3` while babysitting. Follow-up work
+started on `claude/flood-cooldown-before-network` and continued on
+`cursor/flood-containment-prs-9024` (PR #54); it fixes the remaining Bugbot
+finding: account cooldown must fire before Telegram entity resolve.
+`commit_init` gates from preview payload (zero RPCs); `sync_text` does
+`get_me` → account gate → resolve. Tests forbid `get_entity` under an active
+account cooldown.
+**Decided:** ship as a small post-release patch PR (not reopen #53).
+**Learned:** Bugbot can land a new thread after the merge push; keep watching
+head SHA even when mergeable looks green.
+**Next:** green CI on the follow-up PR; owner merges (and tags if CONTRACT
+unchanged — behavior-only, no CONTRACT edit).
+
 ## 2026-07-24 — Babysit PR #53 Bugbot fixes (Composer)
 **Did:** on `claude/flood-containment` / PR #53, fixed two Bugbot findings with
 reproducing tests first: (1) re-init without `--no-comments` no longer
