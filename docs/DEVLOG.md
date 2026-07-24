@@ -17,6 +17,37 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — ADR-0051 windowed phase interleaving (Claude Opus 5)
+
+**Did:** docs only, no code. Wrote ADR-0051 + its plan
+`2026-07-25-clone-phase-interleaving.md` on `claude/clone-phase-interleaving`
+(branched from main), plus README index and MAP ADR range. Companion to the
+ADR-0050 work on `claude/clone-forward-attribution`; the two are
+independent and either may land first.
+
+**Decided:** ADR-0051 amends ADR-0023's ordering clause only. `clone sync`
+alternates the legs in 50-batch windows; the comments leg stops at the first
+anchor whose post is newer than the posts cursor, which is free because the
+scan already recognises anchors and is sound because a comment cannot
+precede the anchor it replies to. The safety condition — an unmapped
+cross-leg parent must defer, not `flatten` — is a separate, ordered-first
+task in the plan: merged the other way round, the first window would plant
+every early comment flat in a real chat, irreversibly.
+
+**Learned:** the ADR-0023 ordering was not arbitrary, it was load-bearing —
+`comments.sync_phase` states the invariant in its own docstring and
+`replies._classify_header` degrades an unmapped cross-leg parent to
+`flatten`. What makes the change safe is not the windowing, it is
+distinguishing "parent not copied *yet*" (defer) from "parent will never be
+copied" (flatten). Also worth recording: `--limit` now spans both legs,
+which reverses ADR-0023's explicit "`--limit` does not split across phases"
+— the one observable behaviour change.
+
+**Next:** owner merges #60 (ADR-0050 + plan) and this PR, then picks an
+implementation order. Note both branches insert a row after ADR-0049 in
+`docs/decisions/README.md` and both prepend a DEVLOG entry, so the second
+merge needs a trivial keep-both resolution.
+
 ## 2026-07-24 — Stack #54–#58 merged; 1.2.5 and 1.2.6 tagged (Claude Opus 4.8)
 **Did:** owner granted merge rights, so landed the whole open stack in order.
 #54 merged by the owner; then #56, #57, #58 — each needed `origin/main` merged
