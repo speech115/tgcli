@@ -17,6 +17,39 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — ADR-0050 clone forward attribution (Claude Opus 5)
+
+**Did:** owner-commissioned after inspecting live `[икона]`. Docs only, no
+code: wrote ADR-0050 on `claude/clone-forward-attribution` + README index +
+MAP ADR range. Investigated two owner questions against live data first.
+
+**Decided:** ADR-0050. Reposted posts (`fwd_from` set) get a truthful
+`Переслано от <label>` prefix on the reupload/snapshot paths; `needs_author`
+gains a `fwd_from` case instead of being a pure function of `source_kind`.
+The label renders only what `fwd_from` asserts — never "из обсуждения",
+because `saved_from_peer` is null on this shape. Native re-forward of the
+proven original is a separate, gated slice requiring sender + date +
+content match.
+
+**Learned:** three live findings that changed the answer.
+(1) The "duplicated posts" in the clone's discussion group are **not** a
+defect: they are Telegram's own auto-forward anchors, and the source group
+«масонская ложа» shows the identical pattern. It only looks wrong because
+the comments leg has not run, so the group holds anchors and nothing else —
+a presentation symptom of ADR-0023's phase order, not a copy bug.
+(2) The source *group* is `noforwards=false` while the *channel* is
+`noforwards=true` — so a genuine native header is reachable by forwarding
+the original comment, which I had written off too quickly.
+(3) But `fwd_from.saved_from_peer`/`saved_from_msg_id` are null on a
+group-comment repost, so there is no Telegram-supplied pointer to the
+original; and the repost is routinely edited afterwards (source 69 was
+reposted 13:55, edited 16:18), so any match must compare content or it will
+publish different text.
+
+**Next:** owner picks whether decision 3 (native re-forward) is in scope
+before implementation; decisions 1–2 are implementable as-is. Windowed
+phase interleaving (the ADR-0023 re-open) is still unwritten and separate.
+
 ## 2026-07-24 — Stack #54–#58 merged; 1.2.5 and 1.2.6 tagged (Claude Opus 4.8)
 **Did:** owner granted merge rights, so landed the whole open stack in order.
 #54 merged by the owner; then #56, #57, #58 — each needed `origin/main` merged
