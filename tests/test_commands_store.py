@@ -1,6 +1,7 @@
 """Local-state inventory and cleanup (ADR-0040)."""
 
 import json
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -228,3 +229,47 @@ def test_scan_reports_world_readable_previews(tmp_path, monkeypatch):
     data = store_cmd.scan(tmp_path, now=NOW)
 
     assert data["previews_world_readable"] == 1
+
+
+def _write_unparsable_preview(root: Path, name: str, *, mtime: datetime) -> Path:
+    """A preview truncated mid-write: valid name, unreadable expires_at."""
+    directory = root / "previews"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{name}.json"
+    path.write_text('{"payload": {"text": "half-writ')
+    stamp = mtime.timestamp()
+    os.utime(path, (stamp, stamp))
+    return path
+
+
+def test_unparsable_preview_falls_back_to_mtime(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    fresh = _write_unparsable_preview(
+        tmp_path, "p_torn", mtime=NOW - timedelta(minutes=1)
+    )
+    stale = _write_unparsable_preview(
+        tmp_path, "p_stale", mtime=NOW - PREVIEW_TTL - timedelta(minutes=1)
+    )
+
+    data = store_cmd.scan(tmp_path, now=NOW)
+
+    assert data["previews"]["live"]["count"] == 1
+    assert data["previews"]["expired"]["count"] == 1
+
+    store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
+
+    assert fresh.exists(), "a preview written moments ago must survive cleanup"
+    assert not stale.exists()
+
+
+def test_cleanup_confirm_allowed_under_no_send(tmp_path, monkeypatch, capsys):
+    """TGCLI_NO_SEND guards Telegram sends, not local-state housekeeping."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("TGCLI_NO_SEND", "1")
+    _seed_inventory(tmp_path)
+
+    assert main(["store", "cleanup", "--confirm", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert "p_spent0.used" in data["removed"]
+    assert not (tmp_path / "previews" / "p_spent0.used").exists()
+    assert (tmp_path / "audit.jsonl").exists()

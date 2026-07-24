@@ -21,6 +21,16 @@ def enforce_mutation_allowed(readonly: bool) -> None:
         raise PolicyError("mutation blocked by TGCLI_NO_SEND")
 
 
+def enforce_local_mutation_allowed(readonly: bool) -> None:
+    """Block a local-state mutation (ADR-0040).
+
+    `TGCLI_NO_SEND` deliberately does not apply: it guards Telegram sends, and
+    housekeeping under the state root reaches no network.
+    """
+    if readonly or os.environ.get("TGCLI_READONLY") == "1":
+        raise PolicyError("mutation blocked by readonly mode")
+
+
 def previews_dir() -> Path:
     return state_dir() / "previews"
 

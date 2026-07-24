@@ -605,7 +605,8 @@ age is measured from each preview's stored `expires_at` (mtime fallback).
 
 `store cleanup --confirm` mutates local state, so `--readonly` /
 `TGCLI_READONLY=1` blocks it with exit 2 before any deletion. Dry-run (no
-`--confirm`) is always allowed.
+`--confirm`) is always allowed. `TGCLI_NO_SEND=1` does **not** block it: that
+guard is for Telegram sends, and cleanup reaches no network.
 
 `--json` emits:
 
@@ -651,7 +652,9 @@ Any ordinary online exception, including a session/configuration failure, is
 represented as `checks.error`, with `authorized: false`, `user: null`, and
 `ok: false` for that account. `--plain` uses frozen columns: `alias`, `status`
 (`ok|fail|unknown`), `username`, `failures`. `unknown` means local checks
-passed and authorization was not probed.
+passed and authorization was not probed. When `preview_perms_ok` is false,
+`doctor` prints a one-line remedy hint to **stderr** (`tg store cleanup
+--confirm`); stdout stays the JSON/rows document only.
 
 When `doctor` itself runs, it always exits 0; consult the top-level `ok` and
 per-account `ok` values for health failures. An invalid or unreadable config,

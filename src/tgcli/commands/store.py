@@ -57,7 +57,9 @@ def _classify_preview(path: Path, *, now: datetime) -> str | None:
         return None
     expires = _preview_expires_at(path)
     if expires is None:
-        return "expired"
+        # Unreadable expires_at — truncated mid-write, or hand-edited. Fall back
+        # to mtime so a preview created moments ago is never reaped as expired.
+        return "expired" if now - _preview_age_anchor(path) >= PREVIEW_TTL else "live"
     return "live" if expires > now else "expired"
 
 

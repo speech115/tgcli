@@ -18,6 +18,9 @@ lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 - **`tg doctor` offline by default** — local checks always; live authorization
   only with `--connect`. Offline `authorized` is `null`; plain status may be
   `unknown` (ADR-0040).
+- New local checks `preview_perms_ok` / `audit_perms_ok`. Installations with
+  legacy `0644` previews will report `ok: false` until tightened; `doctor`
+  prints the remedy (`tg store cleanup --confirm`) to stderr.
 
 ## [1.1.2] — 2026-07-23
 

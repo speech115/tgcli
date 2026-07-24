@@ -120,3 +120,22 @@ def test_doctor_run_connect_false_skips_client(config_env, monkeypatch):
     config = load_config()
     data = __import__("asyncio").run(doctor_cmd.run(config, "main", connect=False))
     assert data["accounts"][0]["checks"]["authorized"] is None
+
+
+def test_doctor_hints_the_remedy_for_loose_preview_modes(config_env, capsys):
+    """A legacy 0644 preview fails doctor; the fix must not be a guessing game."""
+    from tgcli import safety
+
+    _touch_session("main")
+    previews = safety.previews_dir()
+    previews.mkdir(parents=True, exist_ok=True)
+    legacy = previews / "old.json"
+    legacy.write_text("{}")
+    legacy.chmod(0o644)
+
+    assert main(["doctor", "--json"]) == 0
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert report["accounts"][0]["checks"]["preview_perms_ok"] is False
+    assert report["ok"] is False
+    assert "tg store cleanup --confirm" in captured.err

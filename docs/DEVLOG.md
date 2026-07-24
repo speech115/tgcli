@@ -26,8 +26,9 @@ patch 1.1.3. ACCOUNTS-001 companion: a broken session still gets a local
 diagnosis. Full gate green.
 **Decided:** `ok` from local checks only when offline; with `--connect`, `ok`
 also requires `authorized`. `state_size` is informational and never fails `ok`.
-**Learned:** pre-existing `_writable` lacked an explicit `return True` after
-the probe (implicit `None`); restored while touching the module.
+**Learned:** moved `_writable`'s `return True` out of the `try` to below the
+`finally` — behaviourally identical (the old `return True` already ran before
+the cleanup), a readability nudge, not a bug fix.
 **Next:** owner tags 1.1.2 / 1.1.3; independent Spec+Standards review of the
 whole-diff before merge.
 

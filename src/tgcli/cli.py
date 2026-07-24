@@ -134,7 +134,7 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
         return data, store_cmd.stats_rows(data)
     if args.command == "store" and args.store_command == "cleanup":
         if args.confirm:
-            safety.enforce_mutation_allowed(args.readonly)
+            safety.enforce_local_mutation_allowed(args.readonly)
         data = store_cmd.cleanup(
             session.state_dir(),
             older_than=getattr(args, "older_than", None),

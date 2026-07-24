@@ -5,6 +5,7 @@ import stat
 from pathlib import Path
 
 from tgcli import safety, session
+from tgcli.output import note
 from tgcli.config import Config, resolve_account
 
 
@@ -131,6 +132,11 @@ async def run(
     else:
         accounts = list(config.accounts.values())
     reports = [await check_account(account, connect=connect) for account in accounts]
+    if any(report["checks"]["preview_perms_ok"] is False for report in reports):
+        note(
+            "preview files are readable by other users; tighten them with: "
+            "tg store cleanup --confirm"
+        )
     return {"accounts": reports, "ok": all(report["ok"] for report in reports)}
 
 
