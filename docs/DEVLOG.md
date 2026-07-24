@@ -33,6 +33,19 @@ SHA, not the cancelled duplicate.
 **Next:** green PR CI + resolve Bugbot threads; independent Spec+Standards
 review; owner merges and tags `v1.2.3`.
 
+## 2026-07-24 — ADR-0046 clone destination ergonomics (Composer)
+**Did:** after merging/tagging 1.2.3 (ADR-0045 / PR #53), implemented
+ADR-0046 Part A on `claude/clone-destination-ergonomics`:
+`clone/ergonomics.py` mutes tool-created peers forever and files them into
+the `Clone` dialog filter; init commit JSON gains `ergonomics`; CONTRACT /
+CHANGELOG 1.2.4 / dual version bump / MAP.
+**Decided:** best-effort ADR-0024 posture — mute/folder failures warn and
+mark JSON, never fail init.
+**Learned:** DialogFilter titles are `TextWithEntities` in Telethon 1.44;
+`GetDialogFiltersRequest` returns `messages.DialogFilters`.
+**Next:** gate → reviewer → CI → merge → tag `v1.2.4`; live retrofit of
+икона peers is owner-gated; then ADR-0047.
+
 ## 2026-07-24 — ADR-0045 flood containment implementation (Composer)
 **Did:** implemented plan tasks 1–6 on `claude/flood-containment`:
 `clone/flood.py` account record (atomic writes); wired account cooldown into
