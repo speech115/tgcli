@@ -17,6 +17,31 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — Live measurement verdict + ADR-0046/0047/0048 (Claude Fable 5)
+**Did:** finished the икона live runbook far enough to settle the speed
+question: init completed the discussion link with zero avatar re-uploads
+(the 1.2.2 guard's first live save), then two timestamped `-v` sync
+samples. Sample 1: 43.9s / 5 messages — upload 56.6%, download 35.7%,
+send 2.7%. Sample 2 (590s, killed by explicit `--timeout`, cursor 50/69
+saved): download 79.4% (one video = 2562 `GetFileRequest` chunks), upload
+18.9%, send 0.8%. **Chunk transfer is 92–98% of sync wall time; the
+bottleneck is inside single files, not across messages.** Wrote ADR-0046
+(mute + "Clone" folder), ADR-0047 (parallel chunk transfer, constant 4),
+ADR-0048 (transient poll vote for the breakdown) plus the combined plan
+`2026-07-24-clone-ergonomics-and-transfer.md`; rebased the branch onto
+1.2.2 main.
+**Decided:** ADR-0046/0047/0048, all owner-commissioned today. The
+"parallelize across messages" idea from the original speed discussion is
+dead — the numbers point inside the file.
+**Learned:** poll snapshots showing `0% · 0` per option with a correct
+total are Telegram data availability (breakdown revealed only to voters /
+closed polls), not a clone defect — the owner chose vote-and-retract over
+a placeholder for anonymous polls. Also: `clone sync` honors an explicit
+`--timeout` mid-batch and resumes cleanly from the saved cursor.
+**Next:** executor runs plans (flood containment → ergonomics → transfer
+→ polls), each ADR its own PR + tagged release; resume икона sync to
+completion meanwhile.
+
 ## 2026-07-24 — ADR-0045: flood containment scope + plan (Claude Fable 5)
 **Did:** owner-commissioned after the day's flood incident (3 peers in
 ~45 min, ~13-min link flood, agent retry loop). Wrote ADR-0045 and the
