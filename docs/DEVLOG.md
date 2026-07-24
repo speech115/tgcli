@@ -31,6 +31,20 @@ already required by ADR-0046 / CONTRACT. Prefer typed RPC catch over BLE001.
 may open the same fix — refine the open PR instead of duplicating.
 **Next:** green PR CI on #54/#56; owner merges; watch ADR-0047/48/49 PRs.
 
+## 2026-07-24 — Babysit: post-merge cooldown-before-network (Composer)
+**Did:** PR #53 merged + tagged `v1.2.3` while babysitting. Follow-up work
+started on `claude/flood-cooldown-before-network` and continued on
+`cursor/flood-containment-prs-9024` (PR #54); it fixes the remaining Bugbot
+finding: account cooldown must fire before Telegram entity resolve.
+`commit_init` gates from preview payload (zero RPCs); `sync_text` does
+`get_me` → account gate → resolve. Tests forbid `get_entity` under an active
+account cooldown.
+**Decided:** ship as a small post-release patch PR (not reopen #53).
+**Learned:** Bugbot can land a new thread after the merge push; keep watching
+head SHA even when mergeable looks green.
+**Next:** green CI on the follow-up PR; owner merges (and tags if CONTRACT
+unchanged — behavior-only, no CONTRACT edit).
+
 ## 2026-07-24 — Babysit PR #53 Bugbot fixes (Composer)
 **Did:** on `claude/flood-containment` / PR #53, fixed two Bugbot findings with
 reproducing tests first: (1) re-init without `--no-comments` no longer
