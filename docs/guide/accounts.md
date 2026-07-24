@@ -62,6 +62,11 @@ resume with `--continue` + `--password-stdin`. Attempt state lives under
 `logins/` and is promoted into `sessions/<alias>.session` only after Telegram
 confirms — a failed attempt cannot damage a working session.
 
+Telegram Settings → Devices shows tgcli connections as **tgcli** with the
+installed tgcli version, rather than an architecture-only label such as
+`arm64`. This makes forced reauthorization and device cleanup distinguishable
+from Telegram Desktop and mobile clients.
+
 ## Remove an account
 
 ```bash

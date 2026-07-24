@@ -17,6 +17,21 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-24 — Telegram Devices labels tgcli sessions clearly (Composer)
+**Did:** regular and staged-login Telethon clients now send one shared device
+identity: `device_model=tgcli`, OS family, and package version. Added exact
+constructor boundary tests, ADR-0042 §15, accounts guide and changelog notes.
+Live check on the secondary `teamsyncsage` authorization returned
+`device_model=tgcli`, `system_version=Darwin`; release connections report
+`app_version=1.2.0`.
+**Decided:** stable product identity is safer than Telethon's architecture-only
+default (`arm64`), which made live device cleanup ambiguous.
+**Learned:** Telegram updates the current authorization metadata on the next
+connection; existing tgcli sessions do not need reauthorization just to gain
+the clearer label.
+**Next:** restore the accidentally terminated `recklessou` session if needed,
+mark #46–#48 ready, then merge the stack and tag `v1.2.0`.
+
 ## 2026-07-24 — ADR-0042 live acceptance on recklessou (Composer)
 **Did:** live-acceptance against secondary account RecklessOU via throwaway
 `tmp-login` (never `main`). QR deep link: `open` succeeds on

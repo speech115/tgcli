@@ -21,6 +21,9 @@ lives in [docs/DEVLOG.md](docs/DEVLOG.md).
   argv. Login attempts live under `logins/` and promote into
   `sessions/<alias>.session` only after Telegram confirms. Owner-declared
   minor milestone.
+- Telegram Settings → Devices identifies regular and login sessions as
+  **tgcli** with the package version, instead of architecture-only labels such
+  as `arm64`.
 - `store stats` / `store cleanup` learn the `logins/` bucket and report
   `session_backups` (`.bak`); cleanup reaps expired attempts only.
 
