@@ -3323,7 +3323,7 @@ def test_clone_sync_reupload_striped_download_flood_wait_exits_5(
         async def iter_download(
             self, media, *, offset=0, request_size=None, stride=None
         ):
-            raise telethon_errors.FloodWaitError(request=None, capture=45)
+            raise telethon_errors.FloodWaitError(request=None, capture=61)
             yield  # pragma: no cover
 
         async def download_media(self, message, file=None):
@@ -3334,7 +3334,7 @@ def test_clone_sync_reupload_striped_download_flood_wait_exits_5(
 
     assert main(["clone", "sync", "@source", "--json"]) == 5
     err = json.loads(capsys.readouterr().err)["error"]
-    assert err["retry_after"] == 45
+    assert err["retry_after"] == 61
     assert client.part_requests == []
     assert not any(
         isinstance(
@@ -3628,7 +3628,7 @@ def test_clone_sync_reforward_search_flood_wait_exits_5_without_send(
             self, entity, *, limit=None, from_user=None, offset_date=None, ids=None
         ):
             if from_user is not None or offset_date is not None:
-                raise telethon_errors.FloodWaitError(request=None, capture=45)
+                raise telethon_errors.FloodWaitError(request=None, capture=61)
             return await super().get_messages(entity, limit=limit)
 
     client = FloodSearchClient([post])
@@ -3637,7 +3637,7 @@ def test_clone_sync_reforward_search_flood_wait_exits_5_without_send(
     assert main(["clone", "sync", "@source", "--json"]) == 5
 
     err = json.loads(capsys.readouterr().err)["error"]
-    assert err["retry_after"] == 45
+    assert err["retry_after"] == 61
     assert not any(
         isinstance(
             item,
@@ -3669,7 +3669,7 @@ def test_clone_sync_reforward_group_entity_flood_wait_exits_5_without_send(
                 isinstance(ref, types.PeerChannel)
                 and ref.channel_id == self.source_group.id
             ):
-                raise telethon_errors.FloodWaitError(request=None, capture=45)
+                raise telethon_errors.FloodWaitError(request=None, capture=61)
             return await super().get_entity(ref)
 
     client = FloodGroupEntityClient([post])
@@ -3678,7 +3678,7 @@ def test_clone_sync_reforward_group_entity_flood_wait_exits_5_without_send(
     assert main(["clone", "sync", "@source", "--json"]) == 5
 
     err = json.loads(capsys.readouterr().err)["error"]
-    assert err["retry_after"] == 45
+    assert err["retry_after"] == 61
     assert client.search_calls == []
     assert not any(
         isinstance(
@@ -3860,7 +3860,7 @@ def test_sync_error_stays_the_final_stderr_line_after_progress(
     class FloodingClient(CloneSyncClient):
         async def __call__(self, request):
             if len(self.requests) >= 1:
-                raise telethon_errors.FloodWaitError(request=None, capture=17)
+                raise telethon_errors.FloodWaitError(request=None, capture=61)
             return await super().__call__(request)
 
     client = FloodingClient([message(2), message(3)])
@@ -3873,7 +3873,7 @@ def test_sync_error_stays_the_final_stderr_line_after_progress(
     assert progress_lines(captured.err), "progress must precede the error"
     error = json.loads(lines[-1])["error"]
     assert error["code"] == "FLOOD_WAIT"
-    assert error["retry_after"] == 17
+    assert error["retry_after"] == 61
 
 
 def test_sync_with_nothing_to_copy_asks_for_no_approximate_total(
@@ -3913,7 +3913,7 @@ def test_sync_flood_wait_on_the_approximate_total_arms_the_cooldown(
     class FloodingTotalClient(CloneSyncClient):
         async def get_messages(self, entity, limit=None):
             if entity is self.source:
-                raise telethon_errors.FloodWaitError(request=None, capture=29)
+                raise telethon_errors.FloodWaitError(request=None, capture=61)
             return await super().get_messages(entity, limit=limit)
 
     client = FloodingTotalClient([message(2)])
@@ -3923,7 +3923,49 @@ def test_sync_flood_wait_on_the_approximate_total_arms_the_cooldown(
 
     error = json.loads(capsys.readouterr().err.splitlines()[-1])["error"]
     assert error["code"] == "FLOOD_WAIT"
-    assert error["retry_after"] == 29
+    assert error["retry_after"] == 61
     assert client.requests == []
     saved = state.load(clone_state.clone_id)
     assert saved.cooldown_deadline() is not None
+
+
+def test_sync_short_flood_wait_retries_once_and_keeps_json_stdout(
+    config_env, monkeypatch, capsys
+):
+    """ADR-0052: ≤60s FloodWait sleeps once (injectable), retries, stdout stays one JSON."""
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("tgcli.commands.clone.asyncio.sleep", fake_sleep)
+    seed_clone()
+
+    class OnceFloodClient(CloneSyncClient):
+        def __init__(self, messages):
+            super().__init__(messages)
+            self._flooded = False
+
+        async def __call__(self, request):
+            if (
+                isinstance(request, functions.messages.ForwardMessagesRequest)
+                and not self._flooded
+            ):
+                self._flooded = True
+                raise telethon_errors.FloodWaitError(request=None, capture=3)
+            return await super().__call__(request)
+
+    client = OnceFloodClient([message(2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["sync"]["copied"] == 1
+    assert payload["sync"]["forwarded"] == 1
+    assert "flood wait: retrying in 3s" in captured.err
+    assert sleeps == [4]
+    # Exactly one JSON document on stdout — no wait noise.
+    assert captured.out.count("{") >= 1
+    json.loads(captured.out)  # round-trip already; single document

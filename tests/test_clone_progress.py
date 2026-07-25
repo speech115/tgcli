@@ -74,8 +74,8 @@ async def test_resolve_total_requeries_after_phase_reset():
             calls.append((entity, limit))
             return SimpleNamespace(total=totals[len(calls) - 1])
 
-    async def invoke(awaitable):
-        return await awaitable
+    async def invoke(make):
+        return await make()
 
     tg = FakeTg()
     source = object()

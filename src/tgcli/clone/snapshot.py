@@ -117,7 +117,7 @@ async def _capture_breakdown(
         account_alias,
         {"message_id": message.id, "option": option.hex()},
     )
-    updates = await invoke(tg(cast))
+    updates = await invoke(lambda: tg(cast))
     retract = functions.messages.SendVoteRequest(
         peer=peer, msg_id=message.id, options=[]
     )
@@ -129,7 +129,7 @@ async def _capture_breakdown(
 
     async def retract_vote() -> None:
         try:
-            await invoke(tg(retract))
+            await invoke(lambda: tg(retract))
         except telethon_errors.FloodWaitError:
             raise
         except (telethon_errors.RPCError, OSError) as exc:

@@ -28,7 +28,7 @@ tgcli/
 │   ├── guide/                 [done]    user-facing task pages, 22 + index (ADR-0041)
 │   ├── assets/                [done]    README banner (SVG)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
-│   ├── decisions/             [done]    ADR-0001…0051 + README.md index (ADR-0026 maintenance mode)
+│   ├── decisions/             [done]    ADR-0001…0052 + README.md index (ADR-0026 maintenance mode)
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -54,7 +54,7 @@ tgcli/
 │   ├── transfer.py            [done]    striped download + parallel Save*FilePart upload, one progress cadence (ADR-0047/0049)
 │   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045/0046/0047/0049)
 │   │   ├── state.py           [done]    atomic JSON state, mappings, cooldown
-│   │   ├── flood.py           [done]    account-scoped FloodWait cooldown + peer-created stamp (ADR-0045)
+│   │   ├── flood.py           [done]    account-scoped FloodWait cooldown + peer-created stamp + per-run wait budget (ADR-0045/0052)
 │   │   ├── ergonomics.py      [done]    mute forever + "Clone" dialog filter for tool-created peers (ADR-0046)
 │   │   ├── fidelity.py        [done]    media capability classification
 │   │   ├── batching.py        [done]    pure batch planner: albums, service skips
@@ -87,10 +87,10 @@ tgcli/
 │   │   ├── draft.py           [done]    tg draft set|show|clear|list (ADR-0039)
 │   │   ├── mutate.py          [done]    tg edit|delete|forward preview / commit; tg mark-read|mark-unread (ADR-0028/0029)
 │   │   ├── doctor.py          [done]    tg doctor offline-first health; --connect live (ADR-0028/0040)
-│   │   ├── store.py           [done]    tg store stats|cleanup; previews + logins + session_backups (ADR-0040/0042)
+│   │   ├── store.py           [done]    tg store stats|cleanup; previews + logins + session_backups + clone media caches (ADR-0040/0042/0052)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (+ incremental messages ADR-0032; broadcast walk ADR-0031)
-│   │   └── clone.py           [done]    clone status/init/sync surface (ADR-0017…0025/0045/0046/0047/0048; all live gates passed)
+│   │   └── clone.py           [done]    clone status/init/sync surface (ADR-0017…0025/0045/0046/0047/0048/0052; all live gates passed)
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/

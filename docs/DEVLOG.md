@@ -17,6 +17,78 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — PR #76 independent review: media-cache liveness gate (Claude Opus 5)
+
+**Did:** independent whole-diff review of `claude/clone-transfer-flood-retry`
+from its merge-base, in a fresh context. Spec and standards clear: every
+`_with_cooldown` call site is a thunk, the cooldown arms before the sleep, the
+retry is exactly one and budget-bounded, no test sleeps. One confirmed defect,
+fixed here from a reproducing test: `_deletable_paths` selected every
+`clones/*-media/` directory unconditionally when `--older-than` was omitted,
+while every other bucket needs its own TTL to classify the record dead first.
+`store cleanup --confirm` run beside a live `clone sync` therefore rmtree'd
+the media the sync was downloading. Added `MEDIA_CACHE_MIN_AGE` (1 h) as an
+always-on floor, anchored on the newest mtime in the directory rather than the
+directory's own, with three tests (live cache kept, long-download cache kept,
+abandoned cache still reaped). Merged `main` (1.2.11 from ADR-0053) in;
+release is **1.2.12**.
+
+**Decided:** the floor is not a flag and not `--older-than`'s job. Cleanup's
+contract is that it never touches live state, and a cache with no `expires_at`
+has only mtime to prove it. `--older-than` still narrows further; it can only
+raise the floor, never lower it. CONTRACT §5.05 states the hour.
+
+**Learned:** directory mtime is not liveness for a single-file download — the
+directory is stamped once when `src-<id>` is created, then stays put for the
+half-gigabyte write that follows. Anchoring on the directory alone would have
+kept the bug alive for exactly the transfers ADR-0052 exists to protect.
+
+**Next:** #74, #78 and #77 in that order, each re-versioned on merge.
+
+## 2026-07-25 — PR #76 review fixes: WaitBudget + stale striped cache (Cursor Grok)
+
+**Did:** fixed two confirmed independent-review defects on
+`claude/clone-transfer-flood-retry`. (1) `WaitBudget.try_spend` now refuses
+when `spent + next > limit` (was only `spent >= limit`), with
+`test_wait_budget_refuses_spend_that_would_exceed_limit`. (2) Stale
+`src-<id>` wrong size for >512KiB media: unlink before re-download so
+`download_striped`'s `"xb"` cannot raise `FileExistsError`
+(`test_stale_large_cache_redownloads_without_file_exists_error`).
+
+**Decided:** keep exclusive create in `download_striped`; clear the stale
+cache path in `_download_for_reupload` when reuse does not apply.
+
+**Learned:** size-mismatch reuse tests covered only the small
+`download_media` path; striped exclusive-create was untested until review.
+
+**Next:** Independent re-review of the two fixes on PR #76; still do not
+merge until cleared.
+
+## 2026-07-25 — ADR-0052 clone long-run survival on PR #76 (Cursor Grok)
+
+**Did:** rebased `claude/clone-transfer-flood-retry` onto post-1.2.10 `main`
+and finished the five tasks in
+`docs/superpowers/plans/2026-07-25-clone-long-run-survival.md`. (1) Converted
+`_with_cooldown` / `invoke` to zero-arg thunks so a coroutine can be rebuilt
+for retry. (2) Short FloodWait (≤60s) arms cooldown, prints stderr, sleeps
+behind an injectable seam, retries once. (3) Per-process `WaitBudget` (180s)
+in `flood.py`, threaded with `clone_state`. (4) Persistent
+`clones/<id>-media/` cache with name+size reuse; rmtree only after successful
+send. (5) `store stats`/`cleanup` learn `clone_media_cache`. CONTRACT §11 +
+§5.05. Version `1.2.10` → `1.2.11` because `main` already shipped 1.2.10.
+
+**Decided:** ADR-0052 stands; no flags for `SHORT_WAIT`/`WAIT_BUDGET`. Kept
+main's `comments_unstarted` warning call sites alongside the wait budget.
+Existing CLI FloodWait fixtures that always raise used captures ≤60 and would
+have slept in tests — bumped those to 61 so they keep the immediate exit-5
+intent; new short-retry coverage uses the injectable sleep seam.
+
+**Learned:** A coroutine handed to `_with_cooldown` cannot be re-awaited;
+task 1's thunk conversion had to land before any retry logic. Rebase onto a
+main that already claimed 1.2.10 forces the ADR-0052 release to 1.2.11.
+
+**Next:** Independent whole-diff Spec + Standards review of PR #76; do not
+merge until that review clears. Live acceptance remains owner-gated.
 ## 2026-07-25 — ADR-0053: --json error envelope on stdout (Cursor Grok)
 
 **Did:** implemented PR #75 / ADR-0053 plan tasks 1–4. `emit_error` under
