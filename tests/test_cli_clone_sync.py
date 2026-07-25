@@ -3748,13 +3748,29 @@ def test_sync_json_mode_emits_progress_without_touching_stdout(
 
 def test_sync_announces_the_comments_and_roster_phases(config_env, monkeypatch, capsys):
     seed_comments_clone()
-    client = CloneCommentsClient(
+
+    class CountingCommentsClient(CloneCommentsClient):
+        def __init__(self, messages, comments=()):
+            super().__init__(messages, comments)
+            self.total_requests = 0
+
+        async def get_messages(self, entity, limit=None, ids=None):
+            if entity is self.source and limit == 0:
+                self.total_requests += 1
+            return await super().get_messages(entity, limit=limit, ids=ids)
+
+    client = CountingCommentsClient(
         [message(2)],
         [
             anchor(10, 2),
             message(
                 12,
                 message="nice",
+                reply_to=types.MessageReplyHeader(reply_to_msg_id=10),
+            ),
+            message(
+                13,
+                message="also",
                 reply_to=types.MessageReplyHeader(reply_to_msg_id=10),
             ),
         ],
@@ -3765,8 +3781,17 @@ def test_sync_announces_the_comments_and_roster_phases(config_env, monkeypatch, 
     assert main(["clone", "sync", "@source"]) == 0
 
     lines = progress_lines(capsys.readouterr().err)
-    assert "[sync 123] 1/~1 · comments" in lines
-    assert lines[-1] == "[sync 123] 2/~? · roster"
+    comments_idx = lines.index("[sync 123] 1/~1 · comments")
+    # The batch immediately after the comments phase line must show a resolved
+    # denominator (posts-leg source total), not the stuck `~?` from a stale
+    # `_total_resolved` flag. Two comment messages → two batches after the phase.
+    assert lines[comments_idx + 1] == "[sync 123] 2/~1 · reuploaded"
+    assert lines[comments_idx + 2] == "[sync 123] 3/~1 · reuploaded"
+    # Roster announces with the prior leg's resolved total, then clears it;
+    # it never calls resolve_total itself.
+    assert lines[-1] == "[sync 123] 3/~1 · roster"
+    # Posts + comments each resolve once (limit=0); never once per comment batch.
+    assert client.total_requests == 2
 
 
 def test_sync_reports_transfer_bytes_while_reuploading(config_env, monkeypatch, capsys):

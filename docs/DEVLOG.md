@@ -17,6 +17,27 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — ADR-0053: --json error envelope on stdout (Cursor Grok)
+
+**Did:** implemented PR #75 / ADR-0053 plan tasks 1–4. `emit_error` under
+`--json` now writes one JSON line to both stdout and stderr (byte-identical).
+Extended output, contract-exit, flood-wait, and export tests to pin both
+streams for exits 1–5. Clarified CONTRACT §2. Fixed `SyncProgress.phase()` so
+comments-phase progress re-resolves `~total` instead of sticking at `~?`.
+Rebased onto post-1.2.10 `main` and bumped to **1.2.11**. `./scripts/gate.sh`
+green before push.
+**Decided:** fix stays inside `emit_error` only (no second stdout write in
+`cli.py`); `tg batch` and `PartialFailure` stdout paths untouched. Roster
+phase line keeps announcing with the prior leg's resolved total (same pattern
+as the comments phase line), then clears — not a stuck `~?`. Version is
+1.2.11 because `main` already shipped 1.2.10 for the comments-guard / docs
+slice.
+**Learned:** `test_missing_config_exits_3` asserted empty stdout on a `--json`
+failure and had to flip with the contract; plan's roster `~?` expectation was
+the pre-fix symptom, not the post-fix announce-then-clear shape.
+**Next:** independent whole-diff Spec + Standards review of PR #75; do not
+merge until that review clears; then tag `v1.2.11` on the merge commit.
+
 ## 2026-07-25 — Deferred ADR-0051; shipped the warning instead (Claude Opus 5)
 
 **Did:** owner reviewed ADR-0051 and asked whether the project needs it. It

@@ -58,23 +58,33 @@ def env(tmp_path, monkeypatch):
     return {"config": config_path, "state": state}
 
 
-def _error_code(capsys) -> str:
-    return json.loads(capsys.readouterr().err)["error"]["code"]
+def _error_code(stream: str) -> str:
+    return json.loads(stream)["error"]["code"]
+
+
+def _stdout_error(stream: str) -> str:
+    return json.loads(stream)["error"]["code"]
 
 
 def test_unknown_alias_lookup_is_exit_4(env, capsys):
     """`accounts show|remove` look up a registry entry (ADR-0042 §11)."""
     assert main(["accounts", "show", "ghost", "--json"]) == 4
-    assert _error_code(capsys) == "NOT_FOUND"
+    captured = capsys.readouterr()
+    assert captured.out == captured.err
+    assert _stdout_error(captured.out) == _error_code(captured.err) == "NOT_FOUND"
 
 
 def test_unknown_account_resolution_is_exit_3(env, capsys):
     """`--account` resolves the operating context (CONTRACT §4, doctor rule)."""
     assert main(["doctor", "--account", "ghost", "--json"]) == 3
-    assert _error_code(capsys) == "CONFIG"
+    captured = capsys.readouterr()
+    assert captured.out == captured.err
+    assert _stdout_error(captured.out) == _error_code(captured.err) == "CONFIG"
 
 
 def test_readonly_mutation_is_exit_2(env, capsys):
     args = ["accounts", "remove", "main", "--confirm", "--readonly", "--json"]
     assert main(args) == 2
-    assert _error_code(capsys) == "BLOCKED"
+    captured = capsys.readouterr()
+    assert captured.out == captured.err
+    assert _stdout_error(captured.out) == _error_code(captured.err) == "BLOCKED"

@@ -122,6 +122,7 @@ class SyncProgress:
         """Announce a leg whose size the posts-leg total no longer describes."""
         self._write(f"{self._prefix()} · {name}")
         self._total = None
+        self._total_resolved = False
 
     def transfer(self, filename: str, direction: str) -> Callable[..., None]:
         """Return a byte-progress callback throttled to one line per ~5 MB."""
