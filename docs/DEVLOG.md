@@ -17,6 +17,40 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — Implement ADR-0050 Part B (Claude Opus 5, orchestrated)
+
+**Did:** owner lifted the Part B gate, so decision 3 shipped on
+`claude/clone-forward-attribution-b` (stacked on the Part A head). New
+`src/tgcli/clone/reforward.py`: `eligible()` admits only a single-message
+`reuploaded` broadcast repost with a searchable `fwd_from`; `locate()`
+resolves the linked source group once per run, spends at most one
+`get_messages(from_user=…, offset_date=fwd.date + 1s, limit=20)` per repost,
+and returns a group message id only when exactly one candidate sits at
+`fwd_from.date` with identical text and media. `_forward_batch` then sends
+that one `ForwardMessagesRequest(from_peer=<source group>, drop_author=False)`
+— audited as `clone-sync-reforward`, counted as `forwarded` — and skips the
+Part A prefix; every unproven case falls back to it unchanged. 22 new tests
+(`tests/test_clone_reforward.py` + 3 integration cases); 1.2.8 double bump,
+CHANGELOG, CONTRACT §11, MAP, plan boxes. Gate green.
+
+**Decided:** narrow Part B below the ADR's wording — albums are excluded
+(every item would need its own proof) and snapshot batches are excluded
+(ADR-0048 poll-vote replication is built on the rendered placeholder a
+forward would replace). Recorded in the plan and CHANGELOG. Ran the session
+as an orchestrator: Sonnet subagents wrote the tests and the release
+paperwork against a fixed API contract while Opus wrote the module and the
+wiring.
+
+**Learned:** the search must not be reached through `iter_messages` — only
+the `get_messages` coroutine can pass through `_with_cooldown`, which is
+what keeps a `FloodWaitError` arming the ADR-0045 cooldown instead of dying
+inside an async generator. `_guarded` re-raises `FloodWaitError` before
+catching `RPCError` for the same reason: FloodWait is a subclass, and
+swallowing it would turn a rate limit into a silent fallback.
+
+**Next:** independent review of this PR, then merge and tag 1.2.8 — after
+#59, which also claims a 1.2.7-adjacent digit, settles.
+
 ## 2026-07-25 — Implement ADR-0050 Part A (Composer)
 
 **Did:** executed Part A of

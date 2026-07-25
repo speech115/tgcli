@@ -1143,8 +1143,18 @@ or any post from a protected source, travels by reupload or snapshot and loses
 `fwd_from`. On those paths the clone prepends a Russian `Переслано от <label>`
 line built only from what `fwd_from` asserts (`from_id` / `from_name` /
 `post_author`, or the bare word `Переслано` when nothing resolves) — it never
-claims a discussion-group origin it cannot prove (ADR-0050). For attributed
-megagroup, forum, basic-group, and dialog sources, the
+claims a discussion-group origin it cannot prove (ADR-0050). When such a
+reposted, single-message broadcast batch can prove its original in the
+clone's linked source discussion group — the group is reachable and not
+`noforwards`, exactly one of its messages matches `fwd_from.from_id` and
+`fwd_from.date`, and that message's text and media are identical to the
+post — the clone forwards the original out of the source group into the
+destination channel instead of prefixing text, so the destination carries
+Telegram's own header (ADR-0050 Decision 3). That batch is then counted as
+`forwarded`, not `reuploaded`, in the sync JSON transport counts. Any
+unproven case — no linked group, a protected group, no single matching
+candidate, or mismatched content — keeps the text-prefix fallback above. For
+attributed megagroup, forum, basic-group, and dialog sources, the
 same batch uses native forwarding with `drop_author=False`, retaining
 Telegram's author header.
 

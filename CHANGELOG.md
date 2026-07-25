@@ -11,6 +11,20 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.8] — 2026-07-25
+
+### Changed
+
+- Clone posts leg: a reposted, single-message broadcast batch that can prove
+  its original in the clone's linked source discussion group (reachable,
+  not `noforwards`; exactly one group message matches `fwd_from.from_id`
+  and `fwd_from.date`; text and media identical to the post) now forwards
+  that original into the destination channel instead of prefixing
+  `Переслано от <label>`, so the destination carries Telegram's own header;
+  such a batch counts as `forwarded`, not `reuploaded`, in the sync JSON
+  transport counts. Albums and snapshot-mode posts are excluded. Any
+  unproven case keeps the 1.2.7 text-prefix fallback (ADR-0050).
+
 ## [1.2.7] — 2026-07-25
 
 ### Changed
@@ -204,6 +218,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.8]: https://github.com/speech115/tgcli/compare/v1.2.7...v1.2.8
 [1.2.7]: https://github.com/speech115/tgcli/compare/v1.2.6...v1.2.7
 [1.2.6]: https://github.com/speech115/tgcli/compare/v1.2.5...v1.2.6
 [1.2.5]: https://github.com/speech115/tgcli/compare/v1.2.4...v1.2.5

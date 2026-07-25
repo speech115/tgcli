@@ -107,23 +107,30 @@ any JSON or exit-code change.
 > `messages.Search` per reposted post against the ADR-0045 flood budget,
 > and its whole safety rests on the three-condition match.
 
-- [ ] Test: all three conditions hold (single candidate matching
+- [x] Test: all three conditions hold (single candidate matching
       `fwd_from.from_id`, `fwd_from.date`, and the post's text/media) →
       exactly one `ForwardMessagesRequest` from the source group to the
       destination channel, and **no** `Переслано от` prefix (the native
       header carries it).
-- [ ] Test: the source group is `noforwards=true` → no search RPC at all,
+- [x] Test: the source group is `noforwards=true` → no search RPC at all,
       falls back to Part A.
-- [ ] Test: two candidates match sender+date → falls back to Part A; the
+- [x] Test: two candidates match sender+date → falls back to Part A; the
       clone never picks one.
-- [ ] Test: the candidate's text differs from the post (the post was
+- [x] Test: the candidate's text differs from the post (the post was
       edited after reposting — the live `[икона]` 69 case: reposted
       13:55, edited 16:18) → falls back to Part A. **This test is the
       point of Part B; without it the feature silently republishes
       different content.**
-- [ ] Test: the source group is unreachable (never joined, left) →
+- [x] Test: the source group is unreachable (never joined, left) →
       falls back to Part A, no crash.
-- [ ] Implement behind the conditions, fallback-first: build the Part A
+- [x] Implement behind the conditions, fallback-first: build the Part A
       prefix, then replace it with a forward only when the match is
-      proven.
-- [ ] CONTRACT + CHANGELOG + DEVLOG; separate PR, separate tag.
+      proven. `src/tgcli/clone/reforward.py`; audited as
+      `clone-sync-reforward`. Narrowed to single-message `reuploaded`
+      batches only: albums are excluded (every item would need its own
+      proof) and snapshot-mode posts are excluded (their poll-vote
+      replication, ADR-0048, is built on the rendered placeholder a
+      forward would replace). A batch that takes this path is counted as
+      `forwarded`, not `reuploaded`, in the sync JSON transport counts —
+      no JSON field is added or removed.
+- [x] CONTRACT + CHANGELOG + DEVLOG; separate PR, separate tag.

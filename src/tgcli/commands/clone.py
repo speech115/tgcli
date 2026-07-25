@@ -20,6 +20,7 @@ from tgcli.clone import (
     legs,
     quote_fallback,
     quotes,
+    reforward,
     roster,
     snapshot,
     state,
@@ -760,6 +761,7 @@ async def _forward_batch(
     *,
     topic_dest=None,
     poll_votes: list | None = None,
+    reforward_cache: dict | None = None,
 ):
     source_ids = [message.id for message in messages]
     random_ids = [secrets.randbelow(2**63 - 1) + 1 for _ in messages]
@@ -767,12 +769,19 @@ async def _forward_batch(
     if topic_dest is not None:
         reply_to = topics.place(reply_to, topic_dest)
     top_msg_id = None if topic_dest in (None, topics.GENERAL_TOPIC_ID) else topic_dest
+
+    async def cooldown(awaitable):
+        return await _with_cooldown(awaitable, clone_state)
+
+    # ADR-0050 Part B: a proven original outranks the Part A prefix, because
+    # forwarding it carries Telegram's own header instead of describing one.
+    proven = None
+    if reforward_cache is not None and reforward.eligible(leg, messages, plan):
+        proven = await reforward.locate(
+            tg, clone_state, messages[0], reforward_cache, invoke=cooldown
+        )
     author = None
-    if plan.needs_author:
-
-        async def cooldown(awaitable):
-            return await _with_cooldown(awaitable, clone_state)
-
+    if plan.needs_author and proven is None:
         if (
             leg.source_kind == "broadcast"
             and getattr(messages[0], "fwd_from", None) is not None
@@ -784,7 +793,32 @@ async def _forward_batch(
             author = await attribution.author_of(
                 tg, source, messages[0], me, author_cache, cooldown
             )
-    if plan.mode == "snapshots":
+    mode = plan.mode
+    if proven is not None:
+        group, group_message_id = proven
+        mode = "forwarded"
+        safety.append_audit(
+            "clone-sync-reforward",
+            account_alias,
+            {
+                "clone_id": clone_state.clone_id,
+                "source_message_ids": source_ids,
+                "group_message_ids": [group_message_id],
+            },
+        )
+        response = await _mutate(
+            tg,
+            functions.messages.ForwardMessagesRequest(
+                from_peer=group,
+                id=[group_message_id],
+                random_id=random_ids,
+                to_peer=destination,
+                drop_author=False,
+                top_msg_id=top_msg_id,
+            ),
+            clone_state,
+        )
+    elif plan.mode == "snapshots":
         rendered_text, rendered_entities, poll_marker = await snapshot.render(
             tg,
             messages[0],
@@ -850,7 +884,7 @@ async def _forward_batch(
         leg.record_mapping(source_id, destination_id)
     leg.cursor = source_ids[-1]
     state.save(clone_state)
-    return len(source_ids), plan.mode, plan.reply_flattened, plan.quote_flattened
+    return len(source_ids), mode, plan.reply_flattened, plan.quote_flattened
 
 
 async def sync_text(
@@ -917,6 +951,7 @@ async def sync_text(
     quote_flattened: list[dict] = []
     poll_votes: list[dict] = []
     author_cache = {}
+    reforward_cache: dict = {}
     more = False
     posts_leg = legs.posts(clone_state)
     resolve_ctx = quotes.ResolveContext(tg=tg, mutate=mutate, destination=destination)
@@ -960,6 +995,7 @@ async def sync_text(
                 active_plan,
                 topic_dest=topic_dest,
                 poll_votes=poll_votes,
+                reforward_cache=reforward_cache,
             ),
             list(messages),
             plan,
