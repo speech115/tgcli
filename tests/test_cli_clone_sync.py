@@ -954,6 +954,36 @@ def test_sync_skips_phase_two_when_comments_are_unavailable(
     assert client.iter_messages_calls == [(0, True)]
 
 
+def test_sync_marks_comments_unavailable_when_source_group_turns_private(
+    config_env, monkeypatch, capsys
+):
+    """Enabled comments whose source group later refuses access must exit 0
+    with posts copied and the ADR-0023 marker persisted — not a traceback
+    through cli.py's unrecognized-exception path."""
+    clone_state = seed_comments_clone()
+    client = CloneCommentsClient([message(2)], [anchor(10, 2), message(12)])
+
+    async def get_entity(ref):
+        if isinstance(ref, types.PeerChannel) and ref.channel_id == 55:
+            raise telethon_errors.ChannelPrivateError(request=None)
+        return await CloneCommentsClient.get_entity(client, ref)
+
+    client.get_entity = get_entity
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] == 1
+    assert sync["skipped_autoforward"] == 0
+    assert sync["discussion_cursor"] == 0
+    assert group_sends(client) == []
+    assert ("group", 0, True) not in client.iter_messages_calls
+    saved = state.load(clone_state.clone_id)
+    assert saved is not None
+    assert saved.comments == "unavailable"
+
+
 @pytest.mark.asyncio
 async def test_create_topic_audit_failure_blocks_direct_mutation_and_state(
     config_env, monkeypatch

@@ -7,7 +7,10 @@ thread it belongs to.
 """
 
 from typing import cast
+
+from telethon import errors as telethon_errors
 from telethon.tl import types
+
 from tgcli.clone import batching, discussion, legs, state
 from tgcli.errors import PolicyError
 
@@ -42,9 +45,21 @@ async def sync_phase(
     run to exhaustion, so every parent post is mapped. Returns True when the
     --limit stop landed inside this phase."""
     leg = legs.discussion(clone_state)
-    source_group = await tg.get_entity(
-        types.PeerChannel(clone_state.discussion_source_peer_id)
-    )
+    try:
+        source_group = await tg.get_entity(
+            types.PeerChannel(clone_state.discussion_source_peer_id)
+        )
+    except telethon_errors.FloodWaitError:
+        # Still arm ADR-0045 via the caller's cooldown wrapper — never swallow.
+        raise
+    except (ValueError, telethon_errors.RPCError):
+        # Same refusal shape as attribution._resolve / roster.collect (1.2.8):
+        # a linked group that turned private after init must not crash a sync
+        # whose posts have already copied. Degrade to the ADR-0023 honest
+        # marker; never join the source on the user's behalf.
+        clone_state.comments = "unavailable"
+        state.save(clone_state)
+        return False
     try:
         group = await tg.get_entity(
             types.PeerChannel(clone_state.discussion_destination_peer_id)

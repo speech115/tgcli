@@ -11,6 +11,19 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.10] — 2026-07-25
+
+### Fixed
+
+- Clone comments phase: resolving the source discussion group at the start
+  of `comments.sync_phase` no longer lets a Telegram access refusal
+  (`ChannelPrivateError` and siblings) escape as an unhandled exception.
+  Sync persists `comments: "unavailable"`, skips the comments leg and
+  discussion roster, and exits 0 — the same honest marker init already
+  wrote for an unreadable linked group (ADR-0023). A `FloodWaitError` on
+  that resolve still propagates so the ADR-0045 cooldown arms. CONTRACT §11
+  documents the path. Third site of the 1.2.8 attribution/roster class.
+
 ## [1.2.9] — 2026-07-25
 
 ### Added
@@ -255,6 +268,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.10]: https://github.com/speech115/tgcli/compare/v1.2.9...v1.2.10
 [1.2.9]: https://github.com/speech115/tgcli/compare/v1.2.8...v1.2.9
 [1.2.8]: https://github.com/speech115/tgcli/compare/v1.2.7...v1.2.8
 [1.2.7]: https://github.com/speech115/tgcli/compare/v1.2.6...v1.2.7

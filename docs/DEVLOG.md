@@ -17,6 +17,28 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — Guard comments.sync_phase source-group resolve (#64) (Composer)
+
+**Did:** closed the third site of the 1.2.8 refusal class. `comments.sync_phase`
+resolved `discussion_source_peer_id` with no error handling, so a source
+group that turned private after init raised through `cli.py`'s unrecognized-
+exception path as a traceback. Catch now matches `attribution._resolve`:
+re-raise `FloodWaitError` (ADR-0045), treat `(ValueError, RPCError)` as
+`comments: "unavailable"` + skip phase 2. CONTRACT §11 documents the path;
+1.2.10 bump + CHANGELOG. Unit tests in `tests/test_clone_comments.py`
+(roster-shaped) plus one CLI seam case in `test_cli_clone_sync.py`.
+
+**Decided:** unavailable source group soft-degrades to the ADR-0023 marker
+rather than a hard `PolicyError` — same honesty as init and roster; the
+destination group resolve stays exit 2 because we own that peer.
+
+**Learned:** the open question in #64 was already answered by ADR-0023's
+"permanent honest marker, not a PolicyError" clause once the failure is
+framed as "linked group unreadable", not as "sync cannot continue".
+
+**Next:** implement ADR-0051 (windowed phase interleaving); defer-not-flatten
+first.
+
 ## 2026-07-25 — Merged the #59–#63 backlog; 1.2.7–1.2.9 tagged (Claude Opus 5)
 
 **Did:** cleared all five open PRs and every branch. Merge order #60 (ADR-0050

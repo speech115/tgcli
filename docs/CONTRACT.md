@@ -1124,8 +1124,17 @@ level `sync.clone` object itself carries no `comments` field). `--limit N`
 is not split between phases — phase 1 spends the full budget first, and
 phase 2 only starts if phase 1 did not stop on the limit; a run that stops
 inside phase 2 leaves comments lagging posts until the next invocation.
-When `comments` is `"disabled"`, `"unavailable"`, or `"none"`, the comment
-phase and the discussion roster snapshot are skipped entirely.
+If resolving the source discussion group fails because Telegram refuses
+access (`ChannelPrivateError`, `ChatForbiddenError`, `ChatAdminRequiredError`,
+or an unresolved peer), sync does **not** exit non-zero: it persists
+`comments: "unavailable"`, skips the comments phase and the discussion
+roster snapshot for this and later runs, and exits 0 — the same permanent
+honest marker init would have written for an unreadable linked group
+(ADR-0023). A `FloodWaitError` while resolving that group still exits 5 and
+arms the account-scoped cooldown (ADR-0045). An unavailable *destination*
+discussion group remains exit 2 (`PolicyError`). When `comments` is
+`"disabled"`, `"unavailable"`, or `"none"`, the comment phase and the
+discussion roster snapshot are skipped entirely.
 Telegram's own auto-forwards of channel posts into the discussion group
 (recognized by `fwd_from.saved_from_peer`/`saved_from_msg_id` matching the
 source channel and post) are read-only anchors, never copied, and counted in
