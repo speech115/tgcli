@@ -11,6 +11,22 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.11] — 2026-07-25
+
+### Changed
+
+- `clone sync` waits out a short `FloodWaitError` (≤ 60 s) once in the
+  foreground under a 180-second per-process wait budget, then retries the
+  same request; a second failure, a longer wait, or a spent budget still
+  persists the cooldown and exits 5 (ADR-0052; amends ADR-0045's exit-on-
+  flood clause only).
+- Reupload downloads persist under `clones/<clone_id>-media/` and are reused
+  when name and byte size match; the directory is removed after a successful
+  send and left on disk after a failed one (ADR-0052).
+- `store stats` reports a `clone_media_cache` bucket; `store cleanup
+  --confirm` removes abandoned `clones/*-media/` directories without touching
+  clone state JSON (ADR-0052).
+
 ## [1.2.10] — 2026-07-25
 
 ### Fixed

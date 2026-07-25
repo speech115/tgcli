@@ -17,6 +17,32 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — ADR-0052 clone long-run survival on PR #76 (Cursor Grok)
+
+**Did:** rebased `claude/clone-transfer-flood-retry` onto post-1.2.10 `main`
+and finished the five tasks in
+`docs/superpowers/plans/2026-07-25-clone-long-run-survival.md`. (1) Converted
+`_with_cooldown` / `invoke` to zero-arg thunks so a coroutine can be rebuilt
+for retry. (2) Short FloodWait (≤60s) arms cooldown, prints stderr, sleeps
+behind an injectable seam, retries once. (3) Per-process `WaitBudget` (180s)
+in `flood.py`, threaded with `clone_state`. (4) Persistent
+`clones/<id>-media/` cache with name+size reuse; rmtree only after successful
+send. (5) `store stats`/`cleanup` learn `clone_media_cache`. CONTRACT §11 +
+§5.05. Version `1.2.10` → `1.2.11` because `main` already shipped 1.2.10.
+
+**Decided:** ADR-0052 stands; no flags for `SHORT_WAIT`/`WAIT_BUDGET`. Kept
+main's `comments_unstarted` warning call sites alongside the wait budget.
+Existing CLI FloodWait fixtures that always raise used captures ≤60 and would
+have slept in tests — bumped those to 61 so they keep the immediate exit-5
+intent; new short-retry coverage uses the injectable sleep seam.
+
+**Learned:** A coroutine handed to `_with_cooldown` cannot be re-awaited;
+task 1's thunk conversion had to land before any retry logic. Rebase onto a
+main that already claimed 1.2.10 forces the ADR-0052 release to 1.2.11.
+
+**Next:** Independent whole-diff Spec + Standards review of PR #76; do not
+merge until that review clears. Live acceptance remains owner-gated.
+
 ## 2026-07-25 — Deferred ADR-0051; shipped the warning instead (Claude Opus 5)
 
 **Did:** owner reviewed ADR-0051 and asked whether the project needs it. It
