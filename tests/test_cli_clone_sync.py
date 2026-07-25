@@ -141,6 +141,10 @@ class CloneSyncClient:
         return self.source
 
     async def get_input_entity(self, ref):
+        if ref is self.destination:
+            return types.InputPeerChannel(channel_id=999, access_hash=1)
+        if ref is self.source:
+            return types.InputPeerChannel(channel_id=123, access_hash=1)
         raise ValueError("no input peer")
 
     async def get_me(self):
@@ -3973,6 +3977,8 @@ def test_completing_sync_pins_mapped_source_and_reports_set(
     assert len(pins) == 1
     assert pins[0].id == 9
     assert pins[0].silent is True
+    assert isinstance(pins[0].peer, types.InputPeerChannel)
+    assert pins[0].peer.channel_id == 999
     assert state.load(clone_state.clone_id).pinned_dest_id == 9
 
 

@@ -150,9 +150,10 @@ async def sync_phase(
         },
     )
     assert decision.destination_id is not None
+    dest_peer = await tg.get_input_entity(destination)
     await mutate(
         functions.messages.UpdatePinnedMessageRequest(
-            peer=destination,
+            peer=dest_peer,
             id=decision.destination_id,
             silent=True,
         )

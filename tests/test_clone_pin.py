@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from telethon import errors as telethon_errors
-from telethon.tl import functions
+from telethon.tl import functions, types
 
 from tgcli import safety
 from tgcli.clone import pin, state
@@ -145,10 +145,16 @@ class _PinClient:
     ):
         self.source = SimpleNamespace(id=123, title="Source")
         self.destination = SimpleNamespace(id=999, title="Dest", creator=True)
+        self.destination_input = types.InputPeerChannel(channel_id=999, access_hash=555)
         self.source_pinned = source_pinned
         self.dest_pinned = dest_pinned
         self.flood_on_pin = flood_on_pin
         self.requests: list[object] = []
+
+    async def get_input_entity(self, entity):
+        if entity is self.destination:
+            return self.destination_input
+        raise AssertionError(f"unexpected get_input_entity: {entity!r}")
 
     async def __call__(self, request):
         self.requests.append(request)
@@ -221,7 +227,8 @@ async def test_sync_phase_pins_mapped_source_when_destination_empty(monkeypatch)
         if isinstance(r, functions.messages.UpdatePinnedMessageRequest)
     ]
     assert len(pins) == 1
-    assert pins[0].peer is client.destination
+    assert pins[0].peer is client.destination_input
+    assert isinstance(pins[0].peer, types.InputPeerChannel)
     assert pins[0].id == 9
     assert pins[0].silent is True
     assert not pins[0].unpin

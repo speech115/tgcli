@@ -17,6 +17,25 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — PR #78 review fixes: CONTRACT header + pin InputPeer (Cursor Grok 4.5)
+
+**Did:** Closed two confirmed independent-review defects on
+`claude/clone-pinned-and-photo`. (1) `docs/CONTRACT.md` version header
+`1.2.10` → `1.2.11` to match `pyproject.toml` / `__init__.py` / CHANGELOG.
+(2) `UpdatePinnedMessageRequest.peer` now uses
+`await tg.get_input_entity(destination)` (clone ergonomics/quotes pattern);
+boundary test asserts `InputPeerChannel` identity, not raw destination
+entity. Gate run after the fix.
+
+**Decided:** No further version bump — CONTRACT body unchanged; header was
+stale paperwork only.
+
+**Learned:** The prior boundary assertion `peer is client.destination`
+locked the wrong type and would have kept the defect green.
+
+**Next:** Independent re-review of the review-fix commit; still do not
+merge until Spec+Standards clear.
+
 ## 2026-07-25 — ADR-0055 Track A + Task 6 (Cursor Grok 4.5)
 
 **Did:** Implemented PR #78 on `claude/clone-pinned-and-photo` (rebased onto
