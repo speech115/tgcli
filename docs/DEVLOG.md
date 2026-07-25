@@ -185,7 +185,8 @@ of 60 pairs byte identical, the 60th being the ADR-0048 poll snapshot),
 custom emoji, albums, in-channel replies, and — checked on all 625, not a
 sample — comment placement. Every one of the 529 direct comments replies to
 the anchor of its own post and all 96 in-thread replies point at the right
-parent comment, 0 mismatches. Gaps found, each now an ADR: reactions are
+parent comment, 0 mismatches. Gaps found, each scoped into a forthcoming
+open decision (ADR-0052…0055 on PRs #75–#78): reactions are
 lost outright (55 source posts carried them, 0 in the clone); no pinned
 message is carried (source `pinned_msg_id: 12`, destination `None`); five
 reposts (source 54, 69, 73, 78, 81) show neither `fwd_from` nor a
@@ -195,7 +196,9 @@ resized (1024×1024 → 800×800). Dates collapse by design — 3.5 months of
 source history lands inside one 21-hour copy window.
 
 **Next:** none for this clone; it is caught up. The audit's gaps are
-scoped in ADR-0052…0055 and the ADR-0051 execution branch.
+scoped into forthcoming decisions ADR-0052…0055 (drafted on open PRs
+#75–#78); clone sync interleaving remains on the ADR-0051 execution branch
+(PR #74).
 
 ## 2026-07-25 — Merged the #59–#63 backlog; 1.2.7–1.2.9 tagged (Claude Opus 5)
 
