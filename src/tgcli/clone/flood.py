@@ -18,6 +18,10 @@ from tgcli.clone import state
 
 _EMPTY = {"cooldown_until": None, "last_peer_created_at": None}
 
+# ADR-0052: a FloodWait of at most SHORT_WAIT seconds is waited out once in
+# the foreground; longer waits still exit 5 immediately (ADR-0045).
+SHORT_WAIT = 60
+
 
 def path_for(account_user_id: int) -> Path:
     return state.clones_dir() / f"account-{account_user_id}.json"

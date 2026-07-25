@@ -26,7 +26,9 @@ CEILINGS = {
     # before the work (a FloodWait exit never reaches the tail) and after it.
     # +12 for ADR-0052 task 1: cooldown callers pass zero-arg thunks so a
     # FloodWait retry can rebuild a fresh awaitable.
-    "src/tgcli/commands/clone.py": 1152,    "src/tgcli/clone/state.py": 300,
+    # +15 for ADR-0052 task 2: short FloodWait arm-then-sleep-then-retry.
+    "src/tgcli/commands/clone.py": 1167,
+    "src/tgcli/clone/state.py": 300,
     "src/tgcli/clone/quotes.py": 365,
     "src/tgcli/clone/quote_fallback.py": 127,
 }

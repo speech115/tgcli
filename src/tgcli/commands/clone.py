@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from math import ceil
 from pathlib import Path
+import asyncio
 import secrets
 from typing import Any
 import tempfile
@@ -266,21 +267,35 @@ def _enforce_cooldown(clone_state: state.CloneState) -> None:
         _raise_if_cooling(max(deadlines))
 
 
+def _arm_flood_cooldown(clone_state: state.CloneState, seconds: int) -> None:
+    deadline = datetime.now(UTC) + timedelta(seconds=seconds)
+    clone_state.set_cooldown(deadline)
+    state.save(clone_state)
+    flood.arm_cooldown(clone_state.account_user_id, deadline)
+
+
 async def _with_cooldown(make_awaitable, clone_state):
-    """Run ``make_awaitable()`` once under FloodWait cooldown arming.
+    """Run ``make_awaitable()`` under FloodWait cooldown arming.
 
     ``make_awaitable`` is a zero-arg callable that builds a fresh awaitable —
-    a coroutine object cannot be re-awaited, so the seam takes a thunk
-    (ADR-0052 task 1). Behaviour is still single-attempt until task 2.
+    a coroutine object cannot be re-awaited (ADR-0052 task 1). A short
+    ``FloodWaitError`` (≤ ``flood.SHORT_WAIT``) is waited out once in the
+    foreground and the thunk retried; a second failure or a longer wait
+    raises after arming both cooldowns (ADR-0052 task 2 / ADR-0045).
     """
     try:
         return await make_awaitable()
     except telethon_errors.FloodWaitError as exc:
-        deadline = datetime.now(UTC) + timedelta(seconds=exc.seconds)
-        clone_state.set_cooldown(deadline)
-        state.save(clone_state)
-        flood.arm_cooldown(clone_state.account_user_id, deadline)
-        raise
+        _arm_flood_cooldown(clone_state, exc.seconds)
+        if exc.seconds > flood.SHORT_WAIT:
+            raise
+        note(f"flood wait: retrying in {exc.seconds}s")
+        await asyncio.sleep(exc.seconds + 1)
+        try:
+            return await make_awaitable()
+        except telethon_errors.FloodWaitError as retry_exc:
+            _arm_flood_cooldown(clone_state, retry_exc.seconds)
+            raise
 
 
 async def _mutate(tg, request, clone_state: state.CloneState):
