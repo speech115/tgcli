@@ -16,6 +16,11 @@ from tgcli.safety import PREVIEW_TTL
 RELIC_NAMES = ("mirrors", "mirror-lab", "labs", "probes")
 _PREVIEW_BUCKETS = ("live", "expired", "spent", "pending")
 _LOGIN_BUCKETS = ("live", "expired")
+# Previews and logins carry `expires_at`, so a live record is never eligible
+# whatever the flags say. A clone media cache (ADR-0052) carries no TTL, so
+# this floor is the whole liveness gate: below it the cache belongs to a
+# `clone sync` that is running right now, and nothing may delete it.
+MEDIA_CACHE_MIN_AGE = timedelta(hours=1)
 
 
 def _dir_bytes(path: Path) -> int:
@@ -48,6 +53,22 @@ def _record_age_anchor(path: Path) -> datetime:
     if expires is not None:
         return expires
     return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+
+
+def _media_cache_anchor(path: Path) -> datetime:
+    """Newest mtime in a clone media cache: the directory or anything inside it.
+
+    Creating `src-<id>` stamps the directory once; the download that follows
+    only advances the file's own mtime, so a half-gigabyte transfer can leave
+    the directory looking hours old while it is very much alive.
+    """
+    stamps = [path.stat().st_mtime]
+    for entry in path.rglob("*"):
+        try:
+            stamps.append(entry.stat().st_mtime)
+        except OSError:
+            continue
+    return datetime.fromtimestamp(max(stamps), tz=UTC)
 
 
 def _classify_ttl_record(path: Path, *, now: datetime, ttl: timedelta) -> str:
@@ -288,12 +309,12 @@ def _deletable_paths(
 
     clones_root = root / "clones"
     if clones_root.is_dir():
+        floor = max(older_than or timedelta(0), MEDIA_CACHE_MIN_AGE)
         for path in sorted(clones_root.glob("*-media")):
             if not path.is_dir():
                 continue
             # No expires_at — age is always mtime (ADR-0052 media cache).
-            mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
-            if older_than is not None and now - mtime < older_than:
+            if now - _media_cache_anchor(path) < floor:
                 continue
             selected.append(path)
     return selected

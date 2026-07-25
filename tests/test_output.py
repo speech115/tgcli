@@ -35,12 +35,15 @@ def test_note_goes_to_stderr_only(capsys):
 
 def test_emit_error_json_mode_is_machine_readable(capsys):
     output.emit_error(RateLimitError("flood", retry_after=42), as_json=True)
-    payload = json.loads(capsys.readouterr().err)
-    assert payload == {
-        "error": {"code": "FLOOD_WAIT", "message": "flood", "retry_after": 42}
-    }
+    captured = capsys.readouterr()
+    expected = {"error": {"code": "FLOOD_WAIT", "message": "flood", "retry_after": 42}}
+    assert json.loads(captured.out) == expected
+    assert json.loads(captured.err) == expected
+    assert captured.out == captured.err
 
 
 def test_emit_error_human_mode(capsys):
     output.emit_error(RateLimitError("flood", retry_after=42), as_json=False)
-    assert capsys.readouterr().err == "error: flood\n"
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: flood\n"

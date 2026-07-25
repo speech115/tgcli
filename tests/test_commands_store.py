@@ -385,6 +385,13 @@ def _seed_clone_media_cache(
     return cache
 
 
+def _age_media_cache(cache: Path, age: timedelta) -> None:
+    """Backdate the cache directory and its files relative to NOW."""
+    stamp = (NOW - age).timestamp()
+    for entry in sorted(cache.rglob("*")) + [cache]:
+        os.utime(entry, (stamp, stamp))
+
+
 def test_scan_reports_clone_media_cache_bucket(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     cache = _seed_clone_media_cache(tmp_path, payload=b"abcdefghij")
@@ -400,6 +407,7 @@ def test_scan_reports_clone_media_cache_bucket(tmp_path, monkeypatch):
 def test_cleanup_confirm_removes_media_cache_keeps_clone_state(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     cache = _seed_clone_media_cache(tmp_path)
+    _age_media_cache(cache, timedelta(days=1))
     state_file = tmp_path / "clones" / "abc123.json"
 
     result = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
@@ -410,9 +418,48 @@ def test_cleanup_confirm_removes_media_cache_keeps_clone_state(tmp_path, monkeyp
     assert state_file.read_text() == '{"version":2}'
 
 
+def test_cleanup_keeps_media_cache_a_running_sync_is_writing(tmp_path, monkeypatch):
+    """A cache touched moments ago belongs to a live `clone sync`, not to litter.
+
+    `store cleanup --confirm` with no `--older-than` reaps every other bucket
+    only after its own TTL classified the record dead; the media cache has no
+    `expires_at`, so mtime is the only liveness signal it has (ADR-0052).
+    """
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    cache = _seed_clone_media_cache(tmp_path)
+    _age_media_cache(cache, timedelta(minutes=2))
+
+    result = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
+
+    assert "abc123-media" not in result["removed"]
+    assert "abc123-media" not in result["would_remove"]
+    assert cache.exists()
+    assert (cache / "src-2").exists()
+
+
+def test_cleanup_media_cache_liveness_follows_newest_file(tmp_path, monkeypatch):
+    """A long single-file download leaves the directory mtime behind.
+
+    Creating `src-<id>` stamps the directory once; the half-gigabyte write that
+    follows only advances the file's own mtime. Anchoring on the directory
+    alone would reap the cache out from under the download it exists for.
+    """
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    cache = _seed_clone_media_cache(tmp_path)
+    _age_media_cache(cache, timedelta(days=2))
+    fresh = (NOW - timedelta(minutes=1)).timestamp()
+    os.utime(cache / "src-2", (fresh, fresh))
+
+    result = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
+
+    assert "abc123-media" not in result["removed"]
+    assert cache.exists()
+
+
 def test_cleanup_dry_run_lists_media_cache_without_deleting(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     cache = _seed_clone_media_cache(tmp_path)
+    _age_media_cache(cache, timedelta(days=1))
 
     result = store_cmd.cleanup(tmp_path, confirm=False, now=NOW)
 
@@ -426,8 +473,7 @@ def test_cleanup_older_than_gates_media_cache_by_mtime(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     cache = _seed_clone_media_cache(tmp_path)
     # Make the cache look recent relative to NOW.
-    recent = (NOW - timedelta(hours=1)).timestamp()
-    os.utime(cache, (recent, recent))
+    _age_media_cache(cache, timedelta(hours=2))
 
     kept = store_cmd.cleanup(
         tmp_path, confirm=True, older_than=timedelta(days=1), now=NOW
@@ -435,8 +481,7 @@ def test_cleanup_older_than_gates_media_cache_by_mtime(tmp_path, monkeypatch):
     assert "abc123-media" not in kept["removed"]
     assert cache.exists()
 
-    old = (NOW - timedelta(days=3)).timestamp()
-    os.utime(cache, (old, old))
+    _age_media_cache(cache, timedelta(days=3))
     removed = store_cmd.cleanup(
         tmp_path, confirm=True, older_than=timedelta(days=1), now=NOW
     )

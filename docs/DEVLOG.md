@@ -17,6 +17,34 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — PR #76 independent review: media-cache liveness gate (Claude Opus 5)
+
+**Did:** independent whole-diff review of `claude/clone-transfer-flood-retry`
+from its merge-base, in a fresh context. Spec and standards clear: every
+`_with_cooldown` call site is a thunk, the cooldown arms before the sleep, the
+retry is exactly one and budget-bounded, no test sleeps. One confirmed defect,
+fixed here from a reproducing test: `_deletable_paths` selected every
+`clones/*-media/` directory unconditionally when `--older-than` was omitted,
+while every other bucket needs its own TTL to classify the record dead first.
+`store cleanup --confirm` run beside a live `clone sync` therefore rmtree'd
+the media the sync was downloading. Added `MEDIA_CACHE_MIN_AGE` (1 h) as an
+always-on floor, anchored on the newest mtime in the directory rather than the
+directory's own, with three tests (live cache kept, long-download cache kept,
+abandoned cache still reaped). Merged `main` (1.2.11 from ADR-0053) in;
+release is **1.2.12**.
+
+**Decided:** the floor is not a flag and not `--older-than`'s job. Cleanup's
+contract is that it never touches live state, and a cache with no `expires_at`
+has only mtime to prove it. `--older-than` still narrows further; it can only
+raise the floor, never lower it. CONTRACT §5.05 states the hour.
+
+**Learned:** directory mtime is not liveness for a single-file download — the
+directory is stamped once when `src-<id>` is created, then stays put for the
+half-gigabyte write that follows. Anchoring on the directory alone would have
+kept the bug alive for exactly the transfers ADR-0052 exists to protect.
+
+**Next:** #74, #78 and #77 in that order, each re-versioned on merge.
+
 ## 2026-07-25 — PR #76 review fixes: WaitBudget + stale striped cache (Cursor Grok)
 
 **Did:** fixed two confirmed independent-review defects on
@@ -61,6 +89,26 @@ main that already claimed 1.2.10 forces the ADR-0052 release to 1.2.11.
 
 **Next:** Independent whole-diff Spec + Standards review of PR #76; do not
 merge until that review clears. Live acceptance remains owner-gated.
+## 2026-07-25 — ADR-0053: --json error envelope on stdout (Cursor Grok)
+
+**Did:** implemented PR #75 / ADR-0053 plan tasks 1–4. `emit_error` under
+`--json` now writes one JSON line to both stdout and stderr (byte-identical).
+Extended output, contract-exit, flood-wait, and export tests to pin both
+streams for exits 1–5. Clarified CONTRACT §2. Fixed `SyncProgress.phase()` so
+comments-phase progress re-resolves `~total` instead of sticking at `~?`.
+Rebased onto post-1.2.10 `main` and bumped to **1.2.11**. `./scripts/gate.sh`
+green before push.
+**Decided:** fix stays inside `emit_error` only (no second stdout write in
+`cli.py`); `tg batch` and `PartialFailure` stdout paths untouched. Roster
+phase line keeps announcing with the prior leg's resolved total (same pattern
+as the comments phase line), then clears — not a stuck `~?`. Version is
+1.2.11 because `main` already shipped 1.2.10 for the comments-guard / docs
+slice.
+**Learned:** `test_missing_config_exits_3` asserted empty stdout on a `--json`
+failure and had to flip with the contract; plan's roster `~?` expectation was
+the pre-fix symptom, not the post-fix announce-then-clear shape.
+**Next:** independent whole-diff Spec + Standards review of PR #75; do not
+merge until that review clears; then tag `v1.2.11` on the merge commit.
 
 ## 2026-07-25 — Deferred ADR-0051; shipped the warning instead (Claude Opus 5)
 

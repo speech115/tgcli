@@ -41,7 +41,8 @@ def test_missing_config_exits_3(tmp_path, monkeypatch, capsys):
     code = main(["--json", "accounts", "list"])
     assert code == 3
     captured = capsys.readouterr()
-    assert captured.out == ""
+    assert captured.out == captured.err
+    assert json.loads(captured.out)["error"]["code"] == "CONFIG"
     assert json.loads(captured.err)["error"]["code"] == "CONFIG"
 
 
