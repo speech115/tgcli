@@ -3511,3 +3511,86 @@ def test_clone_sync_protected_repost_without_discussion_source_matches_part_a(
     ]
     assert sync["forwarded"] == 0
     assert sync["reuploaded"] == 1
+
+
+def test_clone_sync_reforward_search_flood_wait_exits_5_without_send(
+    config_env, monkeypatch, capsys
+):
+    """A FloodWait from the reforward search RPC must not be swallowed into
+    a Part A fallback — it arms the cooldown, saves state, and stops the
+    run, same as any other cooldown-wrapped RPC (ADR-0045)."""
+    clone_state = seed_clone_with_discussion_source()
+    post = _reposted_message()
+
+    class FloodSearchClient(CloneReforwardClient):
+        async def get_messages(
+            self, entity, *, limit=None, from_user=None, offset_date=None, ids=None
+        ):
+            if from_user is not None or offset_date is not None:
+                raise telethon_errors.FloodWaitError(request=None, capture=45)
+            return await super().get_messages(entity, limit=limit)
+
+    client = FloodSearchClient([post])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+
+    err = json.loads(capsys.readouterr().err)["error"]
+    assert err["retry_after"] == 45
+    assert not any(
+        isinstance(
+            item,
+            (
+                functions.messages.ForwardMessagesRequest,
+                functions.messages.SendMediaRequest,
+                functions.messages.SendMessageRequest,
+                functions.messages.SendMultiMediaRequest,
+            ),
+        )
+        for item in client.requests
+    )
+    saved = state.load(clone_state.clone_id)
+    assert saved.cursor == 0
+    assert saved.cooldown_deadline() is not None
+
+
+def test_clone_sync_reforward_group_entity_flood_wait_exits_5_without_send(
+    config_env, monkeypatch, capsys
+):
+    """Same guarantee for the other new RPC: resolving the source discussion
+    group itself can flood-wait before any search is even issued."""
+    clone_state = seed_clone_with_discussion_source()
+    post = _reposted_message()
+
+    class FloodGroupEntityClient(CloneReforwardClient):
+        async def get_entity(self, ref):
+            if (
+                isinstance(ref, types.PeerChannel)
+                and ref.channel_id == self.source_group.id
+            ):
+                raise telethon_errors.FloodWaitError(request=None, capture=45)
+            return await super().get_entity(ref)
+
+    client = FloodGroupEntityClient([post])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+
+    err = json.loads(capsys.readouterr().err)["error"]
+    assert err["retry_after"] == 45
+    assert client.search_calls == []
+    assert not any(
+        isinstance(
+            item,
+            (
+                functions.messages.ForwardMessagesRequest,
+                functions.messages.SendMediaRequest,
+                functions.messages.SendMessageRequest,
+                functions.messages.SendMultiMediaRequest,
+            ),
+        )
+        for item in client.requests
+    )
+    saved = state.load(clone_state.clone_id)
+    assert saved.cursor == 0
+    assert saved.cooldown_deadline() is not None
