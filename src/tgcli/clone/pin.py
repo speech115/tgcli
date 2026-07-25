@@ -80,16 +80,21 @@ def _pin_state_of(clone_state) -> PinState:
 
 
 async def _source_pinned_msg_id(tg, source, cooldown) -> int | None:
-    """Read the source's current pinned_msg_id via the matching GetFull* RPC."""
+    """Read the source's current pinned_msg_id via the matching GetFull* RPC.
+
+    ``cooldown`` takes a zero-arg thunk, not an awaitable (ADR-0052 task 1): a
+    coroutine object cannot be re-awaited, and a short FloodWait here is
+    retried by rebuilding the request.
+    """
     if isinstance(source, types.User):
-        full = await cooldown(tg(functions.users.GetFullUserRequest(source)))  # type: ignore[arg-type]
+        full = await cooldown(lambda: tg(functions.users.GetFullUserRequest(source)))  # type: ignore[arg-type]
         return getattr(full.full_user, "pinned_msg_id", None)
     if isinstance(source, types.Chat):
         full = await cooldown(
-            tg(functions.messages.GetFullChatRequest(chat_id=source.id))
+            lambda: tg(functions.messages.GetFullChatRequest(chat_id=source.id))
         )
         return getattr(full.full_chat, "pinned_msg_id", None)
-    full = await cooldown(tg(functions.channels.GetFullChannelRequest(source)))
+    full = await cooldown(lambda: tg(functions.channels.GetFullChannelRequest(source)))
     return getattr(full.full_chat, "pinned_msg_id", None)
 
 
@@ -128,7 +133,7 @@ async def sync_phase(
     # Destination occupancy check — once in the clone's lifetime (see module
     # docstring). Destinations are always Channel-shaped.
     dest_full = await cooldown(
-        tg(functions.channels.GetFullChannelRequest(destination))
+        lambda: tg(functions.channels.GetFullChannelRequest(destination))
     )
     dest_pinned = getattr(dest_full.full_chat, "pinned_msg_id", None)
     if dest_pinned is not None:

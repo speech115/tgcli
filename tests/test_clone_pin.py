@@ -173,8 +173,9 @@ class _ChatSourceClient:
         raise AssertionError(f"unexpected request: {request!r}")
 
 
-async def _identity_cooldown(awaitable):
-    return await awaitable
+async def _identity_cooldown(make):
+    """ADR-0052: the cooldown seam takes a zero-arg thunk, not an awaitable."""
+    return await make()
 
 
 @pytest.mark.asyncio
@@ -280,8 +281,8 @@ async def test_sync_phase_pins_mapped_source_when_destination_empty(monkeypatch)
     async def mutate(request):
         return await client(request)
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make):
+        return await make()
 
     result = await pin.sync_phase(
         client,
@@ -342,8 +343,8 @@ async def test_sync_phase_occupied_when_destination_already_pins(monkeypatch):
     async def mutate(request):
         return await client(request)
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make):
+        return await make()
 
     result = await pin.sync_phase(
         client,
@@ -381,8 +382,8 @@ async def test_sync_phase_second_run_uses_state_only_zero_rpcs(monkeypatch):
     async def mutate(request):
         return await client(request)
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make):
+        return await make()
 
     result = await pin.sync_phase(
         client,
@@ -413,8 +414,8 @@ async def test_sync_phase_unmapped_when_source_has_no_pin(monkeypatch):
     async def mutate(request):
         return await client(request)
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make):
+        return await make()
 
     result = await pin.sync_phase(
         client,
@@ -451,8 +452,8 @@ async def test_sync_phase_floodwait_on_pin_leaves_state_unset(monkeypatch):
             state.save(clone_state)
             raise
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make):
+        return await make()
 
     with pytest.raises(telethon_errors.FloodWaitError):
         await pin.sync_phase(
@@ -481,8 +482,8 @@ async def test_sync_phase_no_audit_on_unmapped_occupied_unchanged(monkeypatch):
     async def mutate(request):
         return await client(request)
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make):
+        return await make()
 
     for kwargs, setup in (
         ({"source_pinned": None}, lambda s: None),

@@ -11,7 +11,7 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
-## [1.2.11] — 2026-07-25
+## [1.2.14] — 2026-07-25
 
 ### Added
 
@@ -32,6 +32,54 @@ lives in [docs/DEVLOG.md](docs/DEVLOG.md).
   the `[икона]` audit's five smaller photos (source messages 15/33/35/58/81):
   all five are under the 512 KB striped threshold and never took this path.
   Live measurement of those five (Task 4) remains owner-gated.
+
+## [1.2.13] — 2026-07-25
+
+### Changed
+
+- `clone sync` interleaves the posts and comments legs in fixed 50-batch
+  windows (ADR-0051, amending ADR-0023's ordering clause only): posts×50,
+  then comments up to the first source-group anchor whose channel post is
+  newer than the posts cursor, then the next posts window. An interrupted
+  sync leaves a coherent prefix — posts with their discussion — instead of
+  every post and a silent group. `--limit N` counts batches across both
+  legs, so a limited run may return comments where it previously returned
+  only posts. An unmapped cross-leg comment parent beyond the posts cursor
+  defers (does not send) rather than flattening permanently; a parent
+  behind the cursor and absent from the map still flattens. Cursors, state
+  shape, and JSON fields are unchanged. CONTRACT §11 documents the
+  interleaving.
+
+## [1.2.12] — 2026-07-25
+
+### Changed
+
+- `clone sync` waits out a short `FloodWaitError` (≤ 60 s) once in the
+  foreground under a 180-second per-process wait budget, then retries the
+  same request; a second failure, a longer wait, or a spent budget still
+  persists the cooldown and exits 5 (ADR-0052; amends ADR-0045's exit-on-
+  flood clause only).
+- Reupload downloads persist under `clones/<clone_id>-media/` and are reused
+  when name and byte size match; the directory is removed after a successful
+  send and left on disk after a failed one (ADR-0052).
+- `store stats` reports a `clone_media_cache` bucket; `store cleanup
+  --confirm` removes abandoned `clones/*-media/` directories without touching
+  clone state JSON (ADR-0052). A cache is abandoned only once its newest file
+  is older than one hour, so cleanup can never delete the media a running
+  `clone sync` is downloading — the other buckets get that protection from
+  their own TTL.
+
+## [1.2.11] — 2026-07-25
+
+### Fixed
+
+- With `--json`, a failing command writes the error envelope to stdout as the
+  run's single JSON document and mirrors the identical line to stderr
+  (ADR-0053). Callers that capture stdout no longer see an empty success on
+  exit 1–5.
+- `clone sync` comments-phase progress no longer sticks the denominator at
+  `~?` after the posts leg: `SyncProgress.phase()` clears the resolved-total
+  flag so the next leg re-queries once.
 
 ## [1.2.10] — 2026-07-25
 
@@ -302,6 +350,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.11]: https://github.com/speech115/tgcli/compare/v1.2.10...v1.2.11
 [1.2.10]: https://github.com/speech115/tgcli/compare/v1.2.9...v1.2.10
 [1.2.9]: https://github.com/speech115/tgcli/compare/v1.2.8...v1.2.9
 [1.2.8]: https://github.com/speech115/tgcli/compare/v1.2.7...v1.2.8

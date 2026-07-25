@@ -21,17 +21,18 @@ MEGABYTE = 1024 * 1024
 # stuck, rare enough that a long sync does not flood a transcript.
 PROGRESS_EVERY_BYTES = 5 * MEGABYTE
 
+# Zero-arg thunk → fresh awaitable (ADR-0052 task 1); matches transfer.Invoke.
+Invoke = Callable[[Callable[[], Awaitable[Any]]], Awaitable[Any]]
 
-async def approximate_total(
-    tg, entity, invoke: Callable[[Awaitable[Any]], Awaitable[Any]]
-) -> int | None:
+
+async def approximate_total(tg, entity, invoke: Invoke) -> int | None:
     """Best-effort source size for the `~total`; never fails a sync.
 
     FloodWait still propagates through ``invoke`` so a hot account keeps the
     ADR-0045 exit-5 posture instead of syncing on a rate-limited session.
     """
     try:
-        return (await invoke(tg.get_messages(entity, limit=0))).total
+        return (await invoke(lambda: tg.get_messages(entity, limit=0))).total
     except telethon_errors.FloodWaitError:
         raise
     except (telethon_errors.RPCError, AttributeError, ValueError):
@@ -96,9 +97,7 @@ class SyncProgress:
         self._write = write
         self._total_resolved = total is not None
 
-    async def resolve_total(
-        self, tg, entity, invoke: Callable[[Awaitable[Any]], Awaitable[Any]]
-    ) -> None:
+    async def resolve_total(self, tg, entity, invoke: Invoke) -> None:
         """Fetch `~total` once, lazily, on the first batch that reports.
 
         A sync with nothing to copy spends no RPC on a cosmetic number — the
@@ -122,6 +121,7 @@ class SyncProgress:
         """Announce a leg whose size the posts-leg total no longer describes."""
         self._write(f"{self._prefix()} · {name}")
         self._total = None
+        self._total_resolved = False
 
     def transfer(self, filename: str, direction: str) -> Callable[..., None]:
         """Return a byte-progress callback throttled to one line per ~5 MB."""

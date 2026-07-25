@@ -17,6 +17,37 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — PR #78 independent review and integration (Claude Opus 5)
+
+**Did:** independent whole-diff review of `claude/clone-pinned-and-photo` from
+its merge-base, then integrated it on top of 1.2.13. Review found no defect:
+the pin request is `messages.UpdatePinnedMessage` with a real `InputPeerChannel`
+and `silent=True`, the occupied/unchanged/unmapped guards hold, the state
+fields are additive with `.get` defaults and rejected when corrupt, and Track
+B's fix sits inside `download_striped` so `clone.py` and `media.py` are both
+corrected (mirror-fix rule). One gap, closed here: only the Channel branch of
+`_source_pinned_msg_id` had a boundary test, so the dialog and basic-group
+branches now have theirs — the fakes call Telethon's own `request.resolve()`
+before recording, which is what makes the `InputUser` / `chat_id` assertions
+load-bearing rather than decorative.
+
+**Decided:** the merge is where ADR-0055 meets ADR-0051 and ADR-0052. The pin
+phase moves after the interleaving loop (both legs exhausted is a stronger
+`more is False` than the old sequential one, so the ADR's "posts leg
+exhausted" precondition still holds), and `pin.py` moves onto ADR-0052's thunk
+cooldown seam — a `GetFull*` that meets a short FloodWait must be rebuildable
+to be retried. Ceilings: `commands/clone.py` 1267, `clone/state.py` 321,
+carrying every rationale. Release **1.2.14**.
+
+**Learned:** a seam change is not done when its own branch is green. ADR-0052
+converted every call site that existed then; ADR-0055 added three more on a
+branch that could not see it, and only the merge shows them. The test fakes
+are the tell — an `async def cooldown(awaitable)` fake anywhere in the tree is
+a call site that has not been converted yet.
+
+**Next:** #77 (`clone refresh`), then delete the merged branches. Live
+acceptance of pin carry-over stays owner-gated.
+
 ## 2026-07-25 — PR #78 review fixes: CONTRACT header + pin InputPeer (Cursor Grok 4.5)
 
 **Did:** Closed two confirmed independent-review defects on
@@ -62,6 +93,155 @@ pop.
 **Next:** Independent Spec+Standards review of the whole PR diff from its
 merge-base; owner-gated Task 4 measurement against `[икона]` message 15 before
 any Task 5 CONTRACT wording; live acceptance of pin carry-over after merge.
+
+## 2026-07-25 — PR #74 independent review: the gate, not the code (Claude Opus 5)
+
+**Did:** independent whole-diff review of `claude/clone-phase-interleaving-impl`
+from its merge-base. The code is clean and I found no defect: task 1 lands
+before task 2 as decision 3 demands (`replies.target` returns `deferred` and
+`comments.sync_phase` stops the leg before `copy_batch` can send), the
+windowed loop computes `posts_exhausted` only on a window the `--limit` did
+not truncate, and the plan's whole test list is present. What did not hold
+was the authorization: the branch rewrote ADR-0051's status, ISSUES CLONE-003
+and the ADR index to `accepted`, citing **PR #74 itself** as the owner request
+that ADR-0026 requires — the circularity the deferral entry predicted a
+session earlier. Asked the owner instead of resolving it agent-side; the
+answer was that implementing ADR-0051 is their request. Rewrote the three
+documents to say that plainly, merged `main` (1.2.12) in, released **1.2.13**.
+
+**Decided:** the re-entry gate written into the ADR ("evidence that clones are
+abandoned mid-flight") is superseded by the owner's answer, not satisfied by
+it — recorded that way so the next session does not read this as evidence
+having arrived. Ceiling for `commands/clone.py` is 1250, carrying both the
+ADR-0051 and ADR-0052 rationales.
+
+**Learned:** the merge itself was not textual, twice over. ADR-0053's progress
+test and ADR-0052's thunk `invoke` convention collide silently — green on both
+branches, red on the merge. And #74's two `FloodWaitError(capture=30)`
+fixtures met ADR-0052's foreground retry: still green, but the suite went from
+13 s to 75 s because it was now sleeping for real, 31 s a test. Both fixtures
+pin the exit-5 path rather than the retry, so their captures move past
+`SHORT_WAIT` — the same treatment ADR-0052's own session gave the fixtures it
+could see. Two green CI runs do not add up to a green merge; the gate has to
+run on the integration.
+
+**Next:** #78 (pin carry-over), then #77 (`clone refresh`), each re-versioned
+on merge.
+
+## 2026-07-25 — Implement ADR-0051 windowed phase interleaving (Cursor Grok)
+
+**Did:** took PR #74 (`claude/clone-phase-interleaving-impl`) from docs-only
+to merge-ready. Merged `origin/main` (1.2.10 + ADR-0051 deferral). Executed
+plan tasks 1–4 in order (TDD): (1) defer unmapped cross-leg parents beyond
+the posts cursor in `replies`/`comments`/`transport`/`quotes`; (2) `WINDOW=50`
+in `legs.py` and windowed loop in `sync_text`; (3) comments scan stops at the
+first anchor newer than the posts cursor; (4) `--limit` spans both legs +
+CONTRACT §11. Re-accepted ADR-0051 (owner request via #74), closed CLONE-003,
+bumped to 1.2.11 (CHANGELOG + double version), updated MAP/DEVLOG. Full gate
+green. Adapted Task-1 ideas from `cursor/clone-phase-interleaving-1864` onto
+the PR branch; did not merge that branch.
+**Decided:** enter the comments leg after a posts window only while `--limit`
+budget remains — a limit hit inside posts still ends the run (preserves
+limit=1 "comments unstarted" warning). Task 1 before Task 2 is non-negotiable.
+**Learned:** without the Task-3 bound, windowing would advance
+`discussion_cursor` past anchors for unmapped posts; defer alone prevents
+flattening but the bound is what keeps later windows able to resume cleanly.
+**Next:** independent Spec+Standards review of #74 from its merge-base; do
+not merge until that review clears. Live acceptance remains owner-gated on a
+fresh unfinished comments clone (plan task 6).
+
+## 2026-07-25 — PR #76 independent review: media-cache liveness gate (Claude Opus 5)
+
+**Did:** independent whole-diff review of `claude/clone-transfer-flood-retry`
+from its merge-base, in a fresh context. Spec and standards clear: every
+`_with_cooldown` call site is a thunk, the cooldown arms before the sleep, the
+retry is exactly one and budget-bounded, no test sleeps. One confirmed defect,
+fixed here from a reproducing test: `_deletable_paths` selected every
+`clones/*-media/` directory unconditionally when `--older-than` was omitted,
+while every other bucket needs its own TTL to classify the record dead first.
+`store cleanup --confirm` run beside a live `clone sync` therefore rmtree'd
+the media the sync was downloading. Added `MEDIA_CACHE_MIN_AGE` (1 h) as an
+always-on floor, anchored on the newest mtime in the directory rather than the
+directory's own, with three tests (live cache kept, long-download cache kept,
+abandoned cache still reaped). Merged `main` (1.2.11 from ADR-0053) in;
+release is **1.2.12**.
+
+**Decided:** the floor is not a flag and not `--older-than`'s job. Cleanup's
+contract is that it never touches live state, and a cache with no `expires_at`
+has only mtime to prove it. `--older-than` still narrows further; it can only
+raise the floor, never lower it. CONTRACT §5.05 states the hour.
+
+**Learned:** directory mtime is not liveness for a single-file download — the
+directory is stamped once when `src-<id>` is created, then stays put for the
+half-gigabyte write that follows. Anchoring on the directory alone would have
+kept the bug alive for exactly the transfers ADR-0052 exists to protect.
+
+**Next:** #74, #78 and #77 in that order, each re-versioned on merge.
+
+## 2026-07-25 — PR #76 review fixes: WaitBudget + stale striped cache (Cursor Grok)
+
+**Did:** fixed two confirmed independent-review defects on
+`claude/clone-transfer-flood-retry`. (1) `WaitBudget.try_spend` now refuses
+when `spent + next > limit` (was only `spent >= limit`), with
+`test_wait_budget_refuses_spend_that_would_exceed_limit`. (2) Stale
+`src-<id>` wrong size for >512KiB media: unlink before re-download so
+`download_striped`'s `"xb"` cannot raise `FileExistsError`
+(`test_stale_large_cache_redownloads_without_file_exists_error`).
+
+**Decided:** keep exclusive create in `download_striped`; clear the stale
+cache path in `_download_for_reupload` when reuse does not apply.
+
+**Learned:** size-mismatch reuse tests covered only the small
+`download_media` path; striped exclusive-create was untested until review.
+
+**Next:** Independent re-review of the two fixes on PR #76; still do not
+merge until cleared.
+
+## 2026-07-25 — ADR-0052 clone long-run survival on PR #76 (Cursor Grok)
+
+**Did:** rebased `claude/clone-transfer-flood-retry` onto post-1.2.10 `main`
+and finished the five tasks in
+`docs/superpowers/plans/2026-07-25-clone-long-run-survival.md`. (1) Converted
+`_with_cooldown` / `invoke` to zero-arg thunks so a coroutine can be rebuilt
+for retry. (2) Short FloodWait (≤60s) arms cooldown, prints stderr, sleeps
+behind an injectable seam, retries once. (3) Per-process `WaitBudget` (180s)
+in `flood.py`, threaded with `clone_state`. (4) Persistent
+`clones/<id>-media/` cache with name+size reuse; rmtree only after successful
+send. (5) `store stats`/`cleanup` learn `clone_media_cache`. CONTRACT §11 +
+§5.05. Version `1.2.10` → `1.2.11` because `main` already shipped 1.2.10.
+
+**Decided:** ADR-0052 stands; no flags for `SHORT_WAIT`/`WAIT_BUDGET`. Kept
+main's `comments_unstarted` warning call sites alongside the wait budget.
+Existing CLI FloodWait fixtures that always raise used captures ≤60 and would
+have slept in tests — bumped those to 61 so they keep the immediate exit-5
+intent; new short-retry coverage uses the injectable sleep seam.
+
+**Learned:** A coroutine handed to `_with_cooldown` cannot be re-awaited;
+task 1's thunk conversion had to land before any retry logic. Rebase onto a
+main that already claimed 1.2.10 forces the ADR-0052 release to 1.2.11.
+
+**Next:** Independent whole-diff Spec + Standards review of PR #76; do not
+merge until that review clears. Live acceptance remains owner-gated.
+## 2026-07-25 — ADR-0053: --json error envelope on stdout (Cursor Grok)
+
+**Did:** implemented PR #75 / ADR-0053 plan tasks 1–4. `emit_error` under
+`--json` now writes one JSON line to both stdout and stderr (byte-identical).
+Extended output, contract-exit, flood-wait, and export tests to pin both
+streams for exits 1–5. Clarified CONTRACT §2. Fixed `SyncProgress.phase()` so
+comments-phase progress re-resolves `~total` instead of sticking at `~?`.
+Rebased onto post-1.2.10 `main` and bumped to **1.2.11**. `./scripts/gate.sh`
+green before push.
+**Decided:** fix stays inside `emit_error` only (no second stdout write in
+`cli.py`); `tg batch` and `PartialFailure` stdout paths untouched. Roster
+phase line keeps announcing with the prior leg's resolved total (same pattern
+as the comments phase line), then clears — not a stuck `~?`. Version is
+1.2.11 because `main` already shipped 1.2.10 for the comments-guard / docs
+slice.
+**Learned:** `test_missing_config_exits_3` asserted empty stdout on a `--json`
+failure and had to flip with the contract; plan's roster `~?` expectation was
+the pre-fix symptom, not the post-fix announce-then-clear shape.
+**Next:** independent whole-diff Spec + Standards review of PR #75; do not
+merge until that review clears; then tag `v1.2.11` on the merge commit.
 
 ## 2026-07-25 — Deferred ADR-0051; shipped the warning instead (Claude Opus 5)
 
@@ -199,6 +379,52 @@ cursor test was green and still wrong for a mid-phase-2 clone.
 
 **Next:** implement ADR-0051 (windowed phase interleaving); defer-not-flatten
 first.
+
+## 2026-07-25 — Live: finished the `[икона]` clone on 1.2.9 (Claude Opus 5)
+
+**Did:** no code changed. Owner-requested live catch-up of the `[икона]` clone
+(source `3802378977` → `4273081187`, discussion `3749696954` → `3514350021`)
+with released `1.2.9`. Posts went 88 → 94 (`id_map` 60), then the comment
+phase ran 0 → 897 (`discussion_id_map` 625). Final run reported `more: false`,
+`copied: 53`, `reuploaded: 53`, `skipped_autoforward: 15`,
+`skipped_service: 1`. Source tails (94 / 897) now equal both cursors.
+
+**Decided:** nothing architectural. Drove the run through a scratch resume
+loop that re-invokes `clone sync` after each FLOOD_WAIT instead of babysitting
+it by hand — six invocations end to end, ~8 minutes of comment phase.
+
+**Learned:** three things worth keeping. (1) `clone sync` prints its error
+envelope — including FLOOD_WAIT — to **stderr**, so a wrapper capturing only
+stdout reads a rate-limited exit as success; capture `2>&1` when scripting
+retries. (2) The FLOOD_WAIT rhythm on this account is nothing like the
+160.6 s/message that ADR-0051 was argued from: the comment phase moved ~100
+group messages per invocation and paid 3 s waits, with one 94 s outlier — the
+expensive part was the four half-gigabyte videos in posts 89–94, each a full
+download+reupload because the source is `noforwards=true`. (3) Participant
+collection on the source broadcast still answers `ChatAdminRequiredError`
+(`status: "unavailable"`), while the discussion group collected 2 — the
+ladder degrades exactly as intended and does not fail the sync.
+
+**Verified:** an owner-requested read-only fidelity audit of the finished
+clone, source dumps vs destination dumps, both legs. Perfect: post text (59
+of 60 pairs byte identical, the 60th being the ADR-0048 poll snapshot),
+custom emoji, albums, in-channel replies, and — checked on all 625, not a
+sample — comment placement. Every one of the 529 direct comments replies to
+the anchor of its own post and all 96 in-thread replies point at the right
+parent comment, 0 mismatches. Gaps found, each scoped into a forthcoming
+open decision (ADR-0052…0055 on PRs #75–#78): reactions are
+lost outright (55 source posts carried them, 0 in the clone); no pinned
+message is carried (source `pinned_msg_id: 12`, destination `None`); five
+reposts (source 54, 69, 73, 78, 81) show neither `fwd_from` nor a
+`Переслано от` prefix because they were copied on 2026-07-24, before
+ADR-0050 merged, and `id_map` freezes that result; five photos came back
+resized (1024×1024 → 800×800). Dates collapse by design — 3.5 months of
+source history lands inside one 21-hour copy window.
+
+**Next:** none for this clone; it is caught up. The audit's gaps are
+scoped into forthcoming decisions ADR-0052…0055 (drafted on open PRs
+#75–#78); clone sync interleaving remains on the ADR-0051 execution branch
+(PR #74).
 
 ## 2026-07-25 — Merged the #59–#63 backlog; 1.2.7–1.2.9 tagged (Claude Opus 5)
 

@@ -222,9 +222,12 @@ async def test_upload_parts_uses_invoke_wrapper(tmp_path):
     path.write_bytes(b"a" * 100)
     tg = FakeUploadTelegram()
     seen: list[object] = []
+    thunks: list[object] = []
 
-    async def invoke(awaitable):
-        result = await awaitable
+    async def invoke(make_awaitable):
+        assert callable(make_awaitable)
+        thunks.append(make_awaitable)
+        result = await make_awaitable()
         seen.append(result)
         return result
 
@@ -233,6 +236,34 @@ async def test_upload_parts_uses_invoke_wrapper(tmp_path):
     assert handle.parts == 1
     assert seen == [True]
     assert len(tg.requests) == 1
+    assert len(thunks) == 1
+
+
+@pytest.mark.asyncio
+async def test_upload_parts_invoke_thunk_is_rerunnable(tmp_path):
+    """ADR-0052 task 1: invoke receives a zero-arg callable, not a spent coroutine."""
+    path = tmp_path / "one.bin"
+    path.write_bytes(b"a" * 100)
+    tg = FakeUploadTelegram()
+    captured: list[object] = []
+
+    async def invoke(make_awaitable):
+        captured.append(make_awaitable)
+        first = make_awaitable()
+        second = make_awaitable()
+        assert first is not second
+        assert hasattr(first, "__await__")
+        assert hasattr(second, "__await__")
+        # Consuming the first must not exhaust the second — proves a fresh
+        # awaitable, not a re-wrapped single-use coroutine.
+        await first
+        return await second
+
+    handle = await transfer.upload_parts(tg, path, parallel=4, invoke=invoke)
+
+    assert handle.parts == 1
+    assert len(captured) == 1
+    assert len(tg.requests) == 2
 
 
 @pytest.mark.asyncio

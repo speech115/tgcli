@@ -1,6 +1,6 @@
 # CLI Automation Contract
 
-Version: 1.2.11 (tracks the package release; see `CHANGELOG.md` and
+Version: 1.2.14 (tracks the package release; see `CHANGELOG.md` and
 `pyproject.toml`). Any change here lands in the same commit as the code
 change (AGENTS.md / ADR-0038).
 
@@ -35,6 +35,9 @@ Flag beats env, env beats config.
 - **stderr** — everything else: progress, hints, warnings, error messages.
   With `--json`, the final error is also mirrored to stderr as a single-line
   JSON object: `{"error": {"code": "FLOOD_WAIT", "message": "...", "retry_after": 42}}`.
+  With `--json`, the error envelope is written to stdout as the run's single
+  JSON document, then the identical line is copied to stderr as that last-line
+  mirror — a `--json` caller may read either stream for the same object.
   It is the **last** line of stderr, not the whole stream: progress and
   warnings legitimately precede it.
 - `clone sync` prints progress to stderr in every mode, including `--json`
@@ -590,7 +593,8 @@ No config and no Telegram session. `--json` emits:
  "audit_log":{"bytes":20},"invocations":{"bytes":0},
  "sessions":{"count":1,"bytes":4096},
  "session_backups":{"count":1,"bytes":4096},
- "clones":{"bytes":0},"downloads":{"bytes":0},
+ "clones":{"bytes":0},"clone_media_cache":{"count":0,"bytes":0},
+ "downloads":{"bytes":0},
  "relics":[{"name":"labs","bytes":11}]}
 ```
 
@@ -601,7 +605,10 @@ other-user permission bit set (legacy `0644` bodies). Login attempts under
 `logins/` are classified by `LOGIN_TTL` (30 minutes); `count` is the number of
 files in each attempt pair (json and staged session, plus journal when present)
 and `bytes` is their total size. `session_backups` reports
-`sessions/*.session.bak` and is never deleted by cleanup. Relic directories
+`sessions/*.session.bak` and is never deleted by cleanup. `clone_media_cache`
+reports abandoned `clones/<clone_id>-media/` directories left by a failed
+`clone sync` reupload batch (ADR-0052); their bytes are also included in the
+aggregate `clones` figure. Relic directories
 (`mirrors`, `mirror-lab`, `labs`, `probes`) are reported when present and never
 auto-deleted. New previews are written mode `0600`; `store cleanup` also
 tightens surviving preview modes to `0600`.
@@ -613,18 +620,26 @@ tg store cleanup [--older-than Nd|Nh|N] [--include-pending] [--confirm]
 ```
 
 Reaps **spent** (`.used`) and **expired** (`.json` past TTL) previews under
-the state root, and **expired** login attempts under `logins/` (json + staged
-session). Default is dry-run: stdout lists what would be removed and
+the state root, **expired** login attempts under `logins/` (json + staged
+session), and abandoned `clones/*-media/` directories (mtime-gated; never the
+clone's own `.json` state). Default is dry-run: stdout lists what would be
+removed and
 stderr prints a one-line `--confirm` hint. With `--confirm`, those files are
 deleted. Never touches `audit.jsonl`, `sessions/` (including `.bak`), live
-login attempts, live `.json` within TTL, or relic directories. `.pending` files are
+login attempts, live `.json` within TTL, clone state JSON, a media cache
+younger than one hour (`MEDIA_CACHE_MIN_AGE`, the running-sync guard), or
+relic directories.
+`.pending` files are
 protected (ADR-0028 `random_id`) and are eligible only with `--include-pending`
 and only when far past TTL (`expires_at + PREVIEW_TTL`). Staged sessions are
 attempt state (under `logins/`), not account sessions — cleanup distinguishes
 them by directory.
 
 `--older-than` accepts an integer day count (`7`) or `Nd`/`Nh` (`7d`, `12h`);
-age is measured from each preview's stored `expires_at` (mtime fallback).
+age is measured from each preview's stored `expires_at` (mtime fallback), and
+for a clone media cache from the newest mtime in the directory — the directory
+itself or any file inside it. A media cache is eligible only when that age
+also clears the one-hour floor, whether or not `--older-than` was given.
 
 `store cleanup --confirm` mutates local state, so `--readonly` /
 `TGCLI_READONLY=1` blocks it with exit 2 before any deletion. Dry-run (no
@@ -902,7 +917,7 @@ invalid cloud password / banned or invalid number / missing api credentials;
 `retry_after`. Phones in JSON, `--plain`, stderr, and audit are masked
 (`+7…89`); codes and passwords never appear there.
 
-## 11. Chat Clone (ADR-0017, ADR-0021, ADR-0022, ADR-0023)
+## 11. Chat Clone (ADR-0017, ADR-0021, ADR-0022, ADR-0023, ADR-0051)
 
 `tg clone` is the canonical chat-copy surface. It accepts broadcast channels,
 megagroup supergroups (forum and non-forum), live legacy basic groups, and
@@ -1130,14 +1145,21 @@ For forum clones, a topic-create service message creates the matching
 destination topic (counted in `topics_created`, not `skipped_service`); messages
 arriving for an unmapped topic recover it from the source topic's current title.
 
-When `comments == "enabled"`, sync runs a second phase after phase 1
-(channel posts) reaches exhaustion: it copies the linked source discussion
-group into the clone's own linked group, oldest to newest, under its own
-cursor (`discussion_cursor` in state and in the JSON `sync` object; the top-
-level `sync.clone` object itself carries no `comments` field). `--limit N`
-is not split between phases — phase 1 spends the full budget first, and
-phase 2 only starts if phase 1 did not stop on the limit; a run that stops
-inside phase 2 leaves comments lagging posts until the next invocation.
+When `comments == "enabled"`, sync interleaves the channel-posts leg and the
+discussion-group leg in fixed windows of 50 batches (ADR-0051, amending
+ADR-0023's sequential ordering clause only): posts×WINDOW, then comments up
+to the first source-group anchor whose channel post id is newer than the
+posts cursor, then the next posts window, until both legs are exhausted.
+An unmapped cross-leg comment parent whose post id lies beyond the posts
+cursor defers (stops the comments leg without sending) rather than
+flattening; a parent behind the cursor and absent from the map still
+flattens as before. Each leg keeps its own cursor (`cursor` /
+`discussion_cursor` in state and in the JSON `sync` object; the top-level
+`sync.clone` object itself carries no `comments` field). `--limit N` counts
+batches across both legs — a run may return comments where a pre-ADR-0051
+`--limit` returned only posts; `sync.more` stays true when the budget
+stopped either leg. A run that stops inside a comments window leaves later
+comments lagging until the next invocation.
 If resolving the source discussion group fails because Telegram refuses
 access (`ChannelPrivateError`, `ChatForbiddenError`, `ChatAdminRequiredError`,
 or an unresolved peer), sync does **not** exit non-zero: it persists
@@ -1241,22 +1263,32 @@ with `PolicyError` cause); a run that plants none exits 0.
 Reupload sends text and webpage messages with `sendMessage`, photos/documents
 with `sendMedia`, and albums with per-item `uploadMedia` followed by one
 ordered `sendMultiMedia`. Captions and entities are retained; documents retain
-MIME type and Telegram attributes. Downloaded files live only in a temporary
-directory and are removed on success or failure. A download failure leaves the
-batch cursor and mapping unchanged and occurs before the fail-closed
-`clone-sync-reupload` audit/write boundary. Striped downloads of a `Photo`
-(files over 512 KB) select the largest `PhotoSize` by byte count explicitly
-rather than trusting Telegram's `sizes` list order (ADR-0055). Upload/send
-FloodWait persists the clone cooldown. Both `UpdateMessageID` batches and the
-single-message `UpdateShortSentMessage` envelope require exact positive
-confirmation before state advances.
+MIME type and Telegram attributes. Reupload downloads persist under
+`~/.local/state/tgcli/clones/<clone_id>-media/` (name `src-<message_id>`). A
+file is reused when its on-disk byte size matches what the source reports;
+anything else is re-downloaded. The directory is removed after a successful
+send and left on disk after a failed one so a retry does not re-download. A
+download failure leaves the batch cursor and mapping unchanged and occurs
+before the fail-closed `clone-sync-reupload` audit/write boundary. Striped
+downloads of a `Photo` (files over 512 KB) select the largest `PhotoSize` by
+byte count explicitly rather than trusting Telegram's `sizes` list order
+(ADR-0055). A `FloodWaitError` of at most 60
+seconds (`SHORT_WAIT`) is waited out once in the foreground when the
+per-process wait budget still has room (at most 180 seconds of pausing per
+invocation; `WAIT_BUDGET`), after a non-contractual stderr progress line
+naming the seconds, then the same request is retried; a second failure, a wait
+over 60 seconds, or a spent budget persists the clone cooldown and raises.
+Both `UpdateMessageID` batches and the single-message
+`UpdateShortSentMessage` envelope require exact positive confirmation before
+state advances.
 
 `--limit N` must be positive and copies at most N message batches. If another
 source row remains, JSON reports `"more":true`; the next run resumes at the
 saved cursor. Sync has no implicit overall timeout, uses a mutation-safe
 session, and is blocked by all readonly gates before config/session work.
-FloodWait persists the clone cooldown and exits 5 without advancing the current
-message. JSON:
+A short FloodWait (≤ 60 s) is waited out once under the 180-second per-process
+budget as above; a second failure, a longer wait, or a spent budget persists
+the clone cooldown and exits 5 without advancing the current message. JSON:
 
 ```json
 {"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"pinned":{"source_id":12,"destination_id":9,"status":"set"},"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}}}

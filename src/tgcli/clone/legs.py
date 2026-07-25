@@ -3,6 +3,9 @@
 from dataclasses import dataclass
 from tgcli.clone import state
 
+# ADR-0051: posts/comments interleave in fixed windows (not a flag).
+WINDOW = 50
+
 
 @dataclass
 class Leg:
