@@ -144,6 +144,9 @@ class CloneSyncClient:
         return SimpleNamespace(id=42)
 
     async def get_messages(self, entity, limit=None):
+        if entity is self.source:
+            # ADR-0049: sync asks the source for its approximate total once.
+            return SimpleNamespace(total=len(self.messages))
         assert entity is self.destination
         return [
             SimpleNamespace(id=item_id, action=self.destination_actions.get(item_id))
@@ -921,7 +924,9 @@ def test_sync_blocks_unexpected_discussion_destination_tail(
 
     assert main(["clone", "sync", "@source", "--json"]) == 2
 
-    error = json.loads(capsys.readouterr().err)["error"]
+    # CONTRACT §2: the error is the final single-line JSON object on a stderr
+    # that also carries progress lines — not the whole stream.
+    error = json.loads(capsys.readouterr().err.splitlines()[-1])["error"]
     assert "discussion destination has unexpected tail" in error["message"]
     assert error["unexpected"] == 1
 
@@ -3593,4 +3598,211 @@ def test_clone_sync_reforward_group_entity_flood_wait_exits_5_without_send(
     )
     saved = state.load(clone_state.clone_id)
     assert saved.cursor == 0
+    assert saved.cooldown_deadline() is not None
+
+
+def progress_lines(stderr: str) -> list[str]:
+    return [line for line in stderr.splitlines() if line.startswith("[sync ")]
+
+
+def test_sync_reports_batch_progress_on_stderr(config_env, monkeypatch, capsys):
+    """ADR-0049: a batch line names the running count and its transport."""
+    seed_clone()
+    client = CloneSyncClient([message(2), message(3)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source"]) == 0
+
+    lines = progress_lines(capsys.readouterr().err)
+    assert lines[-2] == "[sync 123] 2/~2 · forwarded"
+    assert lines[-1] == "[sync 123] 2/~2 · roster"
+
+
+def test_sync_progress_counts_continue_from_earlier_runs(
+    config_env, monkeypatch, capsys
+):
+    """The count is progress against the source, not against this run."""
+    clone_state = seed_clone()
+    clone_state.record_mapping(2, 1)
+    clone_state.cursor = 2
+    state.save(clone_state)
+    client = CloneSyncClient([message(2), message(3)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source"]) == 0
+
+    assert "[sync 123] 2/~2 · forwarded" in progress_lines(capsys.readouterr().err)
+
+
+def test_sync_json_mode_emits_progress_without_touching_stdout(
+    config_env, monkeypatch, capsys
+):
+    """ADR-0049: --json gets the same stderr lines; stdout stays one document."""
+    seed_clone()
+    client = CloneSyncClient([message(2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["sync"]["copied"] == 1
+    assert "[sync " not in captured.out
+    assert progress_lines(captured.err)
+
+
+def test_sync_announces_the_comments_and_roster_phases(config_env, monkeypatch, capsys):
+    seed_comments_clone()
+    client = CloneCommentsClient(
+        [message(2)],
+        [
+            anchor(10, 2),
+            message(
+                12,
+                message="nice",
+                reply_to=types.MessageReplyHeader(reply_to_msg_id=10),
+            ),
+        ],
+    )
+    client.anchor_ids = {2: 500}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source"]) == 0
+
+    lines = progress_lines(capsys.readouterr().err)
+    assert "[sync 123] 1/~1 · comments" in lines
+    assert lines[-1] == "[sync 123] 2/~? · roster"
+
+
+def test_sync_reports_transfer_bytes_while_reuploading(config_env, monkeypatch, capsys):
+    """The reupload legs report through the shared transfer callback."""
+    from tgcli.clone import progress as clone_progress
+
+    monkeypatch.setattr(clone_progress, "PROGRESS_EVERY_BYTES", 0)
+    seed_clone()
+    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+    client = CloneReuploadClient([message(2, media=photo)], protected=True)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source"]) == 0
+
+    uploads = [line for line in progress_lines(capsys.readouterr().err) if "·" in line]
+    assert any(
+        line.startswith("[sync 123] 0/~1 · reupload · message-2 · upload ")
+        and line.endswith(" MB (100%)")
+        for line in uploads
+    )
+
+
+def test_sync_progress_lines_carry_no_control_characters(
+    config_env, monkeypatch, capsys
+):
+    """ADR-0049: plain lines only — safe in a log file and an agent transcript."""
+    seed_clone()
+    client = CloneSyncClient([message(2), message(3)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source"]) == 0
+
+    lines = progress_lines(capsys.readouterr().err)
+    assert lines
+    for line in lines:
+        assert "\r" not in line
+        assert "\x1b[" not in line
+
+
+def test_sync_survives_an_unavailable_approximate_total(
+    config_env, monkeypatch, capsys
+):
+    """A best-effort total never fails the sync — the line degrades to `~?`."""
+
+    class NoTotalClient(CloneSyncClient):
+        async def get_messages(self, entity, limit=None):
+            if entity is self.source:
+                raise telethon_errors.ChatAdminRequiredError(request=None)
+            return await super().get_messages(entity, limit=limit)
+
+    seed_clone()
+    client = NoTotalClient([message(2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source"]) == 0
+
+    assert "[sync 123] 1/~? · forwarded" in progress_lines(capsys.readouterr().err)
+
+
+def test_sync_error_stays_the_final_stderr_line_after_progress(
+    config_env, monkeypatch, capsys
+):
+    """CONTRACT §2: progress lines never displace the single-line error JSON."""
+    seed_clone()
+
+    class FloodingClient(CloneSyncClient):
+        async def __call__(self, request):
+            if len(self.requests) >= 1:
+                raise telethon_errors.FloodWaitError(request=None, capture=17)
+            return await super().__call__(request)
+
+    client = FloodingClient([message(2), message(3)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+
+    captured = capsys.readouterr()
+    lines = captured.err.splitlines()
+    assert progress_lines(captured.err), "progress must precede the error"
+    error = json.loads(lines[-1])["error"]
+    assert error["code"] == "FLOOD_WAIT"
+    assert error["retry_after"] == 17
+
+
+def test_sync_with_nothing_to_copy_asks_for_no_approximate_total(
+    config_env, monkeypatch, capsys
+):
+    """ADR-0045: an idle keep-up-to-date sync must not spend an extra RPC."""
+    clone_state = seed_clone()
+    clone_state.record_mapping(2, 1)
+    clone_state.cursor = 2
+    state.save(clone_state)
+
+    class CountingClient(CloneSyncClient):
+        def __init__(self, messages):
+            super().__init__(messages)
+            self.total_requests = 0
+
+        async def get_messages(self, entity, limit=None):
+            if entity is self.source:
+                self.total_requests += 1
+            return await super().get_messages(entity, limit=limit)
+
+    client = CountingClient([message(2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 0
+    assert client.total_requests == 0
+
+
+def test_sync_flood_wait_on_the_approximate_total_arms_the_cooldown(
+    config_env, monkeypatch, capsys
+):
+    """The best-effort total must never swallow FloodWait (ADR-0045)."""
+    clone_state = seed_clone()
+
+    class FloodingTotalClient(CloneSyncClient):
+        async def get_messages(self, entity, limit=None):
+            if entity is self.source:
+                raise telethon_errors.FloodWaitError(request=None, capture=29)
+            return await super().get_messages(entity, limit=limit)
+
+    client = FloodingTotalClient([message(2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+
+    error = json.loads(capsys.readouterr().err.splitlines()[-1])["error"]
+    assert error["code"] == "FLOOD_WAIT"
+    assert error["retry_after"] == 29
+    assert client.requests == []
+    saved = state.load(clone_state.clone_id)
     assert saved.cooldown_deadline() is not None

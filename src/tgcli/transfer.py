@@ -14,6 +14,9 @@ from telethon.tl import functions, types
 
 CHUNK_SIZE = 512 * 1024
 CLONE_TRANSFER_PARALLEL = 4
+# One chunk cadence for every transfer that reports progress (ADR-0043/0049):
+# `media download`, the striped download, and the clone reupload legs.
+PROGRESS_EVERY_CHUNKS = 16
 
 Invoke = Callable[[Awaitable[Any]], Awaitable[Any]]
 
@@ -70,7 +73,7 @@ async def download_striped(
             offset += worker_count * CHUNK_SIZE
             downloaded += len(data)
             chunks_since_progress += 1
-            if progress is not None and chunks_since_progress >= 16:
+            if progress is not None and chunks_since_progress >= PROGRESS_EVERY_CHUNKS:
                 progress(downloaded, size)
                 chunks_since_progress = 0
 
@@ -94,6 +97,7 @@ async def upload_parts(
     parallel: int = CLONE_TRANSFER_PARALLEL,
     file_name: str | None = None,
     invoke: Invoke | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> types.TypeInputFile:
     """Upload ``path`` with up to ``parallel`` concurrent Save*FilePart RPCs.
 
@@ -118,7 +122,11 @@ async def upload_parts(
             return await awaitable
         return await invoke(awaitable)
 
+    uploaded = 0
+    parts_since_progress = 0
+
     async def worker(index: int) -> None:
+        nonlocal uploaded, parts_since_progress
         with path.open("rb") as handle:
             for part_index in range(index, part_count, parallel):
                 handle.seek(part_index * part_size)
@@ -134,9 +142,19 @@ async def upload_parts(
                 result = await run(tg(request))
                 if not result:
                     raise RuntimeError(f"Failed to upload file part {part_index}")
+                uploaded += len(part)
+                parts_since_progress += 1
+                if (
+                    progress is not None
+                    and parts_since_progress >= PROGRESS_EVERY_CHUNKS
+                ):
+                    progress(uploaded, file_size)
+                    parts_since_progress = 0
 
     worker_count = min(parallel, part_count)
     await _run_workers(worker(index) for index in range(worker_count))
+    if progress is not None and parts_since_progress:
+        progress(uploaded, file_size)
 
     if is_big:
         return types.InputFileBig(file_id, part_count, name)

@@ -47,6 +47,10 @@ chunk-cadenced progress callback seam.
   state; "quiet minutes" become "download 62% of a named file".
 - stderr is chattier by default; scripts that captured stderr expecting
   silence must filter or redirect (stderr was never contract data).
-- Zero flood impact — local printing only.
+- Near-zero flood impact. Printing is local; the only network cost is one
+  `messages.getHistory(limit=0)` for the `~total`, resolved lazily on the
+  first batch that actually copies. A sync with nothing new — the agentic
+  keep-up-to-date call — spends no extra RPC at all, and a FloodWait on that
+  request arms the ADR-0045 cooldown and exits 5 like any other.
 - Line format may evolve without a version bump (explicitly
   non-contractual); agents must not parse it as API.

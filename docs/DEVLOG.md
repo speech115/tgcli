@@ -17,6 +17,41 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — Merged the #59–#63 backlog; 1.2.7–1.2.9 tagged (Claude Opus 5)
+
+**Did:** cleared all five open PRs and every branch. Merge order #60 (ADR-0050
+docs) → #62 (Part A, `v1.2.7`) → #63 (Part B, `v1.2.8`) → #61 (ADR-0051 docs)
+→ #59 (ADR-0049 progress, renumbered to `v1.2.9`). Each merge ran an
+independent `reviewer` pass from the merge-base first. #59 and #62 both
+claimed `1.2.7`; the stack landed on that number and #59 was renumbered at
+merge time, so only one branch needed touching.
+
+**Decided:** #63's review found two real defects and they were fixed on its
+own head before merge, not deferred. `reforward._media_key` compared only
+media type and file id, so a post hiding a photo behind a spoiler matched a
+group original that shows it uncovered — the re-forward would have
+republished deliberately hidden media in the clear; the flag is now part of
+the key, and CONTRACT §11 names it in the "identical" bar. `roster.collect`
+still had the `except ValueError` shape around `get_entity` that the same
+branch had just fixed in `attribution._resolve`, so a source discussion group
+turning private crashed a sync whose messages had already copied; it now
+records `"unavailable"` / `"deferred"` through the ladder `_collect_peer`
+already used. Five tests, each red before its fix.
+
+**Learned:** `gh pr checks` renders a concurrency-cancelled push run as
+`fail`; every "red" check this session was a superseded push run while the
+`pull_request` run on the same head SHA was green — check `event` and
+`headSha` before believing a red. The #59/main test-file conflict was not
+textual: both sides appended blocks and git interleaved them, so the union
+was rebuilt by applying #59's diff onto main's file rather than hand-editing
+the markers. `roster.collect`'s sibling in `comments.sync_phase:45-47`
+resolves the source group with no error handling at all — same bug class,
+left as a tracked follow-up rather than scope creep.
+
+**Next:** implement ADR-0051 (windowed phase interleaving), whose ADR and
+plan are now on main; the defer-not-flatten task is ordered first for a
+reason.
+
 ## 2026-07-25 — Implement ADR-0050 Part B (Claude Opus 5, orchestrated)
 
 **Did:** owner lifted the Part B gate, so decision 3 shipped on
@@ -152,6 +187,57 @@ which reverses ADR-0023's explicit "`--limit` does not split across phases"
 implementation order. Note both branches insert a row after ADR-0049 in
 `docs/decisions/README.md` and both prepend a DEVLOG entry, so the second
 merge needs a trivial keep-both resolution.
+
+## 2026-07-24 — ADR-0049 sync progress (Part D) + flood forensics (Claude Opus 5)
+
+**Did:** implemented plan Part D on `claude/clone-sync-progress`. D1: moved
+`PROGRESS_EVERY_CHUNKS` into `transfer.py` so `media download`, the striped
+download, and the clone reupload legs share one cadence (ADR-0043); added a
+`progress` callback to `upload_parts`. D2: new `clone/progress.py`
+(`SyncProgress`, `transfer_of`, `media_label`, best-effort
+`approximate_total`) emitting plain stderr lines for batches, the
+`comments`/`roster` phases, and ~5 MB transfer marks; threaded the reporter
+through `sync_text` → `copy_batch` → `_forward_batch` → `_reupload_batch`.
+CONTRACT §2, MAP, CHANGELOG 1.2.7, dual version bump. 20 new tests; full
+gate green (966 passed). Separately, a read-only forensic pass over
+`audit.jsonl` / `invocations.jsonl` / clone state answered why the икона
+clone crawled while Джарвис flew.
+
+**Decided:** the `~total` counts messages already in the destination
+(earlier runs included), not just this run — a per-run counter against a
+whole-source total is meaningless. Transfer bytes are reported only on the
+striped path: a sub-`CHUNK_SIZE` file is over before it could reach a mark.
+Raised the `clone.py` ceiling 1072 → 1093 for the reporter threading, with
+all new logic in `clone/progress.py`.
+
+**Learned:** two things. (1) CONTRACT §2 already said the `--json` error is a
+*single-line* JSON object on stderr, but a test parsed the whole stream as
+JSON and only passed because nothing else wrote there; progress lines exposed
+it. Fixed the test to read the last line and added a regression test that a
+FloodWait error survives as the final line after progress. (2) The
+Джарвис-vs-икона speed gap is **not** forward-vs-reupload: both sources are
+`noforwards=true`, so `clone-sync-forward` is absent from both — every
+message went the download+reupload path. The gap is (a) икона needed a
+second created peer (its discussion group) ~45 min after Джарвис's peer,
+which is what ADR-0045 records as the flood trigger — 11 `clone-init-avatar`
+and 7 `clone-init-discussion-link` audit entries are the retry storm, versus
+2 and 0 for Джарвис; and (b) икона carries far heavier media (one video =
+2562 `GetFileRequest` chunks). Throughput: 9.6 s/message (Джарвис, zero
+FloodWait) vs 160.6 s/message (икона, 14 FloodWait exits).
+
+**Review fixes (same session):** the independent reviewer found two Major
+items, both fixed on this branch with tests first. (1) ADR-0049 claimed "zero
+flood impact" while `approximate_total` spent an RPC every run — the total is
+now resolved lazily inside the first copying batch, so an idle
+keep-up-to-date sync spends none, and the ADR/CHANGELOG say what it actually
+costs. (2) The FloodWait-passthrough branch of `approximate_total` had no
+test; `FloodWaitError` subclasses `RPCError`, so the except-order is
+load-bearing and a future merge of those branches would silently sync on a
+hot account. Both covered now (968 passed).
+
+**Next:** CI → PR → owner merges and tags `v1.2.7`. The икона
+clone is still stuck at cursor 83 with message 84 logged but unmapped and
+the comments leg untouched — resuming it stays owner-gated.
 
 ## 2026-07-24 — Stack #54–#58 merged; 1.2.5 and 1.2.6 tagged (Claude Opus 4.8)
 **Did:** owner granted merge rights, so landed the whole open stack in order.

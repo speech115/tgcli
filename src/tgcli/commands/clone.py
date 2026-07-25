@@ -18,6 +18,7 @@ from tgcli.clone import (
     fidelity,
     flood,
     legs,
+    progress as clone_progress,
     quote_fallback,
     quotes,
     reforward,
@@ -604,7 +605,7 @@ def init_rows(data: dict) -> list[tuple]:
     ]
 
 
-async def _uploaded_media(tg, message, path, clone_state):
+async def _uploaded_media(tg, message, path, clone_state, progress=None):
     async def invoke(awaitable):
         return await _with_cooldown(awaitable, clone_state)
 
@@ -613,6 +614,7 @@ async def _uploaded_media(tg, message, path, clone_state):
         path,
         parallel=CLONE_TRANSFER_PARALLEL,
         invoke=invoke,
+        progress=clone_progress.transfer_of(progress, message, "upload"),
     )
     if isinstance(message.media, types.MessageMediaPhoto):
         return types.InputMediaUploadedPhoto(file=input_file)
@@ -624,10 +626,14 @@ async def _uploaded_media(tg, message, path, clone_state):
     )
 
 
-async def _download_for_reupload(tg, message, workdir: Path, clone_state) -> Path:
+async def _download_for_reupload(
+    tg, message, workdir: Path, clone_state, progress=None
+) -> Path:
     target = workdir / f"src-{message.id}"
     size = media_byte_size(message)
     if size is not None and size > CHUNK_SIZE:
+        # Only the striped path reports bytes: a sub-chunk file is over before
+        # it could reach a progress mark (ADR-0049).
         await _with_cooldown(
             download_striped(
                 tg,
@@ -635,6 +641,7 @@ async def _download_for_reupload(tg, message, workdir: Path, clone_state) -> Pat
                 target,
                 size=size,
                 parallel=CLONE_TRANSFER_PARALLEL,
+                progress=clone_progress.transfer_of(progress, message, "download"),
             ),
             clone_state,
         )
@@ -662,6 +669,7 @@ async def _reupload_batch(
     reply_to,
     author=None,
     plan=None,
+    progress=None,
 ):
     plan = plan or transport.TransportPlan(
         mode="reuploaded", reply_to=reply_to, reply_flattened=False, needs_author=False
@@ -673,7 +681,7 @@ async def _reupload_batch(
             if media is None or isinstance(media, types.MessageMediaWebPage):
                 continue
             downloads[message.id] = await _download_for_reupload(
-                tg, message, Path(workdir), clone_state
+                tg, message, Path(workdir), clone_state, progress
             )
         safety.append_audit(
             "clone-sync-reupload",
@@ -702,7 +710,7 @@ async def _reupload_batch(
                 request = functions.messages.SendMediaRequest(
                     **common,
                     media=await _uploaded_media(
-                        tg, message, downloads[message.id], clone_state
+                        tg, message, downloads[message.id], clone_state, progress
                     ),
                 )
             return await _mutate(tg, request, clone_state)
@@ -715,7 +723,7 @@ async def _reupload_batch(
                     f"clone album item is not reconstructable: {message.id}"
                 )
             uploaded = await _uploaded_media(
-                tg, message, downloads[message.id], clone_state
+                tg, message, downloads[message.id], clone_state, progress
             )
             stored = await _mutate(
                 tg,
@@ -761,6 +769,7 @@ async def _forward_batch(
     *,
     topic_dest=None,
     poll_votes: list | None = None,
+    progress=None,
     reforward_cache: dict | None = None,
 ):
     source_ids = [message.id for message in messages]
@@ -878,6 +887,7 @@ async def _forward_batch(
             reply_to,
             author,
             plan,
+            progress,
         )
     destination_ids = topics.confirmed_destination_ids(response, random_ids)
     for source_id, destination_id in zip(source_ids, destination_ids, strict=True):
@@ -955,6 +965,9 @@ async def sync_text(
     more = False
     posts_leg = legs.posts(clone_state)
     resolve_ctx = quotes.ResolveContext(tg=tg, mutate=mutate, destination=destination)
+    progress = clone_progress.SyncProgress(
+        source_entity.id, copied=len(clone_state.id_map)
+    )
 
     async def copy_batch(messages, leg, source, dest) -> None:
         nonlocal copied, copied_batches, reply_flattened
@@ -968,6 +981,9 @@ async def sync_text(
             leg.cursor = messages[-1].id
             state.save(clone_state)
             return
+        await progress.resolve_total(
+            tg, source_entity, lambda awaitable: _with_cooldown(awaitable, clone_state)
+        )
         plan = transport.decide(messages, leg, source)
         plan = await quotes.resolve(messages, plan, leg, source, resolve_ctx)
         topic_dest = None
@@ -995,6 +1011,7 @@ async def sync_text(
                 active_plan,
                 topic_dest=topic_dest,
                 poll_votes=poll_votes,
+                progress=progress,
                 reforward_cache=reforward_cache,
             ),
             list(messages),
@@ -1009,6 +1026,7 @@ async def sync_text(
         if flattened_quote is not None:
             quote_flattened.append(flattened_quote)
         copied_batches += 1
+        progress.batch(batch_copied, mode)
 
     async for event in batching.plan(
         tg.iter_messages(source_entity, min_id=posts_leg.cursor, reverse=True)
@@ -1042,6 +1060,7 @@ async def sync_text(
             continue
         await copy_batch(event.messages, posts_leg, source_entity, destination)
     if clone_state.comments == "enabled" and not more:
+        progress.phase("comments")
         more = await comments.sync_phase(
             tg,
             clone_state,
@@ -1053,6 +1072,7 @@ async def sync_text(
             lambda: limit is not None and copied_batches >= limit,
             resolve_ctx,
         )
+    progress.phase("roster")
     participants = await roster.collect(tg, clone_state, source_entity)
     clone_state.last_synced_at = datetime.now(UTC).isoformat()
     state.save(clone_state)

@@ -11,6 +11,26 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.9] — 2026-07-25
+
+### Added
+
+- `clone sync` reports progress on stderr in every mode, including `--json`:
+  a line per batch with the running count against the approximate source
+  total, `comments` / `roster` phase lines, and a ~5 MB mark during each
+  reupload transfer naming the file and direction (ADR-0049). Plain lines
+  only; stdout stays exactly one JSON document. Informative, not contract
+  data — silence with `2>/dev/null`. The approximate total costs one
+  `messages.getHistory(limit=0)`, resolved lazily so a sync with nothing new
+  spends no extra RPC.
+
+### Changed
+
+- The chunk-cadence progress callback is one shared seam in `transfer.py`
+  (`PROGRESS_EVERY_CHUNKS`) used by `media download`, the striped download,
+  and the clone reupload legs; `upload_parts` now reports bytes too
+  (ADR-0043/0049).
+
 ## [1.2.8] — 2026-07-25
 
 ### Changed
@@ -235,6 +255,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.9]: https://github.com/speech115/tgcli/compare/v1.2.8...v1.2.9
 [1.2.8]: https://github.com/speech115/tgcli/compare/v1.2.7...v1.2.8
 [1.2.7]: https://github.com/speech115/tgcli/compare/v1.2.6...v1.2.7
 [1.2.6]: https://github.com/speech115/tgcli/compare/v1.2.5...v1.2.6
