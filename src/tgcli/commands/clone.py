@@ -917,6 +917,9 @@ async def sync_text(
             "clone discussion group is not linked yet; re-run clone init before syncing"
         )
     _enforce_cooldown(clone_state)
+    # Warn before the work, not only after it: a run killed by FloodWait never
+    # reaches the tail, so the resume is where the operator sees this.
+    warned_unstarted = clone_progress.comments_unstarted(clone_state)
     try:
         destination = await tg.get_entity(
             types.PeerChannel(clone_state.destination_peer_id)
@@ -1072,6 +1075,8 @@ async def sync_text(
             lambda: limit is not None and copied_batches >= limit,
             resolve_ctx,
         )
+    if not warned_unstarted:
+        clone_progress.comments_unstarted(clone_state)
     progress.phase("roster")
     participants = await roster.collect(tg, clone_state, source_entity)
     clone_state.last_synced_at = datetime.now(UTC).isoformat()

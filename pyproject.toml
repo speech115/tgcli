@@ -1,6 +1,6 @@
 [project]
 name = "tgcli"
-version = "1.2.9"
+version = "1.2.10"
 description = "Stateless Telegram CLI for humans, scripts, and AI agents"
 requires-python = ">=3.12"
 dependencies = ["telethon==1.44.0"]
@@ -9,7 +9,7 @@ dependencies = ["telethon==1.44.0"]
 tg = "tgcli.cli:entrypoint"
 
 [dependency-groups]
-dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.8", "pyright>=1.1.390"]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.16", "pyright>=1.1.390"]
 
 [build-system]
 requires = ["hatchling"]
@@ -25,6 +25,15 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 88
 src = ["src", "tests"]
+target-version = "py312"
+# Keep Markdown out of format/check: v0.16 formats fenced Python by default,
+# and docs/superpowers/ is closed history that must not be rewritten.
+extend-exclude = ["**/*.md"]
+
+[tool.ruff.lint]
+# Preserve the pre-0.16 default rule set (E4/E7/E9/F). Adopting the new
+# 413-rule default is a separate lint policy change, not this deps bump.
+select = ["E4", "E7", "E9", "F"]
 
 [tool.pyright]
 include = ["src"]

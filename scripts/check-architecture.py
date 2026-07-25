@@ -21,7 +21,10 @@ CEILINGS = {
     # +20 for ADR-0049: the progress emitter lives in clone/progress.py, but
     # the reporter still has to be threaded down the sync → batch → transfer
     # call chain that clone.py owns.
-    "src/tgcli/commands/clone.py": 1135,
+    # +5 for the comments-unstarted warning: the text and its condition live in
+    # clone/progress.py, but sync_text owns both moments worth warning at —
+    # before the work (a FloodWait exit never reaches the tail) and after it.
+    "src/tgcli/commands/clone.py": 1140,
     "src/tgcli/clone/state.py": 300,
     "src/tgcli/clone/quotes.py": 365,
     "src/tgcli/clone/quote_fallback.py": 127,

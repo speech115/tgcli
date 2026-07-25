@@ -17,6 +17,143 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — Deferred ADR-0051; shipped the warning instead (Claude Opus 5)
+
+**Did:** owner reviewed ADR-0051 and asked whether the project needs it. It
+does not, yet. Marked the ADR `deferred` with its reasoning and a re-entry
+gate, added `CLONE-003` to ISSUES.md, updated the ADR index row, and closed
+#66 unmerged. In its place shipped the cheap half: `progress.comments_unstarted`
+warns on stderr while the clone's discussion group still holds only anchors —
+called at the tail of `sync_text` and again at its head, because a FloodWait
+exit never reaches the tail and the resume is where the operator actually
+looks. Three tests in `tests/test_cli_clone_sync.py` (leaves-unstarted,
+resume-warns-once, quiet-once-progressed). `CEILINGS` for `clone.py` 1135 →
+1140 with the reason in the comment.
+
+**Decided:** no CONTRACT edit and no version bump. CONTRACT §2 already
+licenses warnings on stderr, and ADR-0049 framed these lines as informative,
+not contract; documenting one plain `warning:` line would force a release for
+output that is explicitly non-contractual. The warning text and its condition
+live in `clone/progress.py`, which owns clone-sync stderr — `clone.py` gets
+only the two call sites.
+
+**Learned:** ADR-0051 was drafted agent-side from a live observation and
+accepted into `main` without the explicit owner request ADR-0026 requires. An
+accepted ADR sitting in the tree reads to the next session as settled scope —
+the DEVLOG "Next:" line had already queued its implementation twice. The gate
+is the owner's answer, not the ADR's existence; ask before writing the ADR,
+and mark deferral in the ADR itself, or the next agent re-derives the same
+work. Worth also recording why the deferral is cheap to reverse: task 1 (the
+defer-not-flatten safety condition) is written and correct on its branch, and
+ADR-0051 decision 3 still forbids landing windowing before it.
+
+**Next:** tag `v1.2.10` on `568ecac` — filed as #72 rather than left in a
+DEVLOG line, because no agent session can close it: this git proxy answers
+`git-receive-pack` with 403 for any `refs/tags/*` update while allowing
+`refs/heads/*`, the GitHub MCP toolset exposes tags read-only, and there is
+no release workflow to dispatch.
+
+## 2026-07-25 — Integrated #65/#67/#68 as 1.2.10; held #66 (Claude Opus 5, orchestrated)
+
+**Did:** four draft PRs were open off the same merge-base `9b088f9`. Merged
+#65, #67, #68 onto one integration branch and gated the *combined* result
+(`1032 passed, 9 skipped`, all checks) rather than merging each blind —
+landed as #69 → `568ecac`. Conflicts were paperwork only: #65 and #67 each
+opened a `[1.2.10]` CHANGELOG section (folded into one release entry), and
+three DEVLOG entries collided (all kept, newest-first). Fact-checked both
+doc-heavy PRs against the code via subagents instead of trusting their
+descriptions: allowlist really is 40 entries, CONTRACT §10 matches
+`accounts.list_accounts`, and `actions/checkout@v7` / `setup-uv@v9.0.0` are
+real tags. Held #66 out. Also ignored `.claude/worktrees/`.
+
+**Decided:** #65 and #67 share one `1.2.10` rather than taking 1.2.10 and
+1.2.11 on the same day — ADR-0038 wants a release per contract change, not a
+version per PR, and both shipped together. #66 stays open: its CI failure is
+the architecture ratchet (`clone.py` 1144 > 1135, `quotes.py` 380 > 365, with
+`CEILINGS` untouched), and it implements task 1 of the 5 its own plan binds
+into "one PR, one tagged patch release". Its task-1 code is correct and
+well-tested, so it is a base to build on, not something to discard.
+
+**Learned:** isolated agent worktrees are created *inside* the repo at
+`.claude/worktrees/`. Untracked is not enough — ruff and pytest still walk in,
+and a gate run reported 250 lint errors sourced entirely from another
+branch's checkout under its own ruff config. The repo already ignored
+`.worktrees/`; the `.claude/` location was the gap. Separately, a green CI
+badge on a PR says nothing about the *combination*: only merging first and
+gating after proves the CHANGELOG and version sites survive.
+
+**Next:** tag `v1.2.10` on `568ecac` — the session environment refused tag
+pushes (annotated and lightweight alike), so the release is unmarked; then
+rebase #66 onto post-1.2.10 `main` (it conflicts in `clone/comments.py`) and
+finish tasks 2–5.
+
+## 2026-07-25 — Dependency refresh: ruff 0.16 + CI Actions (Cursor Grok)
+
+**Did:** audited lockfile/OSV; only outdated Python pin was `ruff`
+0.15.22 → 0.16.0. Bumped `uv.lock` / `ruff>=0.16`, pinned
+`[tool.ruff.lint] select = ["E4","E7","E9","F"]` (pre-0.16 defaults) and
+`extend-exclude = ["**/*.md"]` so Markdown code-block formatting does not
+rewrite closed `docs/superpowers/` history. CI: `actions/checkout@v7`,
+`astral-sh/setup-uv@v9.0.0` (immutable tag required since setup-uv v8).
+Gate green.
+
+**Decided:** do not adopt the new 413-rule default in this slice — that is
+a lint-policy change, not a deps bump. No ADR (existing tooling versions).
+
+**Learned:** ruff 0.16 without `target-version`/`requires-python` in the
+effective config flags `ExceptionGroup` as F821; `py312` + project
+`requires-python` closes it. setup-uv no longer publishes floating `@vN`
+tags from v8 onward.
+
+**Next:** optional follow-up to evaluate adopting the expanded default
+rule set under a dedicated lint PR.
+
+## 2026-07-25 — Stale-docs audit → 1.2.10 contract sync (Cursor Grok 4.5)
+
+**Did:** audited CONTRACT/MAP/FEATURES/README against live `src/tgcli` after a
+Grok Build–style stale-docs pass. Confirmed seven drifts; shipped the full
+fix as patch `1.2.10`: CONTRACT header `1.2.10`, §6 allowlist **40**, §10
+`accounts list` shape; FEATURES `contacts`/`folders` → `wrapped`; README
+maintenance line → v1.2; unauthorized-session hint → `tg accounts login`
+(regression in `tests/test_session.py`). MAP `accounts.py` note cleaned.
+
+**Decided:** documenting already-shipped `accounts list` and correcting the
+allowlist count are CONTRACT edits, so ADR-0038 requires a release in the
+same commit — no new ADR (ADR-0010 / ADR-0042 already govern the behavior).
+
+**Learned:** the CONTRACT version header had been frozen at `0.1` draft since
+first release while the package moved through 1.2.x; FEATURES status lagged
+wrappers that landed under identity/dialog ADRs.
+
+**Next:** independent Spec + Standards review of this branch from its
+merge-base before merge; tag `v1.2.10` on the merged release commit.
+
+## 2026-07-25 — Guard comments.sync_phase source-group resolve (#64) (Composer)
+
+**Did:** closed the third site of the 1.2.8 refusal class. `comments.sync_phase`
+resolved `discussion_source_peer_id` with no error handling, so a source
+group that turned private after init raised through `cli.py`'s unrecognized-
+exception path as a traceback. Catch now matches `attribution._resolve`:
+re-raise `FloodWaitError` (ADR-0045), treat `(ValueError, RPCError)` as
+`comments: "unavailable"` + clear phase-2 cursor/id_map + skip phase 2.
+CONTRACT §11 documents the path; 1.2.10 bump + CHANGELOG. Unit tests in
+`tests/test_clone_comments.py` (roster-shaped) plus one CLI seam case.
+Mirror-fix: `snapshot.render` story-author resolve now catches `RPCError`
+too. Independent review found the cursor/id_map invariant hole; fixed with
+a reproducing test before the green.
+
+**Decided:** unavailable source group soft-degrades to the ADR-0023 marker
+rather than a hard `PolicyError` — same honesty as init and roster; the
+destination group resolve stays exit 2 because we own that peer.
+
+**Learned:** `state.from_dict` rejects `comments != enabled` with a non-zero
+`discussion_cursor` or non-empty `discussion_id_map`. Soft-degrade that
+only flips the marker leaves the next sync dying on load — every zero-
+cursor test was green and still wrong for a mid-phase-2 clone.
+
+**Next:** implement ADR-0051 (windowed phase interleaving); defer-not-flatten
+first.
+
 ## 2026-07-25 — Merged the #59–#63 backlog; 1.2.7–1.2.9 tagged (Claude Opus 5)
 
 **Did:** cleared all five open PRs and every branch. Merge order #60 (ADR-0050

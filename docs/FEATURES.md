@@ -20,8 +20,8 @@ Status values:
 | bots | api | User-account tool; bot-management calls are raw TL only. |
 | channels | wrapped | `info`, `count`, media, subscriber export, and `clone init` cover daily work; raw TL covers the long tail. |
 | chatlists | api | No demonstrated daily workflow needs a wrapper. |
-| contacts | api | `resolveUsername`, `search`, and `getContacts` are allowlisted reads; other calls use raw safety gates. |
-| folders | api | No demonstrated daily workflow needs a wrapper. |
+| contacts | wrapped | `contacts list` / `search`, `resolve`, and `mutual-chats` cover daily identity work; raw TL covers the long tail (ADR-0010 / ADR-0029). |
+| folders | wrapped | `dialog archive` / `unarchive` covers peer folder moves; other folder/chatlist calls stay on raw TL. |
 | fragment | api | No dedicated workflow; use raw TL only after task-specific review. |
 | help | api | No dedicated workflow; use raw TL only after task-specific review. |
 | langpack | api | No dedicated workflow; use raw TL only after task-specific review. |
@@ -42,5 +42,5 @@ Status values:
 
 - **Secret chats** — not part of the TL API Telethon implements.
 - **Bot API (HTTP)** — non-goal; tgcli is an MTProto user-account tool.
-- **Signup** — account creation is a ToS and ban risk; import authorized
-  sessions instead.
+- **Signup** — account creation is a ToS and ban risk; authorize with
+  `tg accounts login`, or `tg accounts import` for an old-stack session.
