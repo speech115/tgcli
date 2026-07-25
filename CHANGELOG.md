@@ -11,6 +11,18 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.10] — 2026-07-25
+
+### Fixed
+
+- Stale-docs sync against live 1.2.x: `CONTRACT.md` header tracks the package
+  version (was still `0.1` draft); §6 allowlist count is **40** (ADR-0010);
+  §10 documents `tg accounts list` JSON/TSV (ADR-0042). `FEATURES.md` marks
+  `contacts` and `folders` as `wrapped`; README maintenance line says v1.2.
+- Unauthorized-session `ConfigError` points at `tg accounts login` (with
+  `accounts import` only as the old-stack path), not "phase 6 / authorize
+  manually".
+
 ## [1.2.9] — 2026-07-25
 
 ### Added
@@ -255,6 +267,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.10]: https://github.com/speech115/tgcli/compare/v1.2.9...v1.2.10
 [1.2.9]: https://github.com/speech115/tgcli/compare/v1.2.8...v1.2.9
 [1.2.8]: https://github.com/speech115/tgcli/compare/v1.2.7...v1.2.8
 [1.2.7]: https://github.com/speech115/tgcli/compare/v1.2.6...v1.2.7

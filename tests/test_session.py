@@ -64,9 +64,12 @@ async def test_unauthorized_session_raises_config_error(state, monkeypatch):
     monkeypatch.setattr(
         session, "_make_client", lambda path, account, *, mutation_safe=False: fake
     )
-    with pytest.raises(ConfigError, match="not authorized"):
+    with pytest.raises(ConfigError, match="not authorized") as excinfo:
         async with session.client(ACCOUNT):
             pass
+    assert "tg accounts login" in str(excinfo.value)
+    assert "phase 6" not in str(excinfo.value)
+    assert "authorize manually" not in str(excinfo.value)
     assert fake.connected is False
 
 

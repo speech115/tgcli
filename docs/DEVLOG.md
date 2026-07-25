@@ -17,6 +17,26 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — Stale-docs audit → 1.2.10 contract sync (Cursor Grok 4.5)
+
+**Did:** audited CONTRACT/MAP/FEATURES/README against live `src/tgcli` after a
+Grok Build–style stale-docs pass. Confirmed seven drifts; shipped the full
+fix as patch `1.2.10`: CONTRACT header `1.2.10`, §6 allowlist **40**, §10
+`accounts list` shape; FEATURES `contacts`/`folders` → `wrapped`; README
+maintenance line → v1.2; unauthorized-session hint → `tg accounts login`
+(regression in `tests/test_session.py`). MAP `accounts.py` note cleaned.
+
+**Decided:** documenting already-shipped `accounts list` and correcting the
+allowlist count are CONTRACT edits, so ADR-0038 requires a release in the
+same commit — no new ADR (ADR-0010 / ADR-0042 already govern the behavior).
+
+**Learned:** the CONTRACT version header had been frozen at `0.1` draft since
+first release while the package moved through 1.2.x; FEATURES status lagged
+wrappers that landed under identity/dialog ADRs.
+
+**Next:** independent Spec + Standards review of this branch from its
+merge-base before merge; tag `v1.2.10` on the merged release commit.
+
 ## 2026-07-25 — Merged the #59–#63 backlog; 1.2.7–1.2.9 tagged (Claude Opus 5)
 
 **Did:** cleared all five open PRs and every branch. Merge order #60 (ADR-0050
