@@ -85,8 +85,10 @@ async def candidates(
         return [], []
     source_ids = [source_id for source_id, _ in mapping]
     dest_ids = [destination_id for _, destination_id in mapping]
-    source_msgs = await cooldown(tg.get_messages(source_entity, ids=source_ids))
-    dest_msgs = await cooldown(tg.get_messages(destination_entity, ids=dest_ids))
+    source_msgs = await cooldown(lambda: tg.get_messages(source_entity, ids=source_ids))
+    dest_msgs = await cooldown(
+        lambda: tg.get_messages(destination_entity, ids=dest_ids)
+    )
     source_by_id = {
         source_id: message
         for source_id, message in zip(source_ids, source_msgs, strict=True)

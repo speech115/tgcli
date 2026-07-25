@@ -173,7 +173,7 @@ def test_export_messages_unknown_dialog_exits_4(
 
 
 def test_export_messages_preserves_existing_destination_when_iteration_fails(
-    config_env, monkeypatch, tmp_path
+    config_env, monkeypatch, tmp_path, capsys
 ):
     fake = make_export_fake(messages=[make_message(1, "message")])
     fake.iter_messages_error = OSError("disk failed")
@@ -181,7 +181,23 @@ def test_export_messages_preserves_existing_destination_when_iteration_fails(
     destination = tmp_path / "messages.jsonl"
     destination.write_text("previous\n")
 
-    assert main(["export", "messages", "@chan", "--output", str(destination)]) == 1
+    assert (
+        main(
+            [
+                "--json",
+                "export",
+                "messages",
+                "@chan",
+                "--output",
+                str(destination),
+            ]
+        )
+        == 1
+    )
+    captured = capsys.readouterr()
+    assert captured.out == captured.err
+    assert json.loads(captured.out)["error"]["code"] == "RUNTIME"
+    assert json.loads(captured.err)["error"]["code"] == "RUNTIME"
     assert destination.read_text() == "previous\n"
 
 

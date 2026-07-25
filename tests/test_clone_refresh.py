@@ -161,8 +161,9 @@ class _ScanClient:
         raise AssertionError(f"unexpected RPC: {type(request).__name__}")
 
 
-async def _passthrough(awaitable):
-    return await awaitable
+async def _passthrough(make):
+    """ADR-0052: the cooldown seam takes a zero-arg thunk, not an awaitable."""
+    return await make()
 
 
 @pytest.mark.asyncio
@@ -174,9 +175,9 @@ async def test_candidates_routes_get_messages_through_cooldown():
     clone_state = _clone_state(id_map={10: 100})
     wrapped: list[object] = []
 
-    async def tracking_cooldown(awaitable):
-        wrapped.append(awaitable)
-        return await awaitable
+    async def tracking_cooldown(make):
+        wrapped.append(make)
+        return await make()
 
     await refresh.candidates(
         client, clone_state, client.source, client.destination, tracking_cooldown

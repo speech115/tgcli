@@ -132,7 +132,8 @@ def test_album_with_divergent_foreign_peers_is_rejected():
 
 def test_cross_leg_target_not_yet_mapped_flattens():
     """A comment quoting a source post that never mapped (deleted/unsupported)
-    flattens instead of pointing at a nonexistent destination."""
+    flattens instead of pointing at a nonexistent destination. Discrimination:
+    parent id is behind the posts cursor, so the posts leg is done with it."""
     header = types.MessageReplyHeader(
         reply_to_msg_id=789,
         reply_to_peer_id=types.PeerChannel(2),
@@ -143,9 +144,67 @@ def test_cross_leg_target_not_yet_mapped_flattens():
         [_msg(header)],
         _discussion(discussion_id_map={2377: 901}),
         DISCUSSION_SOURCE,
+        posts_cursor=789,
     )
     assert classified.kind == "flatten"
     assert classified.parent_id == 789
+
+
+def test_cross_leg_parent_beyond_posts_cursor_defers():
+    """Discussion-leg comment whose channel parent is newer than the posts
+    cursor must defer — not flatten — so windowed interleaving cannot plant
+    a permanent flat reply (ADR-0051)."""
+    header = types.MessageReplyHeader(
+        reply_to_msg_id=789,
+        reply_to_peer_id=types.PeerChannel(2),
+        quote_text="quoted post",
+        reply_to_top_id=2377,
+    )
+    classified = replies.target(
+        [_msg(header)],
+        _discussion(discussion_id_map={2377: 901}),
+        DISCUSSION_SOURCE,
+        posts_cursor=100,
+    )
+    assert classified.kind == "deferred"
+    assert classified.parent_id == 789
+
+
+def test_cross_leg_parent_beyond_cursor_flattens_when_posts_exhausted():
+    """When the posts leg is done, a parent id beyond the cursor will never
+    arrive — flatten rather than defer forever (orphan / deleted post)."""
+    header = types.MessageReplyHeader(
+        reply_to_msg_id=789,
+        reply_to_peer_id=types.PeerChannel(2),
+        reply_to_top_id=2377,
+    )
+    classified = replies.target(
+        [_msg(header)],
+        _discussion(discussion_id_map={2377: 901}),
+        DISCUSSION_SOURCE,
+        posts_cursor=100,
+        posts_exhausted=True,
+    )
+    assert classified.kind == "flatten"
+    assert classified.parent_id == 789
+
+
+def test_cross_leg_parent_behind_cursor_still_flattens_when_absent():
+    """Parent id <= posts cursor and missing from id_map: permanently gone
+    (deleted / skipped-unsupported). Flatten exactly as today."""
+    header = types.MessageReplyHeader(
+        reply_to_msg_id=50,
+        reply_to_peer_id=types.PeerChannel(2),
+        reply_to_top_id=2377,
+    )
+    classified = replies.target(
+        [_msg(header)],
+        _discussion(discussion_id_map={2377: 901}),
+        DISCUSSION_SOURCE,
+        posts_cursor=100,
+    )
+    assert classified.kind == "flatten"
+    assert classified.parent_id == 50
 
 
 def test_source_2374_foreign_quote_classifies_as_foreign_peer():

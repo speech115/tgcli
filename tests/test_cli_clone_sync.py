@@ -126,6 +126,9 @@ class CloneSyncClient:
         self.destination_actions = {}
         self.requests = []
         self.iter_messages_calls = []
+        self.source_pinned_msg_id = None
+        self.destination_pinned_msg_id = None
+        self.full_requests = []
 
     async def get_entity(self, ref):
         if isinstance(ref, types.PeerChannel):
@@ -138,6 +141,10 @@ class CloneSyncClient:
         return self.source
 
     async def get_input_entity(self, ref):
+        if ref is self.destination:
+            return types.InputPeerChannel(channel_id=999, access_hash=1)
+        if ref is self.source:
+            return types.InputPeerChannel(channel_id=123, access_hash=1)
         raise ValueError("no input peer")
 
     async def get_me(self):
@@ -168,6 +175,28 @@ class CloneSyncClient:
         yield  # pragma: no cover - marks this coroutine as an async generator
 
     async def __call__(self, request):
+        if isinstance(request, functions.channels.GetFullChannelRequest):
+            self.full_requests.append(request)
+            channel_ref = request.channel
+            pinned = (
+                self.source_pinned_msg_id
+                if getattr(channel_ref, "id", None) == self.source.id
+                else self.destination_pinned_msg_id
+            )
+            return SimpleNamespace(full_chat=SimpleNamespace(pinned_msg_id=pinned))
+        if isinstance(request, functions.users.GetFullUserRequest):
+            self.full_requests.append(request)
+            return SimpleNamespace(
+                full_user=SimpleNamespace(pinned_msg_id=self.source_pinned_msg_id)
+            )
+        if isinstance(request, functions.messages.GetFullChatRequest):
+            self.full_requests.append(request)
+            return SimpleNamespace(
+                full_chat=SimpleNamespace(pinned_msg_id=self.source_pinned_msg_id)
+            )
+        if isinstance(request, functions.messages.UpdatePinnedMessageRequest):
+            self.requests.append(request)
+            return True
         assert isinstance(request, functions.messages.ForwardMessagesRequest)
         self.requests.append(request)
         updates = []
@@ -456,7 +485,11 @@ class CloneCommentsClient(CloneReuploadClient):
 
 
 def test_sync_copies_posts_before_comments(config_env, monkeypatch, capsys):
-    """Phase 1 sends every post before phase 2 sends any comment."""
+    """Phase 1 sends every post before phase 2 sends any comment.
+
+    For a source smaller than one window this remains byte-identical to the
+    pre-ADR-0051 sequential ordering.
+    """
     seed_comments_clone()
     client = CloneCommentsClient(
         [message(2), message(3)],
@@ -489,6 +522,294 @@ def test_sync_copies_posts_before_comments(config_env, monkeypatch, capsys):
     ]
     peers = [item.to_peer if hasattr(item, "to_peer") else item.peer for item in sends]
     assert peers == [client.destination, client.destination, client.destination_group]
+
+
+def _send_peers(client):
+    return [
+        item.to_peer if hasattr(item, "to_peer") else item.peer
+        for item in client.requests
+        if isinstance(
+            item,
+            (
+                functions.messages.ForwardMessagesRequest,
+                functions.messages.SendMessageRequest,
+            ),
+        )
+    ]
+
+
+def test_sync_interleaves_posts_and_comments_in_windows(
+    config_env, monkeypatch, capsys
+):
+    """More posts than WINDOW with comments on early posts: request order is
+    posts×WINDOW, then comments for those posts, then the next posts window
+    (ADR-0051)."""
+    from tgcli.clone import legs
+
+    monkeypatch.setattr(legs, "WINDOW", 2)
+    seed_comments_clone()
+    client = CloneCommentsClient(
+        [message(2), message(3), message(4), message(5)],
+        [
+            anchor(10, 2),
+            message(
+                12,
+                message="on 2",
+                reply_to=types.MessageReplyHeader(reply_to_msg_id=10),
+            ),
+            anchor(13, 3),
+            message(
+                14,
+                message="on 3",
+                reply_to=types.MessageReplyHeader(reply_to_msg_id=13),
+            ),
+            anchor(15, 4),
+            anchor(16, 5),
+        ],
+    )
+    client.anchor_ids = {2: 500, 3: 600, 4: 700, 5: 800}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 6
+    peers = _send_peers(client)
+    # Window 1: posts 2,3 → comments 12,14 → window 2: posts 4,5.
+    assert peers == [
+        client.destination,
+        client.destination,
+        client.destination_group,
+        client.destination_group,
+        client.destination,
+        client.destination,
+    ]
+
+
+def test_sync_small_source_matches_sequential_request_order(
+    config_env, monkeypatch, capsys
+):
+    """A source smaller than one window keeps today's posts-then-comments
+    request sequence."""
+    from tgcli.clone import legs
+
+    monkeypatch.setattr(legs, "WINDOW", 50)
+    seed_comments_clone()
+    client = CloneCommentsClient(
+        [message(2), message(3)],
+        [
+            anchor(10, 2),
+            anchor(11, 3),
+            message(
+                12,
+                message="nice",
+                reply_to=types.MessageReplyHeader(reply_to_msg_id=10),
+            ),
+        ],
+    )
+    client.anchor_ids = {2: 500, 3: 600}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    assert _send_peers(client) == [
+        client.destination,
+        client.destination,
+        client.destination_group,
+    ]
+
+
+def test_sync_disabled_comments_does_not_interleave(config_env, monkeypatch, capsys):
+    """comments disabled/none: no phase-2 entry and no windowed re-entry."""
+    from tgcli.clone import legs
+
+    monkeypatch.setattr(legs, "WINDOW", 2)
+    for mode in ("disabled", "none"):
+        clone_state = seed_clone()
+        clone_state.comments = mode
+        state.save(clone_state)
+        client = CloneSyncClient([message(2), message(3), message(4)])
+        make_session_fake(monkeypatch, client)
+        assert main(["clone", "sync", "@source", "--json"]) == 0
+        capsys.readouterr()
+        assert client.iter_messages_calls == [(0, True)]
+        assert all(
+            (getattr(item, "to_peer", None) or getattr(item, "peer", None))
+            is client.destination
+            for item in client.requests
+        )
+
+
+def test_sync_flood_mid_window_keeps_prior_window_comments(
+    config_env, monkeypatch, capsys
+):
+    """FloodWait on the first send of window 2 leaves window 1's posts and
+    their comments durably mapped, both cursors resumable.
+
+    The capture is past `SHORT_WAIT` on purpose: this pins the exit-5 path, not
+    ADR-0052's foreground retry, and a shorter one would make the suite sleep.
+    """
+    from tgcli.clone import legs
+
+    monkeypatch.setattr(legs, "WINDOW", 2)
+    clone_state = seed_comments_clone()
+
+    class FloodWindowClient(CloneCommentsClient):
+        async def __call__(self, request):
+            peer = getattr(request, "peer", None) or getattr(request, "to_peer", None)
+            if (
+                peer is self.destination
+                and isinstance(request, functions.messages.ForwardMessagesRequest)
+                and list(request.id) == [4]
+            ):
+                self.requests.append(request)
+                raise telethon_errors.FloodWaitError(request=request, capture=61)
+            return await super().__call__(request)
+
+    client = FloodWindowClient(
+        [message(2), message(3), message(4)],
+        [
+            anchor(10, 2),
+            message(
+                12,
+                message="on 2",
+                reply_to=types.MessageReplyHeader(reply_to_msg_id=10),
+            ),
+            anchor(13, 3),
+        ],
+    )
+    client.anchor_ids = {2: 500, 3: 600, 4: 700}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+    capsys.readouterr()
+    saved = state.load(clone_state.clone_id)
+    assert saved is not None
+    assert saved.dest_for(2) is not None
+    assert saved.dest_for(3) is not None
+    assert saved.dest_for(4) is None
+    assert saved.discussion_dest_for(12) is not None
+    assert saved.cursor == 3
+    assert saved.discussion_cursor >= 12
+
+
+def test_sync_comments_phase_stops_at_anchor_beyond_posts_cursor(
+    config_env, monkeypatch, capsys
+):
+    """Phase-2 scan stops at the first anchor whose source post id is newer
+    than the posts cursor and does not read past it (ADR-0051 bound)."""
+    from tgcli.clone import legs
+
+    monkeypatch.setattr(legs, "WINDOW", 2)
+    seed_comments_clone()
+
+    class TrackingCommentsClient(CloneCommentsClient):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.scans: list[list[int]] = []
+
+        async def iter_messages(self, entity, *, min_id=0, reverse=False):
+            if entity is not self.source_group:
+                async for item in super().iter_messages(
+                    entity, min_id=min_id, reverse=reverse
+                ):
+                    yield item
+                return
+            self.iter_messages_calls.append(("group", min_id, reverse))
+            scan: list[int] = []
+            self.scans.append(scan)
+            for item in sorted(self.comments, key=lambda value: value.id):
+                if item.id > min_id:
+                    scan.append(item.id)
+                    yield item
+
+    client = TrackingCommentsClient(
+        [message(2), message(3), message(4)],
+        [
+            anchor(10, 2),
+            anchor(11, 3),
+            anchor(20, 4),
+            message(30, message="late"),
+        ],
+    )
+    client.anchor_ids = {2: 500, 3: 600, 4: 700}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    capsys.readouterr()
+    assert client.scans, "comments phase must enter at least once"
+    first = client.scans[0]
+    assert 20 in first
+    assert 30 not in first
+
+
+def test_sync_late_comment_on_older_post_picked_up_in_later_window(
+    config_env, monkeypatch, capsys
+):
+    """A comment written later against an older post (its group id lies beyond
+    the bound) is copied in a later window, not dropped."""
+    from tgcli.clone import legs
+
+    monkeypatch.setattr(legs, "WINDOW", 2)
+    seed_comments_clone()
+    client = CloneCommentsClient(
+        [message(2), message(3), message(4)],
+        [
+            anchor(10, 2),
+            anchor(11, 3),
+            anchor(20, 4),
+            message(
+                30,
+                message="late on 2",
+                reply_to=types.MessageReplyHeader(reply_to_msg_id=10),
+            ),
+        ],
+    )
+    client.anchor_ids = {2: 500, 3: 600, 4: 700}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] == 4  # 3 posts + 1 late comment
+    assert group_sends(client)
+    done = state.load(state.clone_id(42, 123))
+    assert done is not None
+    assert done.discussion_dest_for(30) is not None
+    assert done.discussion_cursor >= 30
+    assert done.cursor >= 4
+
+
+def test_sync_anchor_for_skipped_post_does_not_stall_comments(
+    config_env, monkeypatch, capsys
+):
+    """An anchor for an unsupported/skipped source post is skipped and does
+    not stall the comments leg forever."""
+    from tgcli.clone import legs
+
+    monkeypatch.setattr(legs, "WINDOW", 50)
+    # Post 2 is a dice (unsupported); cursor still advances past it.
+    dice = message(2, media=type("MessageMediaDice", (), {})())
+    seed_comments_clone()
+    client = CloneCommentsClient(
+        [dice, message(3, message="ok")],
+        [
+            anchor(10, 2),
+            anchor(11, 3),
+            message(
+                12,
+                message="on 3",
+                reply_to=types.MessageReplyHeader(reply_to_msg_id=11),
+            ),
+        ],
+    )
+    client.anchor_ids = {3: 600}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] >= 1
+    done = state.load(state.clone_id(42, 123))
+    assert done is not None
+    assert done.cursor >= 3
+    assert done.discussion_cursor >= 12
+    assert done.discussion_dest_for(12) is not None
 
 
 def test_sync_snapshots_discussion_roster_when_comments_enabled(
@@ -791,6 +1112,96 @@ def test_sync_flattens_comments_with_unmapped_anchors(config_env, monkeypatch, c
     assert state.load(clone_state.clone_id).discussion_dest_for(12) is not None
 
 
+def test_sync_defers_cross_leg_comment_beyond_posts_cursor(
+    config_env, monkeypatch, capsys
+):
+    """Comment quoting a channel post newer than the posts cursor must leave
+    discussion_cursor unmoved past that comment and send nothing; once the
+    post is mapped, the next run copies it (ADR-0051 defer)."""
+    from tgcli.clone import legs
+
+    monkeypatch.setattr(legs, "WINDOW", 2)
+    clone_state = seed_comments_clone()
+
+    class FloodBeforeParent(CloneCommentsClient):
+        async def __call__(self, request):
+            peer = getattr(request, "peer", None) or getattr(request, "to_peer", None)
+            if (
+                peer is self.destination
+                and isinstance(request, functions.messages.ForwardMessagesRequest)
+                and list(request.id) == [5]
+            ):
+                self.requests.append(request)
+                raise telethon_errors.FloodWaitError(request=request, capture=61)
+            return await super().__call__(request)
+
+    # Window 1 copies posts 2,3 then comments hit a reply to post 5 → defer.
+    # FloodWait on post 5 freezes the mid-defer state for assertions.
+    client = FloodBeforeParent(
+        [message(2), message(3), message(5, message="parent post")],
+        [
+            anchor(10, 2),
+            message(
+                12,
+                message="waiting",
+                reply_to=types.MessageReplyHeader(
+                    reply_to_msg_id=5,
+                    reply_to_peer_id=types.PeerChannel(123),
+                ),
+            ),
+        ],
+    )
+    client.anchor_ids = {2: 500, 3: 600, 5: 700}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+    capsys.readouterr()
+    assert group_sends(client) == []
+    mid = state.load(clone_state.clone_id)
+    assert mid is not None
+    assert mid.discussion_cursor == 10  # advanced past anchor, not past comment
+    assert mid.discussion_dest_for(12) is None
+    assert mid.cursor == 3
+    assert mid.dest_for(5) is None
+
+    # Clear FloodWait cooldowns so the resume run can proceed.
+    from tgcli.clone import flood
+
+    mid.retry_not_before = None
+    state.save(mid)
+    flood.path_for(42).unlink(missing_ok=True)
+
+    # Resume: parent post maps, then comments leg copies the deferred reply.
+    client2 = CloneCommentsClient(
+        [message(5, message="parent post")],
+        [
+            anchor(10, 2),
+            message(
+                12,
+                message="waiting",
+                reply_to=types.MessageReplyHeader(
+                    reply_to_msg_id=5,
+                    reply_to_peer_id=types.PeerChannel(123),
+                ),
+            ),
+        ],
+    )
+    client2.destination_last_id = max(mid.max_destination_id() or 0, 1)
+    client2.group_last_id = max(mid.max_discussion_destination_id() or 0, 1)
+    client2.anchor_ids = {5: 700}
+    # Restore mapped posts 2,3 into the fresh client's view via state only.
+    make_session_fake(monkeypatch, client2)
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] >= 2
+    assert group_sends(client2)
+    done = state.load(clone_state.clone_id)
+    assert done is not None
+    assert done.dest_for(5) is not None
+    assert done.discussion_dest_for(12) is not None
+    assert done.discussion_cursor >= 12
+
+
 def test_sync_copies_off_thread_group_messages(config_env, monkeypatch, capsys):
     """A plain group message with no reply header clones into the destination
     group through the megagroup transport rules, keeping its author header."""
@@ -854,7 +1265,11 @@ def test_sync_advances_the_discussion_cursor_per_batch(config_env, monkeypatch, 
 
 def test_sync_limit_spends_phase_one_first(config_env, monkeypatch, capsys):
     """--limit 1 with pending posts and comments: only a post batch is
-    copied, more is True, discussion_cursor unchanged."""
+    copied, more is True, discussion_cursor unchanged.
+
+    Under ADR-0051 the shared budget still ends the run when posts exhaust
+    it inside a window (limit < WINDOW); comments are not entered.
+    """
     clone_state = seed_comments_clone()
     client = CloneCommentsClient(
         [message(2), message(3)],
@@ -880,6 +1295,85 @@ def test_sync_limit_spends_phase_one_first(config_env, monkeypatch, capsys):
     assert group_sends(client) == []
     assert client.iter_messages_calls == [(0, True)]
     assert state.load(clone_state.clone_id).discussion_cursor == 0
+
+
+def test_sync_limit_spans_both_legs_and_may_return_comments(
+    config_env, monkeypatch, capsys
+):
+    """--limit N counts batches across both legs; with WINDOW < limit a run
+    may return comments where pre-ADR-0051 returned only posts."""
+    from tgcli.clone import legs
+
+    monkeypatch.setattr(legs, "WINDOW", 2)
+    seed_comments_clone()
+    client = CloneCommentsClient(
+        [message(2), message(3), message(4), message(5), message(6)],
+        [
+            anchor(10, 2),
+            message(
+                12,
+                message="on 2",
+                reply_to=types.MessageReplyHeader(reply_to_msg_id=10),
+            ),
+            anchor(13, 3),
+            anchor(14, 4),
+            anchor(15, 5),
+            anchor(16, 6),
+        ],
+    )
+    client.anchor_ids = {2: 500, 3: 600, 4: 700, 5: 800, 6: 900}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--limit", "3", "--json"]) == 0
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] == 3
+    assert sync["more"] is True
+    # 2 posts + 1 comment (shared budget), not 3 posts alone.
+    peers = _send_peers(client)
+    assert peers == [
+        client.destination,
+        client.destination,
+        client.destination_group,
+    ]
+    assert sync["discussion_cursor"] >= 12
+
+
+def test_sync_limit_smaller_than_window_saves_both_cursors(
+    config_env, monkeypatch, capsys
+):
+    """--limit smaller than one window still terminates and saves both
+    cursors after a posts+comments window that fits under the budget."""
+    from tgcli.clone import legs
+
+    monkeypatch.setattr(legs, "WINDOW", 50)
+    clone_state = seed_comments_clone()
+    # Two posts only — under WINDOW — so comments run with remaining budget.
+    client = CloneCommentsClient(
+        [message(2), message(3)],
+        [
+            anchor(10, 2),
+            message(
+                12,
+                message="on 2",
+                reply_to=types.MessageReplyHeader(reply_to_msg_id=10),
+            ),
+            anchor(13, 3),
+        ],
+    )
+    client.anchor_ids = {2: 500, 3: 600}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--limit", "3", "--json"]) == 0
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] == 3  # 2 posts + 1 comment
+    # Anchor 13 remains past the budget → more; both cursors still durable.
+    assert sync["more"] is True
+    saved = state.load(clone_state.clone_id)
+    assert saved is not None
+    assert saved.cursor == 3
+    assert saved.discussion_cursor >= 12
+    assert saved.dest_for(2) is not None
+    assert saved.discussion_dest_for(12) is not None
 
 
 def test_sync_warns_when_a_run_leaves_comments_unstarted(
@@ -1141,6 +1635,11 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
 
     result = json.loads(capsys.readouterr().out)
     participants = result["sync"].pop("participants")
+    assert result["sync"].pop("pinned") == {
+        "source_id": None,
+        "destination_id": None,
+        "status": "unmapped",
+    }
     assert result["sync"] == {
         "copied": 2,
         "forwarded": 2,
@@ -2399,6 +2898,11 @@ def test_clone_sync_skips_service_and_reports_unsupported_messages(
 
     sync = json.loads(capsys.readouterr().out)["sync"]
     sync.pop("participants")
+    assert sync.pop("pinned") == {
+        "source_id": None,
+        "destination_id": None,
+        "status": "unmapped",
+    }
     assert sync == {
         "copied": 1,
         "forwarded": 1,
@@ -2639,6 +3143,11 @@ def test_clone_sync_keeps_grouped_id_zero_album_atomic_and_in_position(
 
     result = json.loads(capsys.readouterr().out)
     result["sync"].pop("participants")
+    assert result["sync"].pop("pinned") == {
+        "source_id": None,
+        "destination_id": None,
+        "status": "unmapped",
+    }
     assert result["sync"] == {
         "copied": 4,
         "forwarded": 4,
@@ -3323,7 +3832,7 @@ def test_clone_sync_reupload_striped_download_flood_wait_exits_5(
         async def iter_download(
             self, media, *, offset=0, request_size=None, stride=None
         ):
-            raise telethon_errors.FloodWaitError(request=None, capture=45)
+            raise telethon_errors.FloodWaitError(request=None, capture=61)
             yield  # pragma: no cover
 
         async def download_media(self, message, file=None):
@@ -3334,7 +3843,7 @@ def test_clone_sync_reupload_striped_download_flood_wait_exits_5(
 
     assert main(["clone", "sync", "@source", "--json"]) == 5
     err = json.loads(capsys.readouterr().err)["error"]
-    assert err["retry_after"] == 45
+    assert err["retry_after"] == 61
     assert client.part_requests == []
     assert not any(
         isinstance(
@@ -3628,7 +4137,7 @@ def test_clone_sync_reforward_search_flood_wait_exits_5_without_send(
             self, entity, *, limit=None, from_user=None, offset_date=None, ids=None
         ):
             if from_user is not None or offset_date is not None:
-                raise telethon_errors.FloodWaitError(request=None, capture=45)
+                raise telethon_errors.FloodWaitError(request=None, capture=61)
             return await super().get_messages(entity, limit=limit)
 
     client = FloodSearchClient([post])
@@ -3637,7 +4146,7 @@ def test_clone_sync_reforward_search_flood_wait_exits_5_without_send(
     assert main(["clone", "sync", "@source", "--json"]) == 5
 
     err = json.loads(capsys.readouterr().err)["error"]
-    assert err["retry_after"] == 45
+    assert err["retry_after"] == 61
     assert not any(
         isinstance(
             item,
@@ -3669,7 +4178,7 @@ def test_clone_sync_reforward_group_entity_flood_wait_exits_5_without_send(
                 isinstance(ref, types.PeerChannel)
                 and ref.channel_id == self.source_group.id
             ):
-                raise telethon_errors.FloodWaitError(request=None, capture=45)
+                raise telethon_errors.FloodWaitError(request=None, capture=61)
             return await super().get_entity(ref)
 
     client = FloodGroupEntityClient([post])
@@ -3678,7 +4187,7 @@ def test_clone_sync_reforward_group_entity_flood_wait_exits_5_without_send(
     assert main(["clone", "sync", "@source", "--json"]) == 5
 
     err = json.loads(capsys.readouterr().err)["error"]
-    assert err["retry_after"] == 45
+    assert err["retry_after"] == 61
     assert client.search_calls == []
     assert not any(
         isinstance(
@@ -3748,13 +4257,29 @@ def test_sync_json_mode_emits_progress_without_touching_stdout(
 
 def test_sync_announces_the_comments_and_roster_phases(config_env, monkeypatch, capsys):
     seed_comments_clone()
-    client = CloneCommentsClient(
+
+    class CountingCommentsClient(CloneCommentsClient):
+        def __init__(self, messages, comments=()):
+            super().__init__(messages, comments)
+            self.total_requests = 0
+
+        async def get_messages(self, entity, limit=None, ids=None):
+            if entity is self.source and limit == 0:
+                self.total_requests += 1
+            return await super().get_messages(entity, limit=limit, ids=ids)
+
+    client = CountingCommentsClient(
         [message(2)],
         [
             anchor(10, 2),
             message(
                 12,
                 message="nice",
+                reply_to=types.MessageReplyHeader(reply_to_msg_id=10),
+            ),
+            message(
+                13,
+                message="also",
                 reply_to=types.MessageReplyHeader(reply_to_msg_id=10),
             ),
         ],
@@ -3765,8 +4290,17 @@ def test_sync_announces_the_comments_and_roster_phases(config_env, monkeypatch, 
     assert main(["clone", "sync", "@source"]) == 0
 
     lines = progress_lines(capsys.readouterr().err)
-    assert "[sync 123] 1/~1 · comments" in lines
-    assert lines[-1] == "[sync 123] 2/~? · roster"
+    comments_idx = lines.index("[sync 123] 1/~1 · comments")
+    # The batch immediately after the comments phase line must show a resolved
+    # denominator (posts-leg source total), not the stuck `~?` from a stale
+    # `_total_resolved` flag. Two comment messages → two batches after the phase.
+    assert lines[comments_idx + 1] == "[sync 123] 2/~1 · reuploaded"
+    assert lines[comments_idx + 2] == "[sync 123] 3/~1 · reuploaded"
+    # Roster announces with the prior leg's resolved total, then clears it;
+    # it never calls resolve_total itself.
+    assert lines[-1] == "[sync 123] 3/~1 · roster"
+    # Posts + comments each resolve once (limit=0); never once per comment batch.
+    assert client.total_requests == 2
 
 
 def test_sync_reports_transfer_bytes_while_reuploading(config_env, monkeypatch, capsys):
@@ -3835,7 +4369,7 @@ def test_sync_error_stays_the_final_stderr_line_after_progress(
     class FloodingClient(CloneSyncClient):
         async def __call__(self, request):
             if len(self.requests) >= 1:
-                raise telethon_errors.FloodWaitError(request=None, capture=17)
+                raise telethon_errors.FloodWaitError(request=None, capture=61)
             return await super().__call__(request)
 
     client = FloodingClient([message(2), message(3)])
@@ -3848,7 +4382,7 @@ def test_sync_error_stays_the_final_stderr_line_after_progress(
     assert progress_lines(captured.err), "progress must precede the error"
     error = json.loads(lines[-1])["error"]
     assert error["code"] == "FLOOD_WAIT"
-    assert error["retry_after"] == 17
+    assert error["retry_after"] == 61
 
 
 def test_sync_with_nothing_to_copy_asks_for_no_approximate_total(
@@ -3888,7 +4422,7 @@ def test_sync_flood_wait_on_the_approximate_total_arms_the_cooldown(
     class FloodingTotalClient(CloneSyncClient):
         async def get_messages(self, entity, limit=None):
             if entity is self.source:
-                raise telethon_errors.FloodWaitError(request=None, capture=29)
+                raise telethon_errors.FloodWaitError(request=None, capture=61)
             return await super().get_messages(entity, limit=limit)
 
     client = FloodingTotalClient([message(2)])
@@ -3898,7 +4432,135 @@ def test_sync_flood_wait_on_the_approximate_total_arms_the_cooldown(
 
     error = json.loads(capsys.readouterr().err.splitlines()[-1])["error"]
     assert error["code"] == "FLOOD_WAIT"
-    assert error["retry_after"] == 29
+    assert error["retry_after"] == 61
     assert client.requests == []
     saved = state.load(clone_state.clone_id)
     assert saved.cooldown_deadline() is not None
+
+
+def test_completing_sync_pins_mapped_source_and_reports_set(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    clone_state.record_mapping(12, 9)
+    clone_state.cursor = 12
+    state.save(clone_state)
+    client = CloneSyncClient([])
+    client.source_pinned_msg_id = 12
+    client.destination_pinned_msg_id = None
+    client.destination_last_id = 9
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["pinned"] == {
+        "source_id": 12,
+        "destination_id": 9,
+        "status": "set",
+    }
+    pins = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.messages.UpdatePinnedMessageRequest)
+    ]
+    assert len(pins) == 1
+    assert pins[0].id == 9
+    assert pins[0].silent is True
+    assert isinstance(pins[0].peer, types.InputPeerChannel)
+    assert pins[0].peer.channel_id == 999
+    assert state.load(clone_state.clone_id).pinned_dest_id == 9
+
+
+def test_early_stop_sync_skips_pin_phase_but_reports_snapshot(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    state.save(clone_state)
+    client = CloneSyncClient([message(1), message(2), message(3)])
+    client.source_pinned_msg_id = 1
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--limit", "1", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["more"] is True
+    assert sync["pinned"] == {
+        "source_id": None,
+        "destination_id": None,
+        "status": "unmapped",
+    }
+    assert not any(
+        isinstance(
+            item,
+            (
+                functions.channels.GetFullChannelRequest,
+                functions.messages.UpdatePinnedMessageRequest,
+            ),
+        )
+        for item in [*client.requests, *client.full_requests]
+    )
+
+
+def test_forum_sync_omits_pinned_key(config_env, monkeypatch, capsys):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+    clone_state.record_topic(2, 1002)
+    clone_state.cursor = 2
+    state.save(clone_state)
+    client = CloneForumClient([])
+    client.destination_last_id = 1002
+    client.destination_actions[1002] = types.MessageActionTopicCreate(
+        title="General", icon_color=0
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert "pinned" not in sync
+    assert not any(
+        isinstance(item, functions.messages.UpdatePinnedMessageRequest)
+        for item in client.requests
+    )
+
+
+def test_sync_short_flood_wait_retries_once_and_keeps_json_stdout(
+    config_env, monkeypatch, capsys
+):
+    """ADR-0052: ≤60s FloodWait sleeps once (injectable), retries, stdout stays one JSON."""
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("tgcli.commands.clone.asyncio.sleep", fake_sleep)
+    seed_clone()
+
+    class OnceFloodClient(CloneSyncClient):
+        def __init__(self, messages):
+            super().__init__(messages)
+            self._flooded = False
+
+        async def __call__(self, request):
+            if (
+                isinstance(request, functions.messages.ForwardMessagesRequest)
+                and not self._flooded
+            ):
+                self._flooded = True
+                raise telethon_errors.FloodWaitError(request=None, capture=3)
+            return await super().__call__(request)
+
+    client = OnceFloodClient([message(2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["sync"]["copied"] == 1
+    assert payload["sync"]["forwarded"] == 1
+    assert "flood wait: retrying in 3s" in captured.err
+    assert sleeps == [4]
+    # Exactly one JSON document on stdout — no wait noise.
+    assert captured.out.count("{") >= 1
+    json.loads(captured.out)  # round-trip already; single document

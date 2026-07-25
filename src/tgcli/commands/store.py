@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -15,6 +16,11 @@ from tgcli.safety import PREVIEW_TTL
 RELIC_NAMES = ("mirrors", "mirror-lab", "labs", "probes")
 _PREVIEW_BUCKETS = ("live", "expired", "spent", "pending")
 _LOGIN_BUCKETS = ("live", "expired")
+# Previews and logins carry `expires_at`, so a live record is never eligible
+# whatever the flags say. A clone media cache (ADR-0052) carries no TTL, so
+# this floor is the whole liveness gate: below it the cache belongs to a
+# `clone sync` that is running right now, and nothing may delete it.
+MEDIA_CACHE_MIN_AGE = timedelta(hours=1)
 
 
 def _dir_bytes(path: Path) -> int:
@@ -47,6 +53,22 @@ def _record_age_anchor(path: Path) -> datetime:
     if expires is not None:
         return expires
     return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+
+
+def _media_cache_anchor(path: Path) -> datetime:
+    """Newest mtime in a clone media cache: the directory or anything inside it.
+
+    Creating `src-<id>` stamps the directory once; the download that follows
+    only advances the file's own mtime, so a half-gigabyte transfer can leave
+    the directory looking hours old while it is very much alive.
+    """
+    stamps = [path.stat().st_mtime]
+    for entry in path.rglob("*"):
+        try:
+            stamps.append(entry.stat().st_mtime)
+        except OSError:
+            continue
+    return datetime.fromtimestamp(max(stamps), tz=UTC)
 
 
 def _classify_ttl_record(path: Path, *, now: datetime, ttl: timedelta) -> str:
@@ -157,6 +179,13 @@ def scan(root: Path, *, now: datetime | None = None) -> dict:
         if path.exists():
             relics.append({"name": name, "bytes": _dir_bytes(path)})
 
+    clones_root = root / "clones"
+    media_dirs = (
+        sorted(path for path in clones_root.glob("*-media") if path.is_dir())
+        if clones_root.is_dir()
+        else []
+    )
+
     return {
         "previews": previews,
         "previews_world_readable": world_readable,
@@ -171,7 +200,11 @@ def scan(root: Path, *, now: datetime | None = None) -> dict:
             "count": len(bak_files),
             "bytes": sum(_file_bytes(path) for path in bak_files),
         },
-        "clones": {"bytes": _dir_bytes(root / "clones")},
+        "clones": {"bytes": _dir_bytes(clones_root)},
+        "clone_media_cache": {
+            "count": len(media_dirs),
+            "bytes": sum(_dir_bytes(path) for path in media_dirs),
+        },
         "downloads": {"bytes": _dir_bytes(root / "downloads")},
         "relics": relics,
     }
@@ -200,6 +233,13 @@ def stats_rows(data: dict) -> list[tuple]:
         )
     )
     rows.append(("clones", None, data["clones"]["bytes"]))
+    rows.append(
+        (
+            "clone_media_cache",
+            data["clone_media_cache"]["count"],
+            data["clone_media_cache"]["bytes"],
+        )
+    )
     rows.append(("downloads", None, data["downloads"]["bytes"]))
     for relic in data["relics"]:
         rows.append((f"relic.{relic['name']}", None, relic["bytes"]))
@@ -266,6 +306,17 @@ def _deletable_paths(
                 candidate = logins_root / name
                 if candidate.is_file():
                     selected.append(candidate)
+
+    clones_root = root / "clones"
+    if clones_root.is_dir():
+        floor = max(older_than or timedelta(0), MEDIA_CACHE_MIN_AGE)
+        for path in sorted(clones_root.glob("*-media")):
+            if not path.is_dir():
+                continue
+            # No expires_at — age is always mtime (ADR-0052 media cache).
+            if now - _media_cache_anchor(path) < floor:
+                continue
+            selected.append(path)
     return selected
 
 
@@ -281,13 +332,18 @@ def cleanup(
     selected = _deletable_paths(
         root, older_than=older_than, include_pending=include_pending, now=now
     )
-    bytes_total = sum(_file_bytes(path) for path in selected)
+    bytes_total = sum(
+        _dir_bytes(path) if path.is_dir() else _file_bytes(path) for path in selected
+    )
     names = [path.name for path in selected]
     removed: list[str] = []
     would_remove: list[str] = []
     if confirm:
         for path in selected:
-            path.unlink(missing_ok=True)
+            if path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                path.unlink(missing_ok=True)
             removed.append(path.name)
         preview_root = root / "previews"
         if preview_root.is_dir():

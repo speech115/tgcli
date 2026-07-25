@@ -58,6 +58,8 @@ class CloneState:
     discussion_id_map: dict[str, int] = field(default_factory=dict)
     comments: str = "none"
     avatar_photo_ids: dict[str, int] = field(default_factory=dict)
+    pinned_dest_id: int | None = None
+    pin_occupied: bool = False
 
     @classmethod
     def new(
@@ -159,6 +161,8 @@ class CloneState:
             "discussion_id_map": self.discussion_id_map,
             "comments": self.comments,
             "avatar_photo_ids": self.avatar_photo_ids,
+            "pinned_dest_id": self.pinned_dest_id,
+            "pin_occupied": self.pin_occupied,
         }
 
     @classmethod
@@ -218,6 +222,21 @@ class CloneState:
             or (discussion_linked and discussion_destination_peer_id is None)
         ):
             raise ValueError("inconsistent discussion state")
+        pinned_dest_id = data.get("pinned_dest_id")
+        pin_occupied = data.get("pin_occupied", False)
+        if (
+            type(pin_occupied) is not bool
+            or (
+                pinned_dest_id is not None
+                and (
+                    type(pinned_dest_id) is not int
+                    or pinned_dest_id < 1
+                    or pinned_dest_id > 2_147_483_647
+                )
+            )
+            or (pin_occupied and pinned_dest_id is not None)
+        ):
+            raise ValueError("inconsistent pin state")
         return cls(
             version=data["version"],
             account_user_id=data["account_user_id"],
@@ -240,6 +259,8 @@ class CloneState:
             discussion_id_map=dict(discussion_id_map),
             comments=comments,
             avatar_photo_ids=dict(data.get("avatar_photo_ids", {})),
+            pinned_dest_id=pinned_dest_id,
+            pin_occupied=pin_occupied,
         )
 
 

@@ -272,13 +272,35 @@ async def _unreachable_fallback(
 
 
 async def resolve(
-    messages, plan: transport.TransportPlan, leg, source, ctx: ResolveContext
+    messages,
+    plan: transport.TransportPlan,
+    leg,
+    source,
+    ctx: ResolveContext,
+    *,
+    posts_cursor: int | None = None,
+    posts_exhausted: bool = False,
 ) -> transport.TransportPlan:
     """Turn ``transport.decide``'s plan into a sendable reply or fallback."""
-    classified = replies.target(messages, leg, source)
+    if plan.mode == "deferred":
+        return plan
+    classified = replies.target(
+        messages,
+        leg,
+        source,
+        posts_cursor=posts_cursor,
+        posts_exhausted=posts_exhausted,
+    )
     if classified is None:
         return plan
 
+    if classified.kind == "deferred":
+        return transport.TransportPlan(
+            mode="deferred",
+            reply_to=None,
+            reply_flattened=False,
+            needs_author=False,
+        )
     if classified.kind == "mapped-in-leg":
         reply_to = replies.input_reply(classified, leg)
         if reply_to is not None:

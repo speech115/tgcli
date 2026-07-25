@@ -131,8 +131,8 @@ def test_author_of_caches_entity_lookups():
             calls.append(peer)
             return SimpleNamespace(title="Chan")
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
 
     cache = {}
     me = SimpleNamespace(id=1)
@@ -155,8 +155,8 @@ def test_author_of_prefers_username():
         async def get_entity(self, peer):
             return types.User(id=9, first_name="Ivan", username="ivan")
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
 
     author = asyncio.run(
         attribution.author_of(
@@ -184,8 +184,8 @@ def test_author_of_prefers_active_username_from_usernames():
                 ],
             )
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
 
     author = asyncio.run(
         attribution.author_of(
@@ -205,8 +205,8 @@ def test_author_of_mentions_user_without_username():
         async def get_entity(self, peer):
             return types.User(id=9, first_name="Ivan", username=None)
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
 
     author = asyncio.run(
         attribution.author_of(
@@ -226,8 +226,8 @@ def test_author_of_does_not_mention_non_user_senders():
         async def get_entity(self, peer):
             return SimpleNamespace(id=9, title="Chan", username=None, usernames=[])
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
 
     author = asyncio.run(
         attribution.author_of(
@@ -249,8 +249,8 @@ def test_author_of_falls_back_to_id_for_unresolvable_peer():
         async def get_entity(self, peer):
             raise ValueError("no such peer")
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
 
     author = asyncio.run(
         attribution.author_of(
@@ -273,8 +273,8 @@ def test_author_of_falls_back_to_id_when_get_entity_raises_rpc_error():
         async def get_entity(self, peer):
             raise telethon_errors.ChannelPrivateError(request=None)
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
 
     author = asyncio.run(
         attribution.author_of(
@@ -294,8 +294,8 @@ def test_author_of_propagates_flood_wait():
         async def get_entity(self, peer):
             raise telethon_errors.FloodWaitError(request=None, capture=30)
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
 
     with pytest.raises(telethon_errors.FloodWaitError):
         asyncio.run(
@@ -359,8 +359,8 @@ def test_forwarded_author_of_resolves_peer_user_like_identify():
             assert peer == types.PeerUser(user_id=9)
             return types.User(id=9, first_name="Ivan", username="ivan")
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
 
     author = asyncio.run(
         attribution.forwarded_author_of(
@@ -375,8 +375,8 @@ def test_forwarded_author_of_mentions_user_without_username():
         async def get_entity(self, peer):
             return types.User(id=9, first_name="Ivan", username=None)
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
 
     author = asyncio.run(
         attribution.forwarded_author_of(
@@ -393,8 +393,8 @@ def test_forwarded_author_of_uses_channel_title_without_mention():
         async def get_entity(self, peer):
             return SimpleNamespace(id=9, title="News", username=None, usernames=[])
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
 
     author = asyncio.run(
         attribution.forwarded_author_of(
@@ -452,8 +452,8 @@ def test_forwarded_author_of_falls_back_when_get_entity_raises_value_error():
         async def get_entity(self, peer):
             raise ValueError("no such peer")
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
 
     author = asyncio.run(
         attribution.forwarded_author_of(
@@ -475,8 +475,8 @@ def test_forwarded_author_of_falls_back_to_from_name_when_get_entity_raises_rpc_
         async def get_entity(self, peer):
             raise telethon_errors.ChannelPrivateError(request=None)
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
 
     author = asyncio.run(
         attribution.forwarded_author_of(
@@ -496,8 +496,8 @@ def test_forwarded_author_of_falls_back_to_bare_word_when_get_entity_raises_rpc_
         async def get_entity(self, peer):
             raise telethon_errors.ChannelPrivateError(request=None)
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
 
     author = asyncio.run(
         attribution.forwarded_author_of(
@@ -518,8 +518,8 @@ def test_forwarded_author_of_caches_rpc_error_refusal():
             calls.append(peer)
             raise telethon_errors.ChannelPrivateError(request=None)
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
 
     cache = {}
     client = Client()
@@ -538,8 +538,8 @@ def test_forwarded_author_of_reuses_author_cache():
             calls.append(peer)
             return types.User(id=9, first_name="Ivan", username=None)
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
 
     cache = {}
     msg = _fwd_message(from_id=types.PeerUser(user_id=9))
@@ -560,8 +560,8 @@ def test_forwarded_author_of_propagates_flood_wait():
         async def get_entity(self, peer):
             raise telethon_errors.FloodWaitError(request=None, capture=30)
 
-    async def cooldown(awaitable):
-        return await awaitable
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
 
     with pytest.raises(telethon_errors.FloodWaitError):
         asyncio.run(
