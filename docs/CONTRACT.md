@@ -1127,11 +1127,13 @@ inside phase 2 leaves comments lagging posts until the next invocation.
 If resolving the source discussion group fails because Telegram refuses
 access (`ChannelPrivateError`, `ChatForbiddenError`, `ChatAdminRequiredError`,
 or an unresolved peer), sync does **not** exit non-zero: it persists
-`comments: "unavailable"`, skips the comments phase and the discussion
-roster snapshot for this and later runs, and exits 0 — the same permanent
-honest marker init would have written for an unreadable linked group
-(ADR-0023). A `FloodWaitError` while resolving that group still exits 5 and
-arms the account-scoped cooldown (ADR-0045). An unavailable *destination*
+`comments: "unavailable"`, clears any leftover `discussion_cursor` /
+`discussion_id_map` (state forbids phase-2 progress when comments are not
+`enabled`), skips the comments phase and the discussion roster snapshot for
+this and later runs, and exits 0 — the same permanent honest marker init
+would have written for an unreadable linked group (ADR-0023). A
+`FloodWaitError` while resolving that group still exits 5 and arms the
+account-scoped cooldown (ADR-0045). An unavailable *destination*
 discussion group remains exit 2 (`PolicyError`). When `comments` is
 `"disabled"`, `"unavailable"`, or `"none"`, the comment phase and the
 discussion roster snapshot are skipped entirely.
