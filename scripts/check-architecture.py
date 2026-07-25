@@ -24,8 +24,10 @@ CEILINGS = {
     # +5 for the comments-unstarted warning: the text and its condition live in
     # clone/progress.py, but sync_text owns both moments worth warning at —
     # before the work (a FloodWait exit never reaches the tail) and after it.
-    "src/tgcli/commands/clone.py": 1140,
-    "src/tgcli/clone/state.py": 300,
+    # +17 for ADR-0055 pin wiring into sync_text.
+    "src/tgcli/commands/clone.py": 1157,
+    # +21 for ADR-0055 pinned_dest_id / pin_occupied fields + validation.
+    "src/tgcli/clone/state.py": 321,
     "src/tgcli/clone/quotes.py": 365,
     "src/tgcli/clone/quote_fallback.py": 127,
 }

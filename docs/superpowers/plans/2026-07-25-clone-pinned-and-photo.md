@@ -71,34 +71,34 @@ written. Add a small module `src/tgcli/clone/pin.py` (new row in
 `docs/MAP.md`'s clone/ table), mirroring the existing pure-decision style of
 `clone/transport.py` and `clone/batching.py`.
 
-- [ ] Test (`tests/test_clone_pin.py`, new file): a pure function —
+- [x] Test (`tests/test_clone_pin.py`, new file): a pure function —
       suggested shape `decide(source_pinned_msg_id: int | None, id_map:
       dict[str, int], state: PinState) -> PinDecision` where `PinState`
       carries whatever CloneState already knows (see below) — returns
       `status="unmapped", destination_id=None` when
       `source_pinned_msg_id is None`.
-- [ ] Test: `source_pinned_msg_id` set but absent from `id_map` →
+- [x] Test: `source_pinned_msg_id` set but absent from `id_map` →
       `status="unmapped", destination_id=None`. Covers all three causes
       the ADR names (service message, skipped-unsupported post, deleted
       source) identically — the function only sees an id, not why it is
       missing.
-- [ ] Test: `source_pinned_msg_id` maps via `id_map`, and the clone has
+- [x] Test: `source_pinned_msg_id` maps via `id_map`, and the clone has
       never pinned before and has not recorded the destination as occupied
       → `status="set", destination_id=<mapped id>` (the caller is
       responsible for actually sending the RPC; this function only decides
       intent).
-- [ ] Test: the clone has already pinned once before — `pinned_dest_id` is
+- [x] Test: the clone has already pinned once before — `pinned_dest_id` is
       already recorded in state (see field design below) →
       `status="unchanged", destination_id=<the recorded id>`, **regardless**
       of what `source_pinned_msg_id` currently maps to. This is decision 3
       (never re-pin, never unpin) — assert it holds even when the source's
       current pin now maps to a *different* destination id than the one
       already recorded.
-- [ ] Test: the clone has previously recorded the destination as occupied
+- [x] Test: the clone has previously recorded the destination as occupied
       (owner's own manual pin observed once, see Task 2) →
       `status="occupied", destination_id=None`, again regardless of what
       `source_pinned_msg_id` currently maps to, and without re-deriving it.
-- [ ] Implement `decide()` plus the two new `CloneState` fields it reads:
+- [x] Implement `decide()` plus the two new `CloneState` fields it reads:
       `pinned_dest_id: int | None = None` (the destination id this clone
       itself pinned, once it succeeds) and `pin_occupied: bool = False`
       (the destination already had a foreign pin the one time this clone
@@ -150,7 +150,7 @@ pick a different one.**
 > just in a commit message) so a future reader does not "fix" the extra
 > read back down to match the ADR's rough estimate.
 
-- [ ] Test (boundary, `tests/test_clone_pin.py` or
+- [x] Test (boundary, `tests/test_clone_pin.py` or
       `tests/test_cli_clone_sync.py`): a completing sync run whose source
       currently pins a mapped post, first time through (state has neither
       field set), sends **exactly**
@@ -161,31 +161,31 @@ pick a different one.**
       `peer=<destination InputPeer>`, `id=<mapped destination message id>`,
       `silent=True`, and no `unpin` set. Assert on the recorded request
       sequence and exact field values, not just call count.
-- [ ] Test: destination's `ChannelFull.pinned_msg_id` is already non-null
+- [x] Test: destination's `ChannelFull.pinned_msg_id` is already non-null
       (an owner's manual pin, unrelated to any mapped source post) →
       no `UpdatePinnedMessageRequest` is sent, `clone_state.pin_occupied`
       becomes `True`, `pinned_dest_id` stays `None`, JSON reports
       `status: "occupied"`.
-- [ ] Test: second completing run after a first-run `"set"` — assert
+- [x] Test: second completing run after a first-run `"set"` — assert
       **zero** `GetFullChannelRequest` calls of any kind fire (state alone
       answers `"unchanged"`), even though the fake client's source now
       reports a *different* `pinned_msg_id` that maps to a different post.
-- [ ] Test: source has no linked pin at all (`pinned_msg_id is None`) →
+- [x] Test: source has no linked pin at all (`pinned_msg_id is None`) →
       one `GetFullChannelRequest(source)` call, no destination read, no
       pin RPC, `status: "unmapped"`, state untouched (tried again next
       completing run).
-- [ ] Test: `mutate`'s existing FloodWait handling covers the pin RPC too —
+- [x] Test: `mutate`'s existing FloodWait handling covers the pin RPC too —
       a `FloodWaitError` on `UpdatePinnedMessageRequest` persists the clone
       cooldown and the run exits 5 without marking `pinned_dest_id`
       (reuse the existing `_with_cooldown`/`mutate` seam rather than a
       bespoke retry).
-- [ ] Test: `safety.append_audit("clone-sync-pin", account_alias, {...})`
+- [x] Test: `safety.append_audit("clone-sync-pin", account_alias, {...})`
       (or whatever tag name the reviewer prefers — keep it consistent with
       `clone-sync-reupload`'s shape: `clone_id`, source id, destination id)
       fires before the `UpdatePinnedMessageRequest` dispatch, and does
       **not** fire on `unmapped`/`occupied`/`unchanged` outcomes (nothing
       was mutated).
-- [ ] Implement in `clone/pin.py`: an async entry point (mirroring
+- [x] Implement in `clone/pin.py`: an async entry point (mirroring
       `comments.sync_phase`'s shape) — something like
       `async def sync_phase(tg, clone_state, source_entity, destination,
       mutate, cooldown, account_alias) -> dict` returning the `pinned`
@@ -198,12 +198,12 @@ pick a different one.**
 
 ### 3. Wire into `sync_text` and CONTRACT
 
-- [ ] Test (`tests/test_cli_clone_sync.py`): a completing run
+- [x] Test (`tests/test_cli_clone_sync.py`): a completing run
       (`more is False` after both the posts and, when enabled, comments
       legs) with a mapped pinned post calls the pin phase and the JSON
       response carries
       `"pinned": {"source_id": 12, "destination_id": 9, "status": "set"}`.
-- [ ] Test: a run that stops early (`more is True`, limit hit inside either
+- [x] Test: a run that stops early (`more is True`, limit hit inside either
       leg) does **not** call the pin phase at all — assert zero
       `GetFullChannelRequest`/`UpdatePinnedMessageRequest` calls attempt,
       and the JSON still carries a `pinned` key (consistency with how
@@ -212,18 +212,18 @@ pick a different one.**
       "status": "unmapped"}` when nothing has resolved yet, or the
       previously-resolved `set`/`occupied` values when it has — never a
       value implying a live check happened this run.
-- [ ] Test: a forum-destination clone (`clone_state.destination_kind ==
+- [x] Test: a forum-destination clone (`clone_state.destination_kind ==
       "forum"`) never gets a `pinned` key in its sync JSON, completing run
       or not, and the pin phase is never invoked (verify no
       `GetFullChannelRequest`/`UpdatePinnedMessageRequest` calls beyond
       whatever the forum topic-handling paths already make).
-- [ ] Wire the call into `sync_text` in `src/tgcli/commands/clone.py`,
+- [x] Wire the call into `sync_text` in `src/tgcli/commands/clone.py`,
       right after the existing comments-phase block (around line
       1062–1074, the `if clone_state.comments == "enabled" and not more:`
       block) and before `progress.phase("roster")` (line 1075). Add
       `"pinned": pinned_result` into the `data["sync"]` dict built around
       lines 1089–1099.
-- [ ] CONTRACT §11: add the `pinned` object to the `sync` JSON shape
+- [x] CONTRACT §11: add the `pinned` object to the `sync` JSON shape
       (§11's example near line 1235), describing: when it appears (never
       for forum destinations), its four `status` values (`set`,
       `unchanged`, `unmapped`, `occupied`) and what triggers each, that
@@ -234,7 +234,7 @@ pick a different one.**
       on the run the pin first becomes mappable, zero on every run after
       resolution, plus one `UpdatePinnedMessageRequest` when a pin is
       actually placed.
-- [ ] `docs/MAP.md`: add the `clone/pin.py` row to the clone/ table
+- [x] `docs/MAP.md`: add the `clone/pin.py` row to the clone/ table
       (`pure pin-decision + live pin-carry phase (ADR-0055)`).
 
 ---
@@ -242,6 +242,13 @@ pick a different one.**
 ## Track B — photo downscaling
 
 ### 4. Measure before touching any code (owner-gated, live)
+
+> **2026-07-25 implementation note:** Task 4 was not run in this session —
+> no live Telegram session / owner gate. Recorded as remaining owner-gated;
+> Track B Task 6 proceeds unconditionally per ADR-0055 decision 6 and the
+> mission brief. Task 5's CONTRACT re-encode sentence is deferred until
+> Task 4 produces evidence.
+
 
 **This is the first photo task and it changes no code.** Its only output is
 a DEVLOG entry and a go/no-go call for Task 6. Do not write or propose a
@@ -335,7 +342,7 @@ silently writing a truncated/wrong-content file with no error, because
 `iter_download`'s own internal size bookkeeping (unless told otherwise)
 follows `sizes[-1]` too, not the `size=` parameter we pass in.
 
-- [ ] Test (`tests/test_transfer.py` or new
+- [x] Test (`tests/test_transfer.py` or new
       `tests/test_clone_transfer_photo_size.py`): construct a fake
       `types.MessageMediaPhoto` wrapping a `types.Photo` whose `sizes` list
       has a genuinely smaller size last (e.g., `[large_1024, small_256]`
@@ -344,14 +351,14 @@ follows `sizes[-1]` too, not the `size=` parameter we pass in.
       what it was asked to fetch. Assert the resulting request/location
       corresponds to the **largest** size (1024, by dimensions or by
       `_photo_size_byte_count`), not `sizes[-1]` (256).
-- [ ] Test: the already-correct case — `sizes` already ascending, largest
+- [x] Test: the already-correct case — `sizes` already ascending, largest
       last — produces byte-identical behavior to today (regression guard;
       this must not change output for the common case Telegram usually
       sends).
-- [ ] Test: a `types.MessageMediaDocument` (non-photo) path is completely
+- [x] Test: a `types.MessageMediaDocument` (non-photo) path is completely
       unaffected — `_get_file_info`'s document branch uses `location.size`
       directly, there is only one size, nothing to reorder.
-- [ ] Implement inside `download_striped` itself (not at either call
+- [x] Implement inside `download_striped` itself (not at either call
       site), so both `tg media download --parallel` and clone's reupload
       path get the fix uniformly (AGENTS.md mirror-fix rule — this is
       exactly the kind of shared-code bug the rule exists for). The
@@ -364,13 +371,13 @@ follows `sizes[-1]` too, not the `size=` parameter we pass in.
       hand-construct an `InputPhotoFileLocation` (which would lose the
       photo's `dc_id` unless separately threaded through `iter_download`'s
       `dc_id=` kwarg; reordering `sizes` sidesteps that risk entirely).
-- [ ] CONTRACT.md: no behavior visible at the CLI boundary changes for the
+- [x] CONTRACT.md: no behavior visible at the CLI boundary changes for the
       common (already-sorted) case, so this may not need a CONTRACT
       sentence — confirm with the reviewer; if the reviewer wants one, add
       a short note under §11's reupload paragraph that striped downloads
       select the largest photo size explicitly rather than trusting
       Telegram's size ordering.
-- [ ] CHANGELOG entry for this task must say, explicitly, that this fix
+- [x] CHANGELOG entry for this task must say, explicitly, that this fix
       does **not** explain or resolve the `[икона]` audit's five smaller
       photos (source messages 15/33/35/58/81) — they are all under the
       512 KB striped threshold and were never touched by this code path —
@@ -389,7 +396,7 @@ follows `sizes[-1]` too, not the `size=` parameter we pass in.
 
 ## Release (Track A)
 
-- [ ] CHANGELOG + double version bump; `docs/MAP.md` row for `clone/pin.py`
+- [x] CHANGELOG + double version bump; `docs/MAP.md` row for `clone/pin.py`
       (done in Task 3); DEVLOG entry; PR → `reviewer` → CI → merge → tag.
 
 ## Live acceptance (Track A only, owner-gated, after merge)

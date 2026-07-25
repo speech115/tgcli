@@ -295,3 +295,93 @@ def test_media_download_shares_the_one_progress_cadence():
     from tgcli.commands import media
 
     assert media.PROGRESS_EVERY_CHUNKS is transfer.PROGRESS_EVERY_CHUNKS
+
+
+def _photo_media(*, sizes):
+    return types.MessageMediaPhoto(
+        photo=types.Photo(
+            id=1,
+            access_hash=2,
+            file_reference=b"ref",
+            date=None,
+            sizes=list(sizes),
+            dc_id=2,
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_download_striped_selects_largest_photo_size_not_list_order(tmp_path):
+    """ADR-0055: Telethon's _get_file_info trusts sizes[-1]; we reorder first."""
+    from telethon import utils as telethon_utils
+
+    large = types.PhotoSize(type="x", w=1024, h=1024, size=50_000)
+    small = types.PhotoSize(type="m", w=256, h=256, size=5_000)
+    media = _photo_media(sizes=[large, small])  # largest first — adversarial
+    tg = FakeStrideTelegram()
+    destination = tmp_path / "out.bin"
+
+    await transfer.download_striped(
+        tg,
+        media=media,
+        destination=destination,
+        size=transfer.CHUNK_SIZE,
+        parallel=1,
+    )
+
+    passed = tg.calls[0]["media"]
+    info = telethon_utils._get_file_info(passed)
+    assert info.location.thumb_size == "x"
+    assert info.size == 50_000
+    # Original media must stay untouched for callers that still hold it.
+    assert media.photo.sizes[-1].type == "m"
+
+
+@pytest.mark.asyncio
+async def test_download_striped_already_sorted_photo_sizes_unchanged(tmp_path):
+    from telethon import utils as telethon_utils
+
+    small = types.PhotoSize(type="m", w=256, h=256, size=5_000)
+    large = types.PhotoSize(type="x", w=1024, h=1024, size=50_000)
+    media = _photo_media(sizes=[small, large])
+    tg = FakeStrideTelegram()
+
+    await transfer.download_striped(
+        tg,
+        media=media,
+        destination=tmp_path / "out.bin",
+        size=transfer.CHUNK_SIZE,
+        parallel=1,
+    )
+
+    passed = tg.calls[0]["media"]
+    info = telethon_utils._get_file_info(passed)
+    assert info.location.thumb_size == "x"
+    assert info.size == 50_000
+    assert [s.type for s in passed.photo.sizes] == ["m", "x"]
+
+
+@pytest.mark.asyncio
+async def test_download_striped_document_path_unaffected(tmp_path):
+    document = types.Document(
+        id=9,
+        access_hash=8,
+        file_reference=b"ref",
+        date=None,
+        mime_type="application/pdf",
+        size=transfer.CHUNK_SIZE,
+        dc_id=2,
+        attributes=[],
+    )
+    media = types.MessageMediaDocument(document=document)
+    tg = FakeStrideTelegram()
+
+    await transfer.download_striped(
+        tg,
+        media=media,
+        destination=tmp_path / "out.bin",
+        size=transfer.CHUNK_SIZE,
+        parallel=1,
+    )
+
+    assert tg.calls[0]["media"] is media

@@ -11,6 +11,28 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.11] — 2026-07-25
+
+### Added
+
+- `clone sync` on a broadcast destination carries the source's pinned post
+  once the posts leg is exhausted (`more: false`): silent
+  `messages.UpdatePinnedMessage`, never overriding an existing destination
+  pin, never mirroring an unpin. Sync JSON gains `pinned` with status
+  `set` / `unchanged` / `unmapped` / `occupied`. Forum destinations omit
+  the key. Destination occupancy is read once in the clone's lifetime;
+  later completing runs answer from state (ADR-0055 Track A).
+
+### Fixed
+
+- Striped photo download (`download_striped`, used by clone reupload and
+  `tg media download --parallel`) now selects the largest `PhotoSize` by
+  byte count instead of trusting Telegram's unsorted `sizes[-1]`
+  (ADR-0055 Track B / decision 6). This does **not** explain or resolve
+  the `[икона]` audit's five smaller photos (source messages 15/33/35/58/81):
+  all five are under the 512 KB striped threshold and never took this path.
+  Live measurement of those five (Task 4) remains owner-gated.
+
 ## [1.2.10] — 2026-07-25
 
 ### Fixed

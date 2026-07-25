@@ -17,6 +17,33 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — ADR-0055 Track A + Task 6 (Cursor Grok 4.5)
+
+**Did:** Implemented PR #78 on `claude/clone-pinned-and-photo` (rebased onto
+`origin/main` first — was CONFLICTING). Track A: new `clone/pin.py` with pure
+`decide()` / `snapshot()` plus live `sync_phase` — silent
+`messages.UpdatePinnedMessage` when a completing broadcast sync first maps the
+source pin; destination occupancy checked once via `GetFullChannelRequest` then
+served from `pinned_dest_id` / `pin_occupied` state; forum clones omit `pinned`.
+Track B Task 4 not run (no live session / owner-gated); Task 6 unconditional
+fix inside `download_striped` so both clone and `media download --parallel`
+pick the largest `PhotoSize`. CONTRACT §11, MAP, CHANGELOG, double bump to
+`1.2.11`. Gate green. Pushed to existing PR branch; not merged.
+
+**Decided:** One patch release covers both tracks in this PR (plan allows
+separate releases). Task 5's Telegram re-encode CONTRACT sentence stays deferred
+until Task 4's live measurement produces evidence — no speculation.
+
+**Learned:** Clone sync test fakes assumed every `client.requests` entry was a
+forward; GetFull* pin reads had to land in a separate `full_requests` list (and
+User/Chat sources need `GetFullUser` / `GetFullChat`, not only
+`GetFullChannel`). Exact sync-JSON equality tests needed an additive `pinned`
+pop.
+
+**Next:** Independent Spec+Standards review of the whole PR diff from its
+merge-base; owner-gated Task 4 measurement against `[икона]` message 15 before
+any Task 5 CONTRACT wording; live acceptance of pin carry-over after merge.
+
 ## 2026-07-25 — Deferred ADR-0051; shipped the warning instead (Claude Opus 5)
 
 **Did:** owner reviewed ADR-0051 and asked whether the project needs it. It
