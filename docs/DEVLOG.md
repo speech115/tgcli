@@ -17,6 +17,27 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — Dependency refresh: ruff 0.16 + CI Actions (Cursor Grok)
+
+**Did:** audited lockfile/OSV; only outdated Python pin was `ruff`
+0.15.22 → 0.16.0. Bumped `uv.lock` / `ruff>=0.16`, pinned
+`[tool.ruff.lint] select = ["E4","E7","E9","F"]` (pre-0.16 defaults) and
+`extend-exclude = ["**/*.md"]` so Markdown code-block formatting does not
+rewrite closed `docs/superpowers/` history. CI: `actions/checkout@v7`,
+`astral-sh/setup-uv@v9.0.0` (immutable tag required since setup-uv v8).
+Gate green.
+
+**Decided:** do not adopt the new 413-rule default in this slice — that is
+a lint-policy change, not a deps bump. No ADR (existing tooling versions).
+
+**Learned:** ruff 0.16 without `target-version`/`requires-python` in the
+effective config flags `ExceptionGroup` as F821; `py312` + project
+`requires-python` closes it. setup-uv no longer publishes floating `@vN`
+tags from v8 onward.
+
+**Next:** optional follow-up to evaluate adopting the expanded default
+rule set under a dedicated lint PR.
+
 ## 2026-07-25 — Merged the #59–#63 backlog; 1.2.7–1.2.9 tagged (Claude Opus 5)
 
 **Did:** cleared all five open PRs and every branch. Merge order #60 (ADR-0050
