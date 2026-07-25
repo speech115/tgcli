@@ -17,6 +17,28 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — Implement ADR-0050 Part A (Composer)
+
+**Did:** executed Part A of
+`docs/superpowers/plans/2026-07-25-clone-forward-attribution.md` on
+`cursor/clone-forward-attribution-a-9e82` (base: ADR-0050 docs branch).
+`Author.lead` + `forwarded_author_of` ladder; `transport.decide` sets
+`needs_author` for broadcast+`fwd_from` on reupload/snapshot; `_forward_batch`
+threads the forwarded author. CONTRACT §11 sentence, MAP, CHANGELOG 1.2.7,
+dual version bump. Part B left gated. Full `./scripts/gate.sh` evidence in PR.
+
+**Decided:** ship decisions 1–2 as 1.2.7; decision 3 (native re-forward)
+untouched pending explicit owner go-ahead. Version digit conflicts with open
+#59 (also claiming 1.2.7) — whichever merges second rebases the bump.
+
+**Learned:** with only `needs_author=True` and still calling `author_of`, a
+channel repost renders `id unknown:` because `from_id` is the channel-absent
+shape — the failing album integration test proved why `forwarded_author_of`
+must be a sibling, not a post-process of `author_of`.
+
+**Next:** independent Spec+Standards review of this PR; Part B only after
+owner accept of the per-repost `messages.Search` cost.
+
 ## 2026-07-25 — ADR-0050 clone forward attribution (Claude Opus 5)
 
 **Did:** owner-commissioned after inspecting live `[икона]`. Docs only, no

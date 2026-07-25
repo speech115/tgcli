@@ -1782,6 +1782,117 @@ def test_clone_sync_reuploads_protected_megagroup_with_cached_author_prefix(
     assert sync["reuploaded"] == 2
 
 
+def test_clone_sync_reuploads_protected_broadcast_repost_with_forward_prefix(
+    config_env, monkeypatch, capsys
+):
+    """ADR-0050: protected broadcast post with fwd_from gets Переслано от + mention."""
+    seed_clone()
+    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+    client = CloneReuploadClient(
+        [
+            message(
+                2,
+                message="repost body",
+                media=photo,
+                fwd_from=types.MessageFwdHeader(
+                    date=None, from_id=types.PeerUser(user_id=973293498)
+                ),
+            )
+        ],
+        protected=True,
+    )
+    author_lookups = 0
+
+    async def get_entity(ref):
+        nonlocal author_lookups
+        if isinstance(ref, types.PeerUser) and ref.user_id == 973293498:
+            author_lookups += 1
+            return types.User(id=973293498, first_name="Subscriber", username=None)
+        return await CloneSyncClient.get_entity(client, ref)
+
+    client.get_entity = get_entity
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    [request] = [
+        item
+        for item in client.requests
+        if isinstance(
+            item,
+            (
+                functions.messages.SendMediaRequest,
+                functions.messages.SendMessageRequest,
+            ),
+        )
+    ]
+    assert isinstance(request, functions.messages.SendMediaRequest)
+    assert request.message.startswith("Переслано от ")
+    assert request.message == "Переслано от Subscriber\n\nrepost body"
+    lead_units = len("Переслано от ".encode("utf-16-le")) // 2
+    assert request.entities == [
+        types.MessageEntityMentionName(
+            offset=lead_units,
+            length=len("Subscriber".encode("utf-16-le")) // 2,
+            user_id=973293498,
+        )
+    ]
+    assert author_lookups == 1
+    assert sync["copied"] == 1
+    assert sync["reuploaded"] == 1
+    assert "forward_prefix" not in sync
+
+
+def test_clone_sync_protected_broadcast_without_fwd_from_stays_byte_identical(
+    config_env, monkeypatch, capsys
+):
+    """Regression: ordinary protected posts gain no Переслано от line."""
+    seed_clone()
+    client = CloneReuploadClient([message(2, message="plain post")], protected=True)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMessageRequest)
+    assert request.message == "plain post"
+    assert request.entities is None
+
+
+def test_clone_sync_reuploads_protected_forwarded_album_prefixes_leading_item_only(
+    config_env, monkeypatch, capsys
+):
+    seed_clone()
+    header = types.MessageFwdHeader(date=None, from_id=types.PeerUser(user_id=77))
+    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+    client = CloneReuploadClient(
+        [
+            message(2, grouped_id=77, message="cap", media=photo, fwd_from=header),
+            message(3, grouped_id=77, message="", media=photo, fwd_from=header),
+        ],
+        protected=True,
+    )
+
+    async def get_entity(ref):
+        if isinstance(ref, types.PeerUser):
+            return types.User(id=77, first_name="Alex", username=None)
+        return await CloneSyncClient.get_entity(client, ref)
+
+    client.get_entity = get_entity
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    [request] = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.messages.SendMultiMediaRequest)
+    ]
+    assert request.multi_media[0].message == "Переслано от Alex\n\ncap"
+    assert request.multi_media[1].message == ""
+
+
 def test_clone_sync_forwards_private_dialog_nonreply_with_author_header(
     config_env, monkeypatch, capsys
 ):

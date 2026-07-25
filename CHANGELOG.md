@@ -11,6 +11,16 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.7] — 2026-07-25
+
+### Changed
+
+- Clone posts leg: a protected (reupload/snapshot) channel post that is
+  itself a forward gains a truthful Russian `Переслано от <label>` body
+  prefix built only from `fwd_from` (`from_id` / `from_name` /
+  `post_author`, or bare `Переслано`); native forward path unchanged
+  (ADR-0050).
+
 ## [1.2.6] — 2026-07-24
 
 ### Changed
@@ -194,6 +204,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.7]: https://github.com/speech115/tgcli/compare/v1.2.6...v1.2.7
 [1.2.6]: https://github.com/speech115/tgcli/compare/v1.2.5...v1.2.6
 [1.2.5]: https://github.com/speech115/tgcli/compare/v1.2.4...v1.2.5
 [1.2.4]: https://github.com/speech115/tgcli/compare/v1.2.3...v1.2.4

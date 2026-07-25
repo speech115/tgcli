@@ -31,22 +31,22 @@ any JSON or exit-code change.
 
 ### A1. `Author` carries a lead-in
 
-- [ ] Test (`tests/test_clone_attribution.py`): `Author(text="Имя",
+- [x] Test (`tests/test_clone_attribution.py`): `Author(text="Имя",
       lead="Переслано от ")` renders prefix `Переслано от Имя\n\n`, and a
       `MessageEntityMentionName` covers **only** the name — `offset ==
       utf16_len("Переслано от ")`, `length == utf16_len("Имя")`.
-- [ ] Test: existing speaker-label callers (`lead=""`) keep the current
+- [x] Test: existing speaker-label callers (`lead=""`) keep the current
       `f"{text}: \n\n"` shape byte for byte; every existing attribution
       and clone-sync test stays green unchanged.
-- [ ] Test: a lead-in with non-BMP characters shifts body entity offsets
+- [x] Test: a lead-in with non-BMP characters shifts body entity offsets
       by UTF-16 length, not `len()`.
-- [ ] Implement: `lead: str = ""` on `attribution.Author`; `prefixed()`
+- [x] Implement: `lead: str = ""` on `attribution.Author`; `prefixed()`
       uses it for both the text and the mention offset. One rendering
       seam, no second prefix function.
 
 ### A2. The `fwd_from` label ladder
 
-- [ ] Tests (`tests/test_clone_attribution.py`), one per rung, asserting
+- [x] Tests (`tests/test_clone_attribution.py`), one per rung, asserting
       the resulting `Author`:
       - `fwd_from.from_id = PeerUser` → resolved name, `@username` when
         active, else `MessageEntityMentionName` — identical to
@@ -60,45 +60,45 @@ any JSON or exit-code change.
         bare word, no fabricated id;
       - `get_entity` raises `ValueError` → falls back to the next rung
         rather than failing the batch.
-- [ ] Test: the resolver reuses the `author_cache` — two posts forwarded
+- [x] Test: the resolver reuses the `author_cache` — two posts forwarded
       from the same user issue exactly one `get_entity`.
-- [ ] Test: `FloodWaitError` from the resolve propagates (cooldown wrapper
+- [x] Test: `FloodWaitError` from the resolve propagates (cooldown wrapper
       path), it is not swallowed into a bare label.
-- [ ] Implement: `attribution.forwarded_author_of(tg, message, cache,
+- [x] Implement: `attribution.forwarded_author_of(tg, message, cache,
       cooldown)` reading `message.fwd_from`. It is a sibling of
       `author_of`, not a branch inside it — `author_of` answers "who sent
       this", this answers "who is it from".
 
 ### A3. Wire it into the posts leg
 
-- [ ] Test (pure, `tests/test_clone_transport.py`): `decide()` sets
+- [x] Test (pure, `tests/test_clone_transport.py`): `decide()` sets
       `needs_author=True` for a broadcast leg when `messages[0].fwd_from`
       is set and mode is `reuploaded`; still `False` for a broadcast post
       without `fwd_from`; still `False` when mode is `forwarded` (the
       native header survives there — no double attribution).
-- [ ] Test: the same for `snapshots` mode (a forwarded poll/story post
+- [x] Test: the same for `snapshots` mode (a forwarded poll/story post
       also loses its header).
-- [ ] Test: album — the leading message's `fwd_from` governs the batch;
+- [x] Test: album — the leading message's `fwd_from` governs the batch;
       only the first item gets the prefix, matching the existing
       `index == 0` author rule in `_reupload_batch`.
-- [ ] Test (integration, `tests/test_cli_clone_sync.py`): protected
+- [x] Test (integration, `tests/test_cli_clone_sync.py`): protected
       source, post with `fwd_from = PeerUser` → exactly one
       `SendMediaRequest`/`SendMessageRequest` whose `message` starts with
       `Переслано от ` and whose `entities` carry the mention at the right
       offset; `sync.copied` unchanged; no new JSON field.
-- [ ] Test (regression): a protected post **without** `fwd_from` is byte
+- [x] Test (regression): a protected post **without** `fwd_from` is byte
       identical to today's output.
-- [ ] Implement: thread the forwarded author through `_forward_batch` →
+- [x] Implement: thread the forwarded author through `_forward_batch` →
       `_reupload_batch` alongside the existing `author`, reusing
       `attribution.prefixed`. Keep `clone.py` growth minimal; put label
       construction in `attribution.py`.
-- [ ] CONTRACT §11 (clone): one sentence that a reposted post carries a
+- [x] CONTRACT §11 (clone): one sentence that a reposted post carries a
       `Переслано от` line on the reupload/snapshot paths, and that the
       clone never asserts a discussion-group origin it cannot prove.
 
 ### A4. Release
 
-- [ ] CHANGELOG + double version bump; MAP if a module gained a role;
+- [x] CHANGELOG + double version bump; MAP if a module gained a role;
       DEVLOG; PR → reviewer → CI → merge → tag.
 
 ## Part B — native re-forward of the proven original (GATED)
