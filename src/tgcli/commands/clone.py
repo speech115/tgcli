@@ -5,6 +5,7 @@ from math import ceil
 from pathlib import Path
 import asyncio
 import secrets
+import shutil
 from typing import Any
 import tempfile
 from telethon import errors as telethon_errors, utils as telethon_utils
@@ -655,11 +656,18 @@ async def _uploaded_media(tg, message, path, clone_state, budget, progress=None)
     )
 
 
+def _media_cache_dir(clone_state: state.CloneState) -> Path:
+    """Per-clone reupload download cache (ADR-0052). Survives a failed batch."""
+    return state.clones_dir() / f"{clone_state.clone_id}-media"
+
+
 async def _download_for_reupload(
     tg, message, workdir: Path, clone_state, budget, progress=None
 ) -> Path:
     target = workdir / f"src-{message.id}"
     size = media_byte_size(message)
+    if size is not None and target.is_file() and target.stat().st_size == size:
+        return target
     if size is not None and size > CHUNK_SIZE:
         # Only the striped path reports bytes: a sub-chunk file is over before
         # it could reach a progress mark (ADR-0049).
@@ -706,51 +714,53 @@ async def _reupload_batch(
     plan = plan or transport.TransportPlan(
         mode="reuploaded", reply_to=reply_to, reply_flattened=False, needs_author=False
     )
-    with tempfile.TemporaryDirectory(prefix="tgcli-clone-reupload-") as workdir:
-        downloads = {}
-        for message in messages:
-            media = getattr(message, "media", None)
-            if media is None or isinstance(media, types.MessageMediaWebPage):
-                continue
-            downloads[message.id] = await _download_for_reupload(
-                tg, message, Path(workdir), clone_state, budget, progress
-            )
-        safety.append_audit(
-            "clone-sync-reupload",
-            account_alias,
-            {
-                "clone_id": clone_state.clone_id,
-                "source_message_ids": [m.id for m in messages],
-            },
+    cache = _media_cache_dir(clone_state)
+    cache.mkdir(parents=True, exist_ok=True)
+    downloads = {}
+    for message in messages:
+        media = getattr(message, "media", None)
+        if media is None or isinstance(media, types.MessageMediaWebPage):
+            continue
+        downloads[message.id] = await _download_for_reupload(
+            tg, message, cache, clone_state, budget, progress
         )
-        if len(messages) == 1:
-            message = messages[0]
-            media = getattr(message, "media", None)
-            text, entities = _body_text(message, author, plan)
-            common = {
-                "peer": destination,
-                "message": text,
-                "random_id": random_ids[0],
-                "reply_to": reply_to,
-                "entities": entities,
-            }
-            if media is None or isinstance(media, types.MessageMediaWebPage):
-                request = functions.messages.SendMessageRequest(
-                    **common, no_webpage=media is None
-                )
-            else:
-                request = functions.messages.SendMediaRequest(
-                    **common,
-                    media=await _uploaded_media(
-                        tg,
-                        message,
-                        downloads[message.id],
-                        clone_state,
-                        budget,
-                        progress,
-                    ),
-                )
-            return await _mutate(tg, request, clone_state, budget)
+    safety.append_audit(
+        "clone-sync-reupload",
+        account_alias,
+        {
+            "clone_id": clone_state.clone_id,
+            "source_message_ids": [m.id for m in messages],
+        },
+    )
+    if len(messages) == 1:
+        message = messages[0]
+        media = getattr(message, "media", None)
+        text, entities = _body_text(message, author, plan)
+        common = {
+            "peer": destination,
+            "message": text,
+            "random_id": random_ids[0],
+            "reply_to": reply_to,
+            "entities": entities,
+        }
+        if media is None or isinstance(media, types.MessageMediaWebPage):
+            request = functions.messages.SendMessageRequest(
+                **common, no_webpage=media is None
+            )
+        else:
+            request = functions.messages.SendMediaRequest(
+                **common,
+                media=await _uploaded_media(
+                    tg,
+                    message,
+                    downloads[message.id],
+                    clone_state,
+                    budget,
+                    progress,
+                ),
+            )
+        response = await _mutate(tg, request, clone_state, budget)
+    else:
         multi_media = []
         for index, (message, random_id) in enumerate(
             zip(messages, random_ids, strict=True)
@@ -780,7 +790,11 @@ async def _reupload_batch(
         request = functions.messages.SendMultiMediaRequest(
             peer=destination, multi_media=multi_media, reply_to=reply_to
         )
-        return await _mutate(tg, request, clone_state, budget)
+        response = await _mutate(tg, request, clone_state, budget)
+    # Only a successful send clears the cache — a FloodWait mid-upload must
+    # leave downloaded bytes for the next invocation (ADR-0052).
+    shutil.rmtree(cache, ignore_errors=True)
+    return response
 
 
 def _drops_author(leg, messages) -> bool:

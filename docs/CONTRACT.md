@@ -1241,10 +1241,14 @@ with `PolicyError` cause); a run that plants none exits 0.
 Reupload sends text and webpage messages with `sendMessage`, photos/documents
 with `sendMedia`, and albums with per-item `uploadMedia` followed by one
 ordered `sendMultiMedia`. Captions and entities are retained; documents retain
-MIME type and Telegram attributes. Downloaded files live only in a temporary
-directory and are removed on success or failure. A download failure leaves the
-batch cursor and mapping unchanged and occurs before the fail-closed
-`clone-sync-reupload` audit/write boundary. A `FloodWaitError` of at most 60
+MIME type and Telegram attributes. Reupload downloads persist under
+`~/.local/state/tgcli/clones/<clone_id>-media/` (name `src-<message_id>`). A
+file is reused when its on-disk byte size matches what the source reports;
+anything else is re-downloaded. The directory is removed after a successful
+send and left on disk after a failed one so a retry does not re-download. A
+download failure leaves the batch cursor and mapping unchanged and occurs
+before the fail-closed `clone-sync-reupload` audit/write boundary. A
+`FloodWaitError` of at most 60
 seconds (`SHORT_WAIT`) is waited out once in the foreground when the
 per-process wait budget still has room (at most 180 seconds of pausing per
 invocation; `WAIT_BUDGET`), after a non-contractual stderr progress line

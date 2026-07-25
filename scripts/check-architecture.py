@@ -28,7 +28,8 @@ CEILINGS = {
     # FloodWait retry can rebuild a fresh awaitable.
     # +15 for ADR-0052 task 2: short FloodWait arm-then-sleep-then-retry.
     # +21 for ADR-0052 task 3: per-process WaitBudget threaded with clone_state.
-    "src/tgcli/commands/clone.py": 1188,
+    # +18 for ADR-0052 task 4: persistent reupload media cache (no TemporaryDirectory).
+    "src/tgcli/commands/clone.py": 1202,
     "src/tgcli/clone/state.py": 300,
     "src/tgcli/clone/quotes.py": 365,
     "src/tgcli/clone/quote_fallback.py": 127,
