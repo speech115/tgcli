@@ -371,3 +371,74 @@ def test_cleanup_reaps_expired_logins_keeps_live_and_bak(tmp_path, monkeypatch):
     assert bak.exists()
     assert (tmp_path / "sessions" / "main.session").exists()
     assert result["kept"]["session_backups"] is True
+
+
+def _seed_clone_media_cache(
+    root: Path, clone_id: str = "abc123", *, payload=b"media"
+) -> Path:
+    clones = root / "clones"
+    clones.mkdir(parents=True, exist_ok=True)
+    (clones / f"{clone_id}.json").write_text('{"version":2}')
+    cache = clones / f"{clone_id}-media"
+    cache.mkdir()
+    (cache / "src-2").write_bytes(payload)
+    return cache
+
+
+def test_scan_reports_clone_media_cache_bucket(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    cache = _seed_clone_media_cache(tmp_path, payload=b"abcdefghij")
+
+    data = store_cmd.scan(tmp_path, now=NOW)
+
+    assert data["clone_media_cache"] == {"count": 1, "bytes": 10}
+    # Existing clones aggregate still includes the cache via _dir_bytes.
+    assert data["clones"]["bytes"] >= 10 + len(b'{"version":2}')
+    assert cache.exists()
+
+
+def test_cleanup_confirm_removes_media_cache_keeps_clone_state(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    cache = _seed_clone_media_cache(tmp_path)
+    state_file = tmp_path / "clones" / "abc123.json"
+
+    result = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
+
+    assert "abc123-media" in result["removed"]
+    assert not cache.exists()
+    assert state_file.exists()
+    assert state_file.read_text() == '{"version":2}'
+
+
+def test_cleanup_dry_run_lists_media_cache_without_deleting(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    cache = _seed_clone_media_cache(tmp_path)
+
+    result = store_cmd.cleanup(tmp_path, confirm=False, now=NOW)
+
+    assert "abc123-media" in result["would_remove"]
+    assert result["removed"] == []
+    assert cache.exists()
+    assert (cache / "src-2").exists()
+
+
+def test_cleanup_older_than_gates_media_cache_by_mtime(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    cache = _seed_clone_media_cache(tmp_path)
+    # Make the cache look recent relative to NOW.
+    recent = (NOW - timedelta(hours=1)).timestamp()
+    os.utime(cache, (recent, recent))
+
+    kept = store_cmd.cleanup(
+        tmp_path, confirm=True, older_than=timedelta(days=1), now=NOW
+    )
+    assert "abc123-media" not in kept["removed"]
+    assert cache.exists()
+
+    old = (NOW - timedelta(days=3)).timestamp()
+    os.utime(cache, (old, old))
+    removed = store_cmd.cleanup(
+        tmp_path, confirm=True, older_than=timedelta(days=1), now=NOW
+    )
+    assert "abc123-media" in removed["removed"]
+    assert not cache.exists()

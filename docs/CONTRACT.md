@@ -590,7 +590,8 @@ No config and no Telegram session. `--json` emits:
  "audit_log":{"bytes":20},"invocations":{"bytes":0},
  "sessions":{"count":1,"bytes":4096},
  "session_backups":{"count":1,"bytes":4096},
- "clones":{"bytes":0},"downloads":{"bytes":0},
+ "clones":{"bytes":0},"clone_media_cache":{"count":0,"bytes":0},
+ "downloads":{"bytes":0},
  "relics":[{"name":"labs","bytes":11}]}
 ```
 
@@ -601,7 +602,10 @@ other-user permission bit set (legacy `0644` bodies). Login attempts under
 `logins/` are classified by `LOGIN_TTL` (30 minutes); `count` is the number of
 files in each attempt pair (json and staged session, plus journal when present)
 and `bytes` is their total size. `session_backups` reports
-`sessions/*.session.bak` and is never deleted by cleanup. Relic directories
+`sessions/*.session.bak` and is never deleted by cleanup. `clone_media_cache`
+reports abandoned `clones/<clone_id>-media/` directories left by a failed
+`clone sync` reupload batch (ADR-0052); their bytes are also included in the
+aggregate `clones` figure. Relic directories
 (`mirrors`, `mirror-lab`, `labs`, `probes`) are reported when present and never
 auto-deleted. New previews are written mode `0600`; `store cleanup` also
 tightens surviving preview modes to `0600`.
@@ -613,18 +617,22 @@ tg store cleanup [--older-than Nd|Nh|N] [--include-pending] [--confirm]
 ```
 
 Reaps **spent** (`.used`) and **expired** (`.json` past TTL) previews under
-the state root, and **expired** login attempts under `logins/` (json + staged
-session). Default is dry-run: stdout lists what would be removed and
+the state root, **expired** login attempts under `logins/` (json + staged
+session), and abandoned `clones/*-media/` directories (mtime-gated; never the
+clone's own `.json` state). Default is dry-run: stdout lists what would be
+removed and
 stderr prints a one-line `--confirm` hint. With `--confirm`, those files are
 deleted. Never touches `audit.jsonl`, `sessions/` (including `.bak`), live
-login attempts, live `.json` within TTL, or relic directories. `.pending` files are
+login attempts, live `.json` within TTL, clone state JSON, or relic directories.
+`.pending` files are
 protected (ADR-0028 `random_id`) and are eligible only with `--include-pending`
 and only when far past TTL (`expires_at + PREVIEW_TTL`). Staged sessions are
 attempt state (under `logins/`), not account sessions — cleanup distinguishes
 them by directory.
 
 `--older-than` accepts an integer day count (`7`) or `Nd`/`Nh` (`7d`, `12h`);
-age is measured from each preview's stored `expires_at` (mtime fallback).
+age is measured from each preview's stored `expires_at` (mtime fallback), and
+from directory mtime for clone media caches.
 
 `store cleanup --confirm` mutates local state, so `--readonly` /
 `TGCLI_READONLY=1` blocks it with exit 2 before any deletion. Dry-run (no
