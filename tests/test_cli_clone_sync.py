@@ -791,6 +791,52 @@ def test_sync_flattens_comments_with_unmapped_anchors(config_env, monkeypatch, c
     assert state.load(clone_state.clone_id).discussion_dest_for(12) is not None
 
 
+def test_sync_defers_cross_leg_comment_beyond_posts_cursor(
+    config_env, monkeypatch, capsys
+):
+    """Comment quoting a channel post newer than the posts cursor must leave
+    discussion_cursor unmoved past that comment and send nothing; once the
+    post is mapped, the next run copies it (ADR-0051 defer)."""
+    clone_state = seed_comments_clone()
+    # No posts this run → posts cursor stays 0; comment's parent 5 is beyond it.
+    client = CloneCommentsClient(
+        [],
+        [
+            message(
+                12,
+                message="waiting",
+                reply_to=types.MessageReplyHeader(
+                    reply_to_msg_id=5,
+                    reply_to_peer_id=types.PeerChannel(123),
+                ),
+            ),
+        ],
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    capsys.readouterr()
+    assert group_sends(client) == []
+    mid = state.load(clone_state.clone_id)
+    assert mid is not None
+    assert mid.discussion_cursor == 0
+    assert mid.discussion_dest_for(12) is None
+    assert mid.cursor == 0
+
+    # Parent post arrives; posts leg maps it, then comments leg resumes.
+    client.messages = [message(5, message="parent post")]
+    client.destination_last_id = max(client.destination_last_id, 1)
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] >= 2
+    assert group_sends(client)
+    done = state.load(clone_state.clone_id)
+    assert done is not None
+    assert done.dest_for(5) is not None
+    assert done.discussion_dest_for(12) is not None
+    assert done.discussion_cursor >= 12
+
+
 def test_sync_copies_off_thread_group_messages(config_env, monkeypatch, capsys):
     """A plain group message with no reply header clones into the destination
     group through the megagroup transport rules, keeping its author header."""

@@ -28,12 +28,20 @@ def as_reuploaded(plan: TransportPlan) -> TransportPlan:
     )
 
 
-def decide(messages, leg, source) -> TransportPlan:
-    classified = replies.target(messages, leg, source)
+def decide(messages, leg, source, *, posts_cursor: int | None = None) -> TransportPlan:
+    classified = replies.target(messages, leg, source, posts_cursor=posts_cursor)
     header = getattr(messages[0], "reply_to", None)
     if classified is None:
         reply_to = None
         reply_flattened = False
+    elif classified.kind == "deferred":
+        # ADR-0051: comments.sync_phase stops before send; never plant flat.
+        return TransportPlan(
+            mode="deferred",
+            reply_to=None,
+            reply_flattened=False,
+            needs_author=False,
+        )
     elif classified.kind == "mapped-in-leg":
         reply_to = replies.input_reply(classified, leg)
         reply_flattened = False

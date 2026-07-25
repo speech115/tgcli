@@ -8,7 +8,7 @@ thread it belongs to.
 
 from typing import cast
 from telethon.tl import types
-from tgcli.clone import batching, discussion, legs, state
+from tgcli.clone import batching, discussion, legs, replies, state
 from tgcli.errors import PolicyError
 
 
@@ -38,9 +38,10 @@ async def sync_phase(
     limited,
     resolve_ctx,
 ) -> bool:
-    """Copy the source discussion group into the clone's. Phase 1 has already
-    run to exhaustion, so every parent post is mapped. Returns True when the
-    --limit stop landed inside this phase."""
+    """Copy the source discussion group into the clone's. Parent posts that
+    this phase needs must already be mapped, or a cross-leg comment whose
+    parent sits beyond the posts cursor defers (ADR-0051) instead of
+    flattening. Returns True when the --limit stop landed inside this phase."""
     leg = legs.discussion(clone_state)
     source_group = await tg.get_entity(
         types.PeerChannel(clone_state.discussion_source_peer_id)
@@ -82,6 +83,14 @@ async def sync_phase(
             counters["skipped_autoforward"] += len(posts)
             leg.cursor = event.messages[-1].id
         else:
+            classified = replies.target(
+                event.messages,
+                leg,
+                source_group,
+                posts_cursor=clone_state.cursor,
+            )
+            if classified is not None and classified.kind == "deferred":
+                return False
             await copy_batch(event.messages, leg, source_group, group)
             continue
         state.save(clone_state)
