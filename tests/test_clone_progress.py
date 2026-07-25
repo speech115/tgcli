@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from types import SimpleNamespace
 
 from tgcli.clone import progress
 
@@ -58,6 +59,37 @@ def test_phase_line_names_the_leg_and_resets_the_total():
         "[sync 123] 120/~120 · comments",
         "[sync 123] 121/~? · forwarded",
         "[sync 123] 121/~? · roster",
+    ]
+
+
+async def test_resolve_total_requeries_after_phase_reset():
+    """phase() must clear the resolved flag so the next leg can re-fetch ~total."""
+    lines, write = collector()
+    reporter = progress.SyncProgress(123, copied=10, write=write)
+    totals = [50, 7]
+    calls: list[tuple[object, int | None]] = []
+
+    class FakeTg:
+        async def get_messages(self, entity, limit=None):
+            calls.append((entity, limit))
+            return SimpleNamespace(total=totals[len(calls) - 1])
+
+    async def invoke(make):
+        return await make()
+
+    tg = FakeTg()
+    source = object()
+    await reporter.resolve_total(tg, source, invoke)
+    reporter.batch(1, "forwarded")
+    reporter.phase("comments")
+    await reporter.resolve_total(tg, source, invoke)
+    reporter.batch(1, "forwarded")
+
+    assert calls == [(source, 0), (source, 0)]
+    assert lines == [
+        "[sync 123] 11/~50 · forwarded",
+        "[sync 123] 11/~50 · comments",
+        "[sync 123] 12/~7 · forwarded",
     ]
 
 

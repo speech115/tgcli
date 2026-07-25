@@ -159,7 +159,11 @@ def test_floodwait_maps_to_exit_5(config_env, monkeypatch, capsys):
     make_session_fake(monkeypatch, fake)
     code = main(["--json", "read", "@chan"])
     assert code == 5
-    err = json.loads(capsys.readouterr().err)["error"]
+    captured = capsys.readouterr()
+    err = json.loads(captured.err)["error"]
+    out = json.loads(captured.out)["error"]
+    assert captured.out == captured.err
+    assert out == err
     assert err["code"] == "FLOOD_WAIT"
     assert err["retry_after"] == 42
 

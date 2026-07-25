@@ -1,6 +1,6 @@
 # CLI Automation Contract
 
-Version: 1.2.11 (tracks the package release; see `CHANGELOG.md` and
+Version: 1.2.13 (tracks the package release; see `CHANGELOG.md` and
 `pyproject.toml`). Any change here lands in the same commit as the code
 change (AGENTS.md / ADR-0038).
 
@@ -35,6 +35,9 @@ Flag beats env, env beats config.
 - **stderr** — everything else: progress, hints, warnings, error messages.
   With `--json`, the final error is also mirrored to stderr as a single-line
   JSON object: `{"error": {"code": "FLOOD_WAIT", "message": "...", "retry_after": 42}}`.
+  With `--json`, the error envelope is written to stdout as the run's single
+  JSON document, then the identical line is copied to stderr as that last-line
+  mirror — a `--json` caller may read either stream for the same object.
   It is the **last** line of stderr, not the whole stream: progress and
   warnings legitimately precede it.
 - `clone sync` prints progress to stderr in every mode, including `--json`
@@ -590,7 +593,8 @@ No config and no Telegram session. `--json` emits:
  "audit_log":{"bytes":20},"invocations":{"bytes":0},
  "sessions":{"count":1,"bytes":4096},
  "session_backups":{"count":1,"bytes":4096},
- "clones":{"bytes":0},"downloads":{"bytes":0},
+ "clones":{"bytes":0},"clone_media_cache":{"count":0,"bytes":0},
+ "downloads":{"bytes":0},
  "relics":[{"name":"labs","bytes":11}]}
 ```
 
@@ -601,7 +605,10 @@ other-user permission bit set (legacy `0644` bodies). Login attempts under
 `logins/` are classified by `LOGIN_TTL` (30 minutes); `count` is the number of
 files in each attempt pair (json and staged session, plus journal when present)
 and `bytes` is their total size. `session_backups` reports
-`sessions/*.session.bak` and is never deleted by cleanup. Relic directories
+`sessions/*.session.bak` and is never deleted by cleanup. `clone_media_cache`
+reports abandoned `clones/<clone_id>-media/` directories left by a failed
+`clone sync` reupload batch (ADR-0052); their bytes are also included in the
+aggregate `clones` figure. Relic directories
 (`mirrors`, `mirror-lab`, `labs`, `probes`) are reported when present and never
 auto-deleted. New previews are written mode `0600`; `store cleanup` also
 tightens surviving preview modes to `0600`.
@@ -613,18 +620,26 @@ tg store cleanup [--older-than Nd|Nh|N] [--include-pending] [--confirm]
 ```
 
 Reaps **spent** (`.used`) and **expired** (`.json` past TTL) previews under
-the state root, and **expired** login attempts under `logins/` (json + staged
-session). Default is dry-run: stdout lists what would be removed and
+the state root, **expired** login attempts under `logins/` (json + staged
+session), and abandoned `clones/*-media/` directories (mtime-gated; never the
+clone's own `.json` state). Default is dry-run: stdout lists what would be
+removed and
 stderr prints a one-line `--confirm` hint. With `--confirm`, those files are
 deleted. Never touches `audit.jsonl`, `sessions/` (including `.bak`), live
-login attempts, live `.json` within TTL, or relic directories. `.pending` files are
+login attempts, live `.json` within TTL, clone state JSON, a media cache
+younger than one hour (`MEDIA_CACHE_MIN_AGE`, the running-sync guard), or
+relic directories.
+`.pending` files are
 protected (ADR-0028 `random_id`) and are eligible only with `--include-pending`
 and only when far past TTL (`expires_at + PREVIEW_TTL`). Staged sessions are
 attempt state (under `logins/`), not account sessions — cleanup distinguishes
 them by directory.
 
 `--older-than` accepts an integer day count (`7`) or `Nd`/`Nh` (`7d`, `12h`);
-age is measured from each preview's stored `expires_at` (mtime fallback).
+age is measured from each preview's stored `expires_at` (mtime fallback), and
+for a clone media cache from the newest mtime in the directory — the directory
+itself or any file inside it. A media cache is eligible only when that age
+also clears the one-hour floor, whether or not `--older-than` was given.
 
 `store cleanup --confirm` mutates local state, so `--readonly` /
 `TGCLI_READONLY=1` blocks it with exit 2 before any deletion. Dry-run (no
@@ -1248,11 +1263,20 @@ with `PolicyError` cause); a run that plants none exits 0.
 Reupload sends text and webpage messages with `sendMessage`, photos/documents
 with `sendMedia`, and albums with per-item `uploadMedia` followed by one
 ordered `sendMultiMedia`. Captions and entities are retained; documents retain
-MIME type and Telegram attributes. Downloaded files live only in a temporary
-directory and are removed on success or failure. A download failure leaves the
-batch cursor and mapping unchanged and occurs before the fail-closed
-`clone-sync-reupload` audit/write boundary. Upload/send FloodWait persists the
-clone cooldown. Both `UpdateMessageID` batches and the single-message
+MIME type and Telegram attributes. Reupload downloads persist under
+`~/.local/state/tgcli/clones/<clone_id>-media/` (name `src-<message_id>`). A
+file is reused when its on-disk byte size matches what the source reports;
+anything else is re-downloaded. The directory is removed after a successful
+send and left on disk after a failed one so a retry does not re-download. A
+download failure leaves the batch cursor and mapping unchanged and occurs
+before the fail-closed `clone-sync-reupload` audit/write boundary. A
+`FloodWaitError` of at most 60
+seconds (`SHORT_WAIT`) is waited out once in the foreground when the
+per-process wait budget still has room (at most 180 seconds of pausing per
+invocation; `WAIT_BUDGET`), after a non-contractual stderr progress line
+naming the seconds, then the same request is retried; a second failure, a wait
+over 60 seconds, or a spent budget persists the clone cooldown and raises.
+Both `UpdateMessageID` batches and the single-message
 `UpdateShortSentMessage` envelope require exact positive confirmation before
 state advances.
 
@@ -1260,8 +1284,9 @@ state advances.
 source row remains, JSON reports `"more":true`; the next run resumes at the
 saved cursor. Sync has no implicit overall timeout, uses a mutation-safe
 session, and is blocked by all readonly gates before config/session work.
-FloodWait persists the clone cooldown and exits 5 without advancing the current
-message. JSON:
+A short FloodWait (≤ 60 s) is waited out once under the 180-second per-process
+budget as above; a second failure, a longer wait, or a spent budget persists
+the clone cooldown and exits 5 without advancing the current message. JSON:
 
 ```json
 {"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}}}

@@ -51,8 +51,9 @@ remains.
 
 **Was:** deferred the same day the ADR landed, before code; a stderr warning
 answered the one live "duplicated posts" report without touching the write
-path. Re-entry was an explicit owner request (PR #74), not the abandoned-
-clone evidence gate.
+path. Re-entry came from the owner directly, asked and answered during the
+merge review of PR #74 — not from the abandoned-clone evidence gate, which
+was never met, and not from the PR's own say-so.
 
 ## ACCOUNTS-001 — `tg accounts login`: session (re)authorization
 

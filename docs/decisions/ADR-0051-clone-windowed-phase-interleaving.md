@@ -1,8 +1,9 @@
 # ADR-0051: Windowed interleaving of the clone's posts and comments legs
 
 Date: 2026-07-25
-Status: accepted (re-entered 2026-07-25 via owner-requested PR #74 after a
-same-day deferral; see Deferral / Re-entry below)
+Status: accepted (re-entered 2026-07-25 on a direct owner request during the
+merge review of PR #74, after a same-day deferral; see Deferral / Re-entry
+below)
 
 Amends [ADR-0023](ADR-0023-clone-channel-comments.md) — "two-phase sync,
 sequential, phase 1 first" — in the ordering clause only. Anchor
@@ -131,9 +132,16 @@ What the deferral rested on:
   touches (`commands/clone.py`, `clone/quotes.py`) already sit at their
   reviewed line ceilings.
 
-**Re-entry (2026-07-25).** Owner-requested implementation via PR #74
-(`claude/clone-phase-interleaving-impl`), clearing the ADR-0026 gate. The
-stderr warning remains as a belt-and-braces signal while comments are
+**Re-entry (2026-07-25).** The independent review of PR #74 raised the
+governance question rather than the code: the branch as first written cited
+its own existence as the owner request, which is exactly the laundering the
+deferral entry warned about. The question went back to the owner, who
+answered — in the merge review, in their own words — that implementing
+ADR-0051 is their request. That answer, not this PR, clears the ADR-0026
+gate; the evidence-of-abandonment trigger below was never met and is
+superseded, not satisfied.
+
+The stderr warning remains as a belt-and-braces signal while comments are
 unstarted; interleaving is the durable fix for partial-clone readability.
 Task 1 (defer-not-flatten) landed before windowing, as decision 3 requires.
 CLONE-003 in [docs/ISSUES.md](../ISSUES.md) is closed by this acceptance.

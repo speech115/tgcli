@@ -54,8 +54,8 @@ def _photo(photo_id=7, spoiler=False):
     return types.MessageMediaPhoto(photo=types.PhotoEmpty(id=photo_id), spoiler=spoiler)
 
 
-async def _invoke(awaitable):
-    return await awaitable
+async def _invoke(make_awaitable):
+    return await make_awaitable()
 
 
 class FakeTg:
