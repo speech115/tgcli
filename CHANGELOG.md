@@ -18,12 +18,22 @@ lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 - Clone posts leg: a reposted, single-message broadcast batch that can prove
   its original in the clone's linked source discussion group (reachable,
   not `noforwards`; exactly one group message matches `fwd_from.from_id`
-  and `fwd_from.date`; text and media identical to the post) now forwards
+  and `fwd_from.date`; text, formatting entities, and media identical to
+  the post) now forwards
   that original into the destination channel instead of prefixing
   `Переслано от <label>`, so the destination carries Telegram's own header;
   such a batch counts as `forwarded`, not `reuploaded`, in the sync JSON
   transport counts. Albums and snapshot-mode posts are excluded. Any
   unproven case keeps the 1.2.7 text-prefix fallback (ADR-0050).
+
+### Fixed
+
+- Clone attribution no longer aborts a sync when Telegram refuses to name a
+  peer. `author_of` and `forwarded_author_of` caught only `ValueError`, so a
+  post forwarded from a channel the account cannot access raised
+  `ChannelPrivateError` and killed the run; both now treat any such refusal
+  as a missing label and fall through the ladder. A `FloodWaitError` still
+  propagates and arms the cooldown (ADR-0045).
 
 ## [1.2.7] — 2026-07-25
 

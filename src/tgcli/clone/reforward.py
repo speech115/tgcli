@@ -108,14 +108,35 @@ def _searchable(fwd):
 
 
 def _same_content(post, candidate) -> bool:
-    """Text and media identical. Load-bearing: the live `[икона]` 69 case was
-    reposted at 13:55 and edited at 16:18, and forwarding the untouched
-    original would republish different words under a genuine header."""
+    """Text, formatting and media identical.
+
+    Load-bearing: a repost is routinely edited afterwards, and forwarding the
+    untouched original would republish different content under a genuine
+    header. Entities count as content — the live `[икона]` 69 case was
+    reposted at 13:55 and edited at 16:18 without changing a character, so an
+    edit that only moves formatting is a shape that actually occurs.
+    """
     if (getattr(post, "message", "") or "") != (
         getattr(candidate, "message", "") or ""
     ):
         return False
+    if _entities_key(post) != _entities_key(candidate):
+        return False
     return _media_key(post) == _media_key(candidate)
+
+
+def _entities_key(message):
+    return tuple(
+        (
+            type(item).__name__,
+            getattr(item, "offset", None),
+            getattr(item, "length", None),
+            getattr(item, "url", None),
+            getattr(item, "user_id", None),
+            getattr(item, "document_id", None),
+        )
+        for item in (getattr(message, "entities", None) or ())
+    )
 
 
 def _media_key(message):

@@ -33,12 +33,16 @@ def _plan(**overrides):
     return transport.TransportPlan(**fields)
 
 
-def _post(*, fwd_from=None, message="body", media=None):
-    return SimpleNamespace(fwd_from=fwd_from, message=message, media=media)
+def _post(*, fwd_from=None, message="body", media=None, entities=None):
+    return SimpleNamespace(
+        fwd_from=fwd_from, message=message, media=media, entities=entities
+    )
 
 
-def _candidate(message_id, *, date=DATE, message="body", media=None):
-    return SimpleNamespace(id=message_id, date=date, message=message, media=media)
+def _candidate(message_id, *, date=DATE, message="body", media=None, entities=None):
+    return SimpleNamespace(
+        id=message_id, date=date, message=message, media=media, entities=entities
+    )
 
 
 def _fwd(**fields):
@@ -280,6 +284,45 @@ def test_locate_none_when_post_is_missing_media_the_candidate_has():
     )
 
     assert result is None
+
+
+def test_locate_none_when_candidate_entities_differ_from_post():
+    """Live `[икона]` 69 shape: reposted 13:55, edited 16:18 without changing
+    a character — an edit that only moves formatting must still block the
+    forward, or `_same_content` would miss the exact case it exists for."""
+    fwd = _fwd(from_id=types.PeerUser(user_id=9))
+    bold = types.MessageEntityBold(offset=0, length=4)
+    post = _post(fwd_from=fwd, message="body", entities=[bold])
+    group = SimpleNamespace(id=55, noforwards=False)
+    tg = FakeTg(
+        group=group, search_results=[_candidate(1, message="body", entities=None)]
+    )
+    cache: dict = {}
+
+    result = asyncio.run(
+        reforward.locate(tg, _clone_state(), post, cache, invoke=_invoke)
+    )
+
+    assert result is None
+
+
+def test_locate_matches_when_candidate_entities_are_identical():
+    """Guard against over-strictness: matching entities must not be treated
+    as a mismatch."""
+    fwd = _fwd(from_id=types.PeerUser(user_id=9))
+    bold = types.MessageEntityBold(offset=0, length=4)
+    post = _post(fwd_from=fwd, message="body", entities=[bold])
+    group = SimpleNamespace(id=55, noforwards=False)
+    same_bold = types.MessageEntityBold(offset=0, length=4)
+    candidate = _candidate(321, message="body", entities=[same_bold])
+    tg = FakeTg(group=group, search_results=[candidate])
+    cache: dict = {}
+
+    result = asyncio.run(
+        reforward.locate(tg, _clone_state(), post, cache, invoke=_invoke)
+    )
+
+    assert result == (group, 321)
 
 
 def test_locate_none_when_candidate_date_outside_window_is_ignored():
