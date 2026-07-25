@@ -67,10 +67,10 @@ tgcli/
 │   │   ├── reforward.py       [done]    proven-original native re-forward out of the source discussion group (ADR-0050 Part B)
 │   │   ├── topics.py          [done]    forum destination shape, lazy topic map, batch confirmation (ADR-0022)
 │   │   ├── discussion.py      [done]    linked-chat detection, discussion group create/link/recover, anchor lookup (ADR-0023)
-│   │   ├── comments.py        [done]    phase-2 sync leg: copies the discussion group (thread remap via quotes.resolve)
+│   │   ├── comments.py        [done]    discussion sync leg: window-bounded by posts cursor; defer unmapped cross-leg parents (ADR-0023/0051)
 │   │   ├── roster.py          [done]    best-effort source participant snapshot → JSONL sidecar (ADR-0024)
 │   │   ├── progress.py        [done]    plain stderr sync progress lines: batches, phases, ~5 MB transfer marks (ADR-0049)
-│   │   └── legs.py            [done]    Leg seam sharing the batch path between the posts and discussion legs (ADR-0023)
+│   │   └── legs.py            [done]    Leg seam + WINDOW=50 posts/comments interleave constant (ADR-0023/0051)
 │   └── commands/
 │   │   ├── batch.py           [done]    tg batch read-only JSONL runner (ADR-0032)
 │   │   ├── accounts.py        [done]    tg accounts list|import|show|remove (ADR-0042)

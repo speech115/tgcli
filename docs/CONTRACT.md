@@ -1,6 +1,6 @@
 # CLI Automation Contract
 
-Version: 1.2.12 (tracks the package release; see `CHANGELOG.md` and
+Version: 1.2.13 (tracks the package release; see `CHANGELOG.md` and
 `pyproject.toml`). Any change here lands in the same commit as the code
 change (AGENTS.md / ADR-0038).
 
@@ -917,7 +917,7 @@ invalid cloud password / banned or invalid number / missing api credentials;
 `retry_after`. Phones in JSON, `--plain`, stderr, and audit are masked
 (`+7…89`); codes and passwords never appear there.
 
-## 11. Chat Clone (ADR-0017, ADR-0021, ADR-0022, ADR-0023)
+## 11. Chat Clone (ADR-0017, ADR-0021, ADR-0022, ADR-0023, ADR-0051)
 
 `tg clone` is the canonical chat-copy surface. It accepts broadcast channels,
 megagroup supergroups (forum and non-forum), live legacy basic groups, and
@@ -1145,14 +1145,21 @@ For forum clones, a topic-create service message creates the matching
 destination topic (counted in `topics_created`, not `skipped_service`); messages
 arriving for an unmapped topic recover it from the source topic's current title.
 
-When `comments == "enabled"`, sync runs a second phase after phase 1
-(channel posts) reaches exhaustion: it copies the linked source discussion
-group into the clone's own linked group, oldest to newest, under its own
-cursor (`discussion_cursor` in state and in the JSON `sync` object; the top-
-level `sync.clone` object itself carries no `comments` field). `--limit N`
-is not split between phases — phase 1 spends the full budget first, and
-phase 2 only starts if phase 1 did not stop on the limit; a run that stops
-inside phase 2 leaves comments lagging posts until the next invocation.
+When `comments == "enabled"`, sync interleaves the channel-posts leg and the
+discussion-group leg in fixed windows of 50 batches (ADR-0051, amending
+ADR-0023's sequential ordering clause only): posts×WINDOW, then comments up
+to the first source-group anchor whose channel post id is newer than the
+posts cursor, then the next posts window, until both legs are exhausted.
+An unmapped cross-leg comment parent whose post id lies beyond the posts
+cursor defers (stops the comments leg without sending) rather than
+flattening; a parent behind the cursor and absent from the map still
+flattens as before. Each leg keeps its own cursor (`cursor` /
+`discussion_cursor` in state and in the JSON `sync` object; the top-level
+`sync.clone` object itself carries no `comments` field). `--limit N` counts
+batches across both legs — a run may return comments where a pre-ADR-0051
+`--limit` returned only posts; `sync.more` stays true when the budget
+stopped either leg. A run that stops inside a comments window leaves later
+comments lagging until the next invocation.
 If resolving the source discussion group fails because Telegram refuses
 access (`ChannelPrivateError`, `ChatForbiddenError`, `ChatAdminRequiredError`,
 or an unresolved peer), sync does **not** exit non-zero: it persists

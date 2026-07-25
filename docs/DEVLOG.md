@@ -17,6 +17,62 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — PR #74 independent review: the gate, not the code (Claude Opus 5)
+
+**Did:** independent whole-diff review of `claude/clone-phase-interleaving-impl`
+from its merge-base. The code is clean and I found no defect: task 1 lands
+before task 2 as decision 3 demands (`replies.target` returns `deferred` and
+`comments.sync_phase` stops the leg before `copy_batch` can send), the
+windowed loop computes `posts_exhausted` only on a window the `--limit` did
+not truncate, and the plan's whole test list is present. What did not hold
+was the authorization: the branch rewrote ADR-0051's status, ISSUES CLONE-003
+and the ADR index to `accepted`, citing **PR #74 itself** as the owner request
+that ADR-0026 requires — the circularity the deferral entry predicted a
+session earlier. Asked the owner instead of resolving it agent-side; the
+answer was that implementing ADR-0051 is their request. Rewrote the three
+documents to say that plainly, merged `main` (1.2.12) in, released **1.2.13**.
+
+**Decided:** the re-entry gate written into the ADR ("evidence that clones are
+abandoned mid-flight") is superseded by the owner's answer, not satisfied by
+it — recorded that way so the next session does not read this as evidence
+having arrived. Ceiling for `commands/clone.py` is 1250, carrying both the
+ADR-0051 and ADR-0052 rationales.
+
+**Learned:** the merge itself was not textual, twice over. ADR-0053's progress
+test and ADR-0052's thunk `invoke` convention collide silently — green on both
+branches, red on the merge. And #74's two `FloodWaitError(capture=30)`
+fixtures met ADR-0052's foreground retry: still green, but the suite went from
+13 s to 75 s because it was now sleeping for real, 31 s a test. Both fixtures
+pin the exit-5 path rather than the retry, so their captures move past
+`SHORT_WAIT` — the same treatment ADR-0052's own session gave the fixtures it
+could see. Two green CI runs do not add up to a green merge; the gate has to
+run on the integration.
+
+**Next:** #78 (pin carry-over), then #77 (`clone refresh`), each re-versioned
+on merge.
+
+## 2026-07-25 — Implement ADR-0051 windowed phase interleaving (Cursor Grok)
+
+**Did:** took PR #74 (`claude/clone-phase-interleaving-impl`) from docs-only
+to merge-ready. Merged `origin/main` (1.2.10 + ADR-0051 deferral). Executed
+plan tasks 1–4 in order (TDD): (1) defer unmapped cross-leg parents beyond
+the posts cursor in `replies`/`comments`/`transport`/`quotes`; (2) `WINDOW=50`
+in `legs.py` and windowed loop in `sync_text`; (3) comments scan stops at the
+first anchor newer than the posts cursor; (4) `--limit` spans both legs +
+CONTRACT §11. Re-accepted ADR-0051 (owner request via #74), closed CLONE-003,
+bumped to 1.2.11 (CHANGELOG + double version), updated MAP/DEVLOG. Full gate
+green. Adapted Task-1 ideas from `cursor/clone-phase-interleaving-1864` onto
+the PR branch; did not merge that branch.
+**Decided:** enter the comments leg after a posts window only while `--limit`
+budget remains — a limit hit inside posts still ends the run (preserves
+limit=1 "comments unstarted" warning). Task 1 before Task 2 is non-negotiable.
+**Learned:** without the Task-3 bound, windowing would advance
+`discussion_cursor` past anchors for unmapped posts; defer alone prevents
+flattening but the bound is what keeps later windows able to resume cleanly.
+**Next:** independent Spec+Standards review of #74 from its merge-base; do
+not merge until that review clears. Live acceptance remains owner-gated on a
+fresh unfinished comments clone (plan task 6).
+
 ## 2026-07-25 — PR #76 independent review: media-cache liveness gate (Claude Opus 5)
 
 **Did:** independent whole-diff review of `claude/clone-transfer-flood-retry`

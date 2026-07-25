@@ -11,6 +11,23 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.13] — 2026-07-25
+
+### Changed
+
+- `clone sync` interleaves the posts and comments legs in fixed 50-batch
+  windows (ADR-0051, amending ADR-0023's ordering clause only): posts×50,
+  then comments up to the first source-group anchor whose channel post is
+  newer than the posts cursor, then the next posts window. An interrupted
+  sync leaves a coherent prefix — posts with their discussion — instead of
+  every post and a silent group. `--limit N` counts batches across both
+  legs, so a limited run may return comments where it previously returned
+  only posts. An unmapped cross-leg comment parent beyond the posts cursor
+  defers (does not send) rather than flattening permanently; a parent
+  behind the cursor and absent from the map still flattens. Cursors, state
+  shape, and JSON fields are unchanged. CONTRACT §11 documents the
+  interleaving.
+
 ## [1.2.12] — 2026-07-25
 
 ### Changed

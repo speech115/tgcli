@@ -38,68 +38,73 @@ not yet copied — permanently, in a real chat. Do not reorder these.
 
 ### 1. Defer, never flatten, an unmapped cross-leg parent
 
-- [ ] Test (`tests/test_clone_replies.py`): discussion-leg comment whose
+- [x] Test (`tests/test_clone_replies.py`): discussion-leg comment whose
       parent post id is **beyond** the posts cursor → classified as
       deferred, not `flatten`.
-- [ ] Test: comment whose parent post id is **behind** the cursor and
+- [x] Test: comment whose parent post id is **behind** the cursor and
       absent from the map (deleted or skipped-unsupported source post) →
       still `flatten`, exactly as today. This is the discrimination the
       whole change rests on; assert both directions in one test module.
-- [ ] Test (integration): a deferred batch leaves `discussion_cursor`
+- [x] Test (integration): a deferred batch leaves `discussion_cursor`
       unchanged and sends nothing, and the next run picks it up once the
       post is mapped.
-- [ ] Implement in `clone/replies.py` + `clone/comments.py`. The posts
+- [x] Implement in `clone/replies.py` + `clone/comments.py`. The posts
       cursor must reach the classifier — pass it, do not read state
       globally.
 
 ### 2. Window the two legs
 
-- [ ] Test (`tests/test_cli_clone_sync.py`): a source with more posts than
+- [x] Test (`tests/test_cli_clone_sync.py`): a source with more posts than
       `WINDOW` and comments on early posts → the request order is
       posts×WINDOW, then comments for those posts, then the next posts
       window. Assert on the recorded request sequence, not on counts
       alone.
-- [ ] Test: a source smaller than one window produces exactly today's
+- [x] Test: a source smaller than one window produces exactly today's
       request sequence — the common small clone is byte-identical.
-- [ ] Test: `comments == "disabled"` / `"none"` → no interleaving, no
+- [x] Test: `comments == "disabled"` / `"none"` → no interleaving, no
       phase-2 entry, unchanged behaviour.
-- [ ] Test: interrupting mid-window (FloodWait on the first send of window
+- [x] Test: interrupting mid-window (FloodWait on the first send of window
       2) leaves window 1's posts **and** their comments durably mapped,
       and both cursors resumable.
-- [ ] Implement `WINDOW = 50` as a module constant in `clone/legs.py`
+- [x] Implement `WINDOW = 50` as a module constant in `clone/legs.py`
       (the seam that already owns both legs); loop in `sync_text`.
       Keep `commands/clone.py` growth minimal.
 
 ### 3. Bound the comments leg by the anchor scan
 
-- [ ] Test: the phase-2 scan stops at the first anchor whose source post
+- [x] Test: the phase-2 scan stops at the first anchor whose source post
       id is newer than the posts cursor, and does not read past it.
-- [ ] Test: a comment written later against an older post (its group id
+- [x] Test: a comment written later against an older post (its group id
       lies beyond the bound) is picked up in a later window, not dropped.
-- [ ] Test: an anchor for an unsupported/skipped post does not stall the
+- [x] Test: an anchor for an unsupported/skipped post does not stall the
       leg forever.
-- [ ] Implement in `clone/comments.py` alongside the existing anchor
+- [x] Implement in `clone/comments.py` alongside the existing anchor
       recognition — the scan already has the post id in hand.
 
 ### 4. `--limit` across the interleaved legs
 
-- [ ] Test: `--limit N` counts batches across both legs and may now return
+- [x] Test: `--limit N` counts batches across both legs and may now return
       comments where it previously returned only posts; `sync.more` is
       `True` when the budget stopped either leg.
-- [ ] Test: `--limit` smaller than one window still terminates and saves
+- [x] Test: `--limit` smaller than one window still terminates and saves
       both cursors.
-- [ ] CONTRACT §11: state that sync interleaves the legs in windows and
+- [x] CONTRACT §11: state that sync interleaves the legs in windows and
       that `--limit` spans them. Note ADR-0023's ordering clause is
       superseded by ADR-0051.
 
 ### 5. Release
 
-- [ ] CHANGELOG + double version bump; MAP if a module gained a role;
+- [x] CHANGELOG + double version bump; MAP if a module gained a role;
       DEVLOG; PR → reviewer → CI → merge → tag.
 
 ### 6. Live acceptance (owner-gated, after merge)
 
-- [ ] Resume the `[икона]` clone (still at posts cursor 83,
-      `discussion_cursor` 0) and confirm the destination group starts
-      showing comments interleaved with anchors well before the posts leg
-      finishes. Stop on exit 5; never retry in a loop (ADR-0045).
+- [ ] `[икона]` is no longer available as the acceptance subject: it was
+      caught up on 1.2.9 on 2026-07-25 (posts cursor 94, `discussion_cursor`
+      897, both at the source tails), so a resume there copies nothing and
+      proves nothing. Interleaving needs a clone with both legs unfinished.
+- [ ] Accept on a fresh clone of a small owner-controlled source with
+      comments instead: `clone init` + `clone sync --limit` so the run stops
+      mid-window, then confirm the destination group holds comments
+      interleaved with anchors rather than anchors alone. Stop on exit 5;
+      never retry in a loop (ADR-0045).
