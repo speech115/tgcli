@@ -17,6 +17,42 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — Deferred ADR-0051; shipped the warning instead (Claude Opus 5)
+
+**Did:** owner reviewed ADR-0051 and asked whether the project needs it. It
+does not, yet. Marked the ADR `deferred` with its reasoning and a re-entry
+gate, added `CLONE-003` to ISSUES.md, updated the ADR index row, and closed
+#66 unmerged. In its place shipped the cheap half: `progress.comments_unstarted`
+warns on stderr while the clone's discussion group still holds only anchors —
+called at the tail of `sync_text` and again at its head, because a FloodWait
+exit never reaches the tail and the resume is where the operator actually
+looks. Three tests in `tests/test_cli_clone_sync.py` (leaves-unstarted,
+resume-warns-once, quiet-once-progressed). `CEILINGS` for `clone.py` 1135 →
+1140 with the reason in the comment.
+
+**Decided:** no CONTRACT edit and no version bump. CONTRACT §2 already
+licenses warnings on stderr, and ADR-0049 framed these lines as informative,
+not contract; documenting one plain `warning:` line would force a release for
+output that is explicitly non-contractual. The warning text and its condition
+live in `clone/progress.py`, which owns clone-sync stderr — `clone.py` gets
+only the two call sites.
+
+**Learned:** ADR-0051 was drafted agent-side from a live observation and
+accepted into `main` without the explicit owner request ADR-0026 requires. An
+accepted ADR sitting in the tree reads to the next session as settled scope —
+the DEVLOG "Next:" line had already queued its implementation twice. The gate
+is the owner's answer, not the ADR's existence; ask before writing the ADR,
+and mark deferral in the ADR itself, or the next agent re-derives the same
+work. Worth also recording why the deferral is cheap to reverse: task 1 (the
+defer-not-flatten safety condition) is written and correct on its branch, and
+ADR-0051 decision 3 still forbids landing windowing before it.
+
+**Next:** tag `v1.2.10` on `568ecac` — filed as #72 rather than left in a
+DEVLOG line, because no agent session can close it: this git proxy answers
+`git-receive-pack` with 403 for any `refs/tags/*` update while allowing
+`refs/heads/*`, the GitHub MCP toolset exposes tags read-only, and there is
+no release workflow to dispatch.
+
 ## 2026-07-25 — Integrated #65/#67/#68 as 1.2.10; held #66 (Claude Opus 5, orchestrated)
 
 **Did:** four draft PRs were open off the same merge-base `9b088f9`. Merged

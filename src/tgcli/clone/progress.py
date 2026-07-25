@@ -53,6 +53,32 @@ def media_label(message) -> str:
     return f"message-{getattr(message, 'id', '?')}"
 
 
+def comments_unstarted(clone_state) -> bool:
+    """Warn while the clone's discussion group holds only anchors.
+
+    Telegram auto-forwards every channel post into the linked group, and those
+    anchors are what comments hang from. Until the comments leg copies
+    anything, the destination group is a bare anchor list that reads as a
+    pointless duplicate of the channel — a live clone was reported as
+    "duplicated posts" in exactly this state. Nothing is wrong with the copy;
+    the missing half is what makes the present half look wrong, so say it out
+    loud instead of leaving the operator to infer it from `discussion_cursor`.
+
+    Returns whether the warning was written, so a single run does not repeat
+    it. Informative stderr only (ADR-0049), never contract data.
+    """
+    if clone_state.comments != "enabled":
+        return False
+    if clone_state.cursor == 0 or clone_state.discussion_cursor != 0:
+        return False
+    note(
+        "warning: clone comments not started; the destination discussion group "
+        "holds only Telegram's post anchors and reads as a duplicate of the "
+        "channel until a further sync copies the comments"
+    )
+    return True
+
+
 class SyncProgress:
     """Counts copied messages and renders the sync's current activity."""
 

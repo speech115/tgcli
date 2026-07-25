@@ -41,6 +41,41 @@ Migrated or deactivated basic groups are rejected with pointer messages.
 Still out of scope: cloning into pre-existing groups, secret chats,
 topic edit/close propagation.
 
+## CLONE-003 — Windowed interleaving of the posts and comments legs
+
+**Status:** deferred by the owner on 2026-07-25, before implementation
+landed. [ADR-0051](decisions/ADR-0051-clone-windowed-phase-interleaving.md)
+is marked `deferred` and carries the full reasoning; its decision text was
+not found wrong, it was found not yet worth its cost.
+
+Today `clone sync` runs the posts leg to exhaustion before the comments leg
+starts, so an interrupted long clone leaves a complete channel beside a
+discussion group holding only Telegram's own post anchors. ADR-0051 would
+alternate the legs in 50-batch windows so an interruption leaves a coherent
+prefix instead. It buys ordering, not speed: same RPCs, same flood exposure,
+identical finished clone.
+
+**Shipped instead:** `clone sync` warns on stderr while the group is still a
+bare anchor list — at the end of a run that leaves it that way, and at the
+start of a run that resumes into it, since a FloodWait exit never reaches the
+tail. That answers the one live report ("duplicated posts") without touching
+the write path.
+
+**Re-entry trigger:** evidence that partial clones are *abandoned* rather
+than resumed — a clone left partial for days, or a second report of the
+intermediate state after the warning shipped. Cost to weigh on re-entry: the
+comments leg gains a stopping condition, so a bug there stalls comments
+silently instead of flattening them loudly, and both affected modules already
+sit at their reviewed line ceilings.
+
+**Base to resume from:** `cursor/clone-phase-interleaving-1864` (PR #66,
+closed unmerged) holds ADR-0051's task 1 — the defer-not-flatten safety
+condition — written, tested, and correct. It must still land before any
+windowing (ADR-0051 decision 3): merged the other way round, the first window
+would plant every early comment flat in a real chat, irreversibly. The branch
+needs a rebase onto post-1.2.10 `main` and a `CEILINGS` bump for the two
+files it grows.
+
 ## ACCOUNTS-001 — `tg accounts login`: session (re)authorization
 
 **Status:** closed by ADR-0042 (2026-07-24). Shipped as `1.2.0`:
