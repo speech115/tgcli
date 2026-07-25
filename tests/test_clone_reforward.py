@@ -50,8 +50,8 @@ def _fwd(**fields):
     return types.MessageFwdHeader(**fields)
 
 
-def _photo(photo_id=7):
-    return types.MessageMediaPhoto(photo=types.PhotoEmpty(id=photo_id))
+def _photo(photo_id=7, spoiler=False):
+    return types.MessageMediaPhoto(photo=types.PhotoEmpty(id=photo_id), spoiler=spoiler)
 
 
 async def _invoke(awaitable):
@@ -136,6 +136,23 @@ def test_eligible_false_with_reply_to():
     reply_to = types.InputReplyToMessage(reply_to_msg_id=5)
     assert (
         reforward.eligible(leg, [_post(fwd_from=fwd)], _plan(reply_to=reply_to))
+        is False
+    )
+
+
+def test_eligible_false_for_quote_fallback_batch():
+    """A quote fallback rewrites the body, so the untouched original is no
+    longer what the post says — and it carries no `reply_to` to catch it."""
+    fwd = _fwd(from_id=types.PeerUser(user_id=9))
+    leg = legs.posts(_clone_state())
+    assert (
+        reforward.eligible(leg, [_post(fwd_from=fwd)], _plan(body_prefix="> цитата\n"))
+        is False
+    )
+    assert (
+        reforward.eligible(
+            leg, [_post(fwd_from=fwd)], _plan(quote_flattened={"id": 5, "quote": "x"})
+        )
         is False
     )
 
@@ -284,6 +301,43 @@ def test_locate_none_when_post_is_missing_media_the_candidate_has():
     )
 
     assert result is None
+
+
+def test_locate_none_when_the_post_hides_media_the_candidate_shows():
+    """A channel that reposts a photo behind a spoiler hid it deliberately.
+    The group original carries the same file id with no spoiler, so matching
+    on the id alone would forward the blur away and publish it uncovered."""
+    fwd = _fwd(from_id=types.PeerUser(user_id=9))
+    post = _post(fwd_from=fwd, message="body", media=_photo(spoiler=True))
+    group = SimpleNamespace(id=55, noforwards=False)
+    tg = FakeTg(
+        group=group,
+        search_results=[_candidate(1, message="body", media=_photo(spoiler=False))],
+    )
+    cache: dict = {}
+
+    result = asyncio.run(
+        reforward.locate(tg, _clone_state(), post, cache, invoke=_invoke)
+    )
+
+    assert result is None
+
+
+def test_locate_matches_when_the_spoiler_flag_agrees():
+    fwd = _fwd(from_id=types.PeerUser(user_id=9))
+    post = _post(fwd_from=fwd, message="body", media=_photo(spoiler=True))
+    group = SimpleNamespace(id=55, noforwards=False)
+    tg = FakeTg(
+        group=group,
+        search_results=[_candidate(1, message="body", media=_photo(spoiler=True))],
+    )
+    cache: dict = {}
+
+    result = asyncio.run(
+        reforward.locate(tg, _clone_state(), post, cache, invoke=_invoke)
+    )
+
+    assert result == (group, 1)
 
 
 def test_locate_none_when_candidate_entities_differ_from_post():

@@ -1147,7 +1147,8 @@ claims a discussion-group origin it cannot prove (ADR-0050). When such a
 reposted, single-message reupload batch can prove its original in the
 clone's linked source discussion group — the group is reachable and not
 `noforwards`, exactly one of its messages matches `fwd_from.from_id` and
-`fwd_from.date`, and that message's text, formatting entities, and media are
+`fwd_from.date`, and that message's text, formatting entities, and media —
+including whether that media is hidden behind a spoiler — are
 identical to the post — the clone forwards the original out of the source
 group into the
 destination channel instead of prefixing text, so the destination carries

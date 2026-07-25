@@ -140,14 +140,28 @@ def _entities_key(message):
 
 
 def _media_key(message):
+    """Identity *and* presentation of the attached media.
+
+    The spoiler flag belongs in the key: a channel that reposts a photo behind
+    a blur hid it on purpose, while the group original carries the same file
+    id uncovered. Matching on the id alone would forward the blur away and
+    republish the media exposed — the same class of silent change the text
+    check exists to prevent.
+    """
     media = getattr(message, "media", None)
     if media is None:
         return None
+    spoiler = bool(getattr(media, "spoiler", False))
     for attribute in ("photo", "document", "webpage"):
         carried = getattr(media, attribute, None)
         if carried is not None:
-            return type(media).__name__, attribute, getattr(carried, "id", None)
-    return type(media).__name__, None, None
+            return (
+                type(media).__name__,
+                attribute,
+                getattr(carried, "id", None),
+                spoiler,
+            )
+    return type(media).__name__, None, None, spoiler
 
 
 async def _guarded(invoke, awaitable):

@@ -18,7 +18,8 @@ lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 - Clone posts leg: a reposted, single-message broadcast batch that can prove
   its original in the clone's linked source discussion group (reachable,
   not `noforwards`; exactly one group message matches `fwd_from.from_id`
-  and `fwd_from.date`; text, formatting entities, and media identical to
+  and `fwd_from.date`; text, formatting entities, and media — spoiler flag
+  included — identical to
   the post) now forwards
   that original into the destination channel instead of prefixing
   `Переслано от <label>`, so the destination carries Telegram's own header;
@@ -34,6 +35,12 @@ lives in [docs/DEVLOG.md](docs/DEVLOG.md).
   `ChannelPrivateError` and killed the run; both now treat any such refusal
   as a missing label and fall through the ladder. A `FloodWaitError` still
   propagates and arms the cooldown (ADR-0045).
+- Clone roster: the same refusal shape no longer escapes the participant
+  snapshot. `collect` caught only `ValueError` around the discussion-group
+  resolve, so a source group that turned private crashed `sync` *after* the
+  messages had already copied; it now records `"unavailable"` with the error
+  name, and a FloodWait there records `"deferred"` without arming either
+  cooldown, as ADR-0024 already promised.
 
 ## [1.2.7] — 2026-07-25
 
