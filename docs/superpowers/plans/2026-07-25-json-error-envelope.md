@@ -195,6 +195,6 @@ comments-phase call-count test below rather than inventing a new one.
       `clone/progress.py` keep their existing one-line descriptions) —
       confirm, do not edit unless review disagrees.
 - [x] DEVLOG entry per the template at the top of `docs/DEVLOG.md`.
-- [x] PR → `reviewer` subagent from the merge-base → green CI (PR-event
+- [ ] PR → `reviewer` subagent from the merge-base → green CI (PR-event
       run, not a stale push-event run) → merge → tag `v1.2.11` on the
       merge commit per `docs/agents/release.md`.
