@@ -99,7 +99,12 @@ not yet copied — permanently, in a real chat. Do not reorder these.
 
 ### 6. Live acceptance (owner-gated, after merge)
 
-- [ ] Resume the `[икона]` clone (still at posts cursor 83,
-      `discussion_cursor` 0) and confirm the destination group starts
-      showing comments interleaved with anchors well before the posts leg
-      finishes. Stop on exit 5; never retry in a loop (ADR-0045).
+- [ ] `[икона]` is no longer available as the acceptance subject: it was
+      caught up on 1.2.9 on 2026-07-25 (posts cursor 94, `discussion_cursor`
+      897, both at the source tails), so a resume there copies nothing and
+      proves nothing. Interleaving needs a clone with both legs unfinished.
+- [ ] Accept on a fresh clone of a small owner-controlled source with
+      comments instead: `clone init` + `clone sync --limit` so the run stops
+      mid-window, then confirm the destination group holds comments
+      interleaved with anchors rather than anchors alone. Stop on exit 5;
+      never retry in a loop (ADR-0045).
