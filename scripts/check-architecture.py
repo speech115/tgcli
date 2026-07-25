@@ -25,7 +25,8 @@ CEILINGS = {
     # clone/progress.py, but sync_text owns both moments worth warning at —
     # before the work (a FloodWait exit never reaches the tail) and after it.
     # +162 for ADR-0054 refresh preview/commit/rows on the clone surface.
-    "src/tgcli/commands/clone.py": 1302,
+    # +15 for review fix: commit_refresh binds account/source_peer/id_map.
+    "src/tgcli/commands/clone.py": 1317,
     "src/tgcli/clone/state.py": 300,
     "src/tgcli/clone/quotes.py": 365,
     "src/tgcli/clone/quote_fallback.py": 127,

@@ -17,6 +17,32 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — PR #77 review fixes: refresh cooldown + preview binding (Cursor Grok)
+
+**Did:** closed two confirmed independent-review majors on
+`claude/clone-attribution-backfill`. (1) Preview scan
+`get_messages` now goes through `_with_cooldown` so FloodWait arms
+per-clone `retry_not_before` and account cooldown (exit 5), matching
+ADR-0054 / CONTRACT §11. (2) `commit_refresh` fail-closes when preview
+`account_user_id` / `source_peer_id` diverge from the live session/source,
+or when any eligible `{source_id,destination_id}` no longer matches current
+`id_map` (post-replace remap). CONTRACT §11 + CHANGELOG 1.2.11 note updated;
+ceiling +13. Reproducing tests first; `./scripts/gate.sh` green. Not merged.
+
+**Decided:** bind at commit (after `_load_refresh_context`) with PolicyError
+exit 2, same family as `clone init` account/source mismatch — not a soft
+skip. Stale id_map is hard-fail, not `not-eligible`, so a remapped clone
+cannot edit the wrong destination ids.
+
+**Learned:** dispatch already maps bare FloodWait to exit 5, so a preview
+scan that bypasses `_with_cooldown` looks "correct" on exit code alone;
+the regression is the missing persisted cooldown. Assert
+`retry_not_before` / account flood file, not only exit 5.
+
+**Next:** independent re-review of the review-fix commits on PR #77; still
+no merge until that clears. Owner-gated live preview on [икона] after
+merge/tag.
+
 ## 2026-07-25 — Implement `tg clone refresh` (ADR-0054) (Cursor Grok)
 
 **Did:** rebased `claude/clone-attribution-backfill` onto `origin/main`

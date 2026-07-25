@@ -110,6 +110,8 @@ class RefreshClient:
         raise ValueError("no input peer")
 
     async def get_messages(self, entity, ids=None, limit=None):
+        if getattr(self, "flood_on_get_messages", False):
+            raise telethon_errors.FloodWaitError(request=None, capture=90)
         store = self.source_msgs if entity is self.source else self.dest_msgs
         return [store.get(item) for item in ids]
 
@@ -162,6 +164,25 @@ def test_clone_refresh_preview_exits_5_when_cooldown_active(
     assert main(["clone", "refresh", "@source", "--json"]) == 5
     assert client.requests == []
     assert "rate limited" in capsys.readouterr().err
+
+
+def test_clone_refresh_preview_floodwait_arms_cooldown_exit_5(
+    config_env, monkeypatch, capsys
+):
+    """FloodWait on the preview scan get_messages must arm cooldowns (ADR-0054)."""
+    clone_state = seed_clone()
+    clone_state.record_mapping(54, 154)
+    state.save(clone_state)
+    src, dst = _eligible_pair()
+    client = RefreshClient([src], [dst])
+    client.flood_on_get_messages = True
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "refresh", "@source", "--json"]) == 5
+    assert "rate limited" in capsys.readouterr().err
+    saved = state.load(clone_state.clone_id)
+    assert saved is not None and saved.cooldown_deadline() is not None
+    assert flood.cooldown_deadline(42) is not None
 
 
 def test_clone_refresh_preview_unaffected_by_readonly(config_env, monkeypatch, capsys):
@@ -325,6 +346,84 @@ def test_clone_refresh_commit_rejects_source_mismatch(config_env, monkeypatch, c
     make_session_fake(monkeypatch, RefreshClient([], []))
     assert main(["clone", "refresh", "@source", "--commit", preview["preview_id"]]) == 2
     assert "clone refresh preview" in capsys.readouterr().err
+
+
+def test_clone_refresh_commit_rejects_wrong_account(config_env, monkeypatch, capsys):
+    clone_state = seed_clone()
+    clone_state.record_mapping(54, 154)
+    state.save(clone_state)
+    src, dst = _eligible_pair()
+    client = RefreshClient([src], [dst])
+    make_session_fake(monkeypatch, client)
+    preview = safety.create_preview(
+        {
+            "kind": "clone-refresh",
+            "source": "@source",
+            "account_user_id": 99,
+            "source_peer_id": 123,
+            "eligible": [{"source_id": 54, "destination_id": 154}],
+        }
+    )
+
+    assert main(["clone", "refresh", "@source", "--commit", preview["preview_id"]]) == 2
+    err = capsys.readouterr().err
+    assert "clone refresh preview" in err
+    assert "account" in err
+    assert client.requests == []
+
+
+def test_clone_refresh_commit_rejects_wrong_source_peer(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    clone_state.record_mapping(54, 154)
+    state.save(clone_state)
+    src, dst = _eligible_pair()
+    client = RefreshClient([src], [dst])
+    make_session_fake(monkeypatch, client)
+    preview = safety.create_preview(
+        {
+            "kind": "clone-refresh",
+            "source": "@source",
+            "account_user_id": 42,
+            "source_peer_id": 999,
+            "eligible": [{"source_id": 54, "destination_id": 154}],
+        }
+    )
+
+    assert main(["clone", "refresh", "@source", "--commit", preview["preview_id"]]) == 2
+    err = capsys.readouterr().err
+    assert "clone refresh preview" in err
+    assert "source" in err or "account" in err
+    assert client.requests == []
+
+
+def test_clone_refresh_commit_rejects_stale_id_map_pair(
+    config_env, monkeypatch, capsys
+):
+    """After replace/remap, a preview pair that no longer matches id_map fails closed."""
+    clone_state = seed_clone()
+    clone_state.record_mapping(54, 254)  # remapped; preview still names 154
+    state.save(clone_state)
+    src = message(54, "тело", fwd_from=_fwd())
+    dst = message(254, "тело")
+    client = RefreshClient([src], [dst])
+    make_session_fake(monkeypatch, client)
+    preview = safety.create_preview(
+        {
+            "kind": "clone-refresh",
+            "source": "@source",
+            "account_user_id": 42,
+            "source_peer_id": 123,
+            "eligible": [{"source_id": 54, "destination_id": 154}],
+        }
+    )
+
+    assert main(["clone", "refresh", "@source", "--commit", preview["preview_id"]]) == 2
+    err = capsys.readouterr().err
+    assert "clone refresh preview" in err
+    assert "id_map" in err
+    assert client.requests == []
 
 
 def test_clone_refresh_commit_skips_stale_candidate(config_env, monkeypatch, capsys):

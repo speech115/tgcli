@@ -1245,8 +1245,13 @@ the rendered text (recomputed fresh at commit). `--readonly` /
 (identical rule to `clone init`).
 
 `--commit PREVIEW_ID` consumes the preview (single-shot via
-`safety.consume_preview`, not `begin_commit`), re-checks each candidate against
-a fresh destination read, and issues `messages.EditMessageRequest` with text
+`safety.consume_preview`, not `begin_commit`), then fail-closes (exit 2) if
+the live account/`source` peer no longer match the preview's
+`account_user_id` / `source_peer_id`, or if any eligible
+`{source_id,destination_id}` pair no longer matches the current posts-leg
+`id_map` (e.g. after `clone init --replace`). It re-checks each surviving
+candidate against a fresh destination read, and issues
+`messages.EditMessageRequest` with text
 and entities only — `media` is never set, so existing media stays untouched;
 `id_map` and both cursors are unchanged. Each surviving edit writes a
 `clone-refresh-prefix` audit record before its RPC. A candidate that no longer

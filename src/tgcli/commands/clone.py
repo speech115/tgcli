@@ -1207,7 +1207,22 @@ async def preview_refresh(tg, source: str) -> dict:
 
 
 async def commit_refresh(tg, source: str, account_alias: str, payload: dict) -> dict:
-    _, source_entity, destination, clone_state = await _load_refresh_context(tg, source)
+    me, source_entity, destination, clone_state = await _load_refresh_context(
+        tg, source
+    )
+    if (
+        me.id != payload["account_user_id"]
+        or source_entity.id != payload["source_peer_id"]
+    ):
+        raise PolicyError(
+            "clone refresh preview no longer matches the source or account"
+        )
+    eligible = list(payload.get("eligible") or ())
+    for pair in eligible:
+        if clone_state.dest_for(int(pair["source_id"])) != int(pair["destination_id"]):
+            raise PolicyError(
+                "clone refresh preview no longer matches the current id_map"
+            )
     input_peer = await tg.get_input_entity(destination)
 
     async def cooldown(awaitable):
@@ -1216,7 +1231,7 @@ async def commit_refresh(tg, source: str, account_alias: str, payload: dict) -> 
     author_cache: dict = {}
     edited: list[dict] = []
     skipped: list[dict] = []
-    for pair in payload.get("eligible") or ():
+    for pair in eligible:
         source_id = pair["source_id"]
         destination_id = pair["destination_id"]
         source_msgs = await cooldown(tg.get_messages(source_entity, ids=[source_id]))

@@ -161,6 +161,31 @@ class _ScanClient:
         raise AssertionError(f"unexpected RPC: {type(request).__name__}")
 
 
+async def _passthrough(awaitable):
+    return await awaitable
+
+
+@pytest.mark.asyncio
+async def test_candidates_routes_get_messages_through_cooldown():
+    """Scan RPCs must go through cooldown so FloodWait arms retry_not_before."""
+    source = _message(id=10, text="тело", fwd_from=_fwd())
+    dest = _message(id=100, text="тело")
+    client = _ScanClient([source], [dest])
+    clone_state = _clone_state(id_map={10: 100})
+    wrapped: list[object] = []
+
+    async def tracking_cooldown(awaitable):
+        wrapped.append(awaitable)
+        return await awaitable
+
+    await refresh.candidates(
+        client, clone_state, client.source, client.destination, tracking_cooldown
+    )
+
+    assert len(wrapped) >= 2
+    assert len(client.get_messages_calls) == 2
+
+
 @pytest.mark.asyncio
 async def test_poll_snapshot_excluded_before_render(monkeypatch):
     render = AsyncMock()
@@ -184,7 +209,7 @@ async def test_poll_snapshot_excluded_before_render(monkeypatch):
     clone_state = _clone_state(id_map={10: 100})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, AsyncMock()
+        client, clone_state, client.source, client.destination, _passthrough
     )
 
     assert eligible == []
@@ -205,7 +230,7 @@ async def test_story_snapshot_excluded_before_render(monkeypatch):
     clone_state = _clone_state(id_map={11: 110})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, AsyncMock()
+        client, clone_state, client.source, client.destination, _passthrough
     )
 
     assert eligible == []
@@ -223,7 +248,7 @@ async def test_native_reforward_excluded_without_render(monkeypatch):
     clone_state = _clone_state(id_map={12: 120})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, AsyncMock()
+        client, clone_state, client.source, client.destination, _passthrough
     )
 
     assert eligible == []
@@ -246,7 +271,7 @@ async def test_discussion_id_map_never_scanned(monkeypatch):
     clone_state = _clone_state(id_map={10: 100}, discussion_id_map={50: 500})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, AsyncMock()
+        client, clone_state, client.source, client.destination, _passthrough
     )
 
     assert eligible == []
@@ -267,7 +292,7 @@ async def test_album_non_lead_excluded_even_if_eligible_alone(monkeypatch):
     clone_state = _clone_state(id_map={20: 200, 21: 201})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, AsyncMock()
+        client, clone_state, client.source, client.destination, _passthrough
     )
 
     assert [c.source_id for c in eligible] == [20]
@@ -284,7 +309,7 @@ async def test_album_lead_is_scanned_normally(monkeypatch):
     clone_state = _clone_state(id_map={30: 300})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, AsyncMock()
+        client, clone_state, client.source, client.destination, _passthrough
     )
 
     assert len(eligible) == 1
