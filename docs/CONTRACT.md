@@ -1245,10 +1245,12 @@ MIME type and Telegram attributes. Downloaded files live only in a temporary
 directory and are removed on success or failure. A download failure leaves the
 batch cursor and mapping unchanged and occurs before the fail-closed
 `clone-sync-reupload` audit/write boundary. A `FloodWaitError` of at most 60
-seconds (`SHORT_WAIT`) is waited out once in the foreground (a non-contractual
-stderr progress line names the seconds), then the same request is retried; a
-second failure, or a wait over 60 seconds, persists the clone cooldown and
-raises. Both `UpdateMessageID` batches and the single-message
+seconds (`SHORT_WAIT`) is waited out once in the foreground when the
+per-process wait budget still has room (at most 180 seconds of pausing per
+invocation; `WAIT_BUDGET`), after a non-contractual stderr progress line
+naming the seconds, then the same request is retried; a second failure, a wait
+over 60 seconds, or a spent budget persists the clone cooldown and raises.
+Both `UpdateMessageID` batches and the single-message
 `UpdateShortSentMessage` envelope require exact positive confirmation before
 state advances.
 
@@ -1256,9 +1258,9 @@ state advances.
 source row remains, JSON reports `"more":true`; the next run resumes at the
 saved cursor. Sync has no implicit overall timeout, uses a mutation-safe
 session, and is blocked by all readonly gates before config/session work.
-A short FloodWait (≤ 60 s) is waited out once and retried as above; a second
-failure or a longer wait persists the clone cooldown and exits 5 without
-advancing the current message. JSON:
+A short FloodWait (≤ 60 s) is waited out once under the 180-second per-process
+budget as above; a second failure, a longer wait, or a spent budget persists
+the clone cooldown and exits 5 without advancing the current message. JSON:
 
 ```json
 {"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}}}

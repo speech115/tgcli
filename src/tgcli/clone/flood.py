@@ -19,8 +19,29 @@ from tgcli.clone import state
 _EMPTY = {"cooldown_until": None, "last_peer_created_at": None}
 
 # ADR-0052: a FloodWait of at most SHORT_WAIT seconds is waited out once in
-# the foreground; longer waits still exit 5 immediately (ADR-0045).
+# the foreground under a per-process WAIT_BUDGET; longer waits still exit 5
+# immediately (ADR-0045).
 SHORT_WAIT = 60
+WAIT_BUDGET = 180
+
+
+class WaitBudget:
+    """In-memory cumulative wait seconds for one clone sync/init process.
+
+    Never persisted — a fresh instance starts each invocation with a full
+    budget. ``try_spend`` returns False without mutating once ``spent`` has
+    already reached ``WAIT_BUDGET``.
+    """
+
+    def __init__(self, limit: float = WAIT_BUDGET) -> None:
+        self.spent = 0.0
+        self._limit = limit
+
+    def try_spend(self, seconds: float) -> bool:
+        if self.spent >= self._limit:
+            return False
+        self.spent += seconds
+        return True
 
 
 def path_for(account_user_id: int) -> Path:
