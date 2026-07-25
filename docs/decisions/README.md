@@ -58,6 +58,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0049](ADR-0049-clone-sync-progress.md) | `clone sync` emits plain single-line progress to stderr by default (batch counter, per-file transfer %, phase lines) via the shared media progress seam; non-contractual format, silenced by `2>/dev/null` | accepted |
 | [0050](ADR-0050-clone-forward-attribution.md) | Reposted (forwarded) source posts get a truthful `Переслано от <label>` prefix on the reupload/snapshot paths; `needs_author` gains a `fwd_from` case; native re-forward of the proven original gated behind sender+date+content match | accepted |
 | [0051](ADR-0051-clone-windowed-phase-interleaving.md) | `clone sync` interleaves the posts and comments legs in 50-batch windows, bounded by the anchor scan; an unmapped cross-leg parent defers instead of flattening; amends ADR-0023's ordering clause only | deferred (CLONE-003) |
+| [0055](ADR-0055-clone-pinned-and-photo-fidelity.md) | `clone sync` pins the mapped source pin silently when the posts leg is exhausted (never unpins, never overrides an existing pin, reports status); photo downscaling is measured before it is fixed, and the striped path picks the largest `PhotoSize` explicitly | accepted |
 
 Notes on supersessions:
 
