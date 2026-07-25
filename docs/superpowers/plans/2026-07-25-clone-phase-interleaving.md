@@ -38,17 +38,17 @@ not yet copied — permanently, in a real chat. Do not reorder these.
 
 ### 1. Defer, never flatten, an unmapped cross-leg parent
 
-- [ ] Test (`tests/test_clone_replies.py`): discussion-leg comment whose
+- [x] Test (`tests/test_clone_replies.py`): discussion-leg comment whose
       parent post id is **beyond** the posts cursor → classified as
       deferred, not `flatten`.
-- [ ] Test: comment whose parent post id is **behind** the cursor and
+- [x] Test: comment whose parent post id is **behind** the cursor and
       absent from the map (deleted or skipped-unsupported source post) →
       still `flatten`, exactly as today. This is the discrimination the
       whole change rests on; assert both directions in one test module.
-- [ ] Test (integration): a deferred batch leaves `discussion_cursor`
+- [x] Test (integration): a deferred batch leaves `discussion_cursor`
       unchanged and sends nothing, and the next run picks it up once the
       post is mapped.
-- [ ] Implement in `clone/replies.py` + `clone/comments.py`. The posts
+- [x] Implement in `clone/replies.py` + `clone/comments.py`. The posts
       cursor must reach the classifier — pass it, do not read state
       globally.
 

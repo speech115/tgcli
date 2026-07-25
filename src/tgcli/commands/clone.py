@@ -987,8 +987,17 @@ async def sync_text(
         await progress.resolve_total(
             tg, source_entity, lambda awaitable: _with_cooldown(awaitable, clone_state)
         )
-        plan = transport.decide(messages, leg, source)
-        plan = await quotes.resolve(messages, plan, leg, source, resolve_ctx)
+        plan = transport.decide(messages, leg, source, posts_cursor=clone_state.cursor)
+        if plan.mode == "deferred":
+            return
+        plan = await quotes.resolve(
+            messages,
+            plan,
+            leg,
+            source,
+            resolve_ctx,
+            posts_cursor=clone_state.cursor,
+        )
         topic_dest = None
         if forum:
             topic_dest = await topics.ensure_topic(

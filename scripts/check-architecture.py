@@ -24,9 +24,13 @@ CEILINGS = {
     # +5 for the comments-unstarted warning: the text and its condition live in
     # clone/progress.py, but sync_text owns both moments worth warning at —
     # before the work (a FloodWait exit never reaches the tail) and after it.
-    "src/tgcli/commands/clone.py": 1140,
+    # +9 for ADR-0051 task 1: pass posts_cursor into decide/resolve and stop
+    # copy_batch on deferred (never plant a flat cross-leg reply).
+    "src/tgcli/commands/clone.py": 1149,
     "src/tgcli/clone/state.py": 300,
-    "src/tgcli/clone/quotes.py": 365,
+    # +15 for ADR-0051 task 1: posts_cursor kwarg + deferred short-circuit in
+    # resolve (mirror of transport.decide's deferred plan).
+    "src/tgcli/clone/quotes.py": 380,
     "src/tgcli/clone/quote_fallback.py": 127,
 }
 
