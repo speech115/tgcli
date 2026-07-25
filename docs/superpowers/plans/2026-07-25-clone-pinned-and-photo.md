@@ -386,11 +386,13 @@ follows `sizes[-1]` too, not the `size=` parameter we pass in.
 
 ### 7. Release (Track B)
 
-- [ ] CHANGELOG + double version bump (both `pyproject.toml` and
+- [x] CHANGELOG + double version bump (both `pyproject.toml` and
       `src/tgcli/__init__.py`); DEVLOG entry for the session; PR →
       `reviewer` → CI → merge → tag. If Task 5 and Task 6 are ready
       together, one release covers both; if Task 5 is still pending Task
       4's live measurement, Task 6 may ship alone first.
+      (CHANGELOG/version/DEVLOG done in 1.2.11 with Track A; reviewer /
+      merge / tag still pending — Task 5 deferred with Task 4.)
 
 ---
 
