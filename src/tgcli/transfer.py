@@ -23,6 +23,51 @@ PROGRESS_EVERY_CHUNKS = 16
 Invoke = Callable[[Callable[[], Awaitable[Any]]], Awaitable[Any]]
 
 
+def _photo_with_largest_size_last(media):
+    """Return media whose Photo.sizes ends with the true largest size.
+
+    Telethon's ``utils._get_file_info`` (used by ``iter_download``) takes
+    ``sizes[-1]`` as-is. ``media_byte_size`` / ``File.size`` already pick the
+    max by ``_photo_size_byte_count``. Reorder a shallow Photo copy so the two
+    agree, without hand-building an ``InputPhotoFileLocation`` (which would
+    drop ``dc_id`` unless threaded separately). Documents are returned as-is.
+    """
+    photo = None
+    if isinstance(media, types.MessageMediaPhoto):
+        photo = media.photo
+    elif isinstance(media, types.Photo):
+        photo = media
+    if not isinstance(photo, types.Photo) or len(photo.sizes) <= 1:
+        return media
+    largest = max(
+        photo.sizes,
+        key=lambda size: utils._photo_size_byte_count(size) or 0,
+    )
+    if photo.sizes[-1] is largest:
+        return media
+    reordered = [size for size in photo.sizes if size is not largest]
+    reordered.append(largest)
+    new_photo = types.Photo(
+        id=photo.id,
+        access_hash=photo.access_hash,
+        file_reference=photo.file_reference,
+        date=photo.date,
+        sizes=reordered,
+        dc_id=photo.dc_id,
+        has_stickers=photo.has_stickers or None,
+        video_sizes=list(photo.video_sizes) if photo.video_sizes else None,
+    )
+    if isinstance(media, types.MessageMediaPhoto):
+        return types.MessageMediaPhoto(
+            spoiler=media.spoiler or None,
+            live_photo=getattr(media, "live_photo", None) or None,
+            photo=new_photo,
+            ttl_seconds=media.ttl_seconds,
+            video=getattr(media, "video", None),
+        )
+    return new_photo
+
+
 async def _run_workers(coros: Iterable[Coroutine[Any, Any, None]]) -> None:
     try:
         async with asyncio.TaskGroup() as group:
@@ -51,6 +96,8 @@ async def download_striped(
         raise ValueError("parallel must be positive")
     if not isinstance(size, int) or size <= 0:
         raise ValueError("size must be a positive int")
+
+    media = _photo_with_largest_size_last(media)
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("xb") as handle:

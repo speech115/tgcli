@@ -17,6 +17,83 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — PR #78 independent review and integration (Claude Opus 5)
+
+**Did:** independent whole-diff review of `claude/clone-pinned-and-photo` from
+its merge-base, then integrated it on top of 1.2.13. Review found no defect:
+the pin request is `messages.UpdatePinnedMessage` with a real `InputPeerChannel`
+and `silent=True`, the occupied/unchanged/unmapped guards hold, the state
+fields are additive with `.get` defaults and rejected when corrupt, and Track
+B's fix sits inside `download_striped` so `clone.py` and `media.py` are both
+corrected (mirror-fix rule). One gap, closed here: only the Channel branch of
+`_source_pinned_msg_id` had a boundary test, so the dialog and basic-group
+branches now have theirs — the fakes call Telethon's own `request.resolve()`
+before recording, which is what makes the `InputUser` / `chat_id` assertions
+load-bearing rather than decorative.
+
+**Decided:** the merge is where ADR-0055 meets ADR-0051 and ADR-0052. The pin
+phase moves after the interleaving loop (both legs exhausted is a stronger
+`more is False` than the old sequential one, so the ADR's "posts leg
+exhausted" precondition still holds), and `pin.py` moves onto ADR-0052's thunk
+cooldown seam — a `GetFull*` that meets a short FloodWait must be rebuildable
+to be retried. Ceilings: `commands/clone.py` 1267, `clone/state.py` 321,
+carrying every rationale. Release **1.2.14**.
+
+**Learned:** a seam change is not done when its own branch is green. ADR-0052
+converted every call site that existed then; ADR-0055 added three more on a
+branch that could not see it, and only the merge shows them. The test fakes
+are the tell — an `async def cooldown(awaitable)` fake anywhere in the tree is
+a call site that has not been converted yet.
+
+**Next:** #77 (`clone refresh`), then delete the merged branches. Live
+acceptance of pin carry-over stays owner-gated.
+
+## 2026-07-25 — PR #78 review fixes: CONTRACT header + pin InputPeer (Cursor Grok 4.5)
+
+**Did:** Closed two confirmed independent-review defects on
+`claude/clone-pinned-and-photo`. (1) `docs/CONTRACT.md` version header
+`1.2.10` → `1.2.11` to match `pyproject.toml` / `__init__.py` / CHANGELOG.
+(2) `UpdatePinnedMessageRequest.peer` now uses
+`await tg.get_input_entity(destination)` (clone ergonomics/quotes pattern);
+boundary test asserts `InputPeerChannel` identity, not raw destination
+entity. Gate run after the fix.
+
+**Decided:** No further version bump — CONTRACT body unchanged; header was
+stale paperwork only.
+
+**Learned:** The prior boundary assertion `peer is client.destination`
+locked the wrong type and would have kept the defect green.
+
+**Next:** Independent re-review of the review-fix commit; still do not
+merge until Spec+Standards clear.
+
+## 2026-07-25 — ADR-0055 Track A + Task 6 (Cursor Grok 4.5)
+
+**Did:** Implemented PR #78 on `claude/clone-pinned-and-photo` (rebased onto
+`origin/main` first — was CONFLICTING). Track A: new `clone/pin.py` with pure
+`decide()` / `snapshot()` plus live `sync_phase` — silent
+`messages.UpdatePinnedMessage` when a completing broadcast sync first maps the
+source pin; destination occupancy checked once via `GetFullChannelRequest` then
+served from `pinned_dest_id` / `pin_occupied` state; forum clones omit `pinned`.
+Track B Task 4 not run (no live session / owner-gated); Task 6 unconditional
+fix inside `download_striped` so both clone and `media download --parallel`
+pick the largest `PhotoSize`. CONTRACT §11, MAP, CHANGELOG, double bump to
+`1.2.11`. Gate green. Pushed to existing PR branch; not merged.
+
+**Decided:** One patch release covers both tracks in this PR (plan allows
+separate releases). Task 5's Telegram re-encode CONTRACT sentence stays deferred
+until Task 4's live measurement produces evidence — no speculation.
+
+**Learned:** Clone sync test fakes assumed every `client.requests` entry was a
+forward; GetFull* pin reads had to land in a separate `full_requests` list (and
+User/Chat sources need `GetFullUser` / `GetFullChat`, not only
+`GetFullChannel`). Exact sync-JSON equality tests needed an additive `pinned`
+pop.
+
+**Next:** Independent Spec+Standards review of the whole PR diff from its
+merge-base; owner-gated Task 4 measurement against `[икона]` message 15 before
+any Task 5 CONTRACT wording; live acceptance of pin carry-over after merge.
+
 ## 2026-07-25 — PR #74 independent review: the gate, not the code (Claude Opus 5)
 
 **Did:** independent whole-diff review of `claude/clone-phase-interleaving-impl`

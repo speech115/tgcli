@@ -20,6 +20,7 @@ from tgcli.clone import (
     fidelity,
     flood,
     legs,
+    pin,
     progress as clone_progress,
     quote_fallback,
     quotes,
@@ -1181,6 +1182,22 @@ async def sync_text(
                 break
     else:
         await run_posts_window(None)
+
+    # ADR-0055: pin carry-over is broadcast-only; forum sync JSON omits `pinned`.
+    pinned_result = None
+    if not forum:
+        if not more:
+            pinned_result = await pin.sync_phase(
+                tg,
+                clone_state,
+                source_entity,
+                destination,
+                mutate,
+                lambda make: _with_cooldown(make, clone_state, budget),
+                account_alias,
+            )
+        else:
+            pinned_result = pin.snapshot(clone_state)
     if not warned_unstarted:
         clone_progress.comments_unstarted(clone_state)
     progress.phase("roster")
@@ -1209,6 +1226,7 @@ async def sync_text(
             "discussion_cursor": clone_state.discussion_cursor,
             "more": more,
             "participants": participants,
+            **({"pinned": pinned_result} if pinned_result is not None else {}),
         },
     }
     if quote_flattened:

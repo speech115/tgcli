@@ -33,8 +33,10 @@ CEILINGS = {
     # +21 for ADR-0052 task 3: per-process WaitBudget threaded with clone_state.
     # +18 for ADR-0052 task 4: persistent reupload media cache (no TemporaryDirectory).
     # +3 for PR #76 review: unlink stale cache path before striped re-download.
-    "src/tgcli/commands/clone.py": 1250,
-    "src/tgcli/clone/state.py": 300,
+    # +17 for ADR-0055 pin wiring into sync_text.
+    "src/tgcli/commands/clone.py": 1267,
+    # +21 for ADR-0055 pinned_dest_id / pin_occupied fields + validation.
+    "src/tgcli/clone/state.py": 321,
     # +22 for ADR-0051: posts_cursor / posts_exhausted kwargs + deferred
     # short-circuit in resolve (mirror of transport.decide's deferred plan).
     "src/tgcli/clone/quotes.py": 387,

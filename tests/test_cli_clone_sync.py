@@ -126,6 +126,9 @@ class CloneSyncClient:
         self.destination_actions = {}
         self.requests = []
         self.iter_messages_calls = []
+        self.source_pinned_msg_id = None
+        self.destination_pinned_msg_id = None
+        self.full_requests = []
 
     async def get_entity(self, ref):
         if isinstance(ref, types.PeerChannel):
@@ -138,6 +141,10 @@ class CloneSyncClient:
         return self.source
 
     async def get_input_entity(self, ref):
+        if ref is self.destination:
+            return types.InputPeerChannel(channel_id=999, access_hash=1)
+        if ref is self.source:
+            return types.InputPeerChannel(channel_id=123, access_hash=1)
         raise ValueError("no input peer")
 
     async def get_me(self):
@@ -168,6 +175,28 @@ class CloneSyncClient:
         yield  # pragma: no cover - marks this coroutine as an async generator
 
     async def __call__(self, request):
+        if isinstance(request, functions.channels.GetFullChannelRequest):
+            self.full_requests.append(request)
+            channel_ref = request.channel
+            pinned = (
+                self.source_pinned_msg_id
+                if getattr(channel_ref, "id", None) == self.source.id
+                else self.destination_pinned_msg_id
+            )
+            return SimpleNamespace(full_chat=SimpleNamespace(pinned_msg_id=pinned))
+        if isinstance(request, functions.users.GetFullUserRequest):
+            self.full_requests.append(request)
+            return SimpleNamespace(
+                full_user=SimpleNamespace(pinned_msg_id=self.source_pinned_msg_id)
+            )
+        if isinstance(request, functions.messages.GetFullChatRequest):
+            self.full_requests.append(request)
+            return SimpleNamespace(
+                full_chat=SimpleNamespace(pinned_msg_id=self.source_pinned_msg_id)
+            )
+        if isinstance(request, functions.messages.UpdatePinnedMessageRequest):
+            self.requests.append(request)
+            return True
         assert isinstance(request, functions.messages.ForwardMessagesRequest)
         self.requests.append(request)
         updates = []
@@ -1606,6 +1635,11 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
 
     result = json.loads(capsys.readouterr().out)
     participants = result["sync"].pop("participants")
+    assert result["sync"].pop("pinned") == {
+        "source_id": None,
+        "destination_id": None,
+        "status": "unmapped",
+    }
     assert result["sync"] == {
         "copied": 2,
         "forwarded": 2,
@@ -2864,6 +2898,11 @@ def test_clone_sync_skips_service_and_reports_unsupported_messages(
 
     sync = json.loads(capsys.readouterr().out)["sync"]
     sync.pop("participants")
+    assert sync.pop("pinned") == {
+        "source_id": None,
+        "destination_id": None,
+        "status": "unmapped",
+    }
     assert sync == {
         "copied": 1,
         "forwarded": 1,
@@ -3104,6 +3143,11 @@ def test_clone_sync_keeps_grouped_id_zero_album_atomic_and_in_position(
 
     result = json.loads(capsys.readouterr().out)
     result["sync"].pop("participants")
+    assert result["sync"].pop("pinned") == {
+        "source_id": None,
+        "destination_id": None,
+        "status": "unmapped",
+    }
     assert result["sync"] == {
         "copied": 4,
         "forwarded": 4,
@@ -4392,6 +4436,92 @@ def test_sync_flood_wait_on_the_approximate_total_arms_the_cooldown(
     assert client.requests == []
     saved = state.load(clone_state.clone_id)
     assert saved.cooldown_deadline() is not None
+
+
+def test_completing_sync_pins_mapped_source_and_reports_set(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    clone_state.record_mapping(12, 9)
+    clone_state.cursor = 12
+    state.save(clone_state)
+    client = CloneSyncClient([])
+    client.source_pinned_msg_id = 12
+    client.destination_pinned_msg_id = None
+    client.destination_last_id = 9
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["pinned"] == {
+        "source_id": 12,
+        "destination_id": 9,
+        "status": "set",
+    }
+    pins = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.messages.UpdatePinnedMessageRequest)
+    ]
+    assert len(pins) == 1
+    assert pins[0].id == 9
+    assert pins[0].silent is True
+    assert isinstance(pins[0].peer, types.InputPeerChannel)
+    assert pins[0].peer.channel_id == 999
+    assert state.load(clone_state.clone_id).pinned_dest_id == 9
+
+
+def test_early_stop_sync_skips_pin_phase_but_reports_snapshot(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    state.save(clone_state)
+    client = CloneSyncClient([message(1), message(2), message(3)])
+    client.source_pinned_msg_id = 1
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--limit", "1", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["more"] is True
+    assert sync["pinned"] == {
+        "source_id": None,
+        "destination_id": None,
+        "status": "unmapped",
+    }
+    assert not any(
+        isinstance(
+            item,
+            (
+                functions.channels.GetFullChannelRequest,
+                functions.messages.UpdatePinnedMessageRequest,
+            ),
+        )
+        for item in [*client.requests, *client.full_requests]
+    )
+
+
+def test_forum_sync_omits_pinned_key(config_env, monkeypatch, capsys):
+    clone_state = seed_clone(kind="forum", title="Forum chat")
+    clone_state.record_topic(2, 1002)
+    clone_state.cursor = 2
+    state.save(clone_state)
+    client = CloneForumClient([])
+    client.destination_last_id = 1002
+    client.destination_actions[1002] = types.MessageActionTopicCreate(
+        title="General", icon_color=0
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert "pinned" not in sync
+    assert not any(
+        isinstance(item, functions.messages.UpdatePinnedMessageRequest)
+        for item in client.requests
+    )
 
 
 def test_sync_short_flood_wait_retries_once_and_keeps_json_stdout(

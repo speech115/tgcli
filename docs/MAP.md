@@ -51,14 +51,15 @@ tgcli/
 │   ├── desktop.py             [done]    osascript/open escape hatch for secrets and tg:// links (ADR-0042)
 │   ├── authclient.py          [done]    unauthorized Telethon client + auth probe (ADR-0042)
 │   ├── login_state.py         [done]    logins/ attempt state and session promotion (ADR-0042)
-│   ├── transfer.py            [done]    striped download + parallel Save*FilePart upload, one progress cadence (ADR-0047/0049)
-│   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045/0046/0047/0049)
+│   ├── transfer.py            [done]    striped download + parallel Save*FilePart upload, one progress cadence (ADR-0047/0049/0055)
+│   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045/0046/0047/0049/0055)
 │   │   ├── state.py           [done]    atomic JSON state, mappings, cooldown
 │   │   ├── flood.py           [done]    account-scoped FloodWait cooldown + peer-created stamp + per-run wait budget (ADR-0045/0052)
 │   │   ├── ergonomics.py      [done]    mute forever + "Clone" dialog filter for tool-created peers (ADR-0046)
 │   │   ├── fidelity.py        [done]    media capability classification
 │   │   ├── batching.py        [done]    pure batch planner: albums, service skips
 │   │   ├── transport.py       [done]    pure forward/reupload/snapshot decision
+│   │   ├── pin.py             [done]    pure pin-decision + live pin-carry phase (ADR-0055)
 │   │   ├── snapshot.py        [done]    truthful poll/story text rendering (+ ADR-0048 vote capture)
 │   │   ├── attribution.py     [done]    source kinds, author-identity ladder, UTF-16 prefix + mention shifts; fwd_from Переслано от (ADR-0023/0050)
 │   │   ├── replies.py         [done]    reply classification (ADR-0036); mapped-in-leg input rebuild

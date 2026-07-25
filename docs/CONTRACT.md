@@ -1,6 +1,6 @@
 # CLI Automation Contract
 
-Version: 1.2.13 (tracks the package release; see `CHANGELOG.md` and
+Version: 1.2.14 (tracks the package release; see `CHANGELOG.md` and
 `pyproject.toml`). Any change here lands in the same commit as the code
 change (AGENTS.md / ADR-0038).
 
@@ -1269,8 +1269,10 @@ file is reused when its on-disk byte size matches what the source reports;
 anything else is re-downloaded. The directory is removed after a successful
 send and left on disk after a failed one so a retry does not re-download. A
 download failure leaves the batch cursor and mapping unchanged and occurs
-before the fail-closed `clone-sync-reupload` audit/write boundary. A
-`FloodWaitError` of at most 60
+before the fail-closed `clone-sync-reupload` audit/write boundary. Striped
+downloads of a `Photo` (files over 512 KB) select the largest `PhotoSize` by
+byte count explicitly rather than trusting Telegram's `sizes` list order
+(ADR-0055). A `FloodWaitError` of at most 60
 seconds (`SHORT_WAIT`) is waited out once in the foreground when the
 per-process wait budget still has room (at most 180 seconds of pausing per
 invocation; `WAIT_BUDGET`), after a non-contractual stderr progress line
@@ -1289,8 +1291,30 @@ budget as above; a second failure, a longer wait, or a spent budget persists
 the clone cooldown and exits 5 without advancing the current message. JSON:
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}}}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"pinned":{"source_id":12,"destination_id":9,"status":"set"},"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}}}
 ```
+
+On a broadcast destination, `sync.pinned` reports the pin carry-over
+(ADR-0055). Forum destinations omit the key entirely. Status values:
+
+- `set` — this run placed `messages.UpdatePinnedMessage` with `silent=true`
+  on the mapped destination id (audited as `clone-sync-pin`);
+- `unchanged` — the clone already pinned once; later completing runs answer
+  from state with zero pin RPCs and never re-pin or unpin;
+- `unmapped` — the source has no pin, or its `pinned_msg_id` is absent from
+  `id_map` (service message, skipped-unsupported, deleted); nothing is
+  persisted, retried on the next completing run;
+- `occupied` — the destination already had a pin when first checked; the
+  clone leaves it alone and records that permanently.
+
+Unpinning is never mirrored. RPC cost: one `channels.GetFullChannel` (or the
+matching `GetFullUser` / `GetFullChat` for non-channel sources) on every
+completing run until resolved; a second `GetFullChannel` on the destination
+only on the run the source pin first becomes mappable; zero after resolution;
+plus one `messages.UpdatePinnedMessage` when a pin is actually placed. A run
+that stops early (`more:true`) never calls the pin phase and reports only
+what state already knows (`unmapped` / previously-resolved `set` /
+`occupied`).
 
 `sync.poll_votes` is an additive list of per-poll markers from the ADR-0048
 capture path (`status` of `captured`, `skipped`, `capture_failed`, or `retract_failed`, plus
