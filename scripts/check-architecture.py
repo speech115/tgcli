@@ -13,9 +13,9 @@ from pathlib import Path
 
 CEILINGS = {
     "src/tgcli/cli.py": 299,
-    "src/tgcli/parser.py": 501,
-    "src/tgcli/preflight.py": 237,
-    "src/tgcli/dispatch.py": 248,
+    "src/tgcli/parser.py": 504,
+    "src/tgcli/preflight.py": 245,
+    "src/tgcli/dispatch.py": 257,
     "src/tgcli/commands/batch.py": 96,
     "src/tgcli/read_ops.py": 414,
     # +20 for ADR-0049: the progress emitter lives in clone/progress.py, but
@@ -34,7 +34,11 @@ CEILINGS = {
     # +18 for ADR-0052 task 4: persistent reupload media cache (no TemporaryDirectory).
     # +3 for PR #76 review: unlink stale cache path before striped re-download.
     # +17 for ADR-0055 pin wiring into sync_text.
-    "src/tgcli/commands/clone.py": 1267,
+    # +162 for ADR-0054 refresh preview/commit/rows on the clone surface.
+    # +15 for PR #77 review fix: commit_refresh binds account/source_peer/id_map.
+    # +6 for the integration: refresh's cooldown seams take the ADR-0052 thunk
+    # and a per-process WaitBudget (three get_messages call sites wrapped).
+    "src/tgcli/commands/clone.py": 1450,
     # +21 for ADR-0055 pinned_dest_id / pin_occupied fields + validation.
     "src/tgcli/clone/state.py": 321,
     # +22 for ADR-0051: posts_cursor / posts_exhausted kwargs + deferred

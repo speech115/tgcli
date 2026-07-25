@@ -178,6 +178,14 @@ def _prepare_previews(parser: argparse.ArgumentParser, args) -> None:
             or args.preview_payload.get("source") != args.source
         ):
             raise PolicyError("clone init preview does not match this source")
+    if args.command == "clone" and args.clone_command == "refresh" and args.commit:
+        safety.enforce_mutation_allowed(args.readonly)
+        args.preview_payload = safety.consume_preview(args.commit)
+        if (
+            args.preview_payload.get("kind") != "clone-refresh"
+            or args.preview_payload.get("source") != args.source
+        ):
+            raise PolicyError("clone refresh preview does not match this source")
     if args.command == "draft" and args.draft_command in ("set", "clear"):
         _prepare_draft_preview(parser, args)
 

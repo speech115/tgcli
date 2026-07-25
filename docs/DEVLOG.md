@@ -17,6 +17,91 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — PR #77 independent review and integration; 1.2.15 (Claude Opus 5)
+
+**Did:** independent whole-diff review of `claude/clone-attribution-backfill`,
+the last of the six open PRs and the only one that edits live messages. No
+defect found in the design or the code: eligibility compares destination text
+*and* entities against the raw source and requires today's renderer to differ,
+so a hand-edited or already-prefixed post can never be touched; the album-lead
+guard matches the send path's actual ordering; poll/story snapshots, native
+re-forwards and the discussion leg are excluded structurally, not by
+convention; the audit precedes each edit; the boundary test pins
+`EditMessageRequest` with text+entities and no media; offsets reuse ADR-0050's
+UTF-16 helper unchanged. Fixed one cosmetic docs nit (a broken backtick in the
+sync `--plain` line). Integrated on top of 1.2.14 and released **1.2.15**.
+
+**Decided:** `clone refresh` moves onto ADR-0052's thunk cooldown seam, like
+`pin.py` before it — five call sites across `commands/clone.py` and
+`clone/refresh.py`, plus their test fakes. Ceiling for `commands/clone.py` is
+1450, carrying every rationale from ADR-0049 through ADR-0055.
+
+**Learned:** this is the second branch in a row to carry pre-thunk cooldown
+call sites, and pyright caught it here (a missing `budget` argument) where the
+pin branch needed the tests to fail first. The generalisation worth keeping:
+when a seam's signature changes, the branches that cannot see the change are
+not broken until they merge — so the integration, not the branch, is where the
+seam has to be re-verified end to end.
+
+**Next:** delete the six merged branches. Tagging `v1.2.11`…`v1.2.15` stays
+owner-side: this git proxy answers `git-receive-pack` with 403 for any
+`refs/tags/*` update (#72). Live acceptance of `clone refresh` against the five
+`[икона]` reposts is owner-gated — preview is free, commit needs a go-ahead.
+
+## 2026-07-25 — PR #77 review fixes: refresh cooldown + preview binding (Cursor Grok)
+
+**Did:** closed two confirmed independent-review majors on
+`claude/clone-attribution-backfill`. (1) Preview scan
+`get_messages` now goes through `_with_cooldown` so FloodWait arms
+per-clone `retry_not_before` and account cooldown (exit 5), matching
+ADR-0054 / CONTRACT §11. (2) `commit_refresh` fail-closes when preview
+`account_user_id` / `source_peer_id` diverge from the live session/source,
+or when any eligible `{source_id,destination_id}` no longer matches current
+`id_map` (post-replace remap). CONTRACT §11 + CHANGELOG 1.2.11 note updated;
+ceiling +13. Reproducing tests first; `./scripts/gate.sh` green. Not merged.
+
+**Decided:** bind at commit (after `_load_refresh_context`) with PolicyError
+exit 2, same family as `clone init` account/source mismatch — not a soft
+skip. Stale id_map is hard-fail, not `not-eligible`, so a remapped clone
+cannot edit the wrong destination ids.
+
+**Learned:** dispatch already maps bare FloodWait to exit 5, so a preview
+scan that bypasses `_with_cooldown` looks "correct" on exit code alone;
+the regression is the missing persisted cooldown. Assert
+`retry_not_before` / account flood file, not only exit 5.
+
+**Next:** independent re-review of the review-fix commits on PR #77; still
+no merge until that clears. Owner-gated live preview on [икона] after
+merge/tag.
+
+## 2026-07-25 — Implement `tg clone refresh` (ADR-0054) (Cursor Grok)
+
+**Did:** rebased `claude/clone-attribution-backfill` onto `origin/main`
+(post-1.2.10) and finished plan tasks 1–5 for ADR-0054. New
+`clone/refresh.py` (eligibility + candidate scan with
+poll/native-reforward/discussion/album-non-lead gates), `preview_refresh` /
+`commit_refresh` on the clone command surface, parser / preflight / dispatch
+wiring, CONTRACT §11 subsection, MAP/guide/SKILL, CHANGELOG + version bump
+to **1.2.11** (main already occupied 1.2.10). Boundary test asserts
+`EditMessageRequest` text+entities only (no media). Full `./scripts/gate.sh`
+green after rebase. Live acceptance against [икона] left owner-gated (plan
+task 6).
+
+**Decided:** album non-lead exclusion is part of the scan (not just
+eligibility) so a follower item whose body matches the raw source cannot
+invent a prefix sync never placed there. Preview uses `consume_preview`
+(single-shot), not `begin_commit` — recovery after partial FloodWait is a
+fresh preview. Kept main's comments-unavailable soft-degrade and
+comments-unstarted warning alongside refresh.
+
+**Learned:** Python looks up `__call__` on the class, so instance monkeypatches
+of a fake client's `__call__` silently no-op; audit-before-RPC order tests
+need a subclass override. Rebase conflict hotspots were CHANGELOG/DEVLOG/
+ceilings — `clone.py` itself auto-merged cleanly.
+
+**Next:** independent whole-diff Spec + Standards review of PR #77; do not
+merge until that clears. Owner-gated live preview on [икона] after merge/tag.
+
 ## 2026-07-25 — PR #78 independent review and integration (Claude Opus 5)
 
 **Did:** independent whole-diff review of `claude/clone-pinned-and-photo` from

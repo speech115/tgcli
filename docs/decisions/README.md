@@ -60,6 +60,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0051](ADR-0051-clone-windowed-phase-interleaving.md) | `clone sync` interleaves the posts and comments legs in 50-batch windows, bounded by the anchor scan; an unmapped cross-leg parent defers instead of flattening; amends ADR-0023's ordering clause only | accepted |
 | [0052](ADR-0052-clone-short-flood-wait-and-media-reuse.md) | A `FloodWaitError` of ≤60 s is waited out in the foreground and retried once, under a 180 s per-run budget; reupload downloads persist in a per-clone media cache so a failed batch is not re-downloaded; amends ADR-0045's exit-on-flood clause only | accepted |
 | [0053](ADR-0053-json-error-envelope-on-stdout.md) | With `--json` the error envelope is written to stdout as the run's single JSON document and still mirrored to stderr; human/`--plain`/`batch`/exit codes unchanged | accepted |
+| [0054](ADR-0054-clone-prefix-backfill.md) | `clone refresh` backfills body prefixes into already-copied posts under preview→commit, eligible only when the destination body is byte identical to the unprefixed source; poll snapshots, native re-forwards, and the discussion leg excluded | accepted |
 | [0055](ADR-0055-clone-pinned-and-photo-fidelity.md) | `clone sync` pins the mapped source pin silently when the posts leg is exhausted (never unpins, never overrides an existing pin, reports status); photo downscaling is measured before it is fixed, and the striped path picks the largest `PhotoSize` explicitly | accepted |
 
 Notes on supersessions:

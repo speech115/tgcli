@@ -28,7 +28,7 @@ tgcli/
 │   ├── guide/                 [done]    user-facing task pages, 22 + index (ADR-0041)
 │   ├── assets/                [done]    README banner (SVG)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
-│   ├── decisions/             [done]    ADR-0001…0052 + README.md index (ADR-0026 maintenance mode)
+│   ├── decisions/             [done]    ADR-0001…0055 + README.md index (ADR-0026 maintenance mode)
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -52,7 +52,7 @@ tgcli/
 │   ├── authclient.py          [done]    unauthorized Telethon client + auth probe (ADR-0042)
 │   ├── login_state.py         [done]    logins/ attempt state and session promotion (ADR-0042)
 │   ├── transfer.py            [done]    striped download + parallel Save*FilePart upload, one progress cadence (ADR-0047/0049/0055)
-│   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045/0046/0047/0049/0055)
+│   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045/0046/0047/0049/0054/0055)
 │   │   ├── state.py           [done]    atomic JSON state, mappings, cooldown
 │   │   ├── flood.py           [done]    account-scoped FloodWait cooldown + peer-created stamp + per-run wait budget (ADR-0045/0052)
 │   │   ├── ergonomics.py      [done]    mute forever + "Clone" dialog filter for tool-created peers (ADR-0046)
@@ -66,6 +66,7 @@ tgcli/
 │   │   ├── quote_fallback.py  [done]    rendered quote degradation: prefix, body, stale-quote strip (ADR-0037)
 │   │   ├── quotes.py          [done]    async quote resolver: native InputReplyToMessage or fallback handoff (ADR-0036/0037)
 │   │   ├── reforward.py       [done]    proven-original native re-forward out of the source discussion group (ADR-0050 Part B)
+│   │   ├── refresh.py         [done]    body backfill: eligibility + candidate scan for `tg clone refresh` (ADR-0054)
 │   │   ├── topics.py          [done]    forum destination shape, lazy topic map, batch confirmation (ADR-0022)
 │   │   ├── discussion.py      [done]    linked-chat detection, discussion group create/link/recover, anchor lookup (ADR-0023)
 │   │   ├── comments.py        [done]    discussion sync leg: window-bounded by posts cursor; defer unmapped cross-leg parents (ADR-0023/0051)
@@ -91,7 +92,7 @@ tgcli/
 │   │   ├── store.py           [done]    tg store stats|cleanup; previews + logins + session_backups + clone media caches (ADR-0040/0042/0052)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (+ incremental messages ADR-0032; broadcast walk ADR-0031)
-│   │   └── clone.py           [done]    clone status/init/sync surface (ADR-0017…0025/0045/0046/0047/0048/0052; all live gates passed)
+│   │   └── clone.py           [done]    clone status/init/sync/refresh surface (ADR-0017…0025/0045/0046/0047/0048/0052/0054/0055; all live gates passed)
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
