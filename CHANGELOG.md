@@ -30,6 +30,7 @@ lives in [docs/DEVLOG.md](docs/DEVLOG.md).
   (`PROGRESS_EVERY_CHUNKS`) used by `media download`, the striped download,
   and the clone reupload legs; `upload_parts` now reports bytes too
   (ADR-0043/0049).
+
 ## [1.2.8] — 2026-07-25
 
 ### Changed
