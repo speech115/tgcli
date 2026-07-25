@@ -28,6 +28,13 @@ lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 - Clone story snapshots: `get_entity` for the story author now treats any
   Telegram access refusal as a missing label (`неизвестен`), matching
   `attribution._resolve`; previously only `ValueError` was caught.
+- Stale-docs sync against live 1.2.x: `CONTRACT.md` header tracks the package
+  version (was still `0.1` draft); §6 allowlist count is **40** (ADR-0010);
+  §10 documents `tg accounts list` JSON/TSV (ADR-0042). `FEATURES.md` marks
+  `contacts` and `folders` as `wrapped`; README maintenance line says v1.2.
+- Unauthorized-session `ConfigError` points at `tg accounts login` (with
+  `accounts import` only as the old-stack path), not "phase 6 / authorize
+  manually".
 
 ## [1.2.9] — 2026-07-25
 

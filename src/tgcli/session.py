@@ -98,7 +98,8 @@ async def client(account: Account, *, mutation_safe: bool = False):
         if not await tg.is_user_authorized():
             raise ConfigError(
                 f"session {account.session!r} is not authorized; "
-                "run: tg accounts import (phase 6) or authorize manually"
+                "run: tg accounts login <alias> "
+                "(or tg accounts import for an old-stack session)"
             )
         yield tg
     except telethon_errors.SessionRevokedError as exc:
