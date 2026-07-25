@@ -17,6 +17,40 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — Integrated #65/#67/#68 as 1.2.10; held #66 (Claude Opus 5, orchestrated)
+
+**Did:** four draft PRs were open off the same merge-base `9b088f9`. Merged
+#65, #67, #68 onto one integration branch and gated the *combined* result
+(`1032 passed, 9 skipped`, all checks) rather than merging each blind —
+landed as #69 → `568ecac`. Conflicts were paperwork only: #65 and #67 each
+opened a `[1.2.10]` CHANGELOG section (folded into one release entry), and
+three DEVLOG entries collided (all kept, newest-first). Fact-checked both
+doc-heavy PRs against the code via subagents instead of trusting their
+descriptions: allowlist really is 40 entries, CONTRACT §10 matches
+`accounts.list_accounts`, and `actions/checkout@v7` / `setup-uv@v9.0.0` are
+real tags. Held #66 out. Also ignored `.claude/worktrees/`.
+
+**Decided:** #65 and #67 share one `1.2.10` rather than taking 1.2.10 and
+1.2.11 on the same day — ADR-0038 wants a release per contract change, not a
+version per PR, and both shipped together. #66 stays open: its CI failure is
+the architecture ratchet (`clone.py` 1144 > 1135, `quotes.py` 380 > 365, with
+`CEILINGS` untouched), and it implements task 1 of the 5 its own plan binds
+into "one PR, one tagged patch release". Its task-1 code is correct and
+well-tested, so it is a base to build on, not something to discard.
+
+**Learned:** isolated agent worktrees are created *inside* the repo at
+`.claude/worktrees/`. Untracked is not enough — ruff and pytest still walk in,
+and a gate run reported 250 lint errors sourced entirely from another
+branch's checkout under its own ruff config. The repo already ignored
+`.worktrees/`; the `.claude/` location was the gap. Separately, a green CI
+badge on a PR says nothing about the *combination*: only merging first and
+gating after proves the CHANGELOG and version sites survive.
+
+**Next:** tag `v1.2.10` on `568ecac` — the session environment refused tag
+pushes (annotated and lightweight alike), so the release is unmarked; then
+rebase #66 onto post-1.2.10 `main` (it conflicts in `clone/comments.py`) and
+finish tasks 2–5.
+
 ## 2026-07-25 — Dependency refresh: ruff 0.16 + CI Actions (Cursor Grok)
 
 **Did:** audited lockfile/OSV; only outdated Python pin was `ruff`
