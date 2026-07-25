@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,7 +10,7 @@ from telethon.tl import functions, types
 from tests.conftest import make_session_fake
 from tgcli import safety
 from tgcli.cli import main
-from tgcli.clone import state, topics
+from tgcli.clone import reforward, state, topics
 from tgcli.errors import PolicyError
 from tgcli import session
 
@@ -1782,6 +1783,117 @@ def test_clone_sync_reuploads_protected_megagroup_with_cached_author_prefix(
     assert sync["reuploaded"] == 2
 
 
+def test_clone_sync_reuploads_protected_broadcast_repost_with_forward_prefix(
+    config_env, monkeypatch, capsys
+):
+    """ADR-0050: protected broadcast post with fwd_from gets Переслано от + mention."""
+    seed_clone()
+    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+    client = CloneReuploadClient(
+        [
+            message(
+                2,
+                message="repost body",
+                media=photo,
+                fwd_from=types.MessageFwdHeader(
+                    date=None, from_id=types.PeerUser(user_id=973293498)
+                ),
+            )
+        ],
+        protected=True,
+    )
+    author_lookups = 0
+
+    async def get_entity(ref):
+        nonlocal author_lookups
+        if isinstance(ref, types.PeerUser) and ref.user_id == 973293498:
+            author_lookups += 1
+            return types.User(id=973293498, first_name="Subscriber", username=None)
+        return await CloneSyncClient.get_entity(client, ref)
+
+    client.get_entity = get_entity
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    [request] = [
+        item
+        for item in client.requests
+        if isinstance(
+            item,
+            (
+                functions.messages.SendMediaRequest,
+                functions.messages.SendMessageRequest,
+            ),
+        )
+    ]
+    assert isinstance(request, functions.messages.SendMediaRequest)
+    assert request.message.startswith("Переслано от ")
+    assert request.message == "Переслано от Subscriber\n\nrepost body"
+    lead_units = len("Переслано от ".encode("utf-16-le")) // 2
+    assert request.entities == [
+        types.MessageEntityMentionName(
+            offset=lead_units,
+            length=len("Subscriber".encode("utf-16-le")) // 2,
+            user_id=973293498,
+        )
+    ]
+    assert author_lookups == 1
+    assert sync["copied"] == 1
+    assert sync["reuploaded"] == 1
+    assert "forward_prefix" not in sync
+
+
+def test_clone_sync_protected_broadcast_without_fwd_from_stays_byte_identical(
+    config_env, monkeypatch, capsys
+):
+    """Regression: ordinary protected posts gain no Переслано от line."""
+    seed_clone()
+    client = CloneReuploadClient([message(2, message="plain post")], protected=True)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMessageRequest)
+    assert request.message == "plain post"
+    assert request.entities is None
+
+
+def test_clone_sync_reuploads_protected_forwarded_album_prefixes_leading_item_only(
+    config_env, monkeypatch, capsys
+):
+    seed_clone()
+    header = types.MessageFwdHeader(date=None, from_id=types.PeerUser(user_id=77))
+    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+    client = CloneReuploadClient(
+        [
+            message(2, grouped_id=77, message="cap", media=photo, fwd_from=header),
+            message(3, grouped_id=77, message="", media=photo, fwd_from=header),
+        ],
+        protected=True,
+    )
+
+    async def get_entity(ref):
+        if isinstance(ref, types.PeerUser):
+            return types.User(id=77, first_name="Alex", username=None)
+        return await CloneSyncClient.get_entity(client, ref)
+
+    client.get_entity = get_entity
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    [request] = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.messages.SendMultiMediaRequest)
+    ]
+    assert request.multi_media[0].message == "Переслано от Alex\n\ncap"
+    assert request.multi_media[1].message == ""
+
+
 def test_clone_sync_forwards_private_dialog_nonreply_with_author_header(
     config_env, monkeypatch, capsys
 ):
@@ -3174,6 +3286,310 @@ def test_clone_sync_reupload_part_flood_wait_exits_5_without_send(
             ),
         )
         for req in client.requests
+    )
+    saved = state.load(clone_state.clone_id)
+    assert saved.cursor == 0
+    assert saved.cooldown_deadline() is not None
+
+
+# --- ADR-0050 Part B: native re-forward of a proven original --------------
+
+
+def seed_clone_with_discussion_source(*, discussion_source_peer_id=55):
+    """A clone whose channel has a linked discussion group the reforward
+    search may query, without turning on the (unrelated) comments leg."""
+    clone_state = seed_clone()
+    clone_state.discussion_source_peer_id = discussion_source_peer_id
+    state.save(clone_state)
+    return clone_state
+
+
+class CloneReforwardClient(CloneReuploadClient):
+    """A protected-broadcast clone whose source also has a discussion group
+    reachable at ``source_group_id``, serving the ADR-0050 Part B search."""
+
+    def __init__(
+        self,
+        messages,
+        *,
+        group_messages=(),
+        group_noforwards=False,
+        source_group_id=55,
+        protected=True,
+    ):
+        super().__init__(messages, protected=protected)
+        self.source_group = channel(
+            source_group_id,
+            "Source discussion",
+            broadcast=False,
+            megagroup=True,
+            forum=False,
+            noforwards=group_noforwards,
+        )
+        self.group_messages = list(group_messages)
+        self.search_calls = []
+
+    async def get_entity(self, ref):
+        if (
+            isinstance(ref, types.PeerChannel)
+            and ref.channel_id == self.source_group.id
+        ):
+            return self.source_group
+        return await super().get_entity(ref)
+
+    async def get_messages(
+        self, entity, *, limit=None, from_user=None, offset_date=None, ids=None
+    ):
+        if from_user is not None or offset_date is not None:
+            self.search_calls.append(
+                SimpleNamespace(
+                    entity=entity,
+                    from_user=from_user,
+                    offset_date=offset_date,
+                    limit=limit,
+                )
+            )
+            return self.group_messages
+        return await super().get_messages(entity, limit=limit)
+
+
+REPOST_DATE = datetime(2026, 7, 25, 13, 55, tzinfo=UTC)
+
+
+def _reposted_message(**overrides):
+    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+    fields = dict(
+        message="repost body",
+        media=photo,
+        fwd_from=types.MessageFwdHeader(
+            date=REPOST_DATE, from_id=types.PeerUser(user_id=973293498)
+        ),
+    )
+    fields.update(overrides)
+    return message(2, **fields)
+
+
+def test_clone_sync_reforwards_protected_repost_with_proven_original(
+    config_env, monkeypatch, capsys
+):
+    """ADR-0050 Part B: an unedited group copy lets the clone forward the
+    real original instead of describing it with a text prefix."""
+    seed_clone_with_discussion_source()
+    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+    post = _reposted_message()
+    group_original = message(501, message="repost body", media=photo, date=REPOST_DATE)
+    client = CloneReforwardClient([post], group_messages=[group_original])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    forwards = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.messages.ForwardMessagesRequest)
+    ]
+    sends = [
+        item
+        for item in client.requests
+        if isinstance(
+            item,
+            (
+                functions.messages.SendMediaRequest,
+                functions.messages.SendMessageRequest,
+            ),
+        )
+    ]
+    assert sends == []
+    [forward] = forwards
+    assert forward.from_peer is client.source_group
+    assert forward.id == [501]
+    assert forward.drop_author is False
+    assert forward.to_peer is client.destination
+    [search] = client.search_calls
+    assert search.entity is client.source_group
+    assert search.from_user == types.PeerUser(user_id=973293498)
+    assert search.offset_date == REPOST_DATE + timedelta(seconds=1)
+    assert search.limit == reforward.SEARCH_LIMIT
+    assert sync["copied"] == 1
+    assert sync["forwarded"] == 1
+    assert sync["reuploaded"] == 0
+    audits = [json.loads(line) for line in safety.audit_path().read_text().splitlines()]
+    assert [record["action"] for record in audits] == ["clone-sync-reforward"]
+
+
+def test_clone_sync_falls_back_to_reupload_when_group_copy_was_edited_afterwards(
+    config_env, monkeypatch, capsys
+):
+    """The live `[икона]` 69 case: reposted 13:55, edited 16:18 — the group
+    still holds the unedited text, so the clone must not forward it."""
+    seed_clone_with_discussion_source()
+    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+    post = _reposted_message()
+    group_original = message(
+        501, message="repost body before the edit", media=photo, date=REPOST_DATE
+    )
+    client = CloneReforwardClient([post], group_messages=[group_original])
+
+    async def get_entity(ref):
+        if isinstance(ref, types.PeerUser) and ref.user_id == 973293498:
+            return types.User(id=973293498, first_name="Subscriber", username=None)
+        return await CloneReforwardClient.get_entity(client, ref)
+
+    client.get_entity = get_entity
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    forwards = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.messages.ForwardMessagesRequest)
+    ]
+    assert forwards == []
+    [request] = [
+        item
+        for item in client.requests
+        if isinstance(
+            item,
+            (
+                functions.messages.SendMediaRequest,
+                functions.messages.SendMessageRequest,
+            ),
+        )
+    ]
+    assert request.message.startswith("Переслано от ")
+    assert sync["forwarded"] == 0
+    assert sync["reuploaded"] == 1
+
+
+def test_clone_sync_protected_repost_without_discussion_source_matches_part_a(
+    config_env, monkeypatch, capsys
+):
+    """No linked source group at all: byte identical to Part A, and the
+    search RPC is never spent (there is nowhere to spend it against)."""
+    seed_clone()
+    post = _reposted_message()
+    client = CloneReuploadClient([post], protected=True)
+
+    async def get_entity(ref):
+        if isinstance(ref, types.PeerUser) and ref.user_id == 973293498:
+            return types.User(id=973293498, first_name="Subscriber", username=None)
+        return await CloneSyncClient.get_entity(client, ref)
+
+    client.get_entity = get_entity
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert not any(
+        isinstance(item, functions.messages.ForwardMessagesRequest)
+        for item in client.requests
+    )
+    [request] = [
+        item
+        for item in client.requests
+        if isinstance(
+            item,
+            (
+                functions.messages.SendMediaRequest,
+                functions.messages.SendMessageRequest,
+            ),
+        )
+    ]
+    assert isinstance(request, functions.messages.SendMediaRequest)
+    assert request.message == "Переслано от Subscriber\n\nrepost body"
+    lead_units = len("Переслано от ".encode("utf-16-le")) // 2
+    assert request.entities == [
+        types.MessageEntityMentionName(
+            offset=lead_units,
+            length=len("Subscriber".encode("utf-16-le")) // 2,
+            user_id=973293498,
+        )
+    ]
+    assert sync["forwarded"] == 0
+    assert sync["reuploaded"] == 1
+
+
+def test_clone_sync_reforward_search_flood_wait_exits_5_without_send(
+    config_env, monkeypatch, capsys
+):
+    """A FloodWait from the reforward search RPC must not be swallowed into
+    a Part A fallback — it arms the cooldown, saves state, and stops the
+    run, same as any other cooldown-wrapped RPC (ADR-0045)."""
+    clone_state = seed_clone_with_discussion_source()
+    post = _reposted_message()
+
+    class FloodSearchClient(CloneReforwardClient):
+        async def get_messages(
+            self, entity, *, limit=None, from_user=None, offset_date=None, ids=None
+        ):
+            if from_user is not None or offset_date is not None:
+                raise telethon_errors.FloodWaitError(request=None, capture=45)
+            return await super().get_messages(entity, limit=limit)
+
+    client = FloodSearchClient([post])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+
+    err = json.loads(capsys.readouterr().err)["error"]
+    assert err["retry_after"] == 45
+    assert not any(
+        isinstance(
+            item,
+            (
+                functions.messages.ForwardMessagesRequest,
+                functions.messages.SendMediaRequest,
+                functions.messages.SendMessageRequest,
+                functions.messages.SendMultiMediaRequest,
+            ),
+        )
+        for item in client.requests
+    )
+    saved = state.load(clone_state.clone_id)
+    assert saved.cursor == 0
+    assert saved.cooldown_deadline() is not None
+
+
+def test_clone_sync_reforward_group_entity_flood_wait_exits_5_without_send(
+    config_env, monkeypatch, capsys
+):
+    """Same guarantee for the other new RPC: resolving the source discussion
+    group itself can flood-wait before any search is even issued."""
+    clone_state = seed_clone_with_discussion_source()
+    post = _reposted_message()
+
+    class FloodGroupEntityClient(CloneReforwardClient):
+        async def get_entity(self, ref):
+            if (
+                isinstance(ref, types.PeerChannel)
+                and ref.channel_id == self.source_group.id
+            ):
+                raise telethon_errors.FloodWaitError(request=None, capture=45)
+            return await super().get_entity(ref)
+
+    client = FloodGroupEntityClient([post])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+
+    err = json.loads(capsys.readouterr().err)["error"]
+    assert err["retry_after"] == 45
+    assert client.search_calls == []
+    assert not any(
+        isinstance(
+            item,
+            (
+                functions.messages.ForwardMessagesRequest,
+                functions.messages.SendMediaRequest,
+                functions.messages.SendMessageRequest,
+                functions.messages.SendMultiMediaRequest,
+            ),
+        )
+        for item in client.requests
     )
     saved = state.load(clone_state.clone_id)
     assert saved.cursor == 0

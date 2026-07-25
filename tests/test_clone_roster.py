@@ -32,17 +32,21 @@ class FakeTg:
         source_error=None,
         discussion_error=None,
         discussion_entity=True,
+        entity_error=None,
     ):
         self._source = list(source)
         self._discussion = list(discussion)
         self._source_error = source_error
         self._discussion_error = discussion_error
         self._discussion_entity = discussion_entity
+        self._entity_error = entity_error
         self.source_entity = SimpleNamespace(id=123)
         self.group_entity = SimpleNamespace(id=55)
 
     async def get_entity(self, peer):
         assert isinstance(peer, types.PeerChannel)
+        if self._entity_error is not None:
+            raise self._entity_error
         if not self._discussion_entity:
             raise ValueError("unresolved")
         return self.group_entity
@@ -153,6 +157,39 @@ def test_collect_marks_discussion_unavailable_when_entity_unresolved():
     result = run(tg, clone_state)
     assert result["source"]["status"] == "collected"
     assert result["discussion"]["status"] == "unavailable"
+
+
+def test_collect_marks_discussion_unavailable_when_group_turned_private():
+    """Telegram refuses to name the peer with an RPCError, not a ValueError.
+    The roster is a best-effort snapshot after the copying is done — an
+    access refusal is a marker, never an exception out of `collect`."""
+    clone_state = seed(comments="enabled")
+    tg = FakeTg(
+        source=[user(1)],
+        entity_error=telethon_errors.ChannelPrivateError(request=None),
+    )
+    result = run(tg, clone_state)
+    assert result["source"]["status"] == "collected"
+    assert result["discussion"]["status"] == "unavailable"
+    assert result["discussion"]["reason"] == "ChannelPrivateError"
+    assert result["discussion"]["count"] == 0
+    # the finished message sync still reports its own rows
+    assert [row["id"] for row in read_lines(clone_state)] == [1]
+
+
+def test_collect_defers_discussion_when_entity_resolve_floods():
+    from tgcli.clone import flood as account_flood
+
+    clone_state = seed(comments="enabled")
+    flood = telethon_errors.FloodWaitError(request=None)
+    flood.seconds = 30
+    tg = FakeTg(source=[user(1)], entity_error=flood)
+    result = run(tg, clone_state)
+    assert result["discussion"]["status"] == "deferred"
+    assert result["discussion"]["reason"] == "flood_wait"
+    # a roster flood must not arm either cooldown (ADR-0024)
+    assert clone_state.cooldown_deadline() is None
+    assert account_flood.cooldown_deadline(clone_state.account_user_id) is None
 
 
 def test_collect_overwrites_previous_snapshot():

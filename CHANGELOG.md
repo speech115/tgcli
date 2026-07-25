@@ -11,6 +11,47 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.8] — 2026-07-25
+
+### Changed
+
+- Clone posts leg: a reposted, single-message broadcast batch that can prove
+  its original in the clone's linked source discussion group (reachable,
+  not `noforwards`; exactly one group message matches `fwd_from.from_id`
+  and `fwd_from.date`; text, formatting entities, and media — spoiler flag
+  included — identical to
+  the post) now forwards
+  that original into the destination channel instead of prefixing
+  `Переслано от <label>`, so the destination carries Telegram's own header;
+  such a batch counts as `forwarded`, not `reuploaded`, in the sync JSON
+  transport counts. Albums and snapshot-mode posts are excluded. Any
+  unproven case keeps the 1.2.7 text-prefix fallback (ADR-0050).
+
+### Fixed
+
+- Clone attribution no longer aborts a sync when Telegram refuses to name a
+  peer. `author_of` and `forwarded_author_of` caught only `ValueError`, so a
+  post forwarded from a channel the account cannot access raised
+  `ChannelPrivateError` and killed the run; both now treat any such refusal
+  as a missing label and fall through the ladder. A `FloodWaitError` still
+  propagates and arms the cooldown (ADR-0045).
+- Clone roster: the same refusal shape no longer escapes the participant
+  snapshot. `collect` caught only `ValueError` around the discussion-group
+  resolve, so a source group that turned private crashed `sync` *after* the
+  messages had already copied; it now records `"unavailable"` with the error
+  name, and a FloodWait there records `"deferred"` without arming either
+  cooldown, as ADR-0024 already promised.
+
+## [1.2.7] — 2026-07-25
+
+### Changed
+
+- Clone posts leg: a protected (reupload/snapshot) channel post that is
+  itself a forward gains a truthful Russian `Переслано от <label>` body
+  prefix built only from `fwd_from` (`from_id` / `from_name` /
+  `post_author`, or bare `Переслано`); native forward path unchanged
+  (ADR-0050).
+
 ## [1.2.6] — 2026-07-24
 
 ### Changed
@@ -194,6 +235,8 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.8]: https://github.com/speech115/tgcli/compare/v1.2.7...v1.2.8
+[1.2.7]: https://github.com/speech115/tgcli/compare/v1.2.6...v1.2.7
 [1.2.6]: https://github.com/speech115/tgcli/compare/v1.2.5...v1.2.6
 [1.2.5]: https://github.com/speech115/tgcli/compare/v1.2.4...v1.2.5
 [1.2.4]: https://github.com/speech115/tgcli/compare/v1.2.3...v1.2.4

@@ -57,7 +57,10 @@ def decide(messages, leg, source) -> TransportPlan:
         mode = "reuploaded"
     else:
         mode = "forwarded"
-    needs_author = leg.source_kind != "broadcast" and mode != "forwarded"
+    needs_author = mode != "forwarded" and (
+        leg.source_kind != "broadcast"
+        or getattr(messages[0], "fwd_from", None) is not None
+    )
     return TransportPlan(
         mode=mode,
         reply_to=reply_to,
