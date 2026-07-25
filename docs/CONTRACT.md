@@ -1,7 +1,8 @@
 # CLI Automation Contract
 
-Version: 0.1 (pre-implementation draft; frozen at first release).
-Any change here lands in the same commit as the code change (AGENTS.md).
+Version: 1.2.10 (tracks the package release; see `CHANGELOG.md` and
+`pyproject.toml`). Any change here lands in the same commit as the code
+change (AGENTS.md / ADR-0038).
 
 ## 1. Invocation
 
@@ -692,8 +693,9 @@ tg api <Namespace.method> --params '<json>' [--write] [--confirm <method>]
 
 - `--params` is required and must be a JSON object. In phase 2, only the
   reviewed explicit allowlist in ADR-0010 may run through the configured
-  session (35 methods as of 2026-07-10; e.g. `users.getFullUser`,
-  `messages.getHistory`, `channels.getParticipants`).
+  session (40 methods as of 2026-07-22; e.g. `users.getFullUser`,
+  `messages.getHistory`, `channels.getParticipants`,
+  `contacts.resolvePhone`, `stories.getPeerStories`).
 - Without `--write`, every method outside the ADR-0010 read allowlist is
   blocked before config loading or session acquisition with exit 2.
 - With `--write`, the same `--readonly`, `TGCLI_READONLY=1`, and
@@ -784,6 +786,7 @@ current process. Stdout remains contract data in all output modes.
 ## 10. Accounts (phase 6 / ADR-0042)
 
 ```
+tg accounts list
 tg accounts import [ALIAS ...] [--source-root PATH] [--force]
 tg accounts show ALIAS
 tg accounts remove ALIAS [--confirm] [--keep-session]
@@ -792,6 +795,17 @@ tg accounts login ALIAS [--phone PHONE] [--api-id N] [--api-hash H]
                         [--password-stdin]
 tg accounts login --continue LOGIN_ID [--code VALUE|-] [--password-stdin]
 ```
+
+`accounts list` is a local-only command: it reads config only and never opens
+a Telegram session. `--json` emits the configured default and each alias with
+its session basename (never `api_id` / `api_hash`):
+
+```json
+{"default_account": "main",
+ "accounts": [{"alias": "main", "session": "main"}]}
+```
+
+`--plain` emits frozen TSV columns: `alias`, `session`.
 
 `accounts import` is a local-only command: it never opens a Telegram
 connection. With no aliases it tries `main`, `recklessou`, and `teamsyncsage`,
@@ -1124,8 +1138,19 @@ level `sync.clone` object itself carries no `comments` field). `--limit N`
 is not split between phases — phase 1 spends the full budget first, and
 phase 2 only starts if phase 1 did not stop on the limit; a run that stops
 inside phase 2 leaves comments lagging posts until the next invocation.
-When `comments` is `"disabled"`, `"unavailable"`, or `"none"`, the comment
-phase and the discussion roster snapshot are skipped entirely.
+If resolving the source discussion group fails because Telegram refuses
+access (`ChannelPrivateError`, `ChatForbiddenError`, `ChatAdminRequiredError`,
+or an unresolved peer), sync does **not** exit non-zero: it persists
+`comments: "unavailable"`, clears any leftover `discussion_cursor` /
+`discussion_id_map` (state forbids phase-2 progress when comments are not
+`enabled`), skips the comments phase and the discussion roster snapshot for
+this and later runs, and exits 0 — the same permanent honest marker init
+would have written for an unreadable linked group (ADR-0023). A
+`FloodWaitError` while resolving that group still exits 5 and arms the
+account-scoped cooldown (ADR-0045). An unavailable *destination*
+discussion group remains exit 2 (`PolicyError`). When `comments` is
+`"disabled"`, `"unavailable"`, or `"none"`, the comment phase and the
+discussion roster snapshot are skipped entirely.
 Telegram's own auto-forwards of channel posts into the discussion group
 (recognized by `fwd_from.saved_from_peer`/`saved_from_msg_id` matching the
 source channel and post) are read-only anchors, never copied, and counted in

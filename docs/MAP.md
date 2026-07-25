@@ -73,7 +73,7 @@ tgcli/
 │   │   └── legs.py            [done]    Leg seam sharing the batch path between the posts and discussion legs (ADR-0023)
 │   └── commands/
 │   │   ├── batch.py           [done]    tg batch read-only JSONL runner (ADR-0032)
-│   │   ├── accounts.py        [done]    tg accounts list|import|show|remove (phase 1/6; ADR-0042 Slice 1)
+│   │   ├── accounts.py        [done]    tg accounts list|import|show|remove (ADR-0042)
 │   │   ├── login.py           [done]    tg accounts login QR/phone + --continue (ADR-0042)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
 │   │   ├── read.py            [done]    tg read <chat>                (phase 1)

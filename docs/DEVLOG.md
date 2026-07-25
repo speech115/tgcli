@@ -17,6 +17,73 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — Dependency refresh: ruff 0.16 + CI Actions (Cursor Grok)
+
+**Did:** audited lockfile/OSV; only outdated Python pin was `ruff`
+0.15.22 → 0.16.0. Bumped `uv.lock` / `ruff>=0.16`, pinned
+`[tool.ruff.lint] select = ["E4","E7","E9","F"]` (pre-0.16 defaults) and
+`extend-exclude = ["**/*.md"]` so Markdown code-block formatting does not
+rewrite closed `docs/superpowers/` history. CI: `actions/checkout@v7`,
+`astral-sh/setup-uv@v9.0.0` (immutable tag required since setup-uv v8).
+Gate green.
+
+**Decided:** do not adopt the new 413-rule default in this slice — that is
+a lint-policy change, not a deps bump. No ADR (existing tooling versions).
+
+**Learned:** ruff 0.16 without `target-version`/`requires-python` in the
+effective config flags `ExceptionGroup` as F821; `py312` + project
+`requires-python` closes it. setup-uv no longer publishes floating `@vN`
+tags from v8 onward.
+
+**Next:** optional follow-up to evaluate adopting the expanded default
+rule set under a dedicated lint PR.
+
+## 2026-07-25 — Stale-docs audit → 1.2.10 contract sync (Cursor Grok 4.5)
+
+**Did:** audited CONTRACT/MAP/FEATURES/README against live `src/tgcli` after a
+Grok Build–style stale-docs pass. Confirmed seven drifts; shipped the full
+fix as patch `1.2.10`: CONTRACT header `1.2.10`, §6 allowlist **40**, §10
+`accounts list` shape; FEATURES `contacts`/`folders` → `wrapped`; README
+maintenance line → v1.2; unauthorized-session hint → `tg accounts login`
+(regression in `tests/test_session.py`). MAP `accounts.py` note cleaned.
+
+**Decided:** documenting already-shipped `accounts list` and correcting the
+allowlist count are CONTRACT edits, so ADR-0038 requires a release in the
+same commit — no new ADR (ADR-0010 / ADR-0042 already govern the behavior).
+
+**Learned:** the CONTRACT version header had been frozen at `0.1` draft since
+first release while the package moved through 1.2.x; FEATURES status lagged
+wrappers that landed under identity/dialog ADRs.
+
+**Next:** independent Spec + Standards review of this branch from its
+merge-base before merge; tag `v1.2.10` on the merged release commit.
+
+## 2026-07-25 — Guard comments.sync_phase source-group resolve (#64) (Composer)
+
+**Did:** closed the third site of the 1.2.8 refusal class. `comments.sync_phase`
+resolved `discussion_source_peer_id` with no error handling, so a source
+group that turned private after init raised through `cli.py`'s unrecognized-
+exception path as a traceback. Catch now matches `attribution._resolve`:
+re-raise `FloodWaitError` (ADR-0045), treat `(ValueError, RPCError)` as
+`comments: "unavailable"` + clear phase-2 cursor/id_map + skip phase 2.
+CONTRACT §11 documents the path; 1.2.10 bump + CHANGELOG. Unit tests in
+`tests/test_clone_comments.py` (roster-shaped) plus one CLI seam case.
+Mirror-fix: `snapshot.render` story-author resolve now catches `RPCError`
+too. Independent review found the cursor/id_map invariant hole; fixed with
+a reproducing test before the green.
+
+**Decided:** unavailable source group soft-degrades to the ADR-0023 marker
+rather than a hard `PolicyError` — same honesty as init and roster; the
+destination group resolve stays exit 2 because we own that peer.
+
+**Learned:** `state.from_dict` rejects `comments != enabled` with a non-zero
+`discussion_cursor` or non-empty `discussion_id_map`. Soft-degrade that
+only flips the marker leaves the next sync dying on load — every zero-
+cursor test was green and still wrong for a mid-phase-2 clone.
+
+**Next:** implement ADR-0051 (windowed phase interleaving); defer-not-flatten
+first.
+
 ## 2026-07-25 — Merged the #59–#63 backlog; 1.2.7–1.2.9 tagged (Claude Opus 5)
 
 **Did:** cleared all five open PRs and every branch. Merge order #60 (ADR-0050

@@ -146,7 +146,7 @@ tg --json send --commit p_9f3a
 
 ## Status
 
-v1.1 in maintenance mode (ADR-0026): feature-complete and in production use. New behavior needs an explicit owner request plus an ADR; a bug fix starts from a reproducing test.
+v1.2 in maintenance mode (ADR-0026): feature-complete and in production use. New behavior needs an explicit owner request plus an ADR; a bug fix starts from a reproducing test.
 
 CI runs `pytest`, `ruff`, `pyright`, and a fail-closed TL coverage gate on every push and PR ([.github/workflows/ci.yml](.github/workflows/ci.yml)). `scripts/bench.py` benchmarks every command against a live account (13 steps, ~20 s).
 

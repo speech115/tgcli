@@ -107,6 +107,22 @@ def test_story_render_links_known_username():
     assert marker is None
 
 
+def test_story_render_treats_private_peer_as_unknown_author():
+    """Same refusal shape as attribution._resolve: ChannelPrivateError is an
+    RPCError, not a ValueError — a missing author label, never a failed sync."""
+
+    class Client:
+        async def get_entity(self, peer):
+            raise telethon_errors.ChannelPrivateError(request=None)
+
+    media = types.MessageMediaStory(peer=types.PeerChannel(channel_id=9), id=3)
+    message = SimpleNamespace(media=media)
+    text, entities, marker = asyncio.run(snapshot.render(Client(), message))
+    assert text == "Stories недоступна\nАвтор: неизвестен"
+    assert entities == []
+    assert marker is None
+
+
 class VoteClient:
     def __init__(
         self,
