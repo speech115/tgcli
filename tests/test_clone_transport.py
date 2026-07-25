@@ -20,9 +20,13 @@ def _source(noforwards=False):
     return SimpleNamespace(id=2, noforwards=noforwards)
 
 
-def _msg(message_id=10, *, reply_to=None, media=None, noforwards=False):
+def _msg(message_id=10, *, reply_to=None, media=None, noforwards=False, fwd_from=None):
     return SimpleNamespace(
-        id=message_id, reply_to=reply_to, media=media, noforwards=noforwards
+        id=message_id,
+        reply_to=reply_to,
+        media=media,
+        noforwards=noforwards,
+        fwd_from=fwd_from,
     )
 
 
@@ -96,3 +100,59 @@ def test_forum_placement_only_reply_is_not_flattened():
     )
     assert plan.mode == "forwarded"
     assert plan.reply_flattened is False
+
+
+def test_broadcast_reupload_of_forward_needs_author():
+    """ADR-0050: a reposted broadcast post on the reupload path needs the prefix."""
+    fwd = types.MessageFwdHeader(date=None, from_id=types.PeerUser(user_id=7))
+    plan = transport.decide(
+        [_msg(fwd_from=fwd)], _clone_state(), _source(noforwards=True)
+    )
+    assert plan.mode == "reuploaded"
+    assert plan.needs_author is True
+
+
+def test_broadcast_reupload_without_forward_needs_no_author():
+    plan = transport.decide([_msg()], _clone_state(), _source(noforwards=True))
+    assert plan.mode == "reuploaded"
+    assert plan.needs_author is False
+
+
+def test_broadcast_forward_path_needs_no_author_even_with_fwd_from():
+    """Native forward keeps Telegram's header — no double attribution."""
+    fwd = types.MessageFwdHeader(date=None, from_name="Someone")
+    plan = transport.decide([_msg(fwd_from=fwd)], _clone_state(), _source())
+    assert plan.mode == "forwarded"
+    assert plan.needs_author is False
+
+
+def test_broadcast_snapshot_of_forward_needs_author():
+    fwd = types.MessageFwdHeader(date=None, from_id=types.PeerUser(user_id=7))
+    media = types.MessageMediaPoll(poll=None, results=None)
+    plan = transport.decide(
+        [_msg(media=media, fwd_from=fwd)], _clone_state(), _source(noforwards=True)
+    )
+    assert plan.mode == "snapshots"
+    assert plan.needs_author is True
+
+
+def test_broadcast_album_forward_uses_leading_message_fwd_from():
+    """Leading message's fwd_from governs the batch (author only on index 0)."""
+    fwd = types.MessageFwdHeader(date=None, from_name="Someone")
+    plan = transport.decide(
+        [_msg(1, fwd_from=fwd), _msg(2, fwd_from=fwd)],
+        _clone_state(),
+        _source(noforwards=True),
+    )
+    assert plan.mode == "reuploaded"
+    assert plan.needs_author is True
+
+
+def test_broadcast_album_without_leading_fwd_from_needs_no_author():
+    plan = transport.decide(
+        [_msg(1), _msg(2, fwd_from=types.MessageFwdHeader(date=None, from_name="X"))],
+        _clone_state(),
+        _source(noforwards=True),
+    )
+    assert plan.mode == "reuploaded"
+    assert plan.needs_author is False

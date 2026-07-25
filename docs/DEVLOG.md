@@ -17,6 +17,177 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — Merged the #59–#63 backlog; 1.2.7–1.2.9 tagged (Claude Opus 5)
+
+**Did:** cleared all five open PRs and every branch. Merge order #60 (ADR-0050
+docs) → #62 (Part A, `v1.2.7`) → #63 (Part B, `v1.2.8`) → #61 (ADR-0051 docs)
+→ #59 (ADR-0049 progress, renumbered to `v1.2.9`). Each merge ran an
+independent `reviewer` pass from the merge-base first. #59 and #62 both
+claimed `1.2.7`; the stack landed on that number and #59 was renumbered at
+merge time, so only one branch needed touching.
+
+**Decided:** #63's review found two real defects and they were fixed on its
+own head before merge, not deferred. `reforward._media_key` compared only
+media type and file id, so a post hiding a photo behind a spoiler matched a
+group original that shows it uncovered — the re-forward would have
+republished deliberately hidden media in the clear; the flag is now part of
+the key, and CONTRACT §11 names it in the "identical" bar. `roster.collect`
+still had the `except ValueError` shape around `get_entity` that the same
+branch had just fixed in `attribution._resolve`, so a source discussion group
+turning private crashed a sync whose messages had already copied; it now
+records `"unavailable"` / `"deferred"` through the ladder `_collect_peer`
+already used. Five tests, each red before its fix.
+
+**Learned:** `gh pr checks` renders a concurrency-cancelled push run as
+`fail`; every "red" check this session was a superseded push run while the
+`pull_request` run on the same head SHA was green — check `event` and
+`headSha` before believing a red. The #59/main test-file conflict was not
+textual: both sides appended blocks and git interleaved them, so the union
+was rebuilt by applying #59's diff onto main's file rather than hand-editing
+the markers. `roster.collect`'s sibling in `comments.sync_phase:45-47`
+resolves the source group with no error handling at all — same bug class,
+left as a tracked follow-up rather than scope creep.
+
+**Next:** implement ADR-0051 (windowed phase interleaving), whose ADR and
+plan are now on main; the defer-not-flatten task is ordered first for a
+reason.
+
+## 2026-07-25 — Implement ADR-0050 Part B (Claude Opus 5, orchestrated)
+
+**Did:** owner lifted the Part B gate, so decision 3 shipped on
+`claude/clone-forward-attribution-b` (stacked on the Part A head). New
+`src/tgcli/clone/reforward.py`: `eligible()` admits only a single-message
+`reuploaded` broadcast repost with a searchable `fwd_from`; `locate()`
+resolves the linked source group once per run, spends at most one
+`get_messages(from_user=…, offset_date=fwd.date + 1s, limit=20)` per repost,
+and returns a group message id only when exactly one candidate sits at
+`fwd_from.date` with identical text and media. `_forward_batch` then sends
+that one `ForwardMessagesRequest(from_peer=<source group>, drop_author=False)`
+— audited as `clone-sync-reforward`, counted as `forwarded` — and skips the
+Part A prefix; every unproven case falls back to it unchanged. 22 new tests
+(`tests/test_clone_reforward.py` + 3 integration cases); 1.2.8 double bump,
+CHANGELOG, CONTRACT §11, MAP, plan boxes. Gate green.
+
+**Decided:** narrow Part B below the ADR's wording — albums are excluded
+(every item would need its own proof) and snapshot batches are excluded
+(ADR-0048 poll-vote replication is built on the rendered placeholder a
+forward would replace). Recorded in the plan and CHANGELOG. Ran the session
+as an orchestrator: Sonnet subagents wrote the tests and the release
+paperwork against a fixed API contract while Opus wrote the module and the
+wiring.
+
+**Learned:** the search must not be reached through `iter_messages` — only
+the `get_messages` coroutine can pass through `_with_cooldown`, which is
+what keeps a `FloodWaitError` arming the ADR-0045 cooldown instead of dying
+inside an async generator. `_guarded` re-raises `FloodWaitError` before
+catching `RPCError` for the same reason: FloodWait is a subclass, and
+swallowing it would turn a rate limit into a silent fallback.
+
+**Live:** read-only probe against the real `[икона]` clone (source id
+3802378977, group «масонская ложа» 3749696954) — no mutation, no peer, one
+`get_entity` plus five real searches. Source is `noforwards=true`, the group
+is not, so Part B applies live. Five reposts, five correct verdicts: 78→836,
+73→808, 69→793 proven; 81 falls back to `Переслано от Эмиль Ахмедов
+(@e1m11)` because its original never was in that group; 54 falls back to the
+bare `Переслано`. Two findings, both fixed here. **(1)** post 54 forwards
+from a private channel, and `get_entity` answered `ChannelPrivateError` —
+an `RPCError`, not the `ValueError` Part A caught, so a real sync would have
+died on it. `author_of` and `forwarded_author_of` now share `_resolve`,
+which re-raises FloodWait and turns every other refusal into a missing
+label. **(2)** the ADR's own example is wrong about the data: post 69 was
+edited at 16:18 after being reposted at 13:55, yet its text is byte
+identical to the group original — the edit moved something other than
+characters. `_same_content` therefore compares entities too.
+
+**Next:** independent review of this PR, then merge and tag 1.2.8 — after
+#59, which also claims a 1.2.7-adjacent digit, settles.
+
+## 2026-07-25 — Implement ADR-0050 Part A (Composer)
+
+**Did:** executed Part A of
+`docs/superpowers/plans/2026-07-25-clone-forward-attribution.md` on
+`cursor/clone-forward-attribution-a-9e82` (base: ADR-0050 docs branch).
+`Author.lead` + `forwarded_author_of` ladder; `transport.decide` sets
+`needs_author` for broadcast+`fwd_from` on reupload/snapshot; `_forward_batch`
+threads the forwarded author. CONTRACT §11 sentence, MAP, CHANGELOG 1.2.7,
+dual version bump. Part B left gated. Full `./scripts/gate.sh` evidence in PR.
+
+**Decided:** ship decisions 1–2 as 1.2.7; decision 3 (native re-forward)
+untouched pending explicit owner go-ahead. Version digit conflicts with open
+#59 (also claiming 1.2.7) — whichever merges second rebases the bump.
+
+**Learned:** with only `needs_author=True` and still calling `author_of`, a
+channel repost renders `id unknown:` because `from_id` is the channel-absent
+shape — the failing album integration test proved why `forwarded_author_of`
+must be a sibling, not a post-process of `author_of`.
+
+**Next:** independent Spec+Standards review of this PR; Part B only after
+owner accept of the per-repost `messages.Search` cost.
+
+## 2026-07-25 — ADR-0050 clone forward attribution (Claude Opus 5)
+
+**Did:** owner-commissioned after inspecting live `[икона]`. Docs only, no
+code: wrote ADR-0050 on `claude/clone-forward-attribution` + README index +
+MAP ADR range. Investigated two owner questions against live data first.
+
+**Decided:** ADR-0050. Reposted posts (`fwd_from` set) get a truthful
+`Переслано от <label>` prefix on the reupload/snapshot paths; `needs_author`
+gains a `fwd_from` case instead of being a pure function of `source_kind`.
+The label renders only what `fwd_from` asserts — never "из обсуждения",
+because `saved_from_peer` is null on this shape. Native re-forward of the
+proven original is a separate, gated slice requiring sender + date +
+content match.
+
+**Learned:** three live findings that changed the answer.
+(1) The "duplicated posts" in the clone's discussion group are **not** a
+defect: they are Telegram's own auto-forward anchors, and the source group
+«масонская ложа» shows the identical pattern. It only looks wrong because
+the comments leg has not run, so the group holds anchors and nothing else —
+a presentation symptom of ADR-0023's phase order, not a copy bug.
+(2) The source *group* is `noforwards=false` while the *channel* is
+`noforwards=true` — so a genuine native header is reachable by forwarding
+the original comment, which I had written off too quickly.
+(3) But `fwd_from.saved_from_peer`/`saved_from_msg_id` are null on a
+group-comment repost, so there is no Telegram-supplied pointer to the
+original; and the repost is routinely edited afterwards (source 69 was
+reposted 13:55, edited 16:18), so any match must compare content or it will
+publish different text.
+
+**Next:** owner picks whether decision 3 (native re-forward) is in scope
+before implementation; decisions 1–2 are implementable as-is. Windowed
+phase interleaving (the ADR-0023 re-open) is still unwritten and separate.
+
+## 2026-07-25 — ADR-0051 windowed phase interleaving (Claude Opus 5)
+
+**Did:** docs only, no code. Wrote ADR-0051 + its plan
+`2026-07-25-clone-phase-interleaving.md` on `claude/clone-phase-interleaving`
+(branched from main), plus README index and MAP ADR range. Companion to the
+ADR-0050 work on `claude/clone-forward-attribution`; the two are
+independent and either may land first.
+
+**Decided:** ADR-0051 amends ADR-0023's ordering clause only. `clone sync`
+alternates the legs in 50-batch windows; the comments leg stops at the first
+anchor whose post is newer than the posts cursor, which is free because the
+scan already recognises anchors and is sound because a comment cannot
+precede the anchor it replies to. The safety condition — an unmapped
+cross-leg parent must defer, not `flatten` — is a separate, ordered-first
+task in the plan: merged the other way round, the first window would plant
+every early comment flat in a real chat, irreversibly.
+
+**Learned:** the ADR-0023 ordering was not arbitrary, it was load-bearing —
+`comments.sync_phase` states the invariant in its own docstring and
+`replies._classify_header` degrades an unmapped cross-leg parent to
+`flatten`. What makes the change safe is not the windowing, it is
+distinguishing "parent not copied *yet*" (defer) from "parent will never be
+copied" (flatten). Also worth recording: `--limit` now spans both legs,
+which reverses ADR-0023's explicit "`--limit` does not split across phases"
+— the one observable behaviour change.
+
+**Next:** owner merges #60 (ADR-0050 + plan) and this PR, then picks an
+implementation order. Note both branches insert a row after ADR-0049 in
+`docs/decisions/README.md` and both prepend a DEVLOG entry, so the second
+merge needs a trivial keep-both resolution.
+
 ## 2026-07-24 — ADR-0049 sync progress (Part D) + flood forensics (Claude Opus 5)
 
 **Did:** implemented plan Part D on `claude/clone-sync-progress`. D1: moved
