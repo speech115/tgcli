@@ -18,7 +18,9 @@ CLONE_TRANSFER_PARALLEL = 4
 # `media download`, the striped download, and the clone reupload legs.
 PROGRESS_EVERY_CHUNKS = 16
 
-Invoke = Callable[[Awaitable[Any]], Awaitable[Any]]
+# Zero-arg thunk → fresh awaitable. A coroutine object is single-use; callers
+# that may retry (ADR-0052) must rebuild it, so invoke never receives one.
+Invoke = Callable[[Callable[[], Awaitable[Any]]], Awaitable[Any]]
 
 
 async def _run_workers(coros: Iterable[Coroutine[Any, Any, None]]) -> None:
@@ -117,10 +119,10 @@ async def upload_parts(
     if not is_big:
         hash_md5.update(path.read_bytes())
 
-    async def run(awaitable):
+    async def run(make_awaitable):
         if invoke is None:
-            return await awaitable
-        return await invoke(awaitable)
+            return await make_awaitable()
+        return await invoke(make_awaitable)
 
     uploaded = 0
     parts_since_progress = 0
@@ -139,7 +141,7 @@ async def upload_parts(
                     request = functions.upload.SaveFilePartRequest(
                         file_id, part_index, part
                     )
-                result = await run(tg(request))
+                result = await run(lambda: tg(request))
                 if not result:
                     raise RuntimeError(f"Failed to upload file part {part_index}")
                 uploaded += len(part)

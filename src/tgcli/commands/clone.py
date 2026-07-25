@@ -266,9 +266,15 @@ def _enforce_cooldown(clone_state: state.CloneState) -> None:
         _raise_if_cooling(max(deadlines))
 
 
-async def _with_cooldown(awaitable, clone_state):
+async def _with_cooldown(make_awaitable, clone_state):
+    """Run ``make_awaitable()`` once under FloodWait cooldown arming.
+
+    ``make_awaitable`` is a zero-arg callable that builds a fresh awaitable —
+    a coroutine object cannot be re-awaited, so the seam takes a thunk
+    (ADR-0052 task 1). Behaviour is still single-attempt until task 2.
+    """
     try:
-        return await awaitable
+        return await make_awaitable()
     except telethon_errors.FloodWaitError as exc:
         deadline = datetime.now(UTC) + timedelta(seconds=exc.seconds)
         clone_state.set_cooldown(deadline)
@@ -278,7 +284,7 @@ async def _with_cooldown(awaitable, clone_state):
 
 
 async def _mutate(tg, request, clone_state: state.CloneState):
-    result = await _with_cooldown(tg(request), clone_state)
+    result = await _with_cooldown(lambda: tg(request), clone_state)
     if isinstance(request, functions.channels.CreateChannelRequest):
         flood.record_peer_created(clone_state.account_user_id, datetime.now(UTC))
     return result
@@ -293,15 +299,19 @@ async def _copy_profile(tg, source, destination, account_alias, clone_state, coo
     """
     clone_id = clone_state.clone_id
     if isinstance(source, types.User):
-        full = await cooldown(tg(functions.users.GetFullUserRequest(source)))  # type: ignore  # Telethon resolves the entity
+        full = await cooldown(
+            lambda: tg(functions.users.GetFullUserRequest(source))  # type: ignore  # Telethon resolves the entity
+        )
         about = getattr(full.full_user, "about", None) or ""
     elif isinstance(source, types.Chat):
         full = await cooldown(
-            tg(functions.messages.GetFullChatRequest(chat_id=source.id))
+            lambda: tg(functions.messages.GetFullChatRequest(chat_id=source.id))
         )
         about = getattr(full.full_chat, "about", None) or ""
     else:
-        full = await cooldown(tg(functions.channels.GetFullChannelRequest(source)))
+        full = await cooldown(
+            lambda: tg(functions.channels.GetFullChannelRequest(source))
+        )
         about = getattr(full.full_chat, "about", None) or ""
     if about:
         safety.append_audit(
@@ -314,7 +324,7 @@ async def _copy_profile(tg, source, destination, account_alias, clone_state, coo
         )
         try:
             await cooldown(
-                tg(
+                lambda: tg(
                     functions.messages.EditChatAboutRequest(
                         peer=destination, about=about
                     )
@@ -333,11 +343,11 @@ async def _copy_profile(tg, source, destination, account_alias, clone_state, coo
         return full_chat
     with tempfile.TemporaryDirectory(prefix="tgcli-clone-avatar-") as workdir:
         downloaded = await cooldown(
-            tg.download_profile_photo(source, file=Path(workdir) / "avatar")
+            lambda: tg.download_profile_photo(source, file=Path(workdir) / "avatar")
         )
         if downloaded is None:
             raise PolicyError("clone source avatar download failed")
-        uploaded = await cooldown(tg.upload_file(downloaded))
+        uploaded = await cooldown(lambda: tg.upload_file(downloaded))
         safety.append_audit(
             "clone-init-avatar",
             account_alias,
@@ -347,7 +357,7 @@ async def _copy_profile(tg, source, destination, account_alias, clone_state, coo
             },
         )
         await cooldown(
-            tg(
+            lambda: tg(
                 functions.channels.EditPhotoRequest(
                     channel=destination,
                     photo=types.InputChatUploadedPhoto(file=uploaded),
@@ -374,15 +384,15 @@ async def _init_discussion(
         return state.save(clone_state)
     clone_state.discussion_source_peer_id = linked
 
-    def cooldown(awaitable):
-        return _with_cooldown(awaitable, clone_state)
+    def cooldown(make_awaitable):
+        return _with_cooldown(make_awaitable, clone_state)
 
     def mutate(request):
         return _mutate(tg, request, clone_state)
 
     try:
         source_group = await tg.get_entity(types.PeerChannel(linked))
-        await cooldown(tg.get_messages(source_group, limit=1))
+        await cooldown(lambda: tg.get_messages(source_group, limit=1))
     except (
         ValueError,
         telethon_errors.ChannelPrivateError,
@@ -545,7 +555,7 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
         destination,
         account_alias,
         clone_state,
-        lambda awaitable: _with_cooldown(awaitable, clone_state),
+        lambda make_awaitable: _with_cooldown(make_awaitable, clone_state),
     )
     if no_comments:
         clone_state.comments = "disabled"
@@ -606,8 +616,8 @@ def init_rows(data: dict) -> list[tuple]:
 
 
 async def _uploaded_media(tg, message, path, clone_state, progress=None):
-    async def invoke(awaitable):
-        return await _with_cooldown(awaitable, clone_state)
+    async def invoke(make_awaitable):
+        return await _with_cooldown(make_awaitable, clone_state)
 
     input_file = await upload_parts(
         tg,
@@ -635,7 +645,7 @@ async def _download_for_reupload(
         # Only the striped path reports bytes: a sub-chunk file is over before
         # it could reach a progress mark (ADR-0049).
         await _with_cooldown(
-            download_striped(
+            lambda: download_striped(
                 tg,
                 message.media,
                 target,
@@ -647,7 +657,7 @@ async def _download_for_reupload(
         )
         return target
     downloaded = await _with_cooldown(
-        tg.download_media(message, file=target),
+        lambda: tg.download_media(message, file=target),
         clone_state,
     )
     if downloaded is None:
@@ -779,8 +789,8 @@ async def _forward_batch(
         reply_to = topics.place(reply_to, topic_dest)
     top_msg_id = None if topic_dest in (None, topics.GENERAL_TOPIC_ID) else topic_dest
 
-    async def cooldown(awaitable):
-        return await _with_cooldown(awaitable, clone_state)
+    async def cooldown(make_awaitable):
+        return await _with_cooldown(make_awaitable, clone_state)
 
     # ADR-0050 Part B: a proven original outranks the Part A prefix, because
     # forwarding it carries Telegram's own header instead of describing one.
@@ -833,7 +843,7 @@ async def _forward_batch(
             messages[0],
             peer=source,
             account_alias=account_alias,
-            invoke=lambda awaitable: _with_cooldown(awaitable, clone_state),
+            invoke=lambda make_awaitable: _with_cooldown(make_awaitable, clone_state),
         )
         if poll_marker is not None and poll_votes is not None:
             poll_votes.append(poll_marker)
@@ -985,7 +995,9 @@ async def sync_text(
             state.save(clone_state)
             return
         await progress.resolve_total(
-            tg, source_entity, lambda awaitable: _with_cooldown(awaitable, clone_state)
+            tg,
+            source_entity,
+            lambda make_awaitable: _with_cooldown(make_awaitable, clone_state),
         )
         plan = transport.decide(messages, leg, source)
         plan = await quotes.resolve(messages, plan, leg, source, resolve_ctx)

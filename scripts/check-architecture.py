@@ -24,8 +24,9 @@ CEILINGS = {
     # +5 for the comments-unstarted warning: the text and its condition live in
     # clone/progress.py, but sync_text owns both moments worth warning at —
     # before the work (a FloodWait exit never reaches the tail) and after it.
-    "src/tgcli/commands/clone.py": 1140,
-    "src/tgcli/clone/state.py": 300,
+    # +12 for ADR-0052 task 1: cooldown callers pass zero-arg thunks so a
+    # FloodWait retry can rebuild a fresh awaitable.
+    "src/tgcli/commands/clone.py": 1152,    "src/tgcli/clone/state.py": 300,
     "src/tgcli/clone/quotes.py": 365,
     "src/tgcli/clone/quote_fallback.py": 127,
 }

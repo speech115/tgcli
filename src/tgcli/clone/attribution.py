@@ -130,7 +130,7 @@ async def _resolve(tg, peer, cache: dict, cooldown):
     key = peer_key(peer)
     if key not in cache:
         try:
-            cache[key] = await cooldown(tg.get_entity(peer))
+            cache[key] = await cooldown(lambda: tg.get_entity(peer))
         except telethon_errors.FloodWaitError:
             raise
         except (ValueError, telethon_errors.RPCError):
