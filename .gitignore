@@ -14,3 +14,5 @@ downloads/
 
 # Claude Code personal overrides (permissions tied to this machine/account)
 .claude/settings.local.json
+# Agent worktrees: checkouts of other branches, must never reach the gate
+.claude/worktrees/
