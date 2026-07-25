@@ -154,6 +154,52 @@ cursor test was green and still wrong for a mid-phase-2 clone.
 **Next:** implement ADR-0051 (windowed phase interleaving); defer-not-flatten
 first.
 
+## 2026-07-25 — Live: finished the `[икона]` clone on 1.2.9 (Claude Opus 5)
+
+**Did:** no code changed. Owner-requested live catch-up of the `[икона]` clone
+(source `3802378977` → `4273081187`, discussion `3749696954` → `3514350021`)
+with released `1.2.9`. Posts went 88 → 94 (`id_map` 60), then the comment
+phase ran 0 → 897 (`discussion_id_map` 625). Final run reported `more: false`,
+`copied: 53`, `reuploaded: 53`, `skipped_autoforward: 15`,
+`skipped_service: 1`. Source tails (94 / 897) now equal both cursors.
+
+**Decided:** nothing architectural. Drove the run through a scratch resume
+loop that re-invokes `clone sync` after each FLOOD_WAIT instead of babysitting
+it by hand — six invocations end to end, ~8 minutes of comment phase.
+
+**Learned:** three things worth keeping. (1) `clone sync` prints its error
+envelope — including FLOOD_WAIT — to **stderr**, so a wrapper capturing only
+stdout reads a rate-limited exit as success; capture `2>&1` when scripting
+retries. (2) The FLOOD_WAIT rhythm on this account is nothing like the
+160.6 s/message that ADR-0051 was argued from: the comment phase moved ~100
+group messages per invocation and paid 3 s waits, with one 94 s outlier — the
+expensive part was the four half-gigabyte videos in posts 89–94, each a full
+download+reupload because the source is `noforwards=true`. (3) Participant
+collection on the source broadcast still answers `ChatAdminRequiredError`
+(`status: "unavailable"`), while the discussion group collected 2 — the
+ladder degrades exactly as intended and does not fail the sync.
+
+**Verified:** an owner-requested read-only fidelity audit of the finished
+clone, source dumps vs destination dumps, both legs. Perfect: post text (59
+of 60 pairs byte identical, the 60th being the ADR-0048 poll snapshot),
+custom emoji, albums, in-channel replies, and — checked on all 625, not a
+sample — comment placement. Every one of the 529 direct comments replies to
+the anchor of its own post and all 96 in-thread replies point at the right
+parent comment, 0 mismatches. Gaps found, each scoped into a forthcoming
+open decision (ADR-0052…0055 on PRs #75–#78): reactions are
+lost outright (55 source posts carried them, 0 in the clone); no pinned
+message is carried (source `pinned_msg_id: 12`, destination `None`); five
+reposts (source 54, 69, 73, 78, 81) show neither `fwd_from` nor a
+`Переслано от` prefix because they were copied on 2026-07-24, before
+ADR-0050 merged, and `id_map` freezes that result; five photos came back
+resized (1024×1024 → 800×800). Dates collapse by design — 3.5 months of
+source history lands inside one 21-hour copy window.
+
+**Next:** none for this clone; it is caught up. The audit's gaps are
+scoped into forthcoming decisions ADR-0052…0055 (drafted on open PRs
+#75–#78); clone sync interleaving remains on the ADR-0051 execution branch
+(PR #74).
+
 ## 2026-07-25 — Merged the #59–#63 backlog; 1.2.7–1.2.9 tagged (Claude Opus 5)
 
 **Did:** cleared all five open PRs and every branch. Merge order #60 (ADR-0050
