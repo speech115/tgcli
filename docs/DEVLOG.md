@@ -17,6 +17,25 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — PR #76 review fixes: WaitBudget + stale striped cache (Cursor Grok)
+
+**Did:** fixed two confirmed independent-review defects on
+`claude/clone-transfer-flood-retry`. (1) `WaitBudget.try_spend` now refuses
+when `spent + next > limit` (was only `spent >= limit`), with
+`test_wait_budget_refuses_spend_that_would_exceed_limit`. (2) Stale
+`src-<id>` wrong size for >512KiB media: unlink before re-download so
+`download_striped`'s `"xb"` cannot raise `FileExistsError`
+(`test_stale_large_cache_redownloads_without_file_exists_error`).
+
+**Decided:** keep exclusive create in `download_striped`; clear the stale
+cache path in `_download_for_reupload` when reuse does not apply.
+
+**Learned:** size-mismatch reuse tests covered only the small
+`download_media` path; striped exclusive-create was untested until review.
+
+**Next:** Independent re-review of the two fixes on PR #76; still do not
+merge until cleared.
+
 ## 2026-07-25 — ADR-0052 clone long-run survival on PR #76 (Cursor Grok)
 
 **Did:** rebased `claude/clone-transfer-flood-retry` onto post-1.2.10 `main`

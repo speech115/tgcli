@@ -29,7 +29,8 @@ CEILINGS = {
     # +15 for ADR-0052 task 2: short FloodWait arm-then-sleep-then-retry.
     # +21 for ADR-0052 task 3: per-process WaitBudget threaded with clone_state.
     # +18 for ADR-0052 task 4: persistent reupload media cache (no TemporaryDirectory).
-    "src/tgcli/commands/clone.py": 1202,
+    # +3 for PR #76 review: unlink stale cache path before striped re-download.
+    "src/tgcli/commands/clone.py": 1205,
     "src/tgcli/clone/state.py": 300,
     "src/tgcli/clone/quotes.py": 365,
     "src/tgcli/clone/quote_fallback.py": 127,

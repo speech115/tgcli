@@ -29,8 +29,8 @@ class WaitBudget:
     """In-memory cumulative wait seconds for one clone sync/init process.
 
     Never persisted — a fresh instance starts each invocation with a full
-    budget. ``try_spend`` returns False without mutating once ``spent`` has
-    already reached ``WAIT_BUDGET``.
+    budget. ``try_spend`` returns False without mutating when the next wait
+    would push ``spent`` past ``WAIT_BUDGET``.
     """
 
     def __init__(self, limit: float = WAIT_BUDGET) -> None:
@@ -38,7 +38,7 @@ class WaitBudget:
         self._limit = limit
 
     def try_spend(self, seconds: float) -> bool:
-        if self.spent >= self._limit:
+        if self.spent + seconds > self._limit:
             return False
         self.spent += seconds
         return True

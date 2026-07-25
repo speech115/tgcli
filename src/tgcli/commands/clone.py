@@ -668,6 +668,9 @@ async def _download_for_reupload(
     size = media_byte_size(message)
     if size is not None and target.is_file() and target.stat().st_size == size:
         return target
+    # Stale name/size (or unpredictable size): drop before re-download so
+    # download_striped's exclusive create and download_media see a free path.
+    target.unlink(missing_ok=True)
     if size is not None and size > CHUNK_SIZE:
         # Only the striped path reports bytes: a sub-chunk file is over before
         # it could reach a progress mark (ADR-0049).

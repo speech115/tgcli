@@ -17,7 +17,7 @@ from tests.test_cli_clone_sync import (
 from tgcli.cli import main
 from tgcli.clone import flood, state
 from tgcli.commands import clone as clone_cmd
-from tgcli.transfer import media_byte_size
+from tgcli.transfer import CHUNK_SIZE, media_byte_size
 
 
 @pytest.fixture
@@ -93,6 +93,44 @@ async def test_download_rejects_stale_size_and_redownloads(state_dir_env):
     path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state, budget)
     assert path.read_bytes() == b"x" * 20
     assert len(downloads) == 1
+
+
+@pytest.mark.asyncio
+async def test_stale_large_cache_redownloads_without_file_exists_error(state_dir_env):
+    """Abandoned src-<id> wrong size for >512KiB must re-download, not FileExistsError."""
+    clone_state = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="S"
+    )
+    clone_state.destination_peer_id = 9
+    state.save(clone_state)
+    cache = clone_cmd._media_cache_dir(clone_state)
+    cache.mkdir(parents=True)
+    target = cache / "src-2"
+    size = CHUNK_SIZE + 1
+    target.write_bytes(b"stale-partial")
+    assert target.stat().st_size != size
+    msg = _photo_message(2, size=size)
+    downloads: list[Path] = []
+
+    class Tg:
+        async def download_media(self, message, file=None):
+            raise AssertionError("large media must use striped download")
+
+        async def iter_download(
+            self, media, *, offset=0, request_size=None, stride=None
+        ):
+            downloads.append(Path("striped"))
+            remaining = size - offset
+            if remaining <= 0:
+                return
+            yield b"N" * min(request_size or remaining, remaining)
+
+    budget = flood.WaitBudget()
+    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state, budget)
+    assert path == target
+    assert path.stat().st_size == size
+    assert path.read_bytes()[:13] != b"stale-partial"
+    assert downloads
 
 
 @pytest.mark.asyncio

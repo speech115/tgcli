@@ -171,6 +171,14 @@ def test_wait_budget_refuses_when_already_at_limit():
     assert budget.try_spend(1) is False
 
 
+def test_wait_budget_refuses_spend_that_would_exceed_limit():
+    """CONTRACT §11 / ADR-0052: at most 180s of pausing — not spent+next > 180."""
+    budget = flood.WaitBudget()
+    assert budget.try_spend(179) is True
+    assert budget.try_spend(2) is False
+    assert budget.spent == 179
+
+
 @pytest.mark.asyncio
 async def test_short_floods_retry_while_under_wait_budget(clone_state, no_sleep):
     attempts = 0
