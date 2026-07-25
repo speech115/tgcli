@@ -882,6 +882,72 @@ def test_sync_limit_spends_phase_one_first(config_env, monkeypatch, capsys):
     assert state.load(clone_state.clone_id).discussion_cursor == 0
 
 
+def test_sync_warns_when_a_run_leaves_comments_unstarted(
+    config_env, monkeypatch, capsys
+):
+    """Posts copied, comments never reached: the destination group holds only
+    Telegram's anchors and reads as a duplicate of the channel. Say so."""
+    seed_comments_clone()
+    client = CloneCommentsClient(
+        [message(2), message(3)],
+        [
+            anchor(10, 2),
+            message(
+                12,
+                message="nice",
+                reply_to=types.MessageReplyHeader(reply_to_msg_id=10),
+            ),
+        ],
+    )
+    client.anchor_ids = {2: 500}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--limit", "1", "--json"]) == 0
+
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["sync"]["discussion_cursor"] == 0
+    assert "warning: clone comments not started" in captured.err
+
+
+def test_sync_warns_on_resume_while_comments_are_still_unstarted(
+    config_env, monkeypatch, capsys
+):
+    """The misleading state outlives the run that created it: a clone resumed
+    after any interruption warns before it does more work, exactly once."""
+    clone_state = seed_comments_clone()
+    clone_state.record_mapping(2, 2)
+    clone_state.cursor = 2
+    state.save(clone_state)
+    client = CloneCommentsClient([message(2)], [anchor(10, 2)])
+    client.destination_last_id = 2
+    client.anchor_ids = {2: 2}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--limit", "1", "--json"]) == 0
+
+    assert capsys.readouterr().err.count("warning: clone comments not started") == 1
+
+
+def test_sync_stays_quiet_once_the_comments_leg_has_progressed(
+    config_env, monkeypatch, capsys
+):
+    """A discussion cursor past zero means the group is no longer a bare
+    anchor list — nothing to warn about."""
+    clone_state = seed_comments_clone(discussion_cursor=12)
+    clone_state.record_mapping(2, 2)
+    clone_state.record_discussion_mapping(12, 3)
+    clone_state.cursor = 2
+    state.save(clone_state)
+    client = CloneCommentsClient([message(2)], [anchor(10, 2), message(12)])
+    client.destination_last_id = 2
+    client.group_last_id = 3
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert "warning: clone comments not started" not in capsys.readouterr().err
+
+
 def test_sync_tolerates_destination_autoforwards_in_the_tail(
     config_env, monkeypatch, capsys
 ):
