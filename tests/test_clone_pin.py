@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from telethon import errors as telethon_errors
+from telethon import utils as telethon_utils
 from telethon.tl import functions, types
 
 from tgcli import safety
@@ -131,6 +132,88 @@ def test_snapshot_from_state_without_live_check():
         "destination_id": None,
         "status": "occupied",
     }
+
+
+class _UserSourceClient:
+    """Fakes just enough of TelegramClient to resolve a raw request's inputs.
+
+    Mirrors ``telethon.client.users.UserMethods._call``, which always awaits
+    ``request.resolve(self, utils)`` before sending. Real ``resolve()``
+    implementations (generated on the ``functions`` classes) turn full
+    entities into the exact Input* type Telegram expects, so replaying that
+    step here is what makes the assertions below load-bearing rather than
+    permissive.
+    """
+
+    def __init__(self):
+        self.requests: list[object] = []
+
+    async def get_input_entity(self, entity):
+        return telethon_utils.get_input_peer(entity)
+
+    async def __call__(self, request):
+        await request.resolve(self, telethon_utils)
+        self.requests.append(request)
+        if isinstance(request, functions.users.GetFullUserRequest):
+            return SimpleNamespace(full_user=SimpleNamespace(pinned_msg_id=44))
+        raise AssertionError(f"unexpected request: {request!r}")
+
+
+class _ChatSourceClient:
+    """Fakes GetFullChatRequest dispatch for the basic-group source branch."""
+
+    def __init__(self):
+        self.requests: list[object] = []
+
+    async def __call__(self, request):
+        await request.resolve(self, telethon_utils)
+        self.requests.append(request)
+        if isinstance(request, functions.messages.GetFullChatRequest):
+            return SimpleNamespace(full_chat=SimpleNamespace(pinned_msg_id=77))
+        raise AssertionError(f"unexpected request: {request!r}")
+
+
+async def _identity_cooldown(awaitable):
+    return await awaitable
+
+
+@pytest.mark.asyncio
+async def test_source_pinned_msg_id_user_branch_uses_get_full_user():
+    """User sources must hit GetFullUserRequest with a resolved InputUser."""
+    source = types.User(id=123, access_hash=555, first_name="Alice")
+    client = _UserSourceClient()
+
+    result = await pin._source_pinned_msg_id(client, source, _identity_cooldown)
+
+    assert result == 44
+    assert len(client.requests) == 1
+    request = client.requests[0]
+    assert isinstance(request, functions.users.GetFullUserRequest)
+    assert isinstance(request.id, types.InputUser)
+    assert request.id.user_id == 123
+    assert request.id.access_hash == 555
+
+
+@pytest.mark.asyncio
+async def test_source_pinned_msg_id_chat_branch_uses_get_full_chat():
+    """Basic-group sources must hit GetFullChatRequest keyed by chat_id."""
+    source = types.Chat(
+        id=456,
+        title="Basic Group",
+        photo=types.ChatPhotoEmpty(),
+        participants_count=3,
+        date=None,
+        version=1,
+    )
+    client = _ChatSourceClient()
+
+    result = await pin._source_pinned_msg_id(client, source, _identity_cooldown)
+
+    assert result == 77
+    assert len(client.requests) == 1
+    request = client.requests[0]
+    assert isinstance(request, functions.messages.GetFullChatRequest)
+    assert request.chat_id == 456
 
 
 class _PinClient:
