@@ -47,8 +47,11 @@ work. Worth also recording why the deferral is cheap to reverse: task 1 (the
 defer-not-flatten safety condition) is written and correct on its branch, and
 ADR-0051 decision 3 still forbids landing windowing before it.
 
-**Next:** tag `v1.2.10` on `568ecac` — still unmarked, and the session
-environment refuses tag pushes.
+**Next:** tag `v1.2.10` on `568ecac` — filed as #72 rather than left in a
+DEVLOG line, because no agent session can close it: this git proxy answers
+`git-receive-pack` with 403 for any `refs/tags/*` update while allowing
+`refs/heads/*`, the GitHub MCP toolset exposes tags read-only, and there is
+no release workflow to dispatch.
 
 ## 2026-07-25 — Integrated #65/#67/#68 as 1.2.10; held #66 (Claude Opus 5, orchestrated)
 
