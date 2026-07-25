@@ -18,11 +18,16 @@ lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 - Clone comments phase: resolving the source discussion group at the start
   of `comments.sync_phase` no longer lets a Telegram access refusal
   (`ChannelPrivateError` and siblings) escape as an unhandled exception.
-  Sync persists `comments: "unavailable"`, skips the comments leg and
-  discussion roster, and exits 0 — the same honest marker init already
-  wrote for an unreadable linked group (ADR-0023). A `FloodWaitError` on
-  that resolve still propagates so the ADR-0045 cooldown arms. CONTRACT §11
-  documents the path. Third site of the 1.2.8 attribution/roster class.
+  Sync persists `comments: "unavailable"` (and clears leftover
+  `discussion_cursor` / `discussion_id_map` so state stays loadable),
+  skips the comments leg and discussion roster, and exits 0 — the same
+  honest marker init already wrote for an unreadable linked group
+  (ADR-0023). A `FloodWaitError` on that resolve still propagates so the
+  ADR-0045 cooldown arms. CONTRACT §11 documents the path. Third site of
+  the 1.2.8 attribution/roster class.
+- Clone story snapshots: `get_entity` for the story author now treats any
+  Telegram access refusal as a missing label (`неизвестен`), matching
+  `attribution._resolve`; previously only `ValueError` was caught.
 
 ## [1.2.9] — 2026-07-25
 

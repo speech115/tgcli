@@ -222,7 +222,9 @@ async def render(
     )
     try:
         peer_entity = await tg.get_entity(media.peer)
-    except ValueError:
+    except (ValueError, telethon_errors.RPCError):
+        # Same refusal shape as attribution._resolve: a private/deleted peer
+        # is a missing author label, never a failed sync.
         peer_entity = None
     title = getattr(peer_entity, "title", None)
     name = " ".join(

@@ -56,7 +56,11 @@ async def sync_phase(
         # Same refusal shape as attribution._resolve / roster.collect (1.2.8):
         # a linked group that turned private after init must not crash a sync
         # whose posts have already copied. Degrade to the ADR-0023 honest
-        # marker; never join the source on the user's behalf.
+        # marker; never join the source on the user's behalf. Clearing
+        # discussion_cursor / discussion_id_map is required: state.from_dict
+        # rejects comments != enabled with leftover phase-2 progress.
+        clone_state.discussion_cursor = 0
+        clone_state.discussion_id_map = {}
         clone_state.comments = "unavailable"
         state.save(clone_state)
         return False

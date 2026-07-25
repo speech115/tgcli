@@ -24,17 +24,21 @@ resolved `discussion_source_peer_id` with no error handling, so a source
 group that turned private after init raised through `cli.py`'s unrecognized-
 exception path as a traceback. Catch now matches `attribution._resolve`:
 re-raise `FloodWaitError` (ADR-0045), treat `(ValueError, RPCError)` as
-`comments: "unavailable"` + skip phase 2. CONTRACT §11 documents the path;
-1.2.10 bump + CHANGELOG. Unit tests in `tests/test_clone_comments.py`
-(roster-shaped) plus one CLI seam case in `test_cli_clone_sync.py`.
+`comments: "unavailable"` + clear phase-2 cursor/id_map + skip phase 2.
+CONTRACT §11 documents the path; 1.2.10 bump + CHANGELOG. Unit tests in
+`tests/test_clone_comments.py` (roster-shaped) plus one CLI seam case.
+Mirror-fix: `snapshot.render` story-author resolve now catches `RPCError`
+too. Independent review found the cursor/id_map invariant hole; fixed with
+a reproducing test before the green.
 
 **Decided:** unavailable source group soft-degrades to the ADR-0023 marker
 rather than a hard `PolicyError` — same honesty as init and roster; the
 destination group resolve stays exit 2 because we own that peer.
 
-**Learned:** the open question in #64 was already answered by ADR-0023's
-"permanent honest marker, not a PolicyError" clause once the failure is
-framed as "linked group unreadable", not as "sync cannot continue".
+**Learned:** `state.from_dict` rejects `comments != enabled` with a non-zero
+`discussion_cursor` or non-empty `discussion_id_map`. Soft-degrade that
+only flips the marker leaves the next sync dying on load — every zero-
+cursor test was green and still wrong for a mid-phase-2 clone.
 
 **Next:** implement ADR-0051 (windowed phase interleaving); defer-not-flatten
 first.

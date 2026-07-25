@@ -98,6 +98,29 @@ def test_sync_phase_marks_unavailable_when_source_group_turned_private(
     assert reloaded.comments == "unavailable"
 
 
+def test_sync_phase_clears_discussion_progress_when_marking_unavailable(
+    tmp_path, monkeypatch
+):
+    """A partially advanced phase-2 cursor/id_map is incompatible with
+    comments != enabled (state.from_dict). Degrade must reset both or the
+    next sync dies on load with 'manual repair required'."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    clone_state = seed()
+    clone_state.discussion_cursor = 5
+    clone_state.discussion_id_map = {"1": 2}
+    state.save(clone_state)
+    tg = FakeTg(entity_error=telethon_errors.ChannelPrivateError(request=None))
+    assert run(tg, clone_state) is False
+    assert clone_state.comments == "unavailable"
+    assert clone_state.discussion_cursor == 0
+    assert clone_state.discussion_id_map == {}
+    reloaded = state.load(clone_state.clone_id)
+    assert reloaded is not None
+    assert reloaded.comments == "unavailable"
+    assert reloaded.discussion_cursor == 0
+    assert reloaded.discussion_id_map == {}
+
+
 def test_sync_phase_marks_unavailable_when_source_group_unresolved(
     tmp_path, monkeypatch
 ):
