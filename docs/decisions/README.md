@@ -57,12 +57,8 @@ row here in the same commit (AGENTS.md rule, extending
 | [0048](ADR-0048-clone-poll-breakdown-vote.md) | Poll snapshots cast-and-retract a transient vote on anonymous open non-quiz polls to capture the per-option breakdown (own vote subtracted); other polls get an honest "breakdown unavailable" line | accepted |
 | [0049](ADR-0049-clone-sync-progress.md) | `clone sync` emits plain single-line progress to stderr by default (batch counter, per-file transfer %, phase lines) via the shared media progress seam; non-contractual format, silenced by `2>/dev/null` | accepted |
 | [0050](ADR-0050-clone-forward-attribution.md) | Reposted (forwarded) source posts get a truthful `Переслано от <label>` prefix on the reupload/snapshot paths; `needs_author` gains a `fwd_from` case; native re-forward of the proven original gated behind sender+date+content match | accepted |
-<<<<<<< HEAD
 | [0051](ADR-0051-clone-windowed-phase-interleaving.md) | `clone sync` interleaves the posts and comments legs in 50-batch windows, bounded by the anchor scan; an unmapped cross-leg parent defers instead of flattening; amends ADR-0023's ordering clause only | deferred (CLONE-003) |
-=======
-| [0051](ADR-0051-clone-windowed-phase-interleaving.md) | `clone sync` interleaves the posts and comments legs in 50-batch windows, bounded by the anchor scan; an unmapped cross-leg parent defers instead of flattening; amends ADR-0023's ordering clause only | accepted |
 | [0054](ADR-0054-clone-prefix-backfill.md) | `clone refresh` backfills body prefixes into already-copied posts under preview→commit, eligible only when the destination body is byte identical to the unprefixed source; poll snapshots, native re-forwards, and the discussion leg excluded | accepted |
->>>>>>> 4a18538 (ADR-0054: backfill body prefixes into an already-copied clone)
 
 Notes on supersessions:
 

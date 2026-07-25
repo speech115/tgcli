@@ -1,6 +1,6 @@
 # CLI Automation Contract
 
-Version: 1.2.10 (tracks the package release; see `CHANGELOG.md` and
+Version: 1.2.11 (tracks the package release; see `CHANGELOG.md` and
 `pyproject.toml`). Any change here lands in the same commit as the code
 change (AGENTS.md / ADR-0038).
 
@@ -902,7 +902,7 @@ invalid cloud password / banned or invalid number / missing api credentials;
 `retry_after`. Phones in JSON, `--plain`, stderr, and audit are masked
 (`+7…89`); codes and passwords never appear there.
 
-## 11. Chat Clone (ADR-0017, ADR-0021, ADR-0022, ADR-0023)
+## 11. Chat Clone (ADR-0017, ADR-0021, ADR-0022, ADR-0023, ADR-0054)
 
 `tg clone` is the canonical chat-copy surface. It accepts broadcast channels,
 megagroup supergroups (forum and non-forum), live legacy basic groups, and
@@ -936,6 +936,8 @@ tg clone init SOURCE --replace
 tg clone init SOURCE --no-comments
 tg clone init SOURCE --commit PREVIEW_ID
 tg clone sync SOURCE [--limit N]
+tg clone refresh SOURCE
+tg clone refresh SOURCE --commit PREVIEW_ID
 ```
 
 `status` is local and read-only: it never loads config or opens a Telegram
@@ -1073,10 +1075,13 @@ creates a second destination. Telegram FloodWait during profile reads, downloads
 uploads, or edits persists `retry_not_before` in clone state **and** arms an
 account-scoped cooldown record under
 `TGCLI_STATE_DIR/clones/account-<account_user_id>.json` (ADR-0045). Later
-`clone init --commit` and `clone sync` for **any** clone of that account exit 5
+`clone init --commit`, `clone sync`, and `clone refresh` for **any** clone of
+that account exit 5
 locally (no network) while either the per-clone or the account deadline is
 active — `retry_after` is computed from `max(per-clone, account)`. Read-only
-surfaces (`clone status`, init preview) are never blocked. A roster FloodWait
+surfaces (`clone status`, init preview, refresh preview) are never blocked by
+readonly gates; refresh preview still respects an active FloodWait cooldown
+because the scan is real network work. A roster FloodWait
 (ADR-0024) still arms neither cooldown. Init keeps the global 60-second
 default timeout.
 
@@ -1199,6 +1204,69 @@ fallback above. For
 attributed megagroup, forum, basic-group, and dialog sources, the
 same batch uses native forwarding with `drop_author=False`, retaining
 Telegram's author header.
+
+### Prefix backfill (`tg clone refresh`; ADR-0054)
+
+ADR-0054 adds a separate mutation path onto the existing ADR-0050 prefix rule;
+it amends nothing already in this section. A clone copied before a prefix rule
+shipped can be repaired without recopying:
+
+```text
+tg clone refresh SOURCE
+tg clone refresh SOURCE --commit PREVIEW_ID
+```
+
+A bare `tg clone refresh SOURCE` *is* the preview (same grammar as `clone
+init`, no separate `--preview` flag). It walks the posts-leg `id_map`, applies
+the eligibility rule, and mints a five-minute single-use preview. A post is
+eligible only when the destination body is **byte identical to the source body
+with no prefix at all** and today's renderer would produce a prefix. That
+single test proves the copy predates the improvement and that nobody edited
+the destination by hand. Three exclusions are reported in the preview's
+`excluded` list and never edited: poll/story snapshots (`poll-snapshot`),
+native re-forwards that already carry a destination `fwd_from`
+(`native-reforward`), and the discussion leg (never scanned — only
+`id_map` is walked). Album followers (non-lead items of a `grouped_id`) are
+also excluded (`album-non-lead`): sync only ever attached the author prefix to
+the lead item. Bodies that fail eligibility for any other reason appear as
+`not-eligible` and are skipped without alarm — the steady state of an already-
+fixed or hand-edited clone.
+
+Preview JSON:
+
+```json
+{"preview_id":"p_…","expires_at":"…","clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"}},"refresh":{"eligible":[{"source_id":54,"destination_id":154}],"excluded":[{"source_id":60,"reason":"poll-snapshot"}]}}
+```
+
+The persisted preview stores `kind: "clone-refresh"`, `source`,
+`account_user_id`, `source_peer_id`, and the `eligible` id pairs only — never
+the rendered text (recomputed fresh at commit). `--readonly` /
+`TGCLI_READONLY` / `TGCLI_NO_SEND` gate the commit only, not the preview scan
+(identical rule to `clone init`).
+
+`--commit PREVIEW_ID` consumes the preview (single-shot via
+`safety.consume_preview`, not `begin_commit`), re-checks each candidate against
+a fresh destination read, and issues `messages.EditMessageRequest` with text
+and entities only — `media` is never set, so existing media stays untouched;
+`id_map` and both cursors are unchanged. Each surviving edit writes a
+`clone-refresh-prefix` audit record before its RPC. A candidate that no longer
+matches eligibility is skipped, not forced. `MessageNotModifiedError` on an
+individual edit is swallowed and the run continues. Commit JSON:
+
+```json
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"Source"}},"refresh":{"edited":[{"source_id":54,"destination_id":154}],"skipped":[{"source_id":60,"reason":"not-eligible"}],"count":1}}
+```
+
+`--plain` columns: `source_id`, `destination_id`, `status` (`edited` or an
+exclusion reason). Exit 0 when every candidate was either edited or correctly
+declined.
+
+FloodWait during preview or commit exits 5 through the same per-clone and
+account-scoped cooldown as `sync` and `init --commit`; there is no retry loop
+inside `refresh` (ADR-0045). Recovery is a **fresh** preview after the
+cooldown, not a retried `--commit` of the same already-consumed preview id
+(contrast `send`/`edit`'s `begin_commit` retry idiom). Posts already fixed no
+longer match eligibility, so a second run is a quiet no-op.
 
 A batch uses download/reupload reconstruction when the source or any message
 has `noforwards`, or when it has a mapped reply. Attributed reuploads prepend

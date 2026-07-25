@@ -26,6 +26,7 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
     mutation_safe = args.command == "clone" and (
         args.clone_command == "sync"
         or (args.clone_command == "init" and args.commit is not None)
+        or (args.clone_command == "refresh" and args.commit is not None)
     )
     try:
         async with session.client(account, mutation_safe=mutation_safe) as tg:
@@ -141,6 +142,14 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
                     tg, args.source, account.alias, limit=args.limit
                 )
                 return data, clone_cmd.sync_rows(data)
+            if args.command == "clone" and args.clone_command == "refresh":
+                if args.commit:
+                    data = await clone_cmd.commit_refresh(
+                        tg, args.source, account.alias, args.preview_payload
+                    )
+                else:
+                    data = await clone_cmd.preview_refresh(tg, args.source)
+                return data, clone_cmd.refresh_rows(data)
             if args.command == "draft":
                 return await _run_draft(tg, args)
             raise AssertionError(f"unhandled network command: {args.command}")

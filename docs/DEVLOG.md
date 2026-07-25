@@ -17,6 +17,34 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — Implement `tg clone refresh` (ADR-0054) (Cursor Grok)
+
+**Did:** rebased `claude/clone-attribution-backfill` onto `origin/main`
+(post-1.2.10) and finished plan tasks 1–5 for ADR-0054. New
+`clone/refresh.py` (eligibility + candidate scan with
+poll/native-reforward/discussion/album-non-lead gates), `preview_refresh` /
+`commit_refresh` on the clone command surface, parser / preflight / dispatch
+wiring, CONTRACT §11 subsection, MAP/guide/SKILL, CHANGELOG + version bump
+to **1.2.11** (main already occupied 1.2.10). Boundary test asserts
+`EditMessageRequest` text+entities only (no media). Full `./scripts/gate.sh`
+green after rebase. Live acceptance against [икона] left owner-gated (plan
+task 6).
+
+**Decided:** album non-lead exclusion is part of the scan (not just
+eligibility) so a follower item whose body matches the raw source cannot
+invent a prefix sync never placed there. Preview uses `consume_preview`
+(single-shot), not `begin_commit` — recovery after partial FloodWait is a
+fresh preview. Kept main's comments-unavailable soft-degrade and
+comments-unstarted warning alongside refresh.
+
+**Learned:** Python looks up `__call__` on the class, so instance monkeypatches
+of a fake client's `__call__` silently no-op; audit-before-RPC order tests
+need a subclass override. Rebase conflict hotspots were CHANGELOG/DEVLOG/
+ceilings — `clone.py` itself auto-merged cleanly.
+
+**Next:** independent whole-diff Spec + Standards review of PR #77; do not
+merge until that clears. Owner-gated live preview on [икона] after merge/tag.
+
 ## 2026-07-25 — Deferred ADR-0051; shipped the warning instead (Claude Opus 5)
 
 **Did:** owner reviewed ADR-0051 and asked whether the project needs it. It

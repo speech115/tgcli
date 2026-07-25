@@ -7,6 +7,7 @@ import secrets
 from typing import Any
 import tempfile
 from telethon import errors as telethon_errors, utils as telethon_utils
+from telethon.errors import MessageNotModifiedError
 from telethon.tl import functions, types
 from tgcli import chatref, safety
 from tgcli.clone import (
@@ -21,6 +22,7 @@ from tgcli.clone import (
     progress as clone_progress,
     quote_fallback,
     quotes,
+    refresh as clone_refresh,
     reforward,
     roster,
     snapshot,
@@ -1138,3 +1140,163 @@ def sync_rows(data: dict) -> list[tuple]:
             sync["discussion_cursor"],
         )
     ]
+
+
+async def _load_refresh_context(tg, source: str):
+    me = await tg.get_me()
+    _enforce_account_cooldown(me.id)
+    source_entity, source_kind, _ = await _resolve_source(tg, source)
+    clone_state = state.load(state.clone_id(me.id, source_entity.id))
+    if clone_state is None or clone_state.destination_peer_id is None:
+        raise PolicyError("clone is not initialized; run clone init first")
+    if clone_state.source_kind != source_kind:
+        raise PolicyError("clone source kind no longer matches initialized state")
+    _enforce_cooldown(clone_state)
+    try:
+        destination = await tg.get_entity(
+            types.PeerChannel(clone_state.destination_peer_id)
+        )
+    except ValueError:
+        raise PolicyError("clone destination is unavailable") from None
+    return me, source_entity, destination, clone_state
+
+
+async def preview_refresh(tg, source: str) -> dict:
+    me, source_entity, destination, clone_state = await _load_refresh_context(
+        tg, source
+    )
+
+    async def cooldown(awaitable):
+        return await _with_cooldown(awaitable, clone_state)
+
+    eligible, excluded = await clone_refresh.candidates(
+        tg, clone_state, source_entity, destination, cooldown
+    )
+    pairs = [
+        {"source_id": item.source_id, "destination_id": item.destination_id}
+        for item in eligible
+    ]
+    preview = safety.create_preview(
+        {
+            "kind": "clone-refresh",
+            "source": source,
+            "account_user_id": me.id,
+            "source_peer_id": source_entity.id,
+            "eligible": pairs,
+        }
+    )
+    return {
+        "preview_id": preview["preview_id"],
+        "expires_at": preview["expires_at"],
+        "clone": {
+            "id": clone_state.clone_id,
+            "source": {
+                "id": source_entity.id,
+                "title": clone_state.source_title,
+                "kind": clone_state.source_kind,
+            },
+        },
+        "refresh": {
+            "eligible": pairs,
+            "excluded": [
+                {"source_id": item.source_id, "reason": item.reason}
+                for item in excluded
+            ],
+        },
+    }
+
+
+async def commit_refresh(tg, source: str, account_alias: str, payload: dict) -> dict:
+    _, source_entity, destination, clone_state = await _load_refresh_context(tg, source)
+    input_peer = await tg.get_input_entity(destination)
+
+    async def cooldown(awaitable):
+        return await _with_cooldown(awaitable, clone_state)
+
+    author_cache: dict = {}
+    edited: list[dict] = []
+    skipped: list[dict] = []
+    for pair in payload.get("eligible") or ():
+        source_id = pair["source_id"]
+        destination_id = pair["destination_id"]
+        source_msgs = await cooldown(tg.get_messages(source_entity, ids=[source_id]))
+        dest_msgs = await cooldown(tg.get_messages(destination, ids=[destination_id]))
+        message = source_msgs[0] if source_msgs else None
+        dest = dest_msgs[0] if dest_msgs else None
+        if message is None or dest is None:
+            skipped.append({"source_id": source_id, "reason": "not-eligible"})
+            continue
+        (
+            rendered_text,
+            rendered_entities,
+        ) = await clone_refresh.render_with_current_rules(
+            tg, message, author_cache, cooldown
+        )
+        dest_text = getattr(dest, "message", None) or ""
+        dest_entities = getattr(dest, "entities", None)
+        if not clone_refresh.eligible_for_backfill(
+            message, dest_text, dest_entities, rendered_text, rendered_entities
+        ):
+            skipped.append({"source_id": source_id, "reason": "not-eligible"})
+            continue
+        safety.append_audit(
+            "clone-refresh-prefix",
+            account_alias,
+            {
+                "clone_id": clone_state.clone_id,
+                "source_message_id": source_id,
+                "destination_message_id": destination_id,
+            },
+        )
+        try:
+            await _mutate(
+                tg,
+                functions.messages.EditMessageRequest(
+                    peer=input_peer,
+                    id=destination_id,
+                    message=rendered_text,
+                    entities=rendered_entities,
+                ),
+                clone_state,
+            )
+        except MessageNotModifiedError:
+            pass
+        edited.append({"source_id": source_id, "destination_id": destination_id})
+    return {
+        "clone": {
+            "id": clone_state.clone_id,
+            "source": {
+                "id": source_entity.id,
+                "title": clone_state.source_title,
+                "kind": clone_state.source_kind,
+            },
+            "destination": {"id": destination.id, "title": destination.title},
+        },
+        "refresh": {
+            "edited": edited,
+            "skipped": skipped,
+            "count": len(edited),
+        },
+    }
+
+
+def refresh_rows(data: dict) -> list[tuple]:
+    refresh = data["refresh"]
+    if "edited" in refresh:
+        rows = [
+            (item["source_id"], item["destination_id"], "edited")
+            for item in refresh["edited"]
+        ]
+        rows.extend(
+            (item["source_id"], item.get("destination_id"), item["reason"])
+            for item in refresh["skipped"]
+        )
+        return rows
+    rows = [
+        (item["source_id"], item["destination_id"], "eligible")
+        for item in refresh["eligible"]
+    ]
+    rows.extend(
+        (item["source_id"], None, item["reason"]) for item in refresh["excluded"]
+    )
+    return rows

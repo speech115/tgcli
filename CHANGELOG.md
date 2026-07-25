@@ -11,6 +11,17 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.11] — 2026-07-25
+
+### Added
+
+- `tg clone refresh SOURCE` / `tg clone refresh SOURCE --commit PREVIEW_ID`
+  backfills missing ADR-0050 `Переслано от <label>` body prefixes onto posts
+  whose destination body is still byte-identical to the unprefixed source;
+  poll snapshots, native re-forwards, and the discussion leg are excluded;
+  each edit is `EditMessageRequest` text+entities only with a
+  `clone-refresh-prefix` audit beforehand (ADR-0054).
+
 ## [1.2.10] — 2026-07-25
 
 ### Fixed

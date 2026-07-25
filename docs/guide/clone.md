@@ -87,7 +87,24 @@ tg --json clone sync SOURCE
 {"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"skipped_unsupported":[],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":null},"discussion":{"peer_id":null,"status":"none","count":0,"reason":null}}}}
 ```
 
-`--plain` columns: `copied`, `forwarded`, `reuploaded`, `snapshots`, `reply_flattened`, `quote_flattened_count`, `skipped_service`, `skipped_unsupported_count`, `topics_created`, `cursor`, `clone_id`, `source_peer_id`, `destination_peer_id`, `more`, `skipped_autoforward`, `discussion_cursor`.
+|--plain` columns: `copied`, `forwarded`, `reuploaded`, `snapshots`, `reply_flattened`, `quote_flattened_count`, `skipped_service`, `skipped_unsupported_count`, `topics_created`, `cursor`, `clone_id`, `source_peer_id`, `destination_peer_id`, `more`, `skipped_autoforward`, `discussion_cursor`.
+
+## Refresh: backfill missing forward prefixes
+
+```bash
+tg --json clone refresh SOURCE
+tg --json clone refresh SOURCE --commit PREVIEW_ID
+```
+
+Use this when a clone was copied before a body-prefix rule shipped (for
+example ADR-0050's `Переслано от <label>` line) and some destination posts
+still read as unattributed originals. A bare `refresh` is the preview: it
+lists eligible posts (destination body still byte-identical to the unprefixed
+source, and today's renderer would add a prefix) and exclusions (poll
+snapshots, native re-forwards, album non-lead items). It never recreates or
+reorders messages — commit only edits text and entities on the existing
+destination ids. Media, `id_map`, and both cursors stay untouched. A second
+run after a successful commit finds nothing left to fix.
 
 ## Native forward vs reupload
 

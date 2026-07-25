@@ -88,6 +88,7 @@ selected account session, does one operation, and exits.
 | Preview posts-only clone | `tg --json clone init SOURCE --no-comments` |
 | Commit clone destination creation | `tg --json clone init SOURCE --commit p_9f3a` |
 | Copy or catch up a chat | `tg --json clone sync SOURCE` |
+| Backfill missing forward prefixes on an existing clone | `tg --json clone refresh SOURCE` |
 
 Send is deliberately two-step: preview first, then commit its single-use ID.
 Previews expire after five minutes.

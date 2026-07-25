@@ -471,6 +471,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_clone_sync = clone_sub.add_parser("sync", parents=[global_flags])
     p_clone_sync.add_argument("source", help="source channel, supergroup, or dialog")
     p_clone_sync.add_argument("--limit", type=int)
+    p_clone_refresh = clone_sub.add_parser("refresh", parents=[global_flags])
+    p_clone_refresh.add_argument("source", help="source channel, supergroup, or dialog")
+    p_clone_refresh.add_argument("--commit", metavar="PREVIEW_ID")
 
     p_draft = sub.add_parser(
         "draft", help="Show, list, set, or clear dialog drafts", parents=[global_flags]

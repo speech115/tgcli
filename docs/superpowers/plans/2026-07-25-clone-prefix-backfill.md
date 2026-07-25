@@ -53,12 +53,12 @@ The core rule (ADR-0054 decision 2) split into a synchronous, network-free
 predicate plus a thin async renderer that supplies its inputs — so the rule
 itself is testable with plain strings and entity lists, no fakes.
 
-- [ ] New module `src/tgcli/clone/refresh.py`.
-- [ ] Test (`tests/test_clone_refresh.py`): `eligible_for_backfill` — dest
+- [x] New module `src/tgcli/clone/refresh.py`.
+- [x] Test (`tests/test_clone_refresh.py`): `eligible_for_backfill` — dest
       text/entities byte-identical to `message.message`/`message.entities`
       (no prefix at all) **and** the rendered-with-current-rules body
       differs from that raw source body → `True`.
-- [ ] Test, same function, each a separate case proving the *other* side of
+- [x] Test, same function, each a separate case proving the *other* side of
       the discrimination:
       - dest text differs from the raw source body at all (already carries
         the ADR-0050 prefix, or the owner hand-edited it) → `False`. Cover
@@ -69,14 +69,14 @@ itself is testable with plain strings and entity lists, no fakes.
         would *also* produce the raw body unchanged (no `fwd_from`, so
         `author` is `None`) → `False`. This is what makes a second `refresh`
         run on an already-fixed post a no-op instead of re-editing forever.
-- [ ] Implement `eligible_for_backfill(message, dest_text, dest_entities,
+- [x] Implement `eligible_for_backfill(message, dest_text, dest_entities,
       rendered_text, rendered_entities) -> bool` in `clone/refresh.py`: two
       structural body comparisons (text equality plus an entity-list
       equality helper — compare via each entity's `to_dict()`, not object
       identity or `==`, the same "structural, not identity" concern
       `clone/reforward.py:_entities_key` already had to solve for a
       different comparison).
-- [ ] Test: async `render_with_current_rules(tg, message, cache, cooldown)`
+- [x] Test: async `render_with_current_rules(tg, message, cache, cooldown)`
       — with `message.fwd_from` set, calls `attribution.forwarded_author_of`
       exactly once (asserted on a fake) and returns
       `quote_fallback.apply_body(message, author, plan)`'s output, where
@@ -85,34 +85,34 @@ itself is testable with plain strings and entity lists, no fakes.
       is irrelevant to body rendering (`apply_body` never reads it), so a
       fixed `None` is correct for every candidate regardless of the post's
       real reply relationship.
-- [ ] Test: same function with `message.fwd_from is None` never calls
+- [x] Test: same function with `message.fwd_from is None` never calls
       `forwarded_author_of` and returns the raw body unchanged (`author=None`
       through `attribution.prefixed` is already covered by
       `test_clone_attribution.py`; this test only proves `refresh` gates the
       call the same way `commands/clone.py:793-797` does at sync time — one
       seam, one rule, not reimplemented).
-- [ ] Implement `render_with_current_rules` in `clone/refresh.py`, reusing
+- [x] Implement `render_with_current_rules` in `clone/refresh.py`, reusing
       `quote_fallback.apply_body` and `attribution.forwarded_author_of`
       exactly as sync does — no new rendering logic (ADR-0054 decision 4).
 
 ### 2. The three exclusions, plus the album-leader guard
 
-- [ ] Test: a source message whose `media` is `MessageMediaPoll` (or
+- [x] Test: a source message whose `media` is `MessageMediaPoll` (or
       `MessageMediaStory`) — `fidelity.supports(message)` — is excluded
       before `render_with_current_rules` is ever called (assert the fake
       `tg.get_entity`/vote RPCs are never invoked). Reason recorded:
       `"poll-snapshot"`.
-- [ ] Test: a destination message that already carries its own `fwd_from`
+- [x] Test: a destination message that already carries its own `fwd_from`
       (a genuine Telegram forward header — the ADR-0050 Part B native
       re-forward path) is excluded without calling
       `render_with_current_rules`. Reason: `"native-reforward"`.
-- [ ] Test: `clone_state.discussion_id_map` entries are never scanned even
+- [x] Test: `clone_state.discussion_id_map` entries are never scanned even
       when a discussion-leg message would otherwise satisfy every other
       rule — the scan only ever iterates `clone_state.id_map`. (No
       per-message check needed; prove it by construction — a discussion-leg
       candidate handed to the scan directly is simply absent from either
       output list.)
-- [ ] Test: a grouped-media (album) message — `message.grouped_id is not
+- [x] Test: a grouped-media (album) message — `message.grouped_id is not
       None` — that is **not** the group's lead item (the item sync's
       `_reupload_batch` actually attached the author to, index 0 of the
       batch — i.e. the item with the lowest source id sharing that
@@ -122,9 +122,9 @@ itself is testable with plain strings and entity lists, no fakes.
       prefix (`commands/clone.py:733`, `author if index == 0 else None`),
       so treating a follower item as its own candidate would invent a
       prefix that was never supposed to exist there.
-- [ ] Test: the lead item of a grouped-media post is scanned normally
+- [x] Test: the lead item of a grouped-media post is scanned normally
       (not excluded by the album guard).
-- [ ] Implement `candidates(tg, clone_state, source_entity,
+- [x] Implement `candidates(tg, clone_state, source_entity,
       destination_entity, cooldown) -> tuple[list[Candidate],
       list[Excluded]]` in `clone/refresh.py`. Walks `clone_state.id_map`,
       batches `tg.get_messages(source, ids=[...])` and
@@ -152,19 +152,19 @@ retried against the same preview id; recovery is a fresh `--preview` scan,
 which quietly finds nothing for the posts already fixed (rule 2's own
 idempotency does the recovery, not preview retry).
 
-- [ ] Test (`tests/test_cli_clone_refresh.py`): `clone refresh SOURCE`
+- [x] Test (`tests/test_cli_clone_refresh.py`): `clone refresh SOURCE`
       requires initialized clone state with a resolvable destination
       (mirrors `sync_text`'s guard) — same error family as
       `"clone is not initialized; run clone init first"` when absent.
-- [ ] Test: preview scans the account's per-clone cooldown
+- [x] Test: preview scans the account's per-clone cooldown
       (`_enforce_cooldown`) before any RPC and exits 5 if it is active — the
       scan is real network work (ADR-0054 consequence 4), unlike `clone
       init`'s lightweight preview, so it must not bypass the same cooldown
       gate `sync` and `init --commit` already respect.
-- [ ] Test: preview is unaffected by `--readonly` / `TGCLI_READONLY=1` /
+- [x] Test: preview is unaffected by `--readonly` / `TGCLI_READONLY=1` /
       `TGCLI_NO_SEND=1` (read-only, same as `clone init` preview and
       `clone status`).
-- [ ] Test: preview JSON carries a `preview_id`, `expires_at`, the clone
+- [x] Test: preview JSON carries a `preview_id`, `expires_at`, the clone
       identity (`id`/`source`), and a `refresh` object with `eligible`
       (`[{source_id, destination_id}]`) and `excluded`
       (`[{source_id, reason}]`) lists. Preview payload persisted via
@@ -172,26 +172,26 @@ idempotency does the recovery, not preview retry).
       `account_user_id`, `source_peer_id`, and the `eligible` id pairs only
       — never the rendered text (recomputed fresh at commit, same
       staleness discipline as `clone-init`'s preview).
-- [ ] Test (`preflight.py`): `clone refresh SOURCE --commit PREVIEW_ID`
+- [x] Test (`preflight.py`): `clone refresh SOURCE --commit PREVIEW_ID`
       blocked by `--readonly` / `TGCLI_READONLY=1` / `TGCLI_NO_SEND=1`
       before `safety.consume_preview` runs (mirrors the `clone init
       --commit` block at `preflight.py:173-180`).
-- [ ] Test: `--commit` whose preview `kind` isn't `"clone-refresh"`, or
+- [x] Test: `--commit` whose preview `kind` isn't `"clone-refresh"`, or
       whose `source` doesn't match the `SOURCE` argument, is rejected
       (`PolicyError`) without touching Telegram — same shape as the
       `clone-init` check immediately above it in `preflight.py`.
-- [ ] Test: commit re-runs `eligible_for_backfill` against a **fresh**
+- [x] Test: commit re-runs `eligible_for_backfill` against a **fresh**
       read of each candidate's destination text immediately before editing
       it. A candidate whose destination was already edited between preview
       and commit (by a previous partial run, or by hand) is skipped, not
       forced — this is rule 2 doing the idempotency work the ADR promises,
       exercised at the one point where it actually matters.
-- [ ] Test: each surviving edit writes a `clone-refresh-prefix` audit
+- [x] Test: each surviving edit writes a `clone-refresh-prefix` audit
       record (`safety.append_audit`) **before** its `EditMessageRequest`,
       carrying `clone_id`, `source_message_id`, `destination_message_id` —
       same "audit before RPC" discipline as `clone-sync-reupload` /
       `clone-sync-forward` / `clone-sync-snapshot`.
-- [ ] **Boundary test**: the mutation is exactly
+- [x] **Boundary test**: the mutation is exactly
       `functions.messages.EditMessageRequest(peer=<destination input peer>,
       id=<destination_message_id>, message=<new text>,
       entities=<new entities>)` — assert the recorded fake-`tg` call's type
@@ -201,11 +201,11 @@ idempotency does the recovery, not preview retry).
       this is the ADR's "media is never touched and no message is
       recreated" rule (decision 5), made concrete as a request-shape
       assertion, not a comment.
-- [ ] Test: `MessageNotModifiedError` on an individual edit (Telegram's own
+- [x] Test: `MessageNotModifiedError` on an individual edit (Telegram's own
       idempotency signal, e.g. the same commit retried) is swallowed for
       that one post — same pattern as `mutate.commit_edit` — and the run
       continues to the next candidate rather than aborting.
-- [ ] Test: commit JSON reports `refresh: {edited: [...], skipped:
+- [x] Test: commit JSON reports `refresh: {edited: [...], skipped:
       [...], count}` (skipped reuses the preview's `excluded` shape plus
       any newly-stale candidate from the re-check above). Exit 0 whenever
       every candidate either got edited or was correctly declined — a
@@ -213,36 +213,36 @@ idempotency does the recovery, not preview retry).
       `quote_flattened` → exit 2; there is no equivalent "silent
       degradation" here to flag, only "the tool correctly refused to
       guess").
-- [ ] Implement `preview_refresh` / `commit_refresh` in
+- [x] Implement `preview_refresh` / `commit_refresh` in
       `src/tgcli/commands/clone.py`, reusing `_enforce_cooldown`,
       `_with_cooldown`, `_mutate` exactly as `sync_text` does. Add
       `refresh_rows` for `--plain` output (columns: `source_id`,
       `destination_id`, `status` — `edited` or the exclusion reason).
-- [ ] Wire `parser.py`: `p_clone_refresh = clone_sub.add_parser("refresh",
+- [x] Wire `parser.py`: `p_clone_refresh = clone_sub.add_parser("refresh",
       parents=[global_flags])`, `source` positional, `--commit
       metavar="PREVIEW_ID"` — no other flags.
-- [ ] Wire `preflight.py`: the `clone-refresh` commit-kind/source check
+- [x] Wire `preflight.py`: the `clone-refresh` commit-kind/source check
       alongside the existing `clone-init` block in `_prepare_previews`.
-- [ ] Wire `dispatch.py`: extend the `mutation_safe` computation (line
+- [x] Wire `dispatch.py`: extend the `mutation_safe` computation (line
       26-29) with `or (args.clone_command == "refresh" and args.commit is
       not None)`, and add the `clone refresh` branch calling
       `clone_cmd.preview_refresh` / `clone_cmd.commit_refresh`.
 
 ### 4. FloodWait behaviour (inherited, not invented)
 
-- [ ] Test: a `FloodWaitError` raised from any RPC inside `commit_refresh`
+- [x] Test: a `FloodWaitError` raised from any RPC inside `commit_refresh`
       (scan re-check read, entity resolve, or the edit itself) arms
       `clone_state`'s cooldown and the account-scoped cooldown exactly like
       `sync_text` does, and the command exits 5. No retry loop anywhere in
       `refresh`.
-- [ ] Test: edits already applied before the FloodWait stay applied (no
+- [x] Test: edits already applied before the FloodWait stay applied (no
       rollback — `EditMessageRequest` calls already confirmed by Telegram
       are not undone), and the next **fresh** `clone refresh SOURCE`
       preview (after the cooldown, no `--commit`) lists only the posts
       still missing their prefix — proves the "re-running refresh resumes
       naturally" consequence end-to-end (scan → cooldown-exit → fresh scan
       → shrunk candidate set), not just at the unit level.
-- [ ] CONTRACT §11 (new subsection, after the reply/quote paragraphs,
+- [x] CONTRACT §11 (new subsection, after the reply/quote paragraphs,
       before the reupload/transport paragraphs or wherever reads best next
       to the ADR-0050 prefix description it amends):
       - `tg clone refresh SOURCE` / `tg clone refresh SOURCE --commit
@@ -266,25 +266,25 @@ idempotency does the recovery, not preview retry).
 
 ### 5. Documentation and release
 
-- [ ] `docs/MAP.md`: add a `refresh.py` row under `clone/` (next to
+- [x] `docs/MAP.md`: add a `refresh.py` row under `clone/` (next to
       `reforward.py`, same indentation/column style) describing it as "body
       backfill: eligibility + candidate scan for `tg clone refresh`
       (ADR-0054)", and append `/0054` to the `clone/` directory line's ADR
       parenthetical.
-- [ ] `docs/guide/clone.md`: new section after the `sync` walkthrough
+- [x] `docs/guide/clone.md`: new section after the `sync` walkthrough
       documenting `tg clone refresh SOURCE`, when to use it (a clone copied
       before a prefix rule shipped), and that it is read-then-edit only —
       never recreates or reorders anything.
-- [ ] `SKILL.md`: add a row to the clone command table (`Backfill missing
+- [x] `SKILL.md`: add a row to the clone command table (`Backfill missing
       forward prefixes on an existing clone | tg --json clone refresh
       SOURCE`), next to the existing `init`/`sync` rows.
-- [ ] CHANGELOG.md entry naming ADR-0054; bump `pyproject.toml` and
-      `src/tgcli/__init__.py` patch version together (1.2.9 → 1.2.10) in
+- [x] CHANGELOG.md entry naming ADR-0054; bump `pyproject.toml` and
+      `src/tgcli/__init__.py` patch version together (1.2.10 → 1.2.11) in
       the same commit as the CONTRACT/CHANGELOG change (ADR-0038).
-- [ ] DEVLOG.md entry for the session (per AGENTS.md template).
+- [x] DEVLOG.md entry for the session (per AGENTS.md template).
 - [ ] PR → `reviewer` subagent (independent whole-diff review against
       ADR-0054, this plan, and AGENTS.md — spec axis and standards axis
-      both) → green CI on the PR-event run → merge → tag `v1.2.10` per
+      both) → green CI on the PR-event run → merge → tag `v1.2.11` per
       `docs/agents/release.md`. Delete the branch as part of the merge.
 
 ### 6. Live acceptance (owner-gated, after merge and tag)

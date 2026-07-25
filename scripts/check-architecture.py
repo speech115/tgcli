@@ -13,9 +13,9 @@ from pathlib import Path
 
 CEILINGS = {
     "src/tgcli/cli.py": 299,
-    "src/tgcli/parser.py": 501,
-    "src/tgcli/preflight.py": 237,
-    "src/tgcli/dispatch.py": 248,
+    "src/tgcli/parser.py": 504,
+    "src/tgcli/preflight.py": 245,
+    "src/tgcli/dispatch.py": 257,
     "src/tgcli/commands/batch.py": 96,
     "src/tgcli/read_ops.py": 414,
     # +20 for ADR-0049: the progress emitter lives in clone/progress.py, but
@@ -24,7 +24,8 @@ CEILINGS = {
     # +5 for the comments-unstarted warning: the text and its condition live in
     # clone/progress.py, but sync_text owns both moments worth warning at —
     # before the work (a FloodWait exit never reaches the tail) and after it.
-    "src/tgcli/commands/clone.py": 1140,
+    # +162 for ADR-0054 refresh preview/commit/rows on the clone surface.
+    "src/tgcli/commands/clone.py": 1302,
     "src/tgcli/clone/state.py": 300,
     "src/tgcli/clone/quotes.py": 365,
     "src/tgcli/clone/quote_fallback.py": 127,
