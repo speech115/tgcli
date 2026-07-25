@@ -26,11 +26,12 @@ CEILINGS = {
     # before the work (a FloodWait exit never reaches the tail) and after it.
     # +9 for ADR-0051 task 1: pass posts_cursor into decide/resolve and stop
     # copy_batch on deferred (never plant a flat cross-leg reply).
-    "src/tgcli/commands/clone.py": 1149,
+    # +32 for ADR-0051 tasks 2–4: windowed loop, posts_exhausted threading.
+    "src/tgcli/commands/clone.py": 1181,
     "src/tgcli/clone/state.py": 300,
-    # +15 for ADR-0051 task 1: posts_cursor kwarg + deferred short-circuit in
-    # resolve (mirror of transport.decide's deferred plan).
-    "src/tgcli/clone/quotes.py": 380,
+    # +22 for ADR-0051: posts_cursor / posts_exhausted kwargs + deferred
+    # short-circuit in resolve (mirror of transport.decide's deferred plan).
+    "src/tgcli/clone/quotes.py": 387,
     "src/tgcli/clone/quote_fallback.py": 127,
 }
 

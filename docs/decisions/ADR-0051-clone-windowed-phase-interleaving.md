@@ -1,8 +1,8 @@
 # ADR-0051: Windowed interleaving of the clone's posts and comments legs
 
 Date: 2026-07-25
-Status: deferred (2026-07-25) — see Deferral below and CLONE-003 in
-[docs/ISSUES.md](../ISSUES.md)
+Status: accepted (re-entered 2026-07-25 via owner-requested PR #74 after a
+same-day deferral; see Deferral / Re-entry below)
 
 Amends [ADR-0023](ADR-0023-clone-channel-comments.md) — "two-phase sync,
 sequential, phase 1 first" — in the ordering clause only. Anchor
@@ -102,7 +102,7 @@ is mapped."
 - This does not fix attribution loss on reposted comments; that is
   [ADR-0050](ADR-0050-clone-forward-attribution.md) and independent.
 
-## Deferral (2026-07-25)
+## Deferral and re-entry (2026-07-25)
 
 Deferred by the owner on review, before implementation landed. The decision
 above stands as written — nothing in it was found wrong — but it did not
@@ -110,7 +110,7 @@ clear the ADR-0026 gate, which needs an explicit owner request and not only
 an ADR plus a plan. This ADR was drafted agent-side from a live observation;
 the owner's answer, when finally asked, was that the cost is not yet earned.
 
-What the deferral rests on:
+What the deferral rested on:
 
 - **It buys ordering, not time.** Same RPCs, same peers, same flood
   exposure; a finished clone is identical either way. The only thing that
@@ -131,9 +131,9 @@ What the deferral rests on:
   touches (`commands/clone.py`, `clone/quotes.py`) already sit at their
   reviewed line ceilings.
 
-**Re-entry gate.** Evidence that clones are abandoned mid-flight rather than
-resumed to completion — a clone left partial for days, or a second report of
-the intermediate state after the warning ships. Absent that, the warning is
-the whole fix. The safety task (defer-not-flatten) is written and correct on
-`cursor/clone-phase-interleaving-1864`; it is the base to resume from, and it
-must still land before any windowing, as decision 3 requires.
+**Re-entry (2026-07-25).** Owner-requested implementation via PR #74
+(`claude/clone-phase-interleaving-impl`), clearing the ADR-0026 gate. The
+stderr warning remains as a belt-and-braces signal while comments are
+unstarted; interleaving is the durable fix for partial-clone readability.
+Task 1 (defer-not-flatten) landed before windowing, as decision 3 requires.
+CLONE-003 in [docs/ISSUES.md](../ISSUES.md) is closed by this acceptance.

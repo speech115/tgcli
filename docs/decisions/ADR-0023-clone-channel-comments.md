@@ -42,6 +42,10 @@ Spec: docs/superpowers/specs/2026-07-16-clone-comments-design.md
   question: `--limit` does not split across phases. A run that stops inside
   phase 2 leaves comments lagging posts until the next invocation — accepted,
   not treated as a defect.
+  **Ordering clause superseded by [ADR-0051](ADR-0051-clone-windowed-phase-interleaving.md):**
+  sync now interleaves the legs in 50-batch windows; `--limit` spans both
+  legs; an unmapped cross-leg parent beyond the posts cursor defers instead
+  of flattening. Anchor recognition, cursors, and the leg seam are unchanged.
 - **Auto-forward recognition and skipping.** Phase 2 walks the discussion
   group oldest-to-newest with its own cursor (`discussion_cursor`) and
   recognizes Telegram's own auto-forwards of channel posts

@@ -17,6 +17,28 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — Implement ADR-0051 windowed phase interleaving (Cursor Grok)
+
+**Did:** took PR #74 (`claude/clone-phase-interleaving-impl`) from docs-only
+to merge-ready. Merged `origin/main` (1.2.10 + ADR-0051 deferral). Executed
+plan tasks 1–4 in order (TDD): (1) defer unmapped cross-leg parents beyond
+the posts cursor in `replies`/`comments`/`transport`/`quotes`; (2) `WINDOW=50`
+in `legs.py` and windowed loop in `sync_text`; (3) comments scan stops at the
+first anchor newer than the posts cursor; (4) `--limit` spans both legs +
+CONTRACT §11. Re-accepted ADR-0051 (owner request via #74), closed CLONE-003,
+bumped to 1.2.11 (CHANGELOG + double version), updated MAP/DEVLOG. Full gate
+green. Adapted Task-1 ideas from `cursor/clone-phase-interleaving-1864` onto
+the PR branch; did not merge that branch.
+**Decided:** enter the comments leg after a posts window only while `--limit`
+budget remains — a limit hit inside posts still ends the run (preserves
+limit=1 "comments unstarted" warning). Task 1 before Task 2 is non-negotiable.
+**Learned:** without the Task-3 bound, windowing would advance
+`discussion_cursor` past anchors for unmapped posts; defer alone prevents
+flattening but the bound is what keeps later windows able to resume cleanly.
+**Next:** independent Spec+Standards review of #74 from its merge-base; do
+not merge until that review clears. Live acceptance remains owner-gated on a
+fresh unfinished comments clone (plan task 6).
+
 ## 2026-07-25 — Deferred ADR-0051; shipped the warning instead (Claude Opus 5)
 
 **Did:** owner reviewed ADR-0051 and asked whether the project needs it. It

@@ -170,6 +170,25 @@ def test_cross_leg_parent_beyond_posts_cursor_defers():
     assert classified.parent_id == 789
 
 
+def test_cross_leg_parent_beyond_cursor_flattens_when_posts_exhausted():
+    """When the posts leg is done, a parent id beyond the cursor will never
+    arrive — flatten rather than defer forever (orphan / deleted post)."""
+    header = types.MessageReplyHeader(
+        reply_to_msg_id=789,
+        reply_to_peer_id=types.PeerChannel(2),
+        reply_to_top_id=2377,
+    )
+    classified = replies.target(
+        [_msg(header)],
+        _discussion(discussion_id_map={2377: 901}),
+        DISCUSSION_SOURCE,
+        posts_cursor=100,
+        posts_exhausted=True,
+    )
+    assert classified.kind == "flatten"
+    assert classified.parent_id == 789
+
+
 def test_cross_leg_parent_behind_cursor_still_flattens_when_absent():
     """Parent id <= posts cursor and missing from id_map: permanently gone
     (deleted / skipped-unsupported). Flatten exactly as today."""

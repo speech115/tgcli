@@ -28,8 +28,21 @@ def as_reuploaded(plan: TransportPlan) -> TransportPlan:
     )
 
 
-def decide(messages, leg, source, *, posts_cursor: int | None = None) -> TransportPlan:
-    classified = replies.target(messages, leg, source, posts_cursor=posts_cursor)
+def decide(
+    messages,
+    leg,
+    source,
+    *,
+    posts_cursor: int | None = None,
+    posts_exhausted: bool = False,
+) -> TransportPlan:
+    classified = replies.target(
+        messages,
+        leg,
+        source,
+        posts_cursor=posts_cursor,
+        posts_exhausted=posts_exhausted,
+    )
     header = getattr(messages[0], "reply_to", None)
     if classified is None:
         reply_to = None

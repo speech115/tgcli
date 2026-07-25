@@ -279,11 +279,18 @@ async def resolve(
     ctx: ResolveContext,
     *,
     posts_cursor: int | None = None,
+    posts_exhausted: bool = False,
 ) -> transport.TransportPlan:
     """Turn ``transport.decide``'s plan into a sendable reply or fallback."""
     if plan.mode == "deferred":
         return plan
-    classified = replies.target(messages, leg, source, posts_cursor=posts_cursor)
+    classified = replies.target(
+        messages,
+        leg,
+        source,
+        posts_cursor=posts_cursor,
+        posts_exhausted=posts_exhausted,
+    )
     if classified is None:
         return plan
 

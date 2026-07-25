@@ -40,11 +40,15 @@ async def sync_phase(
     counters,
     limited,
     resolve_ctx,
+    *,
+    posts_exhausted: bool = False,
 ) -> bool:
     """Copy the source discussion group into the clone's. Parent posts that
     this phase needs must already be mapped, or a cross-leg comment whose
     parent sits beyond the posts cursor defers (ADR-0051) instead of
-    flattening. Returns True when the --limit stop landed inside this phase."""
+    flattening — unless the posts leg is already exhausted, in which case
+    that parent is permanently gone and flattens. Returns True when the
+    --limit stop landed inside this phase."""
     leg = legs.discussion(clone_state)
     try:
         source_group = await tg.get_entity(
@@ -98,6 +102,14 @@ async def sync_phase(
             counters["skipped_service"] += 1
             leg.cursor = event.message_id
         elif (posts := _anchor_posts(event.messages, source_channel.id)) is not None:
+            # ADR-0051: stop before an anchor whose source post is newer than
+            # the posts cursor — but only while more posts may still arrive.
+            # Once the posts leg is exhausted, beyond-cursor anchors are
+            # orphans (deleted/never-seen) and must not stall the leg.
+            if not posts_exhausted and any(
+                post_id > clone_state.cursor for post_id in posts.values()
+            ):
+                return False
             resolve_ctx.anchors.update(posts)
             counters["skipped_autoforward"] += len(posts)
             leg.cursor = event.messages[-1].id
@@ -107,6 +119,7 @@ async def sync_phase(
                 leg,
                 source_group,
                 posts_cursor=clone_state.cursor,
+                posts_exhausted=posts_exhausted,
             )
             if classified is not None and classified.kind == "deferred":
                 return False

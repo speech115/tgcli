@@ -87,7 +87,12 @@ def _other_dest_for(leg, source_id: int) -> int | None:
 
 
 def _classify_header(
-    header, leg, source, *, posts_cursor: int | None = None
+    header,
+    leg,
+    source,
+    *,
+    posts_cursor: int | None = None,
+    posts_exhausted: bool = False,
 ) -> Classification | None:
     if header is None:
         return None
@@ -136,12 +141,14 @@ def _classify_header(
             if _other_dest_for(leg, parent_id) is not None:
                 return result("mapped-cross-leg")
             # Discussion leg only (ADR-0051): parent beyond the posts cursor
-            # means "not copied yet" → defer. Parent behind the cursor and
-            # absent means permanently gone → flatten.
+            # means "not copied yet" → defer, unless the posts leg is already
+            # exhausted (parent will never arrive) → flatten. Parent behind
+            # the cursor and absent means permanently gone → flatten.
             if (
                 leg.map_field == "discussion_id_map"
                 and posts_cursor is not None
                 and parent_id > posts_cursor
+                and not posts_exhausted
             ):
                 return result("deferred")
             return result("flatten")
@@ -160,7 +167,12 @@ def _classify_header(
 
 
 def target(
-    messages, leg, source, *, posts_cursor: int | None = None
+    messages,
+    leg,
+    source,
+    *,
+    posts_cursor: int | None = None,
+    posts_exhausted: bool = False,
 ) -> Classification | None:
     classifications = [
         _classify_header(
@@ -168,6 +180,7 @@ def target(
             leg,
             source,
             posts_cursor=posts_cursor,
+            posts_exhausted=posts_exhausted,
         )
         for message in messages
     ]

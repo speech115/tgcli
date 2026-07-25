@@ -971,6 +971,7 @@ async def sync_text(
     progress = clone_progress.SyncProgress(
         source_entity.id, copied=len(clone_state.id_map)
     )
+    posts_exhausted = False
 
     async def copy_batch(messages, leg, source, dest) -> None:
         nonlocal copied, copied_batches, reply_flattened
@@ -987,7 +988,13 @@ async def sync_text(
         await progress.resolve_total(
             tg, source_entity, lambda awaitable: _with_cooldown(awaitable, clone_state)
         )
-        plan = transport.decide(messages, leg, source, posts_cursor=clone_state.cursor)
+        plan = transport.decide(
+            messages,
+            leg,
+            source,
+            posts_cursor=clone_state.cursor,
+            posts_exhausted=posts_exhausted,
+        )
         if plan.mode == "deferred":
             return
         plan = await quotes.resolve(
@@ -997,6 +1004,7 @@ async def sync_text(
             source,
             resolve_ctx,
             posts_cursor=clone_state.cursor,
+            posts_exhausted=posts_exhausted,
         )
         topic_dest = None
         if forum:
@@ -1040,50 +1048,74 @@ async def sync_text(
         copied_batches += 1
         progress.batch(batch_copied, mode)
 
-    async for event in batching.plan(
-        tg.iter_messages(source_entity, min_id=posts_leg.cursor, reverse=True)
-    ):
-        if limit is not None and copied_batches >= limit:
-            more = True
-            break
-        if isinstance(event, batching.ServiceSkip):
-            source_message = event.message
-            if forum and isinstance(
-                source_message.action, types.MessageActionTopicCreate
-            ):
-                if clone_state.topic_dest_for(source_message.id) is None:
-                    await topics.create_topic(
-                        mutate,
-                        destination,
-                        clone_state,
-                        source_message.id,
-                        account_alias=account_alias,
-                        title=source_message.action.title,
-                        icon_color=getattr(source_message.action, "icon_color", None),
-                        icon_emoji_id=getattr(
-                            source_message.action, "icon_emoji_id", None
-                        ),
-                    )
-                    counters["topics_created"] += 1
-            else:
-                counters["skipped_service"] += 1
-            posts_leg.cursor = event.message_id
-            state.save(clone_state)
-            continue
-        await copy_batch(event.messages, posts_leg, source_entity, destination)
-    if clone_state.comments == "enabled" and not more:
-        progress.phase("comments")
-        more = await comments.sync_phase(
-            tg,
-            clone_state,
-            source_entity,
-            destination,
-            mutate,
-            copy_batch,
-            counters,
-            lambda: limit is not None and copied_batches >= limit,
-            resolve_ctx,
-        )
+    async def run_posts_window(max_batches: int | None) -> int:
+        """Copy up to max_batches posts (None = exhaust). Sets more on --limit."""
+        nonlocal more
+        ran = 0
+        async for event in batching.plan(
+            tg.iter_messages(source_entity, min_id=posts_leg.cursor, reverse=True)
+        ):
+            if limit is not None and copied_batches >= limit:
+                more = True
+                break
+            if isinstance(event, batching.ServiceSkip):
+                source_message = event.message
+                if forum and isinstance(
+                    source_message.action, types.MessageActionTopicCreate
+                ):
+                    if clone_state.topic_dest_for(source_message.id) is None:
+                        await topics.create_topic(
+                            mutate,
+                            destination,
+                            clone_state,
+                            source_message.id,
+                            account_alias=account_alias,
+                            title=source_message.action.title,
+                            icon_color=getattr(
+                                source_message.action, "icon_color", None
+                            ),
+                            icon_emoji_id=getattr(
+                                source_message.action, "icon_emoji_id", None
+                            ),
+                        )
+                        counters["topics_created"] += 1
+                else:
+                    counters["skipped_service"] += 1
+                posts_leg.cursor = event.message_id
+                state.save(clone_state)
+                continue
+            await copy_batch(event.messages, posts_leg, source_entity, destination)
+            ran += 1
+            if max_batches is not None and ran >= max_batches:
+                break
+        return ran
+
+    if clone_state.comments == "enabled":
+        # ADR-0051: alternate posts×WINDOW with comments until both exhaust.
+        # Enter comments only while --limit budget remains; a limit hit during
+        # posts ends the run (same as today for limit < WINDOW).
+        while not more:
+            ran = await run_posts_window(legs.WINDOW)
+            if more:
+                break
+            posts_exhausted = ran < legs.WINDOW
+            progress.phase("comments")
+            more = await comments.sync_phase(
+                tg,
+                clone_state,
+                source_entity,
+                destination,
+                mutate,
+                copy_batch,
+                counters,
+                lambda: limit is not None and copied_batches >= limit,
+                resolve_ctx,
+                posts_exhausted=posts_exhausted,
+            )
+            if posts_exhausted:
+                break
+    else:
+        await run_posts_window(None)
     if not warned_unstarted:
         clone_progress.comments_unstarted(clone_state)
     progress.phase("roster")
