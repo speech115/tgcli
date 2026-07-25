@@ -3,6 +3,7 @@
 from copy import copy
 from dataclasses import dataclass
 
+from telethon import errors as telethon_errors
 from telethon import utils
 from telethon.tl import types
 
@@ -114,14 +115,27 @@ async def author_of(tg, source, message, me, cache: dict, cooldown) -> Author:
             else _identify(None, getattr(message, "sender_id", None))
         )
     else:
-        key = peer_key(peer)
-        if key not in cache:
-            try:
-                cache[key] = await cooldown(tg.get_entity(peer))
-            except ValueError:
-                cache[key] = None
-        entity = cache[key]
+        entity = await _resolve(tg, peer, cache, cooldown)
     return _identify(entity, getattr(message, "sender_id", None))
+
+
+async def _resolve(tg, peer, cache: dict, cooldown):
+    """The entity behind a peer, or None when Telegram refuses to name it.
+
+    A post can name a peer this account cannot resolve — a private channel
+    (live-proven: `[икона]` 54 forwards from one), a deleted account. Every
+    refusal is a missing label, not a failed sync; only a FloodWait still
+    stops the run (ADR-0045).
+    """
+    key = peer_key(peer)
+    if key not in cache:
+        try:
+            cache[key] = await cooldown(tg.get_entity(peer))
+        except telethon_errors.FloodWaitError:
+            raise
+        except (ValueError, telethon_errors.RPCError):
+            cache[key] = None
+    return cache[key]
 
 
 FORWARD_LEAD = "Переслано от "
@@ -145,13 +159,7 @@ async def forwarded_author_of(tg, message, cache: dict, cooldown) -> Author:
         return Author(text="", lead="Переслано")
     peer = getattr(fwd, "from_id", None)
     if peer is not None:
-        key = peer_key(peer)
-        if key not in cache:
-            try:
-                cache[key] = await cooldown(tg.get_entity(peer))
-            except ValueError:
-                cache[key] = None
-        entity = cache[key]
+        entity = await _resolve(tg, peer, cache, cooldown)
         if entity is not None:
             return _with_forward_lead(_identify(entity, None))
     from_name = getattr(fwd, "from_name", None)

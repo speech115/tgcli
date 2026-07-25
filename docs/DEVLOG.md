@@ -17,6 +17,56 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-25 — Implement ADR-0050 Part B (Claude Opus 5, orchestrated)
+
+**Did:** owner lifted the Part B gate, so decision 3 shipped on
+`claude/clone-forward-attribution-b` (stacked on the Part A head). New
+`src/tgcli/clone/reforward.py`: `eligible()` admits only a single-message
+`reuploaded` broadcast repost with a searchable `fwd_from`; `locate()`
+resolves the linked source group once per run, spends at most one
+`get_messages(from_user=…, offset_date=fwd.date + 1s, limit=20)` per repost,
+and returns a group message id only when exactly one candidate sits at
+`fwd_from.date` with identical text and media. `_forward_batch` then sends
+that one `ForwardMessagesRequest(from_peer=<source group>, drop_author=False)`
+— audited as `clone-sync-reforward`, counted as `forwarded` — and skips the
+Part A prefix; every unproven case falls back to it unchanged. 22 new tests
+(`tests/test_clone_reforward.py` + 3 integration cases); 1.2.8 double bump,
+CHANGELOG, CONTRACT §11, MAP, plan boxes. Gate green.
+
+**Decided:** narrow Part B below the ADR's wording — albums are excluded
+(every item would need its own proof) and snapshot batches are excluded
+(ADR-0048 poll-vote replication is built on the rendered placeholder a
+forward would replace). Recorded in the plan and CHANGELOG. Ran the session
+as an orchestrator: Sonnet subagents wrote the tests and the release
+paperwork against a fixed API contract while Opus wrote the module and the
+wiring.
+
+**Learned:** the search must not be reached through `iter_messages` — only
+the `get_messages` coroutine can pass through `_with_cooldown`, which is
+what keeps a `FloodWaitError` arming the ADR-0045 cooldown instead of dying
+inside an async generator. `_guarded` re-raises `FloodWaitError` before
+catching `RPCError` for the same reason: FloodWait is a subclass, and
+swallowing it would turn a rate limit into a silent fallback.
+
+**Live:** read-only probe against the real `[икона]` clone (source id
+3802378977, group «масонская ложа» 3749696954) — no mutation, no peer, one
+`get_entity` plus five real searches. Source is `noforwards=true`, the group
+is not, so Part B applies live. Five reposts, five correct verdicts: 78→836,
+73→808, 69→793 proven; 81 falls back to `Переслано от Эмиль Ахмедов
+(@e1m11)` because its original never was in that group; 54 falls back to the
+bare `Переслано`. Two findings, both fixed here. **(1)** post 54 forwards
+from a private channel, and `get_entity` answered `ChannelPrivateError` —
+an `RPCError`, not the `ValueError` Part A caught, so a real sync would have
+died on it. `author_of` and `forwarded_author_of` now share `_resolve`,
+which re-raises FloodWait and turns every other refusal into a missing
+label. **(2)** the ADR's own example is wrong about the data: post 69 was
+edited at 16:18 after being reposted at 13:55, yet its text is byte
+identical to the group original — the edit moved something other than
+characters. `_same_content` therefore compares entities too.
+
+**Next:** independent review of this PR, then merge and tag 1.2.8 — after
+#59, which also claims a 1.2.7-adjacent digit, settles.
+
 ## 2026-07-25 — Implement ADR-0050 Part A (Composer)
 
 **Did:** executed Part A of

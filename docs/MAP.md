@@ -64,6 +64,7 @@ tgcli/
 │   │   ├── replies.py         [done]    reply classification (ADR-0036); mapped-in-leg input rebuild
 │   │   ├── quote_fallback.py  [done]    rendered quote degradation: prefix, body, stale-quote strip (ADR-0037)
 │   │   ├── quotes.py          [done]    async quote resolver: native InputReplyToMessage or fallback handoff (ADR-0036/0037)
+│   │   ├── reforward.py       [done]    proven-original native re-forward out of the source discussion group (ADR-0050 Part B)
 │   │   ├── topics.py          [done]    forum destination shape, lazy topic map, batch confirmation (ADR-0022)
 │   │   ├── discussion.py      [done]    linked-chat detection, discussion group create/link/recover, anchor lookup (ADR-0023)
 │   │   ├── comments.py        [done]    phase-2 sync leg: copies the discussion group (thread remap via quotes.resolve)

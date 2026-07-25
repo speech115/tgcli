@@ -5,6 +5,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
+from telethon import errors as telethon_errors
 from telethon.tl import types
 
 from tgcli.clone import attribution
@@ -264,6 +265,53 @@ def test_author_of_falls_back_to_id_for_unresolvable_peer():
     assert author == attribution.Author(text="id 9")
 
 
+def test_author_of_falls_back_to_id_when_get_entity_raises_rpc_error():
+    """Live `[икона]` 54 shape: a private channel refuses `get_entity` with
+    an `RPCError` subclass, not `ValueError` — must fall back, not raise."""
+
+    class Client:
+        async def get_entity(self, peer):
+            raise telethon_errors.ChannelPrivateError(request=None)
+
+    async def cooldown(awaitable):
+        return await awaitable
+
+    author = asyncio.run(
+        attribution.author_of(
+            Client(),
+            SimpleNamespace(id=2),
+            SimpleNamespace(from_id=types.PeerUser(user_id=9), sender_id=9, out=False),
+            SimpleNamespace(id=1),
+            {},
+            cooldown,
+        )
+    )
+    assert author == attribution.Author(text="id 9")
+
+
+def test_author_of_propagates_flood_wait():
+    class Client:
+        async def get_entity(self, peer):
+            raise telethon_errors.FloodWaitError(request=None, capture=30)
+
+    async def cooldown(awaitable):
+        return await awaitable
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        asyncio.run(
+            attribution.author_of(
+                Client(),
+                SimpleNamespace(id=2),
+                SimpleNamespace(
+                    from_id=types.PeerUser(user_id=9), sender_id=9, out=False
+                ),
+                SimpleNamespace(id=1),
+                {},
+                cooldown,
+            )
+        )
+
+
 def test_author_of_uses_post_author_when_sender_is_absent():
     author = asyncio.run(
         attribution.author_of(
@@ -418,6 +466,70 @@ def test_forwarded_author_of_falls_back_when_get_entity_raises_value_error():
     assert author == attribution.Author(text="Кто-то", lead=FORWARD_LEAD)
 
 
+def test_forwarded_author_of_falls_back_to_from_name_when_get_entity_raises_rpc_error():
+    """Live `[икона]` 54 shape: `fwd_from.from_id = PeerChannel(...)` names a
+    private channel this account cannot access — `ChannelPrivateError` is an
+    `RPCError`, not `ValueError`, and must still fall through the ladder."""
+
+    class Client:
+        async def get_entity(self, peer):
+            raise telethon_errors.ChannelPrivateError(request=None)
+
+    async def cooldown(awaitable):
+        return await awaitable
+
+    author = asyncio.run(
+        attribution.forwarded_author_of(
+            Client(),
+            _fwd_message(
+                from_id=types.PeerChannel(channel_id=1987061209), from_name="Кто-то"
+            ),
+            {},
+            cooldown,
+        )
+    )
+    assert author == attribution.Author(text="Кто-то", lead=FORWARD_LEAD)
+
+
+def test_forwarded_author_of_falls_back_to_bare_word_when_get_entity_raises_rpc_error():
+    class Client:
+        async def get_entity(self, peer):
+            raise telethon_errors.ChannelPrivateError(request=None)
+
+    async def cooldown(awaitable):
+        return await awaitable
+
+    author = asyncio.run(
+        attribution.forwarded_author_of(
+            Client(),
+            _fwd_message(from_id=types.PeerChannel(channel_id=1987061209)),
+            {},
+            cooldown,
+        )
+    )
+    assert author == attribution.Author(text="", lead="Переслано")
+
+
+def test_forwarded_author_of_caches_rpc_error_refusal():
+    calls = []
+
+    class Client:
+        async def get_entity(self, peer):
+            calls.append(peer)
+            raise telethon_errors.ChannelPrivateError(request=None)
+
+    async def cooldown(awaitable):
+        return await awaitable
+
+    cache = {}
+    client = Client()
+    msg = _fwd_message(from_id=types.PeerChannel(channel_id=1987061209))
+    first = asyncio.run(attribution.forwarded_author_of(client, msg, cache, cooldown))
+    second = asyncio.run(attribution.forwarded_author_of(client, msg, cache, cooldown))
+    assert first == second == attribution.Author(text="", lead="Переслано")
+    assert len(calls) == 1
+
+
 def test_forwarded_author_of_reuses_author_cache():
     calls = []
 
@@ -444,8 +556,6 @@ def test_forwarded_author_of_reuses_author_cache():
 
 
 def test_forwarded_author_of_propagates_flood_wait():
-    from telethon import errors as telethon_errors
-
     class Client:
         async def get_entity(self, peer):
             raise telethon_errors.FloodWaitError(request=None, capture=30)

@@ -72,6 +72,15 @@ def _write(clone_id: str, rows: list[dict]) -> Path:
     return path
 
 
+def _marker(clone_state: state.CloneState, status: str, reason: str) -> dict:
+    return {
+        "peer_id": clone_state.discussion_source_peer_id,
+        "status": status,
+        "count": 0,
+        "reason": reason,
+    }
+
+
 async def collect(tg, clone_state: state.CloneState, source_entity) -> dict:
     """Snapshot the source channel and its discussion group; return a status
     dict and rewrite the participant sidecar atomically."""
@@ -92,13 +101,18 @@ async def collect(tg, clone_state: state.CloneState, source_entity) -> dict:
             group = await tg.get_entity(
                 types.PeerChannel(clone_state.discussion_source_peer_id)
             )
+        except telethon_errors.FloodWaitError:
+            discussion = _marker(clone_state, "deferred", "flood_wait")
+        except _ACCESS_ERRORS as exc:
+            # Telegram refuses to name a peer with an RPCError, not a
+            # ValueError — the same shape that reached `attribution._resolve`
+            # live. The roster runs after the copying is done; a refusal here
+            # is a marker, never an exception out of a finished sync.
+            discussion = _marker(clone_state, "unavailable", type(exc).__name__)
         except ValueError:
-            discussion = {
-                "peer_id": clone_state.discussion_source_peer_id,
-                "status": "unavailable",
-                "count": 0,
-                "reason": "source discussion group is unresolved",
-            }
+            discussion = _marker(
+                clone_state, "unavailable", "source discussion group is unresolved"
+            )
         else:
             group_rows, group_status, group_reason = await _collect_peer(
                 tg, "discussion", group
