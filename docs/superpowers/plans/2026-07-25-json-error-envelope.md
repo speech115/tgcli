@@ -41,7 +41,7 @@ phase is the existing ADR-0049 shape, not per batch).
 
 ### 1. `emit_error` writes the same line to stdout and stderr under `--json`
 
-- [ ] Test (`tests/test_output.py`): extend
+- [x] Test (`tests/test_output.py`): extend
       `test_emit_error_json_mode_is_machine_readable` so it asserts on
       **both** `capsys.readouterr().out` and `.err` — same parsed JSON
       object on each stream, and the two raw strings are identical
@@ -52,7 +52,7 @@ phase is the existing ADR-0049 shape, not per batch).
       is needed there beyond what it already implicitly covers via the
       shared `capsys` fixture — add an explicit `assert ... .out == ""`
       if it is not already implied by the existing assertion shape).
-- [ ] Test (`tests/test_contract_exit_codes.py`): extend the three
+- [x] Test (`tests/test_contract_exit_codes.py`): extend the three
       existing `--json` scenarios so each also parses stdout and asserts
       it equals the stderr envelope:
       - `test_readonly_mutation_is_exit_2` (`PolicyError` / `BLOCKED`)
@@ -64,11 +64,11 @@ phase is the existing ADR-0049 shape, not per batch).
       existing `_error_code(capsys)`, e.g. `_stdout_error(capsys)`, and
       assert `_stdout_error(capsys) == _error_code(capsys)` (call each
       exactly once per test — `capsys.readouterr()` drains the buffers).
-- [ ] Test (exit 5, `tests/test_cli_read.py::test_floodwait_maps_to_exit_5`):
+- [x] Test (exit 5, `tests/test_cli_read.py::test_floodwait_maps_to_exit_5`):
       extend to also parse `capsys.readouterr().out` as JSON and assert
       its `error` object equals the one already asserted from `.err`
       (`code == "FLOOD_WAIT"`, `retry_after == 42`).
-- [ ] Test (exit 1, `tests/test_cli_export.py`): the codebase's only
+- [x] Test (exit 1, `tests/test_cli_export.py`): the codebase's only
       concrete `RUNTIME`/exit-1 exception is `ExportError`
       (`src/tgcli/errors.py`) — nothing raises the bare `TgcliError`
       directly. Add `--json` to
@@ -78,7 +78,7 @@ phase is the existing ADR-0049 shape, not per batch).
       *both* streams, and that the existing destination-preservation
       assertion (`destination.read_text() == "previous\n"`) still holds
       — the stdout write must not touch the export file.
-- [ ] Implement: in `src/tgcli/output.py::emit_error`, when `as_json` is
+- [x] Implement: in `src/tgcli/output.py::emit_error`, when `as_json` is
       true, build the JSON line once and write it to both `sys.stdout`
       and `sys.stderr` — do not compute the payload twice, so the two
       writes are identical by construction rather than by coincidence:
@@ -100,7 +100,7 @@ phase is the existing ADR-0049 shape, not per batch).
       behavior for free. `PartialFailure`'s `--json` branch does not call
       `emit_error` at all (it emits `err.data` directly) and is correctly
       out of scope — verify no test for it regresses.
-- [ ] Run the full suite once, not just the touched files — `emit_error`
+- [x] Run the full suite once, not just the touched files — `emit_error`
       is called from every command's error path; confirm nothing else
       asserted `capsys.readouterr().out == ""` on a `--json` failure path
       that now legitimately has content (grep test files for
@@ -109,7 +109,7 @@ phase is the existing ADR-0049 shape, not per batch).
 
 ### 2. CONTRACT §2: state explicitly that the envelope lives on stdout first
 
-- [ ] Update `docs/CONTRACT.md` §2. Current text says only that the
+- [x] Update `docs/CONTRACT.md` §2. Current text says only that the
       error is "also mirrored to stderr", which is where the drift in
       ADR-0053's Context section came from. Add one sentence making the
       order explicit, in place, right after the existing mirror
@@ -135,7 +135,7 @@ posts leg at
 (the `CountingClient` pattern, ~line 3767); reuse that pattern for the
 comments-phase call-count test below rather than inventing a new one.
 
-- [ ] Test (`tests/test_clone_progress.py`): a new async test proving
+- [x] Test (`tests/test_clone_progress.py`): a new async test proving
       `resolve_total()` re-queries after `phase()` resets it — construct
       a fake `tg.get_messages` returning two different `total` values on
       successive calls (via a small counter/list closure, matching the
@@ -144,7 +144,7 @@ comments-phase call-count test below rather than inventing a new one.
       the underlying fake was invoked twice and the second call's
       resolved total is reflected in the next `.batch()` line (not the
       first call's stale value, and not `~?`).
-- [ ] Test (`tests/test_cli_clone_sync.py`): extend
+- [x] Test (`tests/test_cli_clone_sync.py`): extend
       `test_sync_announces_the_comments_and_roster_phases` (or add a
       sibling next to it) so it asserts the batch line **immediately
       following** the `"[sync 123] 1/~1 · comments"` phase line reports
@@ -161,7 +161,7 @@ comments-phase call-count test below rather than inventing a new one.
       `get_messages(entity, limit=0)` call total, not one per comment
       batch — this is the test that would catch a naive "always
       re-resolve" fix that reintroduces an RPC-per-batch regression.
-- [ ] Implement: in `src/tgcli/clone/progress.py::SyncProgress.phase`,
+- [x] Implement: in `src/tgcli/clone/progress.py::SyncProgress.phase`,
       reset `self._total_resolved = False` alongside the existing
       `self._total = None`. Two lines total in the whole task:
 
@@ -175,7 +175,7 @@ comments-phase call-count test below rather than inventing a new one.
       No other file changes: `resolve_total`'s existing lazy-on-first-batch
       guard and its `FloodWaitError` passthrough are unaffected and
       already correctly tested.
-- [ ] No CONTRACT.md change for this task: `clone sync` progress lines
+- [x] No CONTRACT.md change for this task: `clone sync` progress lines
       are already documented in §2 as informative and non-contractual
       (`<total>` "the best-effort source message count (`?` when
       unavailable)"); the fix changes when `?` legitimately appears, not
@@ -183,18 +183,18 @@ comments-phase call-count test below rather than inventing a new one.
 
 ### 4. Release
 
-- [ ] Run `./scripts/gate.sh`; quote real output, not "tests pass".
-- [ ] `CHANGELOG.md`: one new section naming ADR-0053 for the stdout
+- [x] Run `./scripts/gate.sh`; quote real output, not "tests pass".
+- [x] `CHANGELOG.md`: one new section naming ADR-0053 for the stdout
       envelope, plus a bullet noting the comments-phase progress
       denominator fix as a corollary (no separate ADR reference for that
       bullet — it is not one).
-- [ ] Double version bump: `pyproject.toml` and `src/tgcli/__init__.py`,
-      both to the next patch (`1.2.9` → `1.2.10`), same commit as the
+- [x] Double version bump: `pyproject.toml` and `src/tgcli/__init__.py`,
+      both to the next patch (`1.2.10` → `1.2.11`), same commit as the
       CONTRACT and CHANGELOG changes.
-- [ ] `docs/MAP.md`: no module gained or lost a role (`output.py` and
+- [x] `docs/MAP.md`: no module gained or lost a role (`output.py` and
       `clone/progress.py` keep their existing one-line descriptions) —
       confirm, do not edit unless review disagrees.
-- [ ] DEVLOG entry per the template at the top of `docs/DEVLOG.md`.
-- [ ] PR → `reviewer` subagent from the merge-base → green CI (PR-event
-      run, not a stale push-event run) → merge → tag `v1.2.10` on the
+- [x] DEVLOG entry per the template at the top of `docs/DEVLOG.md`.
+- [x] PR → `reviewer` subagent from the merge-base → green CI (PR-event
+      run, not a stale push-event run) → merge → tag `v1.2.11` on the
       merge commit per `docs/agents/release.md`.

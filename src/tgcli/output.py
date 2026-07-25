@@ -30,6 +30,8 @@ def note(message: str) -> None:
 def emit_error(err: TgcliError, *, as_json: bool) -> None:
     if as_json:
         payload = {"error": {"code": err.code, "message": str(err), **err.details}}
-        sys.stderr.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+        line = json.dumps(payload, ensure_ascii=False, default=str) + "\n"
+        sys.stdout.write(line)
+        sys.stderr.write(line)
     else:
         note(f"error: {err}")

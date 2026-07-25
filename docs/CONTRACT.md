@@ -35,6 +35,9 @@ Flag beats env, env beats config.
 - **stderr** — everything else: progress, hints, warnings, error messages.
   With `--json`, the final error is also mirrored to stderr as a single-line
   JSON object: `{"error": {"code": "FLOOD_WAIT", "message": "...", "retry_after": 42}}`.
+  With `--json`, the error envelope is written to stdout as the run's single
+  JSON document, then the identical line is copied to stderr as that last-line
+  mirror — a `--json` caller may read either stream for the same object.
   It is the **last** line of stderr, not the whole stream: progress and
   warnings legitimately precede it.
 - `clone sync` prints progress to stderr in every mode, including `--json`
