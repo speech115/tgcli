@@ -286,21 +286,39 @@ async def _with_cooldown(make_awaitable, clone_state, budget: flood.WaitBudget):
     ``FloodWaitError`` (≤ ``flood.SHORT_WAIT``) is waited out once when the
     per-process ``budget`` still has room, then the thunk is retried; a second
     failure, a longer wait, or a spent budget raises after arming both
-    cooldowns (ADR-0052 / ADR-0045).
+    cooldowns (ADR-0052 / ADR-0045). Concurrent callers (parallel upload
+    workers) share ``budget.gate``: the caller sleeping a short wait out
+    holds the gate, and every sibling parks before its next attempt instead
+    of issuing RPCs, charging the budget, or sleeping the same wait again.
     """
-    try:
-        return await make_awaitable()
-    except telethon_errors.FloodWaitError as exc:
-        _arm_flood_cooldown(clone_state, exc.seconds)
-        if exc.seconds > flood.SHORT_WAIT or not budget.try_spend(exc.seconds + 1):
-            raise
-        note(f"flood wait: retrying in {exc.seconds}s")
-        await asyncio.sleep(exc.seconds + 1)
+    gate = budget.gate
+    slept = False
+    while True:
+        await gate.wait()
         try:
             return await make_awaitable()
-        except telethon_errors.FloodWaitError as retry_exc:
-            _arm_flood_cooldown(clone_state, retry_exc.seconds)
-            raise
+        except telethon_errors.FloodWaitError as exc:
+            _arm_flood_cooldown(clone_state, exc.seconds)
+            if exc.seconds > flood.SHORT_WAIT:
+                raise
+            if gate.held:
+                # A sibling already sleeps this wait out; park on the gate
+                # and retry without paying for a wait this caller never
+                # sleeps. held-check → hold() below is synchronous-only, so
+                # no task can slip in between (see flood.FloodGate).
+                continue
+            if slept or not budget.try_spend(exc.seconds + 1):
+                raise
+            slept = True
+            # note() before hold(): a stderr write failure (closed pipe) must
+            # not leave the gate held. Both are synchronous, so the
+            # held-check → hold() atomicity above still stands.
+            note(f"flood wait: retrying in {exc.seconds}s")
+            gate.hold()
+            try:
+                await asyncio.sleep(exc.seconds + 1)
+            finally:
+                gate.release()
 
 
 async def _mutate(tg, request, clone_state: state.CloneState, budget: flood.WaitBudget):
