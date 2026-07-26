@@ -54,6 +54,28 @@ The account hit its session limit mid-flight. Exact state:
   `1565192..a6e049f` is REQUIRED before the PR to main (AGENTS.md pre-merge
   rule). Suite at `a6e049f`: 1326 passed, 9 skipped, full gate green.
 
+## Static-analysis and coverage measurement (2026-07-26)
+
+Taken on a clean `/tmp` copy of the branch so nothing in the repo changed.
+This answers the external review's "the gate is softer than it looks":
+
+- **Line coverage is 94%** (5930 statements, 353 uncovered) — the gate never
+  measured this before (`check-coverage.py` is a Telethon-namespace matrix,
+  not a code-coverage tool). Thinnest modules: `commands/batch.py` 81%,
+  `commands/api.py` 87%, `commands/media.py` 88%, `clone/replies.py` and
+  `clone/comments.py` 89%, `commands/doctor.py` 89%. Coverage is high enough
+  that it is not the reason defects survived — the audit's own finding
+  classes (crash windows, concurrency, malformed input, clock skew) are
+  invisible to line coverage by construction.
+- **ruff rule families**, violation counts as measured: `B` 7, `C4` 5,
+  `RET` 6, `UP` 21, `SIM` 25, `PTH` 37, `TRY` 360, `ARG` 840. Only `B`
+  (bugbear) is worth adopting — three of its seven hits are `B023`, closures
+  capturing a loop variable, which are latent by construction. Recorded in
+  PROPOSALS; the adoption slice waits until wave 3 releases `transfer.py`.
+- **pyright `strict` = 4956 errors**, nearly all `reportUnknown*` from
+  Telethon's untyped surface. Not worth adopting; recorded in PROPOSALS so
+  it is not re-litigated.
+
 ## Plan of record
 
 1. **Phase 1 — DONE.** Five handoff defects fixed with red-first
