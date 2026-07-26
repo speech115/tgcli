@@ -393,6 +393,45 @@ anything in the second block.
 
 ---
 
+## Process-speed rule revisions (2026-07-26, PR-history data)
+
+Owner question: changes feel slow — is the test/process discipline worth
+revisiting? Answered with measurements over the merged PR history (39
+merged PRs), the gate, and shared-file churn, taken on the campaign branch
+at `673033a`. Same maintenance-mode gate as everything else: process rules
+live in AGENTS.md, so each adopted row lands as an AGENTS.md edit in its
+own slice, plus an ADR where the row amends an existing decision.
+
+**What the data rules out.** Neither test runtime nor merge latency is the
+cost: the full `./scripts/gate.sh` runs in 52 s wall-clock (pytest 29.5 s
+for 1326 tests), and PR cycle time is median **1.2 h** open→merge, p75
+3.3 h, max 11.7 h — none over a day. The real per-change cost is volume
+plus serialization: recent feature PRs carry ≈2.8 test lines and ≈2
+docs/process lines per `src/` line (PR #78: 260 src / 729 tests / 666
+docs; PR #77: 349/965/625; PR #74: 254/534/228), and the shared files
+conflict by construction — of 133 commits in this branch's history,
+`docs/DEVLOG.md` appears in 54, `scripts/check-architecture.py` in 38,
+`docs/CONTRACT.md` in 33, `CHANGELOG.md` in 27.
+
+**Not candidates — measured defect catchers.** Red-first tests, boundary
+tests, the independent pre-merge review, and the full gate before commit
+stay as they are. Their hit rate is the evidence: hardening wave 1 came
+back needs-work on 4 of 5 slices, PR #77's review found two confirmed
+majors, and 13 of 133 commits are review fixes — while the gate itself
+costs 52 s. Weakening these trades a 1.2 h median cycle for the return of
+bf-01-class defects.
+
+| Item | Value | Effort | Note |
+|---|---|---|---|
+| Integrator-assigned version/CHANGELOG at merge | high | S | Revises ADR-0038 **mechanics**, not intent. Evidence the current shape misfires: the 1.2.10/1.2.11 version race between parallel branches, PR #51 (`__version__` drift fix), PR #38 (CHANGELOG finalized after tagging), and tags `v1.2.10`–`v1.2.15` missing because agent sessions cannot push tags. Change: feature branches never touch the version, CHANGELOG, or tag; the integrator assigns the number and writes the CHANGELOG section in the merge that lands the change. Contract changes still never accumulate unreleased — only *who and when* moves. Needs an ADR amending ADR-0038. |
+| DEVLOG as per-entry files | high | S | `docs/devlog/YYYY-MM-DD-slug.md`, one file per session entry; `DEVLOG.md` becomes an index or a generated view. Removes the single hottest conflict file (54/133 commits into one newest-on-top file; DEVLOG itself names CHANGELOG/DEVLOG/ceilings as the rebase hotspots) with zero loss of discipline. AGENTS.md edit. |
+| Line-ceiling tolerance band | med | S | `check-architecture.py` fails only above ceiling +50 lines (or +10 %); the integrator ratchets ceilings back down at merge. Keeps the anti-bloat control, removes the per-PR ceiling reconciliation that today touches 38/133 commits plus its `tests/test_check_architecture.py` mirror. |
+| Parallel waves branch from the integration head | med | XS | All six wave-2 worktrees branched from `main` instead of the campaign head: every cherry-pick needed ceiling reconciliation, and one slice re-invented `DeadlineExceeded` that wave 1 had already landed. One AGENTS.md line: a wave's worktrees start at the integrator's current head. |
+| ADR-lite template for XS/S changes | med | XS | 11 full ADRs shipped in ~10 days (0045–0055). A one-page form (decision / rejected alternatives / contract impact) for XS/S slices; the full template stays mandatory for CONTRACT.md changes, safety behavior, and new dependencies. |
+| `pytest-xdist -n auto` in the gate | low | XS | 29.5 s → ≈8–10 s on the suite; marginal next to the 52 s total, but free. Dev-only dependency — still gets its ADR row per the AGENTS new-dependency rule if adopted. |
+
+---
+
 ## Suggested sequencing (new items only)
 
 1. **Identity (S):** `resolve`, then `contacts`. Foundational, read-only.
