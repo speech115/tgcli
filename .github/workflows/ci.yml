@@ -2,11 +2,11 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
 
-# A branch with an open PR triggers both events for the same SHA; keep the
-# newest run per ref and cancel the duplicate.
+# Feature branches run once through pull_request; main runs once after merge.
+# This keeps the required "test" context single-valued for every PR commit.
 concurrency:
   group: ci-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
