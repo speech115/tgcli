@@ -317,6 +317,27 @@ usernames are unique, and display-name search already returns a list.
 
 ---
 
+## Hardening / simplification backlog (2026-07-26 campaign review)
+
+Engineering (non-feature) proposals from the Fable 5 hardening campaign's
+whole-project review. Same maintenance-mode gate as everything else here:
+each item needs an explicit owner request + ADR + scoped plan before code.
+Evidence pointers reference the campaign audit; in-campaign work (error
+boundary in `cli.py`, defensive state loading, the `commands/clone.py`
+split, peer-id consistency fixes) is tracked in
+`docs/handoffs/FABLE5_PROGRESS.md` — do not re-propose it here.
+
+| Item | Value | Effort | Note |
+|---|---|---|---|
+| Persisted intent records for mutation crash windows | high | M | Generalize the 1.2.16 pin recovery: write intent → RPC → promote, so a crash between a Telegram mutation and its state save is always recoverable. Known candidates: `pin_pending` (source pin moved during the crash window), `topics.create_topic` (create RPC before mapping save), poll vote retract (ADR-0048 invariant). State-schema change → its own ADR; apply only where a defect is proven, not as a framework. |
+| Release-tag policy resolution | high | XS | ADR-0038 mandates a `vX.Y.Z` tag per release; upstream has none. Either create the missing `v1.2.x` tags on the merged release commits or amend ADR-0038 to make `CHANGELOG.md` the single source of truth. A documented-but-never-enforced mandatory policy is the worst option. Owner decision, not code. |
+| Telethon pin upgrade (1.44.0 → current) | med | L | Single large external dependency; the FEATURES.md namespace matrix and CONTRACT §6 stability exemption bound the blast radius, but an upgrade needs its own project: full gate + live acceptance of clone/login surfaces. Do not bundle with anything. |
+| Create secret files at 0600 directly (`os.open`/`O_CREAT`) | med | S | Closes the residual create-then-chmod TOCTOU window on new `.session` / `audit.jsonl` / `invocations.jsonl` files that the 1.2.16 permissions work documented as accepted debt. Pure tightening, no contract impact. |
+| Peer-id emission property test | med | S | After the campaign fixes the known raw-id vs `-100…` inconsistencies, add one table-driven test asserting every command's emitted dialog/peer ids follow the same documented convention, so the class of drift (audit af-06/18/19) cannot silently return. |
+| `doctor` operational failure probes | low | S | Offline checks users actually hit: disk-full on the state filesystem, clock skew large enough to break ISO comparisons/preview TTLs. Additive `checks` keys only. Feature-adjacent — needs a real incident or owner pull to justify. |
+
+---
+
 ## Suggested sequencing (new items only)
 
 1. **Identity (S):** `resolve`, then `contacts`. Foundational, read-only.
