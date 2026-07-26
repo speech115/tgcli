@@ -45,6 +45,30 @@ class MutateClient(FakeClient):
         self.deleted.append((chat, ids, revoke))
 
 
+class StrictPeerClient(MutateClient):
+    """Reject raw str peers the way Telethon's dialog-id resolver does."""
+
+    async def delete_messages(self, chat, ids, revoke=True):
+        if isinstance(chat, str):
+            raise ValueError(f"Cannot find any entity corresponding to {chat!r}")
+        self.deleted.append((chat, ids, revoke))
+
+
+class UnknownPeerClient(MutateClient):
+    async def delete_messages(self, chat, ids, revoke=True):
+        raise ValueError(f"Cannot find any entity corresponding to {chat!r}")
+
+    async def edit_message(
+        self, chat, message_id, text, *, formatting_entities=None, parse_mode=()
+    ):
+        # Telethon resolves the peer inside edit_message, so an unknown chat
+        # fails here rather than at an explicit get_entity call.
+        raise ValueError(f"Cannot find any entity corresponding to {chat!r}")
+
+    async def get_input_entity(self, key):
+        raise ValueError(f"Cannot find any entity corresponding to {key!r}")
+
+
 class ForwardClient(MutateClient):
     async def __call__(self, request):
         from telethon.tl import types
@@ -302,6 +326,76 @@ def test_delete_commit_revokes(config_env, monkeypatch, capsys):
 
     assert main(["delete", "--commit", preview["preview_id"], "--json"]) == 0
     assert client.deleted == [("@chan", [2], True)]
+
+
+def test_delete_commit_parses_numeric_chat_before_delete_messages(
+    config_env, monkeypatch
+):
+    preview = safety.create_preview(
+        {"kind": "delete", "chat": "-1001234", "message_id": 2, "text": "old"}
+    )
+    base = make_client()
+    client = StrictPeerClient(messages=base._messages, entities=base._entities)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["delete", "--commit", preview["preview_id"], "--json"]) == 0
+    assert client.deleted == [(-1001234, [2], True)]
+
+
+def test_delete_commit_reports_unknown_dialog_as_not_found(
+    config_env, monkeypatch, capsys
+):
+    preview = safety.create_preview(
+        {"kind": "delete", "chat": "@gone", "message_id": 2, "text": "old"}
+    )
+    base = make_client()
+    client = UnknownPeerClient(messages=base._messages, entities=base._entities)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["delete", "--commit", preview["preview_id"], "--json"]) == 4
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "NOT_FOUND"
+
+
+def test_edit_commit_reports_unknown_dialog_as_not_found(
+    config_env, monkeypatch, capsys
+):
+    preview = safety.create_preview(
+        {
+            "kind": "edit",
+            "chat": "@gone",
+            "message_id": 2,
+            "old_text": "old",
+            "text": "new",
+            "format": "plain",
+        }
+    )
+    base = make_client()
+    client = UnknownPeerClient(messages=base._messages, entities=base._entities)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["edit", "--commit", preview["preview_id"], "--json"]) == 4
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "NOT_FOUND"
+
+
+def test_forward_commit_reports_unknown_dialog_as_not_found(
+    config_env, monkeypatch, capsys
+):
+    preview = safety.create_preview(
+        {
+            "kind": "forward",
+            "source": "@gone",
+            "message_id": 2,
+            "destination": "@other",
+            "text": "old",
+            "random_id": 556,
+        }
+    )
+    base = make_forward_client()
+    client = UnknownPeerClient(messages=base._messages, entities=base._entities)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["forward", "--commit", preview["preview_id"], "--json"]) == 4
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "NOT_FOUND"
 
 
 def test_forward_commit_uses_stored_random_id(config_env, monkeypatch, capsys):

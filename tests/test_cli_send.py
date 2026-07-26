@@ -57,6 +57,16 @@ class SendClient:
         )
 
 
+class UnknownChatClient(SendClient):
+    """Telethon raises ValueError when a chat reference resolves to nothing."""
+
+    async def get_entity(self, chat):
+        raise ValueError(f"Cannot find any entity corresponding to {chat!r}")
+
+    async def get_input_entity(self, chat):
+        raise ValueError(f"Cannot find any entity corresponding to {chat!r}")
+
+
 class FailingClient(SendClient):
     async def __call__(self, request):
         raise OSError("connection reset")
@@ -249,6 +259,43 @@ def test_send_missing_file_is_not_found(config_env, monkeypatch, capsys, tmp_pat
         )
         == 4
     )
+
+
+def test_send_preview_reports_unknown_dialog_as_not_found(
+    config_env, monkeypatch, capsys
+):
+    client = UnknownChatClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["send", "@gone", "hello", "--preview", "--json"]) == 4
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "NOT_FOUND"
+    assert client.requests == []
+
+
+def test_send_commit_reports_unknown_dialog_as_not_found(
+    config_env, monkeypatch, capsys
+):
+    preview = safety.create_preview(
+        {
+            "kind": "send",
+            "chat": "@gone",
+            "text": "hello",
+            "file": None,
+            "file_size": None,
+            "file_sha256": None,
+            "reply_to": None,
+            "topic": None,
+            "silent": False,
+            "random_id": 787,
+            "to": {"id": 7, "name": "Alice"},
+        }
+    )
+    client = UnknownChatClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 4
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "NOT_FOUND"
+    assert client.requests == []
 
 
 def test_send_commit_sends_raw_with_stored_random_id(config_env, monkeypatch, capsys):

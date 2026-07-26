@@ -18,6 +18,13 @@ async def _entity(tg, chat: str):
         raise NotFoundError(f"dialog not found: {chat!r}") from None
 
 
+async def _input_peer(tg, chat: str):
+    try:
+        return await tg.get_input_entity(chatref.parse(chat))
+    except ValueError:
+        raise NotFoundError(f"dialog not found: {chat!r}") from None
+
+
 async def _message(tg, entity, message_id: int):
     message = await tg.get_messages(entity, ids=message_id)
     if message is None:
@@ -62,6 +69,10 @@ async def commit_edit(tg, preview_id: str, payload: dict) -> dict:
         message_id = message.id
     except MessageNotModifiedError:
         message_id = payload["message_id"]
+    except ValueError:
+        # edit_message resolves the peer internally, so an unresolvable chat
+        # surfaces here exactly as it does on the delete path.
+        raise NotFoundError(f"dialog not found: {payload['chat']!r}") from None
     return {"preview_id": preview_id, "message_id": message_id}
 
 
@@ -81,7 +92,12 @@ async def prepare_delete(tg, chat: str, message_id: int) -> dict:
 
 
 async def commit_delete(tg, preview_id: str, payload: dict) -> dict:
-    await tg.delete_messages(payload["chat"], [payload["message_id"]], revoke=True)
+    try:
+        await tg.delete_messages(
+            chatref.parse(payload["chat"]), [payload["message_id"]], revoke=True
+        )
+    except ValueError:
+        raise NotFoundError(f"dialog not found: {payload['chat']!r}") from None
     return {"preview_id": preview_id, "message_id": payload["message_id"]}
 
 
@@ -113,10 +129,10 @@ async def prepare_forward(tg, source: str, message_id: int, destination: str) ->
 async def commit_forward(tg, preview_id: str, payload: dict) -> dict:
     response = await tg(
         functions.messages.ForwardMessagesRequest(
-            from_peer=await tg.get_input_entity(chatref.parse(payload["source"])),
+            from_peer=await _input_peer(tg, payload["source"]),
             id=[payload["message_id"]],
             random_id=[payload["random_id"]],
-            to_peer=await tg.get_input_entity(chatref.parse(payload["destination"])),
+            to_peer=await _input_peer(tg, payload["destination"]),
         )
     )
     [message_id] = confirmed_ids(response, [payload["random_id"]])
