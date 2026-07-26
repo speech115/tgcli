@@ -14,7 +14,6 @@ from telethon.tl import types
 
 from tgcli.clone import attribution, replies, transport
 
-
 # Source label for a quote that could not stay a native reply. Russian, to
 # match the clones this tool actually runs; one place to change.
 FALLBACK_SOURCE_LABEL = "Переслано от:"

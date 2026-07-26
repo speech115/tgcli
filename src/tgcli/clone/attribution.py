@@ -3,8 +3,7 @@
 from copy import copy
 from dataclasses import dataclass
 
-from telethon import errors as telethon_errors
-from telethon import utils
+from telethon import errors as telethon_errors, utils
 from telethon.tl import types
 
 from tgcli.errors import PolicyError
@@ -32,7 +31,8 @@ def source_kind(entity) -> str:
             target_id = getattr(target, "channel_id", None)
             hint = f"channel {target_id}" if target_id is not None else "the supergroup"
             raise PolicyError(
-                f"clone source basic group migrated to a supergroup; clone {hint} instead"
+                f"clone source basic group migrated to a supergroup; "
+                f"clone {hint} instead"
             )
         if getattr(entity, "deactivated", False):
             raise PolicyError("clone source basic group is deactivated")

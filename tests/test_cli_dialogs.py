@@ -30,7 +30,7 @@ def make_dialog():
         is_group=False,
         entity=ns(username="chan"),
         unread_count=3,
-        date=dt.datetime(2026, 7, 6, 11, 59, tzinfo=dt.timezone.utc),
+        date=dt.datetime(2026, 7, 6, 11, 59, tzinfo=dt.UTC),
     )
 
 
@@ -43,7 +43,7 @@ def make_user_dialog(*, unread_count: int, mentions: int = 0):
         entity=ns(username="user"),
         unread_count=unread_count,
         dialog=ns(unread_mentions_count=mentions),
-        date=dt.datetime(2026, 7, 6, 12, 0, tzinfo=dt.timezone.utc),
+        date=dt.datetime(2026, 7, 6, 12, 0, tzinfo=dt.UTC),
     )
 
 
@@ -55,7 +55,7 @@ def make_megagroup_dialog():
         is_group=True,
         entity=ns(username="mega"),
         unread_count=0,
-        date=dt.datetime(2026, 7, 6, 12, 1, tzinfo=dt.timezone.utc),
+        date=dt.datetime(2026, 7, 6, 12, 1, tzinfo=dt.UTC),
     )
 
 

@@ -1,6 +1,6 @@
 """Inbox dialog state mutations (ADR-0029/0032): pin, archive, mute."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from telethon.tl import functions, types
 
@@ -55,8 +55,8 @@ def _parse_until(until: str | None, forever: bool) -> tuple[int, str | None]:
     except ValueError as exc:
         raise PolicyError(f"invalid --until timestamp: {until!r}") from exc
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return int(parsed.timestamp()), parsed.astimezone(timezone.utc).isoformat()
+        parsed = parsed.replace(tzinfo=UTC)
+    return int(parsed.timestamp()), parsed.astimezone(UTC).isoformat()
 
 
 def validate_mute_flags(*, until: str | None, forever: bool) -> None:

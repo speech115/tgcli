@@ -4,7 +4,6 @@ from tgcli import chatref
 from tgcli.commands.read import _dialog_name, message_to_dict
 from tgcli.errors import NotFoundError
 
-
 DEPTH_CAP = 100
 DEFAULT_DEPTH = 20
 DEFAULT_REPLIES_LIMIT = 50

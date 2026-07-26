@@ -4,7 +4,6 @@
 from types import SimpleNamespace
 
 import pytest
-
 from telethon.tl import types
 
 from tgcli.clone import legs, replies, state

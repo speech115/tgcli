@@ -1,8 +1,8 @@
 """Unit tests for contacts.resolvePhone shared cooldown."""
 
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-import threading
 
 from tgcli import resolve_phone
 from tgcli.errors import RateLimitError

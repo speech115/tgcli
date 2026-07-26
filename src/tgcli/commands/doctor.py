@@ -4,8 +4,8 @@ import stat
 from pathlib import Path
 
 from tgcli import safety, session
-from tgcli.output import note
 from tgcli.config import Config, resolve_account
+from tgcli.output import note
 
 
 def _writable(directory: Path) -> bool:

@@ -10,14 +10,20 @@ import argparse
 import ast
 from pathlib import Path
 
-
+# ADR-0057 raised five ceilings by the exact cost of the lint policy, never
+# more: ruff's isort separates stdlib / third-party / first-party import
+# blocks with a blank line, and E501 splits a handful of over-long lines.
+# Layout only — no file gained a statement.
 CEILINGS = {
     "src/tgcli/cli.py": 299,
-    "src/tgcli/parser.py": 504,
+    # +2 for ADR-0057: isort section blanks, E501 split in the --format help.
+    "src/tgcli/parser.py": 506,
     "src/tgcli/preflight.py": 245,
-    "src/tgcli/dispatch.py": 257,
+    # +2 for ADR-0057: isort section blanks.
+    "src/tgcli/dispatch.py": 259,
     "src/tgcli/commands/batch.py": 96,
-    "src/tgcli/read_ops.py": 414,
+    # +3 for ADR-0057: isort section blanks.
+    "src/tgcli/read_ops.py": 417,
     # +20 for ADR-0049: the progress emitter lives in clone/progress.py, but
     # the reporter still has to be threaded down the sync → batch → transfer
     # call chain that clone.py owns.
@@ -38,9 +44,11 @@ CEILINGS = {
     # +15 for PR #77 review fix: commit_refresh binds account/source_peer/id_map.
     # +6 for the integration: refresh's cooldown seams take the ADR-0052 thunk
     # and a per-process WaitBudget (three get_messages call sites wrapped).
-    "src/tgcli/commands/clone.py": 1450,
+    # +2 for ADR-0057: isort section blanks.
+    "src/tgcli/commands/clone.py": 1452,
     # +21 for ADR-0055 pinned_dest_id / pin_occupied fields + validation.
-    "src/tgcli/clone/state.py": 321,
+    # +1 for ADR-0057: isort section blank.
+    "src/tgcli/clone/state.py": 322,
     # +22 for ADR-0051: posts_cursor / posts_exhausted kwargs + deferred
     # short-circuit in resolve (mirror of transport.decide's deferred plan).
     "src/tgcli/clone/quotes.py": 387,

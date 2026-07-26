@@ -1,8 +1,8 @@
 """Tests for optional rich-text formatting (tgcli.formatting)."""
 
 from telethon.tl.types import (
-    MessageEntityBold,
     MessageEntityBlockquote,
+    MessageEntityBold,
     MessageEntityCustomEmoji,
     MessageEntityItalic,
     MessageEntitySpoiler,

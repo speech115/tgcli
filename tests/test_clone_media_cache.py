@@ -9,8 +9,8 @@ from telethon.tl import functions, types
 
 from tests.conftest import make_session_fake
 from tests.test_cli_clone_sync import (
-    CloneReuploadClient,
     SAMPLE,
+    CloneReuploadClient,
     message,
     seed_clone,
 )
@@ -97,7 +97,7 @@ async def test_download_rejects_stale_size_and_redownloads(state_dir_env):
 
 @pytest.mark.asyncio
 async def test_stale_large_cache_redownloads_without_file_exists_error(state_dir_env):
-    """Abandoned src-<id> wrong size for >512KiB must re-download, not FileExistsError."""
+    """Abandoned src-<id> of wrong size (>512KiB) re-downloads, no FileExistsError."""
     clone_state = state.CloneState.new(
         account_user_id=1, source_peer_id=2, source_title="S"
     )
@@ -226,7 +226,7 @@ def test_failed_reupload_leaves_downloaded_media_on_disk(
 def test_reupload_uses_persistent_cache_path_not_temp(
     config_env, monkeypatch, capsys, tmp_path
 ):
-    """While downloading, files land under clones/<id>-media/, not a TemporaryDirectory."""
+    """While downloading, files land under clones/<id>-media/, not a temp dir."""
     clone_state = seed_clone()
     seen: list[Path] = []
     photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))

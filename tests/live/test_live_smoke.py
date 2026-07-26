@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pytest
 
-
 pytestmark = pytest.mark.skipif(
     os.environ.get("TGCLI_LIVE_SMOKE") != "1",
     reason="live smoke is opt-in (TGCLI_LIVE_SMOKE=1)",

@@ -7,7 +7,6 @@ from tests.conftest import ns
 from tgcli.cli import main
 from tgcli.errors import ConfigError
 
-
 SAMPLE = """
 default_account = "main"
 

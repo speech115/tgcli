@@ -10,15 +10,17 @@ from __future__ import annotations
 from telethon import errors as telethon_errors
 
 from tgcli import output, read_ops, session
-from tgcli.commands import api as api_cmd
-from tgcli.commands import batch as batch_cmd
-from tgcli.commands import clone as clone_cmd
-from tgcli.commands import dialog as dialog_cmd
-from tgcli.commands import draft as draft_cmd
-from tgcli.commands import export as export_cmd
-from tgcli.commands import media as media_cmd
-from tgcli.commands import mutate as mutate_cmd
-from tgcli.commands import send as send_cmd
+from tgcli.commands import (
+    api as api_cmd,
+    batch as batch_cmd,
+    clone as clone_cmd,
+    dialog as dialog_cmd,
+    draft as draft_cmd,
+    export as export_cmd,
+    media as media_cmd,
+    mutate as mutate_cmd,
+    send as send_cmd,
+)
 from tgcli.errors import PolicyError, RateLimitError
 
 

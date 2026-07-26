@@ -11,7 +11,6 @@ from tgcli import chatref
 from tgcli.commands.read import _dialog_name, message_to_dict
 from tgcli.errors import ExportError, NotFoundError
 
-
 SUBSCRIBER_COLUMNS = ("id", "username", "first_name", "last_name", "phone", "is_bot")
 TAKEOUT_MESSAGE_KWARGS = {"chats": True, "megagroups": True, "channels": True}
 

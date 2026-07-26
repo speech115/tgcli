@@ -7,11 +7,10 @@ from telethon import errors as telethon_errors
 
 from tests.conftest import FakeClient, make_session_fake, ns
 from tests.test_cli_media import _media_message
-from tgcli.cli import main
-from tgcli.errors import ConfigError, NotFoundError
 from tgcli import session
+from tgcli.cli import main
 from tgcli.commands import media as media_cmd
-
+from tgcli.errors import ConfigError, NotFoundError
 
 SAMPLE = """
 default_account = "main"

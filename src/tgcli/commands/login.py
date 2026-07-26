@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 import sys
 import time
@@ -327,7 +326,7 @@ async def _qr_wait(
         try:
             await qr.wait(timeout=wait_timeout)
             break
-        except asyncio.TimeoutError:
+        except TimeoutError:
             if time.monotonic() >= deadline:
                 raise LoginTimeoutError(
                     f"QR login timed out after {timeout}s; start login again",

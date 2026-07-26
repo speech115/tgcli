@@ -6,7 +6,6 @@ from tests.conftest import FakeClient, make_session_fake
 from tgcli.cli import main
 from tgcli.commands import media as media_cmd
 
-
 SAMPLE = """
 default_account = "main"
 

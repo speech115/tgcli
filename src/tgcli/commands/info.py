@@ -1,7 +1,8 @@
+from telethon.tl import functions
+
 from tgcli import chatref
 from tgcli.commands.search import _sanitize_text
 from tgcli.errors import NotFoundError
-from telethon.tl import functions
 
 
 async def _entity(tg, chat: str):

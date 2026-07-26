@@ -2,7 +2,9 @@
 
 import secrets
 from typing import cast
+
 from telethon.tl import functions, types
+
 from tgcli import safety
 from tgcli.clone import state
 from tgcli.errors import PolicyError

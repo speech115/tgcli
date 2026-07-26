@@ -6,8 +6,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from telethon import errors as telethon_errors
-from telethon import utils as telethon_utils
+from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
 
 from tgcli import safety

@@ -5,7 +5,6 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-
 from telethon import errors as telethon_errors
 from telethon.tl import types
 
@@ -395,7 +394,7 @@ def test_quiet_trap_utf16_offsets_after_quote_prefix_with_surrogate():
 
 
 def test_quiet_trap_source_2374_never_uses_discussion_map_id_1244():
-    """reply_to_msg_id 1244 addresses a foreign channel; discussion 1244 is unrelated."""
+    """reply_to_msg_id 1244 addresses a foreign channel; discussion 1244 differs."""
     header = types.MessageReplyHeader(
         reply_to_msg_id=1244,
         reply_to_peer_id=types.PeerChannel(2275285084),

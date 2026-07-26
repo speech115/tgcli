@@ -7,7 +7,6 @@ import re
 import sys
 from pathlib import Path
 
-
 VALID_STATUSES = {"wrapped", "api", "excluded"}
 NAMESPACE_RE = re.compile(r"[a-z][a-z0-9]*")
 PLANNED_STATUS_RE = re.compile(r"planned:[1-9][0-9]*")

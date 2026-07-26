@@ -15,7 +15,6 @@ from tgcli.config import load_config
 from tgcli.errors import ConfigError, PolicyError
 from tgcli.formatting import mask_phone
 
-
 SAMPLE = """
 default_account = "main"
 

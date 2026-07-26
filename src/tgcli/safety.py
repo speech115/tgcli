@@ -10,7 +10,6 @@ from tgcli import atomic
 from tgcli.errors import PolicyError
 from tgcli.session import state_dir
 
-
 PREVIEW_TTL = timedelta(minutes=5)
 
 
