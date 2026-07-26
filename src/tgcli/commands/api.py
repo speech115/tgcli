@@ -5,6 +5,7 @@ import binascii
 import json
 from inspect import isclass
 from types import ModuleType
+from typing import get_args
 
 from telethon import utils
 from telethon.tl import functions, types
@@ -76,6 +77,21 @@ HARD_DENYLIST = frozenset(
         "account.resetAuthorization",
     }
 )
+# Irreversible writes the delete*/reset*/leave*/block*/edit*Admin*/edit*Banned*
+# prefix rule cannot see: both are one-way conversions with no undo.
+IRREVERSIBLE_METHODS = frozenset(
+    {
+        "channels.convertToGigagroup",
+        "messages.migrateChat",
+    }
+)
+# The one non-Input argument an allowlisted read method needs: the abstract
+# filter of channels.getParticipants. Taken from the pinned Telethon union so
+# the converter stays a peer/filter builder, not a general TL constructor.
+PARTICIPANTS_FILTER_TYPES = frozenset(get_args(types.TypeChannelParticipantsFilter))
+# Raw-write params that identify what a write touched. Audit records carry
+# these (sanitized) so audit.jsonl can answer "what did this write touch?"
+AUDIT_TARGET_KEYS = ("channel", "chat", "chat_id", "id", "participant", "peer")
 
 
 def is_read_method(name: str) -> bool:
@@ -88,10 +104,38 @@ def is_hard_denied(name: str) -> bool:
 
 
 def requires_confirmation(name: str) -> bool:
+    if name in IRREVERSIBLE_METHODS:
+        return True
     method = name.rsplit(".", 1)[-1].casefold()
     return method.startswith(("delete", "reset", "leave", "block")) or (
         method.startswith("edit") and ("admin" in method or "banned" in method)
     )
+
+
+def audit_details(name: str, params_json: str | None) -> dict:
+    """Return the audit record for a raw write: the method and what it touched.
+
+    ADR-0010/ADR-0011: the journal stays metadata-only, so only the target
+    identifiers of `AUDIT_TARGET_KEYS` are recorded — never message bodies —
+    and they run through the same sensitive-key filter as RPC results. Params
+    that are not a JSON object leave the record as method-only rather than
+    failing the write; validation belongs to `build_request`.
+    """
+    details = {"method": name}
+    if not isinstance(params_json, str):
+        return details
+    try:
+        params = json.loads(params_json)
+    except ValueError:
+        return details
+    if not isinstance(params, dict):
+        return details
+    target = {
+        key: _sanitize_result(params[key]) for key in AUDIT_TARGET_KEYS if key in params
+    }
+    if target:
+        details["target"] = target
+    return details
 
 
 def _resolve_method(name: str):
@@ -232,10 +276,15 @@ async def _convert_value(client, value, annotation=None):
             return base64.b64decode(value["base64"], validate=True)
         except (binascii.Error, ValueError) as exc:
             raise ConfigError("raw API bytes must contain valid base64") from exc
-    if not isinstance(constructor, str) or not constructor.startswith("Input"):
+    if not isinstance(constructor, str):
         raise ConfigError(f"raw API constructor is not allowed: {constructor!r}")
     constructor_type = getattr(types, constructor, None)
     if not isclass(constructor_type) or not issubclass(constructor_type, TLObject):
+        raise ConfigError(f"raw API constructor is not allowed: {constructor!r}")
+    if (
+        not constructor.startswith("Input")
+        and constructor_type not in PARTICIPANTS_FILTER_TYPES
+    ):
         raise ConfigError(f"raw API constructor is not allowed: {constructor!r}")
     try:
         return constructor_type(

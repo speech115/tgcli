@@ -95,6 +95,58 @@ class NumericPeerClient:
         return Result()
 
 
+@pytest.mark.parametrize(
+    "method", ["messages.migrateChat", "channels.convertToGigagroup"]
+)
+def test_irreversible_api_write_requires_confirm(method, monkeypatch, capsys):
+    """One-way conversions have no undo and no delete*/reset* prefix."""
+    from tgcli import cli
+
+    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
+    monkeypatch.setattr(
+        session, "client", lambda account: pytest.fail("session opened")
+    )
+    monkeypatch.setattr(
+        cli, "_run_network", lambda args, account: pytest.fail("network dispatched")
+    )
+
+    assert main(["api", method, "--params", "{}", "--write"]) == 2
+    assert "requires exact --confirm" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "method", ["messages.migrateChat", "channels.convertToGigagroup"]
+)
+def test_confirmed_irreversible_api_write_dispatches(method, config_env, monkeypatch):
+    from tgcli import cli
+
+    calls = []
+
+    async def fake_run_network(args, account):
+        calls.append((args.method, args.params, account.alias))
+        return {"method": args.method, "result": {}}, []
+
+    monkeypatch.setattr(cli, "_run_network", fake_run_network)
+
+    assert (
+        main(
+            [
+                "api",
+                method,
+                "--params",
+                "{}",
+                "--write",
+                "--confirm",
+                method,
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    assert calls == [(method, "{}", "main")]
+
+
 def test_api_resolves_numeric_peer_alias_through_chatref(
     config_env, monkeypatch, capsys
 ):
