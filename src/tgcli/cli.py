@@ -7,8 +7,11 @@ invocation and nothing else.
 
 import asyncio
 import logging
+import os
 import sys
 import time
+import traceback
+from contextlib import contextmanager
 
 from tgcli import dispatch, invocations, output, preflight, safety
 from tgcli.commands import accounts as accounts_cmd
@@ -17,7 +20,7 @@ from tgcli.commands import doctor as doctor_cmd
 from tgcli.commands import login as login_cmd
 from tgcli.commands import store as store_cmd
 from tgcli.config import load_config, resolve_account
-from tgcli.errors import PartialFailure, TgcliError
+from tgcli.errors import CommandTimeoutError, PartialFailure, TgcliError
 from tgcli.parser import build_parser
 from tgcli import session
 
@@ -73,6 +76,41 @@ def _apply_global_defaults(args) -> None:
 
 async def _run_network(args, account) -> tuple[dict, list[tuple]]:
     return await dispatch.run_network(args, account)
+
+
+def _run_with_deadline(coro, timeout):
+    """Run one coroutine under `--timeout` as the documented TIMEOUT error."""
+    try:
+        return asyncio.run(asyncio.wait_for(coro, timeout=timeout))
+    except TimeoutError:  # asyncio.TimeoutError is this alias since 3.11
+        raise CommandTimeoutError(
+            f"invocation exceeded the --timeout deadline of {timeout}s"
+        ) from None
+
+
+@contextmanager
+def _tolerate_hangup():
+    """Let an error envelope fail to reach a reader that already hung up.
+
+    The error arms are siblings of `except BrokenPipeError`, so without this
+    a closed pipe would escape past the journal and leave the run recorded
+    with its pre-failure codes.
+    """
+    try:
+        yield
+    except BrokenPipeError:
+        _silence_stdout()
+
+
+def _silence_stdout() -> None:
+    """Point stdout at /dev/null so shutdown cannot re-raise a broken pipe."""
+    try:
+        fd = sys.stdout.fileno()
+    except (OSError, ValueError):
+        return
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, fd)
+    os.close(devnull)
 
 
 def _audit_before(args, account) -> None:
@@ -196,7 +234,7 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
         connect = bool(getattr(args, "connect", False))
         coro = doctor_cmd.run(config, args.account, connect=connect)
         if connect:
-            data = asyncio.run(asyncio.wait_for(coro, timeout=args.timeout))
+            data = _run_with_deadline(coro, args.timeout)
         else:
             data = asyncio.run(coro)
         return data, doctor_cmd.to_rows(data)
@@ -213,7 +251,7 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
     if long_running and not timeout_supplied:
         data, rows = asyncio.run(network)
     else:
-        data, rows = asyncio.run(asyncio.wait_for(network, timeout=args.timeout))
+        data, rows = _run_with_deadline(network, args.timeout)
     _audit_after(args, account, data)
     return data, rows
 
@@ -247,34 +285,52 @@ def main(argv: list[str] | None = None) -> int:
     try:
         preflight.prepare(parser, args)
         data, rows = _execute(args, timeout_supplied=timeout_supplied)
-    except SystemExit:
-        # parser.error() already wrote usage to stderr.
-        exit_code = 1
-    except PartialFailure as err:
-        if args.json:
-            output.emit_json(err.data)
-        elif args.plain:
-            output.emit_plain(
-                err.rows if err.rows is not None else err.data.get("rows") or []
-            )
-        else:
-            output.emit_error(err, as_json=False)
-        error_code = err.code
-        exit_code = err.exit_code
-    except TgcliError as err:
-        output.emit_error(err, as_json=args.json)
-        error_code = err.code
-        exit_code = err.exit_code
-    except Exception:
-        error_code = "UNHANDLED"
-        raise
-    else:
+        # Emitting is part of the invocation: a failure here is journaled,
+        # not reported as a success.
         if args.command == "batch":
             output.emit_json_lines(data["_batch_results"])
             exit_code = data["_batch_exit"] or 0
         else:
             _emit(args, data, rows)
             exit_code = 0
+    except SystemExit:
+        # parser.error() already wrote usage to stderr.
+        exit_code = 1
+    except BrokenPipeError:
+        # The reader hung up (`| head`): stop writing and leave quietly.
+        _silence_stdout()
+        error_code = "BROKEN_PIPE"
+        exit_code = 0
+    except PartialFailure as err:
+        # Codes are recorded before the write: a reader that hangs up mid-
+        # envelope must not replace the real failure in the journal.
+        error_code = err.code
+        exit_code = err.exit_code
+        with _tolerate_hangup():
+            if args.json:
+                output.emit_json(err.data)
+            elif args.plain:
+                output.emit_plain(
+                    err.rows if err.rows is not None else err.data.get("rows") or []
+                )
+            else:
+                output.emit_error(err, as_json=False)
+    except TgcliError as err:
+        error_code = err.code
+        exit_code = err.exit_code
+        with _tolerate_hangup():
+            output.emit_error(err, as_json=args.json)
+    except Exception as err:
+        # Untranslated failure (network, RPC, bug): still one envelope, and a
+        # traceback only when the caller asked for diagnostics.
+        error_code = "RUNTIME"
+        exit_code = 1
+        if args.verbose:
+            traceback.print_exc()
+        with _tolerate_hangup():
+            output.emit_error(
+                TgcliError(str(err) or type(err).__name__), as_json=args.json
+            )
     finally:
         duration_ms = int((time.monotonic() - started) * 1000)
         if args.verbose:
@@ -296,4 +352,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def entrypoint() -> None:
-    sys.exit(main())
+    try:
+        exit_code = main()
+    except BrokenPipeError:
+        _silence_stdout()
+        exit_code = 0
+    sys.exit(exit_code)

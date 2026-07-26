@@ -373,8 +373,8 @@ def test_forward_commit_retries_pending_preview_after_network_failure(
     client = make_forward_client(FlakyForwardClient)
     make_session_fake(monkeypatch, client)
 
-    with pytest.raises(ConnectionError, match="connection dropped"):
-        main(["forward", "--commit", preview["preview_id"]])
+    assert main(["forward", "--commit", preview["preview_id"]]) == 1
+    assert capsys.readouterr().err == "error: connection dropped\n"
     pending = safety.previews_dir() / f"{preview['preview_id']}.pending"
     assert pending.exists()
 

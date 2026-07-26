@@ -12,7 +12,10 @@ from pathlib import Path
 
 
 CEILINGS = {
-    "src/tgcli/cli.py": 299,
+    # +39 for the CONTRACT §2/§4 failure paths: --timeout expiry as TIMEOUT,
+    # untranslated exceptions as one RUNTIME envelope, and a hung-up stdout
+    # pipe leaving quietly instead of raising through the journal.
+    "src/tgcli/cli.py": 360,
     "src/tgcli/parser.py": 504,
     "src/tgcli/preflight.py": 245,
     "src/tgcli/dispatch.py": 257,

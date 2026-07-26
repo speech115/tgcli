@@ -440,7 +440,7 @@ def test_send_commit_uploads_verified_snapshot_when_original_changes(
 
 @pytest.mark.parametrize("failure", ["upload", "request", "confirmation"])
 def test_send_commit_cleans_verified_snapshot_on_failure(
-    config_env, monkeypatch, tmp_path, failure
+    config_env, monkeypatch, tmp_path, capsys, failure
 ):
     document = tmp_path / "report.txt"
     document.write_bytes(b"file")
@@ -451,8 +451,8 @@ def test_send_commit_cleans_verified_snapshot_on_failure(
     if failure == "confirmation":
         assert main(["send", "--commit", preview["preview_id"]]) == 2
     else:
-        with pytest.raises(OSError, match=f"{failure} failed"):
-            main(["send", "--commit", preview["preview_id"]])
+        assert main(["send", "--commit", preview["preview_id"]]) == 1
+        assert capsys.readouterr().err == f"error: {failure} failed\n"
 
     assert client.snapshot_path != document
     assert client.uploaded_bytes == b"file"
@@ -564,8 +564,11 @@ def test_send_commit_is_retryable_after_network_failure(
     )
     make_session_fake(monkeypatch, FailingClient())
 
-    with pytest.raises(OSError, match="connection reset"):
-        main(["send", "--commit", preview["preview_id"], "--json"])
+    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["error"] == {
+        "code": "RUNTIME",
+        "message": "connection reset",
+    }
 
     working = SendClient()
     make_session_fake(monkeypatch, working)
