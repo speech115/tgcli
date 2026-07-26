@@ -1,0 +1,133 @@
+"""Invocation-lifecycle tests: the deadline and the usage envelope.
+
+These live apart from the per-command suites because what they pin belongs to
+cli.py — how long one invocation may run and what a `--json` caller reads back
+when the invocation never reached a command at all.
+"""
+
+import json
+import time
+
+import pytest
+
+from tests.conftest import FakeClient, make_session_fake
+from tgcli import cli
+from tgcli.cli import main
+from tgcli.session import state_dir
+
+
+SAMPLE = """
+default_account = "main"
+
+[accounts.main]
+api_id = 12345
+api_hash = "abcdef0123456789"
+"""
+
+
+@pytest.fixture
+def config_env(tmp_path, monkeypatch):
+    path = tmp_path / "config.toml"
+    path.write_text(SAMPLE)
+    monkeypatch.setenv("TGCLI_CONFIG", str(path))
+
+
+def read_journal():
+    return [
+        json.loads(line)
+        for line in (state_dir() / "invocations.jsonl").read_text().splitlines()
+    ]
+
+
+class NeverEofStdin:
+    """A stdin whose read() never reaches EOF — bounded so a test cannot hang."""
+
+    LIMIT = 5.0
+
+    def read(self):
+        deadline = time.monotonic() + self.LIMIT
+        while time.monotonic() < deadline:
+            time.sleep(0.02)
+        return ""
+
+
+def test_batch_stdin_that_never_eofs_hits_the_timeout(config_env, monkeypatch, capsys):
+    make_session_fake(monkeypatch, FakeClient(dialogs=[]))
+    monkeypatch.setattr("sys.stdin", NeverEofStdin())
+
+    started = time.monotonic()
+    assert main(["batch", "--timeout", "0.3", "--json"]) == 1
+    elapsed = time.monotonic() - started
+
+    assert elapsed < NeverEofStdin.LIMIT
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "TIMEOUT"
+    assert read_journal()[-1]["error"] == "TIMEOUT"
+
+
+def test_usage_error_under_json_emits_one_usage_envelope(config_env, capsys):
+    assert main(["search", "--json"]) == 1
+
+    captured = capsys.readouterr()
+    [line] = captured.out.splitlines()
+    payload = json.loads(line)
+    assert payload["error"]["code"] == "USAGE"
+    # CONTRACT §2: the same object is the last line of stderr, after the usage.
+    assert captured.err.splitlines()[-1] == line
+    assert read_journal()[-1]["error"] == "USAGE"
+
+
+def test_usage_error_without_json_stays_stderr_only(config_env, capsys):
+    assert main(["search"]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "search requires CHAT QUERY" in captured.err
+
+
+def _record_wait_for(monkeypatch):
+    observed = []
+    original = cli.asyncio.wait_for
+
+    async def record(awaitable, timeout):
+        observed.append(timeout)
+        return await original(awaitable, timeout)
+
+    monkeypatch.setattr(cli.asyncio, "wait_for", record)
+    return observed
+
+
+def test_clone_init_has_no_default_overall_timeout(config_env, monkeypatch, capsys):
+    """ADR-0052: a short FloodWait sleep may outlast the 60s default deadline."""
+    from tests.test_cli_clone_init import CloneInitClient
+
+    make_session_fake(monkeypatch, CloneInitClient())
+    observed = _record_wait_for(monkeypatch)
+
+    assert main(["clone", "init", "@source", "--json"]) == 0
+    assert observed == [None]
+
+
+def test_clone_init_still_honours_an_explicit_timeout(config_env, monkeypatch, capsys):
+    from tests.test_cli_clone_init import CloneInitClient
+
+    make_session_fake(monkeypatch, CloneInitClient())
+    observed = _record_wait_for(monkeypatch)
+
+    assert main(["clone", "init", "@source", "--timeout", "30", "--json"]) == 0
+    assert observed == [30.0]
+
+
+def test_clone_refresh_has_no_default_overall_timeout(config_env, monkeypatch, capsys):
+    from tests.test_cli_clone_refresh import RefreshClient, _eligible_pair, seed_clone
+    from tgcli.clone import state
+
+    clone_state = seed_clone()
+    clone_state.record_mapping(54, 154)
+    state.save(clone_state)
+    src, dst = _eligible_pair()
+    make_session_fake(monkeypatch, RefreshClient([src], [dst]))
+    observed = _record_wait_for(monkeypatch)
+
+    assert main(["clone", "refresh", "@source", "--json"]) == 0
+    assert observed == [None]

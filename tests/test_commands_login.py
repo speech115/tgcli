@@ -797,19 +797,22 @@ async def test_continue_qr_without_password_step_rejects(env, fake_client):
     assert fake_client.sign_in_calls == []
 
 
-def test_continue_rejects_timeout(env, capsys):
+def test_continue_accepts_the_global_timeout_flag(env, capsys):
+    """CONTRACT §1: --timeout is global; §10 lists no conflict with --continue."""
     code = main(
         [
             "accounts",
             "login",
             "--continue",
-            "l_abc",
+            "l_missing",
             "--timeout",
             "30",
             "--json",
         ]
     )
-    assert code == 2
+    assert code == 4
+    error = json.loads(capsys.readouterr().err)["error"]
+    assert error["code"] == "NOT_FOUND"
 
 
 def test_continue_without_timeout_reaches_attempt_lookup(env, capsys):

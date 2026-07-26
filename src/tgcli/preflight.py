@@ -111,8 +111,8 @@ def _prepare_login(args) -> None:
                 raise PolicyError(f"accounts login --continue rejects {flag}")
         if getattr(args, "force", False):
             raise PolicyError("accounts login --continue rejects --force")
-        if getattr(args, "timeout", None) is not None:
-            raise PolicyError("accounts login --continue rejects --timeout")
+        # --timeout is a CONTRACT §1 global flag and is honoured as the whole
+        # invocation's deadline; --qr-format only shapes the start path's QR.
         if hasattr(args, "qr_format"):
             raise PolicyError("accounts login --continue rejects --qr-format")
         return

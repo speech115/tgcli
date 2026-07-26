@@ -6,9 +6,12 @@ invocation and nothing else.
 """
 
 import asyncio
+import contextlib
 import logging
 import os
+import signal
 import sys
+import threading
 import time
 import traceback
 from contextlib import contextmanager
@@ -28,6 +31,21 @@ from tgcli import session
 LOGGER = logging.getLogger(__name__)
 
 __all__ = ["build_parser", "main", "entrypoint"]
+
+# The deadline is armed before preflight, so it must not preempt a command that
+# owns a graceful deadline of its own (the QR wait, asyncio.wait_for around the
+# network). Those arm later; this margin keeps them first.
+DEADLINE_GRACE = 1.0
+
+
+class _DeadlineSignal(BaseException):
+    """SIGALRM escape: a BaseException so no `except Exception` swallows it."""
+
+
+class UsageError(TgcliError):
+    """Argument misuse; parser.error already put the detail on stderr."""
+
+    code = "USAGE"
 
 
 def _enable_verbose_diagnostics():
@@ -50,28 +68,76 @@ def _restore_diagnostics(configured) -> None:
         logger.propagate = propagate
 
 
+def _default_timeout(args) -> float | None:
+    """The deadline for an invocation that supplied no --timeout (CONTRACT §1)."""
+    if args.command == "export":
+        return None
+    if args.command == "clone" and args.clone_command in ("init", "sync", "refresh"):
+        # ADR-0052 lets these wait out a short FloodWait (up to 61s in the
+        # foreground), which never fits inside a 60s default deadline.
+        return None
+    if args.command == "accounts" and args.subcommand == "login":
+        # CONTRACT §10: the QR wait defaults to 120s; --continue waits on the
+        # operator and takes no default deadline at all.
+        return None if getattr(args, "continue_id", None) else 120.0
+    return 60.0
+
+
 def _apply_global_defaults(args) -> None:
     """Backfill global flags argparse suppressed on the subparser it matched."""
-    no_default_timeout = (
-        args.command == "export"
-        or (args.command == "clone" and args.clone_command == "sync")
-        or (
-            args.command == "accounts"
-            and args.subcommand == "login"
-            and getattr(args, "continue_id", None)
-        )
-    )
     defaults = {
         "account": None,
         "json": False,
         "plain": False,
         "readonly": False,
-        "timeout": None if no_default_timeout else 60.0,
+        "timeout": _default_timeout(args),
         "verbose": False,
     }
     for name, default in defaults.items():
         if not hasattr(args, name):
             setattr(args, name, default)
+
+
+def _long_running(args) -> bool:
+    """Commands that pace themselves rather than honour a default deadline."""
+    return args.command == "media" or (
+        args.command == "clone" and args.clone_command == "sync"
+    )
+
+
+def _deadline(args, *, timeout_supplied: bool) -> float | None:
+    """The budget for preflight plus execute together, or None when exempt."""
+    if args.timeout is None or (not timeout_supplied and _long_running(args)):
+        return None
+    return args.timeout
+
+
+@contextlib.contextmanager
+def _armed(seconds: float | None):
+    """Hold the invocation deadline over the whole body, preflight included.
+
+    asyncio.wait_for only covers the network coroutine; everything before it —
+    `tg batch` reading stdin, `accounts login --continue` reading a password —
+    would otherwise run with no deadline at all.
+    """
+    if (
+        seconds is None
+        or seconds <= 0
+        or threading.current_thread() is not threading.main_thread()
+    ):
+        yield
+        return
+
+    def fire(signum, frame):
+        raise _DeadlineSignal
+
+    previous = signal.signal(signal.SIGALRM, fire)
+    signal.setitimer(signal.ITIMER_REAL, seconds + DEADLINE_GRACE)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 async def _run_network(args, account) -> tuple[dict, list[tuple]]:
@@ -203,7 +269,7 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
         )
         return data, accounts_cmd.remove_rows(data)
     if args.command == "accounts" and args.subcommand == "login":
-        timeout = args.timeout if timeout_supplied else 120.0
+        timeout = args.timeout
         if getattr(args, "continue_id", None):
             data = asyncio.run(
                 login_cmd.continue_login(
@@ -245,10 +311,7 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
         LOGGER.debug("resolved account=%s command=%s", account.alias, args.command)
     _audit_before(args, account)
     network = _run_network(args, account)
-    long_running = args.command == "media" or (
-        args.command == "clone" and args.clone_command == "sync"
-    )
-    if long_running and not timeout_supplied:
+    if _long_running(args) and not timeout_supplied:
         data, rows = asyncio.run(network)
     else:
         data, rows = _run_with_deadline(network, args.timeout)
@@ -283,8 +346,9 @@ def main(argv: list[str] | None = None) -> int:
     exit_code = 1
     error_code = None
     try:
-        preflight.prepare(parser, args)
-        data, rows = _execute(args, timeout_supplied=timeout_supplied)
+        with _armed(_deadline(args, timeout_supplied=timeout_supplied)):
+            preflight.prepare(parser, args)
+            data, rows = _execute(args, timeout_supplied=timeout_supplied)
         # Emitting is part of the invocation: a failure here is journaled,
         # not reported as a success.
         if args.command == "batch":
@@ -294,8 +358,13 @@ def main(argv: list[str] | None = None) -> int:
             _emit(args, data, rows)
             exit_code = 0
     except SystemExit:
-        # parser.error() already wrote usage to stderr.
+        # parser.error() already wrote usage to stderr, but a --json caller is
+        # still owed exactly one document on stdout (CONTRACT §2).
+        error_code = "USAGE"
         exit_code = 1
+        if args.json:
+            with _tolerate_hangup():
+                output.emit_error(UsageError("invalid arguments"), as_json=True)
     except BrokenPipeError:
         # The reader hung up (`| head`): stop writing and leave quietly.
         _silence_stdout()
@@ -315,6 +384,14 @@ def main(argv: list[str] | None = None) -> int:
                 )
             else:
                 output.emit_error(err, as_json=False)
+    except _DeadlineSignal:
+        # The whole-body alarm fired; asyncio.wait_for's own TimeoutError is
+        # already translated by _run_with_deadline.
+        timed_out = CommandTimeoutError("invocation deadline exceeded")
+        error_code = timed_out.code
+        exit_code = timed_out.exit_code
+        with _tolerate_hangup():
+            output.emit_error(timed_out, as_json=args.json)
     except TgcliError as err:
         error_code = err.code
         exit_code = err.exit_code
@@ -331,6 +408,13 @@ def main(argv: list[str] | None = None) -> int:
             output.emit_error(
                 TgcliError(str(err) or type(err).__name__), as_json=args.json
             )
+    except BaseException as err:
+        # An abnormal unwind (SIGINT) must not leave the journal claiming the
+        # pre-failure exit code with no error at all.
+        interrupted = isinstance(err, KeyboardInterrupt)
+        error_code = "INTERRUPTED" if interrupted else "UNHANDLED"
+        exit_code = 130 if interrupted else 1
+        raise
     finally:
         duration_ms = int((time.monotonic() - started) * 1000)
         if args.verbose:

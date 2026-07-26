@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from tests.conftest import FakeClient, make_session_fake
 from tgcli.cli import main
 from tgcli.session import state_dir
@@ -61,3 +63,25 @@ def test_policy_block_writes_the_structured_error_code():
     assert entry["command"] == "api"
     assert entry["exit_code"] == 2
     assert entry["error"] == "BLOCKED"
+
+
+def test_keyboard_interrupt_journals_an_honest_row_and_propagates(
+    tmp_path, monkeypatch
+):
+    config_env(tmp_path, monkeypatch)
+    client = FakeClient(dialogs=[])
+
+    async def interrupted():
+        raise KeyboardInterrupt
+        yield  # pragma: no cover — makes this an async generator
+
+    client.iter_dialogs = interrupted
+    make_session_fake(monkeypatch, client)
+
+    with pytest.raises(KeyboardInterrupt):
+        main(["dialogs"])
+
+    [entry] = read_journal()
+    assert entry["command"] == "dialogs"
+    assert entry["exit_code"] == 130
+    assert entry["error"] == "INTERRUPTED"
