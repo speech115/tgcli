@@ -119,8 +119,10 @@ Known residual gaps (documented, deliberately not fixed in Phase 1):
   factor when splitting clone.py).
 - Reviewer FYI for audit: `topics.py::create_topic` may have its own
   crash window (create RPC before mapping save → duplicate topic).
-- Release-tag policy drift (ADR-0038 promises tags; none exist upstream)
-  — owner decision, listed below.
+- Release-tag drift (ADR-0038): upstream tags stop at `v1.2.9`;
+  `v1.2.10`–`v1.2.15` are untagged (issue #72 covers `v1.2.10`). Tag
+  pushes are denied from agent sessions (re-verified 2026-07-26) —
+  owner-local work, listed below.
 
 ## Unfinished work
 
