@@ -68,7 +68,8 @@ CEILINGS = {
     "src/tgcli/clone/state.py": 333,
     # +22 for ADR-0051: posts_cursor / posts_exhausted kwargs + deferred
     # short-circuit in resolve (mirror of transport.decide's deferred plan).
-    "src/tgcli/clone/quotes.py": 391,
+    # +1 for ADR-0061: the ResolveContext destination_group field.
+    "src/tgcli/clone/quotes.py": 392,
     "src/tgcli/clone/quote_fallback.py": 127,
 }
 
