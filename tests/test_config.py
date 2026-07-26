@@ -79,6 +79,45 @@ def test_non_table_account_entry_exits_3_through_cli(tmp_path, monkeypatch, caps
     assert json.loads(capsys.readouterr().out)["error"]["code"] == "CONFIG"
 
 
+def test_aliases_differing_only_in_case_raise_naming_both(tmp_path):
+    """Work.session and work.session are ONE file on macOS: two accounts
+    would share one authorization. Fail closed at config load."""
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[accounts.Work]\napi_id = 111\napi_hash = "aaa"\n'
+        '[accounts.work]\napi_id = 222\napi_hash = "bbb"\n'
+    )
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(path)
+    message = str(excinfo.value)
+    assert "'Work'" in message
+    assert "'work'" in message
+
+
+def test_explicit_sessions_colliding_case_insensitively_raise(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[accounts.one]\napi_id = 111\napi_hash = "aaa"\nsession = "Shared"\n'
+        '[accounts.two]\napi_id = 222\napi_hash = "bbb"\nsession = "shared"\n'
+    )
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(path)
+    message = str(excinfo.value)
+    assert "'one'" in message
+    assert "'two'" in message
+
+
+def test_distinct_sessions_still_load(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[accounts.work]\napi_id = 111\napi_hash = "aaa"\n'
+        '[accounts.Home]\napi_id = 222\napi_hash = "bbb"\nsession = "home-2"\n'
+    )
+    config = load_config(path)
+    assert config.accounts["work"].session == "work"
+    assert config.accounts["Home"].session == "home-2"
+
+
 def test_resolve_priority_flag_env_default(config_file, monkeypatch):
     config = load_config(config_file)
     monkeypatch.setenv("TGCLI_ACCOUNT", "pl")

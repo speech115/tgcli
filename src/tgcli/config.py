@@ -52,7 +52,31 @@ def load_config(path: Path | None = None) -> Config:
             raise ConfigError(f"account {alias!r}: missing key {exc}") from exc
         except (TypeError, ValueError) as exc:
             raise ConfigError(f"account {alias!r}: invalid value: {exc}") from exc
+    _reject_colliding_sessions(accounts)
     return Config(default_account=raw.get("default_account"), accounts=accounts)
+
+
+def _reject_colliding_sessions(accounts: dict[str, Account]) -> None:
+    """Fail closed when two accounts share one session file (ADR-0042).
+
+    macOS is a first-class target and its filesystem is case-insensitive, so
+    `Work.session` and `work.session` are the same file: two Telegram
+    accounts would share one authorization and whichever logs in last wins.
+    Compared under casefold() rather than probed on disk so the same config
+    is rejected everywhere.
+    """
+    seen: dict[str, str] = {}
+    for alias, account in accounts.items():
+        key = account.session.casefold()
+        other = seen.get(key)
+        if other is not None:
+            raise ConfigError(
+                f"accounts {other!r} and {alias!r} share one session file: "
+                f"{accounts[other].session!r} and {account.session!r} differ "
+                "only by case, which is the same file on a case-insensitive "
+                "filesystem (macOS); give one of them a distinct session ="
+            )
+        seen[key] = alias
 
 
 def resolve_account(config: Config, alias: str | None) -> Account:

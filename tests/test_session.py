@@ -294,6 +294,24 @@ def test_regular_telethon_client_keeps_read_retry_defaults(tmp_path):
     assert tg.flood_sleep_threshold == 60
 
 
+def test_real_telethon_creates_the_session_file_during_construction(tmp_path):
+    """Boundary test: the 0600 session tighten runs right after
+    `_make_client` and before any network use, so it is a no-op unless the
+    real Telethon library creates the SQLite file eagerly in
+    `TelegramClient.__init__`. Every other guard fakes the constructor; this
+    one uses the real library so a Telethon upgrade that made session
+    creation lazy fails the gate instead of silently leaving `.session`
+    files at umask mode. Construction alone must not connect."""
+    path = tmp_path / "eager.session"
+
+    tg = session._make_client(path, ACCOUNT)
+    try:
+        assert path.is_file()
+        assert tg.is_connected() is False
+    finally:
+        tg.session.close()
+
+
 def test_lock_held_missing_session_is_false_and_creates_no_lock(tmp_path):
     session_file = tmp_path / "ghost.session"
 
