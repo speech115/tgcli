@@ -14,7 +14,7 @@ CEILINGS = {
     "src/tgcli/dispatch.py": 257,
     "src/tgcli/commands/batch.py": 96,
     "src/tgcli/read_ops.py": 434,
-    "src/tgcli/commands/clone.py": 1358,
+    "src/tgcli/commands/clone.py": 1199,
     "src/tgcli/clone/state.py": 332,
     "src/tgcli/clone/quotes.py": 391,
     "src/tgcli/clone/quote_fallback.py": 127,
