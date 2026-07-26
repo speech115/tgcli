@@ -226,6 +226,32 @@ def test_resume_offset_raises_policy_error_when_part_file_missing(tmp_path):
         _resume_offset(state_path, part_path, source, destination)
 
 
+@pytest.mark.parametrize("payload", ["[]", '"x"', "42", "null", "true"])
+def test_resume_offset_rejects_non_dict_state(tmp_path, payload):
+    """Same shape guard as clone state: a valid-JSON non-object is corrupt."""
+    source = MediaSource("@channel", 42, None)
+    destination = tmp_path / "out.bin"
+    state_path = tmp_path / "state.json"
+    part_path = tmp_path / "out.part"
+    part_path.write_bytes(b"partial")
+    state_path.write_text(payload)
+
+    with pytest.raises(PolicyError, match="state is invalid"):
+        _resume_offset(state_path, part_path, source, destination)
+
+
+def test_resume_offset_rejects_truncated_utf8_state(tmp_path):
+    source = MediaSource("@channel", 42, None)
+    destination = tmp_path / "out.bin"
+    state_path = tmp_path / "state.json"
+    part_path = tmp_path / "out.part"
+    part_path.write_bytes(b"partial")
+    state_path.write_bytes(b'{"offset": 1, "source": "\xd0')
+
+    with pytest.raises(PolicyError, match="state is invalid"):
+        _resume_offset(state_path, part_path, source, destination)
+
+
 def test_resume_offset_discards_uncheckpointed_bytes(tmp_path):
     source = MediaSource("@channel", 42, None)
     destination = tmp_path / "out.bin"

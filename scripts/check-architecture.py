@@ -47,7 +47,8 @@ CEILINGS = {
     # source_kind into the renderer so non-broadcast clones keep author_of.
     "src/tgcli/commands/clone.py": 1474,
     # +21 for ADR-0055 pinned_dest_id / pin_occupied fields + validation.
-    "src/tgcli/clone/state.py": 321,
+    # +8 for id_map / retry_not_before validation on load (fail closed).
+    "src/tgcli/clone/state.py": 329,
     # +22 for ADR-0051: posts_cursor / posts_exhausted kwargs + deferred
     # short-circuit in resolve (mirror of transport.decide's deferred plan).
     "src/tgcli/clone/quotes.py": 387,

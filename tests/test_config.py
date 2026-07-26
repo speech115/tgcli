@@ -44,6 +44,41 @@ def test_account_missing_api_id_raises(tmp_path):
         load_config(path)
 
 
+def test_non_table_accounts_raises(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('accounts = "main"\n')
+    with pytest.raises(ConfigError):
+        load_config(path)
+
+
+@pytest.mark.parametrize("entry", ['"x"', "[1, 2]", "5"])
+def test_non_table_account_entry_raises(tmp_path, entry):
+    path = tmp_path / "config.toml"
+    path.write_text(f"[accounts]\nmain = {entry}\n")
+    with pytest.raises(ConfigError):
+        load_config(path)
+
+
+@pytest.mark.parametrize("api_id", ['"abc"', "[1]"])
+def test_non_numeric_api_id_raises(tmp_path, api_id):
+    path = tmp_path / "config.toml"
+    path.write_text(f'[accounts.main]\napi_id = {api_id}\napi_hash = "x"\n')
+    with pytest.raises(ConfigError):
+        load_config(path)
+
+
+def test_non_table_account_entry_exits_3_through_cli(tmp_path, monkeypatch, capsys):
+    import json
+
+    from tgcli.cli import main
+
+    path = tmp_path / "config.toml"
+    path.write_text('[accounts]\nmain = "x"\n')
+    monkeypatch.setenv("TGCLI_CONFIG", str(path))
+    assert main(["--json", "accounts", "list"]) == 3
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "CONFIG"
+
+
 def test_resolve_priority_flag_env_default(config_file, monkeypatch):
     config = load_config(config_file)
     monkeypatch.setenv("TGCLI_ACCOUNT", "pl")

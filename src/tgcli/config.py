@@ -32,7 +32,15 @@ def load_config(path: Path | None = None) -> Config:
         raise ConfigError(f"config not found: {path}")
     raw = tomllib.loads(path.read_text())
     accounts: dict[str, Account] = {}
-    for alias, entry in raw.get("accounts", {}).items():
+    raw_accounts = raw.get("accounts", {})
+    if not isinstance(raw_accounts, dict):
+        raise ConfigError("accounts must be a table of [accounts.<alias>] entries")
+    for alias, entry in raw_accounts.items():
+        if not isinstance(entry, dict):
+            raise ConfigError(
+                f"account {alias!r} must be an [accounts.{alias}] table "
+                "with api_id and api_hash"
+            )
         try:
             accounts[alias] = Account(
                 alias=alias,
@@ -42,6 +50,8 @@ def load_config(path: Path | None = None) -> Config:
             )
         except KeyError as exc:
             raise ConfigError(f"account {alias!r}: missing key {exc}") from exc
+        except (TypeError, ValueError) as exc:
+            raise ConfigError(f"account {alias!r}: invalid value: {exc}") from exc
     return Config(default_account=raw.get("default_account"), accounts=accounts)
 
 

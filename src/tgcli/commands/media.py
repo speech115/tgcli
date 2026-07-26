@@ -165,8 +165,10 @@ def _resume_offset(
         return 0
     try:
         state = json.loads(state_path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PolicyError(f"media download state is invalid: {state_path}") from exc
+    if not isinstance(state, dict):
+        raise PolicyError(f"media download state is invalid: {state_path}")
     if not part_path.exists():
         raise PolicyError(f"media download state has no partial file: {part_path}")
     offset = state.get("offset")

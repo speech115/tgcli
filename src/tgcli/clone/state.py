@@ -35,6 +35,25 @@ def _require_aware(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
+def _valid_id_map(mapping: object, minimum: int) -> bool:
+    """A canonical decimal-string source id → TL-int destination id table, with
+    both sides at least ``minimum`` and no destination reused across sources."""
+    return (
+        type(mapping) is dict
+        and not any(
+            type(k) is not str
+            or not k.isascii()
+            or not k.isdecimal()
+            or k.startswith("0")
+            or not minimum <= int(k) <= 2_147_483_647
+            or type(v) is not int
+            or not minimum <= v <= 2_147_483_647
+            for k, v in mapping.items()
+        )
+        and len(set(mapping.values())) == len(mapping)
+    )
+
+
 @dataclass
 class CloneState:
     account_user_id: int
@@ -172,20 +191,7 @@ class CloneState:
             raise ValueError("invalid source kind")
         destination_kind = data.get("destination_kind", "broadcast")
         topic_map = data.get("topic_map", {})
-        if (
-            type(topic_map) is not dict
-            or any(
-                type(k) is not str
-                or not k.isascii()
-                or not k.isdecimal()
-                or k.startswith("0")
-                or not 2 <= int(k) <= 2_147_483_647
-                or type(v) is not int
-                or not 2 <= v <= 2_147_483_647
-                for k, v in topic_map.items()
-            )
-            or len(set(topic_map.values())) != len(topic_map)
-        ):
+        if not _valid_id_map(topic_map, 2):
             raise ValueError("invalid topic map")
         if destination_kind != ("forum" if source_kind == "forum" else "broadcast") or (
             topic_map and source_kind != "forum"
@@ -199,18 +205,7 @@ class CloneState:
         discussion_destination_peer_id = data.get("discussion_destination_peer_id")
         if (
             comments not in {"enabled", "unavailable", "none", "disabled"}
-            or type(discussion_id_map) is not dict
-            or any(
-                type(k) is not str
-                or not k.isascii()
-                or not k.isdecimal()
-                or k.startswith("0")
-                or not 1 <= int(k) <= 2_147_483_647
-                or type(v) is not int
-                or not 1 <= v <= 2_147_483_647
-                for k, v in discussion_id_map.items()
-            )
-            or len(set(discussion_id_map.values())) != len(discussion_id_map)
+            or not _valid_id_map(discussion_id_map, 1)
             or type(discussion_cursor) is not int
             or discussion_cursor < 0
             or type(discussion_linked) is not bool
@@ -237,6 +232,15 @@ class CloneState:
             or (pin_occupied and pinned_dest_id is not None)
         ):
             raise ValueError("inconsistent pin state")
+        id_map = data.get("id_map", {})
+        if not _valid_id_map(id_map, 1):
+            raise ValueError("invalid id map")
+        retry_not_before = data.get("retry_not_before")
+        if retry_not_before is not None:
+            try:
+                _require_aware(datetime.fromisoformat(retry_not_before))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("invalid cooldown deadline") from exc
         return cls(
             version=data["version"],
             account_user_id=data["account_user_id"],
@@ -248,8 +252,8 @@ class CloneState:
             destination_peer_id=data.get("destination_peer_id"),
             creation_marker=data.get("creation_marker"),
             cursor=data.get("cursor", 0),
-            id_map=dict(data.get("id_map", {})),
-            retry_not_before=data.get("retry_not_before"),
+            id_map=dict(id_map),
+            retry_not_before=retry_not_before,
             created_at=data.get("created_at", ""),
             last_synced_at=data.get("last_synced_at"),
             discussion_source_peer_id=discussion_source_peer_id,
@@ -276,6 +280,10 @@ def load(clone_id: str) -> CloneState | None:
         raise PolicyError(
             f"clone state {path.name} is corrupted; manual repair is required"
         ) from exc
+    if type(data) is not dict:
+        raise PolicyError(
+            f"clone state {path.name} is invalid; manual repair is required"
+        )
     if data.get("version") != VERSION:
         raise PolicyError(
             f"clone state {path.name} has unsupported version "

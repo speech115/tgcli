@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from tgcli.clone import state
 
 
@@ -148,6 +150,20 @@ def test_status_marks_corrupt_state_instead_of_crashing(capsys):
     assert code == 0
     payload = json.loads(out)
     assert payload["clones"][0]["unreadable"] is True
+
+
+@pytest.mark.parametrize("payload", [[], "x", 42, None, True])
+def test_status_marks_non_dict_state_instead_of_crashing(capsys, payload):
+    _seed(100000001, 111, "Alpha", dest=222)
+    broken = "e" * 64
+    _write_raw(broken, payload)
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+    assert code == 0
+    listed = json.loads(out)["clones"]
+    by_id = {c["clone_id"]: c for c in listed}
+    assert by_id[broken]["unreadable"] is True
+    assert "Alpha" in {c["source"]["title"] for c in listed}
 
 
 def test_status_plain_output_flags_unreadable(capsys):

@@ -161,6 +161,30 @@ def test_export_messages_resume_corrupt_exits_1(config_env, monkeypatch, tmp_pat
     )
 
 
+def test_export_messages_resume_truncated_utf8_exits_1(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    fake = make_export_fake(messages=[make_message(1, "a")])
+    make_session_fake(monkeypatch, fake)
+    destination = tmp_path / "messages.jsonl"
+    # Last line cut mid-way through a two-byte UTF-8 sequence.
+    destination.write_bytes(b'{"id": 1, "text": "\xd0\xbf"}\n{"id": 2, "text": "\xd0')
+    assert (
+        main(
+            [
+                "export",
+                "messages",
+                "@chan",
+                "--output",
+                str(destination),
+                "--resume",
+            ]
+        )
+        == 1
+    )
+    assert "cannot resume" in capsys.readouterr().err
+
+
 def test_export_messages_resume_missing_file_exits_1(config_env, monkeypatch, tmp_path):
     fake = make_export_fake(messages=[make_message(1, "a")])
     make_session_fake(monkeypatch, fake)

@@ -94,7 +94,7 @@ def _resume_after_id(destination: Path) -> int:
         raise ExportError(f"cannot resume: missing export file {destination}")
     try:
         text = destination.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise ExportError(f"cannot resume: cannot read {destination}: {exc}") from exc
     lines = [line for line in text.splitlines() if line.strip()]
     if not lines:
