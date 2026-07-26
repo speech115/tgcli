@@ -24,10 +24,11 @@ manual approval and only the real Actions `test` check is required; deletion,
 non-fast-forward, linear-history, pull-request, and resolved-thread protections
 remain active. Re-ran the cancelled duplicate CI run on PR #84, verified both
 `test` runs green, rebased the PR into `main`, and deleted its remote branch.
-Restricted feature-branch CI to `pull_request` while keeping `push` CI on
-`main`, so one PR commit no longer creates two same-name checks and cancels one.
-Concurrency is keyed by workflow plus full ref, isolating main pushes, PR refs,
-and identically named branches from different forks.
+Kept CI on every branch push and pull request as required by ADR-0043, but
+named their checks `branch-test` and `test` respectively so one PR commit no
+longer creates two required checks with the same context. Concurrency is keyed
+by workflow plus full ref, isolating main pushes, PR refs, and identically
+named branches from different forks.
 
 **Decided:** agent-driven merges may proceed after the repository-required CI
 passes and the independent review required by AGENTS.md is complete; a human
