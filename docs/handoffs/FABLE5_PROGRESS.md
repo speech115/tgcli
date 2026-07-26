@@ -12,10 +12,10 @@ provable invariants.
 
 - Branch: `claude/fable5-hardening-5zqywp` (pushed to origin)
 - Base: `main` @ `dca1eed` (1.2.15)
-- HEAD: `2212652` — Phase 1 complete, all five handoff defects fixed
-- Gate at HEAD (2026-07-26): ruff check passed; ruff format 147 files
+- HEAD: `5db16b4` — Phase 3 wave 1 complete (P1 findings)
+- Gate at HEAD (2026-07-26): ruff check passed; ruff format 148 files
   clean; architecture check passed; pyright 0 errors;
-  **pytest 1163 passed, 9 skipped**; coverage OK (23 namespaces); docs
+  **pytest 1240 passed, 9 skipped**; coverage OK (23 namespaces); docs
   gate 23 pages, 0 problems. (Baseline at `dca1eed` was 1132 passed.)
 
 ## Plan of record
@@ -23,10 +23,11 @@ provable invariants.
 1. **Phase 1 — DONE.** Five handoff defects fixed with red-first
    regression tests, independent adversarial review per diff, serial
    integration with a full gate per slice.
-2. **Phase 2 — IN PROGRESS.** Full evidence-based audit (multi-lens
-   workflow with adversarial verification of every finding).
-3. **Phase 3** — fixes P0→P2 + simplification, including the
-   owner-approved `commands/clone.py` split behind characterization tests.
+2. **Phase 2 — DONE.** 41 findings confirmed, 0 refuted. A gap audit over
+   the completeness critic's uncovered areas is running.
+3. **Phase 3 — IN PROGRESS.** Wave 1 (P1 correctness) integrated; next the
+   P2/P3 waves, tracker issues #79/#81/#83, and the owner-approved
+   `commands/clone.py` split behind characterization tests.
 4. **Phase 4** — release slice 1.2.16, whole-branch adversarial review,
    full gate, PR to main, CI. No merge without the owner.
 
@@ -159,6 +160,49 @@ pin-upgrade tripwire.
   `test_album_survivor_excluded_when_lead_is_not_the_adjacent_id`
   covered. clone.py ceiling → 1474. Gate: 1163 passed.
 
+### Phase 3 wave 1 — P1 correctness (integrated 2026-07-26)
+
+Five agents, non-overlapping file scopes, each red-tested first and reviewed
+independently. Reviews returned four needs-work verdicts; every blocker and
+major was fixed by the integrator **before** the slice landed:
+
+- `33e96d7` — af-03/af-11/af-26: `--timeout` expiry becomes a TIMEOUT
+  envelope, untranslated failures become one RUNTIME envelope (traceback
+  only under `-v`), a hung-up stdout pipe leaves quietly, and emit-phase
+  failures are journaled. **Review fix:** `emit_error` now flushes and the
+  error arms record their codes before writing, so a pipe closed mid-envelope
+  can no longer blank the journal (red-tested: exit 0/journal `exit_code: 1`
+  before, exit 4/`NOT_FOUND` after). Gate: 1173 passed.
+- `ac658c9` — af-04/af-05: `send` preview/commit and `delete --commit` map an
+  unresolvable chat to NOT_FOUND (exit 4). **Review fix:** `commit_edit`
+  shared the same hole through Telethon's internal resolve inside
+  `edit_message` — now mapped too, with a fake that rejects raw strings.
+  Gate: 1179 passed.
+- `28648fd` — af-07/af-08/af-09/af-10: non-dict clone state, unvalidated
+  `id_map`/`retry_not_before`, malformed `accounts` tables, and a
+  truncated-UTF-8 export tail all fail closed with documented errors.
+  **Mirror-fix:** `media.py::_resume_offset` shared the bug class and was
+  hardened in the same slice. Gate: 1224 passed.
+- `b12a4fb` — af-01/af-02: a flood-blocked poll retract is now disclosed
+  (stderr note + `retract_failed` marker) instead of vanishing into a generic
+  exit 5, and the reupload cache proves completeness with a `.done` marker
+  next to the file. **Review blocker fix:** staging into `.part` alone still
+  let a *pre-existing* full-size sparse file (left by a pre-fix binary) be
+  uploaded as real media; size alone no longer licenses reuse. Gate: 1229
+  passed.
+- `5db16b4` — af-18/af-19/af-21/af-22: `clone status` accepts both id forms,
+  `tg api` numeric peer aliases resolve through `chatref` instead of being
+  parsed as phone numbers, `uv lock --check` is now a CI **and** gate step,
+  and a missing state-writer module fails the architecture check loudly.
+  **Review fix:** the numeric branch gate is back to `isdigit()` — `int()`
+  also accepts `+123`/`1_000`/padded forms and would have stolen titles from
+  the substring path. Gate: 1240 passed.
+
+Integration note: all five worktrees were branched from `main` (`dca1eed`),
+not from the campaign head, so every ceiling in `scripts/check-architecture.py`
+had to be reconciled by the integrator — exactly the conflict the new
+AGENTS.md "shared files belong to the integrator" rule (`888d769`) describes.
+
 ## Checks performed
 
 - Baseline `./scripts/gate.sh` at `dca1eed`: 1132 passed, 9 skipped, all
@@ -221,8 +265,23 @@ Known residual gaps (documented, deliberately not fixed in Phase 1):
 
 ## Next concrete step
 
-- Phase 3 wave 1: the P1 correctness findings, grouped by
-  non-overlapping files, each red-tested first.
+- Phase 3 wave 2: the remaining P2/P3 findings, tracker issues #79/#81/#83,
+  then the `clone.py` split behind characterization tests.
+
+## Contract debt accumulated by Phase 3 wave 1 (for the 1.2.16 slice)
+
+- §4: `TIMEOUT` as an exit-1 error code, reachable from every command.
+- §4: a stdout pipe closed by the reader exits 0 (journal records
+  `BROKEN_PIPE`); flip to 141 is a one-line change if the owner prefers the
+  unix convention.
+- §2: every failure — including untranslated ones — yields exactly one
+  envelope on stdout under `--json` plus the stderr mirror.
+- §11: the poll `retract_failed` marker is now also reachable via FloodWait;
+  the reupload cache proves completeness with a `.done` sibling marker.
+- §11: `clone status` accepts both the raw and the `-100`-marked source id.
+- ADR: decide whether ADR-0053 gets an addendum or a new ADR covers "every
+  failure path is an envelope"; ADR-0048 needs the flood-blocked retract
+  path recorded.
 
 ## Decisions needing the owner
 
