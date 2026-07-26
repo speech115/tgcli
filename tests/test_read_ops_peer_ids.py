@@ -21,7 +21,6 @@ from tests.conftest import FakeClient
 from tests.test_cli_media import _media_message
 from tgcli import read_ops
 
-
 CHANNEL_ID = 1234567890
 MARKED_ID = -1001234567890
 

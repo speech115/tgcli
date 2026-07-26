@@ -7,7 +7,6 @@ from types import SimpleNamespace
 
 from tgcli.clone import progress
 
-
 ANSI = re.compile(r"\x1b\[")
 
 

@@ -10,7 +10,6 @@ from tests.test_cli_read import make_read_client
 from tests.test_cli_search import make_message
 from tgcli.cli import main
 
-
 SAMPLE = """
 default_account = "main"
 

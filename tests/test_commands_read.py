@@ -16,7 +16,7 @@ def _ns(**kwargs):
 def test_message_to_dict_projects_message_contract():
     message = ns(
         id=42,
-        date=dt.datetime(2026, 7, 6, 10, 0, tzinfo=dt.timezone.utc),
+        date=dt.datetime(2026, 7, 6, 10, 0, tzinfo=UTC),
         sender_id=111,
         sender=ns(first_name="Alice", last_name=None),
         text="hello",

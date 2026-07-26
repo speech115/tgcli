@@ -6,8 +6,7 @@ import platform
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from telethon import TelegramClient
-from telethon import errors as telethon_errors
+from telethon import TelegramClient, errors as telethon_errors
 
 from tgcli import __version__
 from tgcli.config import Account

@@ -13,7 +13,6 @@ from tgcli import read_ops
 from tgcli.errors import PolicyError
 from tgcli.parser import build_parser
 
-
 # One representative invocation per op, in table order. A new read operation
 # without an entry here fails test_every_operation_is_covered_by_this_file.
 CLI_INVOCATIONS = {

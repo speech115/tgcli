@@ -2,9 +2,9 @@
 
 from telethon import errors as telethon_errors
 from telethon.tl import functions, types
+
 from tgcli.clone import topics
 from tgcli.errors import PolicyError
-
 
 # A peer id recorded in clone state can stop resolving for more reasons than a
 # missing access hash: the account may have been removed from the channel, the

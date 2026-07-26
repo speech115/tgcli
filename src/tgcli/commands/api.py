@@ -14,7 +14,6 @@ from telethon.tl.tlobject import TLObject, TLRequest
 from tgcli import chatref
 from tgcli.errors import ConfigError, NotFoundError
 
-
 READ_METHOD_ALLOWLIST = frozenset(
     {
         "channels.getAdminLog",

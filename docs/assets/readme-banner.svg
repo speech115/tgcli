@@ -1,4 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="440" viewBox="0 0 1280 440" role="img" aria-label="tgcli — stateless Telegram CLI for humans, scripts, and AI agents">
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="460" viewBox="0 0 1280 460" role="img" aria-labelledby="title desc">
+  <title id="title">tgcli</title>
+  <desc id="desc">Stateless Telegram CLI for humans, scripts, and AI agents — dark theme banner</desc>
+
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#0b1620"/>
@@ -8,16 +11,24 @@
       <stop offset="0%" stop-color="#2aabee"/>
       <stop offset="100%" stop-color="#229ed9"/>
     </linearGradient>
+    <style>
+      .sans { font-family: ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 19px; }
+      .fg { fill: #eaf3f9; }
+      .muted { fill: #7e94a4; }
+      .dim { fill: #4f6b7d; }
+      .str { fill: #7fd6a0; }
+    </style>
   </defs>
 
-  <rect width="1280" height="440" fill="url(#bg)"/>
+  <rect width="1280" height="460" fill="url(#bg)"/>
   <rect x="0" y="0" width="1280" height="3" fill="url(#tg)"/>
 
   <g transform="translate(72,64)">
     <rect x="0" y="0" width="56" height="56" rx="14" fill="url(#tg)"/>
     <path d="M12 28 L44 15 L38 44 L29 35 L23 41 L23 32 Z" fill="#071018"/>
-    <text x="76" y="30" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="38" font-weight="700" fill="#eaf3f9">tgcli</text>
-    <text x="76" y="56" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="17" fill="#7e94a4">Telegram CLI: read, search, send &#183; no daemons, JSON everywhere</text>
+    <text class="sans fg" x="76" y="30" font-size="38" font-weight="700">tgcli</text>
+    <text class="sans muted" x="76" y="56" font-size="17">Telegram CLI: read, search, send &#183; no daemons, JSON everywhere</text>
   </g>
 
   <g transform="translate(72,168)">
@@ -25,11 +36,14 @@
     <circle cx="26" cy="26" r="6" fill="#2a3f4d"/>
     <circle cx="46" cy="26" r="6" fill="#2a3f4d"/>
     <circle cx="66" cy="26" r="6" fill="#2a3f4d"/>
-    <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="19">
-      <text x="28" y="74"><tspan fill="#4f6b7d">$</tspan> <tspan fill="#eaf3f9">tg --json dialogs --unread-only</tspan></text>
-      <text x="28" y="108"><tspan fill="#4f6b7d">$</tspan> <tspan fill="#eaf3f9">tg --json search --all </tspan><tspan fill="#7fd6a0">"invoice"</tspan><tspan fill="#eaf3f9"> --limit 20</tspan></text>
-      <text x="28" y="142"><tspan fill="#4f6b7d">$</tspan> <tspan fill="#eaf3f9">tg --json send @user </tspan><tspan fill="#7fd6a0">"hello"</tspan><tspan fill="#eaf3f9"> --preview</tspan></text>
-      <text x="28" y="176"><tspan fill="#4f6b7d">$</tspan> <tspan fill="#eaf3f9">tg --json send --commit p_9f3a</tspan><tspan fill="#4f6b7d">   # nothing leaves without this</tspan></text>
+    <line x1="0" y1="52" x2="1136" y2="52" stroke="#12252f"/>
+    <g class="mono">
+      <text x="28" y="90"><tspan class="dim">$</tspan> <tspan class="fg">tg --json dialogs --unread-only</tspan></text>
+      <text x="28" y="124"><tspan class="dim">$</tspan> <tspan class="fg">tg --json search --all </tspan><tspan class="str">"invoice"</tspan><tspan class="fg"> --limit 20</tspan></text>
+      <text x="28" y="158"><tspan class="dim">$</tspan> <tspan class="fg">tg --json send @user </tspan><tspan class="str">"hello"</tspan><tspan class="fg"> --preview</tspan></text>
+      <text x="28" y="192"><tspan class="dim">$</tspan> <tspan class="fg">tg --json send --commit p_9f3a</tspan><tspan class="dim">   # nothing leaves without this</tspan></text>
     </g>
   </g>
+
+  <text class="sans muted" x="72" y="416" font-size="15">stateless<tspan class="dim">&#160;&#160;&#183;&#160;&#160;</tspan>JSON on stdout<tspan class="dim">&#160;&#160;&#183;&#160;&#160;</tspan>preview &#8594; commit<tspan class="dim">&#160;&#160;&#183;&#160;&#160;</tspan>audited mutations<tspan class="dim">&#160;&#160;&#183;&#160;&#160;</tspan>Python 3.12+</text>
 </svg>

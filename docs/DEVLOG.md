@@ -60,6 +60,48 @@ landed on a red gate before that was caught and amended.
 
 **Next:** owner review of the PR; then the tag decision, and the measured
 backend work in PROPOSALS (baseline first, SQLite prototype second).
+## 2026-07-26 — Project presentation: license, community health, lint policy (Claude Opus 5)
+
+**Did:** owner asked for better project presentation, and picked all four
+areas plus MIT. Two slices on `claude/project-formatting-improvements-vxxchy`.
+Slice 1 (ADR-0056): `LICENSE` (MIT, © speech115); `CONTRIBUTING.md` as the
+human short form of AGENTS.md; `SECURITY.md` (private advisory channel, the
+never-include redaction list, an explicit in/out scope); issue forms
+`bug_report.yml` + `proposal.yml` (both `needs-triage`, matching
+docs/agents/triage-labels.md), `config.yml` contact links, and a PR template
+that asks for real gate output; README gains five badges, a contents line, a
+mermaid preview → commit diagram, `Contributing` and `License` sections, and a
+`<picture>` banner pair — the dark SVG was reworked (single-`<text>` footer
+strip, CSS classes) and a light twin added, both verified by rendering them in
+headless Chromium. Slice 2 (ADR-0057): ruff selection `E4/E7/E9/F` →
+`E/W/F/I/UP/C4` with `UP040` ignored and `combine-as-imports = true`; 93
+autofixes, 15 hand-split long lines, two `dict()` → literal, 86 files touched;
+five architecture ceilings raised by the isort blank-line cost. Gate green
+both times: `1132 passed, 9 skipped`, `coverage OK: 23 namespaces`,
+`guide pages checked: 23; problems: 0`.
+
+**Decided:** ADR-0056 and ADR-0057. Excluded rule families are named with
+reasons rather than left implicit: `B`/`SIM`/`PTH` rewrite logic (a behavior
+change needs a reproducing test, not a linter), `ARG` is 696 hits of Telethon
+fake-signature noise, `RUF001-003` fires on the Cyrillic ADR-0050 requires.
+`UP040` is ignored because PEP 695 `type X = ...` yields a `TypeAliasType`
+whose `get_args()` is `()` — `tests/test_read_ops.py` introspects that union.
+CONTRIBUTING/SECURITY summarize and point; AGENTS.md stays canonical and now
+says so in both directions.
+
+**Learned:** the ceilings in `scripts/check-architecture.py` are duplicated in
+`tests/test_check_architecture.py`, and the test compares the two dicts — a
+ratchet bump has to be made in both places or the suite fails. Ruff's isort
+splits `from x import a as b, c as d` into one statement per alias unless
+`combine-as-imports` is set; the default would have rewritten clone's import
+block into something longer and worse. E501 does not fire on a line whose
+overflow is a trailing pragma comment, so the `# type: ignore` lines in
+`clone/ergonomics.py` were left alone while the comment above one of them had
+to be re-wrapped.
+
+**Next:** none pending. If the wider families are ever wanted, `B` is the one
+with real signal (`B023` loop-variable capture, `B904` raise-from) and it
+needs its own ADR plus a reproducing test per fix.
 
 ## 2026-07-25 — PR #77 independent review and integration; 1.2.15 (Claude Opus 5)
 

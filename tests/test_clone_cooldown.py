@@ -287,7 +287,7 @@ async def test_one_flood_wait_charges_the_shared_budget_once(
 
     monkeypatch.setattr("tgcli.clone.cooldown.asyncio.sleep", fake_sleep)
 
-    attempts = {index: 0 for index in range(4)}
+    attempts = dict.fromkeys(range(4), 0)
     in_flight = [asyncio.Event() for _ in range(4)]
     proceed = asyncio.Event()
 

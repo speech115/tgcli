@@ -11,8 +11,7 @@ import argparse
 from pathlib import Path
 
 from tgcli import __version__
-from tgcli.commands import media as media_cmd
-from tgcli.commands import store as store_cmd
+from tgcli.commands import media as media_cmd, store as store_cmd
 
 
 class _Parser(argparse.ArgumentParser):
@@ -329,7 +328,10 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("plain", "md", "html"),
         default="md",
         dest="format",
-        help="rich-text format of TEXT/caption (html supports quote/spoiler/custom emoji)",
+        help=(
+            "rich-text format of TEXT/caption "
+            "(html supports quote/spoiler/custom emoji)"
+        ),
     )
     p_send.add_argument("--preview", action="store_true")
     p_send.add_argument("--commit", metavar="PREVIEW_ID")

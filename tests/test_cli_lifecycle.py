@@ -15,7 +15,6 @@ from tgcli import __version__, cli
 from tgcli.cli import main
 from tgcli.session import state_dir
 
-
 SAMPLE = """
 default_account = "main"
 

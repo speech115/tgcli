@@ -14,11 +14,8 @@ import sys
 from datetime import datetime
 
 from tgcli import read_ops, safety
-from tgcli.commands import api as api_cmd
-from tgcli.commands import batch as batch_cmd
-from tgcli.commands import dialog as dialog_cmd
+from tgcli.commands import api as api_cmd, batch as batch_cmd, dialog as dialog_cmd
 from tgcli.errors import ConfigError, PolicyError
-
 
 MUTATION_POSITIONALS = {
     "edit": ("chat", "message_id", "text"),

@@ -13,7 +13,6 @@ import pytest
 from tgcli import session
 from tgcli.cli import main
 
-
 SAMPLE = """
 default_account = "main"
 

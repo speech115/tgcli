@@ -1,0 +1,53 @@
+name: Proposal
+description: Suggest new behavior — read the maintenance-mode rule first
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is in maintenance mode
+        ([ADR-0026](../blob/main/docs/decisions/ADR-0026-maintenance-mode.md)):
+        it is feature-complete and in production use. New behavior needs an
+        owner request plus an ADR before any code — a proposal lands in
+        [docs/PROPOSALS.md](../blob/main/docs/PROPOSALS.md) first, and only
+        graduates to work once it passes that gate. Pull requests that add
+        unrequested behavior are closed.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and where does the current CLI stop you?
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you do today
+      description: |
+        The current workaround — a script, `tg api`, another tool, or nothing.
+        `tg api` reaching the TL method you need is often the answer already.
+    validations:
+      required: true
+
+  - type: textarea
+    id: shape
+    attributes:
+      label: Proposed shape
+      description: |
+        Rough command, flags, and JSON. Keep it additive: JSON changes in this
+        project are additive-only.
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked the guide (docs/guide/) and docs/FEATURES.md — this is not already possible.
+          required: true
+        - label: I checked docs/PROPOSALS.md and docs/ISSUES.md — this is not already tracked.
+          required: true

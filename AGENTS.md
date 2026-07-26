@@ -13,6 +13,12 @@ Canonical behavior contract for every AI agent working in this repo.
    routing under [docs/agents/](docs/agents/): issue tracker, triage labels,
    and domain-document discovery.
 
+[CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md) are the
+outward-facing summaries of these rules (ADR-0056): the first restates this
+contract for human contributors, the second owns the private reporting channel
+and the redaction rules. **This file stays canonical** — where either drifts
+from it, the other document is the bug.
+
 [docs/PLAN.md](docs/PLAN.md) (completed master plan),
 [docs/CLONE.md](docs/CLONE.md) (clone chronicle),
 [docs/DEVLOG-v1.md](docs/DEVLOG-v1.md) (sessions up to 1.0.0), and everything

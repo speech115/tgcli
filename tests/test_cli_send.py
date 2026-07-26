@@ -4,15 +4,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from telethon.tl import functions, types
 from telethon.extensions import markdown
+from telethon.tl import functions, types
 
 from tests.conftest import make_session_fake
-from tgcli import safety
+from tgcli import safety, session
 from tgcli.cli import main
 from tgcli.errors import PolicyError
-from tgcli import session
-
 
 SAMPLE = """
 default_account = "main"

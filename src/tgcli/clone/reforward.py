@@ -18,7 +18,6 @@ from datetime import timedelta
 from telethon import errors as telethon_errors
 from telethon.tl import types
 
-
 # One messages.Search per reposted post against the ADR-0045 flood budget. The
 # window only has to cover the messages a single sender produced within one
 # second; candidates outside `fwd_from.date` are discarded anyway.

@@ -1,11 +1,9 @@
 import pytest
-
 from telethon.tl.tlobject import TLRequest
 
+from tgcli import session
 from tgcli.cli import main
 from tgcli.commands import api as api_cmd
-from tgcli import session
-
 
 REVIEWED_READ_METHODS = [
     # channels (7)

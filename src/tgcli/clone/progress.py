@@ -15,7 +15,6 @@ from telethon import errors as telethon_errors
 
 from tgcli.output import note, sanitize
 
-
 MEGABYTE = 1024 * 1024
 # A transfer line every ~5 MB: frequent enough that a large file never looks
 # stuck, rare enough that a long sync does not flood a transcript.

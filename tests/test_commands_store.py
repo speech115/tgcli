@@ -16,7 +16,6 @@ from tgcli.commands import store as store_cmd
 from tgcli.errors import NotFoundError
 from tgcli.safety import PREVIEW_TTL
 
-
 NOW = datetime(2026, 7, 23, 12, 0, tzinfo=UTC)
 
 

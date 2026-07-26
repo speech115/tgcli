@@ -5,17 +5,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 SCRIPT = Path(__file__).parents[1] / "scripts" / "check-architecture.py"
 CEILINGS = {
     "src/tgcli/cli.py": 533,
-    "src/tgcli/parser.py": 516,
-    "src/tgcli/preflight.py": 254,
-    "src/tgcli/dispatch.py": 257,
+    "src/tgcli/parser.py": 518,
+    "src/tgcli/preflight.py": 251,
+    "src/tgcli/dispatch.py": 259,
     "src/tgcli/commands/batch.py": 96,
-    "src/tgcli/read_ops.py": 434,
-    "src/tgcli/commands/clone.py": 1199,
-    "src/tgcli/clone/state.py": 332,
+    "src/tgcli/read_ops.py": 437,
+    "src/tgcli/commands/clone.py": 1201,
+    "src/tgcli/clone/state.py": 333,
     "src/tgcli/clone/quotes.py": 391,
     "src/tgcli/clone/quote_fallback.py": 127,
 }

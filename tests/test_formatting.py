@@ -2,8 +2,8 @@
 
 import pytest
 from telethon.tl.types import (
-    MessageEntityBold,
     MessageEntityBlockquote,
+    MessageEntityBold,
     MessageEntityCode,
     MessageEntityCustomEmoji,
     MessageEntityItalic,

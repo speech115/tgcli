@@ -10,10 +10,9 @@ import json
 from pathlib import Path
 
 from telethon import errors as telethon_errors
-
-from tgcli import atomic
 from telethon.tl import types
 
+from tgcli import atomic
 from tgcli.clone import state
 
 _ACCESS_ERRORS = (

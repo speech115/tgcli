@@ -9,12 +9,10 @@ from telethon.client.downloads import DownloadMethods
 from telethon.tl import functions, types
 
 from tests.conftest import make_session_fake
-from tgcli import safety
+from tgcli import safety, session
 from tgcli.cli import main
 from tgcli.clone import reforward, state, topics
 from tgcli.errors import PolicyError
-from tgcli import session
-
 
 SAMPLE = """
 default_account = "main"
@@ -4180,13 +4178,13 @@ REPOST_DATE = datetime(2026, 7, 25, 13, 55, tzinfo=UTC)
 
 def _reposted_message(**overrides):
     photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
-    fields = dict(
-        message="repost body",
-        media=photo,
-        fwd_from=types.MessageFwdHeader(
+    fields = {
+        "message": "repost body",
+        "media": photo,
+        "fwd_from": types.MessageFwdHeader(
             date=REPOST_DATE, from_id=types.PeerUser(user_id=973293498)
         ),
-    )
+    }
     fields.update(overrides)
     return message(2, **fields)
 
@@ -4739,7 +4737,7 @@ def test_forum_sync_omits_pinned_key(config_env, monkeypatch, capsys):
 def test_sync_short_flood_wait_retries_once_and_keeps_json_stdout(
     config_env, monkeypatch, capsys
 ):
-    """ADR-0052: ≤60s FloodWait sleeps once (injectable), retries, stdout stays one JSON."""
+    """ADR-0052: ≤60s FloodWait sleeps once (injectable), retries; one JSON."""
     sleeps: list[float] = []
 
     async def fake_sleep(seconds):

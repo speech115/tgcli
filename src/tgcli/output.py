@@ -5,7 +5,6 @@ import sys
 
 from tgcli.errors import TgcliError
 
-
 # CONTRACT.md §8: human/plain output strips control characters from untrusted
 # content. C0 (including tab and newline), DEL, and C1 all go — a name that
 # smuggles its own tab or newline would also forge a TSV column or row, and the

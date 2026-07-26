@@ -25,7 +25,6 @@ from tgcli.transfer import (
     upload_parts,
 )
 
-
 # The still-image sizes Telethon accepts back as a `thumb=` argument. A
 # `PhotoPathSize` is an outline, a `VideoSize` is a video preview, and a
 # `PhotoSizeProgressive` is not selectable by object, so none of them qualify.

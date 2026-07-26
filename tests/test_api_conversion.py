@@ -1,8 +1,8 @@
 import pytest
+from telethon.tl import functions, types
 
 from tgcli.commands.api import audit_details, build_request, call
 from tgcli.errors import ConfigError, NotFoundError
-from telethon.tl import functions, types
 
 
 class FakeClient:
@@ -68,7 +68,8 @@ async def test_build_request_resolves_alias_only_for_peer_typed_field():
     request = await build_request(
         client,
         "messages.getHistory",
-        '{"peer": "@example", "offset_id": 0, "offset_date": null, "add_offset": 0, "limit": 1, "max_id": 0, "min_id": 0, "hash": 0}',
+        '{"peer": "@example", "offset_id": 0, "offset_date": null, '
+        '"add_offset": 0, "limit": 1, "max_id": 0, "min_id": 0, "hash": 0}',
     )
 
     assert request.peer.__class__.__name__ == "InputPeerSelf"
@@ -177,7 +178,8 @@ async def test_build_request_decodes_explicit_base64_bytes_marker():
     request = await build_request(
         FakeClient(),
         "messages.getBotCallbackAnswer",
-        '{"peer": {"_": "InputPeerSelf"}, "msg_id": 1, "game": false, "data": {"_": "bytes", "base64": "aGVsbG8="}}',
+        '{"peer": {"_": "InputPeerSelf"}, "msg_id": 1, "game": false, '
+        '"data": {"_": "bytes", "base64": "aGVsbG8="}}',
     )
 
     assert request.data == b"hello"
@@ -224,8 +226,8 @@ async def test_build_request_accepts_every_channel_participants_filter(
     request = await build_request(
         Client(),
         "channels.getParticipants",
-        '{"channel": "@team", "filter": %s, "offset": 0, "limit": 100, "hash": 0}'
-        % filter_json,
+        f'{{"channel": "@team", "filter": {filter_json},'
+        f' "offset": 0, "limit": 100, "hash": 0}}',
     )
 
     assert isinstance(request, functions.channels.GetParticipantsRequest)

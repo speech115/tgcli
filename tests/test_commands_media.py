@@ -1,12 +1,11 @@
 import errno
 import json
 import os
-from pathlib import Path
 import shutil
+from pathlib import Path
 
 import pytest
 from telethon import errors as telethon_errors
-
 from telethon.tl import types
 
 from tgcli.commands import media
@@ -16,8 +15,8 @@ from tgcli.commands.media import (
     _source_label,
     _state_paths,
     destination_for,
-    parse_source,
     download_media,
+    parse_source,
     resolve_message,
     safe_filename,
 )

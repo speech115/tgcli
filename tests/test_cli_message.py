@@ -6,7 +6,6 @@ import pytest
 from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli.cli import main
 
-
 SAMPLE = """
 default_account = "main"
 
@@ -28,7 +27,7 @@ def make_fake(message_ids=(42,)):
     messages = [
         ns(
             id=message_id,
-            date=dt.datetime(2026, 7, 6, 10, 0, tzinfo=dt.timezone.utc),
+            date=dt.datetime(2026, 7, 6, 10, 0, tzinfo=dt.UTC),
             sender_id=111,
             sender=ns(first_name="Alice", last_name=None),
             text="hello",

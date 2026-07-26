@@ -13,7 +13,6 @@ import pytest
 from tgcli import login_state
 from tgcli.errors import ConfigError, NotFoundError
 
-
 NOW = datetime(2026, 7, 24, 12, 0, tzinfo=UTC)
 
 

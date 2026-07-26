@@ -13,7 +13,6 @@ from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli import safety
 from tgcli.cli import main
 
-
 SAMPLE = """
 default_account = "main"
 

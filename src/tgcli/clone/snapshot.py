@@ -141,7 +141,8 @@ async def _capture_breakdown(
                 {"message_id": message.id, "status": "failed", "error": str(exc)},
             )
             note(
-                f"warning: clone poll vote retract failed for message {message.id}: {exc}"
+                f"warning: clone poll vote retract failed for message "
+                f"{message.id}: {exc}"
             )
             raise _RetractFailed(exc) from exc
         safety.append_audit(

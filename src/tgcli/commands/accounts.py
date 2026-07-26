@@ -10,7 +10,6 @@ from tgcli.errors import ConfigError, NotFoundError, PolicyError
 from tgcli.output import note
 from tgcli.session import state_dir
 
-
 DEFAULT_IMPORT_ALIASES = ("main", "recklessou", "teamsyncsage")
 
 

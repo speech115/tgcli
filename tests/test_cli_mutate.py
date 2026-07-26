@@ -5,11 +5,9 @@ import pytest
 from telethon.errors import MessageNotModifiedError
 
 from tests.conftest import FakeClient, make_session_fake, ns
-from tgcli import safety
+from tgcli import safety, session
 from tgcli.cli import main
 from tgcli.errors import PolicyError
-from tgcli import session
-
 
 SAMPLE = """
 default_account = "main"

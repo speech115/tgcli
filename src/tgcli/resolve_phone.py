@@ -9,7 +9,6 @@ from tgcli import atomic
 from tgcli.errors import RateLimitError
 from tgcli.session import state_dir
 
-
 # Telegram documents roughly ≤1 resolvePhone call per ~3 seconds client-side.
 RESOLVE_PHONE_COOLDOWN_S = 3.0
 

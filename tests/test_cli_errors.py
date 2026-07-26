@@ -22,7 +22,6 @@ from tgcli.cli import main
 from tgcli.commands.login import LoginTimeoutError
 from tgcli.session import state_dir
 
-
 SAMPLE = """
 default_account = "main"
 

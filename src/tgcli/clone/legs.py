@@ -1,6 +1,7 @@
 """One source->destination leg of a clone: posts, or the discussion group."""
 
 from dataclasses import dataclass
+
 from tgcli.clone import state
 
 # ADR-0051: posts/comments interleave in fixed windows (not a flag).
