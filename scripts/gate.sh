@@ -9,6 +9,7 @@ run() {
   "$@"
 }
 
+run uv lock --check
 run uv run ruff check .
 run uv run ruff format --check .
 run uv run python scripts/check-architecture.py

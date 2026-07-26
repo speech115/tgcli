@@ -64,10 +64,23 @@ def _entry(s: state.CloneState) -> dict:
 
 
 def _matches(s: state.CloneState, source: str | None) -> bool:
-    return source is None or (
-        s.source_peer_id == int(source)
-        if source.lstrip("-").isdigit()
-        else source.casefold() in s.source_title.casefold()
+    """SOURCE is a raw or -100-marked peer id, else a title substring.
+
+    The digit test stays `isdigit()`, not `int()`: int() also accepts `+1`,
+    `1_000`, and padded forms, which would steal titles from the substring
+    path. Digit-shaped strings int() still rejects (superscripts) fall
+    through to that path rather than crashing the listing."""
+    if source is None:
+        return True
+    if not source.lstrip("-").isdigit():
+        return source.casefold() in s.source_title.casefold()
+    try:
+        wanted = int(source)
+    except ValueError:
+        return source.casefold() in s.source_title.casefold()
+    return wanted in (
+        s.source_peer_id,
+        telethon_utils.get_peer_id(types.PeerChannel(s.source_peer_id)),
     )
 
 

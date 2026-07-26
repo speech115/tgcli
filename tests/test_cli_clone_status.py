@@ -86,6 +86,59 @@ def test_status_filters_by_source_id(capsys):
     assert [c["source"]["title"] for c in payload["clones"]] == ["Beta"]
 
 
+def test_status_filters_by_marked_channel_source_id(capsys):
+    """CONTRACT-shaped JSON hands out -100 ids; status must accept that form."""
+    _seed(100000001, 3890108644, "Alpha")
+    _seed(100000001, 333, "Beta")
+
+    code, out = _run(capsys, ["clone", "status", "-1003890108644", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    assert [c["source"]["title"] for c in payload["clones"]] == ["Alpha"]
+
+
+def test_status_filters_by_raw_source_id(capsys):
+    _seed(100000001, 3890108644, "Alpha")
+    _seed(100000001, 333, "Beta")
+
+    code, out = _run(capsys, ["clone", "status", "3890108644", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    assert [c["source"]["title"] for c in payload["clones"]] == ["Alpha"]
+
+
+def test_status_filter_survives_digit_shaped_non_integers():
+    """`--123` and superscript digits pass isdigit() but are not int()-able."""
+    from tgcli.commands import clone as clone_cmd
+
+    _seed(100000001, 111, "Alpha")
+
+    assert clone_cmd.list_clones("--123") == {"clones": []}
+    assert clone_cmd.list_clones("²³") == {"clones": []}
+
+
+def test_status_filter_keeps_int_shaped_titles_on_the_substring_path():
+    """int() accepts `+123`, `1_000`, and padding; isdigit() is the gate, so
+    those keep searching titles instead of silently matching nothing."""
+    from tgcli.commands import clone as clone_cmd
+
+    _seed(100000001, 123, "Channel_1_000_subs backup")
+
+    assert clone_cmd.list_clones("1_000")["clones"] != []
+    assert clone_cmd.list_clones("+123")["clones"] == []
+    assert clone_cmd.list_clones(" 123 ")["clones"] == []
+
+
+def test_status_filters_by_title_substring(capsys):
+    _seed(100000001, 111, "Alpha")
+    _seed(100000001, 333, "Beta")
+
+    code, out = _run(capsys, ["clone", "status", "lph", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    assert [c["source"]["title"] for c in payload["clones"]] == ["Alpha"]
+
+
 def test_status_plain_output(capsys):
     _seed(100000001, 111, "Alpha", kind="megagroup", dest=222, cursor=5)
 

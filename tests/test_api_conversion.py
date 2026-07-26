@@ -86,6 +86,52 @@ async def test_build_request_coerces_resolved_peer_to_requested_input_type():
     assert request.id.__class__.__name__ == "InputUserSelf"
 
 
+class StrictPeerClient:
+    """Telethon reads a bare digit string as a phone number, never as a dialog
+    id, so a fake that accepts raw strings proves nothing (AGENTS.md)."""
+
+    def __init__(self):
+        self.lookups = []
+
+    async def get_input_entity(self, value):
+        if isinstance(value, str):
+            raise ValueError(f'Cannot find any entity corresponding to "{value}"')
+        self.lookups.append(value)
+        return types.InputPeerChannel(channel_id=3890108644, access_hash=7)
+
+
+@pytest.mark.asyncio
+async def test_build_request_resolves_numeric_peer_alias_as_a_dialog_id():
+    client = StrictPeerClient()
+
+    request = await build_request(
+        client, "channels.getFullChannel", '{"channel": "-1003890108644"}'
+    )
+
+    assert client.lookups == [-1003890108644]
+    assert request.channel.__class__.__name__ == "InputChannel"
+
+
+@pytest.mark.asyncio
+async def test_build_request_reports_unresolvable_peer_alias_as_not_found():
+    class Client:
+        async def get_input_entity(self, value):
+            raise ValueError(f'Cannot find any entity corresponding to "{value}"')
+
+    with pytest.raises(NotFoundError, match="dialog not found"):
+        await build_request(
+            Client(), "channels.getFullChannel", '{"channel": "-1003890108644"}'
+        )
+
+
+@pytest.mark.asyncio
+async def test_build_request_reports_digit_shaped_non_integer_alias_as_not_found():
+    with pytest.raises(NotFoundError, match="dialog not found"):
+        await build_request(
+            FakeClient(), "channels.getFullChannel", '{"channel": "--123"}'
+        )
+
+
 @pytest.mark.asyncio
 async def test_build_request_does_not_resolve_alias_in_non_peer_field():
     request = await build_request(

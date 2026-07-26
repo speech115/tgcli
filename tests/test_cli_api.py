@@ -72,6 +72,77 @@ def test_api_floodwait_maps_to_exit_5(config_env, monkeypatch, capsys):
     }
 
 
+class NumericPeerClient:
+    """Rejects raw strings the way Telethon does — a digit string is a phone."""
+
+    def __init__(self):
+        self.lookups = []
+
+    async def get_input_entity(self, value):
+        if isinstance(value, str):
+            raise ValueError(f'Cannot find any entity corresponding to "{value}"')
+        self.lookups.append(value)
+        return types.InputPeerChannel(channel_id=3890108644, access_hash=7)
+
+    async def __call__(self, request):
+        assert request.__class__.__name__ == "GetFullChannelRequest"
+        assert isinstance(request.channel, types.InputChannel)
+
+        class Result:
+            def to_dict(self):
+                return {"_": "messages.ChatFull"}
+
+        return Result()
+
+
+def test_api_resolves_numeric_peer_alias_through_chatref(
+    config_env, monkeypatch, capsys
+):
+    client = NumericPeerClient()
+    make_session_fake(monkeypatch, client)
+
+    assert (
+        main(
+            [
+                "api",
+                "channels.getFullChannel",
+                "--params",
+                '{"channel":"-1003890108644"}',
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    assert client.lookups == [-1003890108644]
+    assert json.loads(capsys.readouterr().out)["result"] == {"_": "messages.ChatFull"}
+
+
+def test_api_unresolvable_numeric_peer_alias_exits_not_found(
+    config_env, monkeypatch, capsys
+):
+    class Client(NumericPeerClient):
+        async def get_input_entity(self, value):
+            raise ValueError(f'Cannot find any entity corresponding to "{value}"')
+
+    make_session_fake(monkeypatch, Client())
+
+    assert (
+        main(
+            [
+                "api",
+                "channels.getFullChannel",
+                "--params",
+                '{"channel":"-1003890108644"}',
+                "--json",
+            ]
+        )
+        == 4
+    )
+
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "NOT_FOUND"
+
+
 def test_api_write_kill_switch_blocks_without_opening_a_session(monkeypatch):
 
     monkeypatch.setattr(
