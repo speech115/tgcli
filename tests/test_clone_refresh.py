@@ -22,6 +22,9 @@ def _message(text="тело", entities=None, **overrides):
     return SimpleNamespace(**values)
 
 
+_ME = SimpleNamespace(id=42)
+
+
 def test_eligible_when_dest_matches_raw_and_renderer_adds_prefix():
     bold = types.MessageEntityBold(offset=0, length=4)
     message = _message("тело", [bold])
@@ -80,7 +83,7 @@ async def test_render_with_fwd_from_calls_forwarded_author_once(monkeypatch):
     cooldown = AsyncMock(side_effect=lambda awaitable: awaitable)
 
     text, entities = await refresh.render_with_current_rules(
-        object(), message, cache, cooldown
+        object(), object(), message, _ME, "broadcast", cache, cooldown
     )
 
     forwarded.assert_awaited_once()
@@ -100,22 +103,54 @@ async def test_render_with_fwd_from_calls_forwarded_author_once(monkeypatch):
 @pytest.mark.asyncio
 async def test_render_without_fwd_from_skips_forwarded_author(monkeypatch):
     forwarded = AsyncMock()
+    author_of = AsyncMock()
     monkeypatch.setattr(refresh.attribution, "forwarded_author_of", forwarded)
+    monkeypatch.setattr(refresh.attribution, "author_of", author_of)
     message = _message("тело", entities=[types.MessageEntityBold(offset=0, length=4)])
     text, entities = await refresh.render_with_current_rules(
-        object(), message, {}, AsyncMock()
+        object(), object(), message, _ME, "broadcast", {}, AsyncMock()
     )
     forwarded.assert_not_awaited()
+    author_of.assert_not_awaited()
     assert text == "тело"
     assert entities == [types.MessageEntityBold(offset=0, length=4)]
 
 
-def _clone_state(*, id_map=None, discussion_id_map=None):
+@pytest.mark.asyncio
+async def test_render_megagroup_forward_uses_author_of_like_sync(monkeypatch):
+    """Sync's broadcast branch is the only forwarded_author_of path; every
+    other source kind keeps the author_of speaker label (ADR-0050)."""
+    author = SimpleNamespace(text="Имя", mention_user_id=None, lead="")
+    author_of = AsyncMock(return_value=author)
+    forwarded = AsyncMock()
+    monkeypatch.setattr(refresh.attribution, "author_of", author_of)
+    monkeypatch.setattr(refresh.attribution, "forwarded_author_of", forwarded)
+    message = _message(
+        "тело",
+        fwd_from=types.MessageFwdHeader(date=None, from_name="Имя", imported=False),
+    )
+    source = object()
+    cooldown = AsyncMock()
+
+    text, entities = await refresh.render_with_current_rules(
+        object(), source, message, _ME, "megagroup", {}, cooldown
+    )
+
+    forwarded.assert_not_awaited()
+    author_of.assert_awaited_once()
+    args = author_of.await_args.args
+    assert args[1] is source
+    assert args[3] is _ME
+    assert "Переслано от" not in text
+    assert text == "Имя: \n\nтело"
+
+
+def _clone_state(*, id_map=None, discussion_id_map=None, source_kind="broadcast"):
     clone_state = state.CloneState.new(
         account_user_id=42,
         source_peer_id=123,
         source_title="Source",
-        source_kind="broadcast",
+        source_kind=source_kind,
     )
     clone_state.destination_peer_id = 999
     if id_map:
@@ -180,7 +215,7 @@ async def test_candidates_routes_get_messages_through_cooldown():
         return await make()
 
     await refresh.candidates(
-        client, clone_state, client.source, client.destination, tracking_cooldown
+        client, clone_state, client.source, client.destination, _ME, tracking_cooldown
     )
 
     assert len(wrapped) >= 2
@@ -210,7 +245,7 @@ async def test_poll_snapshot_excluded_before_render(monkeypatch):
     clone_state = _clone_state(id_map={10: 100})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, _passthrough
+        client, clone_state, client.source, client.destination, _ME, _passthrough
     )
 
     assert eligible == []
@@ -231,7 +266,7 @@ async def test_story_snapshot_excluded_before_render(monkeypatch):
     clone_state = _clone_state(id_map={11: 110})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, _passthrough
+        client, clone_state, client.source, client.destination, _ME, _passthrough
     )
 
     assert eligible == []
@@ -249,7 +284,7 @@ async def test_native_reforward_excluded_without_render(monkeypatch):
     clone_state = _clone_state(id_map={12: 120})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, _passthrough
+        client, clone_state, client.source, client.destination, _ME, _passthrough
     )
 
     assert eligible == []
@@ -272,7 +307,7 @@ async def test_discussion_id_map_never_scanned(monkeypatch):
     clone_state = _clone_state(id_map={10: 100}, discussion_id_map={50: 500})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, _passthrough
+        client, clone_state, client.source, client.destination, _ME, _passthrough
     )
 
     assert eligible == []
@@ -293,7 +328,7 @@ async def test_album_non_lead_excluded_even_if_eligible_alone(monkeypatch):
     clone_state = _clone_state(id_map={20: 200, 21: 201})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, _passthrough
+        client, clone_state, client.source, client.destination, _ME, _passthrough
     )
 
     assert [c.source_id for c in eligible] == [20]
@@ -310,7 +345,7 @@ async def test_album_lead_is_scanned_normally(monkeypatch):
     clone_state = _clone_state(id_map={30: 300})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, _passthrough
+        client, clone_state, client.source, client.destination, _ME, _passthrough
     )
 
     assert len(eligible) == 1
@@ -318,3 +353,92 @@ async def test_album_lead_is_scanned_normally(monkeypatch):
     assert eligible[0].destination_id == 300
     assert eligible[0].text == "Переслано от Имя\n\ncaption"
     assert excluded == []
+
+
+@pytest.mark.asyncio
+async def test_candidates_megagroup_forward_not_rewritten_broadcast_style():
+    """Sync labels a megagroup forward via author_of; refresh must match it
+    instead of rewriting the live post as "Переслано от ..." (ADR-0050)."""
+    source = _message(id=10, text="тело", fwd_from=_fwd())
+    dest = _message(id=100, text="тело")
+    client = _ScanClient([source], [dest])
+    clone_state = _clone_state(id_map={10: 100}, source_kind="megagroup")
+
+    eligible, excluded = await refresh.candidates(
+        client, clone_state, client.source, client.destination, _ME, _passthrough
+    )
+
+    assert [c.source_id for c in eligible] == [10]
+    assert "Переслано от" not in eligible[0].text
+    assert eligible[0].text == "id unknown: \n\nтело"
+    assert excluded == []
+
+
+@pytest.mark.asyncio
+async def test_album_follower_excluded_when_lead_deleted(monkeypatch):
+    """Telegram returned None for the album lead: fail closed, never promote
+    the survivor into the lead slot."""
+    render = AsyncMock(return_value=("Переслано от Имя\n\nтело", None))
+    monkeypatch.setattr(refresh, "render_with_current_rules", render)
+    follower = _message(id=21, text="тело", fwd_from=_fwd(), grouped_id=77)
+    dest_follower = _message(id=201, text="тело")
+    client = _ScanClient([follower], [dest_follower])
+    clone_state = _clone_state(id_map={20: 200, 21: 201})
+
+    eligible, excluded = await refresh.candidates(
+        client, clone_state, client.source, client.destination, _ME, _passthrough
+    )
+
+    assert eligible == []
+    assert excluded == [refresh.Excluded(source_id=21, reason="album-lead-unknown")]
+    render.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_album_survivor_excluded_when_lead_is_not_the_adjacent_id(monkeypatch):
+    """Mapped ids 20/22/23 form one album (21 was never mapped). With lead 20
+    deleted, a naive id-1 probe would promote 22; the mapped-neighbor proof
+    must exclude it instead."""
+    render = AsyncMock(return_value=("Переслано от Имя\n\nтело", None))
+    monkeypatch.setattr(refresh, "render_with_current_rules", render)
+    survivor = _message(id=22, text="тело", fwd_from=_fwd(), grouped_id=77)
+    tail = _message(id=23, text="тело", fwd_from=_fwd(), grouped_id=77)
+    dest_survivor = _message(id=202, text="тело")
+    dest_tail = _message(id=203, text="тело")
+    client = _ScanClient([survivor, tail], [dest_survivor, dest_tail])
+    clone_state = _clone_state(id_map={20: 200, 22: 202, 23: 203})
+
+    eligible, excluded = await refresh.candidates(
+        client, clone_state, client.source, client.destination, _ME, _passthrough
+    )
+
+    assert eligible == []
+    assert excluded == [
+        refresh.Excluded(source_id=22, reason="album-lead-unknown"),
+        refresh.Excluded(source_id=23, reason="album-non-lead"),
+    ]
+    render.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_album_lead_blocked_by_deleted_prior_mapped_post(monkeypatch):
+    """An unrelated deleted mapped post right before an album blocks only that
+    album's lead — the accepted cost of never prefixing the wrong live post."""
+    render = AsyncMock(return_value=("Переслано от Имя\n\nтело", None))
+    monkeypatch.setattr(refresh, "render_with_current_rules", render)
+    lead = _message(id=20, text="тело", fwd_from=_fwd(), grouped_id=77)
+    follower = _message(id=21, text="тело", fwd_from=_fwd(), grouped_id=77)
+    dest_lead = _message(id=200, text="тело")
+    dest_follower = _message(id=201, text="тело")
+    client = _ScanClient([lead, follower], [dest_lead, dest_follower])
+    clone_state = _clone_state(id_map={19: 190, 20: 200, 21: 201})
+
+    eligible, excluded = await refresh.candidates(
+        client, clone_state, client.source, client.destination, _ME, _passthrough
+    )
+
+    assert eligible == []
+    assert excluded == [
+        refresh.Excluded(source_id=20, reason="album-lead-unknown"),
+        refresh.Excluded(source_id=21, reason="album-non-lead"),
+    ]

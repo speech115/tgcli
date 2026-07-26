@@ -1314,7 +1314,7 @@ async def preview_refresh(tg, source: str) -> dict:
         return await _with_cooldown(make_awaitable, clone_state, budget)
 
     eligible, excluded = await clone_refresh.candidates(
-        tg, clone_state, source_entity, destination, cooldown
+        tg, clone_state, source_entity, destination, me, cooldown
     )
     pairs = [
         {"source_id": item.source_id, "destination_id": item.destination_id}
@@ -1395,7 +1395,13 @@ async def commit_refresh(tg, source: str, account_alias: str, payload: dict) -> 
             rendered_text,
             rendered_entities,
         ) = await clone_refresh.render_with_current_rules(
-            tg, message, author_cache, cooldown
+            tg,
+            source_entity,
+            message,
+            me,
+            clone_state.source_kind,
+            author_cache,
+            cooldown,
         )
         dest_text = getattr(dest, "message", None) or ""
         dest_entities = getattr(dest, "entities", None)

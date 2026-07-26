@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from dataclasses import dataclass
 
 from tgcli.clone import attribution, fidelity, quote_fallback, transport
@@ -32,11 +33,21 @@ def eligible_for_backfill(
     return True
 
 
-async def render_with_current_rules(tg, message, cache: dict, cooldown):
-    """Reuse sync's body renderer: forwarded_author_of + apply_body."""
+async def render_with_current_rules(
+    tg, source, message, me, source_kind: str, cache: dict, cooldown
+):
+    """Reuse sync's body renderer: source_kind-branched attribution + apply_body.
+
+    Mirrors the sync send path: only a broadcast post that is itself a forward
+    takes the ADR-0050 forward lead; every other source kind keeps the
+    ``author_of`` speaker label, exactly as sync would render it today.
+    """
     author = None
-    if getattr(message, "fwd_from", None) is not None:
-        author = await attribution.forwarded_author_of(tg, message, cache, cooldown)
+    if source_kind == "broadcast":
+        if getattr(message, "fwd_from", None) is not None:
+            author = await attribution.forwarded_author_of(tg, message, cache, cooldown)
+    else:
+        author = await attribution.author_of(tg, source, message, me, cache, cooldown)
     plan = transport.TransportPlan(
         mode="reuploaded",
         reply_to=None,
@@ -60,21 +71,28 @@ class Excluded:
     reason: str
 
 
-def _album_leads(source_by_id: dict[int, object]) -> set[int]:
-    """Lowest source id per grouped_id among mapped posts — the album lead."""
-    leads: dict[object, int] = {}
-    for source_id, message in source_by_id.items():
-        grouped_id = getattr(message, "grouped_id", None)
-        if grouped_id is None:
-            continue
-        current = leads.get(grouped_id)
-        if current is None or source_id < current:
-            leads[grouped_id] = source_id
-    return set(leads.values())
+def _album_lead_status(source_id, message, ordered_ids, source_by_id) -> str:
+    """Prove "lead", "follower", or "unknown" via the adjacent mapped post.
+
+    Albums are formed only from adjacent messages in the copied mapped stream
+    (clone/batching.py), so the nearest lower mapped source id decides: the
+    same grouped_id proves a follower, anything else proves the lead. A
+    neighbor Telegram did not return proves nothing — fail closed rather than
+    prefix the wrong live message.
+    """
+    index = bisect_left(ordered_ids, source_id)
+    if index == 0:
+        return "lead"
+    neighbor = source_by_id.get(ordered_ids[index - 1])
+    if neighbor is None:
+        return "unknown"
+    if getattr(neighbor, "grouped_id", None) == getattr(message, "grouped_id", None):
+        return "follower"
+    return "lead"
 
 
 async def candidates(
-    tg, clone_state, source_entity, destination_entity, cooldown
+    tg, clone_state, source_entity, destination_entity, me, cooldown
 ) -> tuple[list[Candidate], list[Excluded]]:
     """Scan posts-leg id_map for prefix-backfill candidates (ADR-0054)."""
     mapping = [
@@ -99,7 +117,7 @@ async def candidates(
         for dest_id, message in zip(dest_ids, dest_msgs, strict=True)
         if message is not None
     }
-    album_leads = _album_leads(source_by_id)
+    ordered_source_ids = sorted(source_ids)
     author_cache: dict = {}
     eligible: list[Candidate] = []
     excluded: list[Excluded] = []
@@ -116,12 +134,26 @@ async def candidates(
         if getattr(dest, "fwd_from", None) is not None:
             excluded.append(Excluded(source_id=source_id, reason="native-reforward"))
             continue
-        grouped_id = getattr(message, "grouped_id", None)
-        if grouped_id is not None and source_id not in album_leads:
-            excluded.append(Excluded(source_id=source_id, reason="album-non-lead"))
-            continue
+        if getattr(message, "grouped_id", None) is not None:
+            status = _album_lead_status(
+                source_id, message, ordered_source_ids, source_by_id
+            )
+            if status == "unknown":
+                excluded.append(
+                    Excluded(source_id=source_id, reason="album-lead-unknown")
+                )
+                continue
+            if status == "follower":
+                excluded.append(Excluded(source_id=source_id, reason="album-non-lead"))
+                continue
         rendered_text, rendered_entities = await render_with_current_rules(
-            tg, message, author_cache, cooldown
+            tg,
+            source_entity,
+            message,
+            me,
+            clone_state.source_kind,
+            author_cache,
+            cooldown,
         )
         dest_text = getattr(dest, "message", None) or ""
         dest_entities = getattr(dest, "entities", None)

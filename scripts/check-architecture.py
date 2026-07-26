@@ -38,9 +38,11 @@ CEILINGS = {
     # +15 for PR #77 review fix: commit_refresh binds account/source_peer/id_map.
     # +6 for the integration: refresh's cooldown seams take the ADR-0052 thunk
     # and a per-process WaitBudget (three get_messages call sites wrapped).
-    # +15 for the shared FloodGate: one short flood wait stalls every sibling
+    # +18 for the shared FloodGate: one short flood wait stalls every sibling
     # upload worker instead of each sleeping and charging the budget again.
-    "src/tgcli/commands/clone.py": 1468,
+    # +6 for ADR-0050 parity in refresh: preview and commit thread me and
+    # source_kind into the renderer so non-broadcast clones keep author_of.
+    "src/tgcli/commands/clone.py": 1474,
     # +21 for ADR-0055 pinned_dest_id / pin_occupied fields + validation.
     "src/tgcli/clone/state.py": 321,
     # +22 for ADR-0051: posts_cursor / posts_exhausted kwargs + deferred
