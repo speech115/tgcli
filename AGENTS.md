@@ -132,6 +132,14 @@ The project is feature-complete and in production use. Default posture:
   this rule is the protection.
 - Review-fix commits go onto the head of the PR under review, not onto a
   new branch. One branch per slice, not per review round.
+- **Shared files belong to the integrator.** When several agents work in
+  parallel (a worktree per slice), the files every slice touches are not
+  theirs to edit: `scripts/check-architecture.py` line ceilings and their
+  `tests/test_check_architecture.py` mirror, `docs/CONTRACT.md`,
+  `CHANGELOG.md`, `docs/DEVLOG.md`, and the version in `pyproject.toml` /
+  `src/tgcli/__init__.py`. An agent needing a raised ceiling or a contract
+  line reports it instead; the integrator lands all of them once. These
+  files conflict by construction — that is what makes them shared.
 - **A merged branch does not survive the session that merged it.** Delete it
   as part of the merge, never "later": `gh pr merge N --merge
   --delete-branch`, then clean the local side with `git branch -d <topic>`
