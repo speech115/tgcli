@@ -340,6 +340,59 @@ split, peer-id consistency fixes) is tracked in
 
 ---
 
+## Backend performance and runtime direction (owner discussion, 2026-07-26)
+
+Recorded from an owner-side design discussion held while the 1.2.16
+hardening campaign ran. **Nothing here is approved** — the maintenance-mode
+gate applies to every row, and the runtime rows additionally need a product
+decision from the owner before any ADR is worth writing.
+
+The discussion proposed a full stack: a long-lived per-account runtime, a
+job queue, IPC, an event queue, a REST API, a SQLite store, and a
+`TelegramBackend` abstraction over Telethon. Recorded in full because the
+analysis is good, and split here by what the evidence actually supports.
+
+**Read this framing first.** That stack is, in shape, the daemon-first
+architecture tgcli exists to replace (ADR-0002; the AGENTS.md "no daemons"
+hard rule). Each element is also a new defect class — daemon lifecycle, IPC
+races, queue recovery — in a project that just spent a whole campaign
+removing defect classes from a *simple* architecture. So the filter is not
+"does this make the backend more mature" but "does a real owner scenario
+require it".
+
+### Worth doing, evidence already exists
+
+| Item | Value | Effort | Note |
+|---|---|---|---|
+| Performance baseline before any optimisation | high | S | No optimisation should land without a before/after table: wall time, Telegram RPC count, and disk writes per scenario (`clone` cold/resume at 1k/10k mappings, `send`, `clone status`, `media download`). `scripts/bench.py` already exists as a starting point. Cheap, behaviour-free, and it is what makes every row below provable instead of plausible. |
+| `--profile` structured run report | med | S | Additive JSON on long commands: duration, messages processed, RPC count and retries, flood-wait seconds, bytes moved, state writes, cache hits/misses. Serves humans and agents equally — an agent can tell "slow because Telegram" from "slow because we rewrite state per message". Additive JSON only, no contract break. |
+| Per-run entity/RPC cache | med | S | The audit found real repeat work (`get_me` before every clone phase, the same peer resolved repeatedly, `GetFullChannel` more often than needed). A cache scoped to one invocation needs no daemon and no new state: pure win, measurable with the baseline above. |
+| clone-state JSON → SQLite/WAL **prototype + ADR** | high | M | The one strong storage argument, and it has evidence: audit finding `bf-19` — `clone/state.py::save()` rewrites the entire state file (whole `id_map`) after every message, so total disk I/O over a clone is quadratic in message count. SQLite/WAL replaces that with a single-row insert, and buys transactions, indexes, a `UNIQUE` duplicate guard, safe concurrent status reads, and fewer ways to lose everything to one corrupt JSON. **But**: prototype and benchmark first at the owner's real clone sizes, then an ADR, then a decision — never a rewrite on faith. Migration needs a versioned schema, automatic import of existing JSON, a backup, a check/repair command, a rollback path, and crash tests between transactions. Small files (config, previews) stay JSON. |
+
+### Needs an owner product decision first
+
+| Item | Value | Effort | Note |
+|---|---|---|---|
+| Optional per-account runtime (`tg runtime start`) | ? | **L** | One process owns the session and Telethon client; CLI commands are handed to it over a local socket; clone runs as a background job beside interactive commands. This is the third time the idea has surfaced (FEED-001's lock blocker, the clone/runtime design input in ISSUES.md, now here). It is **a daemon** and contradicts ADR-0002, so it can only enter through an ADR that overturns that line deliberately. Before any of that, one product question decides everything: **does the owner want a continuous 24/7 mirroring clone?** If yes, runtime is the honest foundation and the storage → runtime → live-clone order is right. If the real usage is "run `clone sync` when I think of it", none of this floor is needed — and the cheap answer to "send a message while a clone runs" is a second session for long jobs (already recorded under FEED-001). |
+| Durable job queue (`tg jobs` list/pause/resume/cancel) | ? | L | Only meaningful with a runtime; inherits the same decision. Would need per-job progress, checkpoints, attempt counts, and restart recovery. |
+| Event-driven live clone (Telegram updates → idempotent apply) | ? | L | The scenario that actually justifies the two rows above. Requires the storage work first (an idempotency ledger is a database problem, not a JSON one) and an explicit policy per event class — new post, edit, delete, comment, topic, pin. Deletions must be events, not absences (the wacli lesson already recorded under FEED-001). |
+| Local REST/IPC API for agents | low | M | Premature: the machine interface already exists (JSON + exit codes + read-only `tg batch`). An HTTP surface adds tokens, rate limits, TLS, and a new authorization model to protect the same session files. Revisit only for genuine remote access, and never expose a general "execute any RPC" endpoint. |
+
+### Considered and declined
+
+| Item | Why not |
+|---|---|
+| Full `TelegramBackend` abstraction over Telethon | Over-engineering for a swap that will not happen (ADR-0001 chose Telethon deliberately). The narrow, useful half is already tracked above as the pin-upgrade tripwire: collect the private-API uses (e.g. `utils._photo_size_byte_count`) into one place so an upgrade knows where to look. A full interface layer buys indirection, not safety. |
+| Rewrite in Rust/Go, microservices, Redis/Kafka/PostgreSQL, a plugin system, supporting several Telegram libraries | The bottleneck is Telegram's own rate limiting, repeated state rewrites, and per-command reconnects — not the language. Every item here adds code and defect classes without touching the measured cost. |
+| Raising concurrency as a speed lever | Telegram rate-limits by itself: four workers can beat two while eight simply earn more FloodWait. If concurrency is ever tuned it must be adaptive (back off on flood, recover carefully) and proven with the baseline — not raised as a constant. |
+
+**Suggested order if the owner green-lights the first block:** baseline and
+`--profile` → per-run RPC cache → SQLite prototype + benchmark + ADR →
+decide on storage → *then* answer the 24/7-mirror question before touching
+anything in the second block.
+
+---
+
 ## Suggested sequencing (new items only)
 
 1. **Identity (S):** `resolve`, then `contacts`. Foundational, read-only.
