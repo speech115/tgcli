@@ -385,9 +385,11 @@ def test_failed_reupload_leaves_downloaded_media_on_disk(
 
     cache = state.clones_dir() / f"{clone_state.clone_id}-media"
     assert cache.is_dir()
-    cached = list(cache.glob("src-*"))
-    assert cached
-    assert cached[0].read_bytes() == b"x" * 50
+    # Name the files exactly: glob("src-*") also matches the .done marker,
+    # and directory order is filesystem-dependent (APFS listed the empty
+    # marker first — the first macOS CI leg caught this).
+    assert (cache / "src-2").read_bytes() == b"x" * 50
+    assert (cache / "src-2.done").is_file()
     # Long wait — no sleep/retry.
     assert sleeps == []
 

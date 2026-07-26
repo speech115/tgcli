@@ -33,8 +33,26 @@ jobs:
       - name: Type check
         run: uv run pyright
       - name: Run tests
-        run: uv run pytest -q
+        run: uv run pytest -q -n auto
       - name: Check Telethon coverage matrix
         run: uv run python scripts/check-coverage.py
       - name: Check user guide against the CLI surface
         run: uv run python scripts/check-docs.py
+
+  # macOS is a first-class target and has caught platform-only defects
+  # (bf-03: case-insensitive alias collision on APFS). PR-gated so branch
+  # pushes stay cheap; lint/pyright are platform-independent and stay on
+  # the ubuntu leg (ADR-0059).
+  test-macos:
+    name: test-macos
+    if: github.event_name == 'pull_request'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Run tests
+        run: uv run pytest -q -n auto

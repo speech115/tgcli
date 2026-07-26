@@ -80,6 +80,141 @@ def run(tg, clone_state):
     )
 
 
+def test_sync_phase_reuses_discussion_entities_across_windows(tmp_path, monkeypatch):
+    """ADR-0061: the ADR-0051 interleave calls sync_phase once per 50-batch
+    window with one shared ResolveContext; the discussion peers cannot change
+    identity mid-run, so later windows must not re-pay the two GetChannels
+    RPCs the first window already made."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    clone_state = seed()
+
+    class CountingTg(FakeTg):
+        def __init__(self):
+            super().__init__()
+            self.entity_calls = 0
+
+        async def get_entity(self, peer):
+            self.entity_calls += 1
+            return await super().get_entity(peer)
+
+        async def get_messages(self, destination, limit=1):
+            # verify_tail stays per-window (it is the foreign-post guard);
+            # an empty tail satisfies it without faking history.
+            return []
+
+    tg = CountingTg()
+    ctx = SimpleNamespace(anchors={})
+
+    async def windows():
+        for _ in range(3):
+            await comments.sync_phase(
+                tg,
+                clone_state,
+                SimpleNamespace(id=123),
+                SimpleNamespace(id=999),
+                mutate=None,
+                copy_batch=None,
+                counters={"skipped_service": 0, "skipped_autoforward": 0},
+                limited=lambda: False,
+                resolve_ctx=ctx,
+            )
+
+    asyncio.run(windows())
+
+    assert tg.entity_calls == 2
+
+
+def test_privatized_source_degrades_on_a_cached_window(tmp_path, monkeypatch):
+    """ADR-0061 review fix: with entities cached after window 1, a source
+    group that turns private before window 2 surfaces on the window's own
+    reads — it must degrade to comments: unavailable exactly like the
+    first-window resolve guard, never escape as a raw traceback."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    clone_state = seed()
+
+    class PrivatizedOnSecondWindow(FakeTg):
+        def __init__(self):
+            super().__init__()
+            self.windows = 0
+
+        async def get_messages(self, destination, limit=1):
+            return []
+
+        async def iter_messages(self, entity, *, min_id=0, reverse=False):
+            self.windows += 1
+            if self.windows >= 2:
+                raise telethon_errors.ChannelPrivateError(request=None)
+            if False:  # pragma: no cover — async generator shape
+                yield None
+
+    tg = PrivatizedOnSecondWindow()
+    ctx = SimpleNamespace(anchors={})
+
+    async def two_windows():
+        results = []
+        for _ in range(2):
+            results.append(
+                await comments.sync_phase(
+                    tg,
+                    clone_state,
+                    SimpleNamespace(id=123),
+                    SimpleNamespace(id=999),
+                    mutate=None,
+                    copy_batch=None,
+                    counters={"skipped_service": 0, "skipped_autoforward": 0},
+                    limited=lambda: False,
+                    resolve_ctx=ctx,
+                )
+            )
+        return results
+
+    assert asyncio.run(two_windows()) == [False, False]
+    assert clone_state.comments == "unavailable"
+    assert clone_state.discussion_cursor == 0
+    assert clone_state.discussion_id_map == {}
+    reloaded = state.load(clone_state.clone_id)
+    assert reloaded is not None
+    assert reloaded.comments == "unavailable"
+
+
+def test_floodwait_from_a_cached_window_read_still_escapes(tmp_path, monkeypatch):
+    """FloodWait on the window's reads must keep reaching the ADR-0045
+    cooldown wrapper — the degrade guard may not swallow it."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    clone_state = seed()
+
+    class FloodsOnRead(FakeTg):
+        async def get_messages(self, destination, limit=1):
+            return []
+
+        async def iter_messages(self, entity, *, min_id=0, reverse=False):
+            flood = telethon_errors.FloodWaitError(request=None)
+            flood.seconds = 30
+            raise flood
+            if False:  # pragma: no cover — async generator shape
+                yield None
+
+    tg = FloodsOnRead()
+    ctx = SimpleNamespace(anchors={}, source_group=tg.source_group)
+
+    async def one_window():
+        return await comments.sync_phase(
+            tg,
+            clone_state,
+            SimpleNamespace(id=123),
+            SimpleNamespace(id=999),
+            mutate=None,
+            copy_batch=None,
+            counters={"skipped_service": 0, "skipped_autoforward": 0},
+            limited=lambda: False,
+            resolve_ctx=ctx,
+        )
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        asyncio.run(one_window())
+    assert clone_state.comments == "enabled"
+
+
 def test_sync_phase_marks_unavailable_when_source_group_turned_private(
     tmp_path, monkeypatch
 ):

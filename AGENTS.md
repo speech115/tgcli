@@ -48,9 +48,10 @@ The project is feature-complete and in production use. Default posture:
 
 ## Documentation Discipline (mandatory)
 
-- **Every working session** appends one entry to `docs/DEVLOG.md`
-  (template inside the file). No entry — the session did not happen.
-  `docs/DEVLOG-v1.md` is closed: never append to it.
+- **Every working session** adds one devlog entry as its own file under
+  `docs/devlog/` named `YYYY-MM-DD-slug.md` (template in `docs/DEVLOG.md`;
+  ADR-0058). No entry — the session did not happen. `docs/DEVLOG.md` and
+  `docs/DEVLOG-v1.md` are closed: never append to them.
   Live-acceptance notes may name test-account aliases, but keep incident
   detail about real accounts impersonal (what broke and the fix — not which
   live account it happened to); never phone numbers or session material.
@@ -58,16 +59,22 @@ The project is feature-complete and in production use. Default posture:
   contract, changed safety behavior) gets an ADR in `docs/decisions/`
   using the next number: `ADR-NNNN-slug.md`, plus its row in the index
   [docs/decisions/README.md](docs/decisions/README.md) in the same commit.
+  XS/S changes may use the one-page ADR-lite form (ADR-0058): Context in
+  one paragraph, Decision, Rejected alternatives, Contract impact. The
+  full form stays mandatory for `docs/CONTRACT.md` semantics, safety
+  behavior, and new dependencies.
   Superseding an old decision:
   new ADR + mark the old one `Status: superseded by ADR-NNNN`.
 - **`docs/MAP.md` must match reality.** Added/moved/removed a module — update
   the map in the same commit.
-- **A feature or fix that changes `docs/CONTRACT.md` ships as a release** (ADR-0038):
-  bump the **patch** version in `pyproject.toml` and `src/tgcli/__init__.py`,
-  add the `CHANGELOG.md` section naming its ADR, all in the same commit —
-  then tag the merged release commit `vX.Y.Z`. Never let unreleased contract
-  changes accumulate. The
-  minor digit is raised only when the owner declares a milestone.
+- **A feature or fix that changes `docs/CONTRACT.md` ships as a release**
+  (ADR-0038, mechanics amended by ADR-0058): the **integrator** — the
+  session that merges — bumps the **patch** version in `pyproject.toml` and
+  `src/tgcli/__init__.py` and adds the `CHANGELOG.md` section naming the
+  ADR, in the merge that lands the change. Feature branches never touch the
+  version files, `CHANGELOG.md`, or tags. Never let unreleased contract
+  changes accumulate. The minor digit is raised only when the owner
+  declares a milestone; `vX.Y.Z` tags remain owner-side work.
 - **`docs/CONTRACT.md` is versioned law.** Any change to CLI flags, JSON
   shapes, or exit codes updates CONTRACT.md in the same commit. Breaking
   changes require an ADR.
@@ -141,11 +148,16 @@ The project is feature-complete and in production use. Default posture:
 - **Shared files belong to the integrator.** When several agents work in
   parallel (a worktree per slice), the files every slice touches are not
   theirs to edit: `scripts/check-architecture.py` line ceilings and their
-  `tests/test_check_architecture.py` mirror, `docs/CONTRACT.md`,
-  `CHANGELOG.md`, `docs/DEVLOG.md`, and the version in `pyproject.toml` /
-  `src/tgcli/__init__.py`. An agent needing a raised ceiling or a contract
-  line reports it instead; the integrator lands all of them once. These
-  files conflict by construction — that is what makes them shared.
+  `tests/test_check_architecture.py` mirror (the ADR-0058 grace band means
+  a slice rarely needs a ceiling touched at all), `docs/CONTRACT.md`,
+  `CHANGELOG.md`, and the version in `pyproject.toml` /
+  `src/tgcli/__init__.py` (integrator-only under ADR-0058). An agent
+  needing a contract line reports it instead; the integrator lands all of
+  them once. Devlog entries are per-session files under `docs/devlog/` and
+  never conflict.
+- **Parallel waves branch from the integration head**, never from `main`,
+  whenever a campaign has its own integration branch (ADR-0058): a wave
+  based on `main` cannot see the seams earlier waves already landed.
 - **A merged branch does not survive the session that merged it.** Delete it
   as part of the merge, never "later": `gh pr merge N --merge
   --delete-branch`, then clean the local side with `git branch -d <topic>`

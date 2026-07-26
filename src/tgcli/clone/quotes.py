@@ -25,6 +25,7 @@ class ResolveContext:
     mutate: Any
     destination: object | None = None
     source_group: object | None = None
+    destination_group: object | None = None
     source_channel_id: int | None = None
     anchors: dict = field(default_factory=dict)
     anchor_cache: dict = field(default_factory=dict)
