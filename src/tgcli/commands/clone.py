@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from math import ceil
 from pathlib import Path
 import asyncio
+import os
 import secrets
 import shutil
 from typing import Any
@@ -682,24 +683,46 @@ def _media_cache_dir(clone_state: state.CloneState) -> Path:
     return state.clones_dir() / f"{clone_state.clone_id}-media"
 
 
+def _complete_marker(target: Path) -> Path:
+    """Sibling file that means "this cached download finished".
+
+    Size alone cannot prove it: a pre-fix binary killed mid-stripe left a
+    full-size sparse file at the final name, which the reuse check would
+    upload as if it were the real media (ADR-0052 cache survives runs).
+    """
+    return target.with_name(f"{target.name}.done")
+
+
 async def _download_for_reupload(
     tg, message, workdir: Path, clone_state, budget, progress=None
 ) -> Path:
     target = workdir / f"src-{message.id}"
+    marker = _complete_marker(target)
     size = media_byte_size(message)
-    if size is not None and target.is_file() and target.stat().st_size == size:
+    if (
+        size is not None
+        and marker.is_file()
+        and target.is_file()
+        and target.stat().st_size == size
+    ):
         return target
     # Stale name/size (or unpredictable size): drop before re-download so
     # download_striped's exclusive create and download_media see a free path.
     target.unlink(missing_ok=True)
+    marker.unlink(missing_ok=True)
     if size is not None and size > CHUNK_SIZE:
         # Only the striped path reports bytes: a sub-chunk file is over before
         # it could reach a progress mark (ADR-0049).
+        # Stripe into a sibling .part and rename, as `media download` does: the
+        # final name must mean "complete", or a killed run leaves a full-size
+        # sparse file the reuse check would upload as real media (ADR-0052).
+        part = target.with_name(f"{target.name}.part")
+        part.unlink(missing_ok=True)
         await _with_cooldown(
             lambda: download_striped(
                 tg,
                 message.media,
-                target,
+                part,
                 size=size,
                 parallel=CLONE_TRANSFER_PARALLEL,
                 progress=clone_progress.transfer_of(progress, message, "download"),
@@ -707,6 +730,8 @@ async def _download_for_reupload(
             clone_state,
             budget,
         )
+        os.replace(part, target)
+        marker.touch()
         return target
     downloaded = await _with_cooldown(
         lambda: tg.download_media(message, file=target),
@@ -715,7 +740,10 @@ async def _download_for_reupload(
     )
     if downloaded is None:
         raise PolicyError(f"clone media download failed at source message {message.id}")
-    return Path(downloaded)
+    path = Path(downloaded)
+    if path == target:
+        marker.touch()
+    return path
 
 
 def _body_text(message, author, plan) -> tuple[str, list | None]:

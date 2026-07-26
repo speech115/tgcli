@@ -223,7 +223,9 @@ async def test_render_casts_and_retracts_vote_for_anonymous_open_poll(monkeypatc
     assert [kind for kind, _, _ in audits] == [
         "clone-sync-poll-vote",
         "clone-sync-poll-retract",
+        "clone-sync-poll-retract-result",
     ]
+    assert audits[-1][2] == {"message_id": 31, "status": "retracted"}
 
 
 @pytest.mark.asyncio
@@ -337,25 +339,49 @@ async def test_render_retracts_even_when_cast_updates_lack_breakdown(monkeypatch
     assert [kind for kind, _, _ in audits] == [
         "clone-sync-poll-vote",
         "clone-sync-poll-retract",
+        "clone-sync-poll-retract-result",
     ]
+    assert audits[-1][2] == {"message_id": 31, "status": "retracted"}
     assert any("did not reveal" in item.lower() for item in notes)
 
 
 @pytest.mark.asyncio
-async def test_render_retract_flood_wait_propagates(monkeypatch):
-    monkeypatch.setattr(snapshot.safety, "append_audit", lambda *a, **k: None)
+async def test_render_retract_flood_wait_is_disclosed_not_propagated(monkeypatch):
+    """A FloodWait on the retract leaves a standing vote — it must be disclosed.
+
+    Propagating it would kill the run before the poll_votes tail, so ADR-0048
+    decisions 2/4 would be broken silently: the next run sees a breakdown
+    (the vote is still cast) and never retries the retract.
+    """
+    notes = []
+    audits = []
+    monkeypatch.setattr("tgcli.clone.snapshot.note", lambda msg: notes.append(msg))
+    monkeypatch.setattr(
+        snapshot.safety,
+        "append_audit",
+        lambda kind, alias, payload: audits.append((kind, alias, payload)),
+    )
 
     async def invoke(make_awaitable):
         return await make_awaitable()
 
     client = VoteClient(flood_on_retract=True)
     message = _anonymous_open_poll_message()
-    with pytest.raises(telethon_errors.FloodWaitError) as raised:
-        await snapshot.render(
-            client,
-            message,
-            peer=object(),
-            account_alias="main",
-            invoke=invoke,
-        )
-    assert raised.value.seconds == 30
+    text, _, marker = await snapshot.render(
+        client,
+        message,
+        peer=object(),
+        account_alias="main",
+        invoke=invoke,
+    )
+    assert "40% · 4 голоса" in text
+    assert marker["message_id"] == 31
+    assert marker["status"] == "retract_failed"
+    assert "30 seconds" in marker["error"]
+    assert any("retract" in item.lower() and "31" in item for item in notes)
+    assert [kind for kind, _, _ in audits] == [
+        "clone-sync-poll-vote",
+        "clone-sync-poll-retract",
+        "clone-sync-poll-retract-result",
+    ]
+    assert audits[-1][2]["status"] == "failed"

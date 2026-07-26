@@ -54,6 +54,7 @@ async def test_download_reuses_matching_name_and_size(state_dir_env, monkeypatch
     target = cache / "src-2"
     payload = b"cached-bytes-here"
     target.write_bytes(payload)
+    clone_cmd._complete_marker(target).touch()
     msg = _photo_message(2, size=len(payload))
 
     class NoDownloadTg:
@@ -66,6 +67,39 @@ async def test_download_reuses_matching_name_and_size(state_dir_env, monkeypatch
     )
     assert path == target
     assert path.read_bytes() == payload
+
+
+@pytest.mark.asyncio
+async def test_unmarked_full_size_cache_file_is_redownloaded(state_dir_env):
+    """A pre-fix binary killed mid-stripe left a full-size sparse file at the
+    final name; size alone must never license reuse (ADR-0052)."""
+    clone_state = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="S"
+    )
+    clone_state.destination_peer_id = 9
+    state.save(clone_state)
+    cache = clone_cmd._media_cache_dir(clone_state)
+    cache.mkdir(parents=True)
+    target = cache / "src-2"
+    size = 32
+    with target.open("wb") as handle:
+        handle.truncate(size)
+    msg = _photo_message(2, size=size)
+    downloads: list[Path] = []
+
+    class Tg:
+        async def download_media(self, message, file=None):
+            path = Path(f"{file}")
+            path.write_bytes(b"R" * size)
+            downloads.append(path)
+            return str(path)
+
+    budget = flood.WaitBudget()
+    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state, budget)
+
+    assert len(downloads) == 1
+    assert path.read_bytes() == b"R" * size
+    assert clone_cmd._complete_marker(path).is_file()
 
 
 @pytest.mark.asyncio
@@ -131,6 +165,141 @@ async def test_stale_large_cache_redownloads_without_file_exists_error(state_dir
     assert path.stat().st_size == size
     assert path.read_bytes()[:13] != b"stale-partial"
     assert downloads
+
+
+def _striped_clone_state():
+    clone_state = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="S"
+    )
+    clone_state.destination_peer_id = 9
+    state.save(clone_state)
+    return clone_state
+
+
+@pytest.mark.asyncio
+async def test_striped_download_publishes_final_name_only_when_complete(state_dir_env):
+    """A killed striped download must not leave a full-size file to be reused."""
+    clone_state = _striped_clone_state()
+    cache = clone_cmd._media_cache_dir(clone_state)
+    cache.mkdir(parents=True)
+    target = cache / "src-2"
+    size = CHUNK_SIZE + 1
+    msg = _photo_message(2, size=size)
+    final_seen: list[bool] = []
+
+    class Tg:
+        async def download_media(self, message, file=None):
+            raise AssertionError("large media must use striped download")
+
+        async def iter_download(
+            self, media, *, offset=0, request_size=None, stride=None
+        ):
+            final_seen.append(target.exists())
+            remaining = size - offset
+            if remaining <= 0:
+                return
+            yield b"N" * min(request_size or remaining, remaining)
+
+    budget = flood.WaitBudget()
+    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state, budget)
+    assert final_seen and not any(final_seen)
+    assert path == target
+    assert target.stat().st_size == size
+    assert list(cache.glob("*.part")) == []
+
+
+@pytest.mark.asyncio
+async def test_interrupted_striped_download_leaves_no_final_file(state_dir_env):
+    clone_state = _striped_clone_state()
+    cache = clone_cmd._media_cache_dir(clone_state)
+    cache.mkdir(parents=True)
+    size = CHUNK_SIZE + 1
+    msg = _photo_message(2, size=size)
+
+    class Tg:
+        async def download_media(self, message, file=None):
+            raise AssertionError("large media must use striped download")
+
+        async def iter_download(
+            self, media, *, offset=0, request_size=None, stride=None
+        ):
+            raise telethon_errors.RPCError(SimpleNamespace(), "BROKEN", 400)
+            yield b""  # pragma: no cover - generator marker
+
+    budget = flood.WaitBudget()
+    with pytest.raises(telethon_errors.RPCError):
+        await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state, budget)
+    assert not (cache / "src-2").exists()
+
+
+@pytest.mark.asyncio
+async def test_abandoned_part_file_is_not_reused_and_redownloads(state_dir_env):
+    """A kill mid-stripe leaves the pre-allocated .part; the next run replaces it."""
+    clone_state = _striped_clone_state()
+    cache = clone_cmd._media_cache_dir(clone_state)
+    cache.mkdir(parents=True)
+    size = CHUNK_SIZE + 1
+    part = cache / "src-2.part"
+    with part.open("xb") as handle:
+        handle.truncate(size)
+    msg = _photo_message(2, size=size)
+
+    class Tg:
+        async def download_media(self, message, file=None):
+            raise AssertionError("large media must use striped download")
+
+        async def iter_download(
+            self, media, *, offset=0, request_size=None, stride=None
+        ):
+            remaining = size - offset
+            if remaining <= 0:
+                return
+            yield b"N" * min(request_size or remaining, remaining)
+
+    budget = flood.WaitBudget()
+    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state, budget)
+    assert path == cache / "src-2"
+    assert path.read_bytes()[:1] == b"N"
+    assert not part.exists()
+
+
+@pytest.mark.asyncio
+async def test_striped_download_result_is_reused_without_rpcs(state_dir_env):
+    clone_state = _striped_clone_state()
+    cache = clone_cmd._media_cache_dir(clone_state)
+    cache.mkdir(parents=True)
+    size = CHUNK_SIZE + 1
+    msg = _photo_message(2, size=size)
+
+    class Tg:
+        async def download_media(self, message, file=None):
+            raise AssertionError("large media must use striped download")
+
+        async def iter_download(
+            self, media, *, offset=0, request_size=None, stride=None
+        ):
+            remaining = size - offset
+            if remaining <= 0:
+                return
+            yield b"N" * min(request_size or remaining, remaining)
+
+    class NoRpcTg:
+        async def download_media(self, message, file=None):
+            raise AssertionError("complete cache must not download")
+
+        async def iter_download(self, *args, **kwargs):
+            raise AssertionError("complete cache must not download")
+            yield b""  # pragma: no cover - generator marker
+
+    budget = flood.WaitBudget()
+    first = await clone_cmd._download_for_reupload(
+        Tg(), msg, cache, clone_state, budget
+    )
+    again = await clone_cmd._download_for_reupload(
+        NoRpcTg(), msg, cache, clone_state, budget
+    )
+    assert again == first
+    assert again.stat().st_size == size
 
 
 @pytest.mark.asyncio
