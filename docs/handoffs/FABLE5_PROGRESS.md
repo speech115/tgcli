@@ -11,12 +11,35 @@ provable invariants.
 ## Current state
 
 - Branch: `claude/fable5-hardening-5zqywp` (pushed to origin)
-- Base: `main` @ `dca1eed` (1.2.15)
-- HEAD: `b07f674` — Phase 3 waves 1-4 integrated and reviewed
-- Gate at HEAD (2026-07-26): ruff check passed; ruff format 148 files
-  clean; architecture check passed; pyright 0 errors;
-  **pytest 1418 passed, 9 skipped**; coverage OK (23 namespaces); docs
-  gate 23 pages, 0 problems. (Baseline at `dca1eed` was 1132 passed.)
+- Base: `main` @ `a07a021` (merged in; campaign started from `dca1eed`)
+- PR: [#85](https://github.com/speech115/tgcli/pull/85) — open, awaiting
+  the owner-authorised merge
+- Phases 1-4 are complete. All four phases of the brief ran: baseline and
+  the five handoff defects, the evidence-based audit, the prioritised
+  fixes, and the adversarial whole-diff review with its fixes.
+- Gate at HEAD (2026-07-26): ruff check passed; ruff format clean;
+  architecture check passed; pyright 0 errors;
+  **pytest 1419 passed, 9 skipped**; coverage OK; docs gate 0 problems.
+  (Baseline at `dca1eed` was 1132 passed.)
+
+## Phase 4 outcome — what is left for the owner
+
+The engineering work is finished and reviewed. Three things remain that an
+agent session structurally cannot do:
+
+1. **Merge PR #85.** Only `squash` is available: the repository bans merge
+   commits (`405 Merge commits are not allowed`) and the branch cannot be
+   rebased because it contains a merge commit (`405 This branch can't be
+   rebased`). This departs from the literal `gh pr merge N --merge` in
+   `docs/agents/release.md`; that page should be amended to match the
+   repository rules, or the rules relaxed.
+2. **Tag the release.** `v1.2.16` must land on the merge commit per
+   ADR-0038. Agent sessions cannot push `refs/tags/*`. The same pass should
+   settle the `v1.2.10`-`v1.2.15` gap: either create the missing tags or
+   amend ADR-0038 so CHANGELOG becomes the single source of truth.
+3. **Live-dump issues.** #80 and #82 stay open — both need dumps from a
+   real account, and live Telegram access was never granted this campaign
+   (correctly: the brief forbids unauthorised mutations).
 
 ## Session-limit interruption (2026-07-26) — RESOLVED
 
@@ -460,6 +483,11 @@ major was closed on the branch, each with a failing test first:
 ## Decisions needing the owner
 
 - Release-tag policy: create the promised `v1.2.x` tags or amend ADR-0038
-  so CHANGELOG is the single source of truth. Deferred to the Phase-4
-  report.
+  so CHANGELOG is the single source of truth. See "Phase 4 outcome" above.
 - Merge of the campaign PR (never without the owner).
+- Branch protection: the repository ruleset requires a `test` status check
+  but treats a superseded, cancelled run of that check as a blocking
+  failure. A concurrency-cancelled duplicate on the same SHA is therefore
+  enough to make a green branch unmergeable. Worth pinning the rule to the
+  latest run per check name, or dropping the workflow's concurrency
+  cancellation.
