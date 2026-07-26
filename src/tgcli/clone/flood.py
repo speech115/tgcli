@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from tgcli import atomic
@@ -24,6 +24,15 @@ _EMPTY = {"cooldown_until": None, "last_peer_created_at": None}
 # immediately (ADR-0045).
 SHORT_WAIT = 60
 WAIT_BUDGET = 180
+
+# The deadline is wall-clock, so a host clock that ran ahead when the cooldown
+# was armed (or was stepped back afterwards) persists a value no honest
+# FloodWait can produce, and every clone command for that account exits 5
+# forever with no way out but hand-editing the record. Telegram's longest
+# realistic FloodWait on the mutations clone performs is a day, so a deadline
+# further ahead than that is skew or corruption: clamp it when READING so it
+# degrades to a bounded wait. Arming stays honest — the raw value is stored.
+MAX_COOLDOWN_S = 86_400
 
 
 class FloodGate:
@@ -144,6 +153,8 @@ def cooldown_deadline(account_user_id: int) -> datetime | None:
         return None
     if deadline.tzinfo is None or deadline.utcoffset() is None:
         return None
-    if deadline <= datetime.now(UTC):
+    now = datetime.now(UTC)
+    clamped = min(deadline.astimezone(UTC), now + timedelta(seconds=MAX_COOLDOWN_S))
+    if clamped <= now:
         return None
-    return deadline.astimezone(UTC)
+    return clamped

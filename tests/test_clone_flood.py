@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from tgcli.clone import flood, state
+from tgcli.errors import RateLimitError
 
 
 def test_arm_and_load_roundtrip():
@@ -86,6 +87,58 @@ def test_failed_atomic_replace_preserves_previous_record(monkeypatch):
 
     assert path.read_text() == before
     assert json.loads(before)["cooldown_until"] == deadline.isoformat()
+
+
+def _write_record(account_user_id: int, cooldown_until: str) -> None:
+    path = flood.path_for(account_user_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"cooldown_until": cooldown_until, "last_peer_created_at": None})
+    )
+
+
+def test_absurd_future_deadline_is_clamped_on_read():
+    # A clock that was ahead when the cooldown was armed (NTP/DST/manual)
+    # persists a deadline no honest FloodWait can produce.
+    far = datetime.now(UTC) + timedelta(days=3650)
+    _write_record(21, far.isoformat())
+
+    deadline = flood.cooldown_deadline(21)
+
+    assert deadline is not None
+    ahead = (deadline - datetime.now(UTC)).total_seconds()
+    assert ahead <= 86_400
+    assert ahead > 86_400 - 60
+    # The clamp is read-only: the record itself is left untouched.
+    assert flood.load(21)["cooldown_until"] == far.isoformat()
+
+
+def test_deadline_within_max_is_not_clamped():
+    deadline = datetime.now(UTC) + timedelta(minutes=10)
+    flood.arm_cooldown(22, deadline)
+
+    assert flood.cooldown_deadline(22) == deadline
+
+
+def test_absurd_deadline_gate_raises_bounded_retry_after():
+    from tgcli.commands import clone as clone_cmd
+
+    _write_record(23, (datetime.now(UTC) + timedelta(days=3650)).isoformat())
+
+    with pytest.raises(RateLimitError) as excinfo:
+        clone_cmd._enforce_account_cooldown(23)
+
+    assert excinfo.value.details["retry_after"] <= 86_400
+
+
+def test_gate_clears_once_the_clamped_window_elapsed(monkeypatch):
+    from tgcli.commands import clone as clone_cmd
+
+    _write_record(24, (datetime.now(UTC) + timedelta(days=3650)).isoformat())
+    monkeypatch.setattr(flood, "MAX_COOLDOWN_S", 0)
+
+    assert flood.cooldown_deadline(24) is None
+    clone_cmd._enforce_account_cooldown(24)
 
 
 def test_account_flood_file_lives_under_clones_dir():
