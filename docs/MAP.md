@@ -27,8 +27,9 @@ tgcli/
 │   ├── CONTRACT.md            [done]    CLI automation contract (stdout/exit codes/JSON)
 │   ├── ISSUES.md              [done]    deliberately deferred product work and re-entry gates
 │   ├── PROPOSALS.md           [done]    unvetted owner wishlist backlog (2026-07-21); each item needs owner+ADR
-│   ├── DEVLOG.md              [done]    session-by-session agent log (post-1.0.0)
+│   ├── DEVLOG.md              [done]    closed log 1.0.0→1.2.16 + entry template (ADR-0058)
 │   ├── DEVLOG-v1.md           [done]    closed log of the phases 0–7 build
+│   ├── devlog/                [done]    per-session entry files YYYY-MM-DD-slug.md (ADR-0058)
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
 │   ├── guide/                 [done]    user-facing task pages, 22 + index (ADR-0041)
 │   ├── assets/                [done]    README banner, dark + light SVG (no external assets)

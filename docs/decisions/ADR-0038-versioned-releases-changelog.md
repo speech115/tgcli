@@ -1,7 +1,9 @@
 # ADR-0038: Tagged releases with a CHANGELOG entry per release
 
 Date: 2026-07-23
-Status: accepted
+Status: accepted (rule 3 mechanics amended by ADR-0058: the integrator
+assigns the version and CHANGELOG section at merge; feature branches never
+touch them)
 
 ## Context
 

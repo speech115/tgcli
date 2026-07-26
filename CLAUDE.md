@@ -34,4 +34,5 @@ Respond in Russian. Code, commits, docs, CLI output stay in English.
 - No daemons or background processes — this project exists because the
   previous stack (tools/telegram) was daemon-first and fragile.
 - Session files and secrets never enter the repo.
-- Update DEVLOG.md at the end of every session (see AGENTS.md).
+- Add a devlog entry file under docs/devlog/ at the end of every session
+  (see AGENTS.md; ADR-0058).

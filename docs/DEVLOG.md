@@ -1,7 +1,9 @@
 # DEVLOG
 
-Append-only session log. Newest entry on top. Every agent session that
-touches this repo adds one entry (AGENTS.md rule).
+**Closed for appends since 2026-07-26 (ADR-0058).** New entries are one
+file per session under [devlog/](devlog/), named `YYYY-MM-DD-slug.md`,
+using the template below. Read this file for history between 1.0.0 and
+1.2.16; never write it.
 
 Sessions up to and including the 1.0.0 release live in
 [DEVLOG-v1.md](DEVLOG-v1.md) and are closed — read them only when chasing
