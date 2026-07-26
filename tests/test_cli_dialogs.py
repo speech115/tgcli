@@ -159,3 +159,50 @@ def test_dialogs_unread_only_includes_unread_mentions(config_env, monkeypatch, c
             }
         ]
     }
+
+
+HOSTILE_TITLE = "Ch\x1bannel\rX\x08Y\nZ\tW"
+
+
+def make_hostile_dialog():
+    return ns(
+        id=-1001234,
+        name=HOSTILE_TITLE,
+        is_channel=True,
+        is_group=False,
+        entity=ns(username="chan"),
+        unread_count=3,
+        date=dt.datetime(2026, 7, 6, 11, 59, tzinfo=dt.timezone.utc),
+    )
+
+
+def test_dialogs_plain_strips_control_characters_from_the_title(
+    config_env, monkeypatch, capsys
+):
+    make_session_fake(monkeypatch, FakeClient(dialogs=[make_hostile_dialog()]))
+
+    assert main(["--plain", "dialogs"]) == 0
+
+    assert capsys.readouterr().out == "-1001234\tchannel\tchan\tChannelXYZW\t3\t0\n"
+
+
+def test_dialogs_human_strips_control_characters_from_the_title(
+    config_env, monkeypatch, capsys
+):
+    make_session_fake(monkeypatch, FakeClient(dialogs=[make_hostile_dialog()]))
+
+    assert main(["dialogs"]) == 0
+
+    out = capsys.readouterr().out
+    assert out == "-1001234 | channel | chan | ChannelXYZW | 3 | 0\n"
+
+
+def test_dialogs_json_passes_control_characters_through(
+    config_env, monkeypatch, capsys
+):
+    make_session_fake(monkeypatch, FakeClient(dialogs=[make_hostile_dialog()]))
+
+    assert main(["--json", "dialogs"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["dialogs"][0]["name"] == HOSTILE_TITLE

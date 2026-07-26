@@ -247,3 +247,35 @@ def test_clone_replaces_legacy_mirror_command(capsys):
 
     assert code == 1
     assert "invalid choice: 'mirror'" in captured.err
+
+
+HOSTILE_TITLE = "Al\x1bpha\rX\x08Y\nZ\tW"
+
+
+def test_status_plain_strips_control_characters_from_the_title(capsys):
+    _seed(100000001, 111, HOSTILE_TITLE, dest=222, cursor=5)
+
+    code, out = _run(capsys, ["clone", "status", "--plain"])
+
+    assert code == 0
+    assert "AlphaXYZW" in out
+    assert not any(ch in out[:-1] for ch in "\x1b\r\x08\n")
+
+
+def test_status_human_strips_control_characters_from_the_title(capsys):
+    _seed(100000001, 111, HOSTILE_TITLE, dest=222, cursor=5)
+
+    code, out = _run(capsys, ["clone", "status"])
+
+    assert code == 0
+    assert "AlphaXYZW" in out
+    assert not any(ch in out[:-1] for ch in "\x1b\r\x08\n\t")
+
+
+def test_status_json_passes_control_characters_through(capsys):
+    _seed(100000001, 111, HOSTILE_TITLE, dest=222, cursor=5)
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+
+    assert code == 0
+    assert json.loads(out)["clones"][0]["source"]["title"] == HOSTILE_TITLE

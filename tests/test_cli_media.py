@@ -235,3 +235,38 @@ def test_media_manifest_since_excludes_older(config_env, monkeypatch, capsys):
 def test_media_manifest_rejects_bogus_type(capsys):
     assert main(["media", "manifest", "@channel", "--type", "bogus"]) == 1
     assert "invalid choice" in capsys.readouterr().err
+
+
+HOSTILE_FILENAME = "cl\x1bip\rX\x08Y\nZ\tW.mp4"
+
+
+def _hostile_manifest_client():
+    from tests.conftest import ns
+
+    return FakeClient(
+        messages=[_media_message(3, "video", filename=HOSTILE_FILENAME, size=11)],
+        entities={"@channel": ns(id=-1001, title="Channel")},
+    )
+
+
+def test_media_manifest_plain_strips_control_characters_from_the_filename(
+    config_env, monkeypatch, capsys
+):
+    make_session_fake(monkeypatch, _hostile_manifest_client())
+
+    assert main(["--plain", "media", "manifest", "@channel"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.endswith("\tclipXYZW.mp4\n")
+    assert not any(ch in out[:-1] for ch in "\x1b\r\x08\n")
+
+
+def test_media_manifest_json_passes_control_characters_through(
+    config_env, monkeypatch, capsys
+):
+    make_session_fake(monkeypatch, _hostile_manifest_client())
+
+    assert main(["--json", "media", "manifest", "@channel"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["items"][0]["filename"] == HOSTILE_FILENAME

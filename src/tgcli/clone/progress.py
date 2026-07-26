@@ -13,7 +13,7 @@ from typing import Any
 
 from telethon import errors as telethon_errors
 
-from tgcli.output import note
+from tgcli.output import note, sanitize
 
 
 MEGABYTE = 1024 * 1024
@@ -125,6 +125,9 @@ class SyncProgress:
 
     def transfer(self, filename: str, direction: str) -> Callable[..., None]:
         """Return a byte-progress callback throttled to one line per ~5 MB."""
+        # The name is Telegram's, so it is what could carry a `\r` or an escape
+        # into a line CONTRACT.md §2 promises is plain.
+        filename = sanitize(filename)
         reported = 0
 
         def report(current: int, total: int | None) -> None:
