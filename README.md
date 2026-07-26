@@ -1,12 +1,29 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme-banner.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme-banner-light.svg">
+  <img alt="tgcli — stateless Telegram CLI for humans, scripts, and AI agents" src="docs/assets/readme-banner.svg">
+</picture>
+
 # ✈️ tgcli — Telegram CLI: read, search, send
 
-![tgcli banner](docs/assets/readme-banner.svg)
+[![CI](https://github.com/speech115/tgcli/actions/workflows/ci.yml/badge.svg)](https://github.com/speech115/tgcli/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/tag/speech115/tgcli?label=release&color=2aabee)](https://github.com/speech115/tgcli/releases)
+[![python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
+[![status](https://img.shields.io/badge/status-maintenance-informational)](docs/decisions/ADR-0026-maintenance-mode.md)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A stateless Telegram client built on [`telethon`](https://github.com/LonamiWebs/Telethon). Signs in as your own user account over MTProto, does exactly one operation per invocation, and gives you JSON-first reading, search, media, export, and preview → commit correspondence from the command line — for humans, scripts, and AI agents alike.
 
 > Third-party tool. Uses the MTProto user API via `telethon`. Not affiliated with Telegram. No daemons, no ports, no LaunchAgents — every command is a foreground process that exits.
 
 Design lineage: [openclaw/gogcli](https://github.com/openclaw/gogcli) (architecture), `tools/telegram` (domain knowledge, sessions, TDLib media experience).
+
+## Contents
+
+[Features](#features) · [Install](#install) · [Quick start](#quick-start) ·
+[Documentation](#documentation) · [Configuration](#configuration) ·
+[Preview → commit](#preview--commit) · [Status](#status) ·
+[Contributing](#contributing) · [License](#license)
 
 ## Features
 
@@ -130,6 +147,16 @@ Config lives at `~/.config/tgcli/config.toml`; sessions, locks, previews, the au
 
 Reads are free; every mutation that carries content — `send`, `edit`, `delete`, `forward`, `draft set|clear`, `clone init` — is two invocations. The first one resolves the peer, renders exactly what will be sent, and writes a single-use preview record. The second one commits that record by id — the text is never retyped, so what you reviewed is what goes out. Dialog-state mutations (`mark-read`, `dialog archive|mute`) have nothing to render, so they run in one invocation and are gated by `--readonly` / `TGCLI_READONLY` instead.
 
+```mermaid
+flowchart LR
+    A["tg send … --preview"] --> B["preview record<br/>single-use · 5-min TTL"]
+    B --> C["tg send --commit ID"]
+    C --> D["audit: intent"]
+    D --> E["Telegram"]
+    E --> F["audit: result"]
+    F --> G["preview consumed"]
+```
+
 ```bash
 tg --json send @channel "<b>bold</b> and a <tg-spoiler>secret</tg-spoiler>" \
   --format html --preview
@@ -150,6 +177,10 @@ v1.2 in maintenance mode (ADR-0026): feature-complete and in production use. New
 
 CI runs `pytest`, `ruff`, `pyright`, and a fail-closed TL coverage gate on every push and PR ([.github/workflows/ci.yml](.github/workflows/ci.yml)). `scripts/bench.py` benchmarks every command against a live account (13 steps, ~20 s).
 
+## Contributing
+
+Maintenance mode shapes what lands here: a bug fix starts from a reproducing test, and new behavior needs an owner request plus an ADR. [CONTRIBUTING.md](CONTRIBUTING.md) has the working rules — branch names, the one-command gate, documentation duties — and [AGENTS.md](AGENTS.md) is the full contract every agent follows in this repo. Report a security or privacy issue privately via [SECURITY.md](SECURITY.md); never paste session material or phone numbers into an issue.
+
 ## Credits
 
 - Architecture and CLI posture modelled on [`gogcli`](https://github.com/openclaw/gogcli).
@@ -159,3 +190,7 @@ CI runs `pytest`, `ruff`, `pyright`, and a fail-closed TL coverage gate on every
 ## Maintainers
 
 - [@speech115](https://github.com/speech115)
+
+## License
+
+[MIT](LICENSE) © speech115. `telethon` ships under its own MIT license; this tool is not affiliated with Telegram.
