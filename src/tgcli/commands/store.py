@@ -9,6 +9,7 @@ import stat
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from tgcli import session
 from tgcli.login_state import LOGIN_TTL
 from tgcli.output import note
 from tgcli.safety import PREVIEW_TTL
@@ -29,7 +30,7 @@ def _dir_bytes(path: Path) -> int:
     total = 0
     for entry in path.rglob("*"):
         if entry.is_file():
-            total += entry.stat().st_size
+            total += _file_bytes(entry)
     return total
 
 
@@ -40,6 +41,14 @@ def _file_bytes(path: Path) -> int:
         return 0
 
 
+def _file_mode(path: Path) -> int | None:
+    """Permission bits, or None once the file is gone."""
+    try:
+        return path.stat().st_mode
+    except OSError:
+        return None
+
+
 def _record_expires_at(path: Path) -> datetime | None:
     try:
         record = json.loads(path.read_text())
@@ -48,41 +57,58 @@ def _record_expires_at(path: Path) -> datetime | None:
         return None
 
 
-def _record_age_anchor(path: Path) -> datetime:
+def _record_age_anchor(path: Path) -> datetime | None:
+    """Age anchor for a record, or None once the file is gone.
+
+    The walk lists a directory and stats its entries one by one, so a preview
+    or a login consumed by a concurrent `tg` in between is simply absent —
+    never a crash in an offline, read-only command.
+    """
     expires = _record_expires_at(path)
     if expires is not None:
         return expires
-    return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    return datetime.fromtimestamp(mtime, tz=UTC)
 
 
-def _media_cache_anchor(path: Path) -> datetime:
+def _media_cache_anchor(path: Path) -> datetime | None:
     """Newest mtime in a clone media cache: the directory or anything inside it.
 
     Creating `src-<id>` stamps the directory once; the download that follows
     only advances the file's own mtime, so a half-gigabyte transfer can leave
-    the directory looking hours old while it is very much alive.
+    the directory looking hours old while it is very much alive. None means the
+    cache vanished mid-walk (a finished batch clears it).
     """
-    stamps = [path.stat().st_mtime]
-    for entry in path.rglob("*"):
+    stamps = []
+    for entry in (path, *path.rglob("*")):
         try:
             stamps.append(entry.stat().st_mtime)
         except OSError:
             continue
+    if not stamps:
+        return None
     return datetime.fromtimestamp(max(stamps), tz=UTC)
 
 
-def _classify_ttl_record(path: Path, *, now: datetime, ttl: timedelta) -> str:
+def _classify_ttl_record(path: Path, *, now: datetime, ttl: timedelta) -> str | None:
     """live/expired for any `expires_at`-carrying json under the state root.
 
     One classifier for every bucket: an unreadable `expires_at` (truncated
     mid-write, or hand-edited) falls back to mtime + ttl, so a record written
     moments ago is never reaped as expired. Previews learned this the hard
     way; logins repeated it before growing the same guard — the shared helper
-    is what stops a third bucket from repeating it again.
+    is what stops a third bucket from repeating it again. A record that
+    vanished mid-walk classifies as None: absent, not expired.
     """
     expires = _record_expires_at(path)
     if expires is None:
-        return "expired" if now - _record_age_anchor(path) >= ttl else "live"
+        anchor = _record_age_anchor(path)
+        if anchor is None:
+            return None
+        return "expired" if now - anchor >= ttl else "live"
     return "live" if expires > now else "expired"
 
 
@@ -137,10 +163,12 @@ def scan(root: Path, *, now: datetime | None = None) -> dict:
             bucket = _classify_preview(path, now=now)
             if bucket is None:
                 continue
-            size = _file_bytes(path)
+            mode = _file_mode(path)
+            if mode is None:
+                # Consumed by a concurrent tg between listing and stat: absent.
+                continue
             previews[bucket]["count"] += 1
-            previews[bucket]["bytes"] += size
-            mode = path.stat().st_mode
+            previews[bucket]["bytes"] += _file_bytes(path)
             if mode & (stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH):
                 world_readable += 1
 
@@ -250,8 +278,54 @@ def _pending_far_past_ttl(path: Path, *, now: datetime) -> bool:
     """Pending holds random_id; only reclaim when past expires_at by a full TTL."""
     expires = _record_expires_at(path)
     if expires is None:
-        return now - _record_age_anchor(path) >= PREVIEW_TTL
+        anchor = _record_age_anchor(path)
+        return anchor is not None and now - anchor >= PREVIEW_TTL
     return now >= expires + PREVIEW_TTL
+
+
+def _lock_busy(target: Path) -> bool:
+    """Whether another process holds the flock beside `target`.
+
+    Probed exactly the non-blocking way `session.lock_held` does, and only when
+    the lock file already exists — a holder always creates it first, so a
+    read-only inventory never leaves a new lock file behind. Fail-open:
+    anything but a definite "free" counts as busy, because the caller is about
+    to delete state that a running command may still own, and a probe that
+    cannot run must never block the cleanup either.
+    """
+    if not target.with_suffix(".lock").exists():
+        return False
+    try:
+        return session.lock_held(target) is not False
+    except OSError:
+        return True
+
+
+def _attempt_lock_held(logins_root: Path, login_id: str) -> bool:
+    """Whether a login attempt is still running.
+
+    A QR wait can outlive `LOGIN_TTL`, and the running login holds the staged
+    session's flock for the whole attempt (`authclient.unauthorized_client`),
+    so an expired record alone does not mean abandoned: reaping it would take
+    an authorization in flight.
+    """
+    return _lock_busy(logins_root / f"{login_id}.session")
+
+
+def _any_session_lock_held(root: Path) -> bool:
+    """Whether any account session is in use right now.
+
+    A clone media cache carries no TTL and nothing writes to it during a long
+    upload-only phase, so its mtime ages past `MEDIA_CACHE_MIN_AGE` while the
+    batch that owns it is still running (ADR-0052). The run does hold its
+    account session lock from the first request to the last, so that lock is
+    the liveness signal the cache itself cannot provide. Coarse on purpose:
+    cleanup would rather keep a dead cache than delete a live one.
+    """
+    sessions_dir = root / "sessions"
+    if not sessions_dir.is_dir():
+        return False
+    return any(_lock_busy(path) for path in sorted(sessions_dir.glob("*.session")))
 
 
 def _deletable_paths(
@@ -276,7 +350,10 @@ def _deletable_paths(
                 eligible = False
             if not eligible:
                 continue
-            if older_than is not None and now - _record_age_anchor(path) < older_than:
+            anchor = _record_age_anchor(path)
+            if anchor is None:
+                continue
+            if older_than is not None and now - anchor < older_than:
                 continue
             selected.append(path)
 
@@ -287,17 +364,15 @@ def _deletable_paths(
                 continue
             if _classify_login(path, now=now) != "expired":
                 continue
-            # Age filter uses expires_at when readable.
-            try:
-                expires = datetime.fromisoformat(
-                    json.loads(path.read_text())["expires_at"]
-                )
-                anchor = expires
-            except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-                anchor = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+            # Age filter uses expires_at when readable, mtime otherwise.
+            anchor = _record_age_anchor(path)
+            if anchor is None:
+                continue
             if older_than is not None and now - anchor < older_than:
                 continue
             login_id = path.stem
+            if _attempt_lock_held(logins_root, login_id):
+                continue
             for name in (
                 f"{login_id}.json",
                 f"{login_id}.session",
@@ -310,13 +385,16 @@ def _deletable_paths(
     clones_root = root / "clones"
     if clones_root.is_dir():
         floor = max(older_than or timedelta(0), MEDIA_CACHE_MIN_AGE)
-        for path in sorted(clones_root.glob("*-media")):
-            if not path.is_dir():
-                continue
-            # No expires_at — age is always mtime (ADR-0052 media cache).
-            if now - _media_cache_anchor(path) < floor:
-                continue
-            selected.append(path)
+        caches = [path for path in sorted(clones_root.glob("*-media")) if path.is_dir()]
+        # The mtime floor cannot see an upload-only phase, so a held session
+        # lock vetoes every cache: some tg run may own one of them.
+        if caches and not _any_session_lock_held(root):
+            for path in caches:
+                # No expires_at — age is always mtime (ADR-0052 media cache).
+                anchor = _media_cache_anchor(path)
+                if anchor is None or now - anchor < floor:
+                    continue
+                selected.append(path)
     return selected
 
 
