@@ -130,6 +130,62 @@ ubuntu-only while macOS is a first-class target); and Telethon
 private-API dependence (`utils._photo_size_byte_count`) as a
 pin-upgrade tripwire.
 
+## Confirmed findings (Phase 2b gap audit, 2026-07-26 @ `fbdf0ae`)
+
+The critic's uncovered areas got their own 8-lens pass with the same
+refute-by-default verification. 42 agents, ~2.2M tokens: **23 confirmed,
+2 refuted** (`bf-09` int64 emoji-id crash, `bf-17` post-promote crash
+guard — the skeptics disproved both). Ids are `bf-NN`.
+
+The most serious defect of the whole campaign came from here:
+
+- **bf-01 (P1)** — `--format html` silently TRUNCATES the message at
+  unterminated markup, and the preview shows the untruncated text. The
+  integrator reproduced it directly: `render("if a<b then c", "html")`
+  returns `("if a", None)`; `render("x<y", "html")` returns `("x", None)`.
+  Exit 0, empty stderr, and the audit record stores only the preview id —
+  so an operator approves one message and Telegram publishes another, on
+  `send`, `edit`, and `draft set` alike. A second loss mode is worse-behaved:
+  `render("List<int> is generic", "html")` returns `("List is generic",
+  None)` because `<int>` parses as a real start tag and is dropped, leaving
+  `rawdata` empty. **The audit's own proposed fix was wrong** and the
+  verifier caught it: `parser.close()` flushes `rawdata` (measured: it is
+  `"<b then c"` before `close()` and `""` after), so the guard must read
+  `rawdata` before closing, and a rawdata-only guard misses the unknown-tag
+  mode entirely.
+- **bf-02 (P1)** — an astral HTML character reference (`&#128512;`)
+  desynchronizes every following UTF-16 entity offset, so bold/link/spoiler
+  ranges land on the wrong characters in the published message.
+- **bf-07 (P1)** — a positional value starting with `-h` (`tg send @user
+  -hi`) is parsed as `-h` + `i`: help goes to **stdout** and the process
+  exits 0 without sending anything.
+- **bf-13 (P2, data-loss)** — `allow_abbrev` is never disabled, so the
+  destructive gates are satisfiable by prefixes: `tg store cleanup --c`
+  really deleted a preview in the auditor's executed reproduction.
+- **bf-03 (P1, security)** — two aliases differing only in case resolve to
+  one session file on case-insensitive macOS: two Telegram accounts share
+  one authorization file.
+- **bf-04 / bf-06 / bf-14 / bf-24 / bf-25 (P1–P3)** — the wall-clock family:
+  a forward-skewed FloodWait arm bricks every clone command with no way out
+  but hand-editing state; a host clock ahead of Telegram turns QR login into
+  an `exportLoginToken` + desktop-open storm; the phone cooldown wedges
+  after a backward step; a naive `expires_at` crashes `store`; a forward
+  step destroys an in-flight login attempt on a read path.
+- **bf-05 / bf-15 (P1–P2)** — `os.replace` in media download is not
+  cross-filesystem safe (EXDEV), and `--parallel` writes no resume state, so
+  a killed parallel transfer wedges that message.
+- **bf-10 / bf-12 / bf-20 / bf-21 / bf-22 (P2–P3)** — `tg api`: an
+  allowlisted read method is uninvokable, the write audit names only the
+  method and never the target, the confirm gate misses irreversible
+  `migrateChat` / `convertToGigagroup`, `--params` validity is checked after
+  the session opens, and the allowlist tests never invoke anything.
+- **bf-16 / bf-18 / bf-19 / bf-23 / bf-26 (P2–P3)** — the 0600 session
+  tighten rests on undocumented eager SQLite creation with both guard tests
+  faking the constructor; striped-download reassembly is never validated;
+  `state.save` rewrites the whole file per message (quadratic I/O over a
+  clone); usage errors share exit 1 with retryable failures; SIGTERM leaves
+  no journal row.
+
 ## Completed commits
 
 - `e8d8eb9` — campaign progress journal.
@@ -265,8 +321,23 @@ Known residual gaps (documented, deliberately not fixed in Phase 1):
 
 ## Next concrete step
 
-- Phase 3 wave 2: the remaining P2/P3 findings, tracker issues #79/#81/#83,
-  then the `clone.py` split behind characterization tests.
+- Waves 2 and 3 are running concurrently; integrate each serially with a
+  full gate, then run wave 4 for the `bf-` findings blocked on files waves
+  2/3 own (`bf-07`, `bf-13` need `parser.py`/`cli.py`; `bf-05`, `bf-15`,
+  `bf-24`, `bf-25`, `bf-26`, `bf-21`, `bf-19`, `bf-23`), then the
+  `clone.py` split behind characterization tests, then the release slice.
+
+## Wave assignments
+
+- **Wave 2** (running): af-27/40/15/35/41 lifecycle; af-28/30/32/29 store
+  and atomic; af-12/23/39/20 untrusted IO; af-24/25/13/33/36/06 batch and
+  media; af-17/31/37/38 + issues #79/#83 clone runtime; af-16 + issue #81
+  clone helpers.
+- **Wave 3** (running): bf-01/02/08 formatting; bf-03/16 config and
+  session; bf-10/12/20 `tg api`; bf-04/14/06 clock skew; bf-18 striped
+  transfer proof.
+- **Wave 4** (queued): everything above blocked on a file another wave
+  owns, plus anything the reviews send back.
 
 ## Contract debt accumulated by Phase 3 wave 1 (for the 1.2.16 slice)
 
