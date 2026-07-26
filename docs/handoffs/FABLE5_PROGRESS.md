@@ -12,10 +12,10 @@ provable invariants.
 
 - Branch: `claude/fable5-hardening-5zqywp` (pushed to origin)
 - Base: `main` @ `dca1eed` (1.2.15)
-- HEAD: `5db16b4` — Phase 3 wave 1 complete (P1 findings)
+- HEAD: `a6e049f` — Phase 3 waves 1 and 2 integrated
 - Gate at HEAD (2026-07-26): ruff check passed; ruff format 148 files
   clean; architecture check passed; pyright 0 errors;
-  **pytest 1240 passed, 9 skipped**; coverage OK (23 namespaces); docs
+  **pytest 1326 passed, 9 skipped**; coverage OK (23 namespaces); docs
   gate 23 pages, 0 problems. (Baseline at `dca1eed` was 1132 passed.)
 
 ## SESSION LIMIT INTERRUPTION (2026-07-26, resets 17:50 UTC)
@@ -27,30 +27,32 @@ The account hit its session limit mid-flight. Exact state:
   `bf-04/14/06` clock skew, `bf-18` transfer proof). Nothing to recover;
   re-run `wave3.js` from scratch.
 - **Wave 2 produced six commits but ZERO reviews** — every reviewer agent
-  died. The commits live only in their worktrees under
-  `.claude/worktrees/wf_5daf7977-8eb-*` until the integrator lands them:
+  died. All six are now integrated on the branch (each with its own full
+  gate) and the worktrees are gone:
 
-  | group | commit | own gate |
+  | group | worktree commit | landed as |
   |---|---|---|
-  | w2-lifecycle | `f26d73a` | ceiling only (cli.py needs 382) |
-  | w2-store-state | `a394a26` | green |
-  | w2-untrusted-io | `474e19a` | green |
-  | w2-batch-media | `4825165` | ceiling only (read_ops.py needs 434) |
-  | w2-clone-runtime | `4e17e23` | ceiling only (clone.py) |
-  | w2-clone-helpers | `6977d5b` | ceiling only (quotes.py needs 391) |
+  | w2-store-state | `a394a26` | `1565192` |
+  | w2-untrusted-io | `474e19a` | `e50c33e` |
+  | w2-clone-helpers | `6977d5b` | `9574844` |
+  | w2-batch-media | `4825165` | `2a60d0a` |
+  | w2-clone-runtime | `4e17e23` | `fab3548` |
+  | w2-lifecycle | `f26d73a` | `a6e049f` |
 
-  Every one of these was branched from `main` (`dca1eed`), not from the
-  campaign head, so cherry-picks conflict on ceilings by construction.
+  Every one was branched from `main` (`dca1eed`), not the campaign head, so
+  each cherry-pick needed a ceiling reconciliation by the integrator.
+  Landing `f26d73a` also needed a real merge: it had re-invented
+  `DeadlineExceeded`/`TIMEOUT` inside `cli.py` because its base predated
+  wave 1's `errors.CommandTimeoutError`. Resolution: the `errors.py` class
+  survives, the whole-body `_armed` deadline and the `USAGE` envelope came
+  across, and every wave-1 arm (`BrokenPipeError`, `_tolerate_hangup`,
+  RUNTIME) was preserved.
 
-- **These six are UNREVIEWED.** Wave 1 sent four of five diffs back with
-  blocker/major findings, so unreviewed integration is not safe to treat as
-  finished work. They may be landed on the branch (the gate still guards
-  them) but **must be reviewed before the PR to main** — that review is an
-  explicit AGENTS.md pre-merge requirement, not an optional step.
-- Known conflict to reconcile when landing `f26d73a`: it defines its own
-  `DeadlineExceeded` with code `TIMEOUT` inside `cli.py`, because its base
-  predates wave 1's `errors.CommandTimeoutError` (same code string). One of
-  the two must go; keep the `errors.py` class.
+- **THESE SIX ARE STILL UNREVIEWED — the single biggest open risk.** Wave 1
+  sent four of five diffs back with blocker/major findings, so "integrated"
+  here does not mean "verified". An independent review of
+  `1565192..a6e049f` is REQUIRED before the PR to main (AGENTS.md pre-merge
+  rule). Suite at `a6e049f`: 1326 passed, 9 skipped, full gate green.
 
 ## Plan of record
 
@@ -355,11 +357,16 @@ Known residual gaps (documented, deliberately not fixed in Phase 1):
 
 ## Next concrete step
 
-- Waves 2 and 3 are running concurrently; integrate each serially with a
-  full gate, then run wave 4 for the `bf-` findings blocked on files waves
-  2/3 own (`bf-07`, `bf-13` need `parser.py`/`cli.py`; `bf-05`, `bf-15`,
-  `bf-24`, `bf-25`, `bf-26`, `bf-21`, `bf-19`, `bf-23`), then the
-  `clone.py` split behind characterization tests, then the release slice.
+1. **Review `1565192..a6e049f`** — six integrated but unreviewed slices.
+   Nothing else should ship before this.
+2. **Re-run wave 3 from scratch** (`scratchpad/wave3.js`, base = current
+   head): `bf-01/02/08` formatting, `bf-03/16` config+session,
+   `bf-10/12/20` api, `bf-04/14/06` clock skew, `bf-18` transfer proof.
+   `bf-01` is the campaign's worst defect and is still unfixed.
+3. **Wave 4** for the rest of the `bf-` set (`bf-05`, `bf-07`, `bf-13`,
+   `bf-15`, `bf-19`, `bf-21`, `bf-23`, `bf-24`, `bf-25`, `bf-26`).
+4. Then the `clone.py` split behind characterization tests, then the
+   1.2.16 release slice and the PR.
 
 ## Wave assignments
 
