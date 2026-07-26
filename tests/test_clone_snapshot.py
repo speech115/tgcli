@@ -107,6 +107,21 @@ def test_story_render_links_known_username():
     assert marker is None
 
 
+def test_story_render_propagates_a_flood_wait():
+    """FloodWaitError is an RPCError subclass, so the private-peer catch would
+    swallow a live rate limit: the snapshot would render an unknown author,
+    ADR-0045 would never arm a cooldown, and the sync would report success."""
+
+    class Client:
+        async def get_entity(self, peer):
+            raise telethon_errors.FloodWaitError(request=None)
+
+    media = types.MessageMediaStory(peer=types.PeerChannel(channel_id=9), id=3)
+    message = SimpleNamespace(media=media)
+    with pytest.raises(telethon_errors.FloodWaitError):
+        asyncio.run(snapshot.render(Client(), message))
+
+
 def test_story_render_treats_private_peer_as_unknown_author():
     """Same refusal shape as attribution._resolve: ChannelPrivateError is an
     RPCError, not a ValueError — a missing author label, never a failed sync."""

@@ -1311,6 +1311,31 @@ def test_clone_init_unresolved_discussion_marks_muted_false(
     assert "warning: clone mute skipped for discussion peer" in captured.err
 
 
+def test_clone_init_flood_during_mute_exits_rate_limited(
+    config_env, monkeypatch, capsys
+):
+    """A flood while resolving the discussion peer is a live rate limit, not
+    an unresolved peer: CONTRACT §4 wants exit 5, never a quiet muted:false."""
+    client = CloneInitClient()
+    client.linked = linked_group()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    original_get_entity = client.get_entity
+
+    async def flooding_get_entity(ref):
+        if isinstance(ref, types.PeerChannel) and ref.channel_id == 1001:
+            raise telethon_errors.FloodWaitError(request=None)
+        return await original_get_entity(ref)
+
+    client.get_entity = flooding_get_entity  # type: ignore[method-assign]
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 5
+    )
+
+
 def test_clone_init_skips_mute_when_already_forever(config_env, monkeypatch, capsys):
     from tgcli.commands.dialog import MUTE_FOREVER_UNTIL
 

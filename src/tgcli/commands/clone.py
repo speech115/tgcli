@@ -659,6 +659,10 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
                     types.PeerChannel(clone_state.discussion_destination_peer_id)
                 )
             )
+        except telethon_errors.FloodWaitError:
+            # CONTRACT §4: a genuine flood is exit 5 with retry_after, never a
+            # quiet "muted: false" on an otherwise successful init.
+            raise
         except (ValueError, telethon_errors.RPCError):
             discussion_unresolved = True
             note(

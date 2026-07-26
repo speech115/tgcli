@@ -234,6 +234,10 @@ async def render(
     )
     try:
         peer_entity = await tg.get_entity(media.peer)
+    except telethon_errors.FloodWaitError:
+        # A flood is a live rate limit, not a missing label: swallowing it
+        # here would hide it from the ADR-0045 cooldown and report success.
+        raise
     except (ValueError, telethon_errors.RPCError):
         # Same refusal shape as attribution._resolve: a private/deleted peer
         # is a missing author label, never a failed sync.
