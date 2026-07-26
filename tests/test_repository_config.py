@@ -7,3 +7,4 @@ def test_feature_branch_commit_has_one_ci_event() -> None:
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
 
     assert "push:\n    branches: [main]\n  pull_request:" in workflow
+    assert "group: ${{ github.workflow }}-${{ github.ref }}" in workflow

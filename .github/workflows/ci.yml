@@ -8,7 +8,7 @@ on:
 # Feature branches run once through pull_request; main runs once after merge.
 # This keeps the required "test" context single-valued for every PR commit.
 concurrency:
-  group: ci-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
