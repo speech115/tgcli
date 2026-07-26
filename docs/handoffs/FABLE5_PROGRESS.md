@@ -18,6 +18,40 @@ provable invariants.
   **pytest 1240 passed, 9 skipped**; coverage OK (23 namespaces); docs
   gate 23 pages, 0 problems. (Baseline at `dca1eed` was 1132 passed.)
 
+## SESSION LIMIT INTERRUPTION (2026-07-26, resets 17:50 UTC)
+
+The account hit its session limit mid-flight. Exact state:
+
+- **Wave 3 produced nothing** — all five fix agents died before committing
+  (`bf-01/02/08` formatting, `bf-03/16` config+session, `bf-10/12/20` api,
+  `bf-04/14/06` clock skew, `bf-18` transfer proof). Nothing to recover;
+  re-run `wave3.js` from scratch.
+- **Wave 2 produced six commits but ZERO reviews** — every reviewer agent
+  died. The commits live only in their worktrees under
+  `.claude/worktrees/wf_5daf7977-8eb-*` until the integrator lands them:
+
+  | group | commit | own gate |
+  |---|---|---|
+  | w2-lifecycle | `f26d73a` | ceiling only (cli.py needs 382) |
+  | w2-store-state | `a394a26` | green |
+  | w2-untrusted-io | `474e19a` | green |
+  | w2-batch-media | `4825165` | ceiling only (read_ops.py needs 434) |
+  | w2-clone-runtime | `4e17e23` | ceiling only (clone.py) |
+  | w2-clone-helpers | `6977d5b` | ceiling only (quotes.py needs 391) |
+
+  Every one of these was branched from `main` (`dca1eed`), not from the
+  campaign head, so cherry-picks conflict on ceilings by construction.
+
+- **These six are UNREVIEWED.** Wave 1 sent four of five diffs back with
+  blocker/major findings, so unreviewed integration is not safe to treat as
+  finished work. They may be landed on the branch (the gate still guards
+  them) but **must be reviewed before the PR to main** — that review is an
+  explicit AGENTS.md pre-merge requirement, not an optional step.
+- Known conflict to reconcile when landing `f26d73a`: it defines its own
+  `DeadlineExceeded` with code `TIMEOUT` inside `cli.py`, because its base
+  predates wave 1's `errors.CommandTimeoutError` (same code string). One of
+  the two must go; keep the `errors.py` class.
+
 ## Plan of record
 
 1. **Phase 1 — DONE.** Five handoff defects fixed with red-first
