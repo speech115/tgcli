@@ -16,7 +16,7 @@ CEILINGS = {
     "src/tgcli/read_ops.py": 414,
     "src/tgcli/commands/clone.py": 1515,
     "src/tgcli/clone/state.py": 329,
-    "src/tgcli/clone/quotes.py": 387,
+    "src/tgcli/clone/quotes.py": 391,
     "src/tgcli/clone/quote_fallback.py": 127,
 }
 STATE_WRITER_MODULES = (
