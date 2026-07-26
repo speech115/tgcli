@@ -126,6 +126,12 @@ erroring. That implies IPC, which for us is a daemon by another name
 Whichever wins, `--wait` semantics and the lock contract are the same
 decision and must be settled together.
 
+**2026-07-26:** both halves are now drafted for the owner as proposed
+ADRs — the lock contract as [ADR-0062](decisions/ADR-0062-job-session-role.md)
+(second-session candidate, the only daemonless shape), the feed itself as
+[ADR-0063](decisions/ADR-0063-tg-changes-design.md). Neither is accepted;
+this blocker stays open until the owner decides ADR-0062.
+
 ### Design input from the wacli review (2026-07-23)
 
 - **Deletions are events, not absences.** wacli never treats a vanished row
