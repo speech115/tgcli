@@ -77,6 +77,10 @@ def seed_clone(source_kind="broadcast"):
 
 
 class RefreshClient:
+    # Telethon restores the logged-in account id from the session on connect,
+    # so a connected client knows it without a get_me RPC.
+    _self_id = 42
+
     def __init__(self, source_msgs, dest_msgs):
         self.source = channel(123, "Source channel")
         self.destination = channel(999, "Source channel", creator=True)
@@ -164,6 +168,60 @@ def test_clone_refresh_preview_exits_5_when_cooldown_active(
     assert main(["clone", "refresh", "@source", "--json"]) == 5
     assert client.requests == []
     assert "rate limited" in capsys.readouterr().err
+
+
+def test_clone_refresh_account_cooldown_exits_5_without_any_rpc(
+    config_env, monkeypatch, capsys
+):
+    """CONTRACT §11: exit 5 locally, no network. The account that selects the
+    cooldown record comes from the connected session, never from a get_me RPC.
+    """
+    seed_clone()
+    flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
+    src, dst = _eligible_pair()
+
+    class NoRpcClient(RefreshClient):
+        async def get_me(self):
+            raise AssertionError("get_me RPC issued while a cooldown is active")
+
+    client = NoRpcClient([src], [dst])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "refresh", "@source", "--json"]) == 5
+    assert client.requests == []
+    assert "rate limited" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        telethon_errors.ChannelPrivateError,
+        telethon_errors.ChannelInvalidError,
+        telethon_errors.ChatForbiddenError,
+    ],
+)
+def test_clone_refresh_unreachable_destination_exits_2(
+    config_env, monkeypatch, capsys, error
+):
+    """A destination the account can no longer open — deleted, left, banned —
+    is the documented policy failure, not a raw Telethon traceback."""
+    clone_state = seed_clone()
+    clone_state.record_mapping(54, 154)
+    state.save(clone_state)
+    src, dst = _eligible_pair()
+
+    class GoneDestinationClient(RefreshClient):
+        async def get_entity(self, ref):
+            if isinstance(ref, types.PeerChannel):
+                raise error(request=None)
+            return await super().get_entity(ref)
+
+    client = GoneDestinationClient([src], [dst])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "refresh", "@source", "--json"]) == 2
+    assert "clone destination is unavailable" in capsys.readouterr().err
+    assert client.requests == []
 
 
 def test_clone_refresh_preview_floodwait_arms_cooldown_exit_5(

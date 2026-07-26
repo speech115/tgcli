@@ -239,6 +239,20 @@ def test_status_filter_excludes_unreadable(capsys):
     assert [c["source"]["title"] for c in payload["clones"]] == ["Alpha"]
 
 
+def test_status_unreadable_entry_reports_null_created_at(capsys):
+    """CONTRACT §11: an unreadable entry carries the clone_id and nulls — no
+    field of it is an empty string. It still sorts beside readable entries."""
+    _seed(100000001, 111, "Alpha", dest=222)
+    _write_raw("e" * 64, {"version": 1})
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    unreadable = next(c for c in payload["clones"] if c.get("unreadable"))
+    assert unreadable["created_at"] is None
+    assert [key for key, value in unreadable.items() if value == ""] == []
+
+
 def test_clone_replaces_legacy_mirror_command(capsys):
     from tgcli.cli import main
 

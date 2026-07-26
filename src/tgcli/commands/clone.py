@@ -92,7 +92,7 @@ def _unreadable_entry(clone_id: str) -> dict:
         "cursor": None,
         "copied": None,
         "cooldown_until": None,
-        "created_at": "",
+        "created_at": None,
         "last_synced_at": None,
         "comments": None,
         "unreadable": True,
@@ -125,7 +125,9 @@ def list_clones(source: str | None = None) -> dict:
         if directory.exists()
         else []
     )
-    entries.sort(key=lambda entry: entry["created_at"])
+    # An unreadable entry has no created_at at all (CONTRACT §11: every field
+    # but clone_id is null), so it sorts ahead of every dated one.
+    entries.sort(key=lambda entry: entry["created_at"] or "")
     return {"clones": entries}
 
 
@@ -143,6 +145,24 @@ def status_rows(data: dict) -> list[tuple]:
         )
         for c in data["clones"]
     ]
+
+
+# What Telegram answers when the recorded destination cannot be opened by this
+# account any more — deleted, left, or banned. ``channels.GetChannels`` raises
+# these; Telethon's own ValueError covers a peer it cannot resolve at all.
+DESTINATION_UNAVAILABLE = (
+    ValueError,
+    telethon_errors.ChannelPrivateError,
+    telethon_errors.ChannelInvalidError,
+    telethon_errors.ChatForbiddenError,
+)
+
+
+async def _resolve_destination(tg, destination_peer_id: int):
+    try:
+        return await tg.get_entity(types.PeerChannel(destination_peer_id))
+    except DESTINATION_UNAVAILABLE:
+        raise PolicyError("clone destination is unavailable") from None
 
 
 async def _resolve_source(tg, source: str):
@@ -270,6 +290,27 @@ def _enforce_account_cooldown(account_user_id: int) -> None:
     deadline = flood.cooldown_deadline(account_user_id)
     if deadline is not None:
         _raise_if_cooling(deadline)
+
+
+def _session_account_id(tg) -> int | None:
+    """The logged-in account id already known to the session — no RPC.
+
+    Telethon restores it in ``connect()`` from the session's own self-user row,
+    which is what lets the account-scoped cooldown record be selected before any
+    Telegram traffic (CONTRACT §11: exit 5 locally, no network). None when a
+    session never cached it; the caller then falls back to the get_me RPC.
+    """
+    account_id = getattr(tg, "_self_id", None)
+    return account_id if isinstance(account_id, int) else None
+
+
+async def _cooled_account(tg):
+    """Resolve the account for a run whose cooldown gate must come first."""
+    if (account_id := _session_account_id(tg)) is not None:
+        _enforce_account_cooldown(account_id)
+    me = await tg.get_me()
+    _enforce_account_cooldown(me.id)
+    return me
 
 
 def _enforce_cooldown(clone_state: state.CloneState) -> None:
@@ -546,12 +587,7 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
     shape_ok = topics.is_forum_destination if forum else _is_private_owned_broadcast
     kind_name = "forum megagroup" if forum else "broadcast channel"
     if clone_state.destination_peer_id is not None:
-        try:
-            destination = await tg.get_entity(
-                types.PeerChannel(clone_state.destination_peer_id)
-            )
-        except ValueError:
-            raise PolicyError("clone destination is unavailable") from None
+        destination = await _resolve_destination(tg, clone_state.destination_peer_id)
         if not shape_ok(destination):
             raise PolicyError(f"clone destination is not a private owned {kind_name}")
     else:
@@ -670,6 +706,61 @@ def init_rows(data: dict) -> list[tuple]:
     ]
 
 
+# The still-image sizes Telethon accepts back as a `thumb=` argument. A
+# `PhotoPathSize` is an outline, a `VideoSize` is a video preview, and a
+# `PhotoSizeProgressive` is not selectable by object, so none of them qualify.
+_STILL_THUMB_SIZES = (
+    types.PhotoSize,
+    types.PhotoCachedSize,
+    types.PhotoStrippedSize,
+)
+
+
+def _thumb_weight(thumb) -> int:
+    stored = getattr(thumb, "bytes", None)
+    return len(stored) if stored is not None else getattr(thumb, "size", 0)
+
+
+def _document_thumb(document):
+    """The document's largest still-image thumb size, or None.
+
+    The size *object* is returned, never an index into ``document.thumbs``:
+    Telethon sorts the sizes and drops `PhotoPathSize` before it indexes, so an
+    index taken from the original list is out of range on an animated sticker.
+    """
+    stills = [
+        thumb
+        for thumb in getattr(document, "thumbs", None) or ()
+        if isinstance(thumb, _STILL_THUMB_SIZES)
+    ]
+    return max(stills, key=_thumb_weight) if stills else None
+
+
+async def _uploaded_thumb(tg, message, document, path: Path, invoke):
+    """Upload the source document's still preview, or None.
+
+    Telegram will not regenerate a document preview (a PDF page, a sticker
+    still) from the bytes alone, so a reupload without it degrades to a bare
+    file row. A preview is fidelity and not content: any refusal below a
+    FloodWait drops the thumb and lets the reupload finish.
+    """
+    thumb = _document_thumb(document)
+    if thumb is None:
+        return None
+    try:
+        downloaded = await invoke(
+            lambda: tg.download_media(message, file=path, thumb=thumb)
+        )
+        if downloaded is None:
+            return None
+        return await invoke(lambda: tg.upload_file(downloaded))
+    except telethon_errors.FloodWaitError:
+        raise
+    except Exception as exc:
+        note(f"warning: clone thumb skipped for source message {message.id}: {exc}")
+        return None
+
+
 async def _uploaded_media(tg, message, path, clone_state, budget, progress=None):
     async def invoke(make_awaitable):
         return await _with_cooldown(make_awaitable, clone_state, budget)
@@ -688,6 +779,9 @@ async def _uploaded_media(tg, message, path, clone_state, budget, progress=None)
         file=input_file,
         mime_type=getattr(document, "mime_type", None) or "application/octet-stream",
         attributes=list(getattr(document, "attributes", None) or ()),
+        thumb=await _uploaded_thumb(
+            tg, message, document, Path(path).with_name(f"thumb-{message.id}"), invoke
+        ),
     )
 
 
@@ -1023,12 +1117,11 @@ async def _forward_batch(
 async def sync_text(
     tg, source: str, account_alias: str, *, limit: int | None = None
 ) -> dict:
-    # Account identity is local-session-bound via get_me; enforce the account
-    # cooldown before username/entity resolve so a hot account never hits
-    # further Telegram RPCs (ADR-0045). Per-clone deadline is checked after
-    # state load below.
-    me = await tg.get_me()
-    _enforce_account_cooldown(me.id)
+    # Account identity is local-session-bound; enforce the account cooldown
+    # before the get_me RPC and the username/entity resolve so a hot account
+    # never hits Telegram at all (ADR-0045). Per-clone deadline is checked
+    # after state load below.
+    me = await _cooled_account(tg)
     source_entity, source_kind, _ = await _resolve_source(tg, source)
     clone_state = state.load(state.clone_id(me.id, source_entity.id))
     if clone_state is None or clone_state.destination_peer_id is None:
@@ -1044,12 +1137,7 @@ async def sync_text(
     # reaches the tail, so the resume is where the operator sees this.
     warned_unstarted = clone_progress.comments_unstarted(clone_state)
     budget = flood.WaitBudget()
-    try:
-        destination = await tg.get_entity(
-            types.PeerChannel(clone_state.destination_peer_id)
-        )
-    except ValueError:
-        raise PolicyError("clone destination is unavailable") from None
+    destination = await _resolve_destination(tg, clone_state.destination_peer_id)
     forum = clone_state.destination_kind == "forum"
     valid_destination = (
         (
@@ -1326,8 +1414,7 @@ def sync_rows(data: dict) -> list[tuple]:
 
 
 async def _load_refresh_context(tg, source: str):
-    me = await tg.get_me()
-    _enforce_account_cooldown(me.id)
+    me = await _cooled_account(tg)
     source_entity, source_kind, _ = await _resolve_source(tg, source)
     clone_state = state.load(state.clone_id(me.id, source_entity.id))
     if clone_state is None or clone_state.destination_peer_id is None:
@@ -1335,12 +1422,7 @@ async def _load_refresh_context(tg, source: str):
     if clone_state.source_kind != source_kind:
         raise PolicyError("clone source kind no longer matches initialized state")
     _enforce_cooldown(clone_state)
-    try:
-        destination = await tg.get_entity(
-            types.PeerChannel(clone_state.destination_peer_id)
-        )
-    except ValueError:
-        raise PolicyError("clone destination is unavailable") from None
+    destination = await _resolve_destination(tg, clone_state.destination_peer_id)
     return me, source_entity, destination, clone_state
 
 
