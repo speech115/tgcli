@@ -4,7 +4,7 @@ import json
 import sys
 from datetime import UTC, datetime
 
-from tgcli.session import state_dir
+from tgcli.session import ensure_state_dir, restrict_file, state_dir
 
 
 def log_invocation(
@@ -25,8 +25,9 @@ def log_invocation(
     }
     path = state_dir() / "invocations.jsonl"
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_state_dir()
         with path.open("a") as handle:
+            restrict_file(path)
             handle.write(
                 json.dumps(
                     {key: value for key, value in entry.items() if value is not None}

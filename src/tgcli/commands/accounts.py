@@ -109,7 +109,7 @@ def remove_account(
         )
     path = state_dir() / "sessions" / f"{config.accounts[alias].session}.session"
     bak = Path(str(path) + ".bak")
-    path.parent.mkdir(parents=True, exist_ok=True)
+    session.ensure_state_dir("sessions")
     lock_path = path.with_suffix(".lock")
     lock = lock_path.open("w")
     try:
@@ -212,7 +212,7 @@ def _append_config_block(
 
 
 def _copy_session(source_path: Path, destination_path: Path) -> None:
-    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    session.ensure_state_dir("sessions")
     lock_path = destination_path.with_suffix(".lock")
     lock = lock_path.open("w")
     try:
@@ -224,6 +224,7 @@ def _copy_session(source_path: Path, destination_path: Path) -> None:
                 "(another tg process is using it); retry in a few seconds"
             ) from exc
         _backup_sqlite(source_path, destination_path)
+        session.restrict_file(destination_path)
     finally:
         fcntl.flock(lock, fcntl.LOCK_UN)
         lock.close()

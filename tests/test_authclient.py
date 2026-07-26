@@ -103,6 +103,36 @@ async def test_unauthorized_client_sets_same_telegram_device_identity(
 
 
 @pytest.mark.asyncio
+async def test_unauthorized_client_tightens_session_file_before_connect(
+    tmp_path, monkeypatch, wide_umask
+):
+    """Telethon creates the SQLite session during client construction, so
+    the 0600 tighten must land before any network use."""
+    path = tmp_path / "staged.session"
+    fake = _FakeTg()
+    recorded = {}
+
+    def fake_client(*args, **kwargs):
+        path.write_bytes(b"db")
+        path.chmod(0o644)
+        return fake
+
+    original_connect = fake.connect
+
+    async def connect():
+        recorded["mode"] = path.stat().st_mode & 0o777
+        await original_connect()
+
+    fake.connect = connect
+    monkeypatch.setattr(authclient, "TelegramClient", fake_client)
+
+    async with authclient.unauthorized_client(path, 1, "hash"):
+        pass
+
+    assert recorded["mode"] == 0o600
+
+
+@pytest.mark.asyncio
 async def test_unauthorized_client_busy_lock_raises(tmp_path, monkeypatch):
     path = tmp_path / "staged.session"
     lock = path.with_suffix(".lock").open("w")
@@ -157,3 +187,23 @@ async def test_probe_authorized_maps_revoked_to_false(tmp_path, monkeypatch):
 
     assert await authclient.probe_authorized(account) is False
     assert fake.disconnected
+
+
+@pytest.mark.asyncio
+async def test_probe_authorized_repairs_loose_sessions_dir(
+    tmp_path, monkeypatch, wide_umask
+):
+    """A pre-fix sessions/ dir keeps its loose mode until some command opens
+    the session; the probe path must repair it too, not only session.client."""
+    account = Account(alias="main", api_id=1, api_hash="h", session="main")
+    sessions = tmp_path / "sessions"
+    sessions.mkdir(mode=0o755)
+    (sessions / "main.session").write_bytes(b"x")
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    fake = _FakeTg()
+    monkeypatch.setattr(authclient, "TelegramClient", lambda *a, **k: fake)
+
+    await authclient.probe_authorized(account)
+
+    assert sessions.stat().st_mode & 0o777 == 0o700
+    assert tmp_path.stat().st_mode & 0o777 == 0o700

@@ -17,7 +17,7 @@ from pathlib import Path
 
 from tgcli import atomic
 from tgcli.errors import ConfigError, NotFoundError, PolicyError
-from tgcli.session import state_dir
+from tgcli.session import ensure_state_dir, restrict_file
 
 LOGIN_TTL = timedelta(minutes=30)
 _LOGIN_ID_RE = re.compile(r"^l_[A-Za-z0-9_-]+$")
@@ -33,9 +33,7 @@ def _write_attempt(path: Path, record: dict) -> None:
 
 
 def logins_dir() -> Path:
-    path = state_dir() / "logins"
-    path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    return path
+    return ensure_state_dir("logins")
 
 
 def staged_session_path(login_id: str) -> Path:
@@ -129,7 +127,7 @@ def promote(
     staged = staged_session_path(login_id)
     if not staged.is_file():
         raise PolicyError(f"staged session missing for {login_id!r}")
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    ensure_state_dir("sessions")
     lock_path = destination.with_suffix(".lock")
     lock = lock_path.open("w")
     try:
@@ -145,6 +143,7 @@ def promote(
         if destination.exists() and keep_backup:
             os.replace(destination, bak)
             backup_path = bak
+            restrict_file(bak)
             try:
                 os.replace(staged, destination)
             except Exception:
@@ -155,6 +154,7 @@ def promote(
                 raise
         else:
             os.replace(staged, destination)
+        restrict_file(destination)
         # Drop the attempt json (and any leftover staged journal) after the
         # session has landed; staged itself is already moved.
         path = _attempt_path(login_id)

@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
@@ -242,6 +243,16 @@ class FakeClient:
 @pytest.fixture(autouse=True)
 def state_dir_env(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
+
+
+@pytest.fixture
+def wide_umask():
+    """Worst-case umask 0o000 so nothing masks state modes for the code."""
+    previous = os.umask(0o000)
+    try:
+        yield
+    finally:
+        os.umask(previous)
 
 
 def make_session_fake(monkeypatch, fake_client):

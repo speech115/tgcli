@@ -1,5 +1,6 @@
 import asyncio
 import fcntl
+import os
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,100 @@ async def test_client_connects_and_disconnects(state, monkeypatch):
     monkeypatch.setattr(
         session, "_make_client", lambda path, account, *, mutation_safe=False: fake
     )
+    async with session.client(ACCOUNT) as tg:
+        assert tg.connected is True
+    assert fake.connected is False
+
+
+async def test_client_creates_private_state_tree_under_wide_umask(
+    state, monkeypatch, wide_umask
+):
+    """sessions/ (and the state root) must be 0700 regardless of umask —
+    a .session file is full access to a Telegram account."""
+    fake = FakeTelethonClient()
+    monkeypatch.setattr(
+        session, "_make_client", lambda path, account, *, mutation_safe=False: fake
+    )
+    async with session.client(ACCOUNT):
+        pass
+    assert state.stat().st_mode & 0o777 == 0o700
+    assert (state / "sessions").stat().st_mode & 0o777 == 0o700
+
+
+async def test_client_repairs_loose_state_dir_modes(state, monkeypatch, wide_umask):
+    fake = FakeTelethonClient()
+    monkeypatch.setattr(
+        session, "_make_client", lambda path, account, *, mutation_safe=False: fake
+    )
+    (state / "sessions").mkdir(parents=True)
+    os.chmod(state, 0o777)
+    os.chmod(state / "sessions", 0o777)
+    async with session.client(ACCOUNT):
+        pass
+    assert state.stat().st_mode & 0o777 == 0o700
+    assert (state / "sessions").stat().st_mode & 0o777 == 0o700
+
+
+async def test_client_never_chmods_above_the_state_root(
+    tmp_path, monkeypatch, wide_umask
+):
+    """A custom TGCLI_STATE_DIR may live under a shared parent — the parent
+    is not tgcli's property and must keep its mode."""
+    parent = tmp_path / "custom"
+    parent.mkdir()
+    os.chmod(parent, 0o755)
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(parent / "state"))
+    fake = FakeTelethonClient()
+    monkeypatch.setattr(
+        session, "_make_client", lambda path, account, *, mutation_safe=False: fake
+    )
+    async with session.client(ACCOUNT):
+        pass
+    assert parent.stat().st_mode & 0o777 == 0o755
+    assert (parent / "state").stat().st_mode & 0o777 == 0o700
+
+
+async def test_client_tightens_session_file_before_connect(
+    state, monkeypatch, wide_umask
+):
+    """Telethon creates the SQLite session during client construction, so
+    the 0600 tighten must land before any network use."""
+    connect_mode = {}
+
+    class RecordingClient(FakeTelethonClient):
+        def __init__(self, path):
+            super().__init__()
+            self.path = path
+
+        async def connect(self):
+            connect_mode["mode"] = self.path.stat().st_mode & 0o777
+            await super().connect()
+
+    def make(path, account, *, mutation_safe=False):
+        path.write_bytes(b"db")
+        os.chmod(path, 0o644)
+        return RecordingClient(path)
+
+    monkeypatch.setattr(session, "_make_client", make)
+    async with session.client(ACCOUNT):
+        pass
+    assert connect_mode["mode"] == 0o600
+
+
+async def test_client_session_chmod_failure_is_fail_open(state, monkeypatch):
+    """Permission repair is protection, not a new failure mode."""
+    fake = FakeTelethonClient()
+
+    def make(path, account, *, mutation_safe=False):
+        path.write_bytes(b"db")
+        return fake
+
+    monkeypatch.setattr(session, "_make_client", make)
+
+    def deny(path, mode, *args, **kwargs):
+        raise PermissionError("chmod denied")
+
+    monkeypatch.setattr(session.os, "chmod", deny)
     async with session.client(ACCOUNT) as tg:
         assert tg.connected is True
     assert fake.connected is False

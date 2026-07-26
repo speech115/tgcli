@@ -8,7 +8,7 @@ from pathlib import Path
 
 from tgcli import atomic
 from tgcli.errors import PolicyError
-from tgcli.session import state_dir
+from tgcli.session import ensure_state_dir, restrict_file, state_dir
 
 
 PREVIEW_TTL = timedelta(minutes=5)
@@ -45,8 +45,7 @@ def create_preview(payload: dict, *, now: datetime | None = None) -> dict:
     preview_id = f"p_{secrets.token_urlsafe(16)}"
     expires_at = now + PREVIEW_TTL
     record = {"payload": payload, "expires_at": expires_at.isoformat()}
-    directory = previews_dir()
-    directory.mkdir(parents=True, exist_ok=True)
+    directory = ensure_state_dir("previews")
     path = directory / f"{preview_id}.json"
     atomic.replace_text(path, json.dumps(record))
     return {"preview_id": preview_id, "expires_at": record["expires_at"], **payload}
@@ -135,8 +134,9 @@ def append_audit(action: str, account: str, details: dict) -> None:
     }
     path = audit_path()
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_state_dir()
         with path.open("a") as handle:
+            restrict_file(path)
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
     except OSError as exc:
         raise PolicyError(f"cannot write audit record: {exc}") from exc

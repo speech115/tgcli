@@ -28,7 +28,7 @@ def _mode_ok(path: Path) -> bool:
         mode = path.stat().st_mode
     except OSError:
         return True
-    return not bool(mode & (stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH))
+    return not bool(mode & (stat.S_IRWXG | stat.S_IRWXO))
 
 
 def _preview_perms_ok() -> bool:
@@ -43,6 +43,19 @@ def _audit_perms_ok() -> bool:
     if not path.exists():
         return True
     return _mode_ok(path)
+
+
+def _session_perms_ok(session_file: Path) -> bool:
+    """Missing files are ok; a loose .session or .session.bak is not."""
+    backup = Path(str(session_file) + ".bak")
+    return _mode_ok(session_file) and _mode_ok(backup)
+
+
+def _state_writable() -> bool:
+    try:
+        return _writable(session.ensure_state_dir("previews"))
+    except OSError:
+        return False
 
 
 def _state_size() -> int:
@@ -74,9 +87,10 @@ async def check_account(account, *, connect: bool = False) -> dict:
     checks: dict = {
         "session_file": has_session_file,
         "lock_free": has_session_file and session.lock_held(session_file) is False,
-        "state_writable": _writable(safety.previews_dir()),
+        "state_writable": _state_writable(),
         "preview_perms_ok": _preview_perms_ok(),
         "audit_perms_ok": _audit_perms_ok(),
+        "session_perms_ok": _session_perms_ok(session_file),
         "state_size": _state_size(),
         "authorized": None,
     }

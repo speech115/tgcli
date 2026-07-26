@@ -119,6 +119,27 @@ def test_promote_backup_slot_is_single(state):
     assert not Path(str(dest) + ".bak.bak").exists()
 
 
+def test_promote_enforces_sessions_dir_0700_and_files_0600(state, wide_umask):
+    """The promoted .session (and its .bak) are account secrets; the mirror
+    of the session.client() tighten must hold on the login path too."""
+    record = login_state.create_attempt("main", "qr", api_id=1, api_hash="h", now=NOW)
+    login_id = record["login_id"]
+    staged = login_state.staged_session_path(login_id)
+    staged.write_bytes(b"new")
+    os.chmod(staged, 0o644)
+    dest = state / "sessions" / "main.session"
+    dest.parent.mkdir()
+    os.chmod(dest.parent, 0o777)
+    dest.write_bytes(b"old")
+    os.chmod(dest, 0o644)
+
+    login_state.promote(login_id, dest, keep_backup=True)
+
+    assert dest.parent.stat().st_mode & 0o777 == 0o700
+    assert dest.stat().st_mode & 0o777 == 0o600
+    assert Path(str(dest) + ".bak").stat().st_mode & 0o777 == 0o600
+
+
 def test_promote_refuses_when_destination_lock_held(state):
     record = login_state.create_attempt("main", "qr", api_id=1, api_hash="h", now=NOW)
     staged = login_state.staged_session_path(record["login_id"])

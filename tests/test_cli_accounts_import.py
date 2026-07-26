@@ -60,6 +60,19 @@ def test_import_copies_sessions_and_appends_config(import_env, capsys):
     assert 'api_hash = "existing"' in config.read_text()
 
 
+def test_import_writes_private_session_file_and_dir(import_env, capsys, wide_umask):
+    """An imported session is the same secret as a promoted one: 0600 in 0700."""
+    tmp_path, old_root, _ = import_env
+
+    code = main(["--json", "accounts", "import", "--source-root", str(old_root)])
+
+    assert code == 0
+    sessions = tmp_path / "state" / "sessions"
+    assert sessions.stat().st_mode & 0o777 == 0o700
+    copied = sessions / "recklessou.session"
+    assert copied.stat().st_mode & 0o777 == 0o600
+
+
 def test_import_skips_existing_session_without_force(import_env, capsys):
     tmp_path, old_root, _ = import_env
     destination = tmp_path / "state" / "sessions"
