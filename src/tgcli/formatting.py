@@ -19,13 +19,39 @@ from telethon.extensions.html import HTMLToTelegramParser
 from telethon.helpers import add_surrogate, del_surrogate, strip_text
 from telethon.tl.types import MessageEntitySpoiler
 
+from tgcli.errors import PolicyError
+
 FORMATS = ("plain", "md", "html")
+
+# Everything ADR-0030 and docs/CONTRACT.md document for --format html. Anything
+# else parses as markup and is silently deleted from the body, so it is an
+# error: the operator approved a preview of the full text.
+SUPPORTED_HTML_TAGS = frozenset(
+    {
+        "a",
+        "b",
+        "blockquote",
+        "code",
+        "del",
+        "em",
+        "i",
+        "pre",
+        "s",
+        "span",
+        "spoiler",
+        "strong",
+        "tg-emoji",
+        "tg-spoiler",
+        "u",
+    }
+)
 
 
 class _HtmlParser(HTMLToTelegramParser):
     """Telethon's HTML parser plus ``<tg-spoiler>`` / ``<span class=tg-spoiler>``."""
 
     def handle_starttag(self, tag, attrs):
+        _reject_unsupported(tag)
         is_spoiler = tag in ("tg-spoiler", "spoiler") or (
             tag == "span" and dict(attrs).get("class") == "tg-spoiler"
         )
@@ -39,12 +65,54 @@ class _HtmlParser(HTMLToTelegramParser):
                 offset=len(self.text), length=0
             )
 
+    def handle_endtag(self, tag):
+        _reject_unsupported(tag)
+        super().handle_endtag(tag)
+
+    def handle_data(self, text):
+        # HTMLParser runs with convert_charrefs=True, so a charref is expanded
+        # after the input was surrogate encoded and arrives here as a real code
+        # point. Re-encode (idempotent for already-surrogated data) so entity
+        # offsets keep counting UTF-16 code units.
+        super().handle_data(add_surrogate(text))
+
+    def handle_comment(self, data):
+        _reject_markup(f"comment {del_surrogate(data)!r}")
+
+    def handle_decl(self, decl):
+        _reject_markup(f"declaration {del_surrogate(decl)!r}")
+
+    def unknown_decl(self, data):
+        _reject_markup(f"declaration {del_surrogate(data)!r}")
+
+    def handle_pi(self, data):
+        _reject_markup(f"processing instruction {del_surrogate(data)!r}")
+
+
+def _reject_markup(what: str):
+    raise PolicyError(f"unsupported html markup: {what}", format="html")
+
+
+def _reject_unsupported(tag: str):
+    if tag not in SUPPORTED_HTML_TAGS:
+        _reject_markup(f"tag <{del_surrogate(tag)}>")
+
 
 def _parse_html(text: str):
     if not text:
         return text, []
     parser = _HtmlParser()
     parser.feed(add_surrogate(text))
+    # feed() leaves an unfinished tag in rawdata and drops it from .text; never
+    # call close(), which flushes rawdata and hides the truncation.
+    if parser.rawdata:
+        raise PolicyError(
+            f"unterminated html markup: {del_surrogate(parser.rawdata)!r}",
+            format="html",
+        )
+    if parser._building_entities:
+        unclosed = ", ".join(f"<{tag}>" for tag in parser._building_entities)
+        raise PolicyError(f"unclosed html markup: {unclosed}", format="html")
     stripped = strip_text(parser.text, parser.entities)
     parser.entities.reverse()
     parser.entities.sort(key=lambda entity: entity.offset)

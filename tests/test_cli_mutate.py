@@ -215,6 +215,33 @@ def test_edit_preview_records_format(config_env, monkeypatch, capsys):
     assert client.edited == []
 
 
+def test_edit_preview_blocks_dropped_html_tag(config_env, monkeypatch, capsys):
+    client = make_client()
+    make_session_fake(monkeypatch, client)
+
+    assert (
+        main(
+            [
+                "edit",
+                "@chan",
+                "2",
+                "List<int> is generic",
+                "--format",
+                "html",
+                "--preview",
+                "--json",
+            ]
+        )
+        == 2
+    )
+
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "BLOCKED"
+    assert "unsupported html markup" in error["message"]
+    assert client.edited == []
+    assert list(safety.previews_dir().glob("*")) == []
+
+
 def test_edit_commit_html_sends_entities(config_env, monkeypatch, capsys):
     from telethon.tl.types import MessageEntityBold, MessageEntitySpoiler
 

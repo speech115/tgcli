@@ -375,6 +375,32 @@ def test_send_preview_records_format(config_env, monkeypatch, capsys):
     assert client.requests == []
 
 
+def test_send_preview_blocks_truncating_html(config_env, monkeypatch, capsys):
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+
+    assert (
+        main(
+            [
+                "send",
+                "@alice",
+                "if a<b then c",
+                "--format",
+                "html",
+                "--preview",
+                "--json",
+            ]
+        )
+        == 2
+    )
+
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "BLOCKED"
+    assert "unterminated html markup" in error["message"]
+    assert client.requests == []
+    assert list(safety.previews_dir().glob("*")) == []
+
+
 def test_send_commit_html_sends_entities(config_env, monkeypatch):
     preview = safety.create_preview(
         {
