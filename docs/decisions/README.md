@@ -62,6 +62,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0053](ADR-0053-json-error-envelope-on-stdout.md) | With `--json` the error envelope is written to stdout as the run's single JSON document and still mirrored to stderr; human/`--plain`/`batch`/exit codes unchanged | accepted |
 | [0054](ADR-0054-clone-prefix-backfill.md) | `clone refresh` backfills body prefixes into already-copied posts under preview→commit, eligible only when the destination body is byte identical to the unprefixed source; poll snapshots, native re-forwards, and the discussion leg excluded | accepted |
 | [0055](ADR-0055-clone-pinned-and-photo-fidelity.md) | `clone sync` pins the mapped source pin silently when the posts leg is exhausted (never unpins, never overrides an existing pin, reports status); photo downscaling is measured before it is fixed, and the striped path picks the largest `PhotoSize` explicitly | accepted |
+| [0056](ADR-0056-project-presentation-and-community-health.md) | MIT license; `CONTRIBUTING.md` as the human short form of AGENTS.md; `SECURITY.md` with a private channel, redaction rules, and scope; `needs-triage` issue forms + PR template; README badges, contents, and a dark/light banner pair | accepted |
 
 Notes on supersessions:
 

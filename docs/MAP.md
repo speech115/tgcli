@@ -8,7 +8,12 @@ tgcli/
 ├── README.md                  [done]    landing page: features, install, quickstart, doc index
 ├── CONTEXT.md                 [done]    root glossary (account/auth vocabulary; ADR-0033/0042)
 ├── CHANGELOG.md               [done]    released versions ↔ ADRs (semver over CONTRACT.md)
+├── CONTRIBUTING.md            [done]    human-facing short form of AGENTS.md: gate, TDD, doc duties (ADR-0056)
+├── SECURITY.md                [done]    private reporting channel, redaction rules, safety scope (ADR-0056)
+├── LICENSE                    [done]    MIT, © speech115 (ADR-0056)
 ├── .github/workflows/ci.yml   [done]    CI: ruff + architecture + pyright + pytest + coverage gates (ADR-0027/0034)
+├── .github/ISSUE_TEMPLATE/    [done]    bug-report + proposal forms, both labelled needs-triage (ADR-0056)
+├── .github/PULL_REQUEST_TEMPLATE.md [done] gate evidence + documentation/safety checklist (ADR-0056)
 ├── .cursor/rules/             [done]    Cursor always-apply maintenance/TDD/docs rule
 ├── .claude/agents/            [done]    repo-local subagents (reviewer: independent pre-merge diff review)
 ├── AGENTS.md                  [done]    agent contract, doc discipline
@@ -26,7 +31,7 @@ tgcli/
 │   ├── DEVLOG-v1.md           [done]    closed log of the phases 0–7 build
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
 │   ├── guide/                 [done]    user-facing task pages, 22 + index (ADR-0041)
-│   ├── assets/                [done]    README banner (SVG)
+│   ├── assets/                [done]    README banner, dark + light SVG (no external assets)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
 │   ├── decisions/             [done]    ADR-0001…0055 + README.md index (ADR-0026 maintenance mode)
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only

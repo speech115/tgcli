@@ -1,0 +1,69 @@
+name: Bug report
+description: A command does something other than what CONTRACT.md says it does
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never paste session material, `api_hash`, login codes, phone numbers,
+        or real message content. Redact peers as `@user`, `@channel`.
+        Security-sensitive reports go through [SECURITY.md](../blob/main/SECURITY.md)
+        instead of this form.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `tg --version`.
+      placeholder: "tgcli 1.2.15"
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact invocation, redacted.
+      render: shell
+      placeholder: tg --json read @channel --limit 20
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: |
+        stdout, stderr, and the exit code (`echo $?`). Redact before pasting.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should have happened
+      description: Point at the rule it breaks — a guide page, CONTRACT.md, or an ADR.
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Environment
+      description: |
+        Output of `tg doctor` (offline; it prints no credentials), plus OS and
+        Python version.
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Before submitting
+      options:
+        - label: I redacted session material, credentials, phone numbers, and real message content.
+          required: true
+        - label: I reproduced this on the latest release.
+          required: false

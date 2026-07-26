@@ -1,11 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="460" viewBox="0 0 1280 460" role="img" aria-labelledby="title desc">
   <title id="title">tgcli</title>
-  <desc id="desc">Stateless Telegram CLI for humans, scripts, and AI agents — dark theme banner</desc>
+  <desc id="desc">Stateless Telegram CLI for humans, scripts, and AI agents — light theme banner</desc>
 
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0b1620"/>
-      <stop offset="100%" stop-color="#071018"/>
+      <stop offset="0%" stop-color="#f8fbfd"/>
+      <stop offset="100%" stop-color="#e9f1f6"/>
     </linearGradient>
     <linearGradient id="tg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#2aabee"/>
@@ -14,10 +14,10 @@
     <style>
       .sans { font-family: ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
       .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 19px; }
-      .fg { fill: #eaf3f9; }
-      .muted { fill: #7e94a4; }
-      .dim { fill: #4f6b7d; }
-      .str { fill: #7fd6a0; }
+      .fg { fill: #0d1c26; }
+      .muted { fill: #55707f; }
+      .dim { fill: #8aa3b1; }
+      .str { fill: #157a49; }
     </style>
   </defs>
 
@@ -26,17 +26,17 @@
 
   <g transform="translate(72,64)">
     <rect x="0" y="0" width="56" height="56" rx="14" fill="url(#tg)"/>
-    <path d="M12 28 L44 15 L38 44 L29 35 L23 41 L23 32 Z" fill="#071018"/>
+    <path d="M12 28 L44 15 L38 44 L29 35 L23 41 L23 32 Z" fill="#ffffff"/>
     <text class="sans fg" x="76" y="30" font-size="38" font-weight="700">tgcli</text>
     <text class="sans muted" x="76" y="56" font-size="17">Telegram CLI: read, search, send &#183; no daemons, JSON everywhere</text>
   </g>
 
   <g transform="translate(72,168)">
-    <rect x="0" y="0" width="1136" height="212" rx="14" fill="#040d13" stroke="#173040"/>
-    <circle cx="26" cy="26" r="6" fill="#2a3f4d"/>
-    <circle cx="46" cy="26" r="6" fill="#2a3f4d"/>
-    <circle cx="66" cy="26" r="6" fill="#2a3f4d"/>
-    <line x1="0" y1="52" x2="1136" y2="52" stroke="#12252f"/>
+    <rect x="0" y="0" width="1136" height="212" rx="14" fill="#ffffff" stroke="#cfe0ea"/>
+    <circle cx="26" cy="26" r="6" fill="#d6e4ec"/>
+    <circle cx="46" cy="26" r="6" fill="#d6e4ec"/>
+    <circle cx="66" cy="26" r="6" fill="#d6e4ec"/>
+    <line x1="0" y1="52" x2="1136" y2="52" stroke="#e4eef3"/>
     <g class="mono">
       <text x="28" y="90"><tspan class="dim">$</tspan> <tspan class="fg">tg --json dialogs --unread-only</tspan></text>
       <text x="28" y="124"><tspan class="dim">$</tspan> <tspan class="fg">tg --json search --all </tspan><tspan class="str">"invoice"</tspan><tspan class="fg"> --limit 20</tspan></text>
