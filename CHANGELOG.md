@@ -11,6 +11,106 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.16] — 2026-07-26
+
+Stabilization release: no new commands. Every item below started from a
+reproducing test.
+
+### Security
+
+- State directories are created **and repaired** at `0700` and state files at
+  `0600` — the state root, `sessions/`, `logins/`, `previews/`, `audit.jsonl`,
+  `invocations.jsonl`, and the Telethon `.session` (tightened before
+  `connect()`, on both the normal and the login paths). Permission repair is
+  fail-open: a mode that cannot be fixed never breaks the command. `doctor`
+  gains the additive `session_perms_ok` check (covering `.session` and
+  `.session.bak`) and its permission checks now reject group bits, not only
+  other (ADR-0004/0043).
+- Two account aliases whose session names collide case-insensitively are
+  rejected at config load **and** on the write path, so a case-insensitive
+  filesystem can no longer make two Telegram accounts share one
+  authorization file (ADR-0042).
+- Human and plain output strip control characters from Telegram-controlled
+  names, and clone progress lines can no longer carry `\r` or escapes via a
+  filename (CONTRACT §2/§8). The `export subscribers` CSV formula guard now
+  also catches tab-, CR-, and space-prefixed payloads.
+- Destructive gates cannot be abbreviated: `allow_abbrev` is off, so `--c`
+  is no longer accepted for `--confirm` nor `--w` for `--write`. Raw-write
+  audit records now name `user_id`, so an `editAdmin` row identifies the
+  account and not just the room (ADR-0010/0011).
+
+### Fixed
+
+- `--format html` fails closed instead of silently truncating the message.
+  Unterminated markup (`if a<b then c`) and unsupported tags
+  (`List<int> is generic`) were dropped by the parser, so the body approved
+  in the preview was not the body Telegram received — on `send`, `edit`, and
+  `draft set` alike. Astral character references no longer desynchronize
+  UTF-16 entity offsets (ADR-0030).
+- A short FloodWait now stalls **every** parallel upload worker through a
+  shared per-run gate, instead of one worker sleeping while its siblings kept
+  issuing RPCs and each charged the same wait to the budget
+  (ADR-0045/ADR-0052).
+- A crash between the pin RPC and the state save no longer latches
+  `pin_occupied` forever: a destination pinned to exactly the message this
+  run intended to pin is adopted as recovered work (ADR-0055).
+- `clone refresh` mirrors sync's `source_kind` branch, so a megagroup clone
+  can no longer be rewritten with broadcast-style `Переслано от` attribution;
+  and an album whose lead cannot be proven is excluded as
+  `album-lead-unknown` rather than promoting a survivor and prefixing the
+  wrong live message (ADR-0050/ADR-0054).
+- A FloodWait blocking the transient poll retract is disclosed as
+  `retract_failed` instead of vanishing into a generic exit 5, and the
+  retract audit row is no longer written before the RPC that may not happen
+  (ADR-0048).
+- The reupload cache proves completeness with a marker file, so a download
+  killed mid-stripe can no longer be reused as if it were the real media.
+  Documents keep their still-image thumbs, chosen by object rather than by a
+  list index that raises `IndexError` on animated stickers (ADR-0052).
+- Failures reach the caller as contract data: `--timeout` expiry is a
+  `TIMEOUT` envelope, an untranslated network or RPC failure is a `RUNTIME`
+  envelope (traceback only under `-v`), argument misuse is `USAGE`, a closed
+  stdout pipe exits quietly, and a run killed by a signal still journals an
+  honest row (ADR-0053, CONTRACT §2/§4/§9).
+- An unknown chat exits 4 instead of a traceback on `send` preview/commit,
+  `edit --commit`, and `delete --commit`, which passed the raw chat string to
+  Telethon and therefore always crashed on a numeric dialog id.
+- Malformed input fails closed rather than crashing: a non-dict clone state,
+  an invalid `id_map` or `retry_not_before`, a malformed `accounts` table, a
+  truncated-UTF-8 export tail, a non-dict media-download state, and naive
+  `expires_at` stamps in previews and login attempts.
+- Recorded clone peers that can no longer be reached (deleted, left, banned)
+  map to the documented exit 2 everywhere, including the discussion-group
+  destination and `init`'s recovery path.
+- Persisted cooldowns are clamped, so a host clock running ahead can no
+  longer brick every clone command for that account; the QR login loop is
+  rate-bounded against the same skew; and `clone sync`/`refresh` enforce the
+  cooldown before the `get_me` RPC, as CONTRACT §11 promises.
+- `media download` survives a destination on another filesystem (EXDEV),
+  restarts cleanly after an interrupted transfer left a partial with no
+  state, and marks a parallel transfer as unresumable instead of wedging it.
+- `tg api` resolves numeric peer aliases through `chatref` (they were parsed
+  as phone numbers and never resolved), accepts every documented
+  `channels.getParticipants` filter, and requires `--confirm` for the
+  irreversible `messages.migrateChat` and `channels.convertToGigagroup`.
+- `tg batch` rejects the flag and enum combinations the interactive CLI
+  rejects, instead of silently returning a different result set.
+- `clone status` accepts both the raw and the `-100`-marked source id.
+- State renames are durable (parent-directory fsync) and go through the one
+  sanctioned atomic writer; `store` survives a preview consumed mid-walk and
+  no longer deletes a staged login whose lock is held.
+
+### Changed
+
+- `commands/clone.py` shrank from 1596 to 1199 lines: the cooldown gate and
+  RPC seam moved to `clone/cooldown.py`, the reupload transfer mechanics to
+  `clone/reupload.py`, and the init peer/profile work to
+  `clone/init_peers.py`. Behavior is unchanged — the suite passes with the
+  same count before and after each move.
+- `uv lock --check` runs in CI and in `scripts/gate.sh`, which `uv sync
+  --frozen` never verified, and `check-architecture.py` fails loudly when a
+  listed state-writing module is missing instead of skipping it.
+
 ## [1.2.15] — 2026-07-25
 
 ### Added

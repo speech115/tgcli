@@ -8,6 +8,7 @@ dist/
 *.session
 *.session-journal
 audit.jsonl
+invocations.jsonl
 downloads/
 .superpowers/
 .worktrees/
