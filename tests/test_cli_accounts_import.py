@@ -136,3 +136,24 @@ def test_import_missing_credentials_for_new_alias_exits_3(import_env):
     )
 
     assert code == 3
+
+
+def test_import_refuses_an_alias_colliding_with_an_existing_session(
+    tmp_path, monkeypatch, capsys
+):
+    """load_config rejects colliding session names, so writing one would leave
+    a config file no command can read (bf-03 on the write path)."""
+    config = tmp_path / "config.toml"
+    config.write_text(
+        'default_account = "Recklessou"\n'
+        '[accounts.Recklessou]\napi_id = 1\napi_hash = "existing"\n'
+    )
+    monkeypatch.setenv("TGCLI_CONFIG", str(config))
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
+    old_root = tmp_path / "oldhome"
+    make_old_stack(old_root)
+
+    code = main(["--json", "accounts", "import", "--source-root", str(old_root)])
+
+    assert code == 3
+    assert "[accounts.recklessou]" not in config.read_text()

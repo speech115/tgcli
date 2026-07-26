@@ -298,6 +298,19 @@ def test_audit_details_records_the_write_target_without_message_bodies():
     ) == {"method": "messages.deleteHistory", "target": {"peer": "@team"}}
 
 
+def test_audit_details_records_the_user_a_write_targets():
+    """editAdmin / editChatAdmin / deleteChatUser name their target in
+    user_id and nowhere else: without it the audit says which room was
+    touched but never which account."""
+    assert audit_details(
+        "channels.editAdmin",
+        '{"channel": "@team", "user_id": "@alice", "rank": "mod"}',
+    ) == {
+        "method": "channels.editAdmin",
+        "target": {"channel": "@team", "user_id": "@alice"},
+    }
+
+
 def test_audit_details_records_message_ids_and_participants():
     assert audit_details(
         "channels.editBanned",

@@ -91,7 +91,17 @@ IRREVERSIBLE_METHODS = frozenset(
 PARTICIPANTS_FILTER_TYPES = frozenset(get_args(types.TypeChannelParticipantsFilter))
 # Raw-write params that identify what a write touched. Audit records carry
 # these (sanitized) so audit.jsonl can answer "what did this write touch?"
-AUDIT_TARGET_KEYS = ("channel", "chat", "chat_id", "id", "participant", "peer")
+AUDIT_TARGET_KEYS = (
+    "channel",
+    "chat",
+    "chat_id",
+    "id",
+    "participant",
+    "peer",
+    # editAdmin / editChatAdmin / deleteChatUser name their target here and
+    # nowhere else: without it the audit records the room, never the person.
+    "user_id",
+)
 
 
 def is_read_method(name: str) -> bool:
