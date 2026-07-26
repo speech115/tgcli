@@ -367,6 +367,107 @@ async def test_sync_phase_occupied_when_destination_already_pins(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_sync_phase_recovers_own_pin_after_crash_before_save(monkeypatch):
+    """A crash between the pin RPC and the state save must not latch occupied.
+
+    The destination carries exactly the pin this run would set — the pin a
+    crashed previous run placed. The phase adopts it: `pinned_dest_id` is
+    repaired and saved, no pin mutation is issued, and no `clone-sync-pin`
+    audit row is written (CONTRACT §11 reserves "set" for a mutation this run
+    performed, so the recovery reports "unchanged").
+    """
+    audits: list[tuple] = []
+    monkeypatch.setattr(
+        safety,
+        "append_audit",
+        lambda action, account, details: audits.append((action, account, details)),
+    )
+    client = _PinClient(source_pinned=12, dest_pinned=9)
+    clone_state = _ready_clone()
+
+    async def mutate(request):
+        return await client(request)
+
+    async def cooldown(make):
+        return await make()
+
+    result = await pin.sync_phase(
+        client,
+        clone_state,
+        client.source,
+        client.destination,
+        mutate,
+        cooldown,
+        "main",
+    )
+
+    assert result == {"source_id": 12, "destination_id": 9, "status": "unchanged"}
+    assert clone_state.pinned_dest_id == 9
+    assert clone_state.pin_occupied is False
+    reloaded = state.load(clone_state.clone_id)
+    assert reloaded is not None
+    assert reloaded.pinned_dest_id == 9
+    assert reloaded.pin_occupied is False
+    fulls = [
+        r
+        for r in client.requests
+        if isinstance(r, functions.channels.GetFullChannelRequest)
+    ]
+    assert len(fulls) == 2  # ADR-0055 budget: recovery adds no extra RPCs
+    assert not any(
+        isinstance(r, functions.messages.UpdatePinnedMessageRequest)
+        for r in client.requests
+    )
+    assert audits == []
+
+
+@pytest.mark.asyncio
+async def test_sync_phase_occupied_when_destination_pins_other_cloned_post(
+    monkeypatch,
+):
+    """ADR-0055 decision 2: a human-chosen pin outranks the mirrored one.
+
+    Recovery is strictly the exact destination id this run intended to set; a
+    different pinned message still latches occupied even when it is itself a
+    cloned post (present in ``id_map.values()``).
+    """
+    audits: list[tuple] = []
+    monkeypatch.setattr(
+        safety,
+        "append_audit",
+        lambda action, account, details: audits.append((action, account, details)),
+    )
+    client = _PinClient(source_pinned=12, dest_pinned=50)
+    clone_state = _ready_clone()
+    clone_state.record_mapping(99, 50)
+
+    async def mutate(request):
+        return await client(request)
+
+    async def cooldown(make):
+        return await make()
+
+    result = await pin.sync_phase(
+        client,
+        clone_state,
+        client.source,
+        client.destination,
+        mutate,
+        cooldown,
+        "main",
+    )
+
+    assert result == {"source_id": 12, "destination_id": None, "status": "occupied"}
+    assert clone_state.pin_occupied is True
+    assert clone_state.pinned_dest_id is None
+    assert not any(
+        isinstance(r, functions.messages.UpdatePinnedMessageRequest)
+        for r in client.requests
+    )
+    assert audits == []
+
+
+@pytest.mark.asyncio
 async def test_sync_phase_second_run_uses_state_only_zero_rpcs(monkeypatch):
     audits: list[tuple] = []
     monkeypatch.setattr(
