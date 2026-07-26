@@ -17,6 +17,50 @@ Template:
 **Next:** the single most useful next step
 ```
 
+## 2026-07-26 — 1.2.16 hardening campaign: 5 handoff defects + 64 audit findings (Claude Fable 5)
+
+**Did:** ran a four-phase hardening campaign on
+`claude/fable5-hardening-5zqywp` (base `dca1eed`, 1.2.15). Phase 1
+reconstructed and fixed the five handoff defects (state/session/audit
+permissions, the shared FloodWait gate, pin crash recovery, refresh
+attribution parity, the fail-closed album-lead proof) — each red-tested at
+base first. Phase 2 was an evidence-based audit: 12 read-only lenses →
+dedup → adversarial verification with a refute-by-default stance → a
+completeness critic, then a second 8-lens pass over exactly the areas the
+critic named. **64 findings confirmed, 2 refuted, no P0.** Phase 3 fixed
+them in four waves of isolated worktrees plus integrator follow-ups, and
+split `commands/clone.py` 1596 → 1199 lines into `clone/cooldown.py`,
+`clone/reupload.py`, and `clone/init_peers.py` with the suite passing at the
+same count before and after each move. Phase 4 is this release slice.
+Suite 1132 → 1418 passed; gate green at every integrated commit. Tracker
+issues #79, #81, #83 fixed; #80 and #82 stay open (both need live dumps).
+
+**Decided:** no new ADR. Every fix restores an intent an existing ADR
+already states — 0004/0043 (permissions), 0045/0052 (flood), 0055 (pin),
+0050/0054 (refresh), 0048 (poll retract), 0030 (html), 0053 (error
+envelope), 0010/0011 (raw-write audit). The `clone.py` split is pure code
+motion under the same ADRs, so the architecture ceiling was **lowered**
+three times instead of raised — the first time this campaign the ratchet
+tightened. Two owner decisions were deferred, not taken: the release-tag
+gap (upstream tags stop at `v1.2.9`; agent sessions cannot push tags) and
+the backend/runtime direction, both recorded in `docs/PROPOSALS.md`.
+
+**Learned:** the reviews earned their cost — 8 of 11 reviewed slices came
+back needs-work, and the most valuable findings were about the
+*incompleteness* of fixes already believed done: the destination-unavailable
+fix that never reached the discussion group, `clone/state.py` and
+`roster.py` carrying hand-rolled copies of the atomic writer that therefore
+missed its new parent-directory fsync, and naive `expires_at` crashing three
+more call sites than the one that was fixed. Two mechanical lessons worth
+keeping: agent worktrees are branched from `main`, not from the campaign
+head, so every parallel slice conflicts on the shared line-ceiling file (now
+an AGENTS.md rule: shared files belong to the integrator), and a `./gate.sh`
+piped into `tail` reports the pipe's exit code, not the gate's — one commit
+landed on a red gate before that was caught and amended.
+
+**Next:** owner review of the PR; then the tag decision, and the measured
+backend work in PROPOSALS (baseline first, SQLite prototype second).
+
 ## 2026-07-26 — Remove manual-approval and duplicate-CI merge blockers (Codex)
 
 **Did:** updated the GitHub `Protect main` ruleset so pull requests require no

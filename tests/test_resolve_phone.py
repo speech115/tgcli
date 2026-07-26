@@ -4,6 +4,8 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import pytest
+
 from tgcli import resolve_phone
 from tgcli.errors import RateLimitError
 
@@ -19,6 +21,24 @@ def test_enforce_resolve_phone_cooldown_blocks_then_allows(tmp_path, monkeypatch
         raise AssertionError("expected RateLimitError")
     except RateLimitError as err:
         assert err.details["retry_after"] == 3
+
+    clock["t"] += resolve_phone.RESOLVE_PHONE_COOLDOWN_S
+    resolve_phone.enforce_resolve_phone_cooldown()
+
+
+def test_backward_clock_step_recovers_within_one_cooldown(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(resolve_phone.time, "time", lambda: clock["t"])
+
+    resolve_phone.enforce_resolve_phone_cooldown()
+
+    # NTP correction / DST mistake steps the wall clock back: the reservation
+    # now sits in the future and must not block for the whole jump.
+    clock["t"] = 100.0
+    with pytest.raises(RateLimitError) as excinfo:
+        resolve_phone.enforce_resolve_phone_cooldown()
+    assert excinfo.value.details["retry_after"] == 3
 
     clock["t"] += resolve_phone.RESOLVE_PHONE_COOLDOWN_S
     resolve_phone.enforce_resolve_phone_cooldown()

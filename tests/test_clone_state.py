@@ -356,6 +356,16 @@ def test_corrupted_file_is_policy_error():
         state.load(s.clone_id)
 
 
+@pytest.mark.parametrize("payload", [[], "x", 42, None, True])
+def test_non_dict_state_payload_is_policy_error(payload):
+    path = state.path_for("e" * 64)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload))
+
+    with pytest.raises(PolicyError):
+        state.load("e" * 64)
+
+
 def test_incomplete_state_is_policy_error():
     s = _fresh()
     state.save(s)
@@ -496,6 +506,66 @@ def test_from_dict_rejects_duplicate_discussion_destinations():
         )
 
 
+@pytest.mark.parametrize("value", [True, "2", None, 2.0])
+def test_from_dict_rejects_non_int_id_map_destination(value):
+    with pytest.raises(ValueError):
+        state.CloneState.from_dict(_valid_payload(id_map={"1": value}))
+
+
+@pytest.mark.parametrize("value", [0, -1, 2_147_483_648])
+def test_from_dict_rejects_out_of_range_id_map_destination(value):
+    with pytest.raises(ValueError):
+        state.CloneState.from_dict(_valid_payload(id_map={"1": value}))
+
+
+@pytest.mark.parametrize("key", ["", "one", "01", "0", "-1", "１"])
+def test_from_dict_rejects_noncanonical_id_map_key(key):
+    with pytest.raises(ValueError):
+        state.CloneState.from_dict(_valid_payload(id_map={key: 5}))
+
+
+def test_from_dict_rejects_duplicate_id_map_destinations():
+    with pytest.raises(ValueError):
+        state.CloneState.from_dict(_valid_payload(id_map={"1": 2, "3": 2}))
+
+
+def test_from_dict_rejects_non_dict_id_map():
+    with pytest.raises(ValueError):
+        state.CloneState.from_dict(_valid_payload(id_map=[["1", 2]]))
+
+
+@pytest.mark.parametrize(
+    "value", ["soon", "2026-07-15T12:00:00", 42, "2026-07-15T12:00:00+25:00"]
+)
+def test_from_dict_rejects_invalid_retry_not_before(value):
+    with pytest.raises(ValueError):
+        state.CloneState.from_dict(_valid_payload(retry_not_before=value))
+
+
+def test_load_converts_invalid_id_map_to_policy_error():
+    s = _fresh()
+    state.save(s)
+    path = state.path_for(s.clone_id)
+    raw = json.loads(path.read_text())
+    raw["id_map"] = {"1": "2"}
+    path.write_text(json.dumps(raw))
+
+    with pytest.raises(PolicyError):
+        state.load(s.clone_id)
+
+
+def test_load_converts_naive_retry_not_before_to_policy_error():
+    s = _fresh()
+    state.save(s)
+    path = state.path_for(s.clone_id)
+    raw = json.loads(path.read_text())
+    raw["retry_not_before"] = "2026-07-15T12:00:00"
+    path.write_text(json.dumps(raw))
+
+    with pytest.raises(PolicyError):
+        state.load(s.clone_id)
+
+
 def test_supersede_missing_slot_is_noop():
     assert state.supersede("b" * 64) == []
     assert not state.path_for("b" * 64).exists()
@@ -548,3 +618,43 @@ def test_supersede_preserves_unreadable_v1_file():
     assert len(archived) == 1
     assert not path.exists()
     assert json.loads(archived[0].read_text())["version"] == 1
+
+
+def test_cooldown_deadline_clamps_a_clock_skewed_arm():
+    """A deadline armed while the host clock ran ahead must not brick this
+    clone slot forever — same ceiling the account-scoped record uses."""
+    from datetime import timedelta
+
+    from tgcli.clone import flood
+
+    s = _fresh()
+    s.retry_not_before = (datetime.now(UTC) + timedelta(days=400)).isoformat()
+
+    deadline = s.cooldown_deadline()
+
+    assert deadline is not None
+    assert deadline <= datetime.now(UTC) + timedelta(seconds=flood.MAX_COOLDOWN_S + 5)
+
+
+def test_save_goes_through_the_sanctioned_atomic_writer(tmp_path, monkeypatch):
+    """The id_map keeps a live destination free of duplicate posts, so the
+    rename must be durable: a local copy of the writer misses the parent
+    directory fsync that atomic.replace_text performs."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    calls = []
+    from tgcli import atomic
+
+    original = atomic.replace_text
+
+    def record(path, text, **kwargs):
+        calls.append(path)
+        original(path, text, **kwargs)
+
+    monkeypatch.setattr(atomic, "replace_text", record)
+
+    s = _fresh()
+    s.record_mapping(7, 70)
+    state.save(s)
+
+    assert calls == [state.path_for(s.clone_id)]
+    assert state.load(s.clone_id).dest_for(7) == 70

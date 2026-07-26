@@ -9,8 +9,9 @@ Reads fail open (absent/corrupt → empty record). Writes go through
 
 from __future__ import annotations
 
+import asyncio
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from tgcli import atomic
@@ -24,18 +25,60 @@ _EMPTY = {"cooldown_until": None, "last_peer_created_at": None}
 SHORT_WAIT = 60
 WAIT_BUDGET = 180
 
+# The deadline is wall-clock, so a host clock that ran ahead when the cooldown
+# was armed (or was stepped back afterwards) persists a value no honest
+# FloodWait can produce, and every clone command for that account exits 5
+# forever with no way out but hand-editing the record. Telegram's longest
+# realistic FloodWait on the mutations clone performs is a day, so a deadline
+# further ahead than that is skew or corruption: clamp it when READING so it
+# degrades to a bounded wait. Arming stays honest — the raw value is stored.
+MAX_COOLDOWN_S = 86_400
+
+
+class FloodGate:
+    """Pure-asyncio gate that serializes one short FloodWait sleep per run.
+
+    Never persisted — the gate lives and dies with the process, alongside the
+    ``WaitBudget`` that owns it. While one caller holds the gate (sleeping a
+    short FloodWait out), every other caller parks in ``wait()`` without
+    issuing RPCs, charging the budget, or sleeping the same wait again;
+    ``release()`` wakes them all. Correctness relies on the single-threaded
+    event loop: asyncio switches tasks only at an ``await``, so as long as a
+    call site separates its ``held`` check from ``hold()`` by synchronous
+    code only, no other task can acquire the gate in between.
+    """
+
+    def __init__(self) -> None:
+        self._open = asyncio.Event()
+        self._open.set()
+
+    @property
+    def held(self) -> bool:
+        return not self._open.is_set()
+
+    def hold(self) -> None:
+        self._open.clear()
+
+    def release(self) -> None:
+        self._open.set()
+
+    async def wait(self) -> None:
+        await self._open.wait()
+
 
 class WaitBudget:
     """In-memory cumulative wait seconds for one clone sync/init process.
 
     Never persisted — a fresh instance starts each invocation with a full
     budget. ``try_spend`` returns False without mutating when the next wait
-    would push ``spent`` past ``WAIT_BUDGET``.
+    would push ``spent`` past ``WAIT_BUDGET``. Owns the run's ``FloodGate``
+    so every cooldown call site sharing the budget also shares the gate.
     """
 
     def __init__(self, limit: float = WAIT_BUDGET) -> None:
         self.spent = 0.0
         self._limit = limit
+        self.gate = FloodGate()
 
     def try_spend(self, seconds: float) -> bool:
         if self.spent + seconds > self._limit:
@@ -110,6 +153,8 @@ def cooldown_deadline(account_user_id: int) -> datetime | None:
         return None
     if deadline.tzinfo is None or deadline.utcoffset() is None:
         return None
-    if deadline <= datetime.now(UTC):
+    now = datetime.now(UTC)
+    clamped = min(deadline.astimezone(UTC), now + timedelta(seconds=MAX_COOLDOWN_S))
+    if clamped <= now:
         return None
-    return deadline.astimezone(UTC)
+    return clamped

@@ -17,7 +17,7 @@ from pathlib import Path
 
 from tgcli import atomic
 from tgcli.errors import ConfigError, NotFoundError, PolicyError
-from tgcli.session import state_dir
+from tgcli.session import ensure_state_dir, restrict_file
 
 LOGIN_TTL = timedelta(minutes=30)
 _LOGIN_ID_RE = re.compile(r"^l_[A-Za-z0-9_-]+$")
@@ -33,9 +33,7 @@ def _write_attempt(path: Path, record: dict) -> None:
 
 
 def logins_dir() -> Path:
-    path = state_dir() / "logins"
-    path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    return path
+    return ensure_state_dir("logins")
 
 
 def staged_session_path(login_id: str) -> Path:
@@ -89,9 +87,20 @@ def load_attempt(login_id: str, *, now: datetime | None = None) -> dict:
         record = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError) as exc:
         raise NotFoundError(f"unknown or expired login_id: {login_id!r}") from exc
-    expires_at = datetime.fromisoformat(record["expires_at"])
+    try:
+        expires_at = datetime.fromisoformat(record["expires_at"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise NotFoundError(f"unknown or expired login_id: {login_id!r}") from exc
+    if expires_at.tzinfo is None or expires_at.utcoffset() is None:
+        # A naive stamp (hand edit, older build) cannot be compared to an
+        # aware now: treat the attempt as unreadable rather than crashing a
+        # command with a TypeError.
+        raise NotFoundError(f"unknown or expired login_id: {login_id!r}")
     if now >= expires_at:
-        discard_attempt(login_id)
+        # A read never deletes. A forward clock step — or a QR wait that just
+        # crossed the TTL — would otherwise destroy the staged session the user
+        # is in the middle of creating. Reaping belongs to the explicit paths:
+        # `discard_attempt` and `store cleanup --confirm`.
         raise NotFoundError(f"login_id {login_id!r} expired at {record['expires_at']}")
     return record
 
@@ -129,7 +138,7 @@ def promote(
     staged = staged_session_path(login_id)
     if not staged.is_file():
         raise PolicyError(f"staged session missing for {login_id!r}")
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    ensure_state_dir("sessions")
     lock_path = destination.with_suffix(".lock")
     lock = lock_path.open("w")
     try:
@@ -145,6 +154,7 @@ def promote(
         if destination.exists() and keep_backup:
             os.replace(destination, bak)
             backup_path = bak
+            restrict_file(bak)
             try:
                 os.replace(staged, destination)
             except Exception:
@@ -155,6 +165,7 @@ def promote(
                 raise
         else:
             os.replace(staged, destination)
+        restrict_file(destination)
         # Drop the attempt json (and any leftover staged journal) after the
         # session has landed; staged itself is already moved.
         path = _attempt_path(login_id)

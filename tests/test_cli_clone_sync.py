@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from telethon import errors as telethon_errors
+from telethon.client.downloads import DownloadMethods
 from telethon.tl import functions, types
 
 from tests.conftest import make_session_fake
@@ -116,6 +117,10 @@ def seed_clone(*, kind="broadcast", title="Source channel"):
 
 
 class CloneSyncClient:
+    # Telethon restores the logged-in account id from the session on connect,
+    # so a connected client knows it without a get_me RPC.
+    _self_id = 42
+
     def __init__(self, messages):
         self.source = channel(123, "Source channel")
         self.destination = channel(999, "Source channel", creator=True)
@@ -3407,6 +3412,132 @@ def test_clone_sync_reuploads_protected_document_preserving_metadata(
     assert request.media.mime_type == "text/plain"
     assert request.media.attributes == attributes
     assert request.message == "document"
+    # A document Telegram never gave a thumb keeps today's no-thumb upload.
+    assert request.media.thumb is None
+    assert state.load(clone_state.clone_id).dest_for(2) == 2
+
+
+def document_media(*, thumbs, mime_type="application/pdf", name="paper.pdf"):
+    return types.MessageMediaDocument(
+        document=SimpleNamespace(
+            mime_type=mime_type,
+            attributes=[types.DocumentAttributeFilename(name)],
+            thumbs=thumbs,
+        )
+    )
+
+
+class CloneThumbClient(CloneReuploadClient):
+    """Reupload fake whose thumb download runs Telethon's own size selection.
+
+    ``_get_thumb`` sorts the sizes and drops ``PhotoPathSize`` before it
+    indexes, which is exactly what makes a raw ``document.thumbs`` index blow
+    up on animated stickers (issue #83).
+    """
+
+    def __init__(self, messages, *, protected=False):
+        super().__init__(messages, protected=protected)
+        self.thumb_downloads = []
+
+    async def download_media(self, message, file=None, thumb=None):
+        if thumb is None:
+            return await super().download_media(message, file=file)
+        size = DownloadMethods._get_thumb(message.media.document.thumbs, thumb)
+        self.thumb_downloads.append(size)
+        if size is None:
+            return None
+        path = Path(f"{file}.jpg")
+        path.write_bytes(b"thumb")
+        return str(path)
+
+
+def test_clone_sync_reuploads_document_thumb_for_pdf_preview(
+    config_env, monkeypatch, capsys
+):
+    """A still-image thumb is downloaded, uploaded, and attached so Telegram
+    renders the native page preview instead of a bare download chip (#79)."""
+    clone_state = seed_clone()
+    stripped = types.PhotoStrippedSize(type="i", bytes=b"stripped")
+    still = types.PhotoSize(type="m", w=320, h=320, size=2048)
+    client = CloneThumbClient(
+        [message(2, message="paper", media=document_media(thumbs=[stripped, still]))],
+        protected=True,
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    [request] = client.requests
+    assert client.thumb_downloads == [still]
+    assert isinstance(request.media.thumb, types.InputFile)
+    assert request.media.mime_type == "application/pdf"
+    assert state.load(clone_state.clone_id).dest_for(2) == 2
+
+
+def test_clone_sync_reuploads_sticker_thumb_without_path_size_index_crash(
+    config_env, monkeypatch, capsys
+):
+    """[PhotoPathSize, PhotoSize]: a raw index into document.thumbs would be
+    out of range once Telethon drops the path size — the object must be
+    selected instead (#83)."""
+    clone_state = seed_clone()
+    outline = types.PhotoPathSize(type="j", bytes=b"outline")
+    still = types.PhotoSize(type="m", w=128, h=128, size=512)
+    client = CloneThumbClient(
+        [
+            message(
+                2,
+                message="sticker",
+                media=document_media(
+                    thumbs=[outline, still],
+                    mime_type="video/webm",
+                    name="sticker.webm",
+                ),
+            )
+        ],
+        protected=True,
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    [request] = client.requests
+    assert client.thumb_downloads == [still]
+    assert isinstance(request.media.thumb, types.InputFile)
+    assert state.load(clone_state.clone_id).dest_for(2) == 2
+
+
+def test_clone_sync_continues_when_the_document_thumb_download_fails(
+    config_env, monkeypatch, capsys
+):
+    """A preview is fidelity, not content: a refused thumb omits the thumb and
+    finishes the reupload (#83)."""
+    clone_state = seed_clone()
+    still = types.PhotoSize(type="m", w=320, h=320, size=2048)
+
+    class BrokenThumbClient(CloneThumbClient):
+        async def download_media(self, message, file=None, thumb=None):
+            if thumb is None:
+                return await CloneReuploadClient.download_media(
+                    self, message, file=file
+                )
+            self.thumb_downloads.append(thumb)
+            raise telethon_errors.FileReferenceExpiredError(request=None)
+
+    client = BrokenThumbClient(
+        [message(2, message="paper", media=document_media(thumbs=[still]))],
+        protected=True,
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    [request] = client.requests
+    assert client.thumb_downloads == [still]
+    assert request.media.thumb is None
     assert state.load(clone_state.clone_id).dest_for(2) == 2
 
 
@@ -3662,6 +3793,87 @@ def test_clone_sync_account_cooldown_blocks_before_network(
     assert err["retry_after"] > 0
     assert client.requests == []
     assert entity_calls == []
+
+
+def test_clone_sync_account_cooldown_exits_5_without_any_rpc(
+    config_env, monkeypatch, capsys
+):
+    """CONTRACT §11: exit 5 locally, no network. The account that selects the
+    cooldown record comes from the connected session, never from a get_me RPC.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from tgcli.clone import flood
+
+    seed_clone()
+    flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
+
+    class NoRpcClient(CloneSyncClient):
+        async def get_me(self):
+            raise AssertionError("get_me RPC issued while a cooldown is active")
+
+    client = NoRpcClient([message(2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+    err = json.loads(capsys.readouterr().err)["error"]
+    assert err["retry_after"] > 0
+    assert client.requests == []
+
+
+def test_clone_sync_cooldown_holds_for_a_session_without_a_cached_account_id(
+    config_env, monkeypatch, capsys
+):
+    """An old session that never cached the account id falls back to get_me;
+    the cooldown still exits 5 before the source is resolved."""
+    from datetime import UTC, datetime, timedelta
+
+    from tgcli.clone import flood
+
+    seed_clone()
+    flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
+
+    class UncachedClient(CloneSyncClient):
+        _self_id = None
+
+        async def get_entity(self, ref):
+            raise AssertionError("source resolved while a cooldown is active")
+
+    client = UncachedClient([message(2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+    err = json.loads(capsys.readouterr().err)["error"]
+    assert err["retry_after"] > 0
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        telethon_errors.ChannelPrivateError,
+        telethon_errors.ChannelInvalidError,
+        telethon_errors.ChatForbiddenError,
+    ],
+)
+def test_clone_sync_unreachable_destination_exits_2(
+    config_env, monkeypatch, capsys, error
+):
+    """A destination the account can no longer open — deleted, left, banned —
+    is the documented policy failure, not a raw Telethon traceback."""
+    seed_clone()
+
+    class GoneDestinationClient(CloneSyncClient):
+        async def get_entity(self, ref):
+            if isinstance(ref, types.PeerChannel):
+                raise error(request=None)
+            return await super().get_entity(ref)
+
+    client = GoneDestinationClient([message(2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+    assert "clone destination is unavailable" in capsys.readouterr().err
+    assert client.requests == []
 
 
 def test_clone_sync_readonly_blocks_before_config_or_session(monkeypatch):
@@ -4531,7 +4743,7 @@ def test_sync_short_flood_wait_retries_once_and_keeps_json_stdout(
     async def fake_sleep(seconds):
         sleeps.append(seconds)
 
-    monkeypatch.setattr("tgcli.commands.clone.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("tgcli.clone.cooldown.asyncio.sleep", fake_sleep)
     seed_clone()
 
     class OnceFloodClient(CloneSyncClient):

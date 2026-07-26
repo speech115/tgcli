@@ -84,8 +84,17 @@ tg --json clone sync SOURCE
 `sync` requires an initialized clone and reads new source history from the saved cursor forward (`reverse=True`, `min_id=cursor`), so destination order matches source order. It first verifies the destination's tail is exactly what tgcli expects (only Telegram service rows past the last confirmed message); an unexpected tail message exits 2 for manual repair before any copying. `--limit` caps this run; if source rows remain, the JSON reports `"more":true` and the next invocation resumes at the saved cursor. Sync has no implicit overall timeout.
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"skipped_unsupported":[],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":null},"discussion":{"peer_id":null,"status":"none","count":0,"reason":null}}}}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"skipped_unsupported":[],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"pinned":{"source_id":12,"destination_id":9,"status":"set"},"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":null},"discussion":{"peer_id":null,"status":"none","count":0,"reason":null}}}}
 ```
+
+On a broadcast destination, a run that copies everything it planned also carries
+the source's pinned message over and reports it in the additive `sync.pinned`
+object ([ADR-0055](../decisions/ADR-0055-clone-pinned-and-photo-fidelity.md)):
+`set` when this run placed the pin, `unchanged` when the clone already pinned
+once (later runs answer from state without a pin call), `unmapped` when the
+source has no pin or its pinned message is not in the clone's id map yet, and
+`occupied` when the destination already carried a pin, which the clone leaves
+alone. Unpinning is never mirrored, and forum destinations omit the key.
 
 `--plain` columns: `copied`, `forwarded`, `reuploaded`, `snapshots`, `reply_flattened`, `quote_flattened_count`, `skipped_service`, `skipped_unsupported_count`, `topics_created`, `cursor`, `clone_id`, `source_peer_id`, `destination_peer_id`, `more`, `skipped_autoforward`, `discussion_cursor`.
 
@@ -111,7 +120,7 @@ run after a successful commit finds nothing left to fix.
 Each message batch picks one of two transports:
 
 - **Native forward** — cheap, no download/upload. Broadcast sources forward with `drop_author=True` for the channel's own posts (clone reads as native content), and `drop_author=False` for posts that are themselves re-forwards, restoring the original forward header ([ADR-0025](../decisions/ADR-0025-clone-preserve-reforward-header.md)). Megagroup, forum, basic-group, and dialog sources always forward with `drop_author=False`, keeping Telegram's author attribution.
-- **Download/reupload** — used whenever the source or message has `noforwards` (protected), or the message has a mapped reply that native forwarding cannot attach. Reuploads from an attributed source prepend `<display name>: ` to the text/caption to preserve authorship, since a reupload cannot carry Telegram's forward header. A protected source can never be forwarded, so it always reuploads and any re-forward origin is lost.
+- **Download/reupload** — used whenever the source or message has `noforwards` (protected), or the message has a mapped reply that native forwarding cannot attach. Reuploads from an attributed source prepend `<display name>: ` to the text/caption to preserve authorship, since a reupload cannot carry Telegram's forward header. A protected source can never be forwarded, so it always reuploads and any re-forward origin is lost. A reuploaded document keeps its MIME type, its Telegram attributes, and the source's still-image thumbnail, so a PDF still renders as a page-preview card; a thumbnail Telegram refuses to hand over is dropped and the copy continues without it.
 
 Unsupported message kinds (dice, etc.) advance the cursor and are reported in `skipped_unsupported`, never silently dropped. TTL/view-once media is also reported there rather than forwarded or downloaded.
 

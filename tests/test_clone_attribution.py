@@ -342,6 +342,111 @@ def test_author_of_falls_back_to_id_unknown_without_sender_or_signature():
     assert author == attribution.Author(text="id unknown")
 
 
+ANONYMOUS_GROUP = SimpleNamespace(id=3767845640, title="Режим", megagroup=True)
+
+
+def _anonymous_comment(post_author=None):
+    """Issue #81 live shape: anonymous admin posting as the discussion group."""
+    return SimpleNamespace(
+        from_id=None, sender_id=None, out=False, post_author=post_author
+    )
+
+
+def test_author_of_names_the_group_for_an_anonymous_as_group_comment():
+    """An anonymous admin posting as the group ships no `from_id` and no
+    `post_author`; every client labels it with the group's own title (#81)."""
+    author = asyncio.run(
+        attribution.author_of(
+            None,
+            ANONYMOUS_GROUP,
+            _anonymous_comment(),
+            SimpleNamespace(id=1),
+            {},
+            None,
+        )
+    )
+    assert author == attribution.Author(text="Режим")
+    assert attribution.prefixed("Профи", None, author)[0] == "Режим: \n\nПрофи"
+
+
+def test_author_of_prefers_post_author_over_the_group_title():
+    author = asyncio.run(
+        attribution.author_of(
+            None,
+            ANONYMOUS_GROUP,
+            _anonymous_comment(post_author="Editor"),
+            SimpleNamespace(id=1),
+            {},
+            None,
+        )
+    )
+    assert author == attribution.Author(text="Editor")
+
+
+def test_author_of_keeps_the_channel_for_a_channel_as_author_comment():
+    """A comment sent as the source broadcast still resolves that channel."""
+
+    class Client:
+        async def get_entity(self, peer):
+            assert peer == types.PeerChannel(channel_id=3740847993)
+            return SimpleNamespace(id=3740847993, title="Пылесос")
+
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
+
+    author = asyncio.run(
+        attribution.author_of(
+            Client(),
+            ANONYMOUS_GROUP,
+            SimpleNamespace(
+                from_id=types.PeerChannel(channel_id=3740847993),
+                sender_id=3740847993,
+                out=False,
+                post_author=None,
+            ),
+            SimpleNamespace(id=1),
+            {},
+            cooldown,
+        )
+    )
+    assert author == attribution.Author(text="Пылесос")
+
+
+def test_author_of_keeps_the_user_ladder_for_an_ordinary_comment():
+    class Client:
+        async def get_entity(self, peer):
+            return types.User(id=828831254, first_name="Филипп", last_name="Козлов")
+
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
+
+    author = asyncio.run(
+        attribution.author_of(
+            Client(),
+            ANONYMOUS_GROUP,
+            SimpleNamespace(
+                from_id=types.PeerUser(user_id=828831254),
+                sender_id=828831254,
+                out=False,
+                post_author=None,
+            ),
+            SimpleNamespace(id=1),
+            {},
+            cooldown,
+        )
+    )
+    assert author == attribution.Author(text="Филипп Козлов", mention_user_id=828831254)
+
+
+def test_author_of_falls_back_to_id_unknown_without_peer_or_ambient_chat():
+    author = asyncio.run(
+        attribution.author_of(
+            None, None, _anonymous_comment(), SimpleNamespace(id=1), {}, None
+        )
+    )
+    assert author == attribution.Author(text="id unknown")
+
+
 FORWARD_LEAD = "Переслано от "
 
 

@@ -914,6 +914,45 @@ def test_clone_init_commit_reuses_recorded_destination_without_mutation(
     )
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        telethon_errors.ChannelPrivateError,
+        telethon_errors.ChannelInvalidError,
+        telethon_errors.ChatForbiddenError,
+    ],
+)
+def test_clone_init_commit_unreachable_destination_exits_2(
+    error, config_env, monkeypatch, capsys
+):
+    """A recorded destination the account can no longer open — deleted, left,
+    banned — is the documented policy failure, not a raw Telethon traceback."""
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel"
+    )
+    clone_state.creation_marker = f"tgcli-clone-{clone_state.clone_id[:12]}"
+    clone_state.destination_peer_id = 999
+    state.save(clone_state)
+
+    class GoneDestinationClient(CloneInitClient):
+        async def get_entity(self, ref):
+            if isinstance(ref, types.PeerChannel):
+                raise error(request=None)
+            return await super().get_entity(ref)
+
+    client = GoneDestinationClient()
+    make_session_fake(monkeypatch, client)
+
+    preview = stored_preview()
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 2
+    )
+
+    assert "clone destination is unavailable" in capsys.readouterr().err
+    assert client.requests == []
+
+
 def test_clone_init_commit_retitles_legacy_unprefixed_destination(
     config_env, monkeypatch, capsys
 ):
@@ -1268,6 +1307,31 @@ def test_clone_init_unresolved_discussion_marks_muted_false(
     result = json.loads(captured.out)
     assert result["ergonomics"]["muted"] is False
     assert "warning: clone mute skipped for discussion peer" in captured.err
+
+
+def test_clone_init_flood_during_mute_exits_rate_limited(
+    config_env, monkeypatch, capsys
+):
+    """A flood while resolving the discussion peer is a live rate limit, not
+    an unresolved peer: CONTRACT §4 wants exit 5, never a quiet muted:false."""
+    client = CloneInitClient()
+    client.linked = linked_group()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    original_get_entity = client.get_entity
+
+    async def flooding_get_entity(ref):
+        if isinstance(ref, types.PeerChannel) and ref.channel_id == 1001:
+            raise telethon_errors.FloodWaitError(request=None)
+        return await original_get_entity(ref)
+
+    client.get_entity = flooding_get_entity  # type: ignore[method-assign]
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 5
+    )
 
 
 def test_clone_init_skips_mute_when_already_forever(config_env, monkeypatch, capsys):

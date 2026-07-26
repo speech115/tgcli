@@ -7,13 +7,12 @@ arming the main clone cooldown, so it can never block the next message sync.
 """
 
 import json
-import os
-import tempfile
 from pathlib import Path
 
 from telethon import errors as telethon_errors
 from telethon.tl import types
 
+from tgcli import atomic
 from tgcli.clone import state
 
 _ACCESS_ERRORS = (
@@ -57,18 +56,9 @@ def _write(clone_id: str, rows: list[dict]) -> Path:
     directory = state.clones_dir()
     directory.mkdir(parents=True, exist_ok=True)
     path = path_for(clone_id)
-    fd, tmp = tempfile.mkstemp(dir=directory)
-    try:
-        with os.fdopen(fd, "w") as handle:
-            for row in rows:
-                handle.write(json.dumps(row, ensure_ascii=False) + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    atomic.replace_text(
+        path, "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
+    )
     return path
 
 

@@ -245,6 +245,30 @@ def test_draft_set_preview_and_commit_saves_exact_request(
     assert client.save_results[0] is True
 
 
+def test_draft_set_preview_blocks_truncating_html(config_env, monkeypatch, capsys):
+    entity = _user()
+    client = FakeClient(
+        entities={"@alice": entity},
+        peer_dialogs_result=_peer_dialogs(
+            types.DraftMessage(message="old", date=None), entity
+        ),
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert (
+        main(
+            ["draft", "set", "@alice", "x<y", "--format", "html", "--preview", "--json"]
+        )
+        == 2
+    )
+
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "BLOCKED"
+    assert "unterminated html markup" in error["message"]
+    assert client.call_requests == []
+    assert list(safety.previews_dir().glob("*")) == []
+
+
 def test_draft_clear_preview_and_commit(config_env, monkeypatch, capsys):
     entity = _user()
     client = FakeClient(

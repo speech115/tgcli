@@ -1,13 +1,8 @@
 """Copy supported Telegram chats into user-owned channels (ADR-0017/0021)."""
 
-import asyncio
 import secrets
 import shutil
-import tempfile
-from datetime import UTC, datetime, timedelta
-from math import ceil
-from pathlib import Path
-from typing import Any
+from datetime import UTC, datetime
 
 from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.errors import MessageNotModifiedError
@@ -18,10 +13,12 @@ from tgcli.clone import (
     attribution,
     batching,
     comments,
+    cooldown as cooldown_mod,
     discussion,
     ergonomics,
     fidelity,
     flood,
+    init_peers,
     legs,
     pin,
     progress as clone_progress,
@@ -29,21 +26,15 @@ from tgcli.clone import (
     quotes,
     reforward,
     refresh as clone_refresh,
+    reupload,
     roster,
     snapshot,
     state,
     topics,
     transport,
 )
-from tgcli.errors import NotFoundError, PartialFailure, PolicyError, RateLimitError
+from tgcli.errors import NotFoundError, PartialFailure, PolicyError
 from tgcli.output import note
-from tgcli.transfer import (
-    CHUNK_SIZE,
-    CLONE_TRANSFER_PARALLEL,
-    download_striped,
-    media_byte_size,
-    upload_parts,
-)
 
 
 def _entry(s: state.CloneState) -> dict:
@@ -65,10 +56,23 @@ def _entry(s: state.CloneState) -> dict:
 
 
 def _matches(s: state.CloneState, source: str | None) -> bool:
-    return source is None or (
-        s.source_peer_id == int(source)
-        if source.lstrip("-").isdigit()
-        else source.casefold() in s.source_title.casefold()
+    """SOURCE is a raw or -100-marked peer id, else a title substring.
+
+    The digit test stays `isdigit()`, not `int()`: int() also accepts `+1`,
+    `1_000`, and padded forms, which would steal titles from the substring
+    path. Digit-shaped strings int() still rejects (superscripts) fall
+    through to that path rather than crashing the listing."""
+    if source is None:
+        return True
+    if not source.lstrip("-").isdigit():
+        return source.casefold() in s.source_title.casefold()
+    try:
+        wanted = int(source)
+    except ValueError:
+        return source.casefold() in s.source_title.casefold()
+    return wanted in (
+        s.source_peer_id,
+        telethon_utils.get_peer_id(types.PeerChannel(s.source_peer_id)),
     )
 
 
@@ -80,7 +84,7 @@ def _unreadable_entry(clone_id: str) -> dict:
         "cursor": None,
         "copied": None,
         "cooldown_until": None,
-        "created_at": "",
+        "created_at": None,
         "last_synced_at": None,
         "comments": None,
         "unreadable": True,
@@ -113,7 +117,9 @@ def list_clones(source: str | None = None) -> dict:
         if directory.exists()
         else []
     )
-    entries.sort(key=lambda entry: entry["created_at"])
+    # An unreadable entry has no created_at at all (CONTRACT §11: every field
+    # but clone_id is null), so it sorts ahead of every dated one.
+    entries.sort(key=lambda entry: entry["created_at"] or "")
     return {"clones": entries}
 
 
@@ -131,6 +137,19 @@ def status_rows(data: dict) -> list[tuple]:
         )
         for c in data["clones"]
     ]
+
+
+# What Telegram answers when the recorded destination cannot be opened by this
+# account any more — deleted, left, or banned. ``channels.GetChannels`` raises
+# these; Telethon's own ValueError covers a peer it cannot resolve at all.
+DESTINATION_UNAVAILABLE = discussion.PEER_UNAVAILABLE
+
+
+async def _resolve_destination(tg, destination_peer_id: int):
+    try:
+        return await tg.get_entity(types.PeerChannel(destination_peer_id))
+    except DESTINATION_UNAVAILABLE:
+        raise PolicyError("clone destination is unavailable") from None
 
 
 async def _resolve_source(tg, source: str):
@@ -220,235 +239,24 @@ async def _peers_to_create(
     return 2 if discussion.linked_chat_id(full.full_chat) is not None else 1
 
 
-def _is_private_owned_broadcast(entity, *, title: str | None = None) -> bool:
-    active = any(
-        getattr(item, "active", False)
-        for item in (getattr(entity, "usernames", None) or ())
-    )
-    return bool(
-        (title is None or getattr(entity, "title", None) == title)
-        and getattr(entity, "creator", False)
-        and getattr(entity, "broadcast", False)
-        and not getattr(entity, "megagroup", False)
-        and getattr(entity, "username", None) is None
-        and not active
-    )
+# The cooldown gate and the RPC seam now live in clone/cooldown.py; these
+# names stay as the command surface's local vocabulary.
+_raise_if_cooling = cooldown_mod.raise_if_cooling
+_enforce_account_cooldown = cooldown_mod.enforce_account
+_session_account_id = cooldown_mod.session_account_id
+_cooled_account = cooldown_mod.cooled_account
+_enforce_cooldown = cooldown_mod.enforce
+_arm_flood_cooldown = cooldown_mod.arm
+_with_cooldown = cooldown_mod.with_cooldown
+_mutate = cooldown_mod.mutate
 
 
-async def _marker_candidates(tg, marker: str, shape_ok) -> tuple[list[Any], list[Any]]:
-    valid = []
-    wrong_shape = []
-    async for dialog in tg.iter_dialogs():
-        entity = getattr(dialog, "entity", None)
-        if getattr(entity, "title", None) != marker:
-            continue
-        (valid if shape_ok(entity, title=marker) else wrong_shape).append(entity)
-    return valid, wrong_shape
-
-
-def _raise_if_cooling(deadline: datetime) -> None:
-    retry_after = ceil((deadline - datetime.now(UTC)).total_seconds())
-    if retry_after > 0:
-        raise RateLimitError(
-            f"rate limited for {retry_after}s", retry_after=retry_after
-        )
-
-
-def _enforce_account_cooldown(account_user_id: int) -> None:
-    deadline = flood.cooldown_deadline(account_user_id)
-    if deadline is not None:
-        _raise_if_cooling(deadline)
-
-
-def _enforce_cooldown(clone_state: state.CloneState) -> None:
-    deadlines = [
-        deadline
-        for deadline in (
-            clone_state.cooldown_deadline(),
-            flood.cooldown_deadline(clone_state.account_user_id),
-        )
-        if deadline is not None
-    ]
-    if deadlines:
-        _raise_if_cooling(max(deadlines))
-
-
-def _arm_flood_cooldown(clone_state: state.CloneState, seconds: int) -> None:
-    deadline = datetime.now(UTC) + timedelta(seconds=seconds)
-    clone_state.set_cooldown(deadline)
-    state.save(clone_state)
-    flood.arm_cooldown(clone_state.account_user_id, deadline)
-
-
-async def _with_cooldown(make_awaitable, clone_state, budget: flood.WaitBudget):
-    """Run ``make_awaitable()`` under FloodWait cooldown arming.
-
-    ``make_awaitable`` is a zero-arg callable that builds a fresh awaitable —
-    a coroutine object cannot be re-awaited (ADR-0052 task 1). A short
-    ``FloodWaitError`` (≤ ``flood.SHORT_WAIT``) is waited out once when the
-    per-process ``budget`` still has room, then the thunk is retried; a second
-    failure, a longer wait, or a spent budget raises after arming both
-    cooldowns (ADR-0052 / ADR-0045).
-    """
-    try:
-        return await make_awaitable()
-    except telethon_errors.FloodWaitError as exc:
-        _arm_flood_cooldown(clone_state, exc.seconds)
-        if exc.seconds > flood.SHORT_WAIT or not budget.try_spend(exc.seconds + 1):
-            raise
-        note(f"flood wait: retrying in {exc.seconds}s")
-        await asyncio.sleep(exc.seconds + 1)
-        try:
-            return await make_awaitable()
-        except telethon_errors.FloodWaitError as retry_exc:
-            _arm_flood_cooldown(clone_state, retry_exc.seconds)
-            raise
-
-
-async def _mutate(tg, request, clone_state: state.CloneState, budget: flood.WaitBudget):
-    result = await _with_cooldown(lambda: tg(request), clone_state, budget)
-    if isinstance(request, functions.channels.CreateChannelRequest):
-        flood.record_peer_created(clone_state.account_user_id, datetime.now(UTC))
-    return result
-
-
-async def _copy_profile(tg, source, destination, account_alias, clone_state, cooldown):
-    """Copies about/avatar onto destination; returns the source's full chat.
-
-    The avatar copy is idempotent: the copied source photo id is recorded in
-    clone state, so an init re-run skips the download/upload/EditPhoto chain
-    (and its service message) until the source avatar actually changes.
-    """
-    clone_id = clone_state.clone_id
-    if isinstance(source, types.User):
-        full = await cooldown(
-            lambda: tg(functions.users.GetFullUserRequest(source))  # type: ignore  # Telethon resolves the entity
-        )
-        about = getattr(full.full_user, "about", None) or ""
-    elif isinstance(source, types.Chat):
-        full = await cooldown(
-            lambda: tg(functions.messages.GetFullChatRequest(chat_id=source.id))
-        )
-        about = getattr(full.full_chat, "about", None) or ""
-    else:
-        full = await cooldown(
-            lambda: tg(functions.channels.GetFullChannelRequest(source))
-        )
-        about = getattr(full.full_chat, "about", None) or ""
-    if about:
-        safety.append_audit(
-            "clone-init-about",
-            account_alias,
-            {
-                "clone_id": clone_id,
-                "source_peer_id": source.id,
-            },
-        )
-        try:
-            await cooldown(
-                lambda: tg(
-                    functions.messages.EditChatAboutRequest(
-                        peer=destination, about=about
-                    )
-                )
-            )
-        except telethon_errors.ChatAboutNotModifiedError:
-            pass
-    full_chat = getattr(full, "full_chat", None)
-    photo = getattr(source, "photo", None)
-    if photo is None or isinstance(
-        photo, (types.ChatPhotoEmpty, types.UserProfilePhotoEmpty)
-    ):
-        return full_chat
-    photo_id = getattr(photo, "photo_id", None)
-    if photo_id is not None and clone_state.avatar_for(source.id) == photo_id:
-        return full_chat
-    with tempfile.TemporaryDirectory(prefix="tgcli-clone-avatar-") as workdir:
-        downloaded = await cooldown(
-            lambda: tg.download_profile_photo(source, file=Path(workdir) / "avatar")
-        )
-        if downloaded is None:
-            raise PolicyError("clone source avatar download failed")
-        uploaded = await cooldown(lambda: tg.upload_file(downloaded))
-        safety.append_audit(
-            "clone-init-avatar",
-            account_alias,
-            {
-                "clone_id": clone_id,
-                "source_peer_id": source.id,
-            },
-        )
-        await cooldown(
-            lambda: tg(
-                functions.channels.EditPhotoRequest(
-                    channel=destination,
-                    photo=types.InputChatUploadedPhoto(file=uploaded),
-                )
-            )
-        )
-        if photo_id is not None:
-            clone_state.record_avatar(source.id, photo_id)
-            state.save(clone_state)
-    return full_chat
-
-
-async def _init_discussion(
-    tg, destination, clone_state, full_chat, account_alias, clone_id, budget
-) -> None:
-    """Create/adopt and link the destination discussion group before any post.
-    An unreadable source group is not an error: the clone stays posts-only and
-    honestly records comments == "unavailable"."""
-    if clone_state.source_kind != "broadcast":
-        return
-    linked = discussion.linked_chat_id(full_chat)
-    if linked is None:
-        clone_state.comments = "none"
-        return state.save(clone_state)
-    clone_state.discussion_source_peer_id = linked
-
-    def cooldown(make_awaitable):
-        return _with_cooldown(make_awaitable, clone_state, budget)
-
-    def mutate(request):
-        return _mutate(tg, request, clone_state, budget)
-
-    try:
-        source_group = await tg.get_entity(types.PeerChannel(linked))
-        await cooldown(lambda: tg.get_messages(source_group, limit=1))
-    except (
-        ValueError,
-        telethon_errors.ChannelPrivateError,
-        telethon_errors.ChatAdminRequiredError,
-    ):
-        clone_state.comments = "unavailable"
-        return state.save(clone_state)
-    clone_state.comments = "enabled"
-    state.save(clone_state)
-    group = await discussion.adopt(
-        tg,
-        mutate,
-        lambda marker, shape_ok: _marker_candidates(tg, marker, shape_ok),
-        f"{clone_state.creation_marker}-discussion",
-        clone_state.discussion_destination_peer_id,
-        lambda: safety.append_audit(
-            "clone-init-discussion-create", account_alias, {"clone_id": clone_id}
-        ),
-    )
-    if not discussion.is_discussion_destination(group):
-        raise PolicyError("clone discussion group is not a private owned megagroup")
-    clone_state.discussion_destination_peer_id = group.id
-    state.save(clone_state)
-    title = attribution.destination_title(attribution.display_name(source_group))
-    if getattr(group, "title", None) != title:
-        await mutate(functions.channels.EditTitleRequest(channel=group, title=title))
-        group.title = title
-    await _copy_profile(tg, source_group, group, account_alias, clone_state, cooldown)
-    safety.append_audit(
-        "clone-init-discussion-link", account_alias, {"clone_id": clone_id}
-    )
-    await discussion.ensure_linked(mutate, destination, group)
-    clone_state.discussion_linked = True
-    state.save(clone_state)
+# Destination shape, marker adoption and profile copy now live in
+# clone/init_peers.py; these names stay as the command surface's vocabulary.
+_is_private_owned_broadcast = init_peers.is_private_owned_broadcast
+_marker_candidates = init_peers.marker_candidates
+_copy_profile = init_peers.copy_profile
+_init_discussion = init_peers.init_discussion
 
 
 async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dict:
@@ -516,12 +324,7 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
     shape_ok = topics.is_forum_destination if forum else _is_private_owned_broadcast
     kind_name = "forum megagroup" if forum else "broadcast channel"
     if clone_state.destination_peer_id is not None:
-        try:
-            destination = await tg.get_entity(
-                types.PeerChannel(clone_state.destination_peer_id)
-            )
-        except ValueError:
-            raise PolicyError("clone destination is unavailable") from None
+        destination = await _resolve_destination(tg, clone_state.destination_peer_id)
         if not shape_ok(destination):
             raise PolicyError(f"clone destination is not a private owned {kind_name}")
     else:
@@ -598,6 +401,10 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
                     types.PeerChannel(clone_state.discussion_destination_peer_id)
                 )
             )
+        except telethon_errors.FloodWaitError:
+            # CONTRACT §4: a genuine flood is exit 5 with retry_after, never a
+            # quiet "muted: false" on an otherwise successful init.
+            raise
         except (ValueError, telethon_errors.RPCError):
             discussion_unresolved = True
             note(
@@ -640,66 +447,14 @@ def init_rows(data: dict) -> list[tuple]:
     ]
 
 
-async def _uploaded_media(tg, message, path, clone_state, budget, progress=None):
-    async def invoke(make_awaitable):
-        return await _with_cooldown(make_awaitable, clone_state, budget)
-
-    input_file = await upload_parts(
-        tg,
-        path,
-        parallel=CLONE_TRANSFER_PARALLEL,
-        invoke=invoke,
-        progress=clone_progress.transfer_of(progress, message, "upload"),
-    )
-    if isinstance(message.media, types.MessageMediaPhoto):
-        return types.InputMediaUploadedPhoto(file=input_file)
-    document = message.media.document
-    return types.InputMediaUploadedDocument(
-        file=input_file,
-        mime_type=getattr(document, "mime_type", None) or "application/octet-stream",
-        attributes=list(getattr(document, "attributes", None) or ()),
-    )
-
-
-def _media_cache_dir(clone_state: state.CloneState) -> Path:
-    """Per-clone reupload download cache (ADR-0052). Survives a failed batch."""
-    return state.clones_dir() / f"{clone_state.clone_id}-media"
-
-
-async def _download_for_reupload(
-    tg, message, workdir: Path, clone_state, budget, progress=None
-) -> Path:
-    target = workdir / f"src-{message.id}"
-    size = media_byte_size(message)
-    if size is not None and target.is_file() and target.stat().st_size == size:
-        return target
-    # Stale name/size (or unpredictable size): drop before re-download so
-    # download_striped's exclusive create and download_media see a free path.
-    target.unlink(missing_ok=True)
-    if size is not None and size > CHUNK_SIZE:
-        # Only the striped path reports bytes: a sub-chunk file is over before
-        # it could reach a progress mark (ADR-0049).
-        await _with_cooldown(
-            lambda: download_striped(
-                tg,
-                message.media,
-                target,
-                size=size,
-                parallel=CLONE_TRANSFER_PARALLEL,
-                progress=clone_progress.transfer_of(progress, message, "download"),
-            ),
-            clone_state,
-            budget,
-        )
-        return target
-    downloaded = await _with_cooldown(
-        lambda: tg.download_media(message, file=target),
-        clone_state,
-        budget,
-    )
-    if downloaded is None:
-        raise PolicyError(f"clone media download failed at source message {message.id}")
-    return Path(downloaded)
+# The reupload transfer mechanics now live in clone/reupload.py; these names
+# stay as the command surface's local vocabulary.
+_document_thumb = reupload.document_thumb
+_uploaded_thumb = reupload.uploaded_thumb
+_uploaded_media = reupload.uploaded_media
+_media_cache_dir = reupload.cache_dir
+_complete_marker = reupload.complete_marker
+_download_for_reupload = reupload.download_for_reupload
 
 
 def _body_text(message, author, plan) -> tuple[str, list | None]:
@@ -966,12 +721,11 @@ async def _forward_batch(
 async def sync_text(
     tg, source: str, account_alias: str, *, limit: int | None = None
 ) -> dict:
-    # Account identity is local-session-bound via get_me; enforce the account
-    # cooldown before username/entity resolve so a hot account never hits
-    # further Telegram RPCs (ADR-0045). Per-clone deadline is checked after
-    # state load below.
-    me = await tg.get_me()
-    _enforce_account_cooldown(me.id)
+    # Account identity is local-session-bound; enforce the account cooldown
+    # before the get_me RPC and the username/entity resolve so a hot account
+    # never hits Telegram at all (ADR-0045). Per-clone deadline is checked
+    # after state load below.
+    me = await _cooled_account(tg)
     source_entity, source_kind, _ = await _resolve_source(tg, source)
     clone_state = state.load(state.clone_id(me.id, source_entity.id))
     if clone_state is None or clone_state.destination_peer_id is None:
@@ -987,12 +741,7 @@ async def sync_text(
     # reaches the tail, so the resume is where the operator sees this.
     warned_unstarted = clone_progress.comments_unstarted(clone_state)
     budget = flood.WaitBudget()
-    try:
-        destination = await tg.get_entity(
-            types.PeerChannel(clone_state.destination_peer_id)
-        )
-    except ValueError:
-        raise PolicyError("clone destination is unavailable") from None
+    destination = await _resolve_destination(tg, clone_state.destination_peer_id)
     forum = clone_state.destination_kind == "forum"
     valid_destination = (
         (
@@ -1269,8 +1018,7 @@ def sync_rows(data: dict) -> list[tuple]:
 
 
 async def _load_refresh_context(tg, source: str):
-    me = await tg.get_me()
-    _enforce_account_cooldown(me.id)
+    me = await _cooled_account(tg)
     source_entity, source_kind, _ = await _resolve_source(tg, source)
     clone_state = state.load(state.clone_id(me.id, source_entity.id))
     if clone_state is None or clone_state.destination_peer_id is None:
@@ -1278,12 +1026,7 @@ async def _load_refresh_context(tg, source: str):
     if clone_state.source_kind != source_kind:
         raise PolicyError("clone source kind no longer matches initialized state")
     _enforce_cooldown(clone_state)
-    try:
-        destination = await tg.get_entity(
-            types.PeerChannel(clone_state.destination_peer_id)
-        )
-    except ValueError:
-        raise PolicyError("clone destination is unavailable") from None
+    destination = await _resolve_destination(tg, clone_state.destination_peer_id)
     return me, source_entity, destination, clone_state
 
 
@@ -1298,7 +1041,7 @@ async def preview_refresh(tg, source: str) -> dict:
         return await _with_cooldown(make_awaitable, clone_state, budget)
 
     eligible, excluded = await clone_refresh.candidates(
-        tg, clone_state, source_entity, destination, cooldown
+        tg, clone_state, source_entity, destination, me, cooldown
     )
     pairs = [
         {"source_id": item.source_id, "destination_id": item.destination_id}
@@ -1379,7 +1122,13 @@ async def commit_refresh(tg, source: str, account_alias: str, payload: dict) -> 
             rendered_text,
             rendered_entities,
         ) = await clone_refresh.render_with_current_rules(
-            tg, message, author_cache, cooldown
+            tg,
+            source_entity,
+            message,
+            me,
+            clone_state.source_kind,
+            author_cache,
+            cooldown,
         )
         dest_text = getattr(dest, "message", None) or ""
         dest_entities = getattr(dest, "entities", None)

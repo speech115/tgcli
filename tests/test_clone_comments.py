@@ -13,6 +13,7 @@ from telethon import errors as telethon_errors
 from telethon.tl import types
 
 from tgcli.clone import comments, state
+from tgcli.errors import PolicyError
 
 
 class FakeTg:
@@ -154,3 +155,30 @@ def test_sync_phase_propagates_floodwait_from_source_resolve(tmp_path, monkeypat
     with pytest.raises(telethon_errors.FloodWaitError):
         run(tg, clone_state)
     assert clone_state.comments == "enabled"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        telethon_errors.ChannelPrivateError(request=None),
+        telethon_errors.ChannelInvalidError(request=None),
+        telethon_errors.ChatForbiddenError(request=None),
+    ],
+)
+def test_sync_phase_maps_unreachable_discussion_destination_to_policy(
+    tmp_path, monkeypatch, error
+):
+    """CONTRACT §11: an unavailable destination discussion group is exit 2.
+    Only ValueError was mapped, so a destination the account was removed from
+    escaped as a raw Telethon traceback."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    clone_state = seed()
+
+    class DestinationGone(FakeTg):
+        async def get_entity(self, peer):
+            if peer.channel_id == 888:
+                raise error
+            return await super().get_entity(peer)
+
+    with pytest.raises(PolicyError, match="discussion destination is unavailable"):
+        run(DestinationGone(), clone_state)

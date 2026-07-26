@@ -1,6 +1,6 @@
 # CLI Automation Contract
 
-Version: 1.2.15 (tracks the package release; see `CHANGELOG.md` and
+Version: 1.2.16 (tracks the package release; see `CHANGELOG.md` and
 `pyproject.toml`). Any change here lands in the same commit as the code
 change (AGENTS.md / ADR-0038).
 
@@ -22,7 +22,7 @@ Global flags (available on every command):
 | `--json` | machine output: one JSON document to stdout |
 | `--plain` | stable TSV to stdout (no colors, no alignment) |
 | `--readonly` | hard-block any mutating call in this invocation |
-| `--timeout <sec>` | overall invocation deadline (default 60; no default deadline for media and exports) |
+| `--timeout <sec>` | overall invocation deadline covering preflight and execution (default 60; no default deadline for media, exports, or `clone init|sync|refresh`, which may wait out a short FloodWait; `accounts login` defaults to 120 and `--continue` takes none) |
 | `-v/--verbose` | Python and Telethon debug diagnostics on stderr for this invocation |
 
 Env equivalents: `TGCLI_ACCOUNT`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`.
@@ -39,7 +39,10 @@ Flag beats env, env beats config.
   JSON document, then the identical line is copied to stderr as that last-line
   mirror — a `--json` caller may read either stream for the same object.
   It is the **last** line of stderr, not the whole stream: progress and
-  warnings legitimately precede it.
+  warnings legitimately precede it. Every failure yields exactly one
+  envelope — including an untranslated network or RPC failure, which is
+  reported as `RUNTIME` rather than a traceback; the traceback appears only
+  under `-v`.
 - `clone sync` prints progress to stderr in every mode, including `--json`
   (ADR-0049): `[sync <source_id>] <n>/~<total> · <activity>`, where `<n>` is
   messages copied into the destination so far (earlier runs included),
@@ -57,6 +60,12 @@ Flag beats env, env beats config.
   is a breaking change → requires ADR + major version bump.
 - TSV: column order is frozen per command; new columns append at the end.
 - Datetimes: ISO 8601 UTC (`2026-07-06T12:00:00+00:00`). IDs: as integers.
+- Long options must be spelled in full. Option-prefix abbreviations (`--c`
+  for `--confirm`, `--w` for `--write`) are not part of the contract and are
+  rejected as unrecognized arguments.
+- A value that begins with `-` is read as options, not as a positional: pass
+  the flags first and such values after `--`
+  (`tg draft set --preview --json -- @chat -hi`).
 
 ## 4. Exit Codes
 
@@ -68,6 +77,17 @@ Flag beats env, env beats config.
 | 3 | config/auth error | missing `--account` / `default_account`, dead session, bad api_id |
 | 4 | not found | unknown dialog, message id, media; unknown alias on `accounts show\|remove` (lookup) |
 | 5 | rate limited | FloodWait longer than threshold; `retry_after` in error JSON |
+
+Exit 1 covers several distinguishable error codes in the JSON envelope:
+`TIMEOUT` (the `--timeout` deadline elapsed), `RUNTIME` (an untranslated
+network or RPC failure), and `USAGE` (argument misuse detected after the
+global flags parsed). A parse-time usage error still exits 1 with the usage
+text on stderr and nothing on stdout, because argv was never parsed far
+enough to know `--json` was asked for. A stdout pipe closed by the reader
+(`tg … --json | head`) exits 0 and journals `BROKEN_PIPE`; a run killed by
+SIGINT, SIGTERM, or SIGHUP journals `INTERRUPTED` / `TERMINATED` with
+`exit_code` 128+signal and then dies by that signal, so the shell still sees
+a signal death. SIGKILL cannot be caught and journals nothing.
 
 ## 5. Core JSON Shapes (phase 1–3)
 
@@ -412,6 +432,15 @@ Markdown-to-entity behavior for text and captions); `plain` sends verbatim and
 `html` uses the same entity set as `edit --format html` (bold/italic/quote/
 expandable quote/spoiler/code/links/`tg-emoji` custom emoji). The commit
 re-renders from the stored `format` and passes explicit entities.
+`--format html` fails closed: markup the parser would silently delete from
+the body is rejected with exit 2 (`BLOCKED`) at preview time — before a
+preview record is written and before anything is sent, edited, or saved as a
+draft. That covers unterminated markup (`if a<b then c`), a tag outside the
+supported set (`List<int> is generic`), an unclosed supported tag, and HTML
+comments, declarations, or processing instructions. A bare `<` followed by a
+space or a digit (`5 < 6 and 7 > 8`) is ordinary text and still renders
+unchanged. The same check runs at commit, so a preview minted by an older
+version cannot publish a truncated body.
 `tg edit CHAT MESSAGE_ID TEXT --preview [--format {plain,md,html}]` records the
 chosen format in the preview (default `plain`). Unlike `send`, edit does not
 apply the client's default parse mode: `plain` sends TEXT verbatim with no
@@ -665,8 +694,10 @@ tg doctor [--account ALIAS] [--connect]
 `doctor` is a read-only health report: without `--account`, it checks every
 configured account; with it, it checks only that account. **By default it is
 offline** — config/session file presence, lock freeness, state writability,
-preview/audit permission tightness, and total state size — and does not open a
-Telegram client. Live authorization (`get_me`) runs only under `--connect`.
+preview/audit/session permission tightness, and total state size — and does
+not open a Telegram client. `session_perms_ok` covers the account's
+`.session` and its `.session.bak`; a missing file is healthy. All permission
+checks reject group **and** other bits, not just other. Live authorization (`get_me`) runs only under `--connect`.
 
 When `--connect` is absent, `checks.authorized` is `null` (unknown), not
 `false`. Per-account `ok` reflects only local checks offline; with `--connect`,
@@ -682,7 +713,8 @@ locked and creates no lock file. These probes do not mutate Telegram.
 ```json
 {"accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
 "checks":{"session_file":true,"lock_free":true,"state_writable":true,
-"preview_perms_ok":true,"audit_perms_ok":true,"state_size":4096,"authorized":null},
+"preview_perms_ok":true,"audit_perms_ok":true,"session_perms_ok":true,
+"state_size":4096,"authorized":null},
 "user":null,"ok":true}],"ok":true}
 ```
 
@@ -716,10 +748,21 @@ tg api <Namespace.method> --params '<json>' [--write] [--confirm <method>]
 - With `--write`, the same `--readonly`, `TGCLI_READONLY=1`, and
   `TGCLI_NO_SEND=1` gates run before config/session/network work. Destructive
   `delete*`, `reset*`, `leave*`, `block*`, `edit*Admin*`, and `edit*Banned*`
-  methods require an exact `--confirm <Namespace.method>`; the permanent
+  methods require an exact `--confirm <Namespace.method>`, as do the
+  irreversible one-way conversions `messages.migrateChat` and
+  `channels.convertToGigagroup`, which no prefix rule covers; the permanent
   denylist `account.deleteAccount`, `auth.logOut`, `auth.resetAuthorizations`,
   and `account.resetAuthorization` is always exit 2. Authorised raw writes
-  append one JSONL audit object before dispatch.
+  append one JSONL audit object before dispatch, naming the method **and**
+  the target identifiers present in `--params` (`peer`, `channel`, `chat`,
+  `chat_id`, `id`, `participant`, `user_id`) so the log answers what a write
+  touched; message bodies and credentials are never recorded (ADR-0011).
+- A parameter for a peer field may be given as a chat reference — `@username`,
+  a `t.me` link, or a numeric id in either the raw or `-100`-marked form — and
+  is resolved to an input peer before dispatch; an unresolvable reference is
+  exit 4. Constructor objects in `--params` must name an `Input*` type, except
+  the `channels.getParticipants` filter union, whose members are accepted by
+  their own names.
 - `--json` output: `{"method": "users.getFullUser", "result": {…}}` where
   `result` is the TL object as a dict, or a JSON scalar (`true`/`false`,
   number, `null`) when the RPC returns a bare Bool/int/null instead of a
@@ -752,9 +795,10 @@ tg export subscribers <channel> --output <path> [--limit <n>]
   with `id`, `date`, `from`, `text`, `media`, and `reply_to` fields.
 - `subscribers` writes UTF-8 CSV with the frozen header
   `id,username,first_name,last_name,phone,is_bot`; standard CSV quoting is
-  used for field values. Username and name cells beginning with `=`, `+`, `-`,
-  or `@` are prefixed with a single quote so spreadsheet programs do not
-  interpret them as formulas. For **broadcast** channels, when `--limit` is
+  used for field values. Username and name cells whose first non-whitespace
+  character is `=`, `+`, `-`, or `@` are prefixed with a single quote so
+  spreadsheet programs do not interpret them as formulas; leading tabs,
+  carriage returns, and spaces do not evade the guard. For **broadcast** channels, when `--limit` is
   omitted, tgcli unions saturating prefix searches over
   `channels.getParticipants` to walk past Telegram's hard 200-row cap for a
   single query. A `--limit` greater than 200 on a broadcast channel exits 2
@@ -957,7 +1001,8 @@ tg clone refresh SOURCE --commit PREVIEW_ID
 
 `status` is local and read-only: it never loads config or opens a Telegram
 session. Without `SOURCE` it lists every JSON state file; with `SOURCE` it
-filters by exact numeric source id or case-insensitive title substring. JSON:
+filters by exact numeric source id — either the raw peer id or its
+`-100`-marked form — or by case-insensitive title substring. JSON:
 
 ```json
 {"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination_id":999,"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled"}]}
@@ -1250,7 +1295,11 @@ native re-forwards that already carry a destination `fwd_from`
 (`native-reforward`), and the discussion leg (never scanned — only
 `id_map` is walked). Album followers (non-lead items of a `grouped_id`) are
 also excluded (`album-non-lead`): sync only ever attached the author prefix to
-the lead item. Bodies that fail eligibility for any other reason appear as
+the lead item. When an album's lead cannot be *proven* — the nearest lower
+mapped source id was not returned by Telegram, so the deleted-lead case is
+indistinguishable from a healthy follower — the candidate is excluded as
+`album-lead-unknown` rather than promoted: a skipped message is harmless, a
+prefix written onto the wrong live message is not. Bodies that fail eligibility for any other reason appear as
 `not-eligible` and are skipped without alarm — the steady state of an already-
 fixed or hand-edited clone.
 
@@ -1336,7 +1385,10 @@ with `PolicyError` cause); a run that plants none exits 0.
 Reupload sends text and webpage messages with `sendMessage`, photos/documents
 with `sendMedia`, and albums with per-item `uploadMedia` followed by one
 ordered `sendMultiMedia`. Captions and entities are retained; documents retain
-MIME type and Telegram attributes. Reupload downloads persist under
+MIME type, Telegram attributes, and — when the source carries a downloadable
+still-image thumb — that preview, so a PDF or sticker keeps its native card
+instead of degrading to a bare file row. A thumb that cannot be fetched is
+omitted and the reupload continues; a preview is fidelity, not content. Reupload downloads persist under
 `~/.local/state/tgcli/clones/<clone_id>-media/` (name `src-<message_id>`). A
 file is reused when its on-disk byte size matches what the source reports;
 anything else is re-downloaded. The directory is removed after a successful
@@ -1373,7 +1425,11 @@ On a broadcast destination, `sync.pinned` reports the pin carry-over
 - `set` — this run placed `messages.UpdatePinnedMessage` with `silent=true`
   on the mapped destination id (audited as `clone-sync-pin`);
 - `unchanged` — the clone already pinned once; later completing runs answer
-  from state with zero pin RPCs and never re-pin or unpin;
+  from state with zero pin RPCs and never re-pin or unpin. This status is
+  also how a crash between the pin RPC and the state save recovers: when the
+  destination's current pin is exactly the message this run intended to pin,
+  the clone adopts it (saving `pinned_dest_id`, no pin RPC, no audit row) at
+  the cost of the same two `GetFull*` reads the occupancy check makes;
 - `unmapped` — the source has no pin, or its `pinned_msg_id` is absent from
   `id_map` (service message, skipped-unsupported, deleted); nothing is
   persisted, retried on the next completing run;
@@ -1391,7 +1447,10 @@ what state already knows (`unmapped` / previously-resolved `set` /
 
 `sync.poll_votes` is an additive list of per-poll markers from the ADR-0048
 capture path (`status` of `captured`, `skipped`, `capture_failed`, or `retract_failed`, plus
-`reason` / `error` when applicable). Empty when no poll needed capture.
+`reason` / `error` when applicable). Empty when no poll needed capture. A
+FloodWait that blocks the retract also yields `retract_failed`: the transient
+vote is disclosed on stderr and in the marker rather than vanishing into a
+generic exit 5, because a standing vote must never be silent.
 
 After message copying, `sync` snapshots the source's audience (ADR-0024). The
 `participants` object reports, per source-side peer (`source` = the cloned

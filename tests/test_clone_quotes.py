@@ -66,11 +66,20 @@ def test_resolver_helpers_stay_out_of_the_fallback_renderer():
 class FakeClient:
     """Minimal client surface for quotes.resolve reachability probes."""
 
-    def __init__(self, *, entities=None, readable=None, input_peers=None, chats=None):
+    def __init__(
+        self,
+        *,
+        entities=None,
+        readable=None,
+        input_peers=None,
+        chats=None,
+        history_error=None,
+    ):
         self.entities = entities or {}
         self.readable = readable if readable is not None else {}
         self.input_peers = input_peers or {}
         self.chats = chats
+        self.history_error = history_error
         self.entity_calls = []
         self.message_calls = []
         self.history_calls = []
@@ -80,6 +89,8 @@ class FakeClient:
         if self.chats is None:
             raise TypeError("client is not callable in this test")
         self.history_calls.append(request)
+        if self.history_error is not None:
+            raise self.history_error
         return SimpleNamespace(messages=[], chats=list(self.chats), users=[])
 
     def _key(self, peer):
@@ -255,7 +266,8 @@ def test_foreign_peer_unreachable_renders_fallback():
     assert resolved.quote_flattened["reason"] == "unreachable"
 
 
-def _forbidden_fallback(chats):
+def _forbidden_case(chats, *, history_error=None):
+    """Unresolved-peer quote ready to resolve: messages, plan, leg, client, ctx."""
     peer = types.PeerChannel(2275285084)
     header = types.MessageReplyHeader(
         reply_to_msg_id=1244,
@@ -266,8 +278,13 @@ def _forbidden_fallback(chats):
     messages = [_msg(2374, reply_to=header, message="author text")]
     leg = _discussion(discussion_id_map={2373: 900})
     plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
-    client = FakeClient(chats=chats)  # get_entity raises → unreachable
-    ctx = _ctx(client)
+    # get_entity raises → unreachable
+    client = FakeClient(chats=chats, history_error=history_error)
+    return messages, plan, leg, client, _ctx(client)
+
+
+def _forbidden_fallback(chats):
+    messages, plan, leg, client, ctx = _forbidden_case(chats)
     resolved = asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
     return resolved, client, (messages, plan, leg, ctx)
 
@@ -317,6 +334,37 @@ def test_forbidden_peer_without_a_title_keeps_the_bare_id():
     assert resolved.body_prefix.startswith(
         f"{quote_fallback.FALLBACK_SOURCE_LABEL} id 2275285084\n"
     )
+
+
+def test_forbidden_peer_title_propagates_a_flood_wait_without_caching_it():
+    """A FloodWait is the run's flood, not a missing title: it must reach the
+    caller's cooldown machinery, and the peer must stay uncached so the title
+    still resolves after the wait instead of degrading for the whole run."""
+    messages, plan, leg, _client, ctx = _forbidden_case(
+        [SimpleNamespace(id=2275285084, title="Свободный Капиталюга")],
+        history_error=telethon_errors.FloodWaitError(request=None, capture=61),
+    )
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
+    assert ctx.peer_titles == {}
+
+
+def test_forbidden_peer_title_degrades_and_caches_on_a_non_flood_rpc_error():
+    messages, plan, leg, client, ctx = _forbidden_case(
+        [SimpleNamespace(id=2275285084, title="Свободный Капиталюга")],
+        history_error=telethon_errors.ChannelPrivateError(request=None),
+    )
+
+    resolved = asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
+    assert resolved.body_prefix is not None
+    assert resolved.body_prefix.startswith(
+        f"{quote_fallback.FALLBACK_SOURCE_LABEL} id 2275285084\n"
+    )
+    assert ctx.peer_titles == {("channel", 2275285084): None}
+    # The miss is cached: a second quote from that peer re-requests nothing.
+    asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
+    assert len(client.history_calls) == 1
 
 
 def test_reachable_then_rejected_degrades_to_fallback():

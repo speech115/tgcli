@@ -37,6 +37,13 @@ def enforce_resolve_phone_cooldown(*, now: float | None = None) -> None:
                 last = float(path.read_text().strip())
             except (OSError, ValueError):
                 last = 0.0
+            if last > moment:
+                # The wall clock was stepped back (NTP/DST/manual) after the
+                # reservation was written: waiting out the whole jump would
+                # wedge every resolvePhone until the clock catches up again.
+                # Clamp under the lock so it degrades to one cooldown.
+                last = moment
+                atomic.replace_text(path, f"{last}\n")
             wait = RESOLVE_PHONE_COOLDOWN_S - (moment - last)
             if wait > 0:
                 retry_after = max(1, math.ceil(wait))

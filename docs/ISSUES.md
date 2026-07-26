@@ -149,3 +149,37 @@ decision and must be settled together.
   read-allowlisted (`src/tgcli/commands/api.py`, ADR-0010). Scoping FEED-001
   as if it covered story viewers would build a subsystem for something it
   cannot deliver — check the raw call against the real scenario first.
+
+### Design input from the clone/runtime discussion (2026-07-26)
+
+The contention is not only the future poller's problem: a long
+`tg clone sync` holds the account's session lock for its whole run today,
+so `send` / `read` / `api` on the same account fail with "session is
+busy" until the clone finishes. An owner-side design discussion
+(2026-07-26) explored three shapes, matching and extending the
+candidates above:
+
+- **Secondary session for long jobs** (e.g. a `main-clone` alias): fully
+  daemonless and possible under today's architecture; costs another
+  authorized device in Telegram's list, and `accounts login` must create
+  it. The only candidate that changes no process model.
+- **Yielding the lock between clone windows.** `sync` already works in
+  50-batch windows (ADR-0051), so it could release/reacquire the lock at
+  window boundaries; costs reconnect churn per window, interacts with
+  cooldown state, and makes "busy" a timing lottery — the same objection
+  as the `--wait` variant above.
+- **A single session-owner runtime** (`tg runtime start`, local IPC
+  socket, priority command queue, background clone jobs, process-wide
+  FloodWait gate). Architecturally the complete answer for continuous
+  cloning plus interactive commands on one session — and explicitly a
+  **daemon**: it contradicts ADR-0002 and the AGENTS.md hard rule, so it
+  can only enter through an ADR that overturns that line deliberately,
+  as a new subsystem (runtime lifecycle, IPC, queue, crash recovery) —
+  never as a side effect of a lock tweak. The per-run FloodGate
+  (1.2.16) would have to become runtime-wide.
+
+Two fixed points regardless of the winner: one session file shared by
+multiple concurrent processes stays forbidden (SQLite session corruption
+risks the authorization itself), so naive lock removal is not an option;
+and whichever shape wins must be decided together with `--wait`
+semantics (the blocker above) — they are the same lock contract.

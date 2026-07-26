@@ -14,7 +14,13 @@ from telethon import TelegramClient, errors as telethon_errors
 
 from tgcli.config import Account
 from tgcli.errors import ConfigError
-from tgcli.session import client_identity, session_path
+from tgcli.session import (
+    client_identity,
+    ensure_state_dir,
+    restrict_file,
+    session_path,
+    state_dir,
+)
 
 
 @asynccontextmanager
@@ -24,7 +30,14 @@ async def unauthorized_client(path: Path, api_id: int, api_hash: str):
     Takes the `.lock` beside `path` exactly as `session.client()` does.
     Always disconnects so SQLite is committed and closed.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        relative = path.parent.relative_to(state_dir())
+    except ValueError:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        # A state-root parent (sessions/ or logins/) is tgcli's property:
+        # create and mode-repair it like every other confirmed site.
+        ensure_state_dir(*relative.parts)
     lock = open(path.with_suffix(".lock"), "w")
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -43,6 +56,9 @@ async def unauthorized_client(path: Path, api_id: int, api_hash: str):
         system_version=system_version,
         app_version=app_version,
     )
+    # Telethon creates the SQLite session during construction; tighten it
+    # before any network use.
+    restrict_file(path)
     try:
         await tg.connect()
         yield tg

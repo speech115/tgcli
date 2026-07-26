@@ -71,6 +71,129 @@ def test_api_floodwait_maps_to_exit_5(config_env, monkeypatch, capsys):
     }
 
 
+class NumericPeerClient:
+    """Rejects raw strings the way Telethon does — a digit string is a phone."""
+
+    def __init__(self):
+        self.lookups = []
+
+    async def get_input_entity(self, value):
+        if isinstance(value, str):
+            raise ValueError(f'Cannot find any entity corresponding to "{value}"')
+        self.lookups.append(value)
+        return types.InputPeerChannel(channel_id=3890108644, access_hash=7)
+
+    async def __call__(self, request):
+        assert request.__class__.__name__ == "GetFullChannelRequest"
+        assert isinstance(request.channel, types.InputChannel)
+
+        class Result:
+            def to_dict(self):
+                return {"_": "messages.ChatFull"}
+
+        return Result()
+
+
+@pytest.mark.parametrize(
+    "method", ["messages.migrateChat", "channels.convertToGigagroup"]
+)
+def test_irreversible_api_write_requires_confirm(method, monkeypatch, capsys):
+    """One-way conversions have no undo and no delete*/reset* prefix."""
+    from tgcli import cli
+
+    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
+    monkeypatch.setattr(
+        session, "client", lambda account: pytest.fail("session opened")
+    )
+    monkeypatch.setattr(
+        cli, "_run_network", lambda args, account: pytest.fail("network dispatched")
+    )
+
+    assert main(["api", method, "--params", "{}", "--write"]) == 2
+    assert "requires exact --confirm" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "method", ["messages.migrateChat", "channels.convertToGigagroup"]
+)
+def test_confirmed_irreversible_api_write_dispatches(method, config_env, monkeypatch):
+    from tgcli import cli
+
+    calls = []
+
+    async def fake_run_network(args, account):
+        calls.append((args.method, args.params, account.alias))
+        return {"method": args.method, "result": {}}, []
+
+    monkeypatch.setattr(cli, "_run_network", fake_run_network)
+
+    assert (
+        main(
+            [
+                "api",
+                method,
+                "--params",
+                "{}",
+                "--write",
+                "--confirm",
+                method,
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    assert calls == [(method, "{}", "main")]
+
+
+def test_api_resolves_numeric_peer_alias_through_chatref(
+    config_env, monkeypatch, capsys
+):
+    client = NumericPeerClient()
+    make_session_fake(monkeypatch, client)
+
+    assert (
+        main(
+            [
+                "api",
+                "channels.getFullChannel",
+                "--params",
+                '{"channel":"-1003890108644"}',
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    assert client.lookups == [-1003890108644]
+    assert json.loads(capsys.readouterr().out)["result"] == {"_": "messages.ChatFull"}
+
+
+def test_api_unresolvable_numeric_peer_alias_exits_not_found(
+    config_env, monkeypatch, capsys
+):
+    class Client(NumericPeerClient):
+        async def get_input_entity(self, value):
+            raise ValueError(f'Cannot find any entity corresponding to "{value}"')
+
+    make_session_fake(monkeypatch, Client())
+
+    assert (
+        main(
+            [
+                "api",
+                "channels.getFullChannel",
+                "--params",
+                '{"channel":"-1003890108644"}',
+                "--json",
+            ]
+        )
+        == 4
+    )
+
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "NOT_FOUND"
+
+
 def test_api_write_kill_switch_blocks_without_opening_a_session(monkeypatch):
 
     monkeypatch.setattr(
@@ -79,3 +202,40 @@ def test_api_write_kill_switch_blocks_without_opening_a_session(monkeypatch):
     monkeypatch.setenv("TGCLI_NO_SEND", "1")
 
     assert main(["api", "messages.sendMessage", "--params", "{}", "--write"]) == 2
+
+
+def test_api_write_audit_records_what_the_write_touched(
+    config_env, monkeypatch, capsys
+):
+    """ADR-0010/0011: an audit row naming only the method cannot answer the one
+    question an audit log exists for. The unit-tested audit_details must be on
+    the live path, not just importable."""
+    from tgcli import cli, safety
+
+    async def fake_run_network(args, account):
+        return {"method": args.method, "result": {}}, []
+
+    monkeypatch.setattr(cli, "_run_network", fake_run_network)
+
+    assert (
+        main(
+            [
+                "api",
+                "channels.editAdmin",
+                "--params",
+                '{"channel": "@team", "user_id": "@alice", "rank": "mod"}',
+                "--write",
+                "--confirm",
+                "channels.editAdmin",
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    [row] = [
+        json.loads(line)
+        for line in safety.audit_path().read_text().splitlines()
+        if json.loads(line)["action"] == "api"
+    ]
+    assert row["target"] == {"channel": "@team", "user_id": "@alice"}

@@ -60,6 +60,19 @@ def test_import_copies_sessions_and_appends_config(import_env, capsys):
     assert 'api_hash = "existing"' in config.read_text()
 
 
+def test_import_writes_private_session_file_and_dir(import_env, capsys, wide_umask):
+    """An imported session is the same secret as a promoted one: 0600 in 0700."""
+    tmp_path, old_root, _ = import_env
+
+    code = main(["--json", "accounts", "import", "--source-root", str(old_root)])
+
+    assert code == 0
+    sessions = tmp_path / "state" / "sessions"
+    assert sessions.stat().st_mode & 0o777 == 0o700
+    copied = sessions / "recklessou.session"
+    assert copied.stat().st_mode & 0o777 == 0o600
+
+
 def test_import_skips_existing_session_without_force(import_env, capsys):
     tmp_path, old_root, _ = import_env
     destination = tmp_path / "state" / "sessions"
@@ -123,3 +136,24 @@ def test_import_missing_credentials_for_new_alias_exits_3(import_env):
     )
 
     assert code == 3
+
+
+def test_import_refuses_an_alias_colliding_with_an_existing_session(
+    tmp_path, monkeypatch, capsys
+):
+    """load_config rejects colliding session names, so writing one would leave
+    a config file no command can read (bf-03 on the write path)."""
+    config = tmp_path / "config.toml"
+    config.write_text(
+        'default_account = "Recklessou"\n'
+        '[accounts.Recklessou]\napi_id = 1\napi_hash = "existing"\n'
+    )
+    monkeypatch.setenv("TGCLI_CONFIG", str(config))
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
+    old_root = tmp_path / "oldhome"
+    make_old_stack(old_root)
+
+    code = main(["--json", "accounts", "import", "--source-root", str(old_root)])
+
+    assert code == 3
+    assert "[accounts.recklessou]" not in config.read_text()

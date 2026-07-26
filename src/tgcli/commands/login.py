@@ -32,6 +32,13 @@ class LoginTimeoutError(TgcliError):
 
 _ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
+# Token expiry is judged against the host wall clock, so a clock running ahead
+# of Telegram declares every fresh token expired on arrival. Without a floor
+# the QR loop would then request a new token (and re-open the tg:// link) as
+# fast as the event loop allows until the timeout. A healthy token lives ~30s,
+# so this floor never delays an honest refresh.
+QR_MIN_REFRESH_S = 5.0
+
 
 def _validate_new_alias(alias: str) -> None:
     if not alias or not _ALIAS_RE.match(alias):
@@ -322,7 +329,7 @@ async def _qr_wait(
                 login_id=login_id,
             )
         expires_in = (qr.expires - datetime.now(UTC)).total_seconds()
-        wait_timeout = min(remaining, max(expires_in, 0.1))
+        wait_timeout = min(remaining, max(expires_in, QR_MIN_REFRESH_S))
         try:
             await qr.wait(timeout=wait_timeout)
             break

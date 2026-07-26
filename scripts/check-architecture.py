@@ -15,15 +15,19 @@ from pathlib import Path
 # blocks with a blank line, and E501 splits a handful of over-long lines.
 # Layout only — no file gained a statement.
 CEILINGS = {
-    "src/tgcli/cli.py": 299,
+    # +39 for the CONTRACT §2/§4 failure paths: --timeout expiry as TIMEOUT,
+    # untranslated exceptions as one RUNTIME envelope, and a hung-up stdout
+    # pipe leaving quietly instead of raising through the journal.
+    # +signal handling and the whole-body deadline (1.2.16).
+    "src/tgcli/cli.py": 533,
     # +2 for ADR-0057: isort section blanks, E501 split in the --format help.
-    "src/tgcli/parser.py": 506,
-    "src/tgcli/preflight.py": 245,
+    "src/tgcli/parser.py": 518,
+    "src/tgcli/preflight.py": 251,
     # +2 for ADR-0057: isort section blanks.
     "src/tgcli/dispatch.py": 259,
     "src/tgcli/commands/batch.py": 96,
     # +3 for ADR-0057: isort section blanks.
-    "src/tgcli/read_ops.py": 417,
+    "src/tgcli/read_ops.py": 437,
     # +20 for ADR-0049: the progress emitter lives in clone/progress.py, but
     # the reporter still has to be threaded down the sync → batch → transfer
     # call chain that clone.py owns.
@@ -44,14 +48,19 @@ CEILINGS = {
     # +15 for PR #77 review fix: commit_refresh binds account/source_peer/id_map.
     # +6 for the integration: refresh's cooldown seams take the ADR-0052 thunk
     # and a per-process WaitBudget (three get_messages call sites wrapped).
-    # +2 for ADR-0057: isort section blanks.
-    "src/tgcli/commands/clone.py": 1452,
+    # +18 for the shared FloodGate: one short flood wait stalls every sibling
+    # upload worker instead of each sleeping and charging the budget again.
+    # +6 for ADR-0050 parity in refresh: preview and commit thread me and
+    # source_kind into the renderer so non-broadcast clones keep author_of.
+    # -397 for the 1.2.16 split into clone/cooldown.py, clone/reupload.py and
+    # clone/init_peers.py: the ratchet tightens instead of loosening.
+    "src/tgcli/commands/clone.py": 1201,
     # +21 for ADR-0055 pinned_dest_id / pin_occupied fields + validation.
-    # +1 for ADR-0057: isort section blank.
-    "src/tgcli/clone/state.py": 322,
+    # +8 for id_map / retry_not_before validation on load (fail closed).
+    "src/tgcli/clone/state.py": 333,
     # +22 for ADR-0051: posts_cursor / posts_exhausted kwargs + deferred
     # short-circuit in resolve (mirror of transport.decide's deferred plan).
-    "src/tgcli/clone/quotes.py": 387,
+    "src/tgcli/clone/quotes.py": 391,
     "src/tgcli/clone/quote_fallback.py": 127,
 }
 
@@ -198,6 +207,10 @@ def check(root: Path) -> list[str]:
     for relative in STATE_WRITER_MODULES:
         path = root / relative
         if not path.exists():
+            errors.append(
+                f"{relative} is missing; STATE_WRITER_MODULES must list real "
+                "modules (renaming one silently drops its write_text ban)"
+            )
             continue
         errors.extend(_state_write_errors(path, relative))
     return errors

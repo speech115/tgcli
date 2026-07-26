@@ -116,6 +116,85 @@ def test_media_download_bulk_failed_nonzero_exit(
     assert data["failed"][0]["message_id"] == 11
 
 
+def _bulk_download_fake(tmp_path, missing=()):
+    async def fake_download(tg, source, account_alias, **kwargs):
+        if source.message_id in missing:
+            raise NotFoundError("missing")
+        path = tmp_path / f"{source.message_id}.bin"
+        path.write_bytes(b"x")
+        return {
+            "source": f"@chan:{source.message_id}",
+            "path": str(path),
+            "bytes": 1,
+            "resumed": False,
+            "parallel": 1,
+        }
+
+    return fake_download
+
+
+async def _fake_resolve(tg, source, account_alias):
+    return ns(id=5), ns(file=ns(name=f"{source.message_id}.bin"))
+
+
+def test_media_download_bulk_plain_rows_match_the_frozen_columns(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    """CONTRACT freezes `media download` rows as path, bytes, resumed, parallel."""
+    make_session_fake(monkeypatch, FakeClient(entities={"@chan": ns(id=5, title="C")}))
+    monkeypatch.setattr(media_cmd, "download_media", _bulk_download_fake(tmp_path))
+    monkeypatch.setattr(media_cmd, "resolve_message", _fake_resolve)
+
+    assert (
+        main(
+            [
+                "--plain",
+                "media",
+                "download",
+                "@chan",
+                "--message-ids",
+                "10,11",
+                "--output",
+                str(tmp_path),
+            ]
+        )
+        == 0
+    )
+    assert capsys.readouterr().out.splitlines() == [
+        f"{tmp_path / '10.bin'}\t1\tFalse\t1",
+        f"{tmp_path / '11.bin'}\t1\tFalse\t1",
+    ]
+
+
+def test_media_download_bulk_plain_keeps_successes_on_partial_failure(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    make_session_fake(monkeypatch, FakeClient(entities={"@chan": ns(id=5, title="C")}))
+    monkeypatch.setattr(
+        media_cmd, "download_media", _bulk_download_fake(tmp_path, missing={11})
+    )
+    monkeypatch.setattr(media_cmd, "resolve_message", _fake_resolve)
+
+    assert (
+        main(
+            [
+                "--plain",
+                "media",
+                "download",
+                "@chan",
+                "--message-ids",
+                "10,11",
+                "--output",
+                str(tmp_path),
+            ]
+        )
+        == 4
+    )
+    assert capsys.readouterr().out.splitlines() == [
+        f"{tmp_path / '10.bin'}\t1\tFalse\t1"
+    ]
+
+
 def test_media_download_rejects_over_100_ids(config_env, monkeypatch):
     make_session_fake(monkeypatch, FakeClient(entities={"@chan": ns(id=5, title="C")}))
     ids = ",".join(str(i) for i in range(1, 102))

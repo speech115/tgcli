@@ -22,6 +22,8 @@ jobs:
           enable-cache: true
       - name: Install dependencies
         run: uv sync --frozen
+      - name: Check the lockfile matches pyproject.toml
+        run: uv lock --check
       - name: Lint
         run: uv run ruff check .
       - name: Check formatting

@@ -28,6 +28,20 @@ def _random_id() -> int:
     return secrets.randbelow(2**63 - 1) + 1
 
 
+async def _entity(tg, chat: str):
+    try:
+        return await tg.get_entity(chatref.parse(chat))
+    except ValueError:
+        raise NotFoundError(f"dialog not found: {chat!r}") from None
+
+
+async def _input_peer(tg, chat: str):
+    try:
+        return await tg.get_input_entity(chatref.parse(chat))
+    except ValueError:
+        raise NotFoundError(f"dialog not found: {chat!r}") from None
+
+
 def _file_fingerprint(path: Path, snapshot: Path | None = None) -> tuple[int, str]:
     digest = hashlib.sha256()
     size = 0
@@ -76,7 +90,7 @@ async def prepare(
         body = text
 
     formatting.render(body, fmt)  # validate format early; raises on unknown fmt
-    entity = await tg.get_entity(chatref.parse(chat))
+    entity = await _entity(tg, chat)
     stored = safety.create_preview(
         {
             "kind": "send",
@@ -147,7 +161,7 @@ def _verified_file_snapshot(payload: dict, directory: str) -> Path:
 
 
 async def commit(tg, preview_id: str, payload: dict) -> dict:
-    peer = await tg.get_input_entity(chatref.parse(payload["chat"]))
+    peer = await _input_peer(tg, payload["chat"])
     random_id = payload["random_id"]
     message, entities = formatting.render(payload["text"], payload.get("format", "md"))
     common = {

@@ -1,5 +1,6 @@
 """Clone cooldown: short FloodWait retry and per-run wait budget (ADR-0052)."""
 
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -28,7 +29,7 @@ def no_sleep(monkeypatch):
     async def fake_sleep(seconds):
         sleeps.append(seconds)
 
-    monkeypatch.setattr("tgcli.commands.clone.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("tgcli.clone.cooldown.asyncio.sleep", fake_sleep)
     return sleeps
 
 
@@ -121,7 +122,7 @@ async def test_cooldown_is_armed_before_sleep(clone_state, monkeypatch, budget):
     async def fake_sleep(seconds):
         armed_at_sleep.append(flood.cooldown_deadline(clone_state.account_user_id))
 
-    monkeypatch.setattr("tgcli.commands.clone.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("tgcli.clone.cooldown.asyncio.sleep", fake_sleep)
 
     async def once_then_ok():
         if not hasattr(once_then_ok, "n"):
@@ -213,6 +214,132 @@ async def test_spent_wait_budget_refuses_even_a_one_second_flood(clone_state, no
     assert raised.value.seconds == 1
     assert no_sleep == []
     assert budget.spent == 180
+
+
+@pytest.mark.asyncio
+async def test_siblings_issue_no_rpcs_while_one_worker_sleeps_a_flood(
+    clone_state, monkeypatch, budget
+):
+    """One shared FloodWait must stall every sibling worker, not only the one
+    that caught it: siblings entering _with_cooldown during the wait window
+    park on the shared gate instead of sending RPCs (ADR-0045/0052)."""
+    real_sleep = asyncio.sleep
+    holder_sleeping = asyncio.Event()
+    release_holder = asyncio.Event()
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+        holder_sleeping.set()
+        await release_holder.wait()
+
+    monkeypatch.setattr("tgcli.clone.cooldown.asyncio.sleep", fake_sleep)
+
+    flood_attempts = 0
+
+    async def flood_then_ok():
+        nonlocal flood_attempts
+        flood_attempts += 1
+        if flood_attempts == 1:
+            raise telethon_errors.FloodWaitError(request=None, capture=3)
+        return "holder"
+
+    sibling_calls = 0
+
+    async def sibling():
+        nonlocal sibling_calls
+        sibling_calls += 1
+        return "ok"
+
+    holder = asyncio.ensure_future(
+        clone_cmd._with_cooldown(flood_then_ok, clone_state, budget)
+    )
+    await holder_sleeping.wait()
+    siblings = [
+        asyncio.ensure_future(clone_cmd._with_cooldown(sibling, clone_state, budget))
+        for _ in range(3)
+    ]
+    for _ in range(10):
+        await real_sleep(0)
+    assert sibling_calls == 0
+    release_holder.set()
+    assert await holder == "holder"
+    assert await asyncio.gather(*siblings) == ["ok", "ok", "ok"]
+    assert sibling_calls == 3
+    assert sleeps == [4]
+    assert budget.spent == 4
+
+
+@pytest.mark.asyncio
+async def test_one_flood_wait_charges_the_shared_budget_once(
+    clone_state, monkeypatch, budget
+):
+    """Four in-flight workers all catching the same short FloodWait must not
+    each sleep it out and deduct it from the one per-process budget: the
+    first caller pays, the released siblings retry for free (ADR-0052)."""
+    real_sleep = asyncio.sleep
+    release_holder = asyncio.Event()
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+        await release_holder.wait()
+
+    monkeypatch.setattr("tgcli.clone.cooldown.asyncio.sleep", fake_sleep)
+
+    attempts = dict.fromkeys(range(4), 0)
+    in_flight = [asyncio.Event() for _ in range(4)]
+    proceed = asyncio.Event()
+
+    def thunk_for(index):
+        async def thunk():
+            attempts[index] += 1
+            if attempts[index] == 1:
+                in_flight[index].set()
+                await proceed.wait()
+                raise telethon_errors.FloodWaitError(request=None, capture=3)
+            return "ok"
+
+        return thunk
+
+    workers = [
+        asyncio.ensure_future(
+            clone_cmd._with_cooldown(thunk_for(index), clone_state, budget)
+        )
+        for index in range(4)
+    ]
+    for event in in_flight:
+        await event.wait()
+    proceed.set()
+    while not sleeps:
+        await real_sleep(0)
+    release_holder.set()
+    assert await asyncio.gather(*workers) == ["ok"] * 4
+    assert sleeps == [4]
+    assert budget.spent == 4
+    assert all(count == 2 for count in attempts.values())
+
+
+@pytest.mark.asyncio
+async def test_gate_reopens_after_the_flood_wait(clone_state, no_sleep, budget):
+    attempts = 0
+
+    async def once_then_ok():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise telethon_errors.FloodWaitError(request=None, capture=3)
+        return "ok"
+
+    assert await clone_cmd._with_cooldown(once_then_ok, clone_state, budget) == "ok"
+
+    async def plain():
+        return "next"
+
+    result = await asyncio.wait_for(
+        clone_cmd._with_cooldown(plain, clone_state, budget), timeout=1
+    )
+    assert result == "next"
 
 
 @pytest.mark.asyncio

@@ -1,12 +1,19 @@
 """Local-state inventory and cleanup (ADR-0040)."""
 
+import errno
+import fcntl
 import json
 import os
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
+from tgcli import login_state
 from tgcli.cli import main
 from tgcli.commands import store as store_cmd
+from tgcli.errors import NotFoundError
 from tgcli.safety import PREVIEW_TTL
 
 NOW = datetime(2026, 7, 23, 12, 0, tzinfo=UTC)
@@ -298,6 +305,113 @@ def test_unparsable_login_falls_back_to_mtime(tmp_path, monkeypatch):
     assert not (tmp_path / "logins" / "l_stale.session").exists()
 
 
+def _write_naive_preview(root: Path, name: str, *, mtime: datetime) -> Path:
+    """A preview whose `expires_at` lost its UTC offset (old build/hand edit)."""
+    directory = root / "previews"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{name}.json"
+    naive = (NOW - timedelta(minutes=1)).replace(tzinfo=None)
+    path.write_text(
+        json.dumps({"payload": {"text": "hi"}, "expires_at": naive.isoformat()})
+    )
+    stamp = mtime.timestamp()
+    os.utime(path, (stamp, stamp))
+    return path
+
+
+def _write_naive_login(root: Path, login_id: str, *, mtime: datetime) -> Path:
+    """A login attempt whose `expires_at` lost its UTC offset."""
+    directory = root / "logins"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{login_id}.json"
+    naive = (NOW - timedelta(minutes=1)).replace(tzinfo=None)
+    path.write_text(
+        json.dumps(
+            {
+                "login_id": login_id,
+                "alias": "tmp",
+                "method": "qr",
+                "expires_at": naive.isoformat(),
+            }
+        )
+    )
+    (directory / f"{login_id}.session").write_bytes(b"staged-key")
+    stamp = mtime.timestamp()
+    os.utime(path, (stamp, stamp))
+    return path
+
+
+def test_naive_expires_at_falls_back_to_mtime(tmp_path, monkeypatch):
+    """A timezone-less `expires_at` classifies by mtime instead of crashing.
+
+    Comparing it against an aware `now` raised TypeError and took the whole
+    inventory down; both commands exist to help a user already in trouble.
+    """
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    preview = _write_naive_preview(
+        tmp_path, "p_naive", mtime=NOW - timedelta(minutes=1)
+    )
+    login = _write_naive_login(tmp_path, "l_naive", mtime=NOW - timedelta(minutes=1))
+
+    data = store_cmd.stats(tmp_path, now=NOW)
+    store_cmd.stats_rows(data)
+
+    assert data["previews"]["live"]["count"] == 1
+    assert data["previews"]["expired"]["count"] == 0
+    assert data["logins"]["live"]["count"] == 2  # json + staged session
+    assert data["logins"]["expired"]["count"] == 0
+
+    result = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
+
+    # Fail-closed for deletion: an untrustworthy stamp is never reaped early.
+    assert result["removed"] == []
+    assert preview.exists()
+    assert login.exists()
+    assert (tmp_path / "logins" / "l_naive.session").exists()
+
+
+def test_naive_expires_at_login_age_filter_uses_mtime(tmp_path, monkeypatch):
+    """`--older-than` anchors a naive attempt on mtime instead of crashing."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    stale = _write_naive_login(
+        tmp_path, "l_naive", mtime=NOW - login_state.LOGIN_TTL - timedelta(hours=2)
+    )
+
+    kept = store_cmd.cleanup(
+        tmp_path, older_than=timedelta(days=1), confirm=True, now=NOW
+    )
+    assert kept["removed"] == []
+    assert stale.exists()
+
+    reaped = store_cmd.cleanup(
+        tmp_path, older_than=timedelta(hours=1), confirm=True, now=NOW
+    )
+    assert "l_naive.json" in reaped["removed"]
+    assert not stale.exists()
+    assert not (tmp_path / "logins" / "l_naive.session").exists()
+
+
+def test_cleanup_reaps_attempt_left_behind_by_expired_read(tmp_path, monkeypatch):
+    """`load_attempt` no longer deletes, so cleanup must still reap the dead."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    record = login_state.create_attempt(
+        "main", "qr", api_id=1, api_hash="h", now=NOW - login_state.LOGIN_TTL
+    )
+    login_id = record["login_id"]
+    staged = login_state.staged_session_path(login_id)
+    staged.write_bytes(b"staged-key")
+
+    with pytest.raises(NotFoundError, match="expired"):
+        login_state.load_attempt(login_id, now=NOW)
+    assert staged.exists()
+
+    result = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
+
+    assert f"{login_id}.json" in result["removed"]
+    assert f"{login_id}.session" in result["removed"]
+    assert not staged.exists()
+
+
 def test_cleanup_confirm_allowed_under_no_send(tmp_path, monkeypatch, capsys):
     """TGCLI_NO_SEND guards Telegram sends, not local-state housekeeping."""
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
@@ -486,3 +600,181 @@ def test_cleanup_older_than_gates_media_cache_by_mtime(tmp_path, monkeypatch):
     )
     assert "abc123-media" in removed["removed"]
     assert not cache.exists()
+
+
+def _vanish_after_first_stat(monkeypatch, victim: Path) -> None:
+    """Let `victim` pass one stat and disappear before the next one.
+
+    The scan lists a directory and then stats each entry, so a preview or a
+    login consumed by a concurrent `tg` lands exactly in that window: the
+    `is_file()` probe still sees it, the stat that follows does not.
+    """
+    real_stat = Path.stat
+    seen = {"count": 0}
+
+    def fake_stat(self, *args, **kwargs):
+        if self == victim:
+            seen["count"] += 1
+            if seen["count"] > 1:
+                raise FileNotFoundError(
+                    errno.ENOENT, "No such file or directory", str(self)
+                )
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", fake_stat)
+
+
+def test_scan_survives_a_preview_that_vanishes_mid_walk(tmp_path, monkeypatch):
+    """An offline, read-only inventory must never crash on a lost race."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    _seed_inventory(tmp_path)
+    _vanish_after_first_stat(monkeypatch, tmp_path / "previews" / "p_live1.json")
+
+    data = store_cmd.scan(tmp_path, now=NOW)
+
+    assert data["previews"]["live"]["count"] == 1  # the vanished one is absent
+    assert data["previews"]["expired"]["count"] == 1
+    assert data["previews"]["spent"]["count"] == 3
+
+
+def test_scan_survives_a_login_that_vanishes_mid_walk(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    # An unparsable attempt is anchored on mtime, so the walk has to stat it.
+    victim = _write_unparsable_login(tmp_path, "l_torn", mtime=NOW - timedelta(hours=1))
+    _write_login(tmp_path, "l_live", expires_at=NOW + timedelta(minutes=10))
+    _vanish_after_first_stat(monkeypatch, victim)
+
+    data = store_cmd.scan(tmp_path, now=NOW)
+
+    assert data["logins"]["live"]["count"] == 2  # only the intact attempt pair
+
+
+def test_scan_survives_a_clone_cache_file_that_vanishes_mid_walk(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    cache = _seed_clone_media_cache(tmp_path)
+    _vanish_after_first_stat(monkeypatch, cache / "src-2")
+
+    data = store_cmd.scan(tmp_path, now=NOW)
+
+    assert data["clone_media_cache"]["count"] == 1
+
+
+def test_cleanup_survives_a_preview_that_vanishes_mid_walk(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    _seed_inventory(tmp_path)
+    # An unparsable preview is anchored on mtime, so selection has to stat it.
+    victim = _write_unparsable_preview(
+        tmp_path, "p_torn", mtime=NOW - PREVIEW_TTL - timedelta(minutes=1)
+    )
+    _vanish_after_first_stat(monkeypatch, victim)
+
+    result = store_cmd.cleanup(tmp_path, confirm=True, older_than=timedelta(0), now=NOW)
+
+    assert "p_spent1.used" in result["removed"]
+
+
+def test_cleanup_survives_a_media_cache_that_vanishes_mid_walk(tmp_path, monkeypatch):
+    """A batch that lands clears its own cache — possibly mid-walk."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    cache = _seed_clone_media_cache(tmp_path)
+    _age_media_cache(cache, timedelta(days=1))
+    real_stat = Path.stat
+
+    def fake_stat(self, *args, **kwargs):
+        result = real_stat(self, *args, **kwargs)
+        if self == cache and os.path.isdir(cache):
+            shutil.rmtree(cache)
+        return result
+
+    monkeypatch.setattr(Path, "stat", fake_stat)
+
+    result = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
+
+    assert "abc123-media" not in result["removed"]
+    assert not cache.exists()
+
+
+def _hold_lock(path: Path):
+    handle = path.open("w")
+    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    return handle
+
+
+def test_cleanup_keeps_expired_login_whose_lock_is_held(tmp_path, monkeypatch):
+    """A QR wait can outlive LOGIN_TTL; its staged session is not litter.
+
+    The running login holds the staged session's flock for the whole attempt
+    (authclient), so cleanup probes it the same non-blocking way
+    `session.lock_held` does before reaping an expired attempt.
+    """
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    _write_login(tmp_path, "l_qr", expires_at=NOW - timedelta(minutes=1))
+    logins = tmp_path / "logins"
+
+    handle = _hold_lock(logins / "l_qr.lock")
+    try:
+        held = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
+    finally:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        handle.close()
+
+    assert held["removed"] == []
+    assert (logins / "l_qr.json").exists()
+    assert (logins / "l_qr.session").exists()
+
+    free = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
+
+    assert "l_qr.json" in free["removed"]
+    assert "l_qr.session" in free["removed"]
+    assert not (logins / "l_qr.session").exists()
+
+
+def test_cleanup_keeps_media_cache_while_a_session_lock_is_held(tmp_path, monkeypatch):
+    """A long upload-only phase writes nothing, so mtime alone is not liveness.
+
+    `clone sync` holds its account session lock for the whole run; while any
+    session lock is held, a `*-media` cache may still belong to that run
+    (ADR-0052), whatever its mtime says.
+    """
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    cache = _seed_clone_media_cache(tmp_path)
+    _age_media_cache(cache, timedelta(days=2))
+    sessions = tmp_path / "sessions"
+    sessions.mkdir(parents=True, exist_ok=True)
+    (sessions / "main.session").write_bytes(b"session-bytes")
+
+    handle = _hold_lock(sessions / "main.lock")
+    try:
+        held = store_cmd.cleanup(
+            tmp_path, confirm=True, older_than=timedelta(days=1), now=NOW
+        )
+    finally:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        handle.close()
+
+    assert "abc123-media" not in held["removed"]
+    assert "abc123-media" not in held["would_remove"]
+    assert (cache / "src-2").exists()
+
+    free = store_cmd.cleanup(
+        tmp_path, confirm=True, older_than=timedelta(days=1), now=NOW
+    )
+
+    assert "abc123-media" in free["removed"]
+    assert not cache.exists()
+
+
+def test_cleanup_probes_locks_without_creating_them(tmp_path, monkeypatch):
+    """A holder creates its lock file first, so cleanup only ever reads one."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    _seed_inventory(tmp_path)  # sessions/main.session, no lock beside it
+    _write_login(tmp_path, "l_dead", expires_at=NOW - timedelta(minutes=1))
+    cache = _seed_clone_media_cache(tmp_path)
+    _age_media_cache(cache, timedelta(days=1))
+
+    result = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
+
+    assert "l_dead.session" in result["removed"]
+    assert "abc123-media" in result["removed"]
+    assert list((tmp_path / "sessions").glob("*.lock")) == []
+    assert list((tmp_path / "logins").glob("*.lock")) == []

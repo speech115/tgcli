@@ -14,6 +14,20 @@ from tgcli import __version__
 from tgcli.commands import media as media_cmd, store as store_cmd
 
 
+class _Parser(argparse.ArgumentParser):
+    """Every parser in the tree: flags must be spelled in full.
+
+    argparse otherwise accepts any unique long-option prefix, so `--c` reaches
+    `--confirm` and `--w` reaches `--write` — the gates that exist precisely
+    because a mutation has to be typed deliberately. `add_subparsers` defaults
+    `parser_class` to `type(self)`, so every subparser inherits this.
+    """
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("allow_abbrev", False)
+        super().__init__(*args, **kwargs)
+
+
 def _older_than_type(value: str):
     try:
         return store_cmd.parse_older_than(value)
@@ -22,9 +36,7 @@ def _older_than_type(value: str):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    global_flags = argparse.ArgumentParser(
-        add_help=False, argument_default=argparse.SUPPRESS
-    )
+    global_flags = _Parser(add_help=False, argument_default=argparse.SUPPRESS)
     global_flags.add_argument("--account", help="account alias from config")
     global_flags.add_argument("--json", action="store_true", help="JSON to stdout")
     global_flags.add_argument("--plain", action="store_true", help="TSV to stdout")
@@ -32,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     global_flags.add_argument("--timeout", type=float)
     global_flags.add_argument("-v", "--verbose", action="store_true")
 
-    parser = argparse.ArgumentParser(
+    parser = _Parser(
         prog="tg", description="Stateless Telegram CLI", parents=[global_flags]
     )
     parser.add_argument("--version", action="version", version=__version__)

@@ -5,26 +5,66 @@ network routing in dispatch.py. What stays here is the shape of a single
 invocation and nothing else.
 """
 
+import argparse
 import asyncio
+import contextlib
+import io
 import logging
+import os
+import signal
 import sys
+import threading
 import time
+import traceback
+from contextlib import contextmanager
 
 from tgcli import dispatch, invocations, output, preflight, safety, session
 from tgcli.commands import (
     accounts as accounts_cmd,
+    api as api_cmd,
     clone as clone_cmd,
     doctor as doctor_cmd,
     login as login_cmd,
     store as store_cmd,
 )
 from tgcli.config import load_config, resolve_account
-from tgcli.errors import PartialFailure, TgcliError
+from tgcli.errors import CommandTimeoutError, PartialFailure, TgcliError
 from tgcli.parser import build_parser
 
 LOGGER = logging.getLogger(__name__)
 
 __all__ = ["build_parser", "main", "entrypoint"]
+
+# The deadline is armed before preflight, so it must not preempt a command that
+# owns a graceful deadline of its own (the QR wait, asyncio.wait_for around the
+# network). Those arm later; this margin keeps them first.
+DEADLINE_GRACE = 1.0
+
+# The only argv tokens that may end a run successfully with text on stdout.
+# argparse groups single-dash short options, so the value `-hi` also reaches
+# the help action — that exit is misuse, not a help request.
+HELP_TOKENS = frozenset({"-h", "--help", "--version"})
+
+# Catchable termination signals; SIGKILL cannot be one and is left alone.
+TERMINATION_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+
+
+class _DeadlineSignal(BaseException):
+    """SIGALRM escape: a BaseException so no `except Exception` swallows it."""
+
+
+class _TerminationSignal(BaseException):
+    """SIGTERM/SIGHUP escape: a BaseException, for the same reason."""
+
+    def __init__(self, signum: int) -> None:
+        super().__init__(signum)
+        self.signum = signum
+
+
+class UsageError(TgcliError):
+    """Argument misuse; parser.error already put the detail on stderr."""
+
+    code = "USAGE"
 
 
 def _enable_verbose_diagnostics():
@@ -47,23 +87,29 @@ def _restore_diagnostics(configured) -> None:
         logger.propagate = propagate
 
 
+def _default_timeout(args) -> float | None:
+    """The deadline for an invocation that supplied no --timeout (CONTRACT §1)."""
+    if args.command == "export":
+        return None
+    if args.command == "clone" and args.clone_command in ("init", "sync", "refresh"):
+        # ADR-0052 lets these wait out a short FloodWait (up to 61s in the
+        # foreground), which never fits inside a 60s default deadline.
+        return None
+    if args.command == "accounts" and args.subcommand == "login":
+        # CONTRACT §10: the QR wait defaults to 120s; --continue waits on the
+        # operator and takes no default deadline at all.
+        return None if getattr(args, "continue_id", None) else 120.0
+    return 60.0
+
+
 def _apply_global_defaults(args) -> None:
     """Backfill global flags argparse suppressed on the subparser it matched."""
-    no_default_timeout = (
-        args.command == "export"
-        or (args.command == "clone" and args.clone_command == "sync")
-        or (
-            args.command == "accounts"
-            and args.subcommand == "login"
-            and getattr(args, "continue_id", None)
-        )
-    )
     defaults = {
         "account": None,
         "json": False,
         "plain": False,
         "readonly": False,
-        "timeout": None if no_default_timeout else 60.0,
+        "timeout": _default_timeout(args),
         "verbose": False,
     }
     for name, default in defaults.items():
@@ -71,8 +117,110 @@ def _apply_global_defaults(args) -> None:
             setattr(args, name, default)
 
 
+def _long_running(args) -> bool:
+    """Commands that pace themselves rather than honour a default deadline."""
+    return args.command == "media" or (
+        args.command == "clone" and args.clone_command == "sync"
+    )
+
+
+def _deadline(args, *, timeout_supplied: bool) -> float | None:
+    """The budget for preflight plus execute together, or None when exempt."""
+    if args.timeout is None or (not timeout_supplied and _long_running(args)):
+        return None
+    return args.timeout
+
+
+@contextlib.contextmanager
+def _armed(seconds: float | None):
+    """Hold the invocation deadline over the whole body, preflight included.
+
+    asyncio.wait_for only covers the network coroutine; everything before it —
+    `tg batch` reading stdin, `accounts login --continue` reading a password —
+    would otherwise run with no deadline at all.
+    """
+    if (
+        seconds is None
+        or seconds <= 0
+        or threading.current_thread() is not threading.main_thread()
+    ):
+        yield
+        return
+
+    def fire(signum, frame):
+        raise _DeadlineSignal
+
+    previous = signal.signal(signal.SIGALRM, fire)
+    signal.setitimer(signal.ITIMER_REAL, seconds + DEADLINE_GRACE)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+@contextlib.contextmanager
+def _honest_termination():
+    """Let SIGTERM/SIGHUP journal the run, then die by the signal anyway.
+
+    CONTRACT §9 promises one object per parsed command; a default-disposition
+    kill appends none. Raising from the handler lets main's `finally` write the
+    honest row, and `entrypoint` then restores the default disposition and
+    re-raises so the shell still sees a signal death. Nothing else is done
+    here: a killed run must not wait on cleanup that could hang.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    def fire(signum, frame):
+        raise _TerminationSignal(signum)
+
+    previous = [(number, signal.signal(number, fire)) for number in TERMINATION_SIGNALS]
+    try:
+        yield
+    finally:
+        for number, handler in previous:
+            signal.signal(number, handler)
+
+
 async def _run_network(args, account) -> tuple[dict, list[tuple]]:
     return await dispatch.run_network(args, account)
+
+
+def _run_with_deadline(coro, timeout):
+    """Run one coroutine under `--timeout` as the documented TIMEOUT error."""
+    try:
+        return asyncio.run(asyncio.wait_for(coro, timeout=timeout))
+    except TimeoutError:  # asyncio.TimeoutError is this alias since 3.11
+        raise CommandTimeoutError(
+            f"invocation exceeded the --timeout deadline of {timeout}s"
+        ) from None
+
+
+@contextmanager
+def _tolerate_hangup():
+    """Let an error envelope fail to reach a reader that already hung up.
+
+    The error arms are siblings of `except BrokenPipeError`, so without this
+    a closed pipe would escape past the journal and leave the run recorded
+    with its pre-failure codes.
+    """
+    try:
+        yield
+    except BrokenPipeError:
+        _silence_stdout()
+
+
+def _silence_stdout() -> None:
+    """Point stdout at /dev/null so shutdown cannot re-raise a broken pipe."""
+    try:
+        fd = sys.stdout.fileno()
+    except (OSError, ValueError):
+        return
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, fd)
+    os.close(devnull)
 
 
 def _audit_before(args, account) -> None:
@@ -94,7 +242,12 @@ def _audit_before(args, account) -> None:
             {"preview_id": args.commit, "chat": args.preview_payload.get("chat")},
         )
     if args.command == "api" and args.write:
-        safety.append_audit("api", account.alias, {"method": args.method})
+        # audit_details adds what the write touched (ADR-0010/0011): a record
+        # naming only the method cannot answer the one question an audit log
+        # exists for.
+        safety.append_audit(
+            "api", account.alias, api_cmd.audit_details(args.method, args.params)
+        )
     if args.command in ("mark-read", "mark-unread"):
         safety.append_audit(args.command, account.alias, {"chat": args.chat})
     if args.command == "dialog":
@@ -165,7 +318,7 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
         )
         return data, accounts_cmd.remove_rows(data)
     if args.command == "accounts" and args.subcommand == "login":
-        timeout = args.timeout if timeout_supplied else 120.0
+        timeout = args.timeout
         if getattr(args, "continue_id", None):
             data = asyncio.run(
                 login_cmd.continue_login(
@@ -196,7 +349,7 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
         connect = bool(getattr(args, "connect", False))
         coro = doctor_cmd.run(config, args.account, connect=connect)
         if connect:
-            data = asyncio.run(asyncio.wait_for(coro, timeout=args.timeout))
+            data = _run_with_deadline(coro, args.timeout)
         else:
             data = asyncio.run(coro)
         return data, doctor_cmd.to_rows(data)
@@ -207,13 +360,10 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
         LOGGER.debug("resolved account=%s command=%s", account.alias, args.command)
     _audit_before(args, account)
     network = _run_network(args, account)
-    long_running = args.command == "media" or (
-        args.command == "clone" and args.clone_command == "sync"
-    )
-    if long_running and not timeout_supplied:
+    if _long_running(args) and not timeout_supplied:
         data, rows = asyncio.run(network)
     else:
-        data, rows = asyncio.run(asyncio.wait_for(network, timeout=args.timeout))
+        data, rows = _run_with_deadline(network, args.timeout)
     _audit_after(args, account, data)
     return data, rows
 
@@ -232,12 +382,40 @@ def _emit(args, data, rows) -> None:
         )
 
 
+def _parse(
+    parser: argparse.ArgumentParser, argv: list[str] | None
+) -> argparse.Namespace | int:
+    """Parse argv, or return the exit code of a run that never got a command.
+
+    argparse prints help on stdout and exits 0 for `-h`, and it reaches `-h`
+    from any grouped short option: the value `-hi` would otherwise be a silent
+    no-op reported as success. Held-back help text reaches stdout only when an
+    exact help or version token proves the caller asked for it.
+    """
+    tokens = sys.argv[1:] if argv is None else argv
+    printed = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(printed):
+            return parser.parse_args(tokens)
+    except SystemExit as err:
+        if err.code == 0 and HELP_TOKENS.intersection(tokens):
+            sys.stdout.write(printed.getvalue())
+            return 0
+        if err.code == 0:
+            with contextlib.suppress(SystemExit):
+                parser.error(
+                    "a value starting with '-' was read as options; pass the "
+                    "flags first and such values after '--'"
+                )
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    try:
-        args = parser.parse_args(argv)
-    except SystemExit as err:
-        return 0 if err.code == 0 else 1
+    parsed = _parse(parser, argv)
+    if isinstance(parsed, int):
+        return parsed
+    args = parsed
     timeout_supplied = hasattr(args, "timeout")
     _apply_global_defaults(args)
     verbose_diagnostics = _enable_verbose_diagnostics() if args.verbose else []
@@ -245,36 +423,82 @@ def main(argv: list[str] | None = None) -> int:
     exit_code = 1
     error_code = None
     try:
-        preflight.prepare(parser, args)
-        data, rows = _execute(args, timeout_supplied=timeout_supplied)
+        with _honest_termination():
+            with _armed(_deadline(args, timeout_supplied=timeout_supplied)):
+                preflight.prepare(parser, args)
+                data, rows = _execute(args, timeout_supplied=timeout_supplied)
+            # Emitting is part of the invocation: a failure here is journaled,
+            # not reported as a success.
+            if args.command == "batch":
+                output.emit_json_lines(data["_batch_results"])
+                exit_code = data["_batch_exit"] or 0
+            else:
+                _emit(args, data, rows)
+                exit_code = 0
     except SystemExit:
-        # parser.error() already wrote usage to stderr.
+        # parser.error() already wrote usage to stderr, but a --json caller is
+        # still owed exactly one document on stdout (CONTRACT §2).
+        error_code = "USAGE"
         exit_code = 1
-    except PartialFailure as err:
         if args.json:
-            output.emit_json(err.data)
-        elif args.plain:
-            output.emit_plain(
-                err.rows if err.rows is not None else err.data.get("rows") or []
-            )
-        else:
-            output.emit_error(err, as_json=False)
+            with _tolerate_hangup():
+                output.emit_error(UsageError("invalid arguments"), as_json=True)
+    except BrokenPipeError:
+        # The reader hung up (`| head`): stop writing and leave quietly.
+        _silence_stdout()
+        error_code = "BROKEN_PIPE"
+        exit_code = 0
+    except PartialFailure as err:
+        # Codes are recorded before the write: a reader that hangs up mid-
+        # envelope must not replace the real failure in the journal.
         error_code = err.code
         exit_code = err.exit_code
-    except TgcliError as err:
-        output.emit_error(err, as_json=args.json)
-        error_code = err.code
-        exit_code = err.exit_code
-    except Exception:
-        error_code = "UNHANDLED"
+        with _tolerate_hangup():
+            if args.json:
+                output.emit_json(err.data)
+            elif args.plain:
+                output.emit_plain(
+                    err.rows if err.rows is not None else err.data.get("rows") or []
+                )
+            else:
+                output.emit_error(err, as_json=False)
+    except _DeadlineSignal:
+        # The whole-body alarm fired; asyncio.wait_for's own TimeoutError is
+        # already translated by _run_with_deadline.
+        timed_out = CommandTimeoutError("invocation deadline exceeded")
+        error_code = timed_out.code
+        exit_code = timed_out.exit_code
+        with _tolerate_hangup():
+            output.emit_error(timed_out, as_json=args.json)
+    except _TerminationSignal as err:
+        # The row is owed before the process leaves; entrypoint turns this
+        # back into the signal death the caller asked for.
+        error_code = "TERMINATED"
+        exit_code = 128 + err.signum
         raise
-    else:
-        if args.command == "batch":
-            output.emit_json_lines(data["_batch_results"])
-            exit_code = data["_batch_exit"] or 0
-        else:
-            _emit(args, data, rows)
-            exit_code = 0
+    except TgcliError as err:
+        error_code = err.code
+        exit_code = err.exit_code
+        with _tolerate_hangup():
+            output.emit_error(err, as_json=args.json)
+    except Exception as err:
+        # Untranslated failure (network, RPC, bug): still one envelope, and a
+        # traceback only when the caller asked for diagnostics.
+        error_code = "RUNTIME"
+        exit_code = 1
+        if args.verbose:
+            traceback.print_exc()
+        with _tolerate_hangup():
+            output.emit_error(
+                TgcliError(str(err) or type(err).__name__), as_json=args.json
+            )
+    except BaseException as err:
+        # An abnormal unwind (SIGINT) must not leave the journal claiming the
+        # pre-failure exit code with no error at all.
+        interrupted = isinstance(err, KeyboardInterrupt)
+        error_code = "INTERRUPTED" if interrupted else "UNHANDLED"
+        exit_code = 130 if interrupted else 1
+        raise
     finally:
         duration_ms = int((time.monotonic() - started) * 1000)
         if args.verbose:
@@ -296,4 +520,14 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def entrypoint() -> None:
-    sys.exit(main())
+    try:
+        exit_code = main()
+    except BrokenPipeError:
+        _silence_stdout()
+        exit_code = 0
+    except _TerminationSignal as err:
+        # The journal row is written; leave the way the signal asked.
+        signal.signal(err.signum, signal.SIG_DFL)
+        os.kill(os.getpid(), err.signum)
+        exit_code = 128 + err.signum  # unreachable: the signal lands first
+    sys.exit(exit_code)

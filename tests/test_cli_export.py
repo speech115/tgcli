@@ -401,6 +401,59 @@ def test_export_subscribers_neutralizes_formula_cells(
     ]
 
 
+def test_export_subscribers_neutralizes_whitespace_led_formula_cells(
+    config_env, monkeypatch, tmp_path
+):
+    """Importers strip a leading tab/CR/space, re-exposing the formula."""
+    fake = make_export_fake(
+        participants=[
+            ns(
+                id=7,
+                username="\t=SUM(1,1)",
+                first_name="\r+cmd",
+                last_name=" @value",
+                phone=None,
+                bot=False,
+            )
+        ]
+    )
+    make_session_fake(monkeypatch, fake)
+    destination = tmp_path / "subscribers.csv"
+
+    assert main(["export", "subscribers", "@chan", "--output", str(destination)]) == 0
+
+    # newline="" so the reader does not translate the embedded CR away.
+    row = list(csv.DictReader(destination.open(newline="")))[0]
+    assert row["username"] == "'\t=SUM(1,1)"
+    assert row["first_name"] == "'\r+cmd"
+    assert row["last_name"] == "' @value"
+
+
+def test_export_subscribers_leaves_plain_cells_untouched(
+    config_env, monkeypatch, tmp_path
+):
+    fake = make_export_fake(
+        participants=[
+            ns(
+                id=7,
+                username=" alice",
+                first_name="Alice",
+                last_name="",
+                phone=None,
+                bot=False,
+            )
+        ]
+    )
+    make_session_fake(monkeypatch, fake)
+    destination = tmp_path / "subscribers.csv"
+
+    assert main(["export", "subscribers", "@chan", "--output", str(destination)]) == 0
+
+    row = list(csv.DictReader(destination.open()))[0]
+    assert row["username"] == " alice"
+    assert row["first_name"] == "Alice"
+
+
 def test_export_subscribers_accepts_numeric_dialog_id(
     config_env, monkeypatch, tmp_path
 ):

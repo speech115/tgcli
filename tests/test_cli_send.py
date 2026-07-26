@@ -55,6 +55,16 @@ class SendClient:
         )
 
 
+class UnknownChatClient(SendClient):
+    """Telethon raises ValueError when a chat reference resolves to nothing."""
+
+    async def get_entity(self, chat):
+        raise ValueError(f"Cannot find any entity corresponding to {chat!r}")
+
+    async def get_input_entity(self, chat):
+        raise ValueError(f"Cannot find any entity corresponding to {chat!r}")
+
+
 class FailingClient(SendClient):
     async def __call__(self, request):
         raise OSError("connection reset")
@@ -249,6 +259,43 @@ def test_send_missing_file_is_not_found(config_env, monkeypatch, capsys, tmp_pat
     )
 
 
+def test_send_preview_reports_unknown_dialog_as_not_found(
+    config_env, monkeypatch, capsys
+):
+    client = UnknownChatClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["send", "@gone", "hello", "--preview", "--json"]) == 4
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "NOT_FOUND"
+    assert client.requests == []
+
+
+def test_send_commit_reports_unknown_dialog_as_not_found(
+    config_env, monkeypatch, capsys
+):
+    preview = safety.create_preview(
+        {
+            "kind": "send",
+            "chat": "@gone",
+            "text": "hello",
+            "file": None,
+            "file_size": None,
+            "file_sha256": None,
+            "reply_to": None,
+            "topic": None,
+            "silent": False,
+            "random_id": 787,
+            "to": {"id": 7, "name": "Alice"},
+        }
+    )
+    client = UnknownChatClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 4
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "NOT_FOUND"
+    assert client.requests == []
+
+
 def test_send_commit_sends_raw_with_stored_random_id(config_env, monkeypatch, capsys):
     preview = safety.create_preview(
         {
@@ -324,6 +371,32 @@ def test_send_preview_records_format(config_env, monkeypatch, capsys):
     assert preview["format"] == "html"
     assert safety.begin_commit(preview["preview_id"])["format"] == "html"
     assert client.requests == []
+
+
+def test_send_preview_blocks_truncating_html(config_env, monkeypatch, capsys):
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+
+    assert (
+        main(
+            [
+                "send",
+                "@alice",
+                "if a<b then c",
+                "--format",
+                "html",
+                "--preview",
+                "--json",
+            ]
+        )
+        == 2
+    )
+
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "BLOCKED"
+    assert "unterminated html markup" in error["message"]
+    assert client.requests == []
+    assert list(safety.previews_dir().glob("*")) == []
 
 
 def test_send_commit_html_sends_entities(config_env, monkeypatch):
@@ -438,7 +511,7 @@ def test_send_commit_uploads_verified_snapshot_when_original_changes(
 
 @pytest.mark.parametrize("failure", ["upload", "request", "confirmation"])
 def test_send_commit_cleans_verified_snapshot_on_failure(
-    config_env, monkeypatch, tmp_path, failure
+    config_env, monkeypatch, tmp_path, capsys, failure
 ):
     document = tmp_path / "report.txt"
     document.write_bytes(b"file")
@@ -449,8 +522,8 @@ def test_send_commit_cleans_verified_snapshot_on_failure(
     if failure == "confirmation":
         assert main(["send", "--commit", preview["preview_id"]]) == 2
     else:
-        with pytest.raises(OSError, match=f"{failure} failed"):
-            main(["send", "--commit", preview["preview_id"]])
+        assert main(["send", "--commit", preview["preview_id"]]) == 1
+        assert capsys.readouterr().err == f"error: {failure} failed\n"
 
     assert client.snapshot_path != document
     assert client.uploaded_bytes == b"file"
@@ -562,8 +635,11 @@ def test_send_commit_is_retryable_after_network_failure(
     )
     make_session_fake(monkeypatch, FailingClient())
 
-    with pytest.raises(OSError, match="connection reset"):
-        main(["send", "--commit", preview["preview_id"], "--json"])
+    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["error"] == {
+        "code": "RUNTIME",
+        "message": "connection reset",
+    }
 
     working = SendClient()
     make_session_fake(monkeypatch, working)

@@ -1,13 +1,17 @@
 """Media download command helpers (Phase 3; Telethon-only)."""
 
+import errno
 import hashlib
 import json
 import os
 import re
+import shutil
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 from telethon import errors as telethon_errors, functions
+from telethon.tl import types
 
 from tgcli import atomic, chatref
 from tgcli.errors import (
@@ -80,7 +84,9 @@ def destination_for(name: str, requested: str | None) -> Path:
 async def _resolve_private_entity(tg, channel_id: int, account_alias: str):
     async for dialog in tg.iter_dialogs():
         entity = dialog.entity
-        if getattr(entity, "id", None) == channel_id:
+        # A t.me/c/ link names a channel: ids are only unique within a peer
+        # kind, so a user with the same number is a different peer.
+        if isinstance(entity, types.Channel) and entity.id == channel_id:
             try:
                 input_entity = await tg.get_input_entity(entity)
                 await tg(functions.channels.GetChannelsRequest([input_entity]))
@@ -142,7 +148,12 @@ def _message_size(message) -> int | None:
 
 
 def _write_state(
-    path: Path, source: MediaSource, destination: Path, offset: int
+    path: Path,
+    source: MediaSource,
+    destination: Path,
+    offset: int,
+    *,
+    resumable: bool = True,
 ) -> None:
     atomic.replace_text(
         path,
@@ -151,22 +162,66 @@ def _write_state(
                 "source": _source_label(source),
                 "destination": str(destination),
                 "offset": offset,
+                "resumable": resumable,
             }
         ),
     )
+
+
+def _publish(part_path: Path, destination: Path) -> None:
+    """Move a finished partial file onto its final path.
+
+    The rename is atomic while both live on one filesystem — the case worth
+    protecting. `--output` on another mount (the partial file sits under the
+    state root) makes `os.replace` raise EXDEV; then copy into a sibling temp
+    file and rename that inside the destination filesystem, so the final name
+    never points at a half-written file.
+    """
+    try:
+        os.replace(part_path, destination)
+        return
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+
+    mode = part_path.stat().st_mode & 0o777
+    fd, staged_name = tempfile.mkstemp(
+        prefix=f".{destination.name}-", suffix=".tmp", dir=destination.parent
+    )
+    os.close(fd)
+    staged = Path(staged_name)
+    try:
+        shutil.copyfile(part_path, staged)
+        os.chmod(staged, mode)
+        os.replace(staged, destination)
+    except BaseException:
+        staged.unlink(missing_ok=True)
+        raise
+    part_path.unlink(missing_ok=True)
 
 
 def _resume_offset(
     state_path: Path, part_path: Path, source: MediaSource, destination: Path
 ) -> int:
     if not state_path.exists():
-        if part_path.exists():
-            raise PolicyError(f"partial media download has no state: {part_path}")
+        # No state means no proven byte: discard the partial and start over
+        # rather than wedging every later run on an unresumable file.
+        part_path.unlink(missing_ok=True)
         return 0
     try:
         state = json.loads(state_path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PolicyError(f"media download state is invalid: {state_path}") from exc
+    if not isinstance(state, dict):
+        raise PolicyError(f"media download state is invalid: {state_path}")
+    if state.get("resumable") is False:
+        # A parallel transfer writes its stripes at scattered offsets, so no
+        # byte count describes what it already has: the state says so, and the
+        # partial file is worth nothing. Drop both and restart from zero
+        # instead of wedging the message on an unresumable leftover.
+        part_path.unlink(missing_ok=True)
+        state_path.unlink(missing_ok=True)
+        return 0
     if not part_path.exists():
         raise PolicyError(f"media download state has no partial file: {part_path}")
     offset = state.get("offset")
@@ -212,11 +267,13 @@ async def download_media(
             raise PolicyError(
                 "parallel media download cannot resume an interrupted transfer"
             )
+        _write_state(state_path, source, destination, 0, resumable=False)
         return await _download_parallel(
             tg,
             message,
             source,
             destination,
+            state_path,
             part_path,
             parallel,
             progress,
@@ -255,7 +312,7 @@ async def download_media(
         if progress and chunks_since_progress:
             progress(current, _message_size(message))
 
-    os.replace(part_path, destination)
+    _publish(part_path, destination)
     state_path.unlink(missing_ok=True)
     return {
         "source": _source_label(source),
@@ -271,6 +328,7 @@ async def _download_parallel(
     message,
     source: MediaSource,
     destination: Path,
+    state_path: Path,
     part_path: Path,
     parallel: int,
     progress,
@@ -289,7 +347,8 @@ async def _download_parallel(
         parallel=parallel,
         progress=progress,
     )
-    os.replace(part_path, destination)
+    _publish(part_path, destination)
+    state_path.unlink(missing_ok=True)
     return {
         "source": _source_label(source),
         "path": str(destination),
@@ -443,15 +502,14 @@ async def download_media_bulk(
             f"bulk media download finished with {len(failed)} failure(s)",
             data,
             cause=cause,
+            rows=bulk_to_rows(data),
         )
     return data
 
 
 def bulk_to_rows(data: dict) -> list[tuple]:
-    return [
-        (item["message_id"], item["path"], item["bytes"], item["resumed"])
-        for item in data["items"]
-    ]
+    """One frozen `media download` row per downloaded item (CONTRACT §5 TSV)."""
+    return [(item["path"], item["bytes"], item["resumed"], 1) for item in data["items"]]
 
 
 MEDIA_KINDS = ("photo", "video", "audio", "voice", "document")

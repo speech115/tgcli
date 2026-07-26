@@ -62,12 +62,12 @@ def message(message_id, text="тело", **overrides):
     return SimpleNamespace(**values)
 
 
-def seed_clone():
+def seed_clone(source_kind="broadcast"):
     clone_state = state.CloneState.new(
         account_user_id=42,
         source_peer_id=123,
         source_title="Source channel",
-        source_kind="broadcast",
+        source_kind=source_kind,
     )
     clone_state.destination_peer_id = 999
     state.save(clone_state)
@@ -75,6 +75,10 @@ def seed_clone():
 
 
 class RefreshClient:
+    # Telethon restores the logged-in account id from the session on connect,
+    # so a connected client knows it without a get_me RPC.
+    _self_id = 42
+
     def __init__(self, source_msgs, dest_msgs):
         self.source = channel(123, "Source channel")
         self.destination = channel(999, "Source channel", creator=True)
@@ -162,6 +166,60 @@ def test_clone_refresh_preview_exits_5_when_cooldown_active(
     assert main(["clone", "refresh", "@source", "--json"]) == 5
     assert client.requests == []
     assert "rate limited" in capsys.readouterr().err
+
+
+def test_clone_refresh_account_cooldown_exits_5_without_any_rpc(
+    config_env, monkeypatch, capsys
+):
+    """CONTRACT §11: exit 5 locally, no network. The account that selects the
+    cooldown record comes from the connected session, never from a get_me RPC.
+    """
+    seed_clone()
+    flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
+    src, dst = _eligible_pair()
+
+    class NoRpcClient(RefreshClient):
+        async def get_me(self):
+            raise AssertionError("get_me RPC issued while a cooldown is active")
+
+    client = NoRpcClient([src], [dst])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "refresh", "@source", "--json"]) == 5
+    assert client.requests == []
+    assert "rate limited" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        telethon_errors.ChannelPrivateError,
+        telethon_errors.ChannelInvalidError,
+        telethon_errors.ChatForbiddenError,
+    ],
+)
+def test_clone_refresh_unreachable_destination_exits_2(
+    config_env, monkeypatch, capsys, error
+):
+    """A destination the account can no longer open — deleted, left, banned —
+    is the documented policy failure, not a raw Telethon traceback."""
+    clone_state = seed_clone()
+    clone_state.record_mapping(54, 154)
+    state.save(clone_state)
+    src, dst = _eligible_pair()
+
+    class GoneDestinationClient(RefreshClient):
+        async def get_entity(self, ref):
+            if isinstance(ref, types.PeerChannel):
+                raise error(request=None)
+            return await super().get_entity(ref)
+
+    client = GoneDestinationClient([src], [dst])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "refresh", "@source", "--json"]) == 2
+    assert "clone destination is unavailable" in capsys.readouterr().err
+    assert client.requests == []
 
 
 def test_clone_refresh_preview_floodwait_arms_cooldown_exit_5(
@@ -612,6 +670,66 @@ def test_clone_refresh_commit_flood_arms_cooldown_exit_5(
     # First edit stayed applied — no rollback.
     assert client.dest_msgs[154].message == "Переслано от Имя\n\nтело"
     assert client.dest_msgs[169].message == "другое"
+
+
+def test_clone_refresh_commit_megagroup_keeps_sync_author_attribution(
+    config_env, monkeypatch, capsys
+):
+    """A non-broadcast clone renders author_of exactly like sync; the ADR-0050
+    forward lead is broadcast-only and must never reach a megagroup post."""
+    clone_state = seed_clone(source_kind="megagroup")
+    clone_state.record_mapping(54, 154)
+    state.save(clone_state)
+    src = message(54, "тело", fwd_from=_fwd(), post_author="Админ")
+    dst = message(154, "тело")
+    client = RefreshClient([src], [dst])
+    client.source = channel(123, "Source group", broadcast=False, megagroup=True)
+    make_session_fake(monkeypatch, client)
+    preview = safety.create_preview(
+        {
+            "kind": "clone-refresh",
+            "source": "@source",
+            "account_user_id": 42,
+            "source_peer_id": 123,
+            "eligible": [{"source_id": 54, "destination_id": 154}],
+        }
+    )
+
+    assert (
+        main(
+            ["clone", "refresh", "@source", "--commit", preview["preview_id"], "--json"]
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["refresh"]["edited"] == [{"source_id": 54, "destination_id": 154}]
+    assert len(client.requests) == 1
+    req = client.requests[0]
+    assert isinstance(req, functions.messages.EditMessageRequest)
+    assert "Переслано от" not in req.message
+    assert req.message == "Админ: \n\nтело"
+
+
+def test_clone_refresh_preview_album_deleted_lead_fails_closed(
+    config_env, monkeypatch, capsys
+):
+    """A deleted album lead must not promote the survivor onto the wrong live
+    post: the follower is excluded, not prefixed."""
+    clone_state = seed_clone()
+    clone_state.record_mapping(20, 200)
+    clone_state.record_mapping(21, 201)
+    state.save(clone_state)
+    follower = message(21, "тело", fwd_from=_fwd(), grouped_id=77)
+    dst = message(201, "тело")
+    client = RefreshClient([follower], [dst])  # lead 20 deleted at the source
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "refresh", "@source", "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["refresh"]["eligible"] == []
+    assert result["refresh"]["excluded"] == [
+        {"source_id": 21, "reason": "album-lead-unknown"}
+    ]
 
 
 def test_clone_refresh_after_flood_fresh_preview_lists_remaining(

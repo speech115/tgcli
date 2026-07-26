@@ -95,6 +95,10 @@ async def _peer_title(ctx: ResolveContext, peer, message) -> str | None:
                 hash=0,
             )
         )
+    except telethon_errors.FloodWaitError:
+        # An RPCError subclass meaning "ask again later", not "no title": caching
+        # that miss degrades every later quote and hides the wait (ADR-0045).
+        raise
     except (ValueError, TypeError, telethon_errors.RPCError):
         history = None
     title = None

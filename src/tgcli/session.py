@@ -17,6 +17,41 @@ def state_dir() -> Path:
     return Path(os.environ.get("TGCLI_STATE_DIR", "~/.local/state/tgcli")).expanduser()
 
 
+def _repair_mode(path: Path, mode: int) -> None:
+    """Fail-open chmod: permissions are protection, not a new failure mode."""
+    try:
+        if path.stat().st_mode & 0o777 != mode:
+            os.chmod(path, mode)
+    except OSError:
+        pass
+
+
+def ensure_state_dir(*parts: str) -> Path:
+    """Create and mode-repair the state root and each named level under it.
+
+    Everything under the state root is tgcli's property and guards account
+    secrets (a `.session` file is full access to a Telegram account), so
+    every level is forced to 0700. `mkdir(mode=...)` alone is not enough:
+    the mode applies only to the leaf, is masked by umask, and
+    `exist_ok=True` keeps a wrong mode on an existing directory.
+    Directories above the state root are never touched — a custom
+    TGCLI_STATE_DIR's parents are not ours.
+    """
+    path = state_dir()
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _repair_mode(path, 0o700)
+    for part in parts:
+        path = path / part
+        path.mkdir(mode=0o700, exist_ok=True)
+        _repair_mode(path, 0o700)
+    return path
+
+
+def restrict_file(path: Path) -> None:
+    """Force a tgcli state file to 0600, fail-open (missing file: no-op)."""
+    _repair_mode(path, 0o600)
+
+
 def session_path(account: Account) -> Path:
     return state_dir() / "sessions" / f"{account.session}.session"
 
@@ -81,7 +116,7 @@ def _make_client(
 @asynccontextmanager
 async def client(account: Account, *, mutation_safe: bool = False):
     path = session_path(account)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_state_dir("sessions")
     lock = open(path.with_suffix(".lock"), "w")
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -92,6 +127,9 @@ async def client(account: Account, *, mutation_safe: bool = False):
             "retry in a few seconds"
         ) from None
     tg = _make_client(path, account, mutation_safe=mutation_safe)
+    # Telethon creates the SQLite session during construction; tighten it
+    # before any network use.
+    restrict_file(path)
     try:
         await tg.connect()
         if not await tg.is_user_authorized():

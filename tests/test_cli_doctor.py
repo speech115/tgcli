@@ -38,6 +38,7 @@ def _touch_session(name):
     path = session.state_dir() / "sessions" / f"{name}.session"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"")
+    path.chmod(0o600)
 
 
 def _fake_client(monkeypatch):

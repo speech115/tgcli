@@ -1,13 +1,19 @@
+import errno
 import json
+import os
+import shutil
 from pathlib import Path
 
 import pytest
 from telethon import errors as telethon_errors
+from telethon.tl import types
 
+from tgcli.commands import media
 from tgcli.commands.media import (
     MediaSource,
     _resume_offset,
     _source_label,
+    _state_paths,
     destination_for,
     download_media,
     parse_source,
@@ -15,6 +21,21 @@ from tgcli.commands.media import (
     safe_filename,
 )
 from tgcli.errors import NotFoundError, PolicyError
+
+
+def make_channel(channel_id: int) -> types.Channel:
+    return types.Channel(
+        id=channel_id,
+        title="Chan",
+        photo=None,
+        date=None,
+        broadcast=True,
+        access_hash=0,
+    )
+
+
+def make_user(user_id: int) -> types.User:
+    return types.User(id=user_id, first_name="Same Id", access_hash=0)
 
 
 def test_parse_source_accepts_public_link():
@@ -207,6 +228,159 @@ async def test_parallel_download_refuses_resuming_partial_transfer(tmp_path):
         )
 
 
+def _cross_filesystem_publish(monkeypatch) -> list[tuple[Path, Path]]:
+    """Make every `.part` rename look like a cross-filesystem move (EXDEV)."""
+    real_replace = os.replace
+    renames: list[tuple[Path, Path]] = []
+
+    def fake_replace(src, dst, **kwargs):
+        renames.append((Path(src), Path(dst)))
+        if str(src).endswith(".part"):
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        return real_replace(src, dst, **kwargs)
+
+    monkeypatch.setattr(os, "replace", fake_replace)
+    return renames
+
+
+async def test_download_publishes_onto_another_filesystem(tmp_path, monkeypatch):
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "external" / "out.bin"
+    fake = FakeDownloadTelegram([b"abc", b"def"])
+    _cross_filesystem_publish(monkeypatch)
+
+    result = await download_media(fake, source, "main", output=str(target))
+
+    assert target.read_bytes() == b"abcdef"
+    assert result["bytes"] == 6
+    # No half-written leftover under the final name and no orphaned partial.
+    assert list(target.parent.iterdir()) == [target]
+    state_path, part_path = _state_paths(source)
+    assert not part_path.exists()
+    assert not state_path.exists()
+
+
+async def test_parallel_download_publishes_onto_another_filesystem(
+    tmp_path, monkeypatch
+):
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "external" / "out.bin"
+    _cross_filesystem_publish(monkeypatch)
+
+    result = await download_media(
+        FakeParallelTelegram(), source, "main", output=str(target), parallel=2
+    )
+
+    assert target.read_bytes() == b"A" * (512 * 1024) + b"B" * (512 * 1024)
+    assert result["bytes"] == 2 * 512 * 1024
+    assert list(target.parent.iterdir()) == [target]
+    state_path, part_path = _state_paths(source)
+    assert not part_path.exists()
+    assert not state_path.exists()
+
+
+async def test_download_publishes_with_a_rename_on_one_filesystem(
+    tmp_path, monkeypatch
+):
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "out.bin"
+    fake = FakeDownloadTelegram([b"abcdef"])
+    real_replace = os.replace
+    renames: list[tuple[Path, Path]] = []
+
+    def spy(src, dst, **kwargs):
+        renames.append((Path(src), Path(dst)))
+        return real_replace(src, dst, **kwargs)
+
+    def no_copy(*args, **kwargs):
+        raise AssertionError("same-filesystem publish must stay an atomic rename")
+
+    monkeypatch.setattr(os, "replace", spy)
+    monkeypatch.setattr(shutil, "copyfile", no_copy)
+
+    await download_media(fake, source, "main", output=str(target))
+
+    _, part_path = _state_paths(source)
+    assert (part_path, target) in renames
+    assert target.read_bytes() == b"abcdef"
+
+
+async def test_parallel_download_records_a_non_resumable_transfer(
+    tmp_path, monkeypatch
+):
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "out.bin"
+    state_path, _ = _state_paths(source)
+    in_flight: list[str] = []
+    real_striped = media.download_striped
+
+    async def spy(*args, **kwargs):
+        if state_path.exists():
+            in_flight.append(state_path.read_text())
+        return await real_striped(*args, **kwargs)
+
+    monkeypatch.setattr(media, "download_striped", spy)
+
+    await download_media(
+        FakeParallelTelegram(), source, "main", output=str(target), parallel=2
+    )
+
+    assert [json.loads(text) for text in in_flight] == [
+        {
+            "source": "@channel:42",
+            "destination": str(target),
+            "offset": 0,
+            "resumable": False,
+        }
+    ]
+    assert not state_path.exists()
+
+
+def _killed_parallel_transfer(source: MediaSource, destination: Path) -> Path:
+    """Leave what a signal-killed parallel transfer leaves behind."""
+    state_path, part_path = _state_paths(source)
+    part_path.parent.mkdir(parents=True, exist_ok=True)
+    part_path.write_bytes(b"scattered stripes")
+    state_path.write_text(
+        json.dumps(
+            {
+                "source": _source_label(source),
+                "destination": str(destination),
+                "offset": 0,
+                "resumable": False,
+            }
+        )
+    )
+    return part_path
+
+
+async def test_parallel_download_restarts_after_a_killed_transfer(tmp_path):
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "out.bin"
+    part_path = _killed_parallel_transfer(source, target)
+
+    result = await download_media(
+        FakeParallelTelegram(), source, "main", output=str(target), parallel=2
+    )
+
+    assert target.read_bytes() == b"A" * (512 * 1024) + b"B" * (512 * 1024)
+    assert result["resumed"] is False
+    assert not part_path.exists()
+
+
+async def test_download_restarts_after_a_killed_parallel_transfer(tmp_path):
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "out.bin"
+    _killed_parallel_transfer(source, target)
+
+    result = await download_media(
+        FakeDownloadTelegram([b"abcdef"]), source, "main", output=str(target)
+    )
+
+    assert target.read_bytes() == b"abcdef"
+    assert result["resumed"] is False
+
+
 def test_resume_offset_raises_policy_error_when_part_file_missing(tmp_path):
     source = MediaSource("@channel", 42, None)
     destination = tmp_path / "out.bin"
@@ -223,6 +397,32 @@ def test_resume_offset_raises_policy_error_when_part_file_missing(tmp_path):
     )
 
     with pytest.raises(PolicyError, match="no partial file"):
+        _resume_offset(state_path, part_path, source, destination)
+
+
+@pytest.mark.parametrize("payload", ["[]", '"x"', "42", "null", "true"])
+def test_resume_offset_rejects_non_dict_state(tmp_path, payload):
+    """Same shape guard as clone state: a valid-JSON non-object is corrupt."""
+    source = MediaSource("@channel", 42, None)
+    destination = tmp_path / "out.bin"
+    state_path = tmp_path / "state.json"
+    part_path = tmp_path / "out.part"
+    part_path.write_bytes(b"partial")
+    state_path.write_text(payload)
+
+    with pytest.raises(PolicyError, match="state is invalid"):
+        _resume_offset(state_path, part_path, source, destination)
+
+
+def test_resume_offset_rejects_truncated_utf8_state(tmp_path):
+    source = MediaSource("@channel", 42, None)
+    destination = tmp_path / "out.bin"
+    state_path = tmp_path / "state.json"
+    part_path = tmp_path / "out.part"
+    part_path.write_bytes(b"partial")
+    state_path.write_bytes(b'{"offset": 1, "source": "\xd0')
+
+    with pytest.raises(PolicyError, match="state is invalid"):
         _resume_offset(state_path, part_path, source, destination)
 
 
@@ -248,6 +448,34 @@ def test_resume_offset_discards_uncheckpointed_bytes(tmp_path):
     assert part_path.read_bytes() == b"checkpointed"
 
 
+async def test_download_restarts_when_partial_has_no_state(tmp_path):
+    """A partial nobody checkpointed proves nothing: start over, never wedge."""
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "out.bin"
+    state_path, part_path = _state_paths(source)
+    part_path.parent.mkdir(parents=True, exist_ok=True)
+    part_path.write_bytes(b"unproven")
+
+    result = await download_media(
+        FakeDownloadTelegram([b"fresh"]), source, "main", output=str(target)
+    )
+
+    assert target.read_bytes() == b"fresh"
+    assert result["resumed"] is False
+    assert not part_path.exists()
+    assert not state_path.exists()
+
+
+def test_resume_offset_restarts_when_state_is_missing(tmp_path):
+    source = MediaSource("@channel", 42, None)
+    destination = tmp_path / "out.bin"
+    part_path = tmp_path / "out.part"
+    part_path.write_bytes(b"unproven")
+
+    assert _resume_offset(tmp_path / "state.json", part_path, source, destination) == 0
+    assert not part_path.exists()
+
+
 async def test_resolve_message_uses_public_chat_reference():
     entity = type("Entity", (), {"id": 12})()
     message = type("Message", (), {"id": 42, "media": object()})()
@@ -268,7 +496,7 @@ async def test_resolve_message_uses_public_chat_reference():
 
 
 async def test_private_link_scans_dialogs_and_validates_channel():
-    entity = type("Entity", (), {"id": 3817664407})()
+    entity = make_channel(3817664407)
     message = type("Message", (), {"id": 878, "media": object()})()
 
     class FakeTelegram:
@@ -302,8 +530,25 @@ async def test_private_link_without_dialog_names_account():
         await resolve_message(FakeTelegram(), MediaSource(None, 8, 7), "main")
 
 
+async def test_private_link_ignores_a_user_with_the_same_id():
+    """t.me/c/<id> names a channel; a user whose id collides is not that peer."""
+    entity = make_user(3817664407)
+
+    class FakeTelegram:
+        async def iter_dialogs(self):
+            yield type("Dialog", (), {"entity": entity})()
+
+        async def get_input_entity(self, requested_entity):
+            raise AssertionError("a user must never be validated as a channel")
+
+    with pytest.raises(NotFoundError, match="account 'main' lacks access"):
+        await resolve_message(
+            FakeTelegram(), MediaSource(None, 878, 3817664407), "main"
+        )
+
+
 async def test_private_link_channel_validation_names_account_on_denial():
-    entity = type("Entity", (), {"id": 7})()
+    entity = make_channel(7)
 
     class FakeTelegram:
         async def iter_dialogs(self):

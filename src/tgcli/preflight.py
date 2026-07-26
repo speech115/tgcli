@@ -9,12 +9,13 @@ mistakes, `TgcliError` for policy ones. No network, no config.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from datetime import datetime
 
 from tgcli import read_ops, safety
 from tgcli.commands import api as api_cmd, batch as batch_cmd, dialog as dialog_cmd
-from tgcli.errors import PolicyError
+from tgcli.errors import ConfigError, PolicyError
 
 MUTATION_POSITIONALS = {
     "edit": ("chat", "message_id", "text"),
@@ -108,8 +109,8 @@ def _prepare_login(args) -> None:
                 raise PolicyError(f"accounts login --continue rejects {flag}")
         if getattr(args, "force", False):
             raise PolicyError("accounts login --continue rejects --force")
-        if getattr(args, "timeout", None) is not None:
-            raise PolicyError("accounts login --continue rejects --timeout")
+        # --timeout is a CONTRACT §1 global flag and is honoured as the whole
+        # invocation's deadline; --qr-format only shapes the start path's QR.
         if hasattr(args, "qr_format"):
             raise PolicyError("accounts login --continue rejects --qr-format")
         return
@@ -240,3 +241,11 @@ def _prepare_api(parser: argparse.ArgumentParser, args) -> None:
         args.method = canonical
     if args.params is None:
         parser.error("the following arguments are required: --params")
+    # A JSON typo is a purely local mistake: catch it here rather than after
+    # config loading and a session open (the request builder re-checks).
+    try:
+        params = json.loads(args.params)
+    except json.JSONDecodeError as exc:
+        raise ConfigError("raw API params must be valid JSON") from exc
+    if not isinstance(params, dict):
+        raise ConfigError("raw API params must be a JSON object")

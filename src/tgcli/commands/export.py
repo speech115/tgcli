@@ -93,7 +93,7 @@ def _resume_after_id(destination: Path) -> int:
         raise ExportError(f"cannot resume: missing export file {destination}")
     try:
         text = destination.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise ExportError(f"cannot resume: cannot read {destination}: {exc}") from exc
     lines = [line for line in text.splitlines() if line.strip()]
     if not lines:
@@ -185,7 +185,10 @@ def _subscriber_to_row(subscriber) -> dict:
 
 def _csv_cell(value: str | None) -> str:
     value = value or ""
-    return f"'{value}" if value.startswith(("=", "+", "-", "@")) else value
+    # Spreadsheet importers drop leading whitespace, so a cell led by a tab, a
+    # carriage return, or a space still reaches the parser as a formula (the
+    # documented OWASP DDE bypass). Classify by the first non-blank character.
+    return f"'{value}" if value.lstrip().startswith(("=", "+", "-", "@")) else value
 
 
 async def _channel_member_total(tg, entity) -> int | None:

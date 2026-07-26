@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import UTC, datetime, timedelta
 from unittest.mock import ANY
 
@@ -165,3 +166,68 @@ def test_audit_write_error_is_a_policy_block(monkeypatch, tmp_path):
 
     with pytest.raises(PolicyError, match="cannot write audit record"):
         safety.append_audit("send", "main", {"preview_id": "p_test"})
+
+
+def test_append_audit_creates_0600_file_in_0700_state_root(wide_umask):
+    safety.append_audit("send", "main", {"preview_id": "p_test"})
+
+    path = safety.audit_path()
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert path.parent.stat().st_mode & 0o777 == 0o700
+
+
+def test_append_audit_repairs_a_loose_existing_file(wide_umask):
+    path = safety.audit_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+    os.chmod(path, 0o666)
+
+    safety.append_audit("send", "main", {"preview_id": "p_test"})
+
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert len(path.read_text().splitlines()) == 1
+
+
+def test_append_audit_chmod_failure_is_fail_open(monkeypatch):
+    """Permission repair is protection, not a new failure mode."""
+
+    def deny(path, mode, *args, **kwargs):
+        raise PermissionError("chmod denied")
+
+    monkeypatch.setattr("tgcli.session.os.chmod", deny)
+
+    safety.append_audit("send", "main", {"preview_id": "p_test"})
+
+    assert len(safety.audit_path().read_text().splitlines()) == 1
+
+
+def test_create_preview_directory_is_0700_under_wide_umask(wide_umask):
+    safety.create_preview({"chat": "@alice", "text": "hello"})
+
+    assert safety.previews_dir().stat().st_mode & 0o777 == 0o700
+
+
+def test_consume_preview_rejects_a_naive_expiry(tmp_path, monkeypatch):
+    """A hand-edited or older-build record must not crash the commit path
+    with a naive-vs-aware TypeError."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    directory = safety.previews_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "p_naive.json").write_text(
+        json.dumps({"payload": {"kind": "send"}, "expires_at": "2026-07-26T12:00:00"})
+    )
+
+    with pytest.raises(PolicyError):
+        safety.consume_preview("p_naive")
+
+
+def test_begin_commit_rejects_a_naive_expiry(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    directory = safety.previews_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "p_naive2.json").write_text(
+        json.dumps({"payload": {"kind": "send"}, "expires_at": "2026-07-26T12:00:00"})
+    )
+
+    with pytest.raises(PolicyError):
+        safety.begin_commit("p_naive2")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 
 import pytest
 from telethon import errors as telethon_errors
@@ -65,6 +66,97 @@ async def test_download_striped_single_chunk_uses_one_worker(tmp_path):
     assert tg.calls[0]["offset"] == 0
     assert tg.calls[0]["stride"] == transfer.CHUNK_SIZE
     assert destination.read_bytes() == b"A" * transfer.CHUNK_SIZE
+
+
+def _positional_body(size: int) -> bytes:
+    """Bytes whose value depends on their own offset in the file.
+
+    A stripe written at the wrong offset then changes content without changing
+    length — the corruption an assertion on file size alone would never see.
+    """
+    body = bytearray()
+    while len(body) < size:
+        body += hashlib.sha256(f"tgcli-stripe:{len(body)}".encode()).digest()
+    return bytes(body[:size])
+
+
+class FakeBodyTelegram:
+    """``iter_download`` over a real body, mirroring ``_DirectDownloadIter``.
+
+    Telethon yields the chunk at ``offset``, then advances by ``stride``, and
+    stops after the first chunk shorter than ``request_size`` — including the
+    empty chunk a worker gets when its next stripe starts past end of file.
+    """
+
+    def __init__(self, body: bytes):
+        self.body = body
+        self.calls: list[dict] = []
+
+    async def iter_download(self, media, *, offset=0, request_size=None, stride=None):
+        self.calls.append(
+            {"offset": offset, "request_size": request_size, "stride": stride}
+        )
+        position = offset
+        while True:
+            await asyncio.sleep(0)  # let sibling stripes interleave
+            chunk = self.body[position : position + request_size]
+            yield chunk
+            if len(chunk) < request_size:
+                return
+            position += stride
+
+
+_STRIPE_BODIES = {
+    "whole-multiple": 4 * transfer.CHUNK_SIZE,
+    "short-last-chunk": 3 * transfer.CHUNK_SIZE + 4321,
+    "one-byte-tail": 5 * transfer.CHUNK_SIZE + 1,
+    "below-one-chunk": transfer.CHUNK_SIZE // 3,
+}
+
+
+@pytest.mark.parametrize("label", sorted(_STRIPE_BODIES))
+@pytest.mark.parametrize("parallel", [1, 2, 4])
+@pytest.mark.asyncio
+async def test_download_striped_reassembles_the_body_byte_for_byte(
+    tmp_path, parallel, label
+):
+    """Stride/offset arithmetic must rebuild the source exactly, not just its size."""
+    size = _STRIPE_BODIES[label]
+    body = _positional_body(size)
+    tg = FakeBodyTelegram(body)
+    destination = tmp_path / f"{label}-{parallel}.bin"
+
+    await transfer.download_striped(
+        tg, media=object(), destination=destination, size=size, parallel=parallel
+    )
+
+    written = destination.read_bytes()
+    assert len(written) == size
+    assert written == body
+
+
+@pytest.mark.asyncio
+async def test_download_striped_stripes_cover_every_chunk_exactly_once(tmp_path):
+    """The stripes a worker walks must tile the file: no gap, no overlap."""
+    size = 5 * transfer.CHUNK_SIZE + 1  # last stripe short, two stripes past EOF
+    tg = FakeBodyTelegram(_positional_body(size))
+
+    await transfer.download_striped(
+        tg,
+        media=object(),
+        destination=tmp_path / "out.bin",
+        size=size,
+        parallel=4,
+    )
+
+    assert {call["request_size"] for call in tg.calls} == {transfer.CHUNK_SIZE}
+    assert {call["stride"] for call in tg.calls} == {4 * transfer.CHUNK_SIZE}
+    covered = sorted(
+        position
+        for call in tg.calls
+        for position in range(call["offset"], size, call["stride"])
+    )
+    assert covered == [index * transfer.CHUNK_SIZE for index in range(6)]
 
 
 @pytest.mark.asyncio

@@ -96,7 +96,7 @@ def _results_from_updates(updates) -> types.PollResults | None:
 
 
 class _RetractFailed(Exception):
-    """Internal: retract failed with a non-FloodWait error after warning."""
+    """Internal: the retract failed after warning; the vote stands (ADR-0048)."""
 
 
 async def _capture_breakdown(
@@ -128,16 +128,28 @@ async def _capture_breakdown(
     )
 
     async def retract_vote() -> None:
+        # A FloodWait is not special here: propagating it would kill the run
+        # before the poll_votes tail and leave the vote standing silently
+        # (ADR-0048 decisions 2/4). The cooldown is already armed by the
+        # caller's _with_cooldown, so nothing is lost by disclosing instead.
         try:
             await invoke(lambda: tg(retract))
-        except telethon_errors.FloodWaitError:
-            raise
         except (telethon_errors.RPCError, OSError) as exc:
+            safety.append_audit(
+                "clone-sync-poll-retract-result",
+                account_alias,
+                {"message_id": message.id, "status": "failed", "error": str(exc)},
+            )
             note(
                 f"warning: clone poll vote retract failed for message "
                 f"{message.id}: {exc}"
             )
             raise _RetractFailed(exc) from exc
+        safety.append_audit(
+            "clone-sync-poll-retract-result",
+            account_alias,
+            {"message_id": message.id, "status": "retracted"},
+        )
 
     results = _results_from_updates(updates)
     if results is None or not _breakdown_available(results):
@@ -223,6 +235,10 @@ async def render(
     )
     try:
         peer_entity = await tg.get_entity(media.peer)
+    except telethon_errors.FloodWaitError:
+        # A flood is a live rate limit, not a missing label: swallowing it
+        # here would hide it from the ADR-0045 cooldown and report success.
+        raise
     except (ValueError, telethon_errors.RPCError):
         # Same refusal shape as attribution._resolve: a private/deleted peer
         # is a missing author label, never a failed sync.

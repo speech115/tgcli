@@ -22,7 +22,8 @@ tg --json doctor --account main
 
 By default `doctor` never opens a Telegram client. It only checks local
 state: config/session file presence, lock freeness, state directory
-writability, preview and audit file permissions, and total state size.
+writability, preview, audit, and session file permissions, and total state
+size.
 `checks.authorized` is `null` — unknown, not `false` — because it was never
 probed.
 
@@ -56,8 +57,9 @@ than raising.
 | `session_file` | session file exists for this account | run `tg accounts import` or sign in |
 | `lock_free` | no other `tg` process holds this session's lock | wait for the other process to exit, or check for a stale lock |
 | `state_writable` | the preview-state directory accepts writes | check permissions/ownership of `~/.local/state/tgcli/` |
-| `preview_perms_ok` | no preview file is readable by other users | `tg store cleanup --confirm` (doctor also prints this hint to stderr) |
-| `audit_perms_ok` | `audit.jsonl` is not readable by other users | `chmod 0600 ~/.local/state/tgcli/audit.jsonl` |
+| `preview_perms_ok` | no preview file is readable by the group or other users | `tg store cleanup --confirm` (doctor also prints this hint to stderr) |
+| `audit_perms_ok` | `audit.jsonl` is not readable by the group or other users | `chmod 0600 ~/.local/state/tgcli/audit.jsonl` |
+| `session_perms_ok` | this account's `.session` file (and `.session.bak`, when present) are not readable by the group or other users; missing files pass | `chmod 0600 ~/.local/state/tgcli/sessions/NAME.session*` |
 | `state_size` | total bytes under the state root (informational, not pass/fail) | inspect with `tg store stats` if unexpectedly large |
 | `authorized` | (only under `--connect`) the session is live and accepted by Telegram | re-authenticate the account |
 
@@ -69,7 +71,8 @@ with `--connect`, `ok` additionally requires `authorized: true`.
 ```json
 {"accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
 "checks":{"session_file":true,"lock_free":true,"state_writable":true,
-"preview_perms_ok":true,"audit_perms_ok":true,"state_size":4096,"authorized":null},
+"preview_perms_ok":true,"audit_perms_ok":true,"session_perms_ok":true,
+"state_size":4096,"authorized":null},
 "user":null,"ok":true}],"ok":true}
 ```
 

@@ -6,6 +6,18 @@ from telethon.tl import functions, types
 from tgcli.clone import topics
 from tgcli.errors import PolicyError
 
+# A peer id recorded in clone state can stop resolving for more reasons than a
+# missing access hash: the account may have been removed from the channel, the
+# channel deleted, or the account banned. Every recorded-destination lookup
+# maps the whole set to a PolicyError, so none of them reaches the user as a
+# raw Telethon traceback (CONTRACT §11).
+PEER_UNAVAILABLE = (
+    ValueError,
+    telethon_errors.ChannelPrivateError,
+    telethon_errors.ChannelInvalidError,
+    telethon_errors.ChatForbiddenError,
+)
+
 
 def linked_chat_id(full_channel) -> int | None:
     """ChannelFull.linked_chat_id only. linked_monoforum_id is a monoforum,
@@ -67,7 +79,7 @@ async def adopt(tg, mutate, marker_candidates, marker, recorded_peer_id, on_crea
     if recorded_peer_id is not None:
         try:
             return await tg.get_entity(types.PeerChannel(recorded_peer_id))
-        except ValueError:
+        except PEER_UNAVAILABLE:
             raise PolicyError("clone discussion group is unavailable") from None
     valid, wrong_shape = await marker_candidates(marker, is_discussion_destination)
     if len(valid) + len(wrong_shape) > 1:

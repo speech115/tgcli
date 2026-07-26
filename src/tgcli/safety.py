@@ -8,7 +8,7 @@ from pathlib import Path
 
 from tgcli import atomic
 from tgcli.errors import PolicyError
-from tgcli.session import state_dir
+from tgcli.session import ensure_state_dir, restrict_file, state_dir
 
 PREVIEW_TTL = timedelta(minutes=5)
 
@@ -44,8 +44,7 @@ def create_preview(payload: dict, *, now: datetime | None = None) -> dict:
     preview_id = f"p_{secrets.token_urlsafe(16)}"
     expires_at = now + PREVIEW_TTL
     record = {"payload": payload, "expires_at": expires_at.isoformat()}
-    directory = previews_dir()
-    directory.mkdir(parents=True, exist_ok=True)
+    directory = ensure_state_dir("previews")
     path = directory / f"{preview_id}.json"
     atomic.replace_text(path, json.dumps(record))
     return {"preview_id": preview_id, "expires_at": record["expires_at"], **payload}
@@ -63,9 +62,26 @@ def consume_preview(preview_id: str, *, now: datetime | None = None) -> dict:
     except FileNotFoundError:
         raise PolicyError("preview is already used or does not exist") from None
     now = now or datetime.now(UTC)
-    if now >= datetime.fromisoformat(record["expires_at"]):
+    if now >= _expires_at(record):
         raise PolicyError("preview has expired")
     return record["payload"]
+
+
+def _expires_at(record: dict) -> datetime:
+    """The record's deadline, or a PolicyError.
+
+    A naive or unparseable stamp (hand edit, older build) must not reach a
+    comparison against an aware `now`: a preview whose expiry cannot be
+    established is treated as unusable, never as a TypeError crash on the
+    commit path.
+    """
+    try:
+        expires = datetime.fromisoformat(record["expires_at"])
+    except (KeyError, TypeError, ValueError):
+        raise PolicyError("preview is already used or does not exist") from None
+    if expires.tzinfo is None or expires.utcoffset() is None:
+        raise PolicyError("preview is already used or does not exist")
+    return expires
 
 
 def _validate_preview_kind(payload: dict, expected_kind: str | None) -> None:
@@ -107,7 +123,7 @@ def begin_commit(
         raise PolicyError("preview is already used or does not exist") from None
     _validate_preview_kind(record["payload"], expected_kind)
     now = now or datetime.now(UTC)
-    if now >= datetime.fromisoformat(record["expires_at"]):
+    if now >= _expires_at(record):
         raise PolicyError("preview has expired")
     os.chmod(pending, 0o600)
     return record["payload"]
@@ -134,8 +150,9 @@ def append_audit(action: str, account: str, details: dict) -> None:
     }
     path = audit_path()
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_state_dir()
         with path.open("a") as handle:
+            restrict_file(path)
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
     except OSError as exc:
         raise PolicyError(f"cannot write audit record: {exc}") from exc

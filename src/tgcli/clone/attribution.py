@@ -96,6 +96,11 @@ def _identify(entity, sender_id) -> Author:
     return Author(text=name)
 
 
+def _names_itself(source) -> bool:
+    """A source whose own title is the author when Telegram omits the sender."""
+    return isinstance(source, types.Chat) or bool(getattr(source, "megagroup", False))
+
+
 async def author_of(tg, source, message, me, cache: dict, cooldown) -> Author:
     peer = getattr(message, "from_id", None)
     if (
@@ -109,11 +114,15 @@ async def author_of(tg, source, message, me, cache: dict, cooldown) -> Author:
         entity = source
     elif peer is None:
         signature = getattr(message, "post_author", None)
-        return (
-            Author(text=signature)
-            if isinstance(signature, str) and signature
-            else _identify(None, getattr(message, "sender_id", None))
-        )
+        if isinstance(signature, str) and signature:
+            return Author(text=signature)
+        # An anonymous admin posting as the group ships neither `from_id` nor
+        # `post_author`; clients label it with the group's own title, so name
+        # the ambient chat rather than "id unknown" (issue #81). A broadcast
+        # source has no such chat and keeps the bare fallback.
+        if not _names_itself(source):
+            return _identify(None, getattr(message, "sender_id", None))
+        entity = source
     else:
         entity = await _resolve(tg, peer, cache, cooldown)
     return _identify(entity, getattr(message, "sender_id", None))

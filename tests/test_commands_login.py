@@ -330,6 +330,48 @@ async def test_qr_recreate_on_token_expiry(env, fake_client):
 
 
 @pytest.mark.asyncio
+async def test_qr_refresh_is_rate_limited_when_clock_runs_ahead(
+    env, fake_client, monkeypatch
+):
+    """A host clock ahead of Telegram judges every token expired on arrival."""
+    clock = {"t": 0.0}
+    monkeypatch.setattr(
+        login_cmd, "time", SimpleNamespace(monotonic=lambda: clock["t"])
+    )
+    qr = fake_client.qr
+
+    def stale_expires() -> None:
+        qr.expires = datetime.now(UTC) - timedelta(seconds=30)
+
+    async def expired_wait(timeout=None):
+        qr.wait_calls += 1
+        assert timeout is not None
+        clock["t"] += timeout
+        raise TimeoutError
+
+    qr._refresh_expires = stale_expires
+    qr.wait = expired_wait
+    stale_expires()
+
+    with pytest.raises(login_cmd.LoginTimeoutError):
+        await login_cmd.start_login(
+            load_config(),
+            "tmp",
+            phone=None,
+            api_id=1,
+            api_hash="h",
+            force=False,
+            timeout=120,
+            qr_format="link",
+            password_stdin=False,
+        )
+
+    # At most one exportLoginToken (and one desktop open) per 5s of the window.
+    assert qr.recreate_calls <= 24
+    assert qr.wait_calls == qr.recreate_calls + 1
+
+
+@pytest.mark.asyncio
 async def test_qr_format_text_skips_open_url(env, fake_client, monkeypatch, capsys):
     opened = []
     monkeypatch.setattr(desktop, "open_url", lambda url: opened.append(url) or True)
@@ -796,19 +838,22 @@ async def test_continue_qr_without_password_step_rejects(env, fake_client):
     assert fake_client.sign_in_calls == []
 
 
-def test_continue_rejects_timeout(env, capsys):
+def test_continue_accepts_the_global_timeout_flag(env, capsys):
+    """CONTRACT §1: --timeout is global; §10 lists no conflict with --continue."""
     code = main(
         [
             "accounts",
             "login",
             "--continue",
-            "l_abc",
+            "l_missing",
             "--timeout",
             "30",
             "--json",
         ]
     )
-    assert code == 2
+    assert code == 4
+    error = json.loads(capsys.readouterr().err)["error"]
+    assert error["code"] == "NOT_FOUND"
 
 
 def test_continue_without_timeout_reaches_attempt_lookup(env, capsys):

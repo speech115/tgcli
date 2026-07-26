@@ -30,6 +30,12 @@ class RateLimitError(TgcliError):
     code = "FLOOD_WAIT"
 
 
+class CommandTimeoutError(TgcliError):
+    """The `--timeout` deadline expired; same taxonomy code as a login timeout."""
+
+    code = "TIMEOUT"
+
+
 class ExportError(TgcliError):
     code = "RUNTIME"
 

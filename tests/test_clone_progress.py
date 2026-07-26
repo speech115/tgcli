@@ -171,3 +171,15 @@ def _message(message_id: int, *, name: str | None = None):
             self.file = None if name is None else _File(name)
 
     return _Message()
+
+
+def test_transfer_line_strips_control_characters_from_the_filename():
+    """A Telegram filename must not smuggle \\r or ESC into a plain line."""
+    lines, write = collector()
+    reporter = progress.SyncProgress(123, total=None, write=write)
+
+    reporter.transfer("cl\x1bip\r.m\x08p4\nx", "download")(5 * progress.MEGABYTE, None)
+
+    assert lines == ["[sync 123] 0/~? · reupload · clip.mp4x · download 5.0 MB"]
+    assert not ANSI.search(lines[0])
+    assert not any(ch in lines[0] for ch in "\x1b\r\n\x08\t")

@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from tgcli.clone import state
 
 
@@ -84,6 +86,59 @@ def test_status_filters_by_source_id(capsys):
     assert [c["source"]["title"] for c in payload["clones"]] == ["Beta"]
 
 
+def test_status_filters_by_marked_channel_source_id(capsys):
+    """CONTRACT-shaped JSON hands out -100 ids; status must accept that form."""
+    _seed(100000001, 3890108644, "Alpha")
+    _seed(100000001, 333, "Beta")
+
+    code, out = _run(capsys, ["clone", "status", "-1003890108644", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    assert [c["source"]["title"] for c in payload["clones"]] == ["Alpha"]
+
+
+def test_status_filters_by_raw_source_id(capsys):
+    _seed(100000001, 3890108644, "Alpha")
+    _seed(100000001, 333, "Beta")
+
+    code, out = _run(capsys, ["clone", "status", "3890108644", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    assert [c["source"]["title"] for c in payload["clones"]] == ["Alpha"]
+
+
+def test_status_filter_survives_digit_shaped_non_integers():
+    """`--123` and superscript digits pass isdigit() but are not int()-able."""
+    from tgcli.commands import clone as clone_cmd
+
+    _seed(100000001, 111, "Alpha")
+
+    assert clone_cmd.list_clones("--123") == {"clones": []}
+    assert clone_cmd.list_clones("²³") == {"clones": []}
+
+
+def test_status_filter_keeps_int_shaped_titles_on_the_substring_path():
+    """int() accepts `+123`, `1_000`, and padding; isdigit() is the gate, so
+    those keep searching titles instead of silently matching nothing."""
+    from tgcli.commands import clone as clone_cmd
+
+    _seed(100000001, 123, "Channel_1_000_subs backup")
+
+    assert clone_cmd.list_clones("1_000")["clones"] != []
+    assert clone_cmd.list_clones("+123")["clones"] == []
+    assert clone_cmd.list_clones(" 123 ")["clones"] == []
+
+
+def test_status_filters_by_title_substring(capsys):
+    _seed(100000001, 111, "Alpha")
+    _seed(100000001, 333, "Beta")
+
+    code, out = _run(capsys, ["clone", "status", "lph", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    assert [c["source"]["title"] for c in payload["clones"]] == ["Alpha"]
+
+
 def test_status_plain_output(capsys):
     _seed(100000001, 111, "Alpha", kind="megagroup", dest=222, cursor=5)
 
@@ -150,6 +205,20 @@ def test_status_marks_corrupt_state_instead_of_crashing(capsys):
     assert payload["clones"][0]["unreadable"] is True
 
 
+@pytest.mark.parametrize("payload", [[], "x", 42, None, True])
+def test_status_marks_non_dict_state_instead_of_crashing(capsys, payload):
+    _seed(100000001, 111, "Alpha", dest=222)
+    broken = "e" * 64
+    _write_raw(broken, payload)
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+    assert code == 0
+    listed = json.loads(out)["clones"]
+    by_id = {c["clone_id"]: c for c in listed}
+    assert by_id[broken]["unreadable"] is True
+    assert "Alpha" in {c["source"]["title"] for c in listed}
+
+
 def test_status_plain_output_flags_unreadable(capsys):
     legacy = "c" * 64
     _write_raw(legacy, {"version": 1})
@@ -170,6 +239,20 @@ def test_status_filter_excludes_unreadable(capsys):
     assert [c["source"]["title"] for c in payload["clones"]] == ["Alpha"]
 
 
+def test_status_unreadable_entry_reports_null_created_at(capsys):
+    """CONTRACT §11: an unreadable entry carries the clone_id and nulls — no
+    field of it is an empty string. It still sorts beside readable entries."""
+    _seed(100000001, 111, "Alpha", dest=222)
+    _write_raw("e" * 64, {"version": 1})
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    unreadable = next(c for c in payload["clones"] if c.get("unreadable"))
+    assert unreadable["created_at"] is None
+    assert [key for key, value in unreadable.items() if value == ""] == []
+
+
 def test_clone_replaces_legacy_mirror_command(capsys):
     from tgcli.cli import main
 
@@ -178,3 +261,35 @@ def test_clone_replaces_legacy_mirror_command(capsys):
 
     assert code == 1
     assert "invalid choice: 'mirror'" in captured.err
+
+
+HOSTILE_TITLE = "Al\x1bpha\rX\x08Y\nZ\tW"
+
+
+def test_status_plain_strips_control_characters_from_the_title(capsys):
+    _seed(100000001, 111, HOSTILE_TITLE, dest=222, cursor=5)
+
+    code, out = _run(capsys, ["clone", "status", "--plain"])
+
+    assert code == 0
+    assert "AlphaXYZW" in out
+    assert not any(ch in out[:-1] for ch in "\x1b\r\x08\n")
+
+
+def test_status_human_strips_control_characters_from_the_title(capsys):
+    _seed(100000001, 111, HOSTILE_TITLE, dest=222, cursor=5)
+
+    code, out = _run(capsys, ["clone", "status"])
+
+    assert code == 0
+    assert "AlphaXYZW" in out
+    assert not any(ch in out[:-1] for ch in "\x1b\r\x08\n\t")
+
+
+def test_status_json_passes_control_characters_through(capsys):
+    _seed(100000001, 111, HOSTILE_TITLE, dest=222, cursor=5)
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+
+    assert code == 0
+    assert json.loads(out)["clones"][0]["source"]["title"] == HOSTILE_TITLE

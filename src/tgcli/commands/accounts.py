@@ -108,7 +108,7 @@ def remove_account(
         )
     path = state_dir() / "sessions" / f"{config.accounts[alias].session}.session"
     bak = Path(str(path) + ".bak")
-    path.parent.mkdir(parents=True, exist_ok=True)
+    session.ensure_state_dir("sessions")
     lock_path = path.with_suffix(".lock")
     lock = lock_path.open("w")
     try:
@@ -196,9 +196,29 @@ def _backup_sqlite(source_path: Path, destination_path: Path) -> None:
         source.close()
 
 
+def _reject_colliding_alias(config_path: Path, alias: str) -> None:
+    if not config_path.exists():
+        return
+    wanted = alias.casefold()
+    for existing in load_config(config_path).accounts.values():
+        if existing.session.casefold() == wanted:
+            raise ConfigError(
+                f"account {alias!r} would share session file "
+                f"{existing.session!r} with account {existing.alias!r} "
+                "on a case-insensitive filesystem"
+            )
+
+
 def _append_config_block(
     config_path: Path, alias: str, api_id: int, api_hash: str
 ) -> None:
+    """Write a new `[accounts.<alias>]` block.
+
+    The session name must not collide case-insensitively with an existing
+    account: `load_config` rejects such a config outright, so writing one
+    would leave the user with a config file no command can read.
+    """
+    _reject_colliding_alias(config_path, alias)
     config_path.parent.mkdir(parents=True, exist_ok=True)
     if not config_path.exists():
         config_path.touch(mode=0o600)
@@ -211,7 +231,7 @@ def _append_config_block(
 
 
 def _copy_session(source_path: Path, destination_path: Path) -> None:
-    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    session.ensure_state_dir("sessions")
     lock_path = destination_path.with_suffix(".lock")
     lock = lock_path.open("w")
     try:
@@ -223,6 +243,7 @@ def _copy_session(source_path: Path, destination_path: Path) -> None:
                 "(another tg process is using it); retry in a few seconds"
             ) from exc
         _backup_sqlite(source_path, destination_path)
+        session.restrict_file(destination_path)
     finally:
         fcntl.flock(lock, fcntl.LOCK_UN)
         lock.close()
