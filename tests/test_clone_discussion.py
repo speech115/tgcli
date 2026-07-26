@@ -133,3 +133,36 @@ def test_anchor_for_returns_none_without_anchor():
         return SimpleNamespace(messages=[])
 
     assert asyncio.run(discussion.anchor_for(mutate, "dest", 10, {})) is None
+
+
+def test_adopt_maps_unreachable_recorded_group_to_policy_error():
+    """A recorded discussion group the account can no longer reach must give
+    the same PolicyError as an unresolvable id, not a raw Telethon error."""
+    import pytest
+
+    from tgcli.errors import PolicyError
+
+    for error in (
+        telethon_errors.ChannelPrivateError(request=None),
+        telethon_errors.ChannelInvalidError(request=None),
+        telethon_errors.ChatForbiddenError(request=None),
+    ):
+
+        class Tg:
+            async def get_entity(self, peer):
+                raise error
+
+        async def candidates(*_args):
+            raise AssertionError("recorded peer must not fall through to a scan")
+
+        with pytest.raises(PolicyError, match="discussion group is unavailable"):
+            asyncio.run(
+                discussion.adopt(
+                    Tg(),
+                    None,
+                    candidates,
+                    "marker",
+                    777,
+                    lambda: None,
+                )
+            )

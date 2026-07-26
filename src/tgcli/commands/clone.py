@@ -150,12 +150,7 @@ def status_rows(data: dict) -> list[tuple]:
 # What Telegram answers when the recorded destination cannot be opened by this
 # account any more — deleted, left, or banned. ``channels.GetChannels`` raises
 # these; Telethon's own ValueError covers a peer it cannot resolve at all.
-DESTINATION_UNAVAILABLE = (
-    ValueError,
-    telethon_errors.ChannelPrivateError,
-    telethon_errors.ChannelInvalidError,
-    telethon_errors.ChatForbiddenError,
-)
+DESTINATION_UNAVAILABLE = discussion.PEER_UNAVAILABLE
 
 
 async def _resolve_destination(tg, destination_peer_id: int):

@@ -73,7 +73,7 @@ async def sync_phase(
         group = await tg.get_entity(
             types.PeerChannel(clone_state.discussion_destination_peer_id)
         )
-    except ValueError:
+    except discussion.PEER_UNAVAILABLE:
         raise PolicyError("clone discussion destination is unavailable") from None
     if not discussion.is_discussion_destination(group):
         raise PolicyError(
