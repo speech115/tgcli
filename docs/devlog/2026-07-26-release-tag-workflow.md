@@ -24,7 +24,19 @@ existing compare links. The seven missing tags stay owner work — pushing
 `refs/tags/*` is still 403 for sessions, which is exactly why the workflow
 exists.
 
-**Learned:** the rule failed 7/7 not because anyone ignored it but because its
+**Learned:** the independent review earned the PR outright. My first workflow
+tagged `HEAD` whenever `refs/tags/v$version` was absent — which, with
+`v1.2.10`–`v1.2.16` all still untagged, would have pinned `v1.2.16` to this
+PR's own merge commit instead of `efbb9a9` on the very first run. The automation
+built to fix the tag gap would have been its worst instance. The guard is to
+compare `__version__` against `github.event.before` and tag only when *this
+push* moved it, refusing to guess whenever the previous tip is unreadable.
+Reviewing also found the checker's set logic collapsed duplicate sections and
+let a duplicate `[x.y.z]:` definition silently overwrite the correct one —
+precisely the shape a botched conflict resolution leaves in a shared,
+integrator-merged file.
+
+The rule failed 7/7 not because anyone ignored it but because its
 last step was scheduled *after* the merge, when the session that owed it was
 already over. Every invariant in this repo that actually holds is enforced by
 `gate.sh`, which runs before every commit; anything asking for a manual
@@ -33,6 +45,6 @@ AGENTS.md. Also: the gate's own blind spot was narrow and obvious in
 hindsight — `check-docs.py` validated links inside `docs/guide/` and nothing
 else, so `CHANGELOG.md` was never read by any check.
 
-**Next:** land this PR on main so compare-links and the Release-tag
-workflow are live; confirm the workflow can push `refs/tags/*` on the next
-version bump.
+**Next:** land this PR on main; confirm the Release-tag workflow can push
+`refs/tags/*` on the next version bump (tags `v1.2.10`–`v1.2.16` already
+backfilled locally).

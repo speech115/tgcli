@@ -79,6 +79,44 @@ def test_a_link_definition_without_a_section_fails(tmp_path):
     assert "[1.2.99]: link definition has no release section" in result.stdout
 
 
+def test_a_version_written_twice_fails(tmp_path):
+    """`CHANGELOG.md` is integrator-merged; keeping both hunks of a conflict
+    duplicates a heading, and a set-based check would never see it."""
+    result = run(
+        changelog(
+            tmp_path,
+            f"## [1.2.16] — 2026-07-26\n\n## [1.2.16] — 2026-07-26\n\n"
+            f"[1.2.16]: {COMPARE}/v1.2.15...v1.2.16\n",
+        )
+    )
+
+    assert result.returncode == 1
+    assert "release 1.2.16 has 2 sections; expected exactly one" in result.stdout
+
+
+def test_a_duplicate_link_definition_fails(tmp_path):
+    """The second definition silently wins in a dict, so the wrong compare
+    range can outlive the right one without a single complaint."""
+    result = run(
+        changelog(
+            tmp_path,
+            f"## [1.2.16] — 2026-07-26\n\n[1.2.16]: {COMPARE}/v1.2.15...v1.2.16\n"
+            f"[1.2.16]: {COMPARE}/v1.2.14...v1.2.15\n",
+        )
+    )
+
+    assert result.returncode == 1
+    assert "[1.2.16]: has 2 link definitions; expected exactly one" in result.stdout
+
+
+def test_a_missing_changelog_fails_without_a_traceback(tmp_path):
+    result = run(tmp_path / "nope.md")
+
+    assert result.returncode == 1
+    assert "no changelog at" in result.stdout
+    assert "Traceback" not in result.stderr
+
+
 def test_the_first_release_may_link_to_its_tag_instead_of_a_compare(tmp_path):
     """`1.0.0` has no predecessor, so it names a tag rather than a range."""
     result = run(

@@ -67,12 +67,32 @@ def release_problems(changelog: Path) -> tuple[list[str], int]:
     whose URL ends in another version silently points at the wrong diff. Both
     are invisible in review and neither can be caught by a link checker that
     only walks the guide.
+
+    The section↔definition relation is 1:1, so duplicates on either side are
+    reported rather than collapsed. `CHANGELOG.md` is a shared integrator-merged
+    file (AGENTS.md): two slices appending near the same anchor, or a conflict
+    resolved by keeping both hunks, is exactly how a version ends up written
+    twice — and a duplicate definition would otherwise silently win.
     """
     text = changelog.read_text()
     sections = SECTION.findall(text)
-    definitions = dict(DEFINITION.findall(text))
+    defined = DEFINITION.findall(text)
+    definitions = dict(defined)
 
     problems = [
+        f"{changelog.name}: release {version} has {sections.count(version)}"
+        " sections; expected exactly one"
+        for version in sorted(set(sections))
+        if sections.count(version) > 1
+    ]
+    urls = [version for version, _ in defined]
+    problems += [
+        f"{changelog.name}: [{version}]: has {urls.count(version)}"
+        " link definitions; expected exactly one"
+        for version in sorted(set(urls))
+        if urls.count(version) > 1
+    ]
+    problems += [
         f"{changelog.name}: release {version} has no [{version}]: link definition"
         for version in sections
         if version not in definitions
@@ -86,13 +106,17 @@ def release_problems(changelog: Path) -> tuple[list[str], int]:
         f"{changelog.name}: [{version}]: link definition has no release section"
         for version in sorted(definitions.keys() - set(sections))
     ]
-    return problems, len(sections)
+    return problems, len(set(sections))
 
 
 def main(argv: list[str] | None = None) -> int:
     cli = argparse.ArgumentParser(description="Check documentation consistency.")
     cli.add_argument("--changelog", type=Path, default=CHANGELOG)
     args = cli.parse_args(argv)
+
+    if not args.changelog.is_file():
+        print(f"FAIL no changelog at {args.changelog}")
+        return 1
 
     flags, commands = walk(build_parser())
     flags |= {"--help", "--version"}

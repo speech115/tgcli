@@ -162,8 +162,9 @@ The project is feature-complete and in production use. Default posture:
   whenever a campaign has its own integration branch (ADR-0058): a wave
   based on `main` cannot see the seams earlier waves already landed.
 - **A merged branch does not survive the session that merged it.** Delete it
-  as part of the merge, never "later": `gh pr merge N --merge
-  --delete-branch`, then clean the local side with `git branch -d <topic>`
+  as part of the merge, never "later": `gh pr merge N --squash
+  --delete-branch` (the ruleset enforces linear history, so `--merge` is
+  rejected), then clean the local side with `git branch -d <topic>`
   and `git remote prune origin`. This applies to every merge, not only
   releases.
 - Before ending a session that merged anything, `git branch -a` must show

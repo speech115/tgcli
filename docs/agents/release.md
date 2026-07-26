@@ -7,8 +7,12 @@ Follow it literally; every rule here was paid for by a real failure.
 
 A stack `main ← A ← B ← C` merges bottom-up, one PR at a time:
 
-1. Merge the PR whose base is `main` with `gh pr merge N --merge`
-   — **without `--delete-branch`**.
+1. Merge the PR whose base is `main` with `gh pr merge N --squash`
+   — **without `--delete-branch`**. Not `--merge`: the ruleset enforces linear
+   history, so merge commits are rejected (`405 Merge commits are not allowed
+   on this repository`). `--rebase` is not a fallback either — it fails with
+   `405 This branch can't be rebased` as soon as the branch contains a merge
+   commit, which any branch that merged `main` back into itself does.
 2. Retarget the next PR yourself: `gh pr edit M --base main`. Do not rely
    on GitHub's automatic retargeting: deleting the base branch races it and
    **closes** the dependent PR instead. If that happens anyway, recovery is:
@@ -25,13 +29,20 @@ A stack `main ← A ← B ← C` merges bottom-up, one PR at a time:
 
 ## Tag and cleanup
 
-- Tag the **merge commit** on `main`: `git tag -a vX.Y.Z -m "..." <sha> &&
-  git push origin vX.Y.Z`. The CHANGELOG compare link must resolve the moment
-  the tag exists.
+- **Do not tag by hand.** Sessions cannot push `refs/tags/*` — the git proxy
+  answers `403`, which is how `v1.2.10`–`v1.2.16` all shipped untagged. The
+  `Release tag` workflow tags the merge commit on push to `main` whenever the
+  push moved `__version__`. Confirm it did: the run appears under Actions and
+  `git fetch --tags && git tag -l vX.Y.Z` shows the tag afterwards. If it is
+  missing, the ruleset is blocking `GITHUB_TOKEN` — report it, do not retry
+  locally.
+- The CHANGELOG compare link must already be in the release commit; the docs
+  gate refuses a release section without it, so it cannot be forgotten and
+  then fixed after the tag.
 - Delete merged branches **one at a time** (batch `git push --delete` may be
   blocked by the approval classifier; fallback:
   `gh api -X DELETE repos/{owner}/{repo}/git/refs/heads/<branch>`). Prefer
-  `gh pr merge N --merge --delete-branch` so the ref never outlives the
+  `gh pr merge N --squash --delete-branch` so the ref never outlives the
   merge — the AGENTS.md "Git" rule applies to every merge, release or not.
   Finish with `git remote prune origin` so stale remote-tracking refs go too.
 - Before force-deleting a local branch, prove it is contained:
