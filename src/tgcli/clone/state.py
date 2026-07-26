@@ -3,10 +3,11 @@
 import hashlib
 import json
 import os
-import tempfile
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tgcli import atomic
+from tgcli.clone import flood
 from tgcli.errors import PolicyError
 
 VERSION = 2
@@ -151,11 +152,18 @@ class CloneState:
         self.retry_not_before = aware.isoformat()
 
     def cooldown_deadline(self) -> datetime | None:
-        return (
-            None
-            if self.retry_not_before is None
-            else datetime.fromisoformat(self.retry_not_before)
-        )
+        """The per-clone deadline, clamped the same way the account-scoped one
+        is (clone/flood.py): a value armed while the host clock ran ahead
+        would otherwise brick this clone slot until someone edits the file."""
+        if self.retry_not_before is None:
+            return None
+        deadline = datetime.fromisoformat(self.retry_not_before)
+        if deadline.tzinfo is None or deadline.utcoffset() is None:
+            return None
+        # Clamp the upper bound only: an expired deadline still round-trips
+        # unchanged, and the caller decides what a past value means.
+        ceiling = datetime.now(UTC) + timedelta(seconds=flood.MAX_COOLDOWN_S)
+        return min(deadline.astimezone(UTC), ceiling)
 
     def to_dict(self) -> dict:
         return {
@@ -313,17 +321,12 @@ def supersede(clone_id: str, sidecars: tuple[Path, ...] = ()) -> list[Path]:
 
 
 def save(state: CloneState) -> None:
+    """The id_map guards a live destination from duplicate posts, so the
+    rename must be durable too: go through the one sanctioned writer rather
+    than a local copy of it (which is how this one missed the parent-directory
+    fsync)."""
     directory = clones_dir()
     directory.mkdir(parents=True, exist_ok=True)
-    path = path_for(state.clone_id)
-    fd, tmp = tempfile.mkstemp(dir=directory)
-    try:
-        with os.fdopen(fd, "w") as handle:
-            json.dump(state.to_dict(), handle, ensure_ascii=False)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    atomic.replace_text(
+        path_for(state.clone_id), json.dumps(state.to_dict(), ensure_ascii=False)
+    )

@@ -48,7 +48,7 @@ CEILINGS = {
     "src/tgcli/commands/clone.py": 1597,
     # +21 for ADR-0055 pinned_dest_id / pin_occupied fields + validation.
     # +8 for id_map / retry_not_before validation on load (fail closed).
-    "src/tgcli/clone/state.py": 329,
+    "src/tgcli/clone/state.py": 332,
     # +22 for ADR-0051: posts_cursor / posts_exhausted kwargs + deferred
     # short-circuit in resolve (mirror of transport.decide's deferred plan).
     "src/tgcli/clone/quotes.py": 391,

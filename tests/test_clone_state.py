@@ -618,3 +618,43 @@ def test_supersede_preserves_unreadable_v1_file():
     assert len(archived) == 1
     assert not path.exists()
     assert json.loads(archived[0].read_text())["version"] == 1
+
+
+def test_cooldown_deadline_clamps_a_clock_skewed_arm():
+    """A deadline armed while the host clock ran ahead must not brick this
+    clone slot forever — same ceiling the account-scoped record uses."""
+    from datetime import timedelta
+
+    from tgcli.clone import flood
+
+    s = _fresh()
+    s.retry_not_before = (datetime.now(UTC) + timedelta(days=400)).isoformat()
+
+    deadline = s.cooldown_deadline()
+
+    assert deadline is not None
+    assert deadline <= datetime.now(UTC) + timedelta(seconds=flood.MAX_COOLDOWN_S + 5)
+
+
+def test_save_goes_through_the_sanctioned_atomic_writer(tmp_path, monkeypatch):
+    """The id_map keeps a live destination free of duplicate posts, so the
+    rename must be durable: a local copy of the writer misses the parent
+    directory fsync that atomic.replace_text performs."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    calls = []
+    from tgcli import atomic
+
+    original = atomic.replace_text
+
+    def record(path, text, **kwargs):
+        calls.append(path)
+        original(path, text, **kwargs)
+
+    monkeypatch.setattr(atomic, "replace_text", record)
+
+    s = _fresh()
+    s.record_mapping(7, 70)
+    state.save(s)
+
+    assert calls == [state.path_for(s.clone_id)]
+    assert state.load(s.clone_id).dest_for(7) == 70
