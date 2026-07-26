@@ -26,6 +26,8 @@ remain active. Re-ran the cancelled duplicate CI run on PR #84, verified both
 `test` runs green, rebased the PR into `main`, and deleted its remote branch.
 Restricted feature-branch CI to `pull_request` while keeping `push` CI on
 `main`, so one PR commit no longer creates two same-name checks and cancels one.
+Concurrency is keyed by workflow plus full ref, isolating main pushes, PR refs,
+and identically named branches from different forks.
 
 **Decided:** agent-driven merges may proceed after the repository-required CI
 passes and the independent review required by AGENTS.md is complete; a human
