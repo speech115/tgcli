@@ -8,8 +8,12 @@ import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
+from tgcli import login_state
 from tgcli.cli import main
 from tgcli.commands import store as store_cmd
+from tgcli.errors import NotFoundError
 from tgcli.safety import PREVIEW_TTL
 
 
@@ -300,6 +304,113 @@ def test_unparsable_login_falls_back_to_mtime(tmp_path, monkeypatch):
     assert (tmp_path / "logins" / "l_torn.session").exists()
     assert not stale.exists()
     assert not (tmp_path / "logins" / "l_stale.session").exists()
+
+
+def _write_naive_preview(root: Path, name: str, *, mtime: datetime) -> Path:
+    """A preview whose `expires_at` lost its UTC offset (old build/hand edit)."""
+    directory = root / "previews"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{name}.json"
+    naive = (NOW - timedelta(minutes=1)).replace(tzinfo=None)
+    path.write_text(
+        json.dumps({"payload": {"text": "hi"}, "expires_at": naive.isoformat()})
+    )
+    stamp = mtime.timestamp()
+    os.utime(path, (stamp, stamp))
+    return path
+
+
+def _write_naive_login(root: Path, login_id: str, *, mtime: datetime) -> Path:
+    """A login attempt whose `expires_at` lost its UTC offset."""
+    directory = root / "logins"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{login_id}.json"
+    naive = (NOW - timedelta(minutes=1)).replace(tzinfo=None)
+    path.write_text(
+        json.dumps(
+            {
+                "login_id": login_id,
+                "alias": "tmp",
+                "method": "qr",
+                "expires_at": naive.isoformat(),
+            }
+        )
+    )
+    (directory / f"{login_id}.session").write_bytes(b"staged-key")
+    stamp = mtime.timestamp()
+    os.utime(path, (stamp, stamp))
+    return path
+
+
+def test_naive_expires_at_falls_back_to_mtime(tmp_path, monkeypatch):
+    """A timezone-less `expires_at` classifies by mtime instead of crashing.
+
+    Comparing it against an aware `now` raised TypeError and took the whole
+    inventory down; both commands exist to help a user already in trouble.
+    """
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    preview = _write_naive_preview(
+        tmp_path, "p_naive", mtime=NOW - timedelta(minutes=1)
+    )
+    login = _write_naive_login(tmp_path, "l_naive", mtime=NOW - timedelta(minutes=1))
+
+    data = store_cmd.stats(tmp_path, now=NOW)
+    store_cmd.stats_rows(data)
+
+    assert data["previews"]["live"]["count"] == 1
+    assert data["previews"]["expired"]["count"] == 0
+    assert data["logins"]["live"]["count"] == 2  # json + staged session
+    assert data["logins"]["expired"]["count"] == 0
+
+    result = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
+
+    # Fail-closed for deletion: an untrustworthy stamp is never reaped early.
+    assert result["removed"] == []
+    assert preview.exists()
+    assert login.exists()
+    assert (tmp_path / "logins" / "l_naive.session").exists()
+
+
+def test_naive_expires_at_login_age_filter_uses_mtime(tmp_path, monkeypatch):
+    """`--older-than` anchors a naive attempt on mtime instead of crashing."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    stale = _write_naive_login(
+        tmp_path, "l_naive", mtime=NOW - login_state.LOGIN_TTL - timedelta(hours=2)
+    )
+
+    kept = store_cmd.cleanup(
+        tmp_path, older_than=timedelta(days=1), confirm=True, now=NOW
+    )
+    assert kept["removed"] == []
+    assert stale.exists()
+
+    reaped = store_cmd.cleanup(
+        tmp_path, older_than=timedelta(hours=1), confirm=True, now=NOW
+    )
+    assert "l_naive.json" in reaped["removed"]
+    assert not stale.exists()
+    assert not (tmp_path / "logins" / "l_naive.session").exists()
+
+
+def test_cleanup_reaps_attempt_left_behind_by_expired_read(tmp_path, monkeypatch):
+    """`load_attempt` no longer deletes, so cleanup must still reap the dead."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    record = login_state.create_attempt(
+        "main", "qr", api_id=1, api_hash="h", now=NOW - login_state.LOGIN_TTL
+    )
+    login_id = record["login_id"]
+    staged = login_state.staged_session_path(login_id)
+    staged.write_bytes(b"staged-key")
+
+    with pytest.raises(NotFoundError, match="expired"):
+        login_state.load_attempt(login_id, now=NOW)
+    assert staged.exists()
+
+    result = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
+
+    assert f"{login_id}.json" in result["removed"]
+    assert f"{login_id}.session" in result["removed"]
+    assert not staged.exists()
 
 
 def test_cleanup_confirm_allowed_under_no_send(tmp_path, monkeypatch, capsys):

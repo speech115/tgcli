@@ -205,3 +205,29 @@ def test_create_preview_directory_is_0700_under_wide_umask(wide_umask):
     safety.create_preview({"chat": "@alice", "text": "hello"})
 
     assert safety.previews_dir().stat().st_mode & 0o777 == 0o700
+
+
+def test_consume_preview_rejects_a_naive_expiry(tmp_path, monkeypatch):
+    """A hand-edited or older-build record must not crash the commit path
+    with a naive-vs-aware TypeError."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    directory = safety.previews_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "p_naive.json").write_text(
+        json.dumps({"payload": {"kind": "send"}, "expires_at": "2026-07-26T12:00:00"})
+    )
+
+    with pytest.raises(PolicyError):
+        safety.consume_preview("p_naive")
+
+
+def test_begin_commit_rejects_a_naive_expiry(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    directory = safety.previews_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "p_naive2.json").write_text(
+        json.dumps({"payload": {"kind": "send"}, "expires_at": "2026-07-26T12:00:00"})
+    )
+
+    with pytest.raises(PolicyError):
+        safety.begin_commit("p_naive2")

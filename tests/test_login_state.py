@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -55,16 +56,30 @@ def test_id_validation_rejects_traversal(state):
         login_state.load_attempt("not-a-login")
 
 
-def test_expiry_removes_files_and_raises(state):
+def test_expiry_raises_without_deleting_staged_session(state):
+    """A read reports expiry; it never destroys in-flight login material.
+
+    A forward clock step (or a QR wait that crosses the TTL) used to make
+    `load_attempt` discard the attempt json *and* the staged session, so
+    merely inspecting an attempt threw away what the user was creating.
+    """
     record = login_state.create_attempt(
         "main", "phone", api_id=1, api_hash="h", phone="+1", now=NOW
     )
     login_id = record["login_id"]
     staged = login_state.staged_session_path(login_id)
     staged.write_bytes(b"staged")
+    attempt_json = state / "logins" / f"{login_id}.json"
+
     with pytest.raises(NotFoundError, match="expired"):
         login_state.load_attempt(login_id, now=NOW + login_state.LOGIN_TTL)
-    assert not (state / "logins" / f"{login_id}.json").exists()
+
+    assert attempt_json.exists()
+    assert staged.exists()
+
+    # Deleting stays with the explicit paths (`store cleanup`, discard).
+    login_state.discard_attempt(login_id)
+    assert not attempt_json.exists()
     assert not staged.exists()
 
 
@@ -171,3 +186,16 @@ def test_update_and_discard(state):
     login_state.discard_attempt(record["login_id"])
     assert not (state / "logins" / f"{record['login_id']}.json").exists()
     assert not staged.exists()
+
+
+def test_load_attempt_rejects_a_naive_expiry(tmp_path, monkeypatch):
+    """Same class as the store fix: a naive stamp must not raise TypeError."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    record = login_state.create_attempt("main", "qr", api_id=1, api_hash="h")
+    path = login_state.logins_dir() / f"{record['login_id']}.json"
+    stored = json.loads(path.read_text())
+    stored["expires_at"] = "2026-07-26T12:00:00"
+    path.write_text(json.dumps(stored))
+
+    with pytest.raises(NotFoundError):
+        login_state.load_attempt(record["login_id"])

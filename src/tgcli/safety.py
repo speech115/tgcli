@@ -63,9 +63,26 @@ def consume_preview(preview_id: str, *, now: datetime | None = None) -> dict:
     except FileNotFoundError:
         raise PolicyError("preview is already used or does not exist") from None
     now = now or datetime.now(UTC)
-    if now >= datetime.fromisoformat(record["expires_at"]):
+    if now >= _expires_at(record):
         raise PolicyError("preview has expired")
     return record["payload"]
+
+
+def _expires_at(record: dict) -> datetime:
+    """The record's deadline, or a PolicyError.
+
+    A naive or unparseable stamp (hand edit, older build) must not reach a
+    comparison against an aware `now`: a preview whose expiry cannot be
+    established is treated as unusable, never as a TypeError crash on the
+    commit path.
+    """
+    try:
+        expires = datetime.fromisoformat(record["expires_at"])
+    except (KeyError, TypeError, ValueError):
+        raise PolicyError("preview is already used or does not exist") from None
+    if expires.tzinfo is None or expires.utcoffset() is None:
+        raise PolicyError("preview is already used or does not exist")
+    return expires
 
 
 def _validate_preview_kind(payload: dict, expected_kind: str | None) -> None:
@@ -107,7 +124,7 @@ def begin_commit(
         raise PolicyError("preview is already used or does not exist") from None
     _validate_preview_kind(record["payload"], expected_kind)
     now = now or datetime.now(UTC)
-    if now >= datetime.fromisoformat(record["expires_at"]):
+    if now >= _expires_at(record):
         raise PolicyError("preview has expired")
     os.chmod(pending, 0o600)
     return record["payload"]

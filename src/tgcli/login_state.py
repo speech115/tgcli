@@ -87,9 +87,20 @@ def load_attempt(login_id: str, *, now: datetime | None = None) -> dict:
         record = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError) as exc:
         raise NotFoundError(f"unknown or expired login_id: {login_id!r}") from exc
-    expires_at = datetime.fromisoformat(record["expires_at"])
+    try:
+        expires_at = datetime.fromisoformat(record["expires_at"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise NotFoundError(f"unknown or expired login_id: {login_id!r}") from exc
+    if expires_at.tzinfo is None or expires_at.utcoffset() is None:
+        # A naive stamp (hand edit, older build) cannot be compared to an
+        # aware now: treat the attempt as unreadable rather than crashing a
+        # command with a TypeError.
+        raise NotFoundError(f"unknown or expired login_id: {login_id!r}")
     if now >= expires_at:
-        discard_attempt(login_id)
+        # A read never deletes. A forward clock step — or a QR wait that just
+        # crossed the TTL — would otherwise destroy the staged session the user
+        # is in the middle of creating. Reaping belongs to the explicit paths:
+        # `discard_attempt` and `store cleanup --confirm`.
         raise NotFoundError(f"login_id {login_id!r} expired at {record['expires_at']}")
     return record
 

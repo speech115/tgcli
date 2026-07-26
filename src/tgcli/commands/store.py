@@ -50,11 +50,19 @@ def _file_mode(path: Path) -> int | None:
 
 
 def _record_expires_at(path: Path) -> datetime | None:
+    """Parsed `expires_at`, or None when it cannot be trusted.
+
+    A timezone-less stamp (older build, hand edit, partial write) cannot be
+    compared against an aware `now` — it used to raise TypeError straight out
+    of `store stats`. It is unusable, not fatal, so it takes the same mtime
+    fallback as an unreadable one.
+    """
     try:
         record = json.loads(path.read_text())
-        return datetime.fromisoformat(record["expires_at"])
+        expires = datetime.fromisoformat(record["expires_at"])
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
         return None
+    return expires if expires.tzinfo is not None else None
 
 
 def _record_age_anchor(path: Path) -> datetime | None:
@@ -364,7 +372,8 @@ def _deletable_paths(
                 continue
             if _classify_login(path, now=now) != "expired":
                 continue
-            # Age filter uses expires_at when readable, mtime otherwise.
+            # Age filter uses expires_at when trustworthy, mtime otherwise;
+            # a record whose age cannot be established at all is never reaped.
             anchor = _record_age_anchor(path)
             if anchor is None:
                 continue
