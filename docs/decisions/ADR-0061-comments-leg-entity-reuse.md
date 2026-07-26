@@ -12,10 +12,15 @@ already spans the whole run.
 **Decision.** `sync_phase` reuses `resolve_ctx.source_group` and the new
 `resolve_ctx.destination_group` when set; only the first window fetches.
 The `verify_tail` foreign-post guard stays per-window — it is a safety
-check, not a resolve. A group that turns private mid-run is still caught
-by the leg's own reads/sends through the existing degrade paths; only the
-per-window re-resolve is skipped. Proven by a counting-fake regression:
-three windows, exactly two `get_entity` calls.
+check, not a resolve. Skipping the re-resolve moves the place where a
+mid-run privatized source surfaces: independent review disproved the
+first draft's claim that the leg's reads already degraded — they
+escaped as a raw exit 1. The degrade guard therefore moves with the
+detection point: the window's source iterator carries the same
+`(ValueError, RPCError)` → `comments: "unavailable"` transition as the
+first-window resolve, FloodWait still re-raised, `copy_batch` failures
+still escaping unchanged. Proven by counting-fake and
+privatized-second-window regressions (review fix).
 
 **Rejected.** A general client-level RPC cache (wrapping the Telethon
 client): touches the safety-critical session factory for no additional
