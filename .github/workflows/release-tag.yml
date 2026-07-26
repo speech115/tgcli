@@ -1,0 +1,42 @@
+name: Release tag
+
+# ADR-0038 requires every released commit to carry its `vX.Y.Z` tag. The rule is
+# unchanged; only its executor is. A session that merges a release cannot push
+# `refs/tags/*` — the git proxy answers 403 — so the step was always somebody's
+# manual follow-up, and seven consecutive releases shipped untagged. CI owns it
+# now, at the one moment the release commit is known to exist.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Tag the release commit when the version is new
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/tgcli/__init__.py)
+          if [ -z "$version" ]; then
+            echo "could not read __version__ from src/tgcli/__init__.py"
+            exit 1
+          fi
+          tag="v$version"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "$tag already exists; nothing to do"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "$tag"
+          git push origin "$tag"
+          echo "created $tag at $(git rev-parse --short HEAD)"

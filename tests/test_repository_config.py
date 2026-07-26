@@ -31,3 +31,18 @@ def test_ci_interpreter_is_pinned_to_the_project_target() -> None:
     test the interpreter the project targets (ADR-0001), one per platform
     variable, not two variables at once."""
     assert (ROOT / ".python-version").read_text().strip() == "3.12"
+
+
+def test_release_commits_are_tagged_by_ci() -> None:
+    """ADR-0038's tag step is CI's, not a session's.
+
+    Sessions cannot push `refs/tags/*` (the git proxy answers 403), which is
+    how seven consecutive releases shipped untagged. If this workflow loses
+    its trigger, its write permission, or its push, the rule silently stops
+    being enforced again.
+    """
+    workflow = (ROOT / ".github/workflows/release-tag.yml").read_text()
+
+    assert "push:\n    branches: [main]" in workflow
+    assert "contents: write" in workflow
+    assert 'git push origin "$tag"' in workflow

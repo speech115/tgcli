@@ -71,10 +71,13 @@ The project is feature-complete and in production use. Default posture:
   (ADR-0038, mechanics amended by ADR-0058): the **integrator** — the
   session that merges — bumps the **patch** version in `pyproject.toml` and
   `src/tgcli/__init__.py` and adds the `CHANGELOG.md` section naming the
-  ADR, in the merge that lands the change. Feature branches never touch the
-  version files, `CHANGELOG.md`, or tags. Never let unreleased contract
+  ADR **and its `[x.y.z]:` compare link**, in the merge that lands the
+  change. Feature branches never touch the version files, `CHANGELOG.md`,
+  or tags. The docs gate refuses a release section without its link; the
+  `Release tag` workflow tags the merge commit `vX.Y.Z` on push to `main`
+  whenever the push moved `__version__`. Never let unreleased contract
   changes accumulate. The minor digit is raised only when the owner
-  declares a milestone; `vX.Y.Z` tags remain owner-side work.
+  declares a milestone.
 - **`docs/CONTRACT.md` is versioned law.** Any change to CLI flags, JSON
   shapes, or exit codes updates CONTRACT.md in the same commit. Breaking
   changes require an ADR.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed gate for the user guide (ADR-0041).
+"""Fail-closed gate for the user guide (ADR-0041) and release bookkeeping.
 
 Documentation that drifts is worse than none, so every claim the guide makes
 about the CLI surface is checked against the parser itself:
@@ -8,6 +8,14 @@ about the CLI surface is checked against the parser itself:
      argparse tree;
   2. every ``tg <command>`` named there is a real command;
   3. every relative markdown link resolves on disk.
+
+``CHANGELOG.md`` drifts the same way, and nothing caught it: five releases
+shipped a ``## [x.y.z]`` section whose link definition was never added, so the
+heading rendered as literal brackets. The bookkeeping ADR-0038 asks for is
+checked here too, because the gate is the one step every session actually runs:
+
+  4. every release section has its ``[x.y.z]:`` link definition, that link
+     names the same version it defines, and no definition outlives its section.
 
 Run from the repo root: ``uv run python scripts/check-docs.py``.
 """
@@ -21,6 +29,12 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 GUIDE = REPO / "docs" / "guide"
+CHANGELOG = REPO / "CHANGELOG.md"
+
+# "## [1.2.16] — 2026-07-26" — a released section. `## [Unreleased]` is not one.
+SECTION = re.compile(r"^## \[(\d+\.\d+\.\d+)\]", re.MULTILINE)
+# "[1.2.16]: https://.../compare/v1.2.15...v1.2.16"
+DEFINITION = re.compile(r"^\[(\d+\.\d+\.\d+)\]:\s*(\S+)", re.MULTILINE)
 
 sys.path.insert(0, str(REPO / "src"))
 
@@ -46,7 +60,40 @@ def walk(parser: argparse.ArgumentParser) -> tuple[set[str], set[str]]:
     return flags, commands
 
 
-def main() -> int:
+def release_problems(changelog: Path) -> tuple[list[str], int]:
+    """Every released section is linkable, and every link names its own release.
+
+    A section without a definition renders as literal `[1.2.16]`; a definition
+    whose URL ends in another version silently points at the wrong diff. Both
+    are invisible in review and neither can be caught by a link checker that
+    only walks the guide.
+    """
+    text = changelog.read_text()
+    sections = SECTION.findall(text)
+    definitions = dict(DEFINITION.findall(text))
+
+    problems = [
+        f"{changelog.name}: release {version} has no [{version}]: link definition"
+        for version in sections
+        if version not in definitions
+    ]
+    problems += [
+        f"{changelog.name}: [{version}]: link points at {url}, not v{version}"
+        for version, url in sorted(definitions.items())
+        if version in sections and not url.endswith(f"v{version}")
+    ]
+    problems += [
+        f"{changelog.name}: [{version}]: link definition has no release section"
+        for version in sorted(definitions.keys() - set(sections))
+    ]
+    return problems, len(sections)
+
+
+def main(argv: list[str] | None = None) -> int:
+    cli = argparse.ArgumentParser(description="Check documentation consistency.")
+    cli.add_argument("--changelog", type=Path, default=CHANGELOG)
+    args = cli.parse_args(argv)
+
     flags, commands = walk(build_parser())
     flags |= {"--help", "--version"}
     commands |= REMOVED_COMMANDS | {"--help", "--version"}
@@ -76,9 +123,15 @@ def main() -> int:
             if not (page.parent / target).resolve().exists():
                 problems.append(f"{page.name}: dead link -> {target}")
 
+    release_issues, releases = release_problems(args.changelog)
+    problems += release_issues
+
     for problem in problems:
         print("FAIL", problem)
-    print(f"guide pages checked: {len(pages)}; problems: {len(problems)}")
+    print(
+        f"guide pages checked: {len(pages)}; releases checked: {releases}; "
+        f"problems: {len(problems)}"
+    )
     return 1 if problems else 0
 
 
