@@ -19,4 +19,12 @@ because `load()` — its sole caller — catches exactly
 raise set stays inside what the boundary catches, which is a stronger and
 more honest invariant than "always ValueError".
 
+**Post-push fix (same session):** the first live `test-macos` run failed —
+uv resolved `requires-python = ">=3.12"` to Python **3.14.6** on macOS
+(ubuntu ran 3.12), and three tests that monkeypatch pathlib internals
+(`Path.stat` vanish-mid-walk fakes) don't fire on 3.14's pathlib. Fix:
+`.python-version` pins 3.12 so each CI leg varies the platform, never the
+interpreter, matching ADR-0001's target; pinned red-first via
+`test_ci_interpreter_is_pinned_to_the_project_target`.
+
 **Next:** SQLite clone-state prototype benchmark (bf-19 quadratic I/O).

@@ -22,3 +22,12 @@ def test_macos_leg_runs_the_suite_on_pull_requests() -> None:
     assert "test-macos:" in workflow
     assert "runs-on: macos-latest" in workflow
     assert "if: github.event_name == 'pull_request'" in workflow
+
+
+def test_ci_interpreter_is_pinned_to_the_project_target() -> None:
+    """Without a pin, uv resolves `requires-python = ">=3.12"` to the newest
+    interpreter per platform — the first macOS leg ran 3.14 while ubuntu ran
+    3.12, and three pathlib-internals monkeypatches failed there. CI must
+    test the interpreter the project targets (ADR-0001), one per platform
+    variable, not two variables at once."""
+    assert (ROOT / ".python-version").read_text().strip() == "3.12"
