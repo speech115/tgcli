@@ -1,11 +1,14 @@
 """Media download command helpers (Phase 3; Telethon-only)."""
 
 from dataclasses import dataclass
+import errno
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import shutil
+import tempfile
 
 from telethon import functions
 from telethon import errors as telethon_errors
@@ -145,7 +148,12 @@ def _message_size(message) -> int | None:
 
 
 def _write_state(
-    path: Path, source: MediaSource, destination: Path, offset: int
+    path: Path,
+    source: MediaSource,
+    destination: Path,
+    offset: int,
+    *,
+    resumable: bool = True,
 ) -> None:
     atomic.replace_text(
         path,
@@ -154,9 +162,42 @@ def _write_state(
                 "source": _source_label(source),
                 "destination": str(destination),
                 "offset": offset,
+                "resumable": resumable,
             }
         ),
     )
+
+
+def _publish(part_path: Path, destination: Path) -> None:
+    """Move a finished partial file onto its final path.
+
+    The rename is atomic while both live on one filesystem — the case worth
+    protecting. `--output` on another mount (the partial file sits under the
+    state root) makes `os.replace` raise EXDEV; then copy into a sibling temp
+    file and rename that inside the destination filesystem, so the final name
+    never points at a half-written file.
+    """
+    try:
+        os.replace(part_path, destination)
+        return
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+
+    mode = part_path.stat().st_mode & 0o777
+    fd, staged_name = tempfile.mkstemp(
+        prefix=f".{destination.name}-", suffix=".tmp", dir=destination.parent
+    )
+    os.close(fd)
+    staged = Path(staged_name)
+    try:
+        shutil.copyfile(part_path, staged)
+        os.chmod(staged, mode)
+        os.replace(staged, destination)
+    except BaseException:
+        staged.unlink(missing_ok=True)
+        raise
+    part_path.unlink(missing_ok=True)
 
 
 def _resume_offset(
@@ -173,6 +214,14 @@ def _resume_offset(
         raise PolicyError(f"media download state is invalid: {state_path}") from exc
     if not isinstance(state, dict):
         raise PolicyError(f"media download state is invalid: {state_path}")
+    if state.get("resumable") is False:
+        # A parallel transfer writes its stripes at scattered offsets, so no
+        # byte count describes what it already has: the state says so, and the
+        # partial file is worth nothing. Drop both and restart from zero
+        # instead of wedging the message on an unresumable leftover.
+        part_path.unlink(missing_ok=True)
+        state_path.unlink(missing_ok=True)
+        return 0
     if not part_path.exists():
         raise PolicyError(f"media download state has no partial file: {part_path}")
     offset = state.get("offset")
@@ -218,11 +267,13 @@ async def download_media(
             raise PolicyError(
                 "parallel media download cannot resume an interrupted transfer"
             )
+        _write_state(state_path, source, destination, 0, resumable=False)
         return await _download_parallel(
             tg,
             message,
             source,
             destination,
+            state_path,
             part_path,
             parallel,
             progress,
@@ -261,7 +312,7 @@ async def download_media(
         if progress and chunks_since_progress:
             progress(current, _message_size(message))
 
-    os.replace(part_path, destination)
+    _publish(part_path, destination)
     state_path.unlink(missing_ok=True)
     return {
         "source": _source_label(source),
@@ -277,6 +328,7 @@ async def _download_parallel(
     message,
     source: MediaSource,
     destination: Path,
+    state_path: Path,
     part_path: Path,
     parallel: int,
     progress,
@@ -295,7 +347,8 @@ async def _download_parallel(
         parallel=parallel,
         progress=progress,
     )
-    os.replace(part_path, destination)
+    _publish(part_path, destination)
+    state_path.unlink(missing_ok=True)
     return {
         "source": _source_label(source),
         "path": str(destination),
