@@ -12,20 +12,19 @@ provable invariants.
 
 - Branch: `claude/fable5-hardening-5zqywp` (pushed to origin)
 - Base: `main` @ `dca1eed` (1.2.15)
-- HEAD: `a6e049f` — Phase 3 waves 1 and 2 integrated
+- HEAD: `b07f674` — Phase 3 waves 1-4 integrated and reviewed
 - Gate at HEAD (2026-07-26): ruff check passed; ruff format 148 files
   clean; architecture check passed; pyright 0 errors;
-  **pytest 1326 passed, 9 skipped**; coverage OK (23 namespaces); docs
+  **pytest 1418 passed, 9 skipped**; coverage OK (23 namespaces); docs
   gate 23 pages, 0 problems. (Baseline at `dca1eed` was 1132 passed.)
 
-## SESSION LIMIT INTERRUPTION (2026-07-26, resets 17:50 UTC)
+## Session-limit interruption (2026-07-26) — RESOLVED
 
 The account hit its session limit mid-flight. Exact state:
 
-- **Wave 3 produced nothing** — all five fix agents died before committing
-  (`bf-01/02/08` formatting, `bf-03/16` config+session, `bf-10/12/20` api,
-  `bf-04/14/06` clock skew, `bf-18` transfer proof). Nothing to recover;
-  re-run `wave3.js` from scratch.
+- **Wave 3 produced nothing** the first time — all five fix agents died
+  before committing. Re-run from scratch after the limit reset; all five
+  landed (see below).
 - **Wave 2 produced six commits but ZERO reviews** — every reviewer agent
   died. All six are now integrated on the branch (each with its own full
   gate) and the worktrees are gone:
@@ -48,11 +47,10 @@ The account hit its session limit mid-flight. Exact state:
   across, and every wave-1 arm (`BrokenPipeError`, `_tolerate_hangup`,
   RUNTIME) was preserved.
 
-- **THESE SIX ARE STILL UNREVIEWED — the single biggest open risk.** Wave 1
-  sent four of five diffs back with blocker/major findings, so "integrated"
-  here does not mean "verified". An independent review of
-  `1565192..a6e049f` is REQUIRED before the PR to main (AGENTS.md pre-merge
-  rule). Suite at `a6e049f`: 1326 passed, 9 skipped, full gate green.
+- **All six were reviewed afterwards** by six independent reviewers
+  (`reviewwave2.js`): one approve, five needs-work. Every blocker and major
+  was fixed by the integrator with a red test first — see "Review fixes"
+  below. The review debt is closed.
 
 ## Static-analysis and coverage measurement (2026-07-26)
 
@@ -81,10 +79,12 @@ This answers the external review's "the gate is softer than it looks":
 1. **Phase 1 — DONE.** Five handoff defects fixed with red-first
    regression tests, independent adversarial review per diff, serial
    integration with a full gate per slice.
-2. **Phase 2 — DONE.** 41 findings confirmed, 0 refuted. A gap audit over
-   the completeness critic's uncovered areas is running.
-3. **Phase 3 — IN PROGRESS.** Wave 1 (P1 correctness) integrated; next the
-   P2/P3 waves, tracker issues #79/#81/#83, and the owner-approved
+2. **Phase 2 — DONE.** 41 findings confirmed, 0 refuted; a follow-up gap
+   audit over the completeness critic's uncovered areas confirmed 23 more
+   and refuted 2.
+3. **Phase 3 — fix waves DONE.** Waves 1-4 (17 slices) integrated, every
+   one reviewed, every blocker/major closed with a red test. Tracker
+   issues #79/#81/#83 fixed. Remaining: the owner-approved
    `commands/clone.py` split behind characterization tests.
 4. **Phase 4** — release slice 1.2.16, whole-branch adversarial review,
    full gate, PR to main, CI. No merge without the owner.
@@ -389,6 +389,30 @@ Known residual gaps (documented, deliberately not fixed in Phase 1):
    `bf-15`, `bf-19`, `bf-21`, `bf-23`, `bf-24`, `bf-25`, `bf-26`).
 4. Then the `clone.py` split behind characterization tests, then the
    1.2.16 release slice and the PR.
+
+## Review fixes landed by the integrator
+
+Reviews returned needs-work on 8 of 11 reviewed slices. Every blocker and
+major was closed on the branch, each with a failing test first:
+
+- `9d43120` — **blocker**: the af-17 destination fix never reached the
+  discussion-group destination (`clone/comments.py`) or `discussion.adopt`,
+  both of which CONTRACT §11 promises as exit 2. All recorded-peer lookups
+  now share one `PEER_UNAVAILABLE` tuple instead of three hand-copied ones.
+- `e33f56c` — `clone/state.py::save()` and `clone/roster.py::_write()` were
+  hand-rolled copies of `atomic.replace_text`, so they missed the parent
+  directory fsync it had just gained; both now call it. Per-clone
+  `retry_not_before` gained the same skew clamp its account-scoped sibling
+  got.
+- `c3f1345` — FloodWait was swallowed as "unknown author" when rendering a
+  story and as "muted: false" during `clone init`; both now surface exit 5.
+- `b07f674` (and its slice) — naive `expires_at` values crashed
+  `load_attempt`, `consume_preview`, and `begin_commit` with a
+  naive-vs-aware `TypeError`; all three now treat the record as unusable.
+- Colliding aliases were rejected on read but still written by
+  `accounts import`, producing a config no command could load; and the
+  raw-write audit recorded `channel` but never `user_id`, so an
+  `editAdmin` row named the room and not the person.
 
 ## Wave assignments
 
