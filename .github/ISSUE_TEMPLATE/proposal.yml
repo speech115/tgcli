@@ -47,7 +47,7 @@ body:
     attributes:
       label: Before submitting
       options:
-        - label: I checked the guide (docs/guide/) and FEATURES.md — this is not already possible.
+        - label: I checked the guide (docs/guide/) and docs/FEATURES.md — this is not already possible.
           required: true
         - label: I checked docs/PROPOSALS.md and docs/ISSUES.md — this is not already tracked.
           required: true
