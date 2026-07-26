@@ -12,6 +12,7 @@ tgcli/
 ├── SECURITY.md                [done]    private reporting channel, redaction rules, safety scope (ADR-0056)
 ├── LICENSE                    [done]    MIT, © speech115 (ADR-0056)
 ├── .github/workflows/ci.yml   [done]    CI: ruff + architecture + pyright + pytest + coverage gates (ADR-0027/0034)
+├── .github/workflows/release-tag.yml [done] tags the merged release commit vX.Y.Z on push to main (ADR-0038)
 ├── .github/ISSUE_TEMPLATE/    [done]    bug-report + proposal forms, both labelled needs-triage (ADR-0056)
 ├── .github/PULL_REQUEST_TEMPLATE.md [done] gate evidence + documentation/safety checklist (ADR-0056)
 ├── .cursor/rules/             [done]    Cursor always-apply maintenance/TDD/docs rule
@@ -108,7 +109,7 @@ tgcli/
     ├── gate.sh                [done]    full pre-commit gate: the exact CI steps, one command
     ├── install-link.sh        [done]    symlink tg → PATH (phase 6 cutover)
     ├── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
-    ├── check-docs.py          [done]    fail-closed guide gate: flags, commands, links (ADR-0041)
+    ├── check-docs.py          [done]    fail-closed guide gate: flags, commands, links (ADR-0041); CHANGELOG release links (ADR-0038)
     ├── bench.py               [done]    live benchmark: every command against a real account
     ├── bench-clone-state.py   [done]    offline bf-19 benchmark: JSON rewrite vs SQLite/WAL (ADR-0060)
     ├── seed_demo_channel.py   [done]    manual demo-channel seeding for clone visual acceptance
