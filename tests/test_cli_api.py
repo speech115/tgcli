@@ -203,3 +203,40 @@ def test_api_write_kill_switch_blocks_without_opening_a_session(monkeypatch):
     monkeypatch.setenv("TGCLI_NO_SEND", "1")
 
     assert main(["api", "messages.sendMessage", "--params", "{}", "--write"]) == 2
+
+
+def test_api_write_audit_records_what_the_write_touched(
+    config_env, monkeypatch, capsys
+):
+    """ADR-0010/0011: an audit row naming only the method cannot answer the one
+    question an audit log exists for. The unit-tested audit_details must be on
+    the live path, not just importable."""
+    from tgcli import cli, safety
+
+    async def fake_run_network(args, account):
+        return {"method": args.method, "result": {}}, []
+
+    monkeypatch.setattr(cli, "_run_network", fake_run_network)
+
+    assert (
+        main(
+            [
+                "api",
+                "channels.editAdmin",
+                "--params",
+                '{"channel": "@team", "user_id": "@alice", "rank": "mod"}',
+                "--write",
+                "--confirm",
+                "channels.editAdmin",
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    [row] = [
+        json.loads(line)
+        for line in safety.audit_path().read_text().splitlines()
+        if json.loads(line)["action"] == "api"
+    ]
+    assert row["target"] == {"channel": "@team", "user_id": "@alice"}

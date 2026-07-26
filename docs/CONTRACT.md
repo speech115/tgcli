@@ -22,7 +22,7 @@ Global flags (available on every command):
 | `--json` | machine output: one JSON document to stdout |
 | `--plain` | stable TSV to stdout (no colors, no alignment) |
 | `--readonly` | hard-block any mutating call in this invocation |
-| `--timeout <sec>` | overall invocation deadline (default 60; no default deadline for media and exports) |
+| `--timeout <sec>` | overall invocation deadline covering preflight and execution (default 60; no default deadline for media, exports, or `clone init|sync|refresh`, which may wait out a short FloodWait; `accounts login` defaults to 120 and `--continue` takes none) |
 | `-v/--verbose` | Python and Telethon debug diagnostics on stderr for this invocation |
 
 Env equivalents: `TGCLI_ACCOUNT`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`.
@@ -432,6 +432,15 @@ Markdown-to-entity behavior for text and captions); `plain` sends verbatim and
 `html` uses the same entity set as `edit --format html` (bold/italic/quote/
 expandable quote/spoiler/code/links/`tg-emoji` custom emoji). The commit
 re-renders from the stored `format` and passes explicit entities.
+`--format html` fails closed: markup the parser would silently delete from
+the body is rejected with exit 2 (`BLOCKED`) at preview time — before a
+preview record is written and before anything is sent, edited, or saved as a
+draft. That covers unterminated markup (`if a<b then c`), a tag outside the
+supported set (`List<int> is generic`), an unclosed supported tag, and HTML
+comments, declarations, or processing instructions. A bare `<` followed by a
+space or a digit (`5 < 6 and 7 > 8`) is ordinary text and still renders
+unchanged. The same check runs at commit, so a preview minted by an older
+version cannot publish a truncated body.
 `tg edit CHAT MESSAGE_ID TEXT --preview [--format {plain,md,html}]` records the
 chosen format in the preview (default `plain`). Unlike `send`, edit does not
 apply the client's default parse mode: `plain` sends TEXT verbatim with no
@@ -739,10 +748,21 @@ tg api <Namespace.method> --params '<json>' [--write] [--confirm <method>]
 - With `--write`, the same `--readonly`, `TGCLI_READONLY=1`, and
   `TGCLI_NO_SEND=1` gates run before config/session/network work. Destructive
   `delete*`, `reset*`, `leave*`, `block*`, `edit*Admin*`, and `edit*Banned*`
-  methods require an exact `--confirm <Namespace.method>`; the permanent
+  methods require an exact `--confirm <Namespace.method>`, as do the
+  irreversible one-way conversions `messages.migrateChat` and
+  `channels.convertToGigagroup`, which no prefix rule covers; the permanent
   denylist `account.deleteAccount`, `auth.logOut`, `auth.resetAuthorizations`,
   and `account.resetAuthorization` is always exit 2. Authorised raw writes
-  append one JSONL audit object before dispatch.
+  append one JSONL audit object before dispatch, naming the method **and**
+  the target identifiers present in `--params` (`peer`, `channel`, `chat`,
+  `chat_id`, `id`, `participant`, `user_id`) so the log answers what a write
+  touched; message bodies and credentials are never recorded (ADR-0011).
+- A parameter for a peer field may be given as a chat reference — `@username`,
+  a `t.me` link, or a numeric id in either the raw or `-100`-marked form — and
+  is resolved to an input peer before dispatch; an unresolvable reference is
+  exit 4. Constructor objects in `--params` must name an `Input*` type, except
+  the `channels.getParticipants` filter union, whose members are accepted by
+  their own names.
 - `--json` output: `{"method": "users.getFullUser", "result": {…}}` where
   `result` is the TL object as a dict, or a JSON scalar (`true`/`false`,
   number, `null`) when the RPC returns a bare Bool/int/null instead of a
@@ -775,9 +795,10 @@ tg export subscribers <channel> --output <path> [--limit <n>]
   with `id`, `date`, `from`, `text`, `media`, and `reply_to` fields.
 - `subscribers` writes UTF-8 CSV with the frozen header
   `id,username,first_name,last_name,phone,is_bot`; standard CSV quoting is
-  used for field values. Username and name cells beginning with `=`, `+`, `-`,
-  or `@` are prefixed with a single quote so spreadsheet programs do not
-  interpret them as formulas. For **broadcast** channels, when `--limit` is
+  used for field values. Username and name cells whose first non-whitespace
+  character is `=`, `+`, `-`, or `@` are prefixed with a single quote so
+  spreadsheet programs do not interpret them as formulas; leading tabs,
+  carriage returns, and spaces do not evade the guard. For **broadcast** channels, when `--limit` is
   omitted, tgcli unions saturating prefix searches over
   `channels.getParticipants` to walk past Telegram's hard 200-row cap for a
   single query. A `--limit` greater than 200 on a broadcast channel exits 2

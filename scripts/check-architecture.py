@@ -15,7 +15,7 @@ CEILINGS = {
     # +39 for the CONTRACT §2/§4 failure paths: --timeout expiry as TIMEOUT,
     # untranslated exceptions as one RUNTIME envelope, and a hung-up stdout
     # pipe leaving quietly instead of raising through the journal.
-    "src/tgcli/cli.py": 527,
+    "src/tgcli/cli.py": 533,
     "src/tgcli/parser.py": 516,
     "src/tgcli/preflight.py": 254,
     "src/tgcli/dispatch.py": 257,

@@ -20,6 +20,7 @@ from contextlib import contextmanager
 
 from tgcli import dispatch, invocations, output, preflight, safety
 from tgcli.commands import accounts as accounts_cmd
+from tgcli.commands import api as api_cmd
 from tgcli.commands import clone as clone_cmd
 from tgcli.commands import doctor as doctor_cmd
 from tgcli.commands import login as login_cmd
@@ -241,7 +242,12 @@ def _audit_before(args, account) -> None:
             {"preview_id": args.commit, "chat": args.preview_payload.get("chat")},
         )
     if args.command == "api" and args.write:
-        safety.append_audit("api", account.alias, {"method": args.method})
+        # audit_details adds what the write touched (ADR-0010/0011): a record
+        # naming only the method cannot answer the one question an audit log
+        # exists for.
+        safety.append_audit(
+            "api", account.alias, api_cmd.audit_details(args.method, args.params)
+        )
     if args.command in ("mark-read", "mark-unread"):
         safety.append_audit(args.command, account.alias, {"chat": args.chat})
     if args.command == "dialog":

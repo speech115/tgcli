@@ -100,6 +100,16 @@ reproducing test.
   sanctioned atomic writer; `store` survives a preview consumed mid-walk and
   no longer deletes a staged login whose lock is held.
 
+### Known and not fixed
+
+- `login_state.promote()` swaps the previous session to `.bak` and moves the
+  staged session in without a single atomic step, so a crash inside that
+  window can leave the account with a backup and no live session (audit
+  finding af-14). Recovery is manual (rename the `.bak` back) or a fresh
+  `accounts login`. Closing it properly needs a documented recovery path
+  rather than a wider rename, so it is deliberately deferred rather than
+  patched under a release.
+
 ### Changed
 
 - `commands/clone.py` shrank from 1596 to 1199 lines: the cooldown gate and

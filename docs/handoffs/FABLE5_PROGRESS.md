@@ -414,6 +414,22 @@ major was closed on the branch, each with a failing test first:
   raw-write audit recorded `channel` but never `user_id`, so an
   `editAdmin` row named the room and not the person.
 
+## Audit findings deliberately NOT fixed in 1.2.16
+
+- **af-14** — `login_state.promote()` is not crash-atomic: the `.bak` swap
+  and the staged move are two renames, so a crash between them leaves a
+  backup and no live session. Manual recovery exists (rename the `.bak`
+  back); a real fix needs a documented recovery path, not a wider rename.
+  Disclosed in the CHANGELOG under "Known and not fixed".
+- **bf-19** — `clone/state.py::save()` rewrites the whole state file per
+  message, so disk I/O is quadratic over a clone. This is a performance and
+  storage-shape question, routed to the measured backend work in
+  `docs/PROPOSALS.md` (baseline first, SQLite prototype second) rather than
+  patched blind.
+- **bf-23** — usage errors share exit 1 with runtime failures. The envelope
+  now distinguishes them (`USAGE` vs `RUNTIME`); changing the exit code
+  itself would be a contract break needing an ADR.
+
 ## Wave assignments
 
 - **Wave 2** (running): af-27/40/15/35/41 lifecycle; af-28/30/32/29 store
