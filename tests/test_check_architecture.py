@@ -13,7 +13,7 @@ CEILINGS = {
     "src/tgcli/preflight.py": 245,
     "src/tgcli/dispatch.py": 257,
     "src/tgcli/commands/batch.py": 96,
-    "src/tgcli/read_ops.py": 414,
+    "src/tgcli/read_ops.py": 434,
     "src/tgcli/commands/clone.py": 1515,
     "src/tgcli/clone/state.py": 329,
     "src/tgcli/clone/quotes.py": 391,

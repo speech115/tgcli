@@ -9,6 +9,7 @@ import re
 
 from telethon import functions
 from telethon import errors as telethon_errors
+from telethon.tl import types
 
 from tgcli import atomic, chatref
 from tgcli.errors import (
@@ -82,7 +83,9 @@ def destination_for(name: str, requested: str | None) -> Path:
 async def _resolve_private_entity(tg, channel_id: int, account_alias: str):
     async for dialog in tg.iter_dialogs():
         entity = dialog.entity
-        if getattr(entity, "id", None) == channel_id:
+        # A t.me/c/ link names a channel: ids are only unique within a peer
+        # kind, so a user with the same number is a different peer.
+        if isinstance(entity, types.Channel) and entity.id == channel_id:
             try:
                 input_entity = await tg.get_input_entity(entity)
                 await tg(functions.channels.GetChannelsRequest([input_entity]))
@@ -160,8 +163,9 @@ def _resume_offset(
     state_path: Path, part_path: Path, source: MediaSource, destination: Path
 ) -> int:
     if not state_path.exists():
-        if part_path.exists():
-            raise PolicyError(f"partial media download has no state: {part_path}")
+        # No state means no proven byte: discard the partial and start over
+        # rather than wedging every later run on an unresumable file.
+        part_path.unlink(missing_ok=True)
         return 0
     try:
         state = json.loads(state_path.read_text())
@@ -445,15 +449,14 @@ async def download_media_bulk(
             f"bulk media download finished with {len(failed)} failure(s)",
             data,
             cause=cause,
+            rows=bulk_to_rows(data),
         )
     return data
 
 
 def bulk_to_rows(data: dict) -> list[tuple]:
-    return [
-        (item["message_id"], item["path"], item["bytes"], item["resumed"])
-        for item in data["items"]
-    ]
+    """One frozen `media download` row per downloaded item (CONTRACT §5 TSV)."""
+    return [(item["path"], item["bytes"], item["resumed"], 1) for item in data["items"]]
 
 
 MEDIA_KINDS = ("photo", "video", "audio", "voice", "document")

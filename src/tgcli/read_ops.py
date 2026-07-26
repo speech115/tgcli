@@ -182,6 +182,34 @@ def _batch_when(value: Any, field: str) -> datetime | None:
     return parse_when(value, invalid=invalid)
 
 
+# Enumerations the CLI parser offers as `choices`; the batch adapter rejects
+# exactly the same values, so a typo cannot come back as an empty list.
+DIALOG_KINDS = ("user", "group", "channel")
+MEDIA_KINDS = media_cmd.MEDIA_KINDS
+
+
+def _batch_choice(value: Any, field: str, choices: tuple[str, ...]) -> str | None:
+    if value is not None and value not in choices:
+        raise PolicyError(f"batch {field} must be one of: {', '.join(choices)}")
+    return value
+
+
+def _batch_search(p: dict[str, Any]) -> Search:
+    """A global search carries no chat, sender, or date scope (CONTRACT §3)."""
+    if p.get("all"):
+        if p.get("from") is not None or p.get("since") is not None:
+            raise PolicyError("search --all only supports QUERY and --limit")
+        return Search(None, p["query"], int(p.get("limit", 20)), True, None, None)
+    return Search(
+        p["chat"],
+        p["query"],
+        int(p.get("limit", 20)),
+        False,
+        p.get("from"),
+        _batch_when(p.get("since"), "search.since"),
+    )
+
+
 async def _fetch_search(tg, op: Search) -> dict[str, Any]:
     if op.all:
         return await search_cmd.fetch_search_all(tg, op.query, limit=op.limit)
@@ -225,7 +253,7 @@ _SPECS: dict[str, _Spec] = {
         batch=lambda p: Dialogs(
             int(p.get("limit", 50)),
             bool(p.get("unread_only", False)),
-            p.get("kind"),
+            _batch_choice(p.get("kind"), "dialogs.kind", DIALOG_KINDS),
         ),
         fetch=lambda tg, op: dialogs_cmd.fetch_dialogs(
             tg, limit=op.limit, unread_only=op.unread_only, kind=op.kind
@@ -259,15 +287,7 @@ _SPECS: dict[str, _Spec] = {
     ),
     "search": _Spec(
         cli=lambda a: Search(a.chat, a.query, a.limit, a.all, a.from_user, a.since),
-        # A global search carries no chat, sender, or date scope.
-        batch=lambda p: Search(
-            None if p.get("all") else p["chat"],
-            p["query"],
-            int(p.get("limit", 20)),
-            bool(p.get("all")),
-            None if p.get("all") else p.get("from"),
-            None if p.get("all") else _batch_when(p.get("since"), "search.since"),
-        ),
+        batch=_batch_search,
         fetch=_fetch_search,
         rows=search_cmd.to_rows,
     ),
@@ -329,7 +349,7 @@ _SPECS: dict[str, _Spec] = {
         cli=lambda a: MediaManifest(a.source, a.media_type, a.since, a.limit),
         batch=lambda p: MediaManifest(
             p["source"],
-            p.get("type"),
+            _batch_choice(p.get("type"), "media.manifest.type", MEDIA_KINDS),
             _batch_when(p.get("since"), "media.manifest.since"),
             int(p.get("limit", 100)),
         ),

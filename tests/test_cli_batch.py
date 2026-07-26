@@ -183,6 +183,52 @@ def test_batch_media_manifest_parses_iso_since(config_env, monkeypatch, capsys):
     assert [item["message_id"] for item in result["data"]["items"]] == [2]
 
 
+@pytest.mark.parametrize("field, value", [("since", "2026-07-07"), ("from", "@alice")])
+def test_batch_search_all_rejects_chat_scoped_filters(
+    config_env, monkeypatch, capsys, field, value
+):
+    """--from/--since are chat-scoped; --all must fail, never silently drop them."""
+    make_session_fake(monkeypatch, FakeClient())
+    line = json.dumps({"op": "search", "query": "needle", "all": True, field: value})
+    monkeypatch.setattr("sys.stdin", type("S", (), {"read": lambda self: line})())
+
+    assert main(["batch"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is False
+    assert result["error"]["code"] == "BLOCKED"
+    assert result["error"]["message"] == "search --all only supports QUERY and --limit"
+
+
+def test_batch_dialogs_rejects_unknown_kind(config_env, monkeypatch, capsys):
+    make_session_fake(monkeypatch, FakeClient(dialogs=[make_dialog()]))
+    line = json.dumps({"op": "dialogs", "kind": "chanel"})
+    monkeypatch.setattr("sys.stdin", type("S", (), {"read": lambda self: line})())
+
+    assert main(["batch"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is False
+    assert result["error"]["message"] == (
+        "batch dialogs.kind must be one of: user, group, channel"
+    )
+
+
+def test_batch_media_manifest_rejects_unknown_type(config_env, monkeypatch, capsys):
+    client = FakeClient(
+        messages=[_media_message(2, "photo")],
+        entities={"@chan": ns(id=5, title="Chan")},
+    )
+    make_session_fake(monkeypatch, client)
+    line = json.dumps({"op": "media.manifest", "source": "@chan", "type": "foto"})
+    monkeypatch.setattr("sys.stdin", type("S", (), {"read": lambda self: line})())
+
+    assert main(["batch"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is False
+    assert result["error"]["message"] == (
+        "batch media.manifest.type must be one of: photo, video, audio, voice, document"
+    )
+
+
 def test_batch_maps_flood_wait_to_exit_5(config_env, monkeypatch, capsys):
     from telethon import errors as telethon_errors
 

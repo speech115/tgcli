@@ -4,6 +4,7 @@ is added to the union without a matching row."""
 
 from __future__ import annotations
 
+import argparse
 from typing import get_args
 
 import pytest
@@ -105,3 +106,29 @@ def test_non_read_commands_do_not_map_to_an_operation(argv):
 def test_unknown_batch_op_is_a_policy_error():
     with pytest.raises(PolicyError, match="unhandled batch op"):
         read_ops.from_batch({"op": "nope"})
+
+
+def _cli_choices(argv: list[str], dest: str) -> tuple:
+    """The choices argparse offers for one flag of one (sub)command."""
+    target = build_parser()
+    for name in argv:
+        subparsers = next(
+            action
+            for action in target._actions
+            if isinstance(action, argparse._SubParsersAction)
+        )
+        target = subparsers.choices[name]
+    action = next(action for action in target._actions if action.dest == dest)
+    return tuple(action.choices)
+
+
+@pytest.mark.parametrize(
+    "argv, dest, choices",
+    [
+        (["dialogs"], "kind", read_ops.DIALOG_KINDS),
+        (["media", "manifest"], "media_type", read_ops.MEDIA_KINDS),
+    ],
+)
+def test_batch_enums_match_the_cli_choices(argv, dest, choices):
+    """The batch adapter rejects exactly what the CLI parser rejects."""
+    assert _cli_choices(argv, dest) == tuple(choices)

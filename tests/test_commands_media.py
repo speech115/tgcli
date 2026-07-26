@@ -4,10 +4,13 @@ from pathlib import Path
 import pytest
 from telethon import errors as telethon_errors
 
+from telethon.tl import types
+
 from tgcli.commands.media import (
     MediaSource,
     _resume_offset,
     _source_label,
+    _state_paths,
     destination_for,
     parse_source,
     download_media,
@@ -15,6 +18,21 @@ from tgcli.commands.media import (
     safe_filename,
 )
 from tgcli.errors import NotFoundError, PolicyError
+
+
+def make_channel(channel_id: int) -> types.Channel:
+    return types.Channel(
+        id=channel_id,
+        title="Chan",
+        photo=None,
+        date=None,
+        broadcast=True,
+        access_hash=0,
+    )
+
+
+def make_user(user_id: int) -> types.User:
+    return types.User(id=user_id, first_name="Same Id", access_hash=0)
 
 
 def test_parse_source_accepts_public_link():
@@ -274,6 +292,34 @@ def test_resume_offset_discards_uncheckpointed_bytes(tmp_path):
     assert part_path.read_bytes() == b"checkpointed"
 
 
+async def test_download_restarts_when_partial_has_no_state(tmp_path):
+    """A partial nobody checkpointed proves nothing: start over, never wedge."""
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "out.bin"
+    state_path, part_path = _state_paths(source)
+    part_path.parent.mkdir(parents=True, exist_ok=True)
+    part_path.write_bytes(b"unproven")
+
+    result = await download_media(
+        FakeDownloadTelegram([b"fresh"]), source, "main", output=str(target)
+    )
+
+    assert target.read_bytes() == b"fresh"
+    assert result["resumed"] is False
+    assert not part_path.exists()
+    assert not state_path.exists()
+
+
+def test_resume_offset_restarts_when_state_is_missing(tmp_path):
+    source = MediaSource("@channel", 42, None)
+    destination = tmp_path / "out.bin"
+    part_path = tmp_path / "out.part"
+    part_path.write_bytes(b"unproven")
+
+    assert _resume_offset(tmp_path / "state.json", part_path, source, destination) == 0
+    assert not part_path.exists()
+
+
 async def test_resolve_message_uses_public_chat_reference():
     entity = type("Entity", (), {"id": 12})()
     message = type("Message", (), {"id": 42, "media": object()})()
@@ -294,7 +340,7 @@ async def test_resolve_message_uses_public_chat_reference():
 
 
 async def test_private_link_scans_dialogs_and_validates_channel():
-    entity = type("Entity", (), {"id": 3817664407})()
+    entity = make_channel(3817664407)
     message = type("Message", (), {"id": 878, "media": object()})()
 
     class FakeTelegram:
@@ -328,8 +374,25 @@ async def test_private_link_without_dialog_names_account():
         await resolve_message(FakeTelegram(), MediaSource(None, 8, 7), "main")
 
 
+async def test_private_link_ignores_a_user_with_the_same_id():
+    """t.me/c/<id> names a channel; a user whose id collides is not that peer."""
+    entity = make_user(3817664407)
+
+    class FakeTelegram:
+        async def iter_dialogs(self):
+            yield type("Dialog", (), {"entity": entity})()
+
+        async def get_input_entity(self, requested_entity):
+            raise AssertionError("a user must never be validated as a channel")
+
+    with pytest.raises(NotFoundError, match="account 'main' lacks access"):
+        await resolve_message(
+            FakeTelegram(), MediaSource(None, 878, 3817664407), "main"
+        )
+
+
 async def test_private_link_channel_validation_names_account_on_denial():
-    entity = type("Entity", (), {"id": 7})()
+    entity = make_channel(7)
 
     class FakeTelegram:
         async def iter_dialogs(self):
