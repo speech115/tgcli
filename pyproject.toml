@@ -31,7 +31,7 @@ target-version = "py312"
 extend-exclude = ["**/*.md"]
 
 [tool.ruff.lint]
-# ADR-0056/0057 lint policy: pycodestyle (E/W, so line-length is enforced,
+# ADR-0057 lint policy: pycodestyle (E/W, so line-length is enforced,
 # not just declared), pyflakes (F), import order (I), pyupgrade (UP), and
 # comprehensions (C4). Deliberately out: rule families whose fixes rewrite
 # logic rather than layout (B, SIM, PTH), unused-argument noise from the
