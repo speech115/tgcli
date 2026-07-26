@@ -9,6 +9,7 @@ mistakes, `TgcliError` for policy ones. No network, no config.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from datetime import datetime
 
@@ -16,7 +17,7 @@ from tgcli import read_ops, safety
 from tgcli.commands import api as api_cmd
 from tgcli.commands import batch as batch_cmd
 from tgcli.commands import dialog as dialog_cmd
-from tgcli.errors import PolicyError
+from tgcli.errors import ConfigError, PolicyError
 
 
 MUTATION_POSITIONALS = {
@@ -243,3 +244,11 @@ def _prepare_api(parser: argparse.ArgumentParser, args) -> None:
         args.method = canonical
     if args.params is None:
         parser.error("the following arguments are required: --params")
+    # A JSON typo is a purely local mistake: catch it here rather than after
+    # config loading and a session open (the request builder re-checks).
+    try:
+        params = json.loads(args.params)
+    except json.JSONDecodeError as exc:
+        raise ConfigError("raw API params must be valid JSON") from exc
+    if not isinstance(params, dict):
+        raise ConfigError("raw API params must be a JSON object")

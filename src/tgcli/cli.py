@@ -5,8 +5,10 @@ network routing in dispatch.py. What stays here is the shape of a single
 invocation and nothing else.
 """
 
+import argparse
 import asyncio
 import contextlib
+import io
 import logging
 import os
 import signal
@@ -37,9 +39,25 @@ __all__ = ["build_parser", "main", "entrypoint"]
 # network). Those arm later; this margin keeps them first.
 DEADLINE_GRACE = 1.0
 
+# The only argv tokens that may end a run successfully with text on stdout.
+# argparse groups single-dash short options, so the value `-hi` also reaches
+# the help action — that exit is misuse, not a help request.
+HELP_TOKENS = frozenset({"-h", "--help", "--version"})
+
+# Catchable termination signals; SIGKILL cannot be one and is left alone.
+TERMINATION_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+
 
 class _DeadlineSignal(BaseException):
     """SIGALRM escape: a BaseException so no `except Exception` swallows it."""
+
+
+class _TerminationSignal(BaseException):
+    """SIGTERM/SIGHUP escape: a BaseException, for the same reason."""
+
+    def __init__(self, signum: int) -> None:
+        super().__init__(signum)
+        self.signum = signum
 
 
 class UsageError(TgcliError):
@@ -138,6 +156,31 @@ def _armed(seconds: float | None):
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, previous)
+
+
+@contextlib.contextmanager
+def _honest_termination():
+    """Let SIGTERM/SIGHUP journal the run, then die by the signal anyway.
+
+    CONTRACT §9 promises one object per parsed command; a default-disposition
+    kill appends none. Raising from the handler lets main's `finally` write the
+    honest row, and `entrypoint` then restores the default disposition and
+    re-raises so the shell still sees a signal death. Nothing else is done
+    here: a killed run must not wait on cleanup that could hang.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    def fire(signum, frame):
+        raise _TerminationSignal(signum)
+
+    previous = [(number, signal.signal(number, fire)) for number in TERMINATION_SIGNALS]
+    try:
+        yield
+    finally:
+        for number, handler in previous:
+            signal.signal(number, handler)
 
 
 async def _run_network(args, account) -> tuple[dict, list[tuple]]:
@@ -333,12 +376,40 @@ def _emit(args, data, rows) -> None:
         )
 
 
+def _parse(
+    parser: argparse.ArgumentParser, argv: list[str] | None
+) -> argparse.Namespace | int:
+    """Parse argv, or return the exit code of a run that never got a command.
+
+    argparse prints help on stdout and exits 0 for `-h`, and it reaches `-h`
+    from any grouped short option: the value `-hi` would otherwise be a silent
+    no-op reported as success. Held-back help text reaches stdout only when an
+    exact help or version token proves the caller asked for it.
+    """
+    tokens = sys.argv[1:] if argv is None else argv
+    printed = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(printed):
+            return parser.parse_args(tokens)
+    except SystemExit as err:
+        if err.code == 0 and HELP_TOKENS.intersection(tokens):
+            sys.stdout.write(printed.getvalue())
+            return 0
+        if err.code == 0:
+            with contextlib.suppress(SystemExit):
+                parser.error(
+                    "a value starting with '-' was read as options; pass the "
+                    "flags first and such values after '--'"
+                )
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    try:
-        args = parser.parse_args(argv)
-    except SystemExit as err:
-        return 0 if err.code == 0 else 1
+    parsed = _parse(parser, argv)
+    if isinstance(parsed, int):
+        return parsed
+    args = parsed
     timeout_supplied = hasattr(args, "timeout")
     _apply_global_defaults(args)
     verbose_diagnostics = _enable_verbose_diagnostics() if args.verbose else []
@@ -346,17 +417,18 @@ def main(argv: list[str] | None = None) -> int:
     exit_code = 1
     error_code = None
     try:
-        with _armed(_deadline(args, timeout_supplied=timeout_supplied)):
-            preflight.prepare(parser, args)
-            data, rows = _execute(args, timeout_supplied=timeout_supplied)
-        # Emitting is part of the invocation: a failure here is journaled,
-        # not reported as a success.
-        if args.command == "batch":
-            output.emit_json_lines(data["_batch_results"])
-            exit_code = data["_batch_exit"] or 0
-        else:
-            _emit(args, data, rows)
-            exit_code = 0
+        with _honest_termination():
+            with _armed(_deadline(args, timeout_supplied=timeout_supplied)):
+                preflight.prepare(parser, args)
+                data, rows = _execute(args, timeout_supplied=timeout_supplied)
+            # Emitting is part of the invocation: a failure here is journaled,
+            # not reported as a success.
+            if args.command == "batch":
+                output.emit_json_lines(data["_batch_results"])
+                exit_code = data["_batch_exit"] or 0
+            else:
+                _emit(args, data, rows)
+                exit_code = 0
     except SystemExit:
         # parser.error() already wrote usage to stderr, but a --json caller is
         # still owed exactly one document on stdout (CONTRACT §2).
@@ -392,6 +464,12 @@ def main(argv: list[str] | None = None) -> int:
         exit_code = timed_out.exit_code
         with _tolerate_hangup():
             output.emit_error(timed_out, as_json=args.json)
+    except _TerminationSignal as err:
+        # The row is owed before the process leaves; entrypoint turns this
+        # back into the signal death the caller asked for.
+        error_code = "TERMINATED"
+        exit_code = 128 + err.signum
+        raise
     except TgcliError as err:
         error_code = err.code
         exit_code = err.exit_code
@@ -441,4 +519,9 @@ def entrypoint() -> None:
     except BrokenPipeError:
         _silence_stdout()
         exit_code = 0
+    except _TerminationSignal as err:
+        # The journal row is written; leave the way the signal asked.
+        signal.signal(err.signum, signal.SIG_DFL)
+        os.kill(os.getpid(), err.signum)
+        exit_code = 128 + err.signum  # unreachable: the signal lands first
     sys.exit(exit_code)

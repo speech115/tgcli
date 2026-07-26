@@ -1,4 +1,7 @@
 import json
+import signal
+import subprocess
+import sys
 
 import pytest
 
@@ -63,6 +66,58 @@ def test_policy_block_writes_the_structured_error_code():
     assert entry["command"] == "api"
     assert entry["exit_code"] == 2
     assert entry["error"] == "BLOCKED"
+
+
+TERMINATION_PROGRAM = """
+import sys
+import time
+
+from tgcli import cli
+
+
+class BlockingStdin:
+    "Announce that the invocation is running, then wait to be signalled."
+
+    def read(self):
+        sys.stderr.write("READY\\n")
+        sys.stderr.flush()
+        time.sleep(30)
+        return ""
+
+
+sys.stdin = BlockingStdin()
+sys.argv = ["tg", "batch"]
+cli.entrypoint()
+"""
+
+
+@pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGHUP])
+def test_termination_signal_journals_an_honest_row_and_dies_by_signal(
+    tmp_path, monkeypatch, signum
+):
+    """CONTRACT §9: a killed run still owes the journal one honest object."""
+    config_env(tmp_path, monkeypatch)
+    process = subprocess.Popen(
+        [sys.executable, "-c", TERMINATION_PROGRAM],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert process.stderr is not None
+        assert process.stderr.readline().strip() == "READY"
+        process.send_signal(signum)
+        process.wait(timeout=30)
+    finally:
+        process.kill()
+
+    assert process.returncode == -signum
+    journal = state_dir() / "invocations.jsonl"
+    assert journal.exists(), "the killed run appended no journal object"
+    entry = read_journal()[-1]
+    assert entry["command"] == "batch"
+    assert entry["exit_code"] == 128 + signum
+    assert entry["error"] == "TERMINATED"
 
 
 def test_keyboard_interrupt_journals_an_honest_row_and_propagates(

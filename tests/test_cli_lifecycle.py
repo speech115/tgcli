@@ -11,7 +11,7 @@ import time
 import pytest
 
 from tests.conftest import FakeClient, make_session_fake
-from tgcli import cli
+from tgcli import __version__, cli
 from tgcli.cli import main
 from tgcli.session import state_dir
 
@@ -83,6 +83,37 @@ def test_usage_error_without_json_stays_stderr_only(config_env, capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "search requires CHAT QUERY" in captured.err
+
+
+def test_option_like_text_is_not_a_silent_help_exit(config_env, capsys):
+    """argparse groups short options, so a `-hi` message fires -h and exits 0."""
+    assert main(["send", "@somebody", "-hi", "--preview"]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "show this help message" not in captured.err
+    assert "usage: tg" in captured.err
+
+
+def test_option_like_text_writes_nothing_to_stdout_under_json(config_env, capsys):
+    assert main(["draft", "set", "@somebody", "-hi", "--preview", "--json"]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "show this help message" not in captured.err
+
+
+def test_explicit_help_still_prints_and_exits_zero(config_env, capsys):
+    assert main(["--help"]) == 0
+    assert "usage: tg" in capsys.readouterr().out
+
+    assert main(["draft", "set", "-h"]) == 0
+    assert "usage: tg draft set" in capsys.readouterr().out
+
+
+def test_explicit_version_still_prints_and_exits_zero(config_env, capsys):
+    assert main(["--version"]) == 0
+    assert capsys.readouterr().out.strip() == __version__
 
 
 def _record_wait_for(monkeypatch):
