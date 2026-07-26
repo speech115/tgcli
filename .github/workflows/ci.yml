@@ -5,14 +5,15 @@ on:
     branches: ["**"]
   pull_request:
 
-# A branch with an open PR triggers both events for the same SHA; keep the
-# newest run per ref and cancel the duplicate.
+# Push and pull_request runs use distinct refs and check names. This preserves
+# pre-PR branch CI without creating two required "test" checks for one SHA.
 concurrency:
-  group: ci-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
+    name: ${{ github.event_name == 'pull_request' && 'test' || 'branch-test' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
