@@ -6,7 +6,6 @@ import pytest
 from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli.cli import main
 
-
 SAMPLE = """
 default_account = "main"
 
@@ -27,7 +26,7 @@ def make_fake():
     entity = ns(id=-1001234, title="Channel")
     message = ns(
         id=42,
-        date=dt.datetime(2026, 7, 6, 10, 0, tzinfo=dt.timezone.utc),
+        date=dt.datetime(2026, 7, 6, 10, 0, tzinfo=dt.UTC),
         sender_id=111,
         sender=ns(first_name="Alice", last_name=None),
         text="hello",
@@ -42,7 +41,7 @@ def make_read_client():
     messages = [
         ns(
             id=message_id,
-            date=dt.datetime(2026, 7, day, tzinfo=dt.timezone.utc),
+            date=dt.datetime(2026, 7, day, tzinfo=dt.UTC),
             sender_id=111,
             sender=ns(first_name="Alice", last_name=None),
             text=f"message {message_id}",
@@ -88,7 +87,7 @@ def test_read_until_passes_parsed_offset_date(config_env, monkeypatch, capsys):
 
     data = json.loads(capsys.readouterr().out)
     assert client.iter_messages_kwargs["offset_date"] == dt.datetime(
-        2026, 7, 18, tzinfo=dt.timezone.utc
+        2026, 7, 18, tzinfo=dt.UTC
     )
     assert [message["id"] for message in data["messages"]] == [2, 1]
     assert data["page"] == {"oldest_id": 1, "newest_id": 2}

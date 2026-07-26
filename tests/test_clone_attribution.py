@@ -78,7 +78,7 @@ def test_prefixed_mention_coexists_with_shifted_entities():
 
 
 def test_prefixed_lead_in_renders_forward_line_and_shifts_mention():
-    """ADR-0050: Author.lead builds ``Переслано от <name>``; mention covers name only."""
+    """ADR-0050: Author.lead builds ``Переслано от <name>``; mention covers the name."""
     text, entities = attribution.prefixed(
         "тело",
         None,

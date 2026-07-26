@@ -7,6 +7,7 @@ import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+
 from tgcli.errors import PolicyError
 
 VERSION = 2

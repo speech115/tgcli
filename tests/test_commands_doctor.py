@@ -9,7 +9,6 @@ from tgcli.cli import main
 from tgcli.commands import doctor as doctor_cmd
 from tgcli.config import load_config
 
-
 SAMPLE = """
 default_account = "main"
 

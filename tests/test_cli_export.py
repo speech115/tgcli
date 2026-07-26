@@ -1,7 +1,7 @@
+import asyncio
 import csv
 import datetime as dt
 import json
-import asyncio
 
 import pytest
 from telethon import errors as telethon_errors
@@ -9,7 +9,6 @@ from telethon import errors as telethon_errors
 from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli.cli import main
 from tgcli.commands.export import _atomic_text_destination
-
 
 SAMPLE = """
 default_account = "main"
@@ -30,7 +29,7 @@ def config_env(tmp_path, monkeypatch):
 def make_message(message_id, text):
     return ns(
         id=message_id,
-        date=dt.datetime(2026, 7, 10, 10, 0, tzinfo=dt.timezone.utc),
+        date=dt.datetime(2026, 7, 10, 10, 0, tzinfo=dt.UTC),
         sender_id=111,
         sender=ns(first_name="Alice", last_name=None),
         text=text,

@@ -4,8 +4,8 @@ from unittest.mock import ANY
 
 import pytest
 
-from tgcli.errors import PolicyError
 from tgcli import safety
+from tgcli.errors import PolicyError
 
 
 @pytest.mark.parametrize(

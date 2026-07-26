@@ -26,9 +26,12 @@ def _clone_state(*, discussion_source_peer_id=55, kind="broadcast"):
 
 
 def _plan(**overrides):
-    fields = dict(
-        mode="reuploaded", reply_to=None, reply_flattened=False, needs_author=True
-    )
+    fields = {
+        "mode": "reuploaded",
+        "reply_to": None,
+        "reply_flattened": False,
+        "needs_author": True,
+    }
     fields.update(overrides)
     return transport.TransportPlan(**fields)
 

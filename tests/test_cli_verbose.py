@@ -1,6 +1,6 @@
 import json
-from tgcli.cli import main
 
+from tgcli.cli import main
 
 SAMPLE = """
 default_account = "main"

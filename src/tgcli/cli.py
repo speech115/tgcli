@@ -10,17 +10,17 @@ import logging
 import sys
 import time
 
-from tgcli import dispatch, invocations, output, preflight, safety
-from tgcli.commands import accounts as accounts_cmd
-from tgcli.commands import clone as clone_cmd
-from tgcli.commands import doctor as doctor_cmd
-from tgcli.commands import login as login_cmd
-from tgcli.commands import store as store_cmd
+from tgcli import dispatch, invocations, output, preflight, safety, session
+from tgcli.commands import (
+    accounts as accounts_cmd,
+    clone as clone_cmd,
+    doctor as doctor_cmd,
+    login as login_cmd,
+    store as store_cmd,
+)
 from tgcli.config import load_config, resolve_account
 from tgcli.errors import PartialFailure, TgcliError
 from tgcli.parser import build_parser
-from tgcli import session
-
 
 LOGGER = logging.getLogger(__name__)
 

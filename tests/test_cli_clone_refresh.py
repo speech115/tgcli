@@ -9,11 +9,9 @@ from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
 from tests.conftest import make_session_fake
-from tgcli import safety
+from tgcli import safety, session
 from tgcli.cli import main
 from tgcli.clone import flood, state
-from tgcli import session
-
 
 SAMPLE = """
 default_account = "main"
@@ -401,7 +399,7 @@ def test_clone_refresh_commit_rejects_wrong_source_peer(
 def test_clone_refresh_commit_rejects_stale_id_map_pair(
     config_env, monkeypatch, capsys
 ):
-    """After replace/remap, a preview pair that no longer matches id_map fails closed."""
+    """After replace/remap, a preview pair no longer matching id_map fails closed."""
     clone_state = seed_clone()
     clone_state.record_mapping(54, 254)  # remapped; preview still names 154
     state.save(clone_state)

@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Awaitable, Callable, ClassVar, Literal, NoReturn, TypeAlias
+from typing import Any, ClassVar, Literal, NoReturn, TypeAlias
 
-from tgcli.commands import dialogs as dialogs_cmd
-from tgcli.commands import draft as draft_cmd
-from tgcli.commands import identity as identity_cmd
-from tgcli.commands import info as info_cmd
-from tgcli.commands import media as media_cmd
-from tgcli.commands import read as read_cmd
-from tgcli.commands import search as search_cmd
-from tgcli.commands import thread as thread_cmd
+from tgcli.commands import (
+    dialogs as dialogs_cmd,
+    draft as draft_cmd,
+    identity as identity_cmd,
+    info as info_cmd,
+    media as media_cmd,
+    read as read_cmd,
+    search as search_cmd,
+    thread as thread_cmd,
+)
 from tgcli.errors import PolicyError
 
 

@@ -2,7 +2,6 @@
 
 from telethon.tl import types
 
-
 _NATIVE_MEDIA_TYPES = (
     types.MessageMediaWebPage,
     types.MessageMediaPhoto,

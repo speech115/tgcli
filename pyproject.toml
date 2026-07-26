@@ -31,9 +31,21 @@ target-version = "py312"
 extend-exclude = ["**/*.md"]
 
 [tool.ruff.lint]
-# Preserve the pre-0.16 default rule set (E4/E7/E9/F). Adopting the new
-# 413-rule default is a separate lint policy change, not this deps bump.
-select = ["E4", "E7", "E9", "F"]
+# ADR-0056/0057 lint policy: pycodestyle (E/W, so line-length is enforced,
+# not just declared), pyflakes (F), import order (I), pyupgrade (UP), and
+# comprehensions (C4). Deliberately out: rule families whose fixes rewrite
+# logic rather than layout (B, SIM, PTH), unused-argument noise from the
+# Telethon fakes in tests (ARG), and RUF ambiguous-unicode, which fires on
+# the Cyrillic strings ADR-0050 requires.
+select = ["E", "W", "F", "I", "UP", "C4"]
+# PEP 695 `type X = ...` builds a TypeAliasType: get_args() on it returns ()
+# and the read-operation registry test introspects that union.
+ignore = ["UP040"]
+
+[tool.ruff.lint.isort]
+# `from x import a as b, c as d` stays one statement; splitting aliased members
+# into a statement each is how this repo's clone imports already read.
+combine-as-imports = true
 
 [tool.pyright]
 include = ["src"]

@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from telethon.tl import functions
@@ -7,7 +7,6 @@ from telethon.tl import functions
 from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli import safety
 from tgcli.cli import main
-
 
 SAMPLE = """
 default_account = "main"
@@ -78,7 +77,7 @@ def test_dialog_mute_until_and_forever(config_env, monkeypatch, capsys):
     mute_req = client.call_requests[0]
     assert isinstance(mute_req, functions.account.UpdateNotifySettingsRequest)
     assert mute_req.settings.mute_until == int(
-        datetime(2030, 1, 1, tzinfo=timezone.utc).timestamp()
+        datetime(2030, 1, 1, tzinfo=UTC).timestamp()
     )
 
     assert main(["dialog", "mute", "@chan", "--forever", "--json"]) == 0

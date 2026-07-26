@@ -6,7 +6,6 @@ from telethon.tl import functions
 from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli.cli import main
 
-
 SAMPLE = """
 default_account = "main"
 

@@ -5,9 +5,8 @@ from telethon import errors as telethon_errors
 from telethon.tl import types
 
 from tests.conftest import make_session_fake
-from tgcli.cli import main
 from tgcli import session
-
+from tgcli.cli import main
 
 SAMPLE = """
 default_account = "main"

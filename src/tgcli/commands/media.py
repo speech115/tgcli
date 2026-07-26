@@ -1,14 +1,13 @@
 """Media download command helpers (Phase 3; Telethon-only)."""
 
-from dataclasses import dataclass
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
+from dataclasses import dataclass
+from pathlib import Path
 
-from telethon import functions
-from telethon import errors as telethon_errors
+from telethon import errors as telethon_errors, functions
 
 from tgcli import atomic, chatref
 from tgcli.errors import (
@@ -19,8 +18,7 @@ from tgcli.errors import (
     TgcliError,
 )
 from tgcli.session import state_dir
-from tgcli.transfer import PROGRESS_EVERY_CHUNKS, CHUNK_SIZE, download_striped
-
+from tgcli.transfer import CHUNK_SIZE, PROGRESS_EVERY_CHUNKS, download_striped
 
 PRIVATE_LINK = re.compile(r"(?:https?://)?t\.me/c/(\d+)/(\d+)/?$")
 PUBLIC_LINK = re.compile(r"(?:https?://)?t\.me/([A-Za-z0-9_]+)/([1-9]\d*)/?$")
@@ -92,11 +90,13 @@ async def _resolve_private_entity(tg, channel_id: int, account_alias: str):
                 telethon_errors.ChannelPrivateError,
             ):
                 raise NotFoundError(
-                    f"private channel {channel_id} not found; account {account_alias!r} lacks access"
+                    f"private channel {channel_id} not found; "
+                    f"account {account_alias!r} lacks access"
                 ) from None
             return entity
     raise NotFoundError(
-        f"private channel {channel_id} not found; account {account_alias!r} lacks access"
+        f"private channel {channel_id} not found; "
+        f"account {account_alias!r} lacks access"
     )
 
 

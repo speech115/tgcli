@@ -7,12 +7,10 @@ from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
 from tests.conftest import make_session_fake
-from tgcli import safety
+from tgcli import safety, session
 from tgcli.cli import main
 from tgcli.clone import state
 from tgcli.errors import PolicyError
-from tgcli import session
-
 
 SAMPLE = """
 default_account = "main"
@@ -306,7 +304,7 @@ def test_clone_init_preview_peers_to_create_zero_when_destination_recorded(
     assert result["peers_to_create"] == 0
 
 
-def test_clone_init_preview_peers_to_create_nonzero_on_replace_with_recorded_destination(
+def test_clone_init_preview_peers_to_create_nonzero_on_replace_with_recorded_dest(
     config_env, monkeypatch, capsys
 ):
     clone_state = state.CloneState.new(

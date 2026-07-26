@@ -6,7 +6,6 @@ import pytest
 from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli.cli import main
 
-
 SAMPLE = """
 default_account = "main"
 
@@ -26,7 +25,7 @@ def config_env(tmp_path, monkeypatch):
 def make_message(message_id, text):
     return ns(
         id=message_id,
-        date=dt.datetime(2026, 7, 6, 10, 0, tzinfo=dt.timezone.utc),
+        date=dt.datetime(2026, 7, 6, 10, 0, tzinfo=dt.UTC),
         sender_id=111,
         sender=ns(first_name="Alice", last_name=None),
         text=text,
@@ -104,9 +103,9 @@ def test_search_from_filters_by_sender(config_env, monkeypatch, capsys):
 def test_search_since_stops_at_date_boundary(config_env, monkeypatch, capsys):
     entity = ns(id=-1001234, title="Channel")
     newest = make_message(42, "hello today")
-    newest.date = dt.datetime(2026, 7, 18, 10, 0, tzinfo=dt.timezone.utc)
+    newest.date = dt.datetime(2026, 7, 18, 10, 0, tzinfo=dt.UTC)
     older = make_message(41, "hello yesterday")
-    older.date = dt.datetime(2026, 7, 17, 10, 0, tzinfo=dt.timezone.utc)
+    older.date = dt.datetime(2026, 7, 17, 10, 0, tzinfo=dt.UTC)
     make_session_fake(
         monkeypatch,
         FakeClient(

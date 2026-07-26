@@ -9,8 +9,8 @@ from tgcli.commands.media import (
     _resume_offset,
     _source_label,
     destination_for,
-    parse_source,
     download_media,
+    parse_source,
     resolve_message,
     safe_filename,
 )

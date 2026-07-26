@@ -15,7 +15,6 @@ from tgcli.config import load_config
 from tgcli.errors import NotFoundError, PolicyError
 from tgcli.safety import audit_path
 
-
 SAMPLE = """
 default_account = "main"
 

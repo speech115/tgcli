@@ -64,7 +64,8 @@ async def _mute_peer(tg, entity) -> bool:
         await tg(
             functions.account.UpdateNotifySettingsRequest(
                 peer=notify_peer,
-                # Telethon stubs type mute_until as datetime|None; MTProto wants unix int.
+                # Telethon stubs type mute_until as datetime|None;
+                # MTProto wants a unix int.
                 settings=types.InputPeerNotifySettings(mute_until=MUTE_FOREVER_UNTIL),  # type: ignore[arg-type]
             )
         )
