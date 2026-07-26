@@ -110,6 +110,7 @@ tgcli/
     ├── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
     ├── check-docs.py          [done]    fail-closed guide gate: flags, commands, links (ADR-0041)
     ├── bench.py               [done]    live benchmark: every command against a real account
+    ├── bench-clone-state.py   [done]    offline bf-19 benchmark: JSON rewrite vs SQLite/WAL (ADR-0060)
     ├── seed_demo_channel.py   [done]    manual demo-channel seeding for clone visual acceptance
     └── check-architecture.py  [done]    module ownership + per-file line ceilings (ADR-0034)
 ```

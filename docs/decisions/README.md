@@ -66,6 +66,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0057](ADR-0057-lint-policy-expansion.md) | Ruff selection widens from `E4/E7/E9/F` to `E/W/F/I/UP/C4` (`UP040` ignored, `combine-as-imports`); `B`/`SIM`/`PTH`/`ARG`/`RUF` excluded with stated reasons; one-time layout-only cleanup, five architecture ceilings raised by the isort blank-line cost | accepted |
 | [0058](ADR-0058-process-speed-revisions.md) | Integrator assigns version/CHANGELOG at merge; devlog is one file per session under `docs/devlog/`; ceilings get a +50 grace band (`--strict` for merge-time true-up); waves branch from the integration head; ADR-lite for XS/S | accepted |
 | [0059](ADR-0059-verification-infrastructure.md) | Hypothesis property tests pin the audit's defect classes (derandomized in the gate); PR-gated macOS CI leg runs the suite; pytest-xdist parallelizes gate and CI | accepted |
+| [0060](ADR-0060-clone-state-sqlite-proposal.md) | Clone state moves to per-clone SQLite/WAL (measured: JSON path is quadratic, 168 MB written per 5k messages vs 0.1 MB); versioned schema, JSON import + backup, rollback path; small files stay JSON | proposed |
 
 Notes on supersessions:
 
