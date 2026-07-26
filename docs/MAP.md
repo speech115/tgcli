@@ -55,6 +55,7 @@ tgcli/
 │   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045/0046/0047/0049/0054/0055)
 │   │   ├── state.py           [done]    atomic JSON state, mappings, cooldown
 │   │   ├── flood.py           [done]    account-scoped FloodWait cooldown + peer-created stamp + per-run wait budget (ADR-0045/0052)
+│   │   ├── cooldown.py        [done]    cooldown enforcement + the `with_cooldown` RPC seam shared by init/sync/refresh (ADR-0045/0052)
 │   │   ├── ergonomics.py      [done]    mute forever + "Clone" dialog filter for tool-created peers (ADR-0046)
 │   │   ├── fidelity.py        [done]    media capability classification
 │   │   ├── batching.py        [done]    pure batch planner: albums, service skips

@@ -29,7 +29,7 @@ def no_sleep(monkeypatch):
     async def fake_sleep(seconds):
         sleeps.append(seconds)
 
-    monkeypatch.setattr("tgcli.commands.clone.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("tgcli.clone.cooldown.asyncio.sleep", fake_sleep)
     return sleeps
 
 
@@ -122,7 +122,7 @@ async def test_cooldown_is_armed_before_sleep(clone_state, monkeypatch, budget):
     async def fake_sleep(seconds):
         armed_at_sleep.append(flood.cooldown_deadline(clone_state.account_user_id))
 
-    monkeypatch.setattr("tgcli.commands.clone.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("tgcli.clone.cooldown.asyncio.sleep", fake_sleep)
 
     async def once_then_ok():
         if not hasattr(once_then_ok, "n"):
@@ -233,7 +233,7 @@ async def test_siblings_issue_no_rpcs_while_one_worker_sleeps_a_flood(
         holder_sleeping.set()
         await release_holder.wait()
 
-    monkeypatch.setattr("tgcli.commands.clone.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("tgcli.clone.cooldown.asyncio.sleep", fake_sleep)
 
     flood_attempts = 0
 
@@ -285,7 +285,7 @@ async def test_one_flood_wait_charges_the_shared_budget_once(
         sleeps.append(seconds)
         await release_holder.wait()
 
-    monkeypatch.setattr("tgcli.commands.clone.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("tgcli.clone.cooldown.asyncio.sleep", fake_sleep)
 
     attempts = {index: 0 for index in range(4)}
     in_flight = [asyncio.Event() for _ in range(4)]

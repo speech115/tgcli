@@ -4745,7 +4745,7 @@ def test_sync_short_flood_wait_retries_once_and_keeps_json_stdout(
     async def fake_sleep(seconds):
         sleeps.append(seconds)
 
-    monkeypatch.setattr("tgcli.commands.clone.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("tgcli.clone.cooldown.asyncio.sleep", fake_sleep)
     seed_clone()
 
     class OnceFloodClient(CloneSyncClient):

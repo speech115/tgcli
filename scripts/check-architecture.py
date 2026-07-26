@@ -45,7 +45,7 @@ CEILINGS = {
     # upload worker instead of each sleeping and charging the budget again.
     # +6 for ADR-0050 parity in refresh: preview and commit thread me and
     # source_kind into the renderer so non-broadcast clones keep author_of.
-    "src/tgcli/commands/clone.py": 1597,
+    "src/tgcli/commands/clone.py": 1502,
     # +21 for ADR-0055 pinned_dest_id / pin_occupied fields + validation.
     # +8 for id_map / retry_not_before validation on load (fail closed).
     "src/tgcli/clone/state.py": 332,

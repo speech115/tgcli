@@ -358,7 +358,7 @@ def test_failed_reupload_leaves_downloaded_media_on_disk(
     async def fake_sleep(seconds):
         sleeps.append(seconds)
 
-    monkeypatch.setattr("tgcli.commands.clone.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("tgcli.clone.cooldown.asyncio.sleep", fake_sleep)
     clone_state = seed_clone()
     photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
 
