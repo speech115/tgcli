@@ -2,17 +2,18 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
 
-# Feature branches run once through pull_request; main runs once after merge.
-# This keeps the required "test" context single-valued for every PR commit.
+# Push and pull_request runs use distinct refs and check names. This preserves
+# pre-PR branch CI without creating two required "test" checks for one SHA.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
+    name: ${{ github.event_name == 'pull_request' && 'test' || 'branch-test' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
