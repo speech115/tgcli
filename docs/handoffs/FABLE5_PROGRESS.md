@@ -53,6 +53,82 @@ regression tests before any fix:
 5. **Deleted album lead promoted a survivor** (medium). Red CLI-seam test
    at base.
 
+## Confirmed findings (Phase 2 audit, 2026-07-26 @ `5b157c4`)
+
+Method: 12 read-only lens agents → dedup → adversarial verification with
+a refute-by-default stance (two independent skeptics per P1, one per
+P2/P3) → completeness critic. 67 agents, ~3.5M tokens. **41 findings
+confirmed, 0 refuted, 0 severity downgraded.** No P0 (no reachable
+secret leak or unrecoverable data loss) was found. Two verifier agents
+died on their output cap; the integrator verified those findings
+(af-18, af-21) by hand — evidence quoted below.
+
+**P1 — correctness (11).** af-01 poll retract lost to FloodWait/crash
+leaves a real vote standing with no marker, and the pre-RPC audit row
+claims a retract that never ran; af-02 hard-killed striped download
+leaves a full-size sparse file the reupload cache accepts as complete;
+af-03 `--timeout` escapes as a raw `TimeoutError` (traceback, empty
+`--json` stdout, dead TIMEOUT code); af-04 `delete --commit` passes the
+raw chat string to Telethon, so numeric-id deletes always crash at
+commit; af-05 unknown chat in send prepare/commit exits 1 with a
+traceback instead of exit 4; af-06 emitted dialog/peer ids are bare
+Telethon ids, not the marked `-100…` ids CONTRACT documents, and are
+inconsistent across commands; af-07 `clone status` crashes the whole
+listing on a non-dict state payload; af-08 `CloneState.from_dict` skips
+validation for `id_map`/`retry_not_before`; af-09 `load_config` crashes
+on a malformed accounts table; af-10 `export --resume` crashes on a
+truncated-UTF-8 tail instead of the documented exit 1; af-11
+untranslated network/RPC failures print tracebacks with empty `--json`
+stdout (CONTRACT §2).
+
+**P2 — reliability/contract (16).** af-12 human/plain output emits
+Telegram-controlled names without stripping control characters (§8);
+af-13 `media download` interrupted before the first checkpoint
+permanently crashes on retry; af-14 `login_state.promote` backup swap is
+not crash-atomic; af-15 an ADR-0052 flood sleep cannot fit the 60s
+default deadline; af-16 `quotes._peer_title` swallows FloodWaitError and
+caches the miss for the run; af-17 deleted clone destination crashes
+sync/init/refresh (only ValueError is caught); af-18 `tg api` numeric
+peer aliases are parsed as phone numbers and never resolve (integrator
+check: Telethon `utils.parse_phone('-1001234567890')` → `'1001234567890'`;
+`api.py:210` passes the raw string, no `chatref.parse`); af-19 `clone
+status` numeric filter compares a `-100` id against the stored raw id;
+af-20 `export --resume` id-validity guard is untested; af-21 CI's
+`uv sync --frozen` does not detect pyproject/uv.lock drift (integrator
+check in a /tmp copy: pin changed to 1.43.0 → `uv sync --frozen` exit 0,
+`uv lock --check` exit 1); af-22 `check-architecture.py` silently skips
+renamed/missing state-writer modules; af-23 clone stderr progress
+injects `\r`/escapes via a Telegram filename (§2); af-24/af-25 batch
+silently drops or mis-accepts validated flags/enums; af-26
+BrokenPipeError turns a successful run into exit 1 with a traceback;
+af-27 the `--timeout` deadline is never armed around preflight, so
+`tg batch` hangs forever on non-EOF stdin.
+
+**P3 — maintainability/docs/ops (14).** af-28 store scan crashes on a
+concurrently consumed preview; af-29 no parent-directory fsync after a
+state rename; af-30 media-cache liveness guard is false during
+upload-only phases; af-31 `get_me` RPC precedes cooldown enforcement;
+af-32 cleanup deletes a live-but-expired staged login without probing
+its lock; af-33 `t.me/c/` resolver ignores peer kind; af-34 `tg api`
+strips sensitive keys while §6 promises the raw TL dict; af-35 login
+`--continue` rejects a global flag; af-36 bulk `media download --plain`
+breaks the TSV freeze; af-37 unreadable clone entry reports `""` where
+CONTRACT promises null; af-38 guide omits the additive `pinned` field;
+af-39 CSV formula-injection guard misses tab/CR/space-prefixed payloads;
+af-40 the invocation journal falsifies exit codes on SIGINT; af-41 usage
+errors emit no JSON document under `--json`.
+
+**Completeness critic — areas the audit did not cover** (candidates for
+a later pass, not findings): `tg api` allowlist side-effect semantics;
+argparse abbreviation matching widening the CLI surface
+(`allow_abbrev` is never disabled); clone state write amplification
+(`state.save` rewrites the whole `id_map` per batch); wall-clock
+dependence of every TTL/cooldown; `formatting.py` entity rendering;
+SIGTERM/SIGHUP lifecycle; the platform/Python matrix (CI is
+ubuntu-only while macOS is a first-class target); and Telethon
+private-API dependence (`utils._photo_size_byte_count`) as a
+pin-upgrade tripwire.
+
 ## Completed commits
 
 - `e8d8eb9` — campaign progress journal.
@@ -126,13 +202,27 @@ Known residual gaps (documented, deliberately not fixed in Phase 1):
 
 ## Unfinished work
 
-- Phase 2 audit: launching next.
-- Phases 3–4: pending audit results.
+- Phase 3 fix waves over the 41 confirmed findings (P1 → P2 → P3),
+  plus tracker issues #79/#81/#83 and the `clone.py` split.
+- Phase 4 release slice 1.2.16 + PR.
+
+## Tracker issues folded into Phase 3 (checked 2026-07-26)
+
+- **#81** anonymous discussion comments attribute as `id unknown:` —
+  in scope, mock-testable (live spot-check stays owner-side).
+- **#79 + #83** document reupload drops still-image thumbs / sticker
+  `PhotoPathSize` index crash — in scope; the "candidate patch" those
+  issues mention never landed in the repo, so both are implemented from
+  the spec as one slice (pick the thumb object, never a list index).
+- **#80** missing forward origin, **#82** missing bot inline buttons —
+  blocked: both need live dumps from the owner's account (and #82 needs
+  a fidelity-contract decision first). Not in this campaign.
+- **#72** tag `v1.2.10` — owner-local; agent sessions cannot push tags.
 
 ## Next concrete step
 
-- Run the Phase-2 multi-lens audit workflow over HEAD `2212652`;
-  adversarially verify findings; record them here before fixing anything.
+- Phase 3 wave 1: the P1 correctness findings, grouped by
+  non-overlapping files, each red-tested first.
 
 ## Decisions needing the owner
 
