@@ -80,6 +80,50 @@ def run(tg, clone_state):
     )
 
 
+def test_sync_phase_reuses_discussion_entities_across_windows(tmp_path, monkeypatch):
+    """ADR-0061: the ADR-0051 interleave calls sync_phase once per 50-batch
+    window with one shared ResolveContext; the discussion peers cannot change
+    identity mid-run, so later windows must not re-pay the two GetChannels
+    RPCs the first window already made."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    clone_state = seed()
+
+    class CountingTg(FakeTg):
+        def __init__(self):
+            super().__init__()
+            self.entity_calls = 0
+
+        async def get_entity(self, peer):
+            self.entity_calls += 1
+            return await super().get_entity(peer)
+
+        async def get_messages(self, destination, limit=1):
+            # verify_tail stays per-window (it is the foreign-post guard);
+            # an empty tail satisfies it without faking history.
+            return []
+
+    tg = CountingTg()
+    ctx = SimpleNamespace(anchors={})
+
+    async def windows():
+        for _ in range(3):
+            await comments.sync_phase(
+                tg,
+                clone_state,
+                SimpleNamespace(id=123),
+                SimpleNamespace(id=999),
+                mutate=None,
+                copy_batch=None,
+                counters={"skipped_service": 0, "skipped_autoforward": 0},
+                limited=lambda: False,
+                resolve_ctx=ctx,
+            )
+
+    asyncio.run(windows())
+
+    assert tg.entity_calls == 2
+
+
 def test_sync_phase_marks_unavailable_when_source_group_turned_private(
     tmp_path, monkeypatch
 ):
