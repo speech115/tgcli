@@ -454,3 +454,124 @@ def test_drop_unsubscribed_peer_exits_2(config_env, monkeypatch, capsys):
     cursor = changes_cursor.encode(ChangesCursor(pts=1, qts=0, date=0, seq=0))
     assert main(["changes", "--cursor", cursor, "--drop-peer", "@c", "--json"]) == 2
     assert "not a subscribed" in capsys.readouterr().err
+
+
+def _fake_session(monkeypatch, tg):
+    from contextlib import asynccontextmanager
+
+    from tgcli import session
+
+    @asynccontextmanager
+    async def fake_session(account, *, mutation_safe=False, role=None):
+        yield tg
+
+    monkeypatch.setattr(session, "client", fake_session)
+
+
+def test_regular_call_peer_adds_baseline_no_replay(config_env, monkeypatch, capsys):
+    channel = Channel(
+        id=42,
+        title="C",
+        photo=None,
+        date=datetime(2026, 1, 1, tzinfo=UTC),
+        access_hash=7,
+    )
+    from telethon import utils
+
+    peer = utils.get_peer_id(channel)
+
+    async def handler(request, tg):
+        if isinstance(request, GetDifferenceRequest):
+            return DifferenceEmpty(date=datetime(2026, 1, 1, tzinfo=UTC), seq=1)
+        if isinstance(request, GetFullChannelRequest):
+            return SimpleNamespace(full_chat=SimpleNamespace(pts=55))
+        if isinstance(request, GetChannelDifferenceRequest):
+            assert request.pts == 55
+            return ChannelDifferenceEmpty(pts=55, final=True)
+        raise AssertionError(type(request))
+
+    tg = FakeTg(handler)
+    tg.entities["@c"] = channel
+    _fake_session(monkeypatch, tg)
+
+    cursor = changes_cursor.encode(ChangesCursor(pts=1, qts=0, date=0, seq=0))
+    assert main(["changes", "--cursor", cursor, "--peer", "@c", "--json"]) == 0
+    captured = capsys.readouterr()
+    assert f"subscribed {peer} at pts 55 (no history replay)" in captured.err
+
+    data = json.loads(captured.out)
+    assert data["events"] == []
+    new_cursor = changes_cursor.decode(data["next_cursor"])
+    assert new_cursor.channels[peer] == 55
+
+
+def test_regular_call_peer_already_subscribed_is_idempotent(
+    config_env, monkeypatch, capsys
+):
+    channel = Channel(
+        id=42,
+        title="C",
+        photo=None,
+        date=datetime(2026, 1, 1, tzinfo=UTC),
+        access_hash=7,
+    )
+    from telethon import utils
+
+    peer = utils.get_peer_id(channel)
+
+    async def handler(request, tg):
+        if isinstance(request, GetDifferenceRequest):
+            return DifferenceEmpty(date=datetime(2026, 1, 1, tzinfo=UTC), seq=1)
+        if isinstance(request, GetChannelDifferenceRequest):
+            return ChannelDifferenceEmpty(pts=3, final=True)
+        raise AssertionError(type(request))
+
+    tg = FakeTg(handler)
+    tg.entities["@c"] = channel
+    _fake_session(monkeypatch, tg)
+
+    cursor = changes_cursor.encode(
+        ChangesCursor(pts=1, qts=0, date=0, seq=0, channels={peer: 3})
+    )
+    assert main(["changes", "--cursor", cursor, "--peer", "@c", "--json"]) == 0
+    captured = capsys.readouterr()
+    assert "subscribed" not in captured.err
+    assert not any(isinstance(r, GetFullChannelRequest) for r in tg.requests)
+
+    data = json.loads(captured.out)
+    new_cursor = changes_cursor.decode(data["next_cursor"])
+    assert new_cursor.channels[peer] == 3
+
+
+def test_regular_call_drop_peer_removes_from_persisted_cursor(
+    config_env, monkeypatch, capsys
+):
+    channel = Channel(
+        id=42,
+        title="C",
+        photo=None,
+        date=datetime(2026, 1, 1, tzinfo=UTC),
+        access_hash=7,
+    )
+    from telethon import utils
+
+    peer = utils.get_peer_id(channel)
+
+    async def handler(request, tg):
+        if isinstance(request, GetDifferenceRequest):
+            return DifferenceEmpty(date=datetime(2026, 1, 1, tzinfo=UTC), seq=1)
+        raise AssertionError(type(request))
+
+    tg = FakeTg(handler)
+    tg.entities["@c"] = channel
+    _fake_session(monkeypatch, tg)
+
+    cursor = changes_cursor.encode(
+        ChangesCursor(pts=1, qts=0, date=0, seq=0, channels={peer: 3})
+    )
+    assert main(["changes", "--cursor", cursor, "--drop-peer", "@c", "--json"]) == 0
+    assert not any(isinstance(r, GetChannelDifferenceRequest) for r in tg.requests)
+
+    data = json.loads(capsys.readouterr().out)
+    new_cursor = changes_cursor.decode(data["next_cursor"])
+    assert peer not in new_cursor.channels
