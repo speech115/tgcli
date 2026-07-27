@@ -11,6 +11,35 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.19] — 2026-07-27
+
+The three sequential releases planned in PR #91, landed as one integrator
+release after independent Spec+Standards review of each PR.
+
+### Added
+
+- Named session roles beside the primary (ADR-0062): `accounts login|show|
+  remove --role`, the global `--session-role` flag with no implicit
+  fallback (missing/unauthorized role exits 3 with remediation), per-role
+  `doctor` checks, and `role` recorded in mutation audit rows and the
+  invocation journal (CONTRACT §1/§5.1/§9/§10).
+- `tg changes` daemonless update feed (ADR-0063): opaque `v1:` cursor,
+  `--init [--peer …]` baselines, bounded `GetDifference` /
+  `GetChannelDifference` polls, `message_new` / `message_edit` /
+  `message_delete` / `channel_activity` events, loud gap reporting, and
+  `--wait N` with a fixed settle (CONTRACT §12).
+
+### Changed
+
+- Clone state moved from clone JSON files to SQLite/WAL behind the same
+  `CloneState` seam (ADR-0060): dirty-tracked O(1) saves, a one-time JSON
+  import that renames the old file to `.json.imported`, `tg clone
+  export-state` as the rollback path, `clone status` reporting
+  `schema_version` + `integrity`, and `store stats` breaking out `.db` /
+  WAL / SHM / `.imported` files (CONTRACT §11). Duplicate-destination
+  mappings now fail loudly as policy errors instead of being silently
+  resolved, and WAL/SHM sidecars are created `0600`.
+
 ## [1.2.18] — 2026-07-27
 
 ### Fixed
@@ -494,6 +523,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.19]: https://github.com/speech115/tgcli/compare/v1.2.18...v1.2.19
 [1.2.18]: https://github.com/speech115/tgcli/compare/v1.2.17...v1.2.18
 [1.2.17]: https://github.com/speech115/tgcli/compare/v1.2.16...v1.2.17
 [1.2.16]: https://github.com/speech115/tgcli/compare/v1.2.15...v1.2.16

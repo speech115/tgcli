@@ -27,12 +27,18 @@ CEILINGS = {
     # untranslated exceptions as one RUNTIME envelope, and a hung-up stdout
     # pipe leaving quietly instead of raising through the journal.
     # +signal handling and the whole-body deadline (1.2.16).
-    "src/tgcli/cli.py": 533,
+    # +22 for ADR-0062: the audit-role window wrapping the whole cli-level
+    # mutation path (set/reset around _audit_before → network → _audit_after).
+    "src/tgcli/cli.py": 555,
     # +2 for ADR-0057: isort section blanks, E501 split in the --format help.
-    "src/tgcli/parser.py": 518,
-    "src/tgcli/preflight.py": 251,
+    # +47 for ADR-0062 --session-role / accounts --role flags and the
+    # ADR-0063 tg changes subcommand surface.
+    "src/tgcli/parser.py": 565,
+    # +40 for ADR-0062 role validation and ADR-0063 changes preflight.
+    "src/tgcli/preflight.py": 291,
     # +2 for ADR-0057: isort section blanks.
-    "src/tgcli/dispatch.py": 259,
+    # +17 for ADR-0062: role lookup threaded into session.client.
+    "src/tgcli/dispatch.py": 276,
     "src/tgcli/commands/batch.py": 96,
     # +3 for ADR-0057: isort section blanks.
     "src/tgcli/read_ops.py": 437,
@@ -62,10 +68,14 @@ CEILINGS = {
     # source_kind into the renderer so non-broadcast clones keep author_of.
     # -397 for the 1.2.16 split into clone/cooldown.py, clone/reupload.py and
     # clone/init_peers.py: the ratchet tightens instead of loosening.
-    "src/tgcli/commands/clone.py": 1201,
+    # +29 for ADR-0060: export-state command, status schema_version/integrity,
+    # store stats .db/WAL/SHM breakdown on the clone surface.
+    "src/tgcli/commands/clone.py": 1230,
     # +21 for ADR-0055 pinned_dest_id / pin_occupied fields + validation.
     # +8 for id_map / retry_not_before validation on load (fail closed).
-    "src/tgcli/clone/state.py": 333,
+    # +48 for ADR-0060: the CloneState seam delegating to clone/statedb.py
+    # (SQLite load/save/supersede, one-time JSON import, path_for .db).
+    "src/tgcli/clone/state.py": 381,
     # +22 for ADR-0051: posts_cursor / posts_exhausted kwargs + deferred
     # short-circuit in resolve (mirror of transport.decide's deferred plan).
     # +1 for ADR-0061: the ResolveContext destination_group field.

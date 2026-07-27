@@ -7,14 +7,14 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "check-architecture.py"
 CEILINGS = {
-    "src/tgcli/cli.py": 533,
-    "src/tgcli/parser.py": 518,
-    "src/tgcli/preflight.py": 251,
-    "src/tgcli/dispatch.py": 259,
+    "src/tgcli/cli.py": 555,
+    "src/tgcli/parser.py": 565,
+    "src/tgcli/preflight.py": 291,
+    "src/tgcli/dispatch.py": 276,
     "src/tgcli/commands/batch.py": 96,
     "src/tgcli/read_ops.py": 437,
-    "src/tgcli/commands/clone.py": 1201,
-    "src/tgcli/clone/state.py": 333,
+    "src/tgcli/commands/clone.py": 1230,
+    "src/tgcli/clone/state.py": 381,
     "src/tgcli/clone/quotes.py": 392,
     "src/tgcli/clone/quote_fallback.py": 127,
 }
@@ -183,7 +183,7 @@ def test_growth_within_grace_passes_with_warning(tmp_path):
 
     assert result.returncode == 0, result.stdout
     assert "architecture check passed" in result.stdout
-    assert "src/tgcli/cli.py has 534 lines; over ceiling 533" in result.stderr
+    assert "src/tgcli/cli.py has 556 lines; over ceiling 555" in result.stderr
     assert "grace" in result.stderr
 
 
@@ -205,7 +205,7 @@ def test_architecture_check_rejects_growth_past_the_grace_band(tmp_path):
     result = _run(tmp_path)
 
     assert result.returncode == 1
-    assert "src/tgcli/cli.py has 584 lines; reviewed ceiling is 533" in result.stdout
+    assert "src/tgcli/cli.py has 606 lines; reviewed ceiling is 555" in result.stdout
 
 
 def test_strict_mode_rejects_any_growth_past_the_ceiling(tmp_path):
@@ -217,7 +217,7 @@ def test_strict_mode_rejects_any_growth_past_the_ceiling(tmp_path):
     result = _run(tmp_path, "--strict")
 
     assert result.returncode == 1
-    assert "src/tgcli/cli.py has 534 lines; reviewed ceiling is 533" in result.stdout
+    assert "src/tgcli/cli.py has 556 lines; reviewed ceiling is 555" in result.stdout
 
 
 def test_repository_passes_architecture_check():
