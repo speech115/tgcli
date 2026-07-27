@@ -13,6 +13,20 @@ def _ns(**kwargs):
     return SimpleNamespace(**kwargs)
 
 
+def test_message_to_dict_falls_back_to_raw_message_when_text_is_none():
+    """ChannelDifference Message: .text is None, body lives in .message."""
+    from telethon.tl.types import Message, PeerChannel
+
+    message = Message(
+        id=45,
+        peer_id=PeerChannel(1),
+        date=datetime(2026, 7, 27, tzinfo=UTC),
+        message="wait-burst-1",
+    )
+    assert message.text is None
+    assert message_to_dict(message)["text"] == "wait-burst-1"
+
+
 def test_message_to_dict_projects_message_contract():
     message = ns(
         id=42,
