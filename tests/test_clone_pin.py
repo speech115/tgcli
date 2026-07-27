@@ -75,7 +75,7 @@ def test_clone_state_defaults_pin_fields_for_legacy_files(tmp_path, monkeypatch)
     data = saved.to_dict()
     del data["pinned_dest_id"], data["pin_occupied"]
     state.clones_dir().mkdir(parents=True, exist_ok=True)
-    path = state.path_for(saved.clone_id)
+    path = state.json_path_for(saved.clone_id)
     path.write_text(__import__("json").dumps(data))
     loaded = state.load(saved.clone_id)
     assert loaded.pinned_dest_id is None

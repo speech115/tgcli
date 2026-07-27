@@ -253,6 +253,23 @@ def test_status_unreadable_entry_reports_null_created_at(capsys):
     assert [key for key, value in unreadable.items() if value == ""] == []
 
 
+def test_status_marks_ambiguous_db_and_json_as_unreadable(capsys):
+    """CONTRACT §11: both .db and .json present for one id is ambiguous
+    (manual resolution required); status must report it via the documented
+    unreadable shape, never the real (misleadingly healthy) .db diagnostics."""
+    seeded = _seed(100000001, 111, "Alpha", dest=222)
+    _write_raw(seeded.clone_id, {"version": 2})
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    entry = next(c for c in payload["clones"] if c["clone_id"] == seeded.clone_id)
+    assert entry["unreadable"] is True
+    assert entry["schema_version"] is None
+    assert entry["integrity"] != "ok"
+    assert entry["source"]["title"] is None
+
+
 def test_clone_replaces_legacy_mirror_command(capsys):
     from tgcli.cli import main
 
