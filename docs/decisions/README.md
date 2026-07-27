@@ -70,6 +70,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0061](ADR-0061-comments-leg-entity-reuse.md) | Comments leg reuses the run's ResolveContext discussion entities across ADR-0051 windows instead of two GetChannels RPCs per window; verify_tail stays per-window | accepted |
 | [0062](ADR-0062-job-session-role.md) | Named session roles: `accounts login --role job` authorizes a second device whose lock frees the primary during long jobs; no implicit fallback between roles | proposed |
 | [0063](ADR-0063-tg-changes-design.md) | `tg changes --cursor` foreground feed: opaque updates-state cursor, explicit deletion tombstones, loud gap object, `--wait` long-poll on the job role, no state files | proposed |
+| [0064](ADR-0064-forward-origin-from-message-chat.md) | Forward-origin `from_id` labels use `message.forward.get_chat()` / `get_sender()` when standalone `get_entity` refuses (issue #80) | accepted |
 
 Notes on supersessions:
 
