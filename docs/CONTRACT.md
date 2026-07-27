@@ -762,7 +762,9 @@ tg api <Namespace.method> --params '<json>' [--write] [--confirm <method>]
   is resolved to an input peer before dispatch; an unresolvable reference is
   exit 4. Constructor objects in `--params` must name an `Input*` type, except
   the `channels.getParticipants` filter union, whose members are accepted by
-  their own names.
+  their own names, and the rights objects `ChatAdminRights` /
+  `ChatBannedRights` required by `channels.editAdmin` /
+  `channels.editBanned` (no `Input*` form exists).
 - `--json` output: `{"method": "users.getFullUser", "result": {…}}` where
   `result` is the TL object as a dict, or a JSON scalar (`true`/`false`,
   number, `null`) when the RPC returns a bare Bool/int/null instead of a
