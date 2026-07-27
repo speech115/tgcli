@@ -84,11 +84,9 @@ preview→commit model; none needs a new subsystem.
 
 ## FEED-001 — `tg changes`: daemonless change feed
 
-**Status:** deferred by ADR-0028. **Re-entry trigger:** the first
-recurring agent workflow that has to poll many chats on a schedule or
-must detect edits/deletions — re-reading via `read --after-id` no longer
-economical. Needs its own ADR: updates-state handling, gap recovery, and
-cursor format are design work, not flag work.
+**Status:** re-entered 2026-07-27 — ADR-0062 and ADR-0063 accepted;
+ships as the third of three sequential releases (see the 2026-07-27
+resolution note below). Originally deferred by ADR-0028.
 
 Shape agreed in principle: a foreground command
 (`tg changes --cursor C [--wait N]`) that returns
@@ -131,6 +129,20 @@ ADRs — the lock contract as [ADR-0062](decisions/ADR-0062-job-session-role.md)
 (second-session candidate, the only daemonless shape), the feed itself as
 [ADR-0063](decisions/ADR-0063-tg-changes-design.md). Neither is accepted;
 this blocker stays open until the owner decides ADR-0062.
+
+**2026-07-27 — blocker resolved.** The owner accepted ADR-0062 (amended:
+arbitrary role names, global `--session-role` flag) and ADR-0063
+(amended: hybrid channel coverage via cursor-held subscriptions +
+`channel_activity` signals, full `read`-shape event bodies, 2 s settle
+window, `read_marker` dropped from v1), together with ADR-0060 (clone
+state on SQLite). Execution is three sequential releases —
+SQLite → session roles → `tg changes` — each with its own plan and
+mandatory live acceptance before the tag:
+[2026-07-27-clone-state-sqlite](superpowers/plans/2026-07-27-clone-state-sqlite.md),
+[2026-07-27-session-roles](superpowers/plans/2026-07-27-session-roles.md),
+[2026-07-27-tg-changes](superpowers/plans/2026-07-27-tg-changes.md).
+FEED-001 closes when the third release ships; this entry then records
+the shipped shape.
 
 ### Design input from the wacli review (2026-07-23)
 
