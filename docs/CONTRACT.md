@@ -1518,3 +1518,70 @@ Plain sync columns are `copied`, `forwarded`, `reuploaded`, `snapshots`,
 `source_peer_id`, `destination_peer_id`, `more`, `skipped_autoforward`,
 `discussion_cursor`. The `participants` roster is JSON-only; the plain row does
 not carry it.
+
+## 12. Change Feed (`tg changes`; ADR-0063 / FEED-001)
+
+```
+tg changes --init [--peer P …]
+tg changes --cursor C [--peer P …] [--drop-peer P …] [--wait N]
+```
+
+Foreground, daemonless update feed. One JSON document per invocation; no
+state files — the opaque cursor is the only continuity and lives with the
+caller. Works under `--readonly` and on any `--session-role` (ADR-0062).
+It mutates nothing and writes no audit mutation rows.
+
+`--init` baselines a new cursor from `updates.getState` (and, for each
+`--peer`, the channel's current `pts` via `channels.getFullChannel`). It
+rejects `--cursor`, `--drop-peer`, and `--wait` (exit 2). A missing or
+corrupt `--cursor` on a regular call is exit 2 — never a silent
+full-history replay.
+
+`--peer P` (repeatable) **adds** a channel/supergroup subscription,
+baselined at the current `pts` with a stderr note and **no history
+replay**. Private dialogs and basic groups ride the common
+`updates.getDifference` tier and cannot be subscribed (exit 2).
+`--drop-peer P` removes a subscription; dropping an unsubscribed peer is
+exit 2. Subscription membership lives **in the cursor**.
+
+`--wait N` (N > 0) long-polls up to N seconds for the first event, then
+waits a fixed **2-second settle** window (bounded by the remaining
+deadline — N is never exceeded) to batch a burst. Without `--wait` the
+command returns immediately with whatever is pending (no settle). When
+`--wait` is set and no explicit `--timeout` is given, there is no
+implicit 60s deadline so the wait budget is not clipped.
+
+`--json` document:
+
+```json
+{"events":[…], "next_cursor":"v1:…", "gap":null,
+ "skipped":{"UpdatePinnedMessage":2}}
+```
+
+Event vocabulary (additive forever):
+
+| `type` | Body |
+|--------|------|
+| `message_new` / `message_edit` | `peer` (marked id), `message` in the exact `tg read` shape, `truncated` bool (Telegram short form — never padded) |
+| `message_delete` | `peer`, `ids` (tombstone; body is not delivered) |
+| `channel_activity` | `peer` only — an unsubscribed channel changed (`UpdateChannelTooLong`) |
+
+Unhandled update classes are **counted** in `skipped` (never silently
+discarded). `UpdateDeleteMessages` (private deletes with no peer in the
+TL update) is counted there in v1.
+
+When Telegram returns `differenceTooLong` or `channelDifferenceTooLong`,
+`gap` is set and the cursor is rebased for that scope; exit **0** — a gap
+is data:
+
+```json
+{"gap":{"scope":"common"|-1001234, "reason":"differenceTooLong|channelDifferenceTooLong",
+ "recover":{"creation":"… read --after-id hint …", "edits_deletes":"lost"}}}
+```
+
+`--plain` columns: `events_count`, `next_cursor`, `gap_scope`,
+`skipped_total`.
+
+Boundary constants: common `GetDifferenceRequest.pts_total_limit =
+100000`; per-channel `GetChannelDifferenceRequest.limit = 100` with
+`ChannelMessagesFilterEmpty`.

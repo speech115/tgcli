@@ -447,6 +447,27 @@ def build_parser() -> argparse.ArgumentParser:
     p_api.add_argument("--write", action="store_true")
     p_api.add_argument("--confirm", metavar="METHOD")
 
+    p_changes = sub.add_parser(
+        "changes", help="Daemonless change feed (ADR-0063)", parents=[global_flags]
+    )
+    p_changes.add_argument("--init", action="store_true", help="baseline a new cursor")
+    p_changes.add_argument(
+        "--cursor", dest="changes_cursor", metavar="C", help="opaque cursor"
+    )
+    p_changes.add_argument(
+        "--peer", action="append", dest="changes_peers", metavar="P", help="subscribe"
+    )
+    p_changes.add_argument(
+        "--drop-peer",
+        action="append",
+        dest="changes_drop_peers",
+        metavar="P",
+        help="unsubscribe",
+    )
+    p_changes.add_argument(
+        "--wait", type=float, dest="changes_wait", metavar="N", help="long-poll seconds"
+    )
+
     p_export = sub.add_parser(
         "export", help="Export Telegram data", parents=[global_flags]
     )

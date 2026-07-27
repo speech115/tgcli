@@ -91,6 +91,9 @@ def _default_timeout(args) -> float | None:
     """The deadline for an invocation that supplied no --timeout (CONTRACT §1)."""
     if args.command == "export":
         return None
+    if args.command == "changes" and getattr(args, "changes_wait", None) is not None:
+        # --wait owns the budget; an implicit 60s must not clip it.
+        return None
     if args.command == "clone" and args.clone_command in ("init", "sync", "refresh"):
         # ADR-0052 lets these wait out a short FloodWait (up to 61s in the
         # foreground), which never fits inside a 60s default deadline.

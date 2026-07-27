@@ -35,6 +35,7 @@ selected account session, does one operation, and exits.
 | Show offline account / session status | `tg --json accounts show ALIAS` |
 | Authorize / re-authorize a session | `tg --json accounts login ALIAS` (QR) / `--phone` / `--continue LOGIN_ID` |
 | Authorize a named session role | `tg --json accounts login ALIAS --role job` |
+| Poll a daemonless change feed | `tg --json changes --init` then `tg --json changes --cursor C [--wait N]` |
 | Remove a configured account | `tg --json accounts remove ALIAS --confirm` |
 | Remove one session role | `tg --json accounts remove ALIAS --role job --confirm` |
 | Import old-stack sessions | `tg --json accounts import` |
