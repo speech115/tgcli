@@ -121,6 +121,7 @@ def connect(path: Path) -> sqlite3.Connection:
         ) from exc
     if created:
         restrict_file(path)
+    _restrict_sidecars(path)
     return conn
 
 
@@ -237,16 +238,51 @@ def _upsert_map_keys(
     mapping: dict[str, int],
     dirty: set[str],
 ) -> None:
+    """Upsert dirty ``(source, dest)`` rows without ever silently dropping a
+    prior mapping.
+
+    ``INSERT OR REPLACE`` resolves a UNIQUE(dest) collision by deleting
+    whichever row already held that destination before inserting the new
+    one — recording a duplicate destination for a new source would delete
+    an existing source's mapping with no exception and no PolicyError,
+    contrary to the loud duplicate-destination rejection ``from_dict``
+    already guarantees on load. ``ON CONFLICT(source)`` still allows a
+    legitimate same-source update (e.g. ``record_avatar`` re-recording a
+    changed source avatar id); a genuine UNIQUE(dest) violation still
+    raises, and the caller's transaction rolls back so prior state survives.
+    """
     rows = [(int(key), int(mapping[key])) for key in dirty if key in mapping]
-    if rows:
+    if not rows:
+        return
+    try:
         conn.executemany(
-            f"INSERT OR REPLACE INTO {table}(source, dest) VALUES (?, ?)",
+            f"INSERT INTO {table}(source, dest) VALUES (?, ?) "
+            "ON CONFLICT(source) DO UPDATE SET dest = excluded.dest",
             rows,
         )
+    except sqlite3.IntegrityError as exc:
+        raise PolicyError(
+            f"clone state {table} entry would map a source to a destination "
+            "already used by another source; duplicate destination is not "
+            "allowed"
+        ) from exc
 
 
 def sidecar_paths(db_path: Path) -> tuple[Path, Path]:
     return Path(f"{db_path}-wal"), Path(f"{db_path}-shm")
+
+
+def _restrict_sidecars(db_path: Path) -> None:
+    """Force any existing -wal/-shm sidecars to 0600 (fail-open, like
+    ``restrict_file`` itself). SQLite creates them at the process default
+    mode (e.g. 0644 under umask 022) rather than inheriting the .db's
+    already-restricted mode when they are first written mid-transaction —
+    most notably during the schema-creation commit inside ``connect()``,
+    which runs before the .db itself has been chmod'd. Leaving them
+    unrestricted would leak clone state plaintext through the sidecars."""
+    for sidecar in sidecar_paths(db_path):
+        if sidecar.exists():
+            restrict_file(sidecar)
 
 
 def load_dict(db_path: Path) -> dict[str, Any]:
@@ -285,6 +321,7 @@ def persist(
     finally:
         conn.close()
     restrict_file(db_path)
+    _restrict_sidecars(db_path)
 
 
 def read_json_file(json_path: Path, *, expected_version: int) -> dict[str, Any]:
@@ -320,6 +357,17 @@ def finish_json_import(json_path: Path, db_path: Path, data: dict[str, Any]) -> 
 
 
 def probe_paths(db_path: Path, json_path: Path) -> dict[str, Any]:
+    if db_path.exists() and json_path.exists():
+        # Ambiguous slot (CONTRACT §11): connecting to db_path alone would
+        # report real, healthy diagnostics and hide that manual resolution
+        # is required — the same condition ``state.load`` fail-closes on.
+        return {
+            "schema_version": None,
+            "integrity": (
+                f"clone state has both {db_path.name} and {json_path.name}; "
+                "manual resolution is required"
+            ),
+        }
     if not db_path.exists():
         if json_path.exists():
             return {"schema_version": None, "integrity": "json-pending-import"}

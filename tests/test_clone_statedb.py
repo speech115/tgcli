@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import stat
 from pathlib import Path
@@ -278,3 +279,142 @@ def test_failed_integrity_check_is_policy_error(tmp_path, monkeypatch):
 
     with pytest.raises(PolicyError, match="corrupted|integrity"):
         state.load(s.clone_id)
+
+
+def _duplicate_dest_setup(table: str, s: state.CloneState) -> None:
+    """Extra fields ``from_dict`` requires before a table's map may be
+    non-empty (discussion_id_map needs an enabled discussion leg)."""
+    if table == "discussion_id_map":
+        s.comments = "enabled"
+        s.discussion_source_peer_id = 55
+
+
+_RECORD_MAPPING = {
+    "id_map": state.CloneState.record_mapping,
+    "discussion_id_map": state.CloneState.record_discussion_mapping,
+    "avatar_photo_ids": state.CloneState.record_avatar,
+}
+
+_DEST_FOR = {
+    "id_map": state.CloneState.dest_for,
+    "discussion_id_map": state.CloneState.discussion_dest_for,
+    "avatar_photo_ids": state.CloneState.avatar_for,
+}
+
+
+@pytest.mark.parametrize("table", ["id_map", "discussion_id_map", "avatar_photo_ids"])
+def test_duplicate_destination_in_dirty_save_is_policy_error(
+    table, tmp_path, monkeypatch
+):
+    """ADR-0060 UNIQUE(dest) guard: ``INSERT OR REPLACE`` resolves a
+    UNIQUE(dest) collision by silently deleting the row that already held
+    that destination — recording dest=100 for a new source when source=1
+    already owns dest=100 must fail loudly (PolicyError) and roll back,
+    never delete source=1's mapping without a trace. Exercised through the
+    dirty-save path (the second save+), which is where the bug lived; the
+    first (full) write already raises via a plain UNIQUE violation."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    record = _RECORD_MAPPING[table]
+    dest_for = _DEST_FOR[table]
+
+    s = _fresh()
+    _duplicate_dest_setup(table, s)
+    record(s, 1, 100)
+    state.save(s)
+
+    loaded = state.load(s.clone_id)
+    assert loaded is not None
+    record(loaded, 2, 100)  # new source, duplicate destination
+
+    with pytest.raises(PolicyError, match="duplicate"):
+        state.save(loaded)
+
+    recovered = state.load(s.clone_id)
+    assert recovered is not None
+    assert dest_for(recovered, 1) == 100
+    assert dest_for(recovered, 2) is None
+
+
+def test_connect_restricts_wal_and_shm_sidecars_on_first_create(tmp_path, monkeypatch):
+    """Schema creation (the first ``connect()`` for a clone) writes and
+    commits before ``restrict_file`` ever touches the .db — so under a
+    permissive umask, SQLite creates -wal/-shm at 0644 and only the .db
+    itself gets chmod'd to 0600 afterwards, leaking the sidecars."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    path = tmp_path / "clones" / "x.db"
+    path.parent.mkdir(parents=True)
+    old_umask = os.umask(0o022)
+    try:
+        conn = statedb.connect(path)
+    finally:
+        os.umask(old_umask)
+    try:
+        wal, shm = statedb.sidecar_paths(path)
+        assert wal.exists(), "expected a -wal sidecar right after schema creation"
+        assert stat.S_IMODE(wal.stat().st_mode) == 0o600
+        if shm.exists():
+            assert stat.S_IMODE(shm.stat().st_mode) == 0o600
+    finally:
+        conn.close()
+
+
+def test_persist_restricts_wal_and_shm_sidecars_before_close(tmp_path, monkeypatch):
+    """Integration-level check through the public ``state.save`` seam: a
+    save's sidecars must be 0600 while they exist, not just after SQLite's
+    close-time auto-checkpoint may have already deleted them (so checking
+    post-close is not a reliable test) — snapshot permissions right before
+    the connection closes, the last moment they are guaranteed present."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    real_connect = statedb.connect
+    captured: dict[str, int] = {}
+
+    class SnapshotConn:
+        def __init__(self, conn: sqlite3.Connection, db_path: Path):
+            self._conn = conn
+            self._db_path = db_path
+
+        def close(self) -> None:
+            wal, shm = statedb.sidecar_paths(self._db_path)
+            for name, sidecar in (("wal", wal), ("shm", shm)):
+                if sidecar.exists():
+                    captured[name] = stat.S_IMODE(sidecar.stat().st_mode)
+            self._conn.close()
+
+        def __enter__(self):
+            return self._conn.__enter__()
+
+        def __exit__(self, *exc_info):
+            return self._conn.__exit__(*exc_info)
+
+        def __getattr__(self, name: str):
+            return getattr(self._conn, name)
+
+    monkeypatch.setattr(statedb, "connect", lambda p: SnapshotConn(real_connect(p), p))
+
+    old_umask = os.umask(0o022)
+    try:
+        s = _fresh()
+        s.record_mapping(1, 100)
+        state.save(s)
+    finally:
+        os.umask(old_umask)
+
+    assert captured, "expected at least one sidecar to exist before connection close"
+    assert all(mode == 0o600 for mode in captured.values()), captured
+
+
+def test_probe_paths_both_files_present_reports_unreadable_shape(tmp_path, monkeypatch):
+    """CONTRACT §11: a slot with both .db and .json is ambiguous and must
+    report the documented unreadable shape (schema_version null, integrity
+    naming the ambiguity) — not the real .db diagnostics, which hides the
+    fact that manual resolution is required."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    s = _fresh()
+    state.save(s)
+    json_path = state.json_path_for(s.clone_id)
+    json_path.write_text("{}")
+
+    probe = state.probe(s.clone_id)
+    assert probe["schema_version"] is None
+    assert probe["integrity"] != "ok"
+    assert "both" in probe["integrity"] or "ambiguous" in probe["integrity"]
