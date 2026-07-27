@@ -38,6 +38,7 @@ from tgcli.output import note
 
 
 def _entry(s: state.CloneState) -> dict:
+    probe = state.probe(s.clone_id)
     return {
         "clone_id": s.clone_id,
         "source": {
@@ -52,6 +53,8 @@ def _entry(s: state.CloneState) -> dict:
         "created_at": s.created_at,
         "last_synced_at": s.last_synced_at,
         "comments": s.comments,
+        "schema_version": probe["schema_version"],
+        "integrity": probe["integrity"],
     }
 
 
@@ -77,6 +80,7 @@ def _matches(s: state.CloneState, source: str | None) -> bool:
 
 
 def _unreadable_entry(clone_id: str) -> dict:
+    probe = state.probe(clone_id)
     return {
         "clone_id": clone_id,
         "source": {"id": None, "title": None, "kind": None},
@@ -87,40 +91,65 @@ def _unreadable_entry(clone_id: str) -> dict:
         "created_at": None,
         "last_synced_at": None,
         "comments": None,
+        "schema_version": probe["schema_version"],
+        "integrity": probe["integrity"],
         "unreadable": True,
     }
 
 
-def _load_entry(path, source: str | None) -> dict | None:
-    """One clone-state file as a status entry, or None if it should be skipped.
-    An unreadable file (corrupt/legacy) becomes a marked entry instead of
-    crashing the whole listing; it is dropped from filtered listings because its
-    identity cannot be matched against SOURCE."""
-    try:
-        loaded = state.load(path.stem)
-    except PolicyError:
-        return None if source is not None else _unreadable_entry(path.stem)
-    if loaded is None or not _matches(loaded, source):
-        return None
-    return _entry(loaded)
-
-
 def list_clones(source: str | None = None) -> dict:
     directory = state.clones_dir()
-    entries = (
-        [
-            entry
-            for path in directory.glob("*.json")
-            if not path.name.startswith("account-")
-            and (entry := _load_entry(path, source)) is not None
-        ]
-        if directory.exists()
-        else []
-    )
+    if not directory.exists():
+        return {"clones": []}
+    clone_ids: set[str] = set()
+    for path in directory.glob("*.db"):
+        clone_ids.add(path.stem)
+    for path in directory.glob("*.json"):
+        if not path.name.startswith("account-"):
+            clone_ids.add(path.stem)
+    entries = []
+    for clone_id in clone_ids:
+        try:
+            loaded = state.load(clone_id)
+        except PolicyError:
+            if source is None:
+                entries.append(_unreadable_entry(clone_id))
+            continue
+        if loaded is None or not _matches(loaded, source):
+            continue
+        entries.append(_entry(loaded))
     # An unreadable entry has no created_at at all (CONTRACT §11: every field
     # but clone_id is null), so it sorts ahead of every dated one.
     entries.sort(key=lambda entry: entry["created_at"] or "")
     return {"clones": entries}
+
+
+def export_state(source: str) -> dict:
+    """Readonly rollback/diagnostic path: the v2 JSON document for one clone."""
+    matches: list[state.CloneState] = []
+    directory = state.clones_dir()
+    if directory.exists():
+        clone_ids: set[str] = set()
+        for path in directory.glob("*.db"):
+            clone_ids.add(path.stem)
+        for path in directory.glob("*.json"):
+            if not path.name.startswith("account-"):
+                clone_ids.add(path.stem)
+        for clone_id in clone_ids:
+            try:
+                loaded = state.load(clone_id)
+            except PolicyError:
+                continue
+            if loaded is not None and _matches(loaded, source):
+                matches.append(loaded)
+    if not matches:
+        raise PolicyError(f"clone not found: {source!r}")
+    if len(matches) > 1:
+        raise PolicyError(
+            f"clone export-state matched {len(matches)} clones for {source!r}; "
+            "narrow the source filter"
+        )
+    return matches[0].to_dict()
 
 
 def status_rows(data: dict) -> list[tuple]:

@@ -289,6 +289,9 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
     if args.command == "clone" and args.clone_command == "status":
         data = clone_cmd.list_clones(args.source)
         return data, clone_cmd.status_rows(data)
+    if args.command == "clone" and args.clone_command == "export-state":
+        data = clone_cmd.export_state(args.source)
+        return data, []
     if args.command == "store" and args.store_command == "stats":
         data = store_cmd.stats(session.state_dir())
         return data, store_cmd.stats_rows(data)
@@ -369,6 +372,10 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
 
 
 def _emit(args, data, rows) -> None:
+    if args.command == "clone" and args.clone_command == "export-state":
+        # CONTRACT: export-state's stdout IS the v2 JSON document (ADR-0060).
+        output.emit_json(data)
+        return
     if args.json:
         output.emit_json(data)
     elif args.plain:

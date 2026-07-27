@@ -243,7 +243,7 @@ def test_sync_phase_clears_discussion_progress_when_marking_unavailable(
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     clone_state = seed()
     clone_state.discussion_cursor = 5
-    clone_state.discussion_id_map = {"1": 2}
+    clone_state.record_discussion_mapping(1, 2)
     state.save(clone_state)
     tg = FakeTg(entity_error=telethon_errors.ChannelPrivateError(request=None))
     assert run(tg, clone_state) is False

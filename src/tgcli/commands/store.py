@@ -221,6 +221,26 @@ def scan(root: Path, *, now: datetime | None = None) -> dict:
         if clones_root.is_dir()
         else []
     )
+    db_files = (
+        [p for p in clones_root.glob("*.db") if p.is_file()]
+        if clones_root.is_dir()
+        else []
+    )
+    wal_files = (
+        [p for p in clones_root.glob("*.db-wal") if p.is_file()]
+        if clones_root.is_dir()
+        else []
+    )
+    shm_files = (
+        [p for p in clones_root.glob("*.db-shm") if p.is_file()]
+        if clones_root.is_dir()
+        else []
+    )
+    imported_files = (
+        [p for p in clones_root.glob("*.json.imported") if p.is_file()]
+        if clones_root.is_dir()
+        else []
+    )
 
     return {
         "previews": previews,
@@ -236,7 +256,25 @@ def scan(root: Path, *, now: datetime | None = None) -> dict:
             "count": len(bak_files),
             "bytes": sum(_file_bytes(path) for path in bak_files),
         },
-        "clones": {"bytes": _dir_bytes(clones_root)},
+        "clones": {
+            "bytes": _dir_bytes(clones_root),
+            "db": {
+                "count": len(db_files),
+                "bytes": sum(_file_bytes(path) for path in db_files),
+            },
+            "wal": {
+                "count": len(wal_files),
+                "bytes": sum(_file_bytes(path) for path in wal_files),
+            },
+            "shm": {
+                "count": len(shm_files),
+                "bytes": sum(_file_bytes(path) for path in shm_files),
+            },
+            "imported": {
+                "count": len(imported_files),
+                "bytes": sum(_file_bytes(path) for path in imported_files),
+            },
+        },
         "clone_media_cache": {
             "count": len(media_dirs),
             "bytes": sum(_dir_bytes(path) for path in media_dirs),
@@ -269,6 +307,9 @@ def stats_rows(data: dict) -> list[tuple]:
         )
     )
     rows.append(("clones", None, data["clones"]["bytes"]))
+    for name in ("db", "wal", "shm", "imported"):
+        bucket = data["clones"][name]
+        rows.append((f"clones.{name}", bucket["count"], bucket["bytes"]))
     rows.append(
         (
             "clone_media_cache",

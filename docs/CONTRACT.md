@@ -622,7 +622,9 @@ No config and no Telegram session. `--json` emits:
  "audit_log":{"bytes":20},"invocations":{"bytes":0},
  "sessions":{"count":1,"bytes":4096},
  "session_backups":{"count":1,"bytes":4096},
- "clones":{"bytes":0},"clone_media_cache":{"count":0,"bytes":0},
+ "clones":{"bytes":0,"db":{"count":0,"bytes":0},"wal":{"count":0,"bytes":0},
+           "shm":{"count":0,"bytes":0},"imported":{"count":0,"bytes":0}},
+ "clone_media_cache":{"count":0,"bytes":0},
  "downloads":{"bytes":0},
  "relics":[{"name":"labs","bytes":11}]}
 ```
@@ -634,7 +636,11 @@ other-user permission bit set (legacy `0644` bodies). Login attempts under
 `logins/` are classified by `LOGIN_TTL` (30 minutes); `count` is the number of
 files in each attempt pair (json and staged session, plus journal when present)
 and `bytes` is their total size. `session_backups` reports
-`sessions/*.session.bak` and is never deleted by cleanup. `clone_media_cache`
+`sessions/*.session.bak` and is never deleted by cleanup. `clones` aggregates
+everything under `clones/` and additionally breaks out SQLite state files
+(`.db` / `.db-wal` / `.db-shm`) plus one-time JSON import backups
+(`.json.imported`, ADR-0060); `.imported` files are reported and never
+auto-deleted. `clone_media_cache`
 reports abandoned `clones/<clone_id>-media/` directories left by a failed
 `clone sync` reupload batch (ADR-0052); their bytes are also included in the
 aggregate `clones` figure. Relic directories
@@ -999,26 +1005,38 @@ tg clone init SOURCE --commit PREVIEW_ID
 tg clone sync SOURCE [--limit N]
 tg clone refresh SOURCE
 tg clone refresh SOURCE --commit PREVIEW_ID
+tg clone export-state SOURCE
 ```
 
 `status` is local and read-only: it never loads config or opens a Telegram
-session. Without `SOURCE` it lists every JSON state file; with `SOURCE` it
+session. Without `SOURCE` it lists every clone state database (and any
+legacy `.json` awaiting one-time import); with `SOURCE` it
 filters by exact numeric source id — either the raw peer id or its
 `-100`-marked form — or by case-insensitive title substring. JSON:
 
 ```json
-{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination_id":999,"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled"}]}
+{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination_id":999,"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled","schema_version":1,"integrity":"ok"}]}
 ```
 
-Plain status columns are `source_peer_id`, `source_title`, `source_kind`,
+Each readable entry carries `schema_version` (SQLite `PRAGMA user_version`)
+and `integrity` (`"ok"` or the integrity-check error string). Plain status
+columns are `source_peer_id`, `source_title`, `source_kind`,
 `destination_peer_id`, `cursor`, `copied`, `last_synced_at`, `comments`.
 
 A corrupt or legacy (unsupported-version) state file never aborts the listing:
 without `SOURCE` it appears as a marked entry `{"clone_id":"hex","unreadable":
-true,...}` with every other field null, and in plain output its `source_title`
+true,...,"schema_version":null,"integrity":"<error>"}` with every other field
+null, and in plain output its `source_title`
 column carries the `clone_id` and its `comments` column reads `unreadable`.
 Because an unreadable file's identity cannot be matched, it is omitted from
 `SOURCE`-filtered listings. Readable entries never carry the `unreadable` key.
+
+`export-state SOURCE` is local and read-only (ADR-0060). It prints exactly one
+clone's state as the v2 JSON document (`CloneState.to_dict()` shape) on
+stdout — the permanent rollback/diagnostic path (downgrade = export + previous
+binary). `SOURCE` uses the same id/title filter as `status` and must match
+exactly one readable clone; unknown or ambiguous → exit 2. Output is always
+JSON (independent of `--json` / `--plain`).
 
 `init SOURCE` is a read-only network preview. It resolves the source, verifies
 that its kind is accepted, reads the approximate message count and
@@ -1091,7 +1109,11 @@ creation applies to up to two peers per run instead of one.
 
 Before creation, state with `destination_peer_id:null` and title marker
 `tgcli-clone-<clone-id-prefix>` is atomically saved under
-`TGCLI_STATE_DIR/clones/<clone_id>.json`. Recovery adopts exactly one matching
+`TGCLI_STATE_DIR/clones/<clone_id>.db` (SQLite/WAL; ADR-0060). A legacy
+`<clone_id>.json` is imported once on first `load()` into `.db` and renamed
+to `<clone_id>.json.imported` (kept until manual cleanup; never auto-deleted).
+Both `.db` and `.json` present for the same id is exit 2 (ambiguous). Recovery
+adopts exactly one matching
 private creator-owned destination of the required kind, creates when none
 exists, and exits 2 without mutation on multiple or wrong-shape matches. Once a
 destination id is recorded, repeated init resolves and reuses it without
@@ -1102,7 +1124,8 @@ Because `clone_id` is deterministic per source, one source maps to one state
 slot forever, and `commit` fail-closes (exit 2) on any slot whose version it
 cannot load — so a stale or legacy clone cannot be re-created by a bare `init`.
 `init SOURCE --replace` supersedes it: at commit, before loading state, it
-archives the existing `<clone_id>.json` and, if present, the ADR-0024 roster
+archives the existing `<clone_id>.db` (plus WAL/SHM sidecars when present)
+and any leftover `<clone_id>.json`, and, if present, the ADR-0024 roster
 sidecar `<clone_id>-participants.jsonl` by renaming each to
 `*.superseded-<UTC>` (archive, never delete — the old destination in Telegram
 is untouched), appends a `clone-init-replace` audit record, then starts a fresh

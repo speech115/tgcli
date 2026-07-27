@@ -22,13 +22,21 @@ Basic groups that migrated to a supergroup, deactivated groups, and any other pe
 tg --json clone status [SOURCE]
 ```
 
-`status` is local and read-only: it never loads config or opens a Telegram session. Without `SOURCE` it lists every clone state file; with `SOURCE` it filters by exact numeric source id or a case-insensitive title substring.
+`status` is local and read-only: it never loads config or opens a Telegram session. Without `SOURCE` it lists every clone state database (and any legacy JSON awaiting one-time import); with `SOURCE` it filters by exact numeric source id or a case-insensitive title substring. Each readable entry includes `schema_version` and `integrity` (ADR-0060).
 
 ```json
-{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination_id":999,"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled"}]}
+{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination_id":999,"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled","schema_version":1,"integrity":"ok"}]}
 ```
 
 `--plain` columns: `source_peer_id`, `source_title`, `source_kind`, `destination_peer_id`, `cursor`, `copied`, `last_synced_at`, `comments`.
+
+## Export clone state (rollback / diagnostics)
+
+```bash
+tg clone export-state SOURCE
+```
+
+Prints one clone's state as the v2 JSON document on stdout (always JSON). Use this to back up or roll back to a previous tgcli binary. `SOURCE` must match exactly one readable clone.
 
 ## Initialize a clone: preview then commit
 

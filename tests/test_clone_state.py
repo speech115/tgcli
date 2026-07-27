@@ -58,13 +58,13 @@ def test_save_then_load_round_trip():
     assert loaded.source_kind == "megagroup"
 
 
-def test_load_legacy_state_defaults_source_kind_to_broadcast():
+def test_load_legacy_state_defaults_source_kind_to_broadcast(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     s = _fresh()
-    state.save(s)
-    path = state.path_for(s.clone_id)
-    raw = json.loads(path.read_text())
-    del raw["source_kind"]
-    path.write_text(json.dumps(raw))
+    data = s.to_dict()
+    del data["source_kind"]
+    state.clones_dir().mkdir(parents=True)
+    state.json_path_for(s.clone_id).write_text(json.dumps(data))
 
     assert state.load(s.clone_id).source_kind == "broadcast"
 
@@ -81,13 +81,13 @@ def test_state_accepts_basic_source_kind(tmp_path, monkeypatch):
     assert state.load(saved.clone_id).source_kind == "basic"
 
 
-def test_invalid_source_kind_is_policy_error():
+def test_invalid_source_kind_is_policy_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     s = _fresh()
-    state.save(s)
-    path = state.path_for(s.clone_id)
-    raw = json.loads(path.read_text())
-    raw["source_kind"] = "unknown"
-    path.write_text(json.dumps(raw))
+    data = s.to_dict()
+    data["source_kind"] = "unknown"
+    state.clones_dir().mkdir(parents=True)
+    state.json_path_for(s.clone_id).write_text(json.dumps(data))
 
     with pytest.raises(PolicyError):
         state.load(s.clone_id)
@@ -118,7 +118,7 @@ def test_state_defaults_forum_fields_for_legacy_files(tmp_path, monkeypatch):
     data = saved.to_dict()
     del data["destination_kind"], data["topic_map"]
     state.clones_dir().mkdir(parents=True)
-    state.path_for(saved.clone_id).write_text(json.dumps(data))
+    state.json_path_for(saved.clone_id).write_text(json.dumps(data))
     loaded = state.load(saved.clone_id)
     assert loaded.destination_kind == "broadcast"
     assert loaded.topic_map == {}
@@ -132,7 +132,7 @@ def test_state_rejects_unknown_destination_kind(tmp_path, monkeypatch):
     data = saved.to_dict()
     data["destination_kind"] = "group"
     state.clones_dir().mkdir(parents=True)
-    state.path_for(saved.clone_id).write_text(json.dumps(data))
+    state.json_path_for(saved.clone_id).write_text(json.dumps(data))
     with pytest.raises(PolicyError):
         state.load(saved.clone_id)
 
@@ -145,7 +145,7 @@ def test_state_rejects_non_dict_topic_map(tmp_path, monkeypatch):
     data = saved.to_dict()
     data["topic_map"] = [["7", 1007]]
     state.clones_dir().mkdir(parents=True)
-    state.path_for(saved.clone_id).write_text(json.dumps(data))
+    state.json_path_for(saved.clone_id).write_text(json.dumps(data))
     with pytest.raises(PolicyError):
         state.load(saved.clone_id)
 
@@ -159,7 +159,7 @@ def test_state_rejects_non_int_topic_destination(tmp_path, monkeypatch, value):
     data = saved.to_dict()
     data["topic_map"] = {"7": value}
     state.clones_dir().mkdir(parents=True)
-    state.path_for(saved.clone_id).write_text(json.dumps(data))
+    state.json_path_for(saved.clone_id).write_text(json.dumps(data))
     with pytest.raises(PolicyError):
         state.load(saved.clone_id)
 
@@ -173,7 +173,7 @@ def test_state_rejects_nonpositive_topic_destination(tmp_path, monkeypatch, valu
     data = saved.to_dict()
     data["topic_map"] = {"7": value}
     state.clones_dir().mkdir(parents=True)
-    state.path_for(saved.clone_id).write_text(json.dumps(data))
+    state.json_path_for(saved.clone_id).write_text(json.dumps(data))
     with pytest.raises(PolicyError):
         state.load(saved.clone_id)
 
@@ -187,7 +187,7 @@ def test_state_rejects_noncanonical_topic_key(tmp_path, monkeypatch, key):
     data = saved.to_dict()
     data["topic_map"] = {key: 1007}
     state.clones_dir().mkdir(parents=True)
-    state.path_for(saved.clone_id).write_text(json.dumps(data))
+    state.json_path_for(saved.clone_id).write_text(json.dumps(data))
     with pytest.raises(PolicyError):
         state.load(saved.clone_id)
 
@@ -214,7 +214,7 @@ def test_state_rejects_inconsistent_forum_fields(
     data["destination_kind"] = destination_kind
     data["topic_map"] = topic_map
     state.clones_dir().mkdir(parents=True)
-    state.path_for(saved.clone_id).write_text(json.dumps(data))
+    state.json_path_for(saved.clone_id).write_text(json.dumps(data))
     with pytest.raises(PolicyError):
         state.load(saved.clone_id)
 
@@ -233,7 +233,7 @@ def test_state_rejects_topic_ids_above_tl_int_range(
     data = saved.to_dict()
     data["topic_map"] = {source_topic_id: destination_topic_id}
     state.clones_dir().mkdir(parents=True)
-    state.path_for(saved.clone_id).write_text(json.dumps(data))
+    state.json_path_for(saved.clone_id).write_text(json.dumps(data))
     with pytest.raises(PolicyError):
         state.load(saved.clone_id)
 
@@ -247,7 +247,7 @@ def test_state_accepts_max_tl_int_topic_ids(tmp_path, monkeypatch):
     data = saved.to_dict()
     data["topic_map"] = {str(maximum): maximum}
     state.clones_dir().mkdir(parents=True)
-    state.path_for(saved.clone_id).write_text(json.dumps(data))
+    state.json_path_for(saved.clone_id).write_text(json.dumps(data))
     loaded = state.load(saved.clone_id)
     assert loaded.topic_dest_for(maximum) == maximum
 
@@ -317,48 +317,72 @@ def test_save_writes_private_file():
     assert mode == 0o600
 
 
-def test_failed_atomic_replace_preserves_previous_state(monkeypatch):
+def test_failed_save_preserves_previous_state(tmp_path, monkeypatch):
+    """A crash during the save transaction must not tear mapping/cursor."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    from tgcli.clone import statedb
+
     s = _fresh()
     s.cursor = 1
     state.save(s)
-    original_replace = state.os.replace
 
-    def fail_replace(*args):
-        raise OSError("interrupted replace")
+    real_connect = statedb.connect
 
-    monkeypatch.setattr(state.os, "replace", fail_replace)
+    class BoomConn:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            if exc_type is None:
+                self._conn.rollback()
+                raise OSError("interrupted save")
+            self._conn.rollback()
+            return False
+
+        def close(self):
+            self._conn.close()
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
     s.cursor = 2
-    with pytest.raises(OSError, match="interrupted replace"):
+    monkeypatch.setattr(statedb, "connect", lambda path: BoomConn(real_connect(path)))
+    with pytest.raises(OSError, match="interrupted save"):
         state.save(s)
-    monkeypatch.setattr(state.os, "replace", original_replace)
+    monkeypatch.setattr(statedb, "connect", real_connect)
 
     assert state.load(s.clone_id).cursor == 1
 
 
-def test_unknown_version_is_policy_error():
+def test_unknown_version_is_policy_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     s = _fresh()
-    state.save(s)
-    path = state.path_for(s.clone_id)
-    raw = json.loads(path.read_text())
-    raw["version"] = state.VERSION + 1
-    path.write_text(json.dumps(raw))
+    data = s.to_dict()
+    data["version"] = state.VERSION + 1
+    state.clones_dir().mkdir(parents=True)
+    state.json_path_for(s.clone_id).write_text(json.dumps(data))
 
     with pytest.raises(PolicyError):
         state.load(s.clone_id)
 
 
-def test_corrupted_file_is_policy_error():
+def test_corrupted_file_is_policy_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     s = _fresh()
     state.save(s)
-    state.path_for(s.clone_id).write_text("{ this is not json")
+    state.path_for(s.clone_id).write_bytes(b"not a sqlite database")
 
     with pytest.raises(PolicyError):
         state.load(s.clone_id)
 
 
 @pytest.mark.parametrize("payload", [[], "x", 42, None, True])
-def test_non_dict_state_payload_is_policy_error(payload):
-    path = state.path_for("e" * 64)
+def test_non_dict_state_payload_is_policy_error(payload, tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    path = state.json_path_for("e" * 64)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload))
 
@@ -366,13 +390,13 @@ def test_non_dict_state_payload_is_policy_error(payload):
         state.load("e" * 64)
 
 
-def test_incomplete_state_is_policy_error():
+def test_incomplete_state_is_policy_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     s = _fresh()
-    state.save(s)
-    path = state.path_for(s.clone_id)
-    raw = json.loads(path.read_text())
-    del raw["source_title"]
-    path.write_text(json.dumps(raw))
+    data = s.to_dict()
+    del data["source_title"]
+    state.clones_dir().mkdir(parents=True)
+    state.json_path_for(s.clone_id).write_text(json.dumps(data))
 
     with pytest.raises(PolicyError):
         state.load(s.clone_id)
@@ -463,8 +487,9 @@ def test_max_destination_id_excludes_discussion_ids():
     assert clone_state.max_discussion_destination_id() == 900
 
 
-def test_load_rejects_version_1_state():
-    path = state.path_for("a" * 64)
+def test_load_rejects_version_1_state(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    path = state.json_path_for("a" * 64)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(
@@ -542,25 +567,25 @@ def test_from_dict_rejects_invalid_retry_not_before(value):
         state.CloneState.from_dict(_valid_payload(retry_not_before=value))
 
 
-def test_load_converts_invalid_id_map_to_policy_error():
+def test_load_converts_invalid_id_map_to_policy_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     s = _fresh()
-    state.save(s)
-    path = state.path_for(s.clone_id)
-    raw = json.loads(path.read_text())
-    raw["id_map"] = {"1": "2"}
-    path.write_text(json.dumps(raw))
+    data = s.to_dict()
+    data["id_map"] = {"1": "2"}
+    state.clones_dir().mkdir(parents=True)
+    state.json_path_for(s.clone_id).write_text(json.dumps(data))
 
     with pytest.raises(PolicyError):
         state.load(s.clone_id)
 
 
-def test_load_converts_naive_retry_not_before_to_policy_error():
+def test_load_converts_naive_retry_not_before_to_policy_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     s = _fresh()
-    state.save(s)
-    path = state.path_for(s.clone_id)
-    raw = json.loads(path.read_text())
-    raw["retry_not_before"] = "2026-07-15T12:00:00"
-    path.write_text(json.dumps(raw))
+    data = s.to_dict()
+    data["retry_not_before"] = "2026-07-15T12:00:00"
+    state.clones_dir().mkdir(parents=True)
+    state.json_path_for(s.clone_id).write_text(json.dumps(data))
 
     with pytest.raises(PolicyError):
         state.load(s.clone_id)
@@ -571,7 +596,8 @@ def test_supersede_missing_slot_is_noop():
     assert not state.path_for("b" * 64).exists()
 
 
-def test_supersede_archives_state_and_sidecar():
+def test_supersede_archives_state_and_sidecar(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     s = _fresh()
     state.save(s)
     cid = s.clone_id
@@ -583,26 +609,24 @@ def test_supersede_archives_state_and_sidecar():
     assert not state.path_for(cid).exists()
     assert not sidecar.exists()
     names = sorted(p.name for p in archived)
-    assert len(names) == 2
-    assert all(".superseded-" in n for n in names)
-    assert any(n.startswith(f"{cid}.json.superseded-") for n in names)
+    assert any(n.startswith(f"{cid}.db.superseded-") for n in names)
     assert any(n.startswith(f"{cid}-participants.jsonl.superseded-") for n in names)
-    state_archive = next(p for p in archived if p.name.startswith(f"{cid}.json"))
-    assert json.loads(state_archive.read_text())["version"] == state.VERSION
+    assert all(".superseded-" in n for n in names)
 
 
-def test_supersede_state_only_when_no_sidecar():
+def test_supersede_state_only_when_no_sidecar(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     s = _fresh()
     state.save(s)
     archived = state.supersede(s.clone_id, (roster.path_for(s.clone_id),))
-    assert len(archived) == 1
-    assert archived[0].name.startswith(f"{s.clone_id}.json.superseded-")
+    assert any(p.name.startswith(f"{s.clone_id}.db.superseded-") for p in archived)
     assert not state.path_for(s.clone_id).exists()
 
 
-def test_supersede_preserves_unreadable_v1_file():
+def test_supersede_preserves_unreadable_v1_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     cid = "c" * 64
-    path = state.path_for(cid)
+    path = state.json_path_for(cid)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(
@@ -636,25 +660,15 @@ def test_cooldown_deadline_clamps_a_clock_skewed_arm():
     assert deadline <= datetime.now(UTC) + timedelta(seconds=flood.MAX_COOLDOWN_S + 5)
 
 
-def test_save_goes_through_the_sanctioned_atomic_writer(tmp_path, monkeypatch):
-    """The id_map keeps a live destination free of duplicate posts, so the
-    rename must be durable: a local copy of the writer misses the parent
-    directory fsync that atomic.replace_text performs."""
+def test_save_writes_sqlite_database(tmp_path, monkeypatch):
+    """ADR-0060: active state is a mode-0600 SQLite database, not JSON."""
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    calls = []
-    from tgcli import atomic
-
-    original = atomic.replace_text
-
-    def record(path, text, **kwargs):
-        calls.append(path)
-        original(path, text, **kwargs)
-
-    monkeypatch.setattr(atomic, "replace_text", record)
-
     s = _fresh()
     s.record_mapping(7, 70)
     state.save(s)
 
-    assert calls == [state.path_for(s.clone_id)]
+    path = state.path_for(s.clone_id)
+    assert path.suffix == ".db"
+    assert path.is_file()
+    assert not state.json_path_for(s.clone_id).exists()
     assert state.load(s.clone_id).dest_for(7) == 70

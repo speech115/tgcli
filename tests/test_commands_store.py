@@ -505,6 +505,27 @@ def _age_media_cache(cache: Path, age: timedelta) -> None:
         os.utime(entry, (stamp, stamp))
 
 
+def test_scan_reports_clone_sqlite_and_imported_buckets(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    from tgcli.clone import state
+
+    s = state.CloneState.new(account_user_id=1, source_peer_id=2, source_title="S")
+    state.save(s)
+    imported = tmp_path / "clones" / f"{s.clone_id}.json.imported"
+    imported.write_text('{"version":2}')
+
+    data = store_cmd.scan(tmp_path, now=NOW)
+
+    assert data["clones"]["db"]["count"] == 1
+    assert data["clones"]["db"]["bytes"] > 0
+    assert data["clones"]["imported"] == {
+        "count": 1,
+        "bytes": len(b'{"version":2}'),
+    }
+    assert data["clones"]["wal"]["count"] >= 0
+    assert data["clones"]["shm"]["count"] >= 0
+
+
 def test_scan_reports_clone_media_cache_bucket(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     cache = _seed_clone_media_cache(tmp_path, payload=b"abcdefghij")
