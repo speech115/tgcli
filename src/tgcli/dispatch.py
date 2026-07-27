@@ -13,6 +13,7 @@ from tgcli import output, read_ops, session
 from tgcli.commands import (
     api as api_cmd,
     batch as batch_cmd,
+    changes as changes_cmd,
     clone as clone_cmd,
     dialog as dialog_cmd,
     draft as draft_cmd,
@@ -116,6 +117,16 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
                 return await _run_dialog(tg, args)
             if args.command == "api":
                 return await api_cmd.call(tg, args.method, args.params), []
+            if args.command == "changes":
+                data = await changes_cmd.run_changes(
+                    tg,
+                    cursor_text=getattr(args, "changes_cursor", None),
+                    init=bool(getattr(args, "init", False)),
+                    peers=getattr(args, "changes_peers", None),
+                    drop_peers=getattr(args, "changes_drop_peers", None),
+                    wait=getattr(args, "changes_wait", None),
+                )
+                return data, changes_cmd.to_rows(data)
             if args.command == "export":
                 if args.export_kind == "messages":
                     data = await export_cmd.export_messages(

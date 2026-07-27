@@ -21,7 +21,7 @@ page is a bug** ([ADR-0041](../decisions/ADR-0041-user-facing-guide-split.md)).
 | [overview](overview.md) | the execution model, streams, exit codes, where state lives |
 | [install](install.md) | `uv sync`, PATH linking, `config.toml`, first health check |
 | [quickstart](quickstart.md) | a first session end to end, in seven commands |
-| [accounts](accounts.md) | `accounts list\|import`, alias selection, session locks |
+| [accounts](accounts.md) | `accounts list\|import\|login\|show\|remove`, session roles, locks |
 
 ## Reading
 
@@ -32,6 +32,7 @@ page is a bug** ([ADR-0041](../decisions/ADR-0041-user-facing-guide-split.md)).
 | [search](search.md) | per-dialog and global `search` with filters |
 | [contacts](contacts.md) | `contacts`, `resolve`, `mutual-chats` |
 | [batch](batch.md) | `batch` — read-only operations from JSONL on stdin |
+| [changes](changes.md) | `changes` — daemonless update feed with opaque cursor |
 
 ## Writing
 

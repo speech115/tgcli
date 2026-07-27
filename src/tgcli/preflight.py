@@ -32,6 +32,29 @@ def prepare(parser: argparse.ArgumentParser, args) -> None:
     _prepare_mutations(args)
     _prepare_previews(parser, args)
     _prepare_api(parser, args)
+    _prepare_changes(args)
+
+
+def _prepare_changes(args) -> None:
+    if args.command != "changes":
+        return
+    init = bool(getattr(args, "init", False))
+    cursor = getattr(args, "changes_cursor", None)
+    wait = getattr(args, "changes_wait", None)
+    drop = getattr(args, "changes_drop_peers", None) or []
+    peers = getattr(args, "changes_peers", None) or []
+    if any(not p for p in peers) or any(not p for p in drop):
+        raise PolicyError("changes --peer/--drop-peer values must be non-empty")
+    if init and cursor is not None:
+        raise PolicyError("changes --init rejects --cursor; start a new baseline")
+    if init and drop:
+        raise PolicyError("changes --init rejects --drop-peer")
+    if init and wait is not None:
+        raise PolicyError("changes --init rejects --wait")
+    if not init and cursor is None:
+        raise PolicyError("changes cursor is required; run: tg changes --init")
+    if wait is not None and wait <= 0:
+        raise PolicyError("--wait must be a positive number of seconds")
 
 
 def _prepare_session_role(args) -> None:

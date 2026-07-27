@@ -84,65 +84,21 @@ preview→commit model; none needs a new subsystem.
 
 ## FEED-001 — `tg changes`: daemonless change feed
 
-**Status:** re-entered 2026-07-27 — ADR-0062 and ADR-0063 accepted;
-ships as the third of three sequential releases (see the 2026-07-27
-resolution note below). Originally deferred by ADR-0028.
+**Status:** implemented 2026-07-27 on the third sequential release branch
+(`cursor/tg-changes-cc3b`, stacked on session-roles). Closes when that
+release is live-accepted and tagged. Shape: ADR-0063 — hybrid coverage
+(cursor-held channel subscriptions + `channel_activity` signals), opaque
+`v1:` cursor, `read`-shape event bodies, loud per-scope gaps, deletion
+tombstones, `--wait N` + fixed 2 s settle, no state files. Depends on
+ADR-0062 (`--session-role`) for the lock contract.
 
-Shape agreed in principle: a foreground command
-(`tg changes --cursor C [--wait N]`) that returns
-`{events: [...], next_cursor}` and exits — no daemon, consistent with
-ADR-0002.
+Originally deferred by ADR-0028; re-entered 2026-07-27 when ADR-0062 and
+ADR-0063 were accepted.
 
-### Blocker: session-lock contention (found 2026-07-23)
+### Blocker: session-lock contention (found 2026-07-23) — resolved
 
-The agreed shape has a hole that must be closed *before* the rest of the
-design, because it can change the command's shape.
-
-`session.client()` takes `LOCK_EX | LOCK_NB` per session file and holds it
-for the whole invocation (`src/tgcli/session.py`). A poller that loops
-`tg changes --wait 30` therefore owns the lock ~100% of the time, and every
-other command on that account — `tg send`, `tg read`, `tg api` — fails with
-"session is busy". That breaks exactly the workflow the feed exists to
-enable: observe an event, fetch the peer, prepare a draft. A feed that
-monopolises the account is worse than no feed.
-
-wacli hit the same wall and solved it by delegation: when `sync --follow`
-holds the store, `send` hands the message to that process instead of
-erroring. That implies IPC, which for us is a daemon by another name
-(ADR-0002). Three candidate resolutions, none free:
-
-- **`--wait` yields the lock** between poll cycles; other commands get a
-  bounded `--lock-wait` instead of instant failure. Keeps one session,
-  costs reconnect churn and makes "busy" a timing lottery.
-- **Second session for the poller** (own `.session`, own lock). Simplest and
-  fully daemonless, but Telegram counts it as another authorized device, and
-  ACCOUNTS-001 has to be able to create it.
-- **Feed folded into `tg batch`** — one connection performs the poll *and*
-  the follow-up reads, so contention never arises for the common case.
-  Narrows the design to scripted consumers.
-
-Whichever wins, `--wait` semantics and the lock contract are the same
-decision and must be settled together.
-
-**2026-07-26:** both halves are now drafted for the owner as proposed
-ADRs — the lock contract as [ADR-0062](decisions/ADR-0062-job-session-role.md)
-(second-session candidate, the only daemonless shape), the feed itself as
-[ADR-0063](decisions/ADR-0063-tg-changes-design.md). Neither is accepted;
-this blocker stays open until the owner decides ADR-0062.
-
-**2026-07-27 — blocker resolved.** The owner accepted ADR-0062 (amended:
-arbitrary role names, global `--session-role` flag) and ADR-0063
-(amended: hybrid channel coverage via cursor-held subscriptions +
-`channel_activity` signals, full `read`-shape event bodies, 2 s settle
-window, `read_marker` dropped from v1), together with ADR-0060 (clone
-state on SQLite). Execution is three sequential releases —
-SQLite → session roles → `tg changes` — each with its own plan and
-mandatory live acceptance before the tag:
-[2026-07-27-clone-state-sqlite](superpowers/plans/2026-07-27-clone-state-sqlite.md),
-[2026-07-27-session-roles](superpowers/plans/2026-07-27-session-roles.md),
-[2026-07-27-tg-changes](superpowers/plans/2026-07-27-tg-changes.md).
-FEED-001 closes when the third release ships; this entry then records
-the shipped shape.
+Resolved by ADR-0062 named session roles (accepted 2026-07-27). The poller
+runs on `--session-role job` while the primary stays free.
 
 ### Design input from the wacli review (2026-07-23)
 

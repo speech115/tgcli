@@ -139,7 +139,11 @@ def main(argv: list[str] | None = None) -> int:
         stripped = re.sub(
             r"\s+",
             " ",
-            re.sub(r"--(?:account|timeout|session-role) \S+", "", text),
+            re.sub(
+                r"--(?:account|timeout|session-role|cursor|peer|drop-peer|wait) \S+",
+                "",
+                text,
+            ),
         )
         for name in sorted(set(re.findall(r"\btg (?:--[a-z-]+ )*([a-z-]+)", stripped))):
             if name not in commands:

@@ -149,6 +149,19 @@ def _quote_text(message) -> str | None:
     return text if isinstance(text, str) else None
 
 
+def _body_text(message) -> str:
+    """Prefer Telethon's formatted ``.text``; fall back to raw ``.message``.
+
+    ``updates.getChannelDifference`` yields patched ``Message`` objects whose
+    ``.text`` property is ``None`` even when the TL ``message`` field holds the
+    body — live acceptance of ``tg changes`` hit this (ADR-0063).
+    """
+    text = getattr(message, "text", None)
+    if text is not None:
+        return text or ""
+    return getattr(message, "message", None) or ""
+
+
 def message_to_dict(message, entity=None) -> dict:
     edit_date = getattr(message, "edit_date", None)
     return {
@@ -159,7 +172,7 @@ def message_to_dict(message, entity=None) -> dict:
             "name": _sender_name(message),
             "username": getattr(getattr(message, "sender", None), "username", None),
         },
-        "text": message.text or "",
+        "text": _body_text(message),
         "media": type(message.media).__name__ if message.media else None,
         "media_info": _media_info(message),
         "reply_to": _reply_to(message, entity),
