@@ -147,6 +147,43 @@ async def _resolve(tg, peer, cache: dict, cooldown):
     return cache[key]
 
 
+def _entity_matches_peer(entity, peer) -> bool:
+    entity_id = getattr(entity, "id", None)
+    if isinstance(peer, types.PeerChannel):
+        return entity_id == peer.channel_id
+    if isinstance(peer, types.PeerUser):
+        return entity_id == peer.user_id
+    if isinstance(peer, types.PeerChat):
+        return entity_id == peer.chat_id
+    return False
+
+
+async def _entity_from_message_forward(message, peer):
+    """Origin entity Telegram already shipped with the message, if any.
+
+    ``channels.getMessages`` / history often include the forward's Channel in
+    ``chats`` even when a later ``GetChannels`` for that peer is refused
+    (private / left). Telethon exposes that as ``message.forward.get_chat()``
+    / ``get_sender()`` — issue #80 live shape on MIAMIVICE #50.
+    """
+    forward = getattr(message, "forward", None)
+    if forward is None:
+        return None
+    for name in ("get_chat", "get_sender"):
+        getter = getattr(forward, name, None)
+        if getter is None:
+            continue
+        try:
+            entity = await getter()
+        except telethon_errors.FloodWaitError:
+            raise
+        except (ValueError, telethon_errors.RPCError):
+            continue
+        if entity is not None and _entity_matches_peer(entity, peer):
+            return entity
+    return None
+
+
 FORWARD_LEAD = "Переслано от "
 
 
@@ -169,6 +206,10 @@ async def forwarded_author_of(tg, message, cache: dict, cooldown) -> Author:
     peer = getattr(fwd, "from_id", None)
     if peer is not None:
         entity = await _resolve(tg, peer, cache, cooldown)
+        if entity is None:
+            entity = await _entity_from_message_forward(message, peer)
+            if entity is not None:
+                cache[peer_key(peer)] = entity
         if entity is not None:
             return _with_forward_lead(_identify(entity, None))
     from_name = getattr(fwd, "from_name", None)

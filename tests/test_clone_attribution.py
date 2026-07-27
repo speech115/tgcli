@@ -615,6 +615,41 @@ def test_forwarded_author_of_falls_back_to_bare_word_when_get_entity_raises_rpc_
     assert author == attribution.Author(text="", lead="Переслано")
 
 
+def test_forwarded_author_of_uses_message_forward_chat_when_get_entity_refuses():
+    """Issue #80 / MIAMIVICE #50: GetChannels refuses a private/left origin, but
+    the same GetMessages response already carried the Channel (title visible
+    in Telegram's forward chrome). Telethon surfaces it as message.forward
+    .get_chat() — use that before falling through to bare «Переслано»."""
+
+    class Client:
+        async def get_entity(self, peer):
+            raise telethon_errors.ChannelPrivateError(request=None)
+
+    class Forward:
+        async def get_chat(self):
+            return SimpleNamespace(
+                id=1629147115,
+                title="Комьюнити Арсена Маркаряна",
+                username=None,
+                usernames=[],
+            )
+
+        async def get_sender(self):
+            return None
+
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
+
+    msg = _fwd_message(from_id=types.PeerChannel(channel_id=1629147115))
+    msg.forward = Forward()
+    author = asyncio.run(attribution.forwarded_author_of(Client(), msg, {}, cooldown))
+    assert author == attribution.Author(
+        text="Комьюнити Арсена Маркаряна", lead=FORWARD_LEAD
+    )
+    text, _ = attribution.prefixed("body", None, author)
+    assert text.startswith("Переслано от Комьюнити Арсена Маркаряна\n\n")
+
+
 def test_forwarded_author_of_caches_rpc_error_refusal():
     calls = []
 

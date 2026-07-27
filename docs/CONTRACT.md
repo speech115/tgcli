@@ -1,6 +1,6 @@
 # CLI Automation Contract
 
-Version: 1.2.17 (tracks the package release; see `CHANGELOG.md` and
+Version: 1.2.18 (tracks the package release; see `CHANGELOG.md` and
 `pyproject.toml`). Any change here lands in the same commit as the code
 change (AGENTS.md / ADR-0038).
 
@@ -1254,7 +1254,13 @@ or any post from a protected source, travels by reupload or snapshot and loses
 `fwd_from`. On those paths the clone prepends a Russian `Переслано от <label>`
 line built only from what `fwd_from` asserts (`from_id` / `from_name` /
 `post_author`, or the bare word `Переслано` when nothing resolves) — it never
-claims a discussion-group origin it cannot prove (ADR-0050). When such a
+claims a discussion-group origin it cannot prove (ADR-0050). Resolving
+`from_id` uses a successful entity lookup when possible; when a later
+GetChannels-shaped lookup refuses a private or left peer, the clone still
+uses a Channel/User Telegram already shipped with that message
+(accompanying `chats` / Telethon `message.forward.get_chat()` or
+`get_sender()`), matching the title clients show in forward chrome
+(ADR-0064). When such a
 reposted, single-message reupload batch can prove its original in the
 clone's linked source discussion group — the group is reachable and not
 `noforwards`, exactly one of its messages matches `fwd_from.from_id` and

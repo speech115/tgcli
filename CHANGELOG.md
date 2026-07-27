@@ -11,6 +11,17 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.18] — 2026-07-27
+
+### Fixed
+
+- Clone reupload/snapshot forward prefixes resolve a `fwd_from.from_id`
+  channel title from the entity Telegram already shipped with the source
+  message (`message.forward.get_chat()` / accompanying chats) when a
+  standalone `get_entity` raises `ChannelPrivateError` / left-peer
+  refusal — so private origins still get `Переслано от <title>` instead
+  of bare `Переслано` (issue #80, ADR-0064).
+
 ## [1.2.17] — 2026-07-27
 
 ### Changed
@@ -483,6 +494,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.18]: https://github.com/speech115/tgcli/compare/v1.2.17...v1.2.18
 [1.2.17]: https://github.com/speech115/tgcli/compare/v1.2.16...v1.2.17
 [1.2.16]: https://github.com/speech115/tgcli/compare/v1.2.15...v1.2.16
 [1.2.15]: https://github.com/speech115/tgcli/compare/v1.2.14...v1.2.15
