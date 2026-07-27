@@ -360,14 +360,23 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
     args.account = account.alias
     if args.verbose:
         LOGGER.debug("resolved account=%s command=%s", account.alias, args.command)
-    _audit_before(args, account)
-    network = _run_network(args, account)
-    if _long_running(args) and not timeout_supplied:
-        data, rows = asyncio.run(network)
-    else:
-        data, rows = _run_with_deadline(network, args.timeout)
-    _audit_after(args, account, data)
-    return data, rows
+    # The audit role must cover every append_audit call this invocation makes,
+    # not just the network coroutine's client window: _audit_before/_audit_after
+    # below run outside dispatch.run_network, so setting it only there (as
+    # dispatch used to) left the cli-level mutation audit rows without "role"
+    # (CONTRACT.md §9, ADR-0062).
+    token = safety.set_audit_role(getattr(args, "session_role", None))
+    try:
+        _audit_before(args, account)
+        network = _run_network(args, account)
+        if _long_running(args) and not timeout_supplied:
+            data, rows = asyncio.run(network)
+        else:
+            data, rows = _run_with_deadline(network, args.timeout)
+        _audit_after(args, account, data)
+        return data, rows
+    finally:
+        safety.reset_audit_role(token)
 
 
 def _emit(args, data, rows) -> None:

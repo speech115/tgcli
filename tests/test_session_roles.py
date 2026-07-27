@@ -373,3 +373,107 @@ def test_login_continue_rejects_role_flag(config_env, capsys):
     )
     assert code == 2
     assert json.loads(capsys.readouterr().err)["error"]["code"] == "BLOCKED"
+
+
+def test_audit_records_role_on_send_commit_through_real_cli_path(
+    config_env, monkeypatch
+):
+    """Regression for the confirmed PR #93 review defect: `set_audit_role` was
+    only active inside `dispatch.run_network`'s client window, but the
+    cli-level `_audit_before`/`_audit_after` mutation rows (cli.py) run
+    outside that window, so `send --commit --session-role ROLE` audit rows
+    never carried `"role"` (CONTRACT.md §9 / ADR-0062). This exercises the
+    real `cli.main()` path, not the context var set by hand."""
+    import json
+    from types import SimpleNamespace
+
+    from telethon.tl import types as tl_types
+
+    from tests.conftest import make_session_fake
+    from tgcli import safety
+    from tgcli.cli import main
+
+    class SendClient:
+        async def get_input_entity(self, chat):
+            return f"input:{chat}"
+
+        async def __call__(self, request):
+            return SimpleNamespace(
+                updates=[tl_types.UpdateMessageID(id=42, random_id=request.random_id)]
+            )
+
+    preview = safety.create_preview(
+        {
+            "kind": "send",
+            "chat": "@alice",
+            "text": "hello",
+            "file": None,
+            "file_size": None,
+            "file_sha256": None,
+            "reply_to": None,
+            "topic": None,
+            "silent": False,
+            "random_id": 900,
+            "to": {"id": 7, "name": "Alice"},
+        }
+    )
+    make_session_fake(monkeypatch, SendClient())
+
+    assert (
+        main(
+            [
+                "--session-role",
+                "job",
+                "send",
+                "--commit",
+                preview["preview_id"],
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    lines = [json.loads(line) for line in safety.audit_path().read_text().splitlines()]
+    mutation_rows = [row for row in lines if row["action"] in ("send", "send-result")]
+    assert len(mutation_rows) == 2
+    assert all(row.get("role") == "job" for row in mutation_rows)
+
+
+def test_audit_records_role_on_api_write_through_real_cli_path(config_env, monkeypatch):
+    """Mirror-fix check (AGENTS.md): the review explicitly named `tg api`
+    writes as also affected. `dispatch.run_network` is stubbed out entirely
+    here so the assertion cannot pass by relying on dispatch's own
+    (too-narrow) role window — it must come from the shared cli-level seam."""
+    import json
+
+    from tgcli import cli, safety
+
+    async def fake_run_network(args, account):
+        return {"method": args.method, "result": {}}, []
+
+    monkeypatch.setattr(cli, "_run_network", fake_run_network)
+
+    assert (
+        cli.main(
+            [
+                "--session-role",
+                "job",
+                "api",
+                "channels.editAdmin",
+                "--params",
+                '{"channel": "@team", "user_id": "@alice", "rank": "mod"}',
+                "--write",
+                "--confirm",
+                "channels.editAdmin",
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    [row] = [
+        json.loads(line)
+        for line in safety.audit_path().read_text().splitlines()
+        if json.loads(line)["action"] == "api"
+    ]
+    assert row.get("role") == "job"
