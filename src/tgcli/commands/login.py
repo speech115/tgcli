@@ -12,7 +12,13 @@ from telethon import errors as telethon_errors
 
 from tgcli import authclient, desktop, login_state, safety
 from tgcli.commands.accounts import _append_config_block
-from tgcli.config import Account, Config, default_config_path, load_config
+from tgcli.config import (
+    Account,
+    Config,
+    default_config_path,
+    load_config,
+    validate_role_name,
+)
 from tgcli.errors import (
     ConfigError,
     NotFoundError,
@@ -22,7 +28,7 @@ from tgcli.errors import (
 )
 from tgcli.formatting import mask_phone
 from tgcli.output import note
-from tgcli.session import state_dir
+from tgcli.session import session_path, state_dir
 
 
 class LoginTimeoutError(TgcliError):
@@ -58,6 +64,7 @@ def login_rows(data: dict) -> list[tuple]:
             data.get("login_id"),
             (data.get("user") or {}).get("phone"),
             data.get("session"),
+            data.get("role"),
         )
     ]
 
@@ -69,6 +76,18 @@ def _session_stem(config: Config, alias: str) -> str:
 
 def _destination_path(session_stem: str) -> Path:
     return state_dir() / "sessions" / f"{session_stem}.session"
+
+
+def _login_destination(config: Config, alias: str, role: str | None) -> Path:
+    if role is None:
+        return _destination_path(_session_stem(config, alias))
+    account = config.accounts.get(alias)
+    if account is None:
+        raise ConfigError(
+            f"account {alias!r} is not configured; add it before authorizing a role"
+        )
+    validate_role_name(role)
+    return session_path(account, role)
 
 
 def _resolve_credentials(
@@ -99,7 +118,22 @@ async def _probe_if_needed(
     force: bool,
     api_id: int,
     api_hash: str,
+    role: str | None = None,
 ) -> None:
+    if role is not None:
+        account = config.accounts.get(alias)
+        if account is None:
+            return
+        path = session_path(account, role)
+        if not path.is_file():
+            return
+        if await authclient.probe_authorized(account, role=role):
+            if not force:
+                raise PolicyError(
+                    f"session role {role!r} for account {alias!r} is still authorized; "
+                    "pass --force to replace it"
+                )
+        return
     path = _destination_path(_session_stem(config, alias))
     if not path.is_file():
         return
@@ -155,10 +189,13 @@ def _audit_login(
     method: str,
     outcome: str,
     phone: str | None = None,
+    role: str | None = None,
 ) -> None:
     details: dict = {"method": method, "outcome": outcome}
     if phone:
         details["phone"] = mask_phone(phone)
+    if role is not None:
+        details["role"] = role
     safety.append_audit("accounts-login", alias, details)
 
 
@@ -178,15 +215,16 @@ async def _finish_authorized(
     api_hash: str,
     dest: Path,
     keep_backup: bool,
+    role: str | None = None,
 ) -> dict:
     me = await client.get_me()
     # Disconnect before promote so SQLite releases the staged file.
     await client.disconnect()
-    _audit_login(alias, method=method, outcome="authorized", phone=phone)
+    _audit_login(alias, method=method, outcome="authorized", phone=phone, role=role)
     backup = login_state.promote(login_id, dest, keep_backup=keep_backup)
-    if is_new:
+    if is_new and role is None:
         _append_config_block(default_config_path(), alias, api_id, api_hash)
-    return {
+    result = {
         "alias": alias,
         "method": method,
         "status": "authorized",
@@ -195,10 +233,13 @@ async def _finish_authorized(
         "session": str(dest),
         "backup": str(backup) if backup else None,
     }
+    if role is not None:
+        result["role"] = role
+    return result
 
 
 def _pending(attempt: dict, *, next_step: str) -> dict:
-    return {
+    result = {
         "alias": attempt["alias"],
         "method": attempt["method"],
         "status": "pending",
@@ -206,6 +247,10 @@ def _pending(attempt: dict, *, next_step: str) -> dict:
         "login_id": attempt["login_id"],
         "expires_at": attempt["expires_at"],
     }
+    role = attempt.get("role")
+    if role is not None:
+        result["role"] = role
+    return result
 
 
 async def start_login(
@@ -219,27 +264,44 @@ async def start_login(
     timeout: float,
     qr_format: str,
     password_stdin: bool,
+    role: str | None = None,
 ) -> dict:
+    if role is not None:
+        validate_role_name(role)
+        if alias not in config.accounts:
+            raise ConfigError(
+                f"account {alias!r} is not configured; add it before authorizing a role"
+            )
     resolved_id, resolved_hash, is_new = _resolve_credentials(
         config, alias, api_id=api_id, api_hash=api_hash
     )
+    if role is not None and is_new:
+        raise ConfigError(
+            f"account {alias!r} is not configured; add it before authorizing a role"
+        )
     await _probe_if_needed(
-        config, alias, force=force, api_id=resolved_id, api_hash=resolved_hash
+        config,
+        alias,
+        force=force,
+        api_id=resolved_id,
+        api_hash=resolved_hash,
+        role=role,
     )
     if is_new:
         _validate_new_alias(alias)
     method = "phone" if phone else "qr"
-    _audit_login(alias, method=method, outcome="started", phone=phone)
+    _audit_login(alias, method=method, outcome="started", phone=phone, role=role)
     attempt = login_state.create_attempt(
         alias,
         method,
         api_id=resolved_id,
         api_hash=resolved_hash,
         phone=phone,
+        role=role,
     )
     login_id = attempt["login_id"]
     staged = login_state.staged_session_path(login_id)
-    dest = _destination_path(_session_stem(config, alias))
+    dest = _login_destination(config, alias, role)
     # Backup whenever the destination exists — including an orphan session for
     # a not-yet-configured alias (e.g. promote succeeded, config append failed).
     keep_backup = dest.exists()
@@ -373,6 +435,7 @@ async def _qr_wait(
         api_hash=api_hash,
         dest=dest,
         keep_backup=keep_backup,
+        role=attempt.get("role"),
     )
 
 
@@ -414,11 +477,12 @@ async def continue_login(
     attempt = login_state.load_attempt(login_id)
     alias = attempt["alias"]
     method = attempt["method"]
+    role = attempt.get("role")
     staged = login_state.staged_session_path(login_id)
     config = load_config()
-    dest = _destination_path(_session_stem(config, alias))
+    dest = _login_destination(config, alias, role)
     keep_backup = dest.exists()
-    is_new = alias not in config.accounts
+    is_new = alias not in config.accounts and role is None
     needs_password = attempt.get("next") == "password"
 
     async with authclient.unauthorized_client(
@@ -480,4 +544,5 @@ async def continue_login(
             api_hash=attempt["api_hash"],
             dest=dest,
             keep_backup=keep_backup,
+            role=role,
         )

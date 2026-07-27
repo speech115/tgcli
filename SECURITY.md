@@ -62,3 +62,10 @@ Out of scope:
 `tgcli` never runs in the background. Every command is a foreground process
 that exits, so revoking a session in Telegram (Settings → Devices) immediately
 and completely cuts this tool off from the account.
+
+Named session roles (ADR-0062) are additional authorized Telegram devices:
+each `accounts login --role` creates one more entry in Settings → Devices and
+may trigger a login alert. Retiring a role means both `accounts remove ALIAS
+--role NAME --confirm` (local file) **and** revoking that device in Telegram;
+deleting only the local file leaves the remote authorization intact until it
+is revoked or expires.

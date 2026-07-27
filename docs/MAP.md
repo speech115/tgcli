@@ -46,8 +46,8 @@ tgcli/
 │   ├── output.py              [done]    emit(data) → stdout as JSON/plain; note()/warn() → stderr
 │   ├── errors.py              [done]    TgcliError hierarchy ↔ exit codes (CONTRACT.md §4)
 │   ├── chatref.py             [done]    chat reference normalization (numeric dialog id → int)
-│   ├── config.py              [done]    ~/.config/tgcli/config.toml, accounts registry, alias resolution
-│   ├── session.py             [done]    session locks (shared lock_held probe) + normal/mutation-safe TelegramClient factory
+│   ├── config.py              [done]    ~/.config/tgcli/config.toml, accounts registry, alias + role-name validation
+│   ├── session.py             [done]    primary + named-role session paths/locks + TelegramClient factory (ADR-0004/0062)
 │   ├── atomic.py              [done]    atomic state/config file replacement (the only sanctioned writer)
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
@@ -86,8 +86,9 @@ tgcli/
 │   │   └── legs.py            [done]    Leg seam + WINDOW=50 posts/comments interleave constant (ADR-0023/0051)
 │   └── commands/
 │   │   ├── batch.py           [done]    tg batch read-only JSONL runner (ADR-0032)
-│   │   ├── accounts.py        [done]    tg accounts list|import|show|remove (ADR-0042)
-│   │   ├── login.py           [done]    tg accounts login QR/phone + --continue (ADR-0042)
+│   │   ├── accounts.py        [done]    tg accounts list|import|show|remove (+ --role; ADR-0042/0062)
+│   │   ├── login.py           [done]    tg accounts login QR/phone + --continue + --role (ADR-0042/0062)
+│   │   ├── doctor.py          [done]    offline/online health for primary + role sessions (ADR-0028/0040/0062)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
 │   │   ├── read.py            [done]    tg read <chat>                (phase 1)
 │   │   ├── search.py          [done]    tg search / latest / message (phase 2)
@@ -99,7 +100,6 @@ tgcli/
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── draft.py           [done]    tg draft set|show|clear|list (ADR-0039)
 │   │   ├── mutate.py          [done]    tg edit|delete|forward preview / commit; tg mark-read|mark-unread (ADR-0028/0029)
-│   │   ├── doctor.py          [done]    tg doctor offline-first health; --connect live (ADR-0028/0040)
 │   │   ├── store.py           [done]    tg store stats|cleanup; previews + logins + session_backups + clone media caches (ADR-0040/0042/0052)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (+ incremental messages ADR-0032; broadcast walk ADR-0031)

@@ -45,7 +45,7 @@ def _fake_client(monkeypatch):
     from tgcli import session
 
     @asynccontextmanager
-    async def fake_session(account):
+    async def fake_session(account, *, mutation_safe=False, role=None):
         yield DoctorClient()
 
     monkeypatch.setattr(session, "client", fake_session)
@@ -85,7 +85,7 @@ def test_doctor_reports_config_error_in_payload(config_env, monkeypatch, capsys)
     _touch_session("main")
 
     @asynccontextmanager
-    async def unavailable_session(account):
+    async def unavailable_session(account, *, mutation_safe=False, role=None):
         raise ConfigError("session 'main' is not authorized")
         yield
 
@@ -106,7 +106,7 @@ def test_doctor_reports_runtime_error_in_payload(config_env, monkeypatch, capsys
     _touch_session("main")
 
     @asynccontextmanager
-    async def failing_session(account):
+    async def failing_session(account, *, mutation_safe=False, role=None):
         raise RuntimeError("unexpected transport failure")
         yield
 

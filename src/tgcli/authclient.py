@@ -72,12 +72,12 @@ async def unauthorized_client(path: Path, api_id: int, api_hash: str):
         lock.close()
 
 
-async def probe_authorized(account: Account) -> bool:
+async def probe_authorized(account: Account, role: str | None = None) -> bool:
     """Return whether the account's existing session is still authorized.
 
     `SessionRevokedError` maps to False rather than raising.
     """
-    path = session_path(account)
+    path = session_path(account, role)
     try:
         async with unauthorized_client(path, account.api_id, account.api_hash) as tg:
             return bool(await tg.is_user_authorized())

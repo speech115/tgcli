@@ -58,6 +58,7 @@ def create_attempt(
     api_id: int,
     api_hash: str,
     phone: str | None = None,
+    role: str | None = None,
     now: datetime | None = None,
 ) -> dict:
     now = now or datetime.now(UTC)
@@ -70,6 +71,7 @@ def create_attempt(
         "api_hash": api_hash,
         "phone": phone,
         "phone_code_hash": None,
+        "role": role,
         "created_at": now.isoformat(),
         "expires_at": (now + LOGIN_TTL).isoformat(),
     }

@@ -25,12 +25,22 @@ MUTATION_POSITIONALS = {
 
 
 def prepare(parser: argparse.ArgumentParser, args) -> None:
+    _prepare_session_role(args)
     _prepare_search(parser, args)
     _prepare_batch(args)
     _prepare_time_bounds(parser, args)
     _prepare_mutations(args)
     _prepare_previews(parser, args)
     _prepare_api(parser, args)
+
+
+def _prepare_session_role(args) -> None:
+    role = getattr(args, "session_role", None)
+    if role is None:
+        return
+    from tgcli.config import validate_role_name
+
+    validate_role_name(role)
 
 
 def _parse_when(
@@ -113,6 +123,8 @@ def _prepare_login(args) -> None:
         # invocation's deadline; --qr-format only shapes the start path's QR.
         if hasattr(args, "qr_format"):
             raise PolicyError("accounts login --continue rejects --qr-format")
+        if getattr(args, "login_role", None) is not None:
+            raise PolicyError("accounts login --continue rejects --role")
         return
     if args.alias is None:
         raise PolicyError("accounts login requires ALIAS (or --continue LOGIN_ID)")
@@ -122,6 +134,11 @@ def _prepare_login(args) -> None:
     api_hash = getattr(args, "api_hash", None)
     if (api_id is None) ^ (api_hash is None):
         raise PolicyError("--api-id and --api-hash are required together")
+    login_role = getattr(args, "login_role", None)
+    if login_role is not None:
+        from tgcli.config import validate_role_name
+
+        validate_role_name(login_role)
 
 
 def _prepare_previews(parser: argparse.ArgumentParser, args) -> None:

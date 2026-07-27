@@ -30,8 +30,14 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
         or (args.clone_command == "init" and args.commit is not None)
         or (args.clone_command == "refresh" and args.commit is not None)
     )
+    # cli._execute already holds the audit-role context var for the whole
+    # invocation (including this coroutine); only the network session itself
+    # needs the role here.
+    role = getattr(args, "session_role", None)
     try:
-        async with session.client(account, mutation_safe=mutation_safe) as tg:
+        async with session.client(
+            account, mutation_safe=mutation_safe, role=role
+        ) as tg:
             read_operation = read_ops.from_cli(args)
             if read_operation is not None:
                 result = await read_ops.execute(tg, read_operation)

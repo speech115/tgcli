@@ -318,7 +318,7 @@ def test_media_download_session_revoked_keeps_auth_exit_code(
     client = FakeClient(entities={"@chan": ns(id=5, title="C")})
 
     @asynccontextmanager
-    async def fake_session(account, *, mutation_safe=False):
+    async def fake_session(account, *, mutation_safe=False, role=None):
         try:
             yield client
         except telethon_errors.SessionRevokedError as exc:

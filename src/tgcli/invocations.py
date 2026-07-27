@@ -14,11 +14,13 @@ def log_invocation(
     duration_ms: int,
     account: str | None = None,
     error: str | None = None,
+    role: str | None = None,
 ) -> None:
     entry = {
         "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
         "command": command,
         "account": account,
+        "role": role,
         "exit_code": exit_code,
         "error": error,
         "duration_ms": duration_ms,

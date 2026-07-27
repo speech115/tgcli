@@ -136,7 +136,11 @@ def main(argv: list[str] | None = None) -> int:
                 problems.append(f"{page.name}: unknown flag {flag}")
 
         # drop value-taking flags so their argument is not read as a command
-        stripped = re.sub(r"\s+", " ", re.sub(r"--(?:account|timeout) \S+", "", text))
+        stripped = re.sub(
+            r"\s+",
+            " ",
+            re.sub(r"--(?:account|timeout|session-role) \S+", "", text),
+        )
         for name in sorted(set(re.findall(r"\btg (?:--[a-z-]+ )*([a-z-]+)", stripped))):
             if name not in commands:
                 problems.append(f"{page.name}: unknown command 'tg {name}'")

@@ -1,4 +1,4 @@
-"""Read-only environment and session health checks (ADR-0028 / ADR-0040)."""
+"""Read-only environment and session health checks (ADR-0028 / ADR-0040 / ADR-0062)."""
 
 import stat
 from pathlib import Path
@@ -81,6 +81,43 @@ def _local_ok(checks: dict) -> bool:
     return True
 
 
+async def _check_role(account, role: str, *, connect: bool) -> dict:
+    session_file = session.session_path(account, role=role)
+    has_session_file = session_file.is_file()
+    checks: dict = {
+        "session_file": has_session_file,
+        "lock_free": has_session_file and session.lock_held(session_file) is False,
+        "session_perms_ok": _session_perms_ok(session_file),
+        "authorized": None,
+    }
+    user = None
+    if connect:
+        checks["authorized"] = False
+        if checks["session_file"] and checks["lock_free"]:
+            try:
+                async with session.client(account, role=role) as tg:
+                    me = await tg.get_me()
+                    checks["authorized"] = me is not None
+                    if me is not None:
+                        user = {
+                            "id": getattr(me, "id", None),
+                            "username": getattr(me, "username", None),
+                            "name": getattr(me, "first_name", None),
+                        }
+            except Exception as exc:
+                checks["error"] = str(exc)
+    ok = _local_ok(checks)
+    if connect:
+        ok = ok and bool(checks["authorized"])
+    return {
+        "name": role,
+        "session": str(session_file),
+        "checks": checks,
+        "user": user,
+        "ok": ok,
+    }
+
+
 async def check_account(account, *, connect: bool = False) -> dict:
     session_file = session.session_path(account)
     has_session_file = session_file.is_file()
@@ -110,7 +147,11 @@ async def check_account(account, *, connect: bool = False) -> dict:
                         }
             except Exception as exc:
                 checks["error"] = str(exc)
-    ok = _local_ok(checks)
+    roles = [
+        await _check_role(account, role, connect=connect)
+        for role in session.list_roles(account)
+    ]
+    ok = _local_ok(checks) and all(role["ok"] for role in roles)
     if connect:
         ok = ok and bool(checks["authorized"])
     return {
@@ -118,6 +159,7 @@ async def check_account(account, *, connect: bool = False) -> dict:
         "session": str(session_file),
         "checks": checks,
         "user": user,
+        "roles": roles,
         "ok": ok,
     }
 
@@ -161,4 +203,25 @@ def to_rows(data: dict) -> list[tuple]:
                 ", ".join(failures) or None,
             )
         )
+        for role in report.get("roles") or []:
+            role_auth = role["checks"].get("authorized")
+            if not role["ok"]:
+                role_status = "fail"
+            elif role_auth is None:
+                role_status = "unknown"
+            else:
+                role_status = "ok"
+            role_failures = [
+                key
+                for key, value in role["checks"].items()
+                if key not in ("error", "state_size") and value is False
+            ]
+            rows.append(
+                (
+                    f"{report['alias']}@{role['name']}",
+                    role_status,
+                    (role["user"] or {}).get("username"),
+                    ", ".join(role_failures) or None,
+                )
+            )
     return rows
