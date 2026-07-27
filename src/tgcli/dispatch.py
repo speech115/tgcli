@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from telethon import errors as telethon_errors
 
-from tgcli import output, read_ops, safety, session
+from tgcli import output, read_ops, session
 from tgcli.commands import (
     api as api_cmd,
     batch as batch_cmd,
@@ -31,8 +31,10 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
         or (args.clone_command == "init" and args.commit is not None)
         or (args.clone_command == "refresh" and args.commit is not None)
     )
+    # cli._execute already holds the audit-role context var for the whole
+    # invocation (including this coroutine); only the network session itself
+    # needs the role here.
     role = getattr(args, "session_role", None)
-    token = safety.set_audit_role(role)
     try:
         async with session.client(
             account, mutation_safe=mutation_safe, role=role
@@ -179,8 +181,6 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
         raise RateLimitError(
             f"rate limited for {exc.seconds}s", retry_after=exc.seconds
         ) from exc
-    finally:
-        safety.reset_audit_role(token)
 
 
 async def _run_draft(tg, args) -> tuple[dict, list[tuple]]:
