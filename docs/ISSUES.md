@@ -132,6 +132,20 @@ ADRs — the lock contract as [ADR-0062](decisions/ADR-0062-job-session-role.md)
 [ADR-0063](decisions/ADR-0063-tg-changes-design.md). Neither is accepted;
 this blocker stays open until the owner decides ADR-0062.
 
+**2026-07-27 — blocker resolved.** The owner accepted ADR-0062 (amended:
+arbitrary role names, global `--session-role` flag) and ADR-0063
+(amended: hybrid channel coverage via cursor-held subscriptions +
+`channel_activity` signals, full `read`-shape event bodies, 2 s settle
+window, `read_marker` dropped from v1), together with ADR-0060 (clone
+state on SQLite). Execution is three sequential releases —
+SQLite → session roles → `tg changes` — each with its own plan and
+mandatory live acceptance before the tag:
+[2026-07-27-clone-state-sqlite](superpowers/plans/2026-07-27-clone-state-sqlite.md),
+[2026-07-27-session-roles](superpowers/plans/2026-07-27-session-roles.md),
+[2026-07-27-tg-changes](superpowers/plans/2026-07-27-tg-changes.md).
+FEED-001 closes when the third release ships; this entry then records
+the shipped shape.
+
 ### Design input from the wacli review (2026-07-23)
 
 - **Deletions are events, not absences.** wacli never treats a vanished row

@@ -1,7 +1,7 @@
 # ADR-0060: Clone state on SQLite/WAL — measured proposal
 
 Date: 2026-07-26
-Status: proposed (owner decision required: storage migration)
+Status: accepted (2026-07-27, owner decisions recorded below)
 
 ## Context
 
@@ -56,6 +56,26 @@ Required by the migration, non-negotiable:
 - crash tests between transactions (the campaign's crash-window lens);
 - `sqlite3` is stdlib — no new dependency.
 
+## Owner decisions (2026-07-27)
+
+Accepted with the rollback path pinned down:
+
+- **Single reader.** The runtime reads SQLite only. Migration is a
+  one-time automatic import on first `load()` of a v2 JSON state; there
+  is no transitional dual-format reader ("while both readers exist"
+  above is resolved as: they never coexist in one binary).
+- **Rollback is an explicit export command** (`tg clone export-state`,
+  exact name fixed in the implementation plan): prints the state as the
+  v2 JSON document on stdout. Downgrade = export + previous binary. The
+  command stays permanently as a diagnostic tool.
+- **`.imported` backups are never auto-deleted.** They are user data;
+  `tg store stats` reports them, removal is a manual decision
+  (consistent with the `tg store cleanup` posture, ADR-0040).
+- Ships as its own plan, branch, and release (first of the
+  SQLite → session-roles → `tg changes` sequence, 2026-07-27 session);
+  the release is tagged only after live acceptance on a disposable
+  clone.
+
 ## Rejected
 
 - **Save-per-batch instead of per-message** (cheap fix): reduces I/O ~50×
@@ -69,7 +89,7 @@ Required by the migration, non-negotiable:
   2.5 s and 6 MB per thousand messages and grows quadratically from
   there.
 
-## Consequences (if accepted)
+## Consequences
 
 - `clone/state.py` keeps its public seam (`load`/`save`/`from_dict`
   equivalents) so command code does not change shape; the file format

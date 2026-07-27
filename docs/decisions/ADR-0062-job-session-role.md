@@ -1,8 +1,7 @@
 # ADR-0062: A second authorized session for long jobs
 
 Date: 2026-07-26
-Status: proposed (owner decision required: authorizes a second device per
-account and touches the auth surface)
+Status: accepted (2026-07-27, owner decisions recorded below)
 
 ## Context
 
@@ -39,6 +38,31 @@ authorization:
 - Audit and invocation-journal rows record the role so mutations stay
   attributable to a specific authorization.
 
+## Owner decisions (2026-07-27)
+
+Accepted with two amendments to the proposal above:
+
+- **Role names are arbitrary**, not a fixed `job`. `accounts login ALIAS
+  --role NAME` accepts any name passing the same validation as account
+  aliases; the file is `ALIAS@<role>.session`. `primary` is reserved
+  (it would be a second name for the default session). Rationale: the
+  lock is per file, so one role is one concurrent lane — the target
+  scenario "a clone runs while `tg changes` polls" already needs two.
+  `job` remains the documented convention for the common case. Each
+  role is one more authorized Telegram device; roles can only appear
+  through an explicit interactive login, never implicitly.
+- **`--session-role` is a global flag** (beside `--account`), available
+  to every command, not only long-running ones. It resolves to a
+  session path before the client opens; authorization, permissions, and
+  audit attribution are identical either way, and "primary is busy, let
+  me `tg send` via a role" is a legitimate escape hatch. The
+  no-implicit-fallback rule is unchanged and is the real attribution
+  guarantee: a named role that is not authorized is exit 2, never a
+  silent switch to the primary.
+- Ships as its own plan, branch, and release (second in the
+  SQLite → session-roles → `tg changes` sequence); tagged only after
+  live acceptance on a test account.
+
 ## Rejected
 
 - **Yielding the lock between clone windows / `--wait` cycles:** makes
@@ -51,7 +75,7 @@ authorization:
 - **Sharing one session file with finer-grained locking:** forbidden
   fixed point (authorization-destroying corruption risk).
 
-## Consequences (if accepted)
+## Consequences
 
 - The account lifecycle (login/show/remove/doctor) grows a role
   dimension — one scoped plan, its own release, live acceptance with a
