@@ -23,8 +23,9 @@ selected account session, does one operation, and exits.
 | 4 | not found |
 | 5 | rate limited; JSON error includes `retry_after` |
 
-- Run one process per account at a time. Exit 3 can mean a busy session lock;
-  retry in a few seconds.
+- Run one process per account session at a time. Exit 3 can mean a busy
+  session lock; retry in a few seconds. For concurrency, authorize a named
+  role (`accounts login ALIAS --role job`) and pass `--session-role job`.
 
 ## Command routing
 
@@ -33,7 +34,9 @@ selected account session, does one operation, and exits.
 | List configured accounts | `tg --json accounts list` |
 | Show offline account / session status | `tg --json accounts show ALIAS` |
 | Authorize / re-authorize a session | `tg --json accounts login ALIAS` (QR) / `--phone` / `--continue LOGIN_ID` |
+| Authorize a named session role | `tg --json accounts login ALIAS --role job` |
 | Remove a configured account | `tg --json accounts remove ALIAS --confirm` |
+| Remove one session role | `tg --json accounts remove ALIAS --role job --confirm` |
 | Import old-stack sessions | `tg --json accounts import` |
 | The session died / a new machine | `tg --json accounts login ALIAS …` then `tg --json accounts show ALIAS` |
 | List dialogs | `tg --json dialogs --limit 50` |
@@ -178,7 +181,10 @@ top-level `ok` result.
 ## Account selection
 
 Selection order is `--account` > `TGCLI_ACCOUNT` > the config default.
-Available migration aliases are `main`, `recklessou`, and `teamsyncsage`.
+`--session-role NAME` (ADR-0062) selects a named session beside the primary;
+omit it for the primary. A missing role is exit 3 with remediation — never a
+silent fallback. Available migration aliases are `main`, `recklessou`, and
+`teamsyncsage`.
 
 ## Migration note
 

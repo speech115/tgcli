@@ -35,7 +35,7 @@ def opened_sessions(monkeypatch):
     opened = []
 
     @asynccontextmanager
-    async def refuse(account, *, mutation_safe=False):
+    async def refuse(account, *, mutation_safe=False, role=None):
         opened.append(account)
         raise AssertionError("a session was opened before the local checks passed")
         yield  # pragma: no cover — makes this an async generator

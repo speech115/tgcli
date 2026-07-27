@@ -68,6 +68,7 @@ def test_show_in_config_session_present(env):
         "locked": False,
         "backup": None,
         "authorized": None,
+        "roles": [],
     }
 
 

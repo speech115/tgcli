@@ -21,7 +21,38 @@ tg --json accounts show main
 Strictly offline: config presence, resolved session path, existence, size,
 mtime, whether the account lock is currently held, and the `.bak` slot.
 `authorized` is always `null` — use `tg doctor --connect` for a live probe.
-An unknown alias exits 4.
+Named session roles (ADR-0062) appear under `roles[]` with the same offline
+fields. An unknown alias exits 4.
+
+## Named session roles
+
+One account can hold several independently authorized Telegram sessions so a
+long job (`clone sync`, `export`, and similar long-held locks) does not block
+every other command on the same account.
+
+```bash
+# Authorize a role beside an already-configured alias
+tg --json accounts login main --role job
+
+# Use it for any command
+tg --session-role job --account main --json dialogs
+tg --session-role job --account main clone sync @source
+
+# Inspect / retire
+tg --json accounts show main
+tg --json accounts remove main --role job --confirm
+```
+
+| Rule | Behavior |
+| --- | --- |
+| File | `sessions/<session>@<role>.session` with its own lock. |
+| Names | Same charset as aliases; `primary` is reserved (omit `--session-role`). |
+| Fallback | None. A missing role is exit 3 with `tg accounts login <alias> --role …`. |
+| Creation | Only via interactive `accounts login --role` — never implied by the flag. |
+| Cost | Each role is one more device in Telegram Settings → Devices; revoke there when retiring. |
+
+`--session-role` is a global flag (beside `--account`). Audit and invocation
+journal rows record the role when set.
 
 ## Authorize a session: `accounts login`
 
@@ -54,6 +85,7 @@ tg --json accounts login --continue LOGIN_ID --password-stdin   # headless 2FA
 | `--continue LOGIN_ID` | Resume a pending attempt (no `ALIAS`). |
 | `--code VALUE\|-` | Confirmation code on `--continue` only; `-` reads one line from stdin. |
 | `--password-stdin` | Read the cloud password from stdin (never argv). |
+| `--role NAME` | Authorize a named session role beside a configured alias (ADR-0062). |
 
 `--readonly` / `TGCLI_READONLY=1` block login. `TGCLI_NO_SEND` does **not**.
 On macOS the cloud password and confirmation code are collected through a
@@ -75,11 +107,14 @@ from Telegram Desktop and mobile clients.
 tg --json accounts remove work            # report-only, exit 2, hint --confirm
 tg --json accounts remove work --confirm
 tg --json accounts remove work --confirm --keep-session
+tg --json accounts remove work --role job --confirm   # role only; config untouched
 ```
 
 Deletes the `[accounts.<alias>]` block and, unless `--keep-session`, the
-session file and its `.bak`. Refuses when the lock is held, when the alias is
-`default_account`, or under `--readonly` with `--confirm`.
+session file and its `.bak`. With `--role`, only that role's session/bak are
+removed — never config, never the primary; `--keep-session` is rejected.
+Refuses when the lock is held, when the alias is `default_account` (whole-
+account remove only), or under `--readonly` with `--confirm`.
 
 ## Import sessions from the old stack
 

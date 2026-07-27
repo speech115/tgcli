@@ -38,6 +38,12 @@ def _older_than_type(value: str):
 def build_parser() -> argparse.ArgumentParser:
     global_flags = _Parser(add_help=False, argument_default=argparse.SUPPRESS)
     global_flags.add_argument("--account", help="account alias from config")
+    global_flags.add_argument(
+        "--session-role",
+        dest="session_role",
+        metavar="NAME",
+        help="named session role beside the primary (ADR-0062)",
+    )
     global_flags.add_argument("--json", action="store_true", help="JSON to stdout")
     global_flags.add_argument("--plain", action="store_true", help="TSV to stdout")
     global_flags.add_argument("--readonly", action="store_true")
@@ -87,6 +93,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="leave the session file and .bak in place",
     )
+    p_remove.add_argument(
+        "--role",
+        dest="remove_role",
+        metavar="NAME",
+        help="remove one named session role without touching config or primary",
+    )
     p_login = accounts_sub.add_parser(
         "login",
         help="Authorize a session (QR by default, --phone fallback)",
@@ -121,6 +133,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--password-stdin",
         action="store_true",
         help="read the cloud password from stdin (never argv)",
+    )
+    p_login.add_argument(
+        "--role",
+        dest="login_role",
+        metavar="NAME",
+        help="authorize a named session role beside the primary (ADR-0062)",
     )
 
     p_dialogs = sub.add_parser("dialogs", help="List dialogs", parents=[global_flags])

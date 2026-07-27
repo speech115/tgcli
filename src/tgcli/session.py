@@ -1,4 +1,4 @@
-"""Session files, per-account locks, Telethon client lifecycle (ADR-0004)."""
+"""Session files, per-account locks, Telethon client lifecycle (ADR-0004/0062)."""
 
 import fcntl
 import os
@@ -9,7 +9,7 @@ from pathlib import Path
 from telethon import TelegramClient, errors as telethon_errors
 
 from tgcli import __version__
-from tgcli.config import Account
+from tgcli.config import Account, validate_role_name
 from tgcli.errors import ConfigError
 
 
@@ -52,8 +52,45 @@ def restrict_file(path: Path) -> None:
     _repair_mode(path, 0o600)
 
 
-def session_path(account: Account) -> Path:
-    return state_dir() / "sessions" / f"{account.session}.session"
+def _role_stem(account: Account, role: str) -> str:
+    """``<session>@<role>`` stem, reusing an on-disk casefold match when present."""
+    validate_role_name(role)
+    wanted = f"{account.session}@{role}".casefold()
+    directory = state_dir() / "sessions"
+    if directory.is_dir():
+        for path in directory.glob("*.session"):
+            if path.stem.casefold() == wanted:
+                return path.stem
+    return f"{account.session}@{role}"
+
+
+def session_path(account: Account, role: str | None = None) -> Path:
+    if role is None:
+        stem = account.session
+    else:
+        stem = _role_stem(account, role)
+    return state_dir() / "sessions" / f"{stem}.session"
+
+
+def list_roles(account: Account) -> list[str]:
+    """Role names authorized beside the primary, sorted case-insensitively."""
+    directory = state_dir() / "sessions"
+    if not directory.is_dir():
+        return []
+    prefix = f"{account.session}@".casefold()
+    roles: list[str] = []
+    for path in directory.glob("*.session"):
+        stem = path.stem
+        if stem.casefold().startswith(prefix) and "@" in stem:
+            roles.append(stem.split("@", 1)[1])
+    roles.sort(key=str.casefold)
+    return roles
+
+
+def session_label(account: Account, role: str | None = None) -> str:
+    if role is None:
+        return account.session
+    return _role_stem(account, role)
 
 
 def lock_held(session_file: Path) -> bool | None:
@@ -114,8 +151,16 @@ def _make_client(
 
 
 @asynccontextmanager
-async def client(account: Account, *, mutation_safe: bool = False):
-    path = session_path(account)
+async def client(
+    account: Account, *, mutation_safe: bool = False, role: str | None = None
+):
+    path = session_path(account, role)
+    label = session_label(account, role)
+    if role is not None and not path.is_file():
+        raise ConfigError(
+            f"session role {role!r} for account {account.alias!r} is not authorized; "
+            f"run: tg accounts login {account.alias} --role {role}"
+        )
     ensure_state_dir("sessions")
     lock = open(path.with_suffix(".lock"), "w")
     try:
@@ -123,16 +168,22 @@ async def client(account: Account, *, mutation_safe: bool = False):
     except BlockingIOError:
         lock.close()
         raise ConfigError(
-            f"session {account.session!r} is busy (another tg process is using it); "
+            f"session {label!r} is busy (another tg process is using it); "
             "retry in a few seconds"
         ) from None
     tg = _make_client(path, account, mutation_safe=mutation_safe)
-    # Telethon creates the SQLite session during construction; tighten it
+    # Telethon creates the SQLite session during client construction; tighten it
     # before any network use.
     restrict_file(path)
     try:
         await tg.connect()
         if not await tg.is_user_authorized():
+            if role is not None:
+                raise ConfigError(
+                    f"session role {role!r} for account {account.alias!r} "
+                    "is not authorized; "
+                    f"run: tg accounts login {account.alias} --role {role}"
+                )
             raise ConfigError(
                 f"session {account.session!r} is not authorized; "
                 "run: tg accounts login <alias> "
@@ -141,7 +192,7 @@ async def client(account: Account, *, mutation_safe: bool = False):
         yield tg
     except telethon_errors.SessionRevokedError as exc:
         raise ConfigError(
-            f"session {account.session!r} needs reauthentication; authorize it again"
+            f"session {label!r} needs reauthentication; authorize it again"
         ) from exc
     finally:
         await tg.disconnect()  # type: ignore  # Telethon stub: Coroutine | None

@@ -1,9 +1,13 @@
 import os
+import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
 from tgcli.errors import ConfigError
+
+_ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+RESERVED_ROLE = "primary"
 
 
 def default_config_path() -> Path:
@@ -24,6 +28,21 @@ class Account:
 class Config:
     default_account: str | None
     accounts: dict[str, Account]
+
+
+def validate_role_name(role: str) -> str:
+    """Alias-grade role names; ``primary`` is reserved (ADR-0062)."""
+    if not role or not _ALIAS_RE.match(role):
+        raise ConfigError(
+            f"invalid session role {role!r}; "
+            "use letters, digits, underscore, or hyphen only"
+        )
+    if role.casefold() == RESERVED_ROLE:
+        raise ConfigError(
+            "session role 'primary' is reserved for the default session; "
+            "omit --session-role to use it"
+        )
+    return role
 
 
 def load_config(path: Path | None = None) -> Config:

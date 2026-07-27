@@ -315,6 +315,7 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
             args.alias,
             confirm=bool(args.confirm),
             keep_session=bool(getattr(args, "keep_session", False)),
+            role=getattr(args, "remove_role", None),
         )
         return data, accounts_cmd.remove_rows(data)
     if args.command == "accounts" and args.subcommand == "login":
@@ -339,6 +340,7 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
                     timeout=timeout,
                     qr_format=getattr(args, "qr_format", "link"),
                     password_stdin=bool(getattr(args, "password_stdin", False)),
+                    role=getattr(args, "login_role", None),
                 )
             )
         return data, login_cmd.login_rows(data)
@@ -511,6 +513,7 @@ def main(argv: list[str] | None = None) -> int:
         invocations.log_invocation(
             command=args.command,
             account=args.account,
+            role=getattr(args, "session_role", None),
             exit_code=exit_code,
             error=error_code,
             duration_ms=duration_ms,

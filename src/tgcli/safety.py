@@ -3,6 +3,7 @@
 import json
 import os
 import secrets
+from contextvars import ContextVar, Token
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -11,6 +12,15 @@ from tgcli.errors import PolicyError
 from tgcli.session import ensure_state_dir, restrict_file, state_dir
 
 PREVIEW_TTL = timedelta(minutes=5)
+_AUDIT_ROLE: ContextVar[str | None] = ContextVar("tgcli_audit_role", default=None)
+
+
+def set_audit_role(role: str | None) -> Token:
+    return _AUDIT_ROLE.set(role)
+
+
+def reset_audit_role(token: Token) -> None:
+    _AUDIT_ROLE.reset(token)
 
 
 def enforce_mutation_allowed(readonly: bool) -> None:
@@ -148,6 +158,9 @@ def append_audit(action: str, account: str, details: dict) -> None:
         "account": account,
         **details,
     }
+    role = _AUDIT_ROLE.get()
+    if role is not None:
+        record["role"] = role
     path = audit_path()
     try:
         ensure_state_dir()

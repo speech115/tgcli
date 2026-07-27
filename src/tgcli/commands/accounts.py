@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from tgcli import atomic, safety, session
-from tgcli.config import Config, default_config_path, load_config
+from tgcli.config import Config, default_config_path, load_config, validate_role_name
 from tgcli.errors import ConfigError, NotFoundError, PolicyError
 from tgcli.output import note
 from tgcli.session import state_dir
@@ -27,14 +27,17 @@ def to_rows(data: dict) -> list[tuple]:
     return [(entry["alias"], entry["session"]) for entry in data["accounts"]]
 
 
-def _account_session_path(config: Config, alias: str) -> Path:
+def _account_session_path(config: Config, alias: str):
     if alias not in config.accounts:
         raise NotFoundError(f"unknown account alias: {alias!r}")
-    return state_dir() / "sessions" / f"{config.accounts[alias].session}.session"
+    return session.session_path(config.accounts[alias])
 
 
 def show_account(config: Config, alias: str) -> dict:
-    path = _account_session_path(config, alias)
+    account = config.accounts.get(alias)
+    if account is None:
+        raise NotFoundError(f"unknown account alias: {alias!r}")
+    path = session.session_path(account)
     bak = Path(str(path) + ".bak")
     exists = path.is_file()
     bytes_count: int | None = None
@@ -43,6 +46,18 @@ def show_account(config: Config, alias: str) -> dict:
         stat = path.stat()
         bytes_count = stat.st_size
         modified = datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat()
+    roles = []
+    for role_name in session.list_roles(account):
+        role_path = session.session_path(account, role=role_name)
+        roles.append(
+            {
+                "name": role_name,
+                "session": str(role_path),
+                "exists": role_path.is_file(),
+                "locked": session.lock_held(role_path) is True,
+                "authorized": None,
+            }
+        )
     return {
         "alias": alias,
         "in_config": True,
@@ -53,6 +68,7 @@ def show_account(config: Config, alias: str) -> dict:
         "locked": session.lock_held(path) is True,
         "backup": str(bak) if bak.is_file() else None,
         "authorized": None,
+        "roles": roles,
     }
 
 
@@ -95,9 +111,14 @@ def remove_account(
     *,
     confirm: bool,
     keep_session: bool,
+    role: str | None = None,
 ) -> dict:
     if alias not in config.accounts:
         raise NotFoundError(f"unknown account alias: {alias!r}")
+    if role is not None:
+        return _remove_role(
+            config, alias, role=role, confirm=confirm, keep_session=keep_session
+        )
     if not confirm:
         note(f"refusing to remove account {alias!r}; re-run with --confirm")
         raise PolicyError(f"refusing to remove account {alias!r} without --confirm")
@@ -158,8 +179,77 @@ def remove_account(
         lock.close()
 
 
+def _remove_role(
+    config: Config,
+    alias: str,
+    *,
+    role: str,
+    confirm: bool,
+    keep_session: bool,
+) -> dict:
+    validate_role_name(role)
+    if keep_session:
+        raise PolicyError("accounts remove --role rejects --keep-session")
+    if not confirm:
+        note(
+            f"refusing to remove session role {role!r} for account {alias!r}; "
+            "re-run with --confirm"
+        )
+        raise PolicyError(
+            f"refusing to remove session role {role!r} for account {alias!r} "
+            "without --confirm"
+        )
+    account = config.accounts[alias]
+    path = session.session_path(account, role=role)
+    if not path.is_file():
+        raise NotFoundError(
+            f"session role {role!r} for account {alias!r} does not exist"
+        )
+    bak = Path(str(path) + ".bak")
+    session.ensure_state_dir("sessions")
+    lock = path.with_suffix(".lock").open("w")
+    try:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise PolicyError(
+                f"session {path.stem!r} is busy (another tg process is using it); "
+                "retry in a few seconds"
+            ) from exc
+        backup_existed = bak.is_file()
+        safety.append_audit(
+            "accounts-remove-role",
+            alias,
+            {
+                "role": role,
+                "session": "deleted",
+                "backup": "deleted" if backup_existed else "absent",
+            },
+        )
+        path.unlink(missing_ok=True)
+        bak.unlink(missing_ok=True)
+        return {
+            "alias": alias,
+            "role": role,
+            "config": "unchanged",
+            "session": "deleted",
+            "backup": "deleted" if backup_existed else "absent",
+        }
+    finally:
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        lock.close()
+
+
 def remove_rows(data: dict) -> list[tuple]:
-    return [(data["alias"], data["config"], data["session"], data["backup"])]
+    return [
+        (
+            data["alias"],
+            data["config"],
+            data["session"],
+            data["backup"],
+            data.get("role"),
+        )
+    ]
 
 
 def _source_dir(source_root: Path, alias: str) -> Path:

@@ -19,6 +19,7 @@ Global flags (available on every command):
 | Flag | Meaning |
 |------|---------|
 | `--account <alias>` | account alias from config; default: config `default_account` |
+| `--session-role <name>` | named session role beside the primary (ADR-0062); omit for primary |
 | `--json` | machine output: one JSON document to stdout |
 | `--plain` | stable TSV to stdout (no colors, no alignment) |
 | `--readonly` | hard-block any mutating call in this invocation |
@@ -27,6 +28,16 @@ Global flags (available on every command):
 
 Env equivalents: `TGCLI_ACCOUNT`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`.
 Flag beats env, env beats config.
+
+`--session-role NAME` resolves to `sessions/<session>@<NAME>.session` before
+the client opens. Role names use the same charset/length rules as account
+aliases; `primary` is reserved (omit the flag to use the default session).
+There is **no implicit fallback**: a missing or unauthorized role is exit 3
+(`CONFIG`) with remediation `run: tg accounts login <alias> --role NAME`,
+never a silent switch to the primary. Symmetrically, omitting the flag always
+uses the primary even when roles exist. A role appears only through an
+explicit interactive `accounts login --role` — never created by using the
+flag.
 
 ## 2. Streams
 
@@ -466,7 +477,9 @@ but never send, edit, delete, or save a Telegram draft. They remain permitted wi
 Every authorised send commit appends one JSON object to
 `~/.local/state/tgcli/audit.jsonl` (or `TGCLI_STATE_DIR/audit.jsonl`) before
 network dispatch, including the stored `random_id`; a successful confirmed
-commit appends `send-result` with its preview and message ids. If the pre-send
+commit appends `send-result` with its preview and message ids. When the
+invocation used `--session-role`, the audit object also includes `"role"`
+(ADR-0062); primary-session rows omit the field. If the pre-send
 audit record cannot be written, the mutation is blocked with exit 2; tgcli
 never performs an unaudited authorised write. Preview creation itself does not
 send or audit a mutation.
@@ -715,17 +728,22 @@ locked and creates no lock file. These probes do not mutate Telegram.
 "checks":{"session_file":true,"lock_free":true,"state_writable":true,
 "preview_perms_ok":true,"audit_perms_ok":true,"session_perms_ok":true,
 "state_size":4096,"authorized":null},
-"user":null,"ok":true}],"ok":true}
+"user":null,"roles":[],"ok":true}],"ok":true}
 ```
 
 With `--connect`, `authorized` is a boolean and `user` is populated on success.
 Any ordinary online exception, including a session/configuration failure, is
 represented as `checks.error`, with `authorized: false`, `user: null`, and
-`ok: false` for that account. `--plain` uses frozen columns: `alias`, `status`
-(`ok|fail|unknown`), `username`, `failures`. `unknown` means local checks
-passed and authorization was not probed. When `preview_perms_ok` is false,
-`doctor` prints a one-line remedy hint to **stderr** (`tg store cleanup
---confirm`); stdout stays the JSON/rows document only.
+`ok: false` for that account. Each authorized named session role
+(ADR-0062; files `sessions/<session>@<role>.session`) appears under
+`roles[]` with the same local session/lock/permission probes (and, under
+`--connect`, the same live authorization probe) as the primary; per-account
+`ok` requires every role report to be healthy too. `--plain` uses frozen
+columns: `alias`, `status` (`ok|fail|unknown`), `username`, `failures`.
+Role rows use `alias@role` in the `alias` column. `unknown` means local
+checks passed and authorization was not probed. When `preview_perms_ok` is
+false, `doctor` prints a one-line remedy hint to **stderr** (`tg store
+cleanup --confirm`); stdout stays the JSON/rows document only.
 
 When `doctor` itself runs, it always exits 0; consult the top-level `ok` and
 per-account `ok` values for health failures. An invalid or unreadable config,
@@ -835,7 +853,8 @@ content into shell commands or file paths without sanitizing.
 
 Every successfully parsed command appends one JSON object to
 `~/.local/state/tgcli/invocations.jsonl` (or `TGCLI_STATE_DIR/invocations.jsonl`):
-`timestamp`, `command`, resolved `account` when applicable, `exit_code`,
+`timestamp`, `command`, resolved `account` when applicable, `role` when
+`--session-role` was set (ADR-0062; omitted for the primary), `exit_code`,
 structured `error` code when applicable, and `duration_ms`. The journal never
 contains message/search text, chat references, raw API parameters, or command
 output. A journal-write failure emits a warning to stderr but does not change
@@ -851,9 +870,10 @@ tg accounts list
 tg accounts import [ALIAS ...] [--source-root PATH] [--force]
 tg accounts show ALIAS
 tg accounts remove ALIAS [--confirm] [--keep-session]
+tg accounts remove ALIAS --role NAME [--confirm]
 tg accounts login ALIAS [--phone PHONE] [--api-id N] [--api-hash H]
                         [--force] [--timeout SECONDS] [--qr-format link|text]
-                        [--password-stdin]
+                        [--password-stdin] [--role NAME]
 tg accounts login --continue LOGIN_ID [--code VALUE|-] [--password-stdin]
 ```
 
@@ -899,8 +919,14 @@ creates no lock file (same rule as `doctor`, §5.1). The probe uses
 ```json
 {"alias": "main", "in_config": true, "session": "/…/sessions/main.session",
  "exists": true, "bytes": 32768, "modified": "2026-07-24T12:00:00+00:00",
- "locked": false, "backup": "/…/sessions/main.session.bak", "authorized": null}
+ "locked": false, "backup": "/…/sessions/main.session.bak", "authorized": null,
+ "roles": [{"name": "job", "session": "/…/sessions/main@job.session",
+            "exists": true, "locked": false, "authorized": null}]}
 ```
+
+`roles` lists every named session role file beside the primary (ADR-0062);
+an account with none emits `"roles": []`. Each entry is offline: name,
+resolved path, existence, lock probe, and `authorized: null`.
 
 `--plain` emits: `alias`, `exists`, `bytes`, `modified`, `locked`, `backup`,
 `authorized`.
@@ -913,26 +939,37 @@ or under `--readonly` / `TGCLI_READONLY=1` with `--confirm`. `TGCLI_NO_SEND`
 does not apply. An unknown alias exits 4. The audit record `accounts-remove`
 is written before any deletion (fails closed).
 
+With `--role NAME`, `accounts remove` deletes **only** that role's
+`.session` / `.bak` (never config, never the primary). `--keep-session` is
+rejected (exit 2). A missing role file exits 4. The audit action is
+`accounts-remove-role` and includes `"role"`. Success JSON adds `"role"` and
+keeps `"config": "unchanged"`.
+
 ```json
 {"alias": "x", "config": "removed", "session": "deleted", "backup": "deleted"}
 ```
 
 `session` / `backup` are `deleted`, `kept` (`--keep-session`), or `absent`.
-`--plain` emits: `alias`, `config`, `session`, `backup`.
+`--plain` emits: `alias`, `config`, `session`, `backup`, `role` (empty when
+removing the whole account).
 
 `accounts login` authorizes a session (ADR-0042). No `--phone` ⇒ QR path;
 `--phone` ⇒ phone + confirmation code. `--api-id` / `--api-hash` are required
 together and only for an alias absent from config. `--continue` takes no
-`ALIAS` and rejects `--phone` / `--api-id` / `--api-hash` / `--force`.
-`--timeout` defaults to **120** seconds on the QR path when unset. The cloud
-password is never accepted as an argv value; use a native dialog or
-`--password-stdin`. `--code` is accepted only with `--continue`; headless
-environments without a dialog must pass `--code VALUE` or `--code -` rather
-than blocking on stdin. `--readonly` / `TGCLI_READONLY=1` block login;
-`TGCLI_NO_SEND` does not. A still-authorized existing session refuses without
-`--force` (exit 2) — including an orphan session file for an alias not yet in
-config. Promotion by atomic rename is the only writer of
-`sessions/<alias>.session`; attempt state lives under `logins/`.
+`ALIAS` and rejects `--phone` / `--api-id` / `--api-hash` / `--force` /
+`--role`. `--role NAME` authorizes a named session role beside an **already
+configured** alias (ADR-0062); it never appends config and refuses an
+unknown alias (exit 3). `--timeout` defaults to **120** seconds on the QR
+path when unset. The cloud password is never accepted as an argv value; use
+a native dialog or `--password-stdin`. `--code` is accepted only with
+`--continue`; headless environments without a dialog must pass
+`--code VALUE` or `--code -` rather than blocking on stdin. `--readonly` /
+`TGCLI_READONLY=1` block login; `TGCLI_NO_SEND` does not. A still-authorized
+existing session (or role) refuses without `--force` (exit 2) — including an
+orphan session file for an alias not yet in config. Promotion by atomic
+rename is the only writer of `sessions/<alias>.session` (or
+`sessions/<alias>@<role>.session`); attempt state lives under `logins/` and
+records the role when set.
 
 Terminal success:
 
@@ -943,6 +980,8 @@ Terminal success:
  "backup": "/…/sessions/main.session.bak"}
 ```
 
+A role login adds `"role": "job"` and points `session` at the role file.
+
 Step completed but more needed (exit 0):
 
 ```json
@@ -951,9 +990,9 @@ Step completed but more needed (exit 0):
 ```
 
 `--plain` emits frozen TSV columns: `alias`, `method`, `status`, `next`,
-`login_id`, `phone` (masked), `session`. Pending steps may leave `next`,
-`login_id`, or `session` empty; authorized success fills `session` and may
-clear `next`.
+`login_id`, `phone` (masked), `session`, `role`. Pending steps may leave
+`next`, `login_id`, `session`, or `role` empty; authorized success fills
+`session` and may clear `next`.
 
 Exit codes (existing set): 0 step ok including `"next": "code"|"password"`;
 1 QR wait timed out (attempt kept; error names `login_id`); 2 readonly /
