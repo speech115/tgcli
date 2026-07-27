@@ -60,7 +60,8 @@ tgcli/
 │   ├── login_state.py         [done]    logins/ attempt state and session promotion (ADR-0042)
 │   ├── transfer.py            [done]    striped download + parallel Save*FilePart upload, one progress cadence (ADR-0047/0049/0055)
 │   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045/0046/0047/0049/0054/0055)
-│   │   ├── state.py           [done]    atomic JSON state, mappings, cooldown
+│   │   ├── state.py           [done]    CloneState seam + dirty-tracked save/load (SQLite via statedb; ADR-0017/0060)
+│   │   ├── statedb.py         [done]    per-clone SQLite/WAL backend, import/export helpers (ADR-0060)
 │   │   ├── flood.py           [done]    account-scoped FloodWait cooldown + peer-created stamp + per-run wait budget (ADR-0045/0052)
 │   │   ├── cooldown.py        [done]    cooldown enforcement + the `with_cooldown` RPC seam shared by init/sync/refresh (ADR-0045/0052)
 │   │   ├── reupload.py        [done]    reupload transfer: still-thumb picker, upload, persistent download cache (ADR-0049/0052/0055)
@@ -102,7 +103,7 @@ tgcli/
 │   │   ├── store.py           [done]    tg store stats|cleanup; previews + logins + session_backups + clone media caches (ADR-0040/0042/0052)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (+ incremental messages ADR-0032; broadcast walk ADR-0031)
-│   │   └── clone.py           [done]    clone status/init/sync/refresh surface (ADR-0017…0025/0045/0046/0047/0048/0052/0054/0055; all live gates passed)
+│   │   └── clone.py           [done]    clone status/init/sync/refresh/export-state surface (ADR-0017…0025/0045/0046/0047/0048/0052/0054/0055/0060; live gates for clone path)
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/

@@ -1,15 +1,21 @@
-"""Per-clone JSON state with fail-closed validation (ADR-0017)."""
+"""Per-clone state with fail-closed validation (ADR-0017/0060).
+
+Public seam: ``CloneState``, ``load``, ``save``, ``supersede``, ``clone_id``,
+``path_for``. Storage is SQLite/WAL via ``clone.statedb`` (ADR-0060); a
+one-time JSON import renames the legacy file to ``.json.imported``.
+"""
+
+from __future__ import annotations
 
 import hashlib
-import json
 import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from tgcli import atomic
-from tgcli.clone import flood
+from tgcli.clone import flood, statedb
 from tgcli.errors import PolicyError
+from tgcli.output import note
 
 VERSION = 2
 
@@ -28,6 +34,12 @@ def clones_dir() -> Path:
 
 
 def path_for(clone_id: str) -> Path:
+    """Active SQLite state path for a clone (ADR-0060)."""
+    return clones_dir() / f"{clone_id}.db"
+
+
+def json_path_for(clone_id: str) -> Path:
+    """Legacy v2 JSON path used only for one-time import."""
     return clones_dir() / f"{clone_id}.json"
 
 
@@ -81,6 +93,22 @@ class CloneState:
     avatar_photo_ids: dict[str, int] = field(default_factory=dict)
     pinned_dest_id: int | None = None
     pin_occupied: bool = False
+    _persisted: bool = field(default=False, init=False, repr=False, compare=False)
+    _dirty_id_map: set[str] = field(
+        default_factory=set, init=False, repr=False, compare=False
+    )
+    _dirty_discussion_id_map: set[str] = field(
+        default_factory=set, init=False, repr=False, compare=False
+    )
+    _dirty_topic_map: set[str] = field(
+        default_factory=set, init=False, repr=False, compare=False
+    )
+    _dirty_avatar_photo_ids: set[str] = field(
+        default_factory=set, init=False, repr=False, compare=False
+    )
+    _deleted_discussion_id_map: set[str] = field(
+        default_factory=set, init=False, repr=False, compare=False
+    )
 
     @classmethod
     def new(
@@ -90,7 +118,7 @@ class CloneState:
         source_peer_id: int,
         source_title: str,
         source_kind: str = "broadcast",
-    ) -> "CloneState":
+    ) -> CloneState:
         return cls(
             account_user_id=account_user_id,
             source_peer_id=source_peer_id,
@@ -105,10 +133,14 @@ class CloneState:
         return clone_id(self.account_user_id, self.source_peer_id)
 
     def record_mapping(self, source_id: int, destination_id: int) -> None:
-        self.id_map[str(source_id)] = destination_id
+        key = str(source_id)
+        self.id_map[key] = destination_id
+        self._dirty_id_map.add(key)
 
     def record_avatar(self, source_peer_id: int, photo_id: int) -> None:
-        self.avatar_photo_ids[str(source_peer_id)] = photo_id
+        key = str(source_peer_id)
+        self.avatar_photo_ids[key] = photo_id
+        self._dirty_avatar_photo_ids.add(key)
 
     def avatar_for(self, source_peer_id: int) -> int | None:
         return self.avatar_photo_ids.get(str(source_peer_id))
@@ -128,16 +160,26 @@ class CloneState:
             )
         ):
             raise ValueError("invalid topic mapping")
-        self.topic_map[str(source_topic_id)] = destination_topic_id
+        key = str(source_topic_id)
+        self.topic_map[key] = destination_topic_id
+        self._dirty_topic_map.add(key)
 
     def topic_dest_for(self, source_topic_id: int) -> int | None:
         return self.topic_map.get(str(source_topic_id))
 
     def record_discussion_mapping(self, source_id: int, destination_id: int) -> None:
-        self.discussion_id_map[str(source_id)] = destination_id
+        key = str(source_id)
+        self.discussion_id_map[key] = destination_id
+        self._dirty_discussion_id_map.add(key)
 
     def discussion_dest_for(self, source_id: int) -> int | None:
         return self.discussion_id_map.get(str(source_id))
+
+    def clear_discussion_progress(self) -> None:
+        """Drop phase-2 cursor/map so comments can degrade to unavailable."""
+        self._deleted_discussion_id_map.update(self.discussion_id_map)
+        self.discussion_id_map.clear()
+        self.discussion_cursor = 0
 
     def max_destination_id(self) -> int | None:
         return max([*self.id_map.values(), *self.topic_map.values()], default=None)
@@ -153,16 +195,12 @@ class CloneState:
         self.retry_not_before = aware.isoformat()
 
     def cooldown_deadline(self) -> datetime | None:
-        """The per-clone deadline, clamped the same way the account-scoped one
-        is (clone/flood.py): a value armed while the host clock ran ahead
-        would otherwise brick this clone slot until someone edits the file."""
+        """The per-clone deadline, clamped like the account-scoped one."""
         if self.retry_not_before is None:
             return None
         deadline = datetime.fromisoformat(self.retry_not_before)
         if deadline.tzinfo is None or deadline.utcoffset() is None:
             return None
-        # Clamp the upper bound only: an expired deadline still round-trips
-        # unchanged, and the caller decides what a past value means.
         ceiling = datetime.now(UTC) + timedelta(seconds=flood.MAX_COOLDOWN_S)
         return min(deadline.astimezone(UTC), ceiling)
 
@@ -193,8 +231,16 @@ class CloneState:
             "pin_occupied": self.pin_occupied,
         }
 
+    def _clear_dirty(self) -> None:
+        self._dirty_id_map.clear()
+        self._dirty_discussion_id_map.clear()
+        self._dirty_topic_map.clear()
+        self._dirty_avatar_photo_ids.clear()
+        self._deleted_discussion_id_map.clear()
+        self._persisted = True
+
     @classmethod
-    def from_dict(cls, data: dict) -> "CloneState":
+    def from_dict(cls, data: dict) -> CloneState:
         source_kind = data.get("source_kind", "broadcast")
         if source_kind not in {"broadcast", "megagroup", "dialog", "basic", "forum"}:
             raise ValueError("invalid source kind")
@@ -277,57 +323,59 @@ class CloneState:
         )
 
 
-def load(clone_id: str) -> CloneState | None:
-    path = path_for(clone_id)
+def _hydrate(data: dict, *, path_name: str) -> CloneState:
     try:
-        raw = path.read_text()
-    except FileNotFoundError:
-        return None
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise PolicyError(
-            f"clone state {path.name} is corrupted; manual repair is required"
-        ) from exc
-    if type(data) is not dict:
-        raise PolicyError(
-            f"clone state {path.name} is invalid; manual repair is required"
-        )
-    if data.get("version") != VERSION:
-        raise PolicyError(
-            f"clone state {path.name} has unsupported version "
-            f"{data.get('version')!r}; expected {VERSION}"
-        )
-    try:
-        return CloneState.from_dict(data)
+        loaded = CloneState.from_dict(data)
     except (KeyError, TypeError, ValueError) as exc:
         raise PolicyError(
-            f"clone state {path.name} is invalid; manual repair is required"
+            f"clone state {path_name} is invalid; manual repair is required"
         ) from exc
+    loaded._clear_dirty()
+    return loaded
+
+
+def load(clone_id: str) -> CloneState | None:
+    db_path = path_for(clone_id)
+    json_path = json_path_for(clone_id)
+    if db_path.exists() and json_path.exists():
+        raise PolicyError(
+            f"clone state {clone_id} has both {db_path.name} and {json_path.name}; "
+            "manual resolution is required"
+        )
+    if db_path.exists():
+        return _hydrate(statedb.load_dict(db_path), path_name=db_path.name)
+    if json_path.exists():
+        data = statedb.read_json_file(json_path, expected_version=VERSION)
+        loaded = _hydrate(data, path_name=json_path.name)
+        statedb.finish_json_import(json_path, db_path, loaded.to_dict())
+        note(f"imported clone state {json_path.name} → {db_path.name}")
+        return loaded
+    return None
+
+
+def probe(clone_id: str) -> dict:
+    """Local status probe: schema version + integrity without raising."""
+    return statedb.probe_paths(path_for(clone_id), json_path_for(clone_id))
 
 
 def supersede(clone_id: str, sidecars: tuple[Path, ...] = ()) -> list[Path]:
-    """Archive a clone's active state (plus any caller-supplied sidecar files)
-    out of the slot so a fresh `init --replace` can start clean. Renames, never
-    deletes: the old clone stays recoverable and its Telegram destination is
-    untouched. Returns the archived paths ([] if the slot was empty)."""
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
-    archived = []
-    for path in (path_for(clone_id), *sidecars):
-        if path.exists():
-            target = path.with_name(f"{path.name}.superseded-{stamp}")
-            os.replace(path, target)
-            archived.append(target)
-    return archived
+    """Archive active state (+ sidecars) out of the slot; renames, never deletes."""
+    db_path = path_for(clone_id)
+    wal, shm = statedb.sidecar_paths(db_path)
+    return statedb.archive_paths(db_path, wal, shm, json_path_for(clone_id), *sidecars)
 
 
 def save(state: CloneState) -> None:
-    """The id_map guards a live destination from duplicate posts, so the
-    rename must be durable too: go through the one sanctioned writer rather
-    than a local copy of it (which is how this one missed the parent-directory
-    fsync)."""
-    directory = clones_dir()
-    directory.mkdir(parents=True, exist_ok=True)
-    atomic.replace_text(
-        path_for(state.clone_id), json.dumps(state.to_dict(), ensure_ascii=False)
+    """Persist dirty mutations (or a full first write) in one SQLite transaction."""
+    clones_dir().mkdir(parents=True, exist_ok=True)
+    statedb.persist(
+        path_for(state.clone_id),
+        state.to_dict(),
+        full=not state._persisted,
+        dirty_id_map=set(state._dirty_id_map),
+        dirty_discussion_id_map=set(state._dirty_discussion_id_map),
+        dirty_topic_map=set(state._dirty_topic_map),
+        dirty_avatar_photo_ids=set(state._dirty_avatar_photo_ids),
+        deleted_discussion_id_map=set(state._deleted_discussion_id_map),
     )
+    state._clear_dirty()

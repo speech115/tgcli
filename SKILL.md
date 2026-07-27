@@ -84,6 +84,7 @@ selected account session, does one operation, and exits.
 | Export messages | `tg --json export messages @channel --output messages.jsonl [--after-id ID] [--append|--resume]` |
 | Export subscribers | `tg --json export subscribers @channel --output subscribers.csv` |
 | List channel clones | `tg --json clone status` |
+| Export clone state as v2 JSON | `tg clone export-state SOURCE` |
 | Preview a chat clone | `tg --json clone init SOURCE` |
 | Preview posts-only clone | `tg --json clone init SOURCE --no-comments` |
 | Commit clone destination creation | `tg --json clone init SOURCE --commit p_9f3a` |

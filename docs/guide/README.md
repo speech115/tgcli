@@ -52,7 +52,7 @@ Every page in this group is preview → commit unless it says otherwise.
 | --- | --- |
 | [media](media.md) | `media manifest`, `media download` |
 | [export](export.md) | `export messages`, `export subscribers` |
-| [clone](clone.md) | `clone status\|init\|sync` |
+| [clone](clone.md) | `clone status\|init\|sync\|export-state` |
 
 ## Operations
 

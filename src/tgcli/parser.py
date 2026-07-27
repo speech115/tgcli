@@ -488,6 +488,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_clone_refresh = clone_sub.add_parser("refresh", parents=[global_flags])
     p_clone_refresh.add_argument("source", help="source channel, supergroup, or dialog")
     p_clone_refresh.add_argument("--commit", metavar="PREVIEW_ID")
+    p_clone_export = clone_sub.add_parser(
+        "export-state",
+        parents=[global_flags],
+        help="print one clone's state as the v2 JSON document (ADR-0060 rollback)",
+    )
+    p_clone_export.add_argument(
+        "source", help="source id or title substring identifying exactly one clone"
+    )
 
     p_draft = sub.add_parser(
         "draft", help="Show, list, set, or clear dialog drafts", parents=[global_flags]

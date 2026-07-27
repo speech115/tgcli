@@ -363,6 +363,10 @@ async def test_wait_budget_is_per_invocation_not_persisted(clone_state, no_sleep
     for path in state.clones_dir().rglob("*"):
         if not path.is_file():
             continue
+        # Clone state is SQLite/WAL (ADR-0060); wait-budget must not appear in
+        # any text state either (account flood JSON, etc.).
+        if path.suffix == ".db" or path.name.endswith((".db-wal", ".db-shm")):
+            continue
         text = path.read_text()
         assert '"spent"' not in text
         assert "wait_budget" not in text

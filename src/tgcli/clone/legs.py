@@ -24,7 +24,12 @@ class Leg:
         return getattr(self.clone_state, self.map_field).get(str(source_id))
 
     def record_mapping(self, source_id: int, destination_id: int) -> None:
-        getattr(self.clone_state, self.map_field)[str(source_id)] = destination_id
+        if self.map_field == "id_map":
+            self.clone_state.record_mapping(source_id, destination_id)
+        elif self.map_field == "discussion_id_map":
+            self.clone_state.record_discussion_mapping(source_id, destination_id)
+        else:
+            raise ValueError(f"unsupported leg map field: {self.map_field}")
 
     @property
     def cursor(self) -> int:

@@ -1743,7 +1743,7 @@ def test_clone_init_commit_readonly_blocks_before_config_session_and_preview_use
 
 def _write_v1_state(source_title="Old", extra=None):
     cid = state.clone_id(42, 123)
-    path = state.path_for(cid)
+    path = state.json_path_for(cid)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {
         "version": 1,
