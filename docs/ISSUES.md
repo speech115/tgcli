@@ -84,11 +84,9 @@ preview→commit model; none needs a new subsystem.
 
 ## FEED-001 — `tg changes`: daemonless change feed
 
-**Status:** deferred by ADR-0028. **Re-entry trigger:** the first
-recurring agent workflow that has to poll many chats on a schedule or
-must detect edits/deletions — re-reading via `read --after-id` no longer
-economical. Needs its own ADR: updates-state handling, gap recovery, and
-cursor format are design work, not flag work.
+**Status:** re-entered 2026-07-27 — ADR-0062 and ADR-0063 accepted;
+ships as the third of three sequential releases (see the 2026-07-27
+resolution note below). Originally deferred by ADR-0028.
 
 Shape agreed in principle: a foreground command
 (`tg changes --cursor C [--wait N]`) that returns
