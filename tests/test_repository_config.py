@@ -31,3 +31,38 @@ def test_ci_interpreter_is_pinned_to_the_project_target() -> None:
     test the interpreter the project targets (ADR-0001), one per platform
     variable, not two variables at once."""
     assert (ROOT / ".python-version").read_text().strip() == "3.12"
+
+
+def test_release_commits_are_tagged_by_ci() -> None:
+    """ADR-0038's tag step is CI's, not a session's.
+
+    Sessions cannot push `refs/tags/*` (the git proxy answers 403), which is
+    how seven consecutive releases shipped untagged. If this workflow loses
+    its trigger, its write permission, or its push, the rule silently stops
+    being enforced again.
+    """
+    workflow = (ROOT / ".github/workflows/release-tag.yml").read_text()
+
+    assert "push:\n    branches: [main]" in workflow
+    assert "contents: write" in workflow
+    assert 'git push origin "$tag"' in workflow
+
+
+def test_the_tag_job_only_fires_when_the_push_bumped_the_version() -> None:
+    """Tagging HEAD unconditionally would mistag an already-shipped release.
+
+    `v1.2.10`-`v1.2.16` are still untagged, so a job that tagged whatever
+    carries the current `__version__` would pin `v1.2.16` to the next
+    unrelated merge instead of `efbb9a9`. The job must compare against the
+    previous tip of `main` and no-op when the version did not move.
+    """
+    workflow = (ROOT / ".github/workflows/release-tag.yml").read_text()
+
+    assert "BEFORE: ${{ github.event.before }}" in workflow
+    assert 'previous=$(read_version "$BEFORE")' in workflow
+    assert 'if [ "$version" = "$previous" ]; then' in workflow
+    # A ref with no usable predecessor, and an unreadable one, both refuse
+    # rather than guess — an empty `previous` would otherwise read as a bump.
+    assert workflow.count("refusing to guess") == 2
+    # A tag that fails to push must turn the run red, not print "created".
+    assert "set -eu" in workflow
