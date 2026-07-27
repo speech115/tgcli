@@ -56,6 +56,7 @@ tgcli/
 │   ├── resolve_phone.py       [done]    shared contacts.resolvePhone cooldown (ADR-0029)
 │   ├── read_ops.py            [done]    typed read-operation seam shared by interactive CLI + batch (ADR-0034)
 │   ├── desktop.py             [done]    osascript/open escape hatch for secrets and tg:// links (ADR-0042)
+│   ├── authclient.py          [done]    unauthorized Telethon client + auth probe (ADR-0042)
 │   ├── changes_cursor.py      [done]    opaque v1 cursor codec for tg changes (ADR-0063; pure)
 │   ├── login_state.py         [done]    logins/ attempt state and session promotion (ADR-0042)
 │   ├── transfer.py            [done]    striped download + parallel Save*FilePart upload, one progress cadence (ADR-0047/0049/0055)
