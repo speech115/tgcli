@@ -88,6 +88,8 @@ IRREVERSIBLE_METHODS = frozenset(
 # filter of channels.getParticipants. Taken from the pinned Telethon union so
 # the converter stays a peer/filter builder, not a general TL constructor.
 PARTICIPANTS_FILTER_TYPES = frozenset(get_args(types.TypeChannelParticipantsFilter))
+# editAdmin / editBanned have no Input* form for their rights objects.
+RIGHTS_TYPES = frozenset({types.ChatAdminRights, types.ChatBannedRights})
 # Raw-write params that identify what a write touched. Audit records carry
 # these (sanitized) so audit.jsonl can answer "what did this write touch?"
 AUDIT_TARGET_KEYS = (
@@ -293,11 +295,15 @@ async def _convert_value(client, value, annotation=None):
     if (
         not constructor.startswith("Input")
         and constructor_type not in PARTICIPANTS_FILTER_TYPES
+        and constructor_type not in RIGHTS_TYPES
     ):
         raise ConfigError(f"raw API constructor is not allowed: {constructor!r}")
     try:
+        # Dynamic TL construction: field types come from Telethon annotations at
+        # runtime. Pyright cannot narrow the recursive converter's union per key
+        # (rights objects especially have many Optional[bool] fields).
         return constructor_type(
-            **{
+            **{  # type: ignore[arg-type]
                 key: await _convert_value(
                     client, item, _field_annotation(constructor_type, key)
                 )

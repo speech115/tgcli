@@ -237,6 +237,65 @@ async def test_build_request_accepts_every_channel_participants_filter(
 
 
 @pytest.mark.asyncio
+async def test_build_request_accepts_chat_admin_rights_for_edit_admin():
+    """channels.editAdmin needs ChatAdminRights — there is no Input* form."""
+
+    class Client:
+        async def get_input_entity(self, value):
+            text = str(value)
+            if "4399" in text:
+                return types.InputPeerChannel(channel_id=4399888745, access_hash=1)
+            return types.InputPeerUser(user_id=7091037467, access_hash=1)
+
+    request = await build_request(
+        Client(),
+        "channels.editAdmin",
+        "{"
+        '"channel": "-1004399888745",'
+        '"user_id": "7091037467",'
+        '"admin_rights": {"_": "ChatAdminRights", "post_messages": true,'
+        ' "edit_messages": true},'
+        '"rank": "admin"'
+        "}",
+    )
+
+    assert isinstance(request, functions.channels.EditAdminRequest)
+    assert isinstance(request.admin_rights, types.ChatAdminRights)
+    assert request.admin_rights.post_messages is True
+    assert request.admin_rights.edit_messages is True
+    assert request.rank == "admin"
+    assert bytes(request)
+
+
+@pytest.mark.asyncio
+async def test_build_request_accepts_chat_banned_rights_for_edit_banned():
+    """channels.editBanned needs ChatBannedRights — same Input*-only gap."""
+
+    class Client:
+        async def get_input_entity(self, value):
+            text = str(value)
+            if "4399" in text:
+                return types.InputPeerChannel(channel_id=4399888745, access_hash=1)
+            return types.InputPeerUser(user_id=7091037467, access_hash=1)
+
+    request = await build_request(
+        Client(),
+        "channels.editBanned",
+        "{"
+        '"channel": "-1004399888745",'
+        '"participant": "7091037467",'
+        '"banned_rights": {"_": "ChatBannedRights", "until_date": null,'
+        ' "view_messages": true}'
+        "}",
+    )
+
+    assert isinstance(request, functions.channels.EditBannedRequest)
+    assert isinstance(request.banned_rights, types.ChatBannedRights)
+    assert request.banned_rights.view_messages is True
+    assert bytes(request)
+
+
+@pytest.mark.asyncio
 async def test_build_request_still_rejects_other_non_input_tl_constructors():
     with pytest.raises(ConfigError, match="constructor is not allowed"):
         await build_request(

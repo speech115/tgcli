@@ -27,7 +27,9 @@ tg --json api users.getFullUser --params '{"id": "@alice"}'
 `--params` is a JSON object. Peer-typed fields accept `@username` or a
 numeric id string and are resolved to an `InputPeer` through the session's
 entity cache; a nested object with a `"_"` key selects a TL constructor by
-name; binary fields are base64. The response is:
+name (`Input*` plus the `channels.getParticipants` filters and
+`ChatAdminRights` / `ChatBannedRights` for admin/ban writes); binary fields
+are base64. The response is:
 
 ```json
 {"method": "users.getFullUser", "result": {"...": "..."}}
