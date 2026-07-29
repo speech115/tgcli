@@ -67,6 +67,13 @@ The project is feature-complete and in production use. Default posture:
   new ADR + mark the old one `Status: superseded by ADR-NNNN`.
 - **`docs/MAP.md` must match reality.** Added/moved/removed a module — update
   the map in the same commit.
+- **Active summaries must close with the code.** A public command, global
+  flag, safety guarantee, or guide page updates `README.md` / `SKILL.md` in
+  the same slice. When a proposal or deferred issue graduates or ships,
+  update its status in `docs/PROPOSALS.md` / `docs/ISSUES.md`; release
+  bookkeeping alone is not closure. `scripts/check-docs.py` enforces the
+  mechanically derivable parts (guide discoverability, root global flags,
+  MAP inventory, benchmark claims, and devlog routing).
 - **A feature or fix that changes `docs/CONTRACT.md` ships as a release**
   (ADR-0038, mechanics amended by ADR-0058): the **integrator** — the
   session that merges — bumps the **patch** version in `pyproject.toml` and

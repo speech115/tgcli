@@ -1,17 +1,19 @@
 # Feature Proposals — Backlog
 
-Owner wishlist reviewed 2026-07-21 against the real CLI surface (post-PR #17,
-ADR-0028). This is a backlog of **not-yet-vetted** ideas, not a plan.
+Owner wishlist first reviewed 2026-07-21 against the real CLI surface
+(post-PR #17, ADR-0028) and status-maintained as items graduate or ship.
+This is a backlog of **not-yet-vetted** ideas, not a plan.
 
-**Maintenance-mode gate (ADR-0026):** nothing here is approved. Any item needs
-an explicit owner request + an ADR + a scoped plan before code.
+**Maintenance-mode gate (ADR-0026):** no current backlog row here is
+approved. Shipped rows are retained only as provenance; every remaining item
+needs an explicit owner request + an ADR + a scoped plan before code.
 
 ## Already handled — do not re-propose
 
 Much of the original wishlist already exists or is already tracked. Recorded
 here so we don't rebuild it.
 
-**Shipped (ADR-0028 / earlier):**
+**Shipped — do not re-propose:**
 
 - `dialogs --unread-only` (+ `--kind user|group|channel`)
 - `read --after-id` / `--before-id` / `--since` / `--until` / `--topic`
@@ -24,24 +26,27 @@ here so we don't rebuild it.
 - `tg edit` / `tg delete` / `tg forward` / `tg mark-read` — preview→commit
 - `send --reply-to` / `--file` / `--caption` / `--topic` / `--silent`,
   with markdown/entity parsing already applied on commit
+- `accounts login|show|remove` (ADR-0042), plus named session roles
+  (ADR-0062)
+- `tg changes` daemonless change feed (ADR-0063, released in `1.2.19`)
+- SQLite/WAL clone state with JSON import/export rollback (ADR-0060,
+  released in `1.2.19`)
 
 **Already tracked as deferred issues (ISSUES.md) — don't duplicate here:**
 
 - **MSG-001** — messaging tail: albums, scheduled send, `react`, `pin`,
   protect-content, explicit entities/formatting. Re-entry: first real task
   that names one.
-- **FEED-001** — `tg changes` daemonless change feed. Shape agreed; needs its
-  own ADR (updates-state, gap recovery, cursor format).
-- **ACCOUNTS-001** — `tg accounts login` interactive (re)authorization.
 
-If the owner wants any MSG-001 / FEED-001 item now, that is a re-entry on the
+If the owner wants a remaining MSG-001 item now, that is a re-entry on the
 existing issue — not a new proposal.
 
 ---
 
 ## Genuinely new backlog
 
-Everything below has no code path today and is not in ISSUES.md.
+Tables below retain shipped rows as provenance. Only rows whose status is
+`missing`, `raw-only`, or explicitly deferred are current backlog.
 
 > **Graduated 2026-07-21 / shipped 2026-07-23:** `resolve`, `contacts
 > list/search`, `media manifest`, `dialog pin/unpin` + `mark-unread`, and
@@ -54,14 +59,14 @@ Everything below has no code path today and is not in ISSUES.md.
 `L` multi-day vertical + ADR; **Status**: `raw-only` = reachable via `tg api`
 allowlisted calls but no task-first wrapper.
 
-### Top quick wins (value ÷ effort)
+### Historical quick-win ranking (all shipped)
 
 1. **`tg resolve <@username | +phone>`** — `S`, high. Unified peer object
    `{id,type,username,display_name,is_contact,is_bot}`. Agent constantly needs
    a stable peer id ("Саша из вчера"). `resolveUsername`/`getContacts` are
-   already read-allowlisted → ergonomic wrapper, not new capability.
+   were already read-allowlisted → ergonomic wrapper, not new capability.
 2. **`tg contacts list` / `contacts search <q>`** — `S`, med. `getContacts` /
-   `contacts.search`; raw-only today.
+   `contacts.search`; this was raw-only before ADR-0029.
 3. **`media manifest <chat> [--since]`** — `S`, med. Dry-run list (id, type,
    size, mime) before downloading; agent estimates volume then chooses. Cheap,
    high-leverage for backup/RAG.
@@ -367,15 +372,15 @@ require it".
 | Performance baseline before any optimisation | high | S | No optimisation should land without a before/after table: wall time, Telegram RPC count, and disk writes per scenario (`clone` cold/resume at 1k/10k mappings, `send`, `clone status`, `media download`). `scripts/bench.py` already exists as a starting point. Cheap, behaviour-free, and it is what makes every row below provable instead of plausible. |
 | `--profile` structured run report | med | S | Additive JSON on long commands: duration, messages processed, RPC count and retries, flood-wait seconds, bytes moved, state writes, cache hits/misses. Serves humans and agents equally — an agent can tell "slow because Telegram" from "slow because we rewrite state per message". Additive JSON only, no contract break. |
 | Per-run entity/RPC cache | med | S | The audit found real repeat work (`get_me` before every clone phase, the same peer resolved repeatedly, `GetFullChannel` more often than needed). A cache scoped to one invocation needs no daemon and no new state: pure win, measurable with the baseline above. |
-| clone-state JSON → SQLite/WAL **prototype + ADR** | high | M | The one strong storage argument, and it has evidence: audit finding `bf-19` — `clone/state.py::save()` rewrites the entire state file (whole `id_map`) after every message, so total disk I/O over a clone is quadratic in message count. SQLite/WAL replaces that with a single-row insert, and buys transactions, indexes, a `UNIQUE` duplicate guard, safe concurrent status reads, and fewer ways to lose everything to one corrupt JSON. **But**: prototype and benchmark first at the owner's real clone sizes, then an ADR, then a decision — never a rewrite on faith. Migration needs a versioned schema, automatic import of existing JSON, a backup, a check/repair command, a rollback path, and crash tests between transactions. Small files (config, previews) stay JSON. |
+| Clone-state SQLite/WAL | high | **shipped `1.2.19`** | ADR-0060 delivered the measured prototype, versioned schema, automatic JSON import with `.imported` backup, integrity reporting, duplicate guard, and `clone export-state` rollback path. Small files remain JSON. |
 
 ### Needs an owner product decision first
 
 | Item | Value | Effort | Note |
 |---|---|---|---|
-| Optional per-account runtime (`tg runtime start`) | ? | **L** | One process owns the session and Telethon client; CLI commands are handed to it over a local socket; clone runs as a background job beside interactive commands. This is the third time the idea has surfaced (FEED-001's lock blocker, the clone/runtime design input in ISSUES.md, now here). It is **a daemon** and contradicts ADR-0002, so it can only enter through an ADR that overturns that line deliberately. Before any of that, one product question decides everything: **does the owner want a continuous 24/7 mirroring clone?** If yes, runtime is the honest foundation and the storage → runtime → live-clone order is right. If the real usage is "run `clone sync` when I think of it", none of this floor is needed — and the cheap answer to "send a message while a clone runs" is a second session for long jobs (already recorded under FEED-001). |
+| Optional per-account runtime (`tg runtime start`) | ? | **L** | One process owns the session and Telethon client; CLI commands are handed to it over a local socket; clone runs as a background job beside interactive commands. This is the third time the idea has surfaced (FEED-001's former lock blocker, the clone/runtime design input in ISSUES.md, now here). It is **a daemon** and contradicts ADR-0002, so it can only enter through an ADR that overturns that line deliberately. Before any of that, one product question decides everything: **does the owner want a continuous 24/7 mirroring clone?** If yes, runtime is the honest foundation. If the real usage is "run `clone sync` when I think of it", none of this floor is needed — ADR-0062 named session roles already keep the primary free during long jobs. |
 | Durable job queue (`tg jobs` list/pause/resume/cancel) | ? | L | Only meaningful with a runtime; inherits the same decision. Would need per-job progress, checkpoints, attempt counts, and restart recovery. |
-| Event-driven live clone (Telegram updates → idempotent apply) | ? | L | The scenario that actually justifies the two rows above. Requires the storage work first (an idempotency ledger is a database problem, not a JSON one) and an explicit policy per event class — new post, edit, delete, comment, topic, pin. Deletions must be events, not absences (the wacli lesson already recorded under FEED-001). |
+| Event-driven live clone (Telegram updates → idempotent apply) | ? | L | The scenario that actually justifies the two rows above. The ADR-0060 storage prerequisite and ADR-0063 event feed now exist; the remaining work is an explicit product policy per event class — new post, edit, delete, comment, topic, pin — plus runtime ownership. Deletions must be events, not absences. |
 | Local REST/IPC API for agents | low | M | Premature: the machine interface already exists (JSON + exit codes + read-only `tg batch`). An HTTP surface adds tokens, rate limits, TLS, and a new authorization model to protect the same session files. Revisit only for genuine remote access, and never expose a general "execute any RPC" endpoint. |
 
 ### Considered and declined
@@ -386,10 +391,9 @@ require it".
 | Rewrite in Rust/Go, microservices, Redis/Kafka/PostgreSQL, a plugin system, supporting several Telegram libraries | The bottleneck is Telegram's own rate limiting, repeated state rewrites, and per-command reconnects — not the language. Every item here adds code and defect classes without touching the measured cost. |
 | Raising concurrency as a speed lever | Telegram rate-limits by itself: four workers can beat two while eight simply earn more FloodWait. If concurrency is ever tuned it must be adaptive (back off on flood, recover carefully) and proven with the baseline — not raised as a constant. |
 
-**Suggested order if the owner green-lights the first block:** baseline and
-`--profile` → per-run RPC cache → SQLite prototype + benchmark + ADR →
-decide on storage → *then* answer the 24/7-mirror question before touching
-anything in the second block.
+**Suggested order if the owner green-lights the remaining first block:**
+baseline and `--profile` → per-run RPC cache → *then* answer the
+24/7-mirror question before touching anything in the second block.
 
 ---
 
@@ -432,11 +436,12 @@ bf-01-class defects.
 
 ---
 
-## Suggested sequencing (new items only)
+## Suggested sequencing (remaining items only)
 
-1. **Identity (S):** `resolve`, then `contacts`. Foundational, read-only.
-2. **Small ergonomics (XS/S):** `dialog pin/mark-unread`, `media manifest`.
-3. **Conversation quality (M):** `thread`.
-4. **Data plumbing (S/M):** incremental export, bulk media, batch (RO).
-5. **Verticals (M/L, per-scenario ADRs):** dialog state → community /
-   moderation / stats / security — only against concrete demand.
+1. **Data tail (S/M):** `export bundle` and typed temporary/permanent media
+   failures, only against a concrete backup workflow.
+2. **Measured performance (S):** baseline → `--profile` → per-run RPC cache.
+3. **Verticals (M/L, per-scenario ADRs):** community, moderation, stats, and
+   security only against concrete demand.
+4. **Runtime direction (L):** only after an explicit owner decision that
+   continuous 24/7 cloning is a product requirement.

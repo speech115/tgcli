@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed gate for the user guide (ADR-0041) and release bookkeeping.
+"""Fail-closed gate for active docs and release bookkeeping.
 
 Documentation that drifts is worse than none, so every claim the guide makes
 about the CLI surface is checked against the parser itself:
@@ -17,12 +17,22 @@ checked here too, because the gate is the one step every session actually runs:
   4. every release section has its ``[x.y.z]:`` link definition, that link
      names the same version it defines, and no definition outlives its section.
 
+ADR-0065 extends the same fail-closed posture to active summaries that the
+guide-only gate could not see:
+
+  5. README covers root global flags and links every task guide page;
+  6. README scopes ``random_id`` confirmation to send/forward;
+  7. an "every command" benchmark claim requires actual parser-wide coverage;
+  8. MAP guide/ADR inventory matches the tree;
+  9. contributor workflow docs route session entries to ``docs/devlog/``.
+
 Run from the repo root: ``uv run python scripts/check-docs.py``.
 """
 
 from __future__ import annotations
 
 import argparse
+import ast
 import re
 import sys
 from pathlib import Path
@@ -30,6 +40,12 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 GUIDE = REPO / "docs" / "guide"
 CHANGELOG = REPO / "CHANGELOG.md"
+README = REPO / "README.md"
+PROJECT_MAP = REPO / "docs" / "MAP.md"
+BENCH = REPO / "scripts" / "bench.py"
+DECISIONS = REPO / "docs" / "decisions"
+CONTRIBUTING = REPO / "CONTRIBUTING.md"
+PR_TEMPLATE = REPO / ".github" / "PULL_REQUEST_TEMPLATE.md"
 
 # "## [1.2.16] — 2026-07-26" — a released section. `## [Unreleased]` is not one.
 SECTION = re.compile(r"^## \[(\d+\.\d+\.\d+)\]", re.MULTILINE)
@@ -58,6 +74,155 @@ def walk(parser: argparse.ArgumentParser) -> tuple[set[str], set[str]]:
                 flags |= sub_flags
                 commands |= sub_commands
     return flags, commands
+
+
+def root_global_flags(parser: argparse.ArgumentParser) -> set[str]:
+    """Long options exposed by the root parser, excluding ubiquitous help."""
+    return {
+        option
+        for action in parser._actions
+        for option in action.option_strings
+        if option.startswith("--") and option != "--help"
+    }
+
+
+def root_commands(parser: argparse.ArgumentParser) -> set[str]:
+    for action in parser._actions:
+        choices = getattr(action, "choices", None)
+        if isinstance(choices, dict):
+            return set(choices)
+    return set()
+
+
+def readme_global_flag_problems(
+    readme: Path, parser: argparse.ArgumentParser
+) -> list[str]:
+    text = readme.read_text()
+    match = re.search(
+        r"\*\*Global flags:\*\*(.*?)\n\n\*\*Environment overrides:\*\*",
+        text,
+        re.DOTALL,
+    )
+    if match is None:
+        return [f"{readme.name}: no Global flags section"]
+    documented = set(re.findall(r"--[a-z][a-z0-9-]*", match.group(1)))
+    return [
+        f"{readme.name}: global flags missing {flag}"
+        for flag in sorted(root_global_flags(parser) - documented)
+    ]
+
+
+def readme_guide_link_problems(readme: Path, pages: list[Path]) -> list[str]:
+    """Every task page is discoverable from the repository landing page."""
+    text = readme.read_text()
+    return [
+        f"{readme.name}: guide page is not linked: docs/guide/{page.name}"
+        for page in pages
+        if page.name != "README.md" and f"(docs/guide/{page.name})" not in text
+    ]
+
+
+def readme_random_id_problems(readme: Path) -> list[str]:
+    """Reject the two broad phrasings that erased operation-specific retries."""
+    paragraphs = re.split(r"\n\s*\n", readme.read_text())
+    broad = any(
+        (
+            re.search(
+                r"`send`.*?`edit`.*?`delete`.*?`forward`.*?`draft`"
+                r".*?`random_id`",
+                paragraph,
+                re.DOTALL,
+            )
+            or re.search(r"A commit\b.*?`random_id`", paragraph, re.DOTALL)
+        )
+        for paragraph in paragraphs
+    )
+    if not broad:
+        return []
+    return [f"{readme.name}: random_id guarantee must be scoped to send and forward"]
+
+
+def benchmark_claim_problems(
+    readme: Path,
+    project_map: Path,
+    bench: Path,
+    parser: argparse.ArgumentParser,
+) -> list[str]:
+    """An exhaustive claim is allowed only when the harness is exhaustive."""
+    claims_every_command = any(
+        re.search(r"benchmark(?:s|:)? every command", path.read_text(), re.IGNORECASE)
+        for path in (readme, project_map)
+    )
+    if not claims_every_command:
+        return []
+
+    covered: set[str] = set()
+    tree = ast.parse(bench.read_text(), filename=str(bench))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or len(node.args) < 2:
+            continue
+        function = node.func
+        argv = node.args[1]
+        if (
+            not isinstance(function, ast.Attribute)
+            or function.attr != "run"
+            or not isinstance(argv, (ast.List, ast.Tuple))
+            or not argv.elts
+            or not isinstance(argv.elts[0], ast.Constant)
+            or not isinstance(argv.elts[0].value, str)
+        ):
+            continue
+        covered.add(argv.elts[0].value)
+
+    missing = sorted(root_commands(parser) - covered)
+    if not missing:
+        return []
+    return [f"benchmark claims every command but omits: {', '.join(missing)}"]
+
+
+def map_inventory_problems(project_map: Path, pages: list[Path]) -> list[str]:
+    text = project_map.read_text()
+    problems: list[str] = []
+
+    guide_match = re.search(r"user-facing task pages, (\d+) \+ index", text)
+    actual_guides = sum(page.name != "README.md" for page in pages)
+    if guide_match is None:
+        problems.append(f"{project_map.name}: guide inventory count is missing")
+    elif int(guide_match.group(1)) != actual_guides:
+        problems.append(
+            f"{project_map.name}: guide count is {guide_match.group(1)}; "
+            f"tree has {actual_guides} task pages"
+        )
+
+    adr_match = re.search(r"ADR-0001…(\d{4})", text)
+    adr_numbers = [
+        int(match.group(1))
+        for path in DECISIONS.glob("ADR-*.md")
+        if (match := re.match(r"ADR-(\d{4})-", path.name))
+    ]
+    actual_last = max(adr_numbers, default=0)
+    if adr_match is None:
+        problems.append(f"{project_map.name}: ADR range is missing")
+    elif int(adr_match.group(1)) != actual_last:
+        problems.append(
+            f"{project_map.name}: ADR range ends at {adr_match.group(1)}; "
+            f"tree ends at {actual_last:04d}"
+        )
+    return problems
+
+
+def devlog_routing_problems(contributing: Path, pr_template: Path) -> list[str]:
+    """ADR-0058 closed DEVLOG.md; active workflow docs must route to devlog/."""
+    stale = re.compile(
+        r"(?:entry|append)[^\n]*docs/DEVLOG\.md|"
+        r"docs/DEVLOG\.md[^\n]*(?:entry|append)",
+        re.IGNORECASE,
+    )
+    return [
+        f"{path.name}: points session entries at closed docs/DEVLOG.md"
+        for path in (contributing, pr_template)
+        if stale.search(path.read_text())
+    ]
 
 
 def release_problems(changelog: Path) -> tuple[list[str], int]:
@@ -112,13 +277,31 @@ def release_problems(changelog: Path) -> tuple[list[str], int]:
 def main(argv: list[str] | None = None) -> int:
     cli = argparse.ArgumentParser(description="Check documentation consistency.")
     cli.add_argument("--changelog", type=Path, default=CHANGELOG)
+    cli.add_argument("--readme", type=Path, default=README)
+    cli.add_argument("--map", type=Path, default=PROJECT_MAP)
+    cli.add_argument("--bench", type=Path, default=BENCH)
+    cli.add_argument("--contributing", type=Path, default=CONTRIBUTING)
+    cli.add_argument("--pr-template", type=Path, default=PR_TEMPLATE)
     args = cli.parse_args(argv)
 
     if not args.changelog.is_file():
         print(f"FAIL no changelog at {args.changelog}")
         return 1
 
-    flags, commands = walk(build_parser())
+    required = (
+        args.readme,
+        args.map,
+        args.bench,
+        args.contributing,
+        args.pr_template,
+    )
+    missing = next((path for path in required if not path.is_file()), None)
+    if missing is not None:
+        print(f"FAIL no active-document input at {missing}")
+        return 1
+
+    parser = build_parser()
+    flags, commands = walk(parser)
     flags |= {"--help", "--version"}
     commands |= REMOVED_COMMANDS | {"--help", "--version"}
 
@@ -127,7 +310,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"FAIL no guide pages found under {GUIDE}")
         return 1
 
-    problems: list[str] = []
+    problems = readme_global_flag_problems(args.readme, parser)
+    problems += readme_guide_link_problems(args.readme, pages)
+    problems += readme_random_id_problems(args.readme)
+    problems += benchmark_claim_problems(args.readme, args.map, args.bench, parser)
+    problems += map_inventory_problems(args.map, pages)
+    problems += devlog_routing_problems(args.contributing, args.pr_template)
     for page in pages:
         text = page.read_text()
 

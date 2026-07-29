@@ -29,8 +29,10 @@ $ ./scripts/gate.sh
 - [ ] `docs/CONTRACT.md` updated (flags, JSON shapes, exit codes) — or unchanged
 - [ ] Release shipped for a contract change: version bump + `CHANGELOG.md` section naming its ADR
 - [ ] `docs/MAP.md` matches the tree (module added, moved, or removed)
+- [ ] `README.md` / guide / `SKILL.md` reflect public commands, flags, and safety summaries
+- [ ] `docs/ISSUES.md` / `docs/PROPOSALS.md` status updated when work graduated or shipped
 - [ ] ADR added and indexed in `docs/decisions/README.md` (architectural decision)
-- [ ] `docs/DEVLOG.md` entry appended
+- [ ] One `YYYY-MM-DD-slug.md` session entry added under `docs/devlog/`
 
 ## Safety
 

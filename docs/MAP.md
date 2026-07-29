@@ -32,10 +32,10 @@ tgcli/
 │   ├── DEVLOG-v1.md           [done]    closed log of the phases 0–7 build
 │   ├── devlog/                [done]    per-session entry files YYYY-MM-DD-slug.md (ADR-0058)
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── guide/                 [done]    user-facing task pages, 22 + index (ADR-0041)
+│   ├── guide/                 [done]    user-facing task pages, 23 + index (ADR-0041/0065)
 │   ├── assets/                [done]    README banner, dark + light SVG (no external assets)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
-│   ├── decisions/             [done]    ADR-0001…0057 + README.md index (ADR-0026 maintenance mode)
+│   ├── decisions/             [done]    ADR-0001…0065 + README.md index (ADR-0026 maintenance mode)
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -112,8 +112,8 @@ tgcli/
     ├── gate.sh                [done]    full pre-commit gate: the exact CI steps, one command
     ├── install-link.sh        [done]    symlink tg → PATH (phase 6 cutover)
     ├── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
-    ├── check-docs.py          [done]    fail-closed guide gate: flags, commands, links (ADR-0041); CHANGELOG release links (ADR-0038)
-    ├── bench.py               [done]    live benchmark: every command against a real account
+    ├── check-docs.py          [done]    guide + active-doc drift gate; CHANGELOG release links (ADR-0038/0041/0065)
+    ├── bench.py               [done]    representative 13-step live smoke benchmark
     ├── bench-clone-state.py   [done]    offline bf-19 benchmark: JSON rewrite vs SQLite/WAL (ADR-0060)
     ├── seed_demo_channel.py   [done]    manual demo-channel seeding for clone visual acceptance
     └── check-architecture.py  [done]    module ownership + per-file line ceilings (ADR-0034)

@@ -84,13 +84,12 @@ preview→commit model; none needs a new subsystem.
 
 ## FEED-001 — `tg changes`: daemonless change feed
 
-**Status:** implemented 2026-07-27 on the third sequential release branch
-(`cursor/tg-changes-cc3b`, stacked on session-roles). Closes when that
-release is live-accepted and tagged. Shape: ADR-0063 — hybrid coverage
-(cursor-held channel subscriptions + `channel_activity` signals), opaque
-`v1:` cursor, `read`-shape event bodies, loud per-scope gaps, deletion
-tombstones, `--wait N` + fixed 2 s settle, no state files. Depends on
-ADR-0062 (`--session-role`) for the lock contract.
+**Status:** closed by ADR-0063 and released in `1.2.19` on 2026-07-27,
+after live acceptance of send/edit/delete events and `--wait` on an
+ADR-0062 named session role. Shipped shape: hybrid coverage (cursor-held
+channel subscriptions + `channel_activity` signals), opaque `v1:` cursor,
+`read`-shape event bodies, loud per-scope gaps, deletion tombstones,
+`--wait N` + fixed 2 s settle, and no state files.
 
 Originally deferred by ADR-0028; re-entered 2026-07-27 when ADR-0062 and
 ADR-0063 were accepted.
@@ -105,18 +104,16 @@ runs on `--session-role job` while the primary stays free.
 - **Deletions are events, not absences.** wacli never treats a vanished row
   as proof of deletion: deleted messages keep an explicit tombstone
   (`deleted_at`, `deletion_reason`) and a purge ledger prevents a later sync
-  from resurrecting purged payloads. The feed equivalent is an explicit
-  deletion event, whose exact type name and fields remain for the future ADR.
-  A consumer must never have to infer a deletion from a re-read that came back
-  shorter than expected.
+  from resurrecting purged payloads. ADR-0063 adopted the feed equivalent as
+  an explicit `message_delete` tombstone. A consumer never has to infer a
+  deletion from a re-read that came back shorter than expected.
 - **A gap must be loud.** When the cursor cannot be honoured (updates-state
   too old, session gap), the result must report the gap instead of silently
   returning a short list that reads as "nothing happened". A
   `read --after-id` hint can recover newly created messages only; it cannot
-  reconstruct edits or deletions of older messages. The future ADR therefore
-  has to distinguish recoverable creation history from lost edit/deletion
-  events and define an explicit rebaseline contract. The exact gap JSON waits
-  for that decision rather than pretending one read closes every event class.
+  reconstruct edits or deletions of older messages. ADR-0063 therefore
+  distinguishes recoverable creation history from lost edit/deletion events
+  and defines an explicit per-scope rebaseline contract.
 - **Story viewers are out of scope, deliberately.** The lead-generation
   workflow that makes a feed attractive does not arrive through updates at
   all: `stories.getStoryViewsList` is a poll-only read and is already
