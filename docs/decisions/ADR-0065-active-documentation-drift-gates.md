@@ -20,13 +20,14 @@ CHANGELOG release definitions, so all of those defects passed CI.
 Extend `scripts/check-docs.py` and its public subprocess tests with the
 mechanically derivable active-document invariants:
 
-1. README's global-flags summary covers every root long option from
-   `build_parser()`.
+1. README's global-flags summary exactly matches the root long options from
+   `build_parser()`, so both missing and removed flags fail CI.
 2. Every task page under `docs/guide/` is linked from README.
-3. README cannot use the two known broad phrasings that apply Telegram
-   `random_id` confirmation to preview kinds that do not carry one.
-4. Documentation may call `scripts/bench.py` exhaustive only when its static
-   command invocations cover every top-level parser command.
+3. README cannot apply Telegram `random_id` confirmation to preview kinds that
+   do not carry one, or tell operators to reuse the consumed preview of a
+   failed `clone init` / `clone refresh` commit.
+4. Equivalent exhaustive claims about `scripts/bench.py` are allowed only when
+   its static command invocations cover every top-level parser command.
 5. MAP's guide count and final ADR number match the tree.
 6. Contributor docs route session entries to `docs/devlog/`, never the closed
    `docs/DEVLOG.md`.

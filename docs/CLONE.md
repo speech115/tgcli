@@ -22,9 +22,8 @@ pointer; this file owns the clone story.
   then bare id, then post signature — ADR-0021/ADR-0023).
 - **Comments (ADR-0023):** a broadcast source with a readable linked
   discussion group gets its own tool-created, tool-linked megagroup,
-  synced with posts in interleaved 50-batch windows (ADR-0051), with its own
-  cursor and comment-thread anchor remap onto the destination's auto-forward
-  anchors.
+  synced as a sequential second phase after posts, with its own cursor and
+  comment-thread anchor remap onto the destination's auto-forward anchors.
   State and `status`/`init`/`sync` output carry a permanent `comments`
   field: `enabled` / `unavailable` / `none`. A stale posts-only clone can
   be superseded with `clone init --replace` (there is no comments backfill
@@ -35,10 +34,6 @@ pointer; this file owns the clone story.
   and a `participants` field on the `sync` response, with honest
   `collected`/`unavailable`/`deferred`/`none` markers. Never joins or
   writes to the source side.
-- **State (ADR-0060):** each clone uses a SQLite/WAL database with
-  dirty-tracked O(1) mapping saves, integrity reporting, one-time import of
-  legacy v2 JSON into a retained `.json.imported` backup, and
-  `clone export-state` as the JSON rollback/diagnostic path.
 - **Fidelity fallbacks (ADR-0019):** unsupported message kinds are skipped
   and reported, never fatal. Polls become truthful static result
   snapshots (native forwarding resets votes, so interactive fidelity is
@@ -89,12 +84,10 @@ pointer; this file owns the clone story.
 
 ## Live acceptance status
 
-- **Core clone (Tasks 1–9)**: complete — the original v1 acceptance covered
-  JSON state, status,
+- **Core clone (Tasks 1–9)**: complete — JSON state, status,
   preview/commit init, text/media/album sync, mapped replies, protected
   reupload, canonical contract, controlled open/protected live acceptance,
-  and removal of the mirror implementation. ADR-0060 later replaced that
-  JSON backend with SQLite/WAL and passed its own migration/live gate.
+  and removal of the mirror implementation.
 - **Forum routing (ADR-0022)**: passed controlled live acceptance
   2026-07-16.
 - **Comments (ADR-0023)**: full end-to-end gate (real source channel +

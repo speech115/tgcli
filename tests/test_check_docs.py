@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "check-docs.py"
 
@@ -79,6 +81,20 @@ def test_readme_global_flags_must_include_every_parser_global(tmp_path):
     assert "README.md: global flags missing --session-role" in result.stdout
 
 
+def test_readme_global_flags_must_not_keep_removed_parser_flags(tmp_path):
+    readme = copy_with_replacement(
+        tmp_path,
+        ROOT / "README.md",
+        "`--version`.",
+        "`--version`, `--legacy`.",
+    )
+
+    result = run(ROOT / "CHANGELOG.md", readme=readme)
+
+    assert result.returncode == 1
+    assert "README.md: unknown root global flag --legacy" in result.stdout
+
+
 def test_readme_must_link_every_task_guide_page(tmp_path):
     readme = tmp_path / "README.md"
     source = (ROOT / "README.md").read_text()
@@ -110,6 +126,22 @@ def test_readme_random_id_guarantees_are_scoped_to_send_and_forward(tmp_path):
     )
 
 
+def test_readme_clone_commits_require_a_fresh_preview_after_failure(tmp_path):
+    readme = copy_with_replacement(
+        tmp_path,
+        ROOT / "README.md",
+        "If either commit fails, create a fresh preview before retrying",
+        "If either commit fails, retry the same preview id",
+    )
+    result = run(ROOT / "CHANGELOG.md", readme=readme)
+
+    assert result.returncode == 1
+    assert (
+        "README.md: clone init/refresh retries must require a fresh preview"
+        in result.stdout
+    )
+
+
 def test_docs_cannot_claim_benchmark_coverage_the_script_does_not_have(tmp_path):
     project_map = copy_with_replacement(
         tmp_path,
@@ -128,6 +160,27 @@ def test_docs_cannot_claim_benchmark_coverage_the_script_does_not_have(tmp_path)
     assert "benchmark claims every command but omits:" in result.stdout
     assert "changes" in result.stdout
     assert "clone" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "claim",
+    (
+        "exhaustive command benchmark",
+        "benchmark covers all commands",
+    ),
+)
+def test_equivalent_exhaustive_benchmark_claims_are_checked(tmp_path, claim):
+    project_map = copy_with_replacement(
+        tmp_path,
+        ROOT / "docs" / "MAP.md",
+        "representative 13-step live smoke benchmark",
+        claim,
+    )
+
+    result = run(ROOT / "CHANGELOG.md", project_map=project_map)
+
+    assert result.returncode == 1
+    assert "benchmark claims every command but omits:" in result.stdout
 
 
 def test_map_inventory_counts_must_match_the_tree(tmp_path):

@@ -20,9 +20,10 @@ checked here too, because the gate is the one step every session actually runs:
 ADR-0065 extends the same fail-closed posture to active summaries that the
 guide-only gate could not see:
 
-  5. README covers root global flags and links every task guide page;
-  6. README scopes ``random_id`` confirmation to send/forward;
-  7. an "every command" benchmark claim requires actual parser-wide coverage;
+  5. README names exactly the root global flags and links every task guide page;
+  6. README scopes ``random_id`` confirmation to send/forward and requires a
+     fresh preview after a failed ``clone init`` / ``clone refresh`` commit;
+  7. any exhaustive benchmark claim requires actual parser-wide coverage;
   8. MAP guide/ADR inventory matches the tree;
   9. contributor workflow docs route session entries to ``docs/devlog/``.
 
@@ -106,10 +107,16 @@ def readme_global_flag_problems(
     if match is None:
         return [f"{readme.name}: no Global flags section"]
     documented = set(re.findall(r"--[a-z][a-z0-9-]*", match.group(1)))
-    return [
+    expected = root_global_flags(parser)
+    problems = [
         f"{readme.name}: global flags missing {flag}"
-        for flag in sorted(root_global_flags(parser) - documented)
+        for flag in sorted(expected - documented)
     ]
+    problems += [
+        f"{readme.name}: unknown root global flag {flag}"
+        for flag in sorted(documented - expected)
+    ]
+    return problems
 
 
 def readme_guide_link_problems(readme: Path, pages: list[Path]) -> list[str]:
@@ -142,6 +149,24 @@ def readme_random_id_problems(readme: Path) -> list[str]:
     return [f"{readme.name}: random_id guarantee must be scoped to send and forward"]
 
 
+def readme_clone_retry_problems(readme: Path) -> list[str]:
+    """Clone previews are consumed before dispatch, so retries need a new one."""
+    text = readme.read_text()
+    unsafe = any(
+        "same preview id" in line
+        and ("`clone init`" in line or "`clone refresh`" in line)
+        for line in text.splitlines()
+    )
+    documents_fresh_preview = re.search(
+        r"`clone init`.*?`clone refresh`.*?fresh preview",
+        text,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if not unsafe and documents_fresh_preview is not None:
+        return []
+    return [f"{readme.name}: clone init/refresh retries must require a fresh preview"]
+
+
 def benchmark_claim_problems(
     readme: Path,
     project_map: Path,
@@ -149,9 +174,13 @@ def benchmark_claim_problems(
     parser: argparse.ArgumentParser,
 ) -> list[str]:
     """An exhaustive claim is allowed only when the harness is exhaustive."""
+    exhaustive_claim = re.compile(
+        r"\b(?:exhaustive|complete)\b[^\n.]*\bbenchmark\b|"
+        r"\bbenchmark\b[^\n.]*(?:\bevery command\b|\ball commands\b)",
+        re.IGNORECASE,
+    )
     claims_every_command = any(
-        re.search(r"benchmark(?:s|:)? every command", path.read_text(), re.IGNORECASE)
-        for path in (readme, project_map)
+        exhaustive_claim.search(path.read_text()) for path in (readme, project_map)
     )
     if not claims_every_command:
         return []
@@ -313,6 +342,7 @@ def main(argv: list[str] | None = None) -> int:
     problems = readme_global_flag_problems(args.readme, parser)
     problems += readme_guide_link_problems(args.readme, pages)
     problems += readme_random_id_problems(args.readme)
+    problems += readme_clone_retry_problems(args.readme)
     problems += benchmark_claim_problems(args.readme, args.map, args.bench, parser)
     problems += map_inventory_problems(args.map, pages)
     problems += devlog_routing_problems(args.contributing, args.pr_template)

@@ -5,7 +5,9 @@ Canonical behavior contract for every AI agent working in this repo.
 ## Read First
 
 1. [docs/MAP.md](docs/MAP.md) — where everything lives and what each module owns.
-2. [docs/DEVLOG.md](docs/DEVLOG.md) — last entries: what happened recently and why.
+2. [docs/devlog/](docs/devlog/) — latest session entries: what happened
+   recently and why. [docs/DEVLOG.md](docs/DEVLOG.md) is the closed history
+   and template.
 3. [docs/ISSUES.md](docs/ISSUES.md) — current scope: deferred work and re-entry gates.
 4. Relevant ADRs before touching an area they govern — start from the
    index in [docs/decisions/README.md](docs/decisions/README.md).
