@@ -10,15 +10,36 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "check-docs.py"
 
 COMPARE = "https://github.com/speech115/tgcli/compare"
 
 
-def run(changelog: Path) -> subprocess.CompletedProcess[str]:
+def run(
+    changelog: Path,
+    *,
+    readme: Path | None = None,
+    project_map: Path | None = None,
+    bench: Path | None = None,
+    contributing: Path | None = None,
+    pr_template: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    argv = [sys.executable, str(SCRIPT), "--changelog", str(changelog)]
+    if readme is not None:
+        argv.extend(["--readme", str(readme)])
+    if project_map is not None:
+        argv.extend(["--map", str(project_map)])
+    if bench is not None:
+        argv.extend(["--bench", str(bench)])
+    if contributing is not None:
+        argv.extend(["--contributing", str(contributing)])
+    if pr_template is not None:
+        argv.extend(["--pr-template", str(pr_template)])
     return subprocess.run(
-        [sys.executable, str(SCRIPT), "--changelog", str(changelog)],
+        argv,
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -31,11 +52,177 @@ def changelog(tmp_path: Path, body: str) -> Path:
     return path
 
 
+def copy_with_replacement(tmp_path: Path, source: Path, old: str, new: str) -> Path:
+    path = tmp_path / source.name
+    text = source.read_text()
+    assert old in text
+    path.write_text(text.replace(old, new, 1))
+    return path
+
+
 def test_the_repository_changelog_is_consistent():
     result = run(ROOT / "CHANGELOG.md")
 
     assert result.returncode == 0, result.stdout
     assert "problems: 0" in result.stdout
+
+
+def test_readme_global_flags_must_include_every_parser_global(tmp_path):
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        "**Global flags:** `--account NAME`, `--json`, `--plain`, `--readonly`, "
+        "`--timeout SEC`, `-v/--verbose`, `--version`.\n\n"
+        "**Environment overrides:** none.\n"
+    )
+
+    result = run(ROOT / "CHANGELOG.md", readme=readme)
+
+    assert result.returncode == 1
+    assert "README.md: global flags missing --session-role" in result.stdout
+
+
+def test_readme_global_flags_must_not_keep_removed_parser_flags(tmp_path):
+    readme = copy_with_replacement(
+        tmp_path,
+        ROOT / "README.md",
+        "`--version`.",
+        "`--version`, `--legacy`.",
+    )
+
+    result = run(ROOT / "CHANGELOG.md", readme=readme)
+
+    assert result.returncode == 1
+    assert "README.md: unknown root global flag --legacy" in result.stdout
+
+
+def test_readme_must_link_every_task_guide_page(tmp_path):
+    readme = tmp_path / "README.md"
+    source = (ROOT / "README.md").read_text()
+    assert source.count("(docs/guide/changes.md)") >= 1
+    readme.write_text(source.replace("(docs/guide/changes.md)", ""))
+    result = run(ROOT / "CHANGELOG.md", readme=readme)
+
+    assert result.returncode == 1
+    assert "README.md: guide page is not linked: docs/guide/changes.md" in result.stdout
+
+
+def test_readme_random_id_guarantees_are_scoped_to_send_and_forward(tmp_path):
+    readme = copy_with_replacement(
+        tmp_path,
+        ROOT / "README.md",
+        "- **Safe correspondence** — `send`, `edit`, `delete`, `forward`, and "
+        "draft writes all go through preview → commit with single-use ids, a "
+        "5-minute TTL, operation-specific retry checks, and an append-only "
+        "audit log.",
+        "- **Safe correspondence** — `send`, `edit`, `delete`, `forward`, and "
+        "`draft` all use preview → commit with `random_id` retry confirmation.",
+    )
+    result = run(ROOT / "CHANGELOG.md", readme=readme)
+
+    assert result.returncode == 1
+    assert (
+        "README.md: random_id guarantee must be scoped to send and forward"
+        in result.stdout
+    )
+
+
+def test_readme_clone_commits_require_a_fresh_preview_after_failure(tmp_path):
+    readme = copy_with_replacement(
+        tmp_path,
+        ROOT / "README.md",
+        "If either commit fails, create a fresh preview before retrying",
+        "If either commit fails, retry the same preview id",
+    )
+    result = run(ROOT / "CHANGELOG.md", readme=readme)
+
+    assert result.returncode == 1
+    assert (
+        "README.md: clone init/refresh retries must require a fresh preview"
+        in result.stdout
+    )
+
+
+def test_docs_cannot_claim_benchmark_coverage_the_script_does_not_have(tmp_path):
+    project_map = copy_with_replacement(
+        tmp_path,
+        ROOT / "docs" / "MAP.md",
+        "representative 13-step live smoke benchmark",
+        "live benchmark: every command against a real account",
+    )
+    result = run(
+        ROOT / "CHANGELOG.md",
+        readme=ROOT / "README.md",
+        project_map=project_map,
+        bench=ROOT / "scripts" / "bench.py",
+    )
+
+    assert result.returncode == 1
+    assert "benchmark claims every command but omits:" in result.stdout
+    assert "changes" in result.stdout
+    assert "clone" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "claim",
+    (
+        "exhaustive command benchmark",
+        "benchmark covers all commands",
+    ),
+)
+def test_equivalent_exhaustive_benchmark_claims_are_checked(tmp_path, claim):
+    project_map = copy_with_replacement(
+        tmp_path,
+        ROOT / "docs" / "MAP.md",
+        "representative 13-step live smoke benchmark",
+        claim,
+    )
+
+    result = run(ROOT / "CHANGELOG.md", project_map=project_map)
+
+    assert result.returncode == 1
+    assert "benchmark claims every command but omits:" in result.stdout
+
+
+def test_map_inventory_counts_must_match_the_tree(tmp_path):
+    project_map = tmp_path / "MAP.md"
+    project_map.write_text(
+        (ROOT / "docs" / "MAP.md")
+        .read_text()
+        .replace("task pages, 23 + index", "task pages, 22 + index", 1)
+        .replace("ADR-0001…0065", "ADR-0001…0057", 1)
+    )
+    result = run(
+        ROOT / "CHANGELOG.md",
+        project_map=project_map,
+    )
+
+    assert result.returncode == 1
+    assert "MAP.md: guide count is 22; tree has 23 task pages" in result.stdout
+    assert "MAP.md: ADR range ends at 0057; tree ends at 0065" in result.stdout
+
+
+def test_contributor_docs_must_not_send_sessions_to_closed_devlog(tmp_path):
+    contributing = tmp_path / "CONTRIBUTING.md"
+    contributing.write_text(
+        "Anything | one entry in [docs/DEVLOG.md](docs/DEVLOG.md)\n"
+    )
+    pr_template = tmp_path / "PULL_REQUEST_TEMPLATE.md"
+    pr_template.write_text("- [ ] `docs/DEVLOG.md` entry appended\n")
+    result = run(
+        ROOT / "CHANGELOG.md",
+        contributing=contributing,
+        pr_template=pr_template,
+    )
+
+    assert result.returncode == 1
+    assert (
+        "CONTRIBUTING.md: points session entries at closed docs/DEVLOG.md"
+        in result.stdout
+    )
+    assert (
+        "PULL_REQUEST_TEMPLATE.md: points session entries at closed docs/DEVLOG.md"
+        in result.stdout
+    )
 
 
 def test_a_release_section_without_its_link_definition_fails(tmp_path):

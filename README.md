@@ -30,9 +30,11 @@ Design lineage: [openclaw/gogcli](https://github.com/openclaw/gogcli) (architect
 - **Stateless by design** — one entrypoint, one operation per process. Nothing runs between invocations; state is limited to `~/.config/tgcli/` and `~/.local/state/tgcli/`.
 - **Automation contract** — `--json` / `--plain` on stdout, everything human on stderr, documented exit codes, additive-only JSON changes. See [docs/CONTRACT.md](docs/CONTRACT.md).
 - **Reading and search** — dialogs with unread/kind filters, id- and date-paginated reads, per-dialog and global search, reply threads, message context windows, contacts, mutual chats, and a read-only JSONL batch mode.
-- **Safe correspondence** — `send`, `edit`, `delete`, `forward`, and `draft` all go through preview → commit with single-use ids, a 5-minute TTL, `random_id` retry confirmation, and an append-only audit log.
+- **Safe correspondence** — `send`, `edit`, `delete`, `forward`, and draft writes all go through preview → commit with single-use ids, a 5-minute TTL, operation-specific retry checks, and an append-only audit log.
+- **Retry-safe sends and forwards** — `send` and `forward` commits carry a stored Telegram `random_id`, so retrying the same preview confirms the original dispatch instead of creating a duplicate.
 - **Media and export** — manifest before download, bulk filtered downloads, JSONL message export with `--resume`, and CSV subscriber export for broadcast channels.
 - **Chat clone** — copy broadcast channels, megagroup supergroups (forum and non-forum), legacy basic groups, and private dialogs into tool-created destinations, with native forwards plus protected-content reupload. See [docs/guide/clone.md](docs/guide/clone.md).
+- **Daemonless change feed** — `tg changes` returns Telegram updates plus an opaque caller-held cursor, with explicit channel subscriptions, deletion tombstones, and loud gap reporting. See [docs/guide/changes.md](docs/guide/changes.md).
 - **Raw TL escape hatch** — `tg api` reaches the long tail of the pinned Telethon layer behind a default-deny read allowlist, an explicit `--write` gate, typed confirmations for destructive verbs, and a permanent denylist.
 - **Diagnostics and hygiene** — `tg doctor` reports locally by default (`--connect` for live checks); `tg store stats` / `tg store cleanup` inspect and reclaim local state without ever touching sessions or the audit log.
 
@@ -94,7 +96,11 @@ tg --json send --commit p_9f3a             # nothing leaves without this
 tg --json media download https://t.me/channel/42 --parallel 4
 tg --json export messages @channel --output messages.jsonl --resume
 
-# 5. Health and local state
+# 5. Observe changes — save next_cursor from the first result
+tg --json changes --init
+tg --json changes --cursor "$CURSOR"
+
+# 6. Health and local state
 tg --json doctor
 tg --json store stats
 ```
@@ -108,7 +114,7 @@ Full guide: **[docs/guide/](docs/guide/README.md)**
 | Area | Pages |
 | --- | --- |
 | **Start** | [overview](docs/guide/overview.md) · [install](docs/guide/install.md) · [quickstart](docs/guide/quickstart.md) · [accounts](docs/guide/accounts.md) |
-| **Reading** | [dialogs](docs/guide/dialogs.md) · [read](docs/guide/read.md) · [search](docs/guide/search.md) · [contacts](docs/guide/contacts.md) · [batch](docs/guide/batch.md) |
+| **Reading** | [dialogs](docs/guide/dialogs.md) · [read](docs/guide/read.md) · [search](docs/guide/search.md) · [contacts](docs/guide/contacts.md) · [batch](docs/guide/batch.md) · [changes](docs/guide/changes.md) |
 | **Writing** | [send](docs/guide/send.md) · [editing](docs/guide/editing.md) · [forward](docs/guide/forward.md) · [drafts](docs/guide/drafts.md) · [formatting](docs/guide/formatting.md) · [inbox](docs/guide/inbox.md) |
 | **Data** | [media](docs/guide/media.md) · [export](docs/guide/export.md) · [clone](docs/guide/clone.md) |
 | **Operations** | [doctor](docs/guide/doctor.md) · [store](docs/guide/store.md) · [safety](docs/guide/safety.md) · [api](docs/guide/api.md) |
@@ -119,7 +125,7 @@ Full guide: **[docs/guide/](docs/guide/README.md)**
 
 Config lives at `~/.config/tgcli/config.toml`; sessions, locks, previews, the audit log, and cache live under `~/.local/state/tgcli/` (mode `0700`). Account selection order is `--account` > `TGCLI_ACCOUNT` > `default_account`.
 
-**Global flags:** `--account NAME`, `--json`, `--plain`, `--readonly`, `--timeout SEC` (default 60; no default deadline for media and exports), `-v/--verbose`, `--version`.
+**Global flags:** `--account NAME`, `--session-role NAME`, `--json`, `--plain`, `--readonly`, `--timeout SEC` (command-specific defaults; see [CONTRACT §1](docs/CONTRACT.md#1-invocation)), `-v/--verbose`, `--version`.
 
 **Environment overrides:**
 
@@ -145,7 +151,7 @@ Config lives at `~/.config/tgcli/config.toml`; sessions, locks, previews, the au
 
 ## Preview → commit
 
-Reads are free; every mutation that carries content — `send`, `edit`, `delete`, `forward`, `draft set|clear`, `clone init` — is two invocations. The first one resolves the peer, renders exactly what will be sent, and writes a single-use preview record. The second one commits that record by id — the text is never retyped, so what you reviewed is what goes out. Dialog-state mutations (`mark-read`, `dialog archive|mute`) have nothing to render, so they run in one invocation and are gated by `--readonly` / `TGCLI_READONLY` instead.
+Reads are free. Preview-backed mutations — `send`, `edit`, `delete`, `forward`, `draft set|clear`, `clone init`, and `clone refresh` — use two invocations. The first resolves and renders the exact intent into a single-use preview record; the second commits that record by id, without retyping it. State-driven direct mutations (`mark-read`, `mark-unread`, every `dialog` subcommand, and `clone sync`) do not mint a preview, but remain gated by `--readonly` / `TGCLI_READONLY`.
 
 ```mermaid
 flowchart LR
@@ -166,8 +172,8 @@ tg --json send --commit p_9f3a
 ```
 
 - Previews expire after 5 minutes and are consumed on commit.
-- A commit that fails on network or runtime error is **retried with the same id** — the stored Telegram `random_id` lets tgcli confirm the original operation instead of duplicating it.
-- `edit`, `delete`, `forward`, `draft set/clear`, and `clone init` follow the same rule.
+- `send`, `edit`, `delete`, `forward`, and draft commits use the retryable preview lifecycle: after a network/runtime failure, retry the same preview id; never create a second preview. `send` and `forward` additionally use their stored Telegram `random_id` for network-level deduplication.
+- `clone init` and `clone refresh` consume their preview before dispatch. If either commit fails, create a fresh preview before retrying; already-applied work is recovered or rechecked by the command.
 - `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` hard-block mutations with exit 2, before any network call.
 - Every committed mutation is appended to the audit log; `tg store cleanup` can never delete it.
 
@@ -175,7 +181,7 @@ tg --json send --commit p_9f3a
 
 v1.2 in maintenance mode (ADR-0026): feature-complete and in production use. New behavior needs an explicit owner request plus an ADR; a bug fix starts from a reproducing test.
 
-CI runs `pytest`, `ruff`, `pyright`, and a fail-closed TL coverage gate on every push and PR ([.github/workflows/ci.yml](.github/workflows/ci.yml)). `scripts/bench.py` benchmarks every command against a live account (13 steps, ~20 s).
+CI runs `pytest`, `ruff`, `pyright`, and a fail-closed TL coverage gate on every push and PR ([.github/workflows/ci.yml](.github/workflows/ci.yml)). `scripts/bench.py` is a representative 13-step live smoke benchmark of core read, write, media, and export paths.
 
 ## Contributing
 

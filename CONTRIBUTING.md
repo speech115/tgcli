@@ -42,7 +42,8 @@ One command runs exactly what CI runs, in the same order:
 ```
 
 That is `ruff check` + `ruff format --check`, the architecture check,
-`pyright`, `pytest`, the Telethon coverage matrix, and the user-guide gate.
+`pyright`, `pytest`, the Telethon coverage matrix, and the documentation
+drift gate.
 Run it before every commit and quote its real output in the pull request —
 never "tests pass".
 
@@ -72,8 +73,10 @@ These are part of the change, not follow-up work:
 | --- | --- |
 | CLI flags, JSON shapes, exit codes | [docs/CONTRACT.md](docs/CONTRACT.md) — and ship it as a patch release with a `CHANGELOG.md` section |
 | Added, moved, or removed a module | [docs/MAP.md](docs/MAP.md) |
+| Public command, global flag, safety summary, or guide page | [README.md](README.md), the affected guide page, and `SKILL.md` where agent routing changes |
+| A proposal or deferred issue graduates or ships | its status in [docs/ISSUES.md](docs/ISSUES.md) and [docs/PROPOSALS.md](docs/PROPOSALS.md) |
 | An architectural decision | a new `ADR-NNNN-slug.md` in [docs/decisions/](docs/decisions/) plus its index row |
-| Anything, at the end of a working session | one entry in [docs/DEVLOG.md](docs/DEVLOG.md) |
+| Anything, at the end of a working session | one `YYYY-MM-DD-slug.md` entry under [docs/devlog/](docs/devlog/) |
 
 `docs/PLAN.md`, `docs/CLONE.md`, `docs/DEVLOG-v1.md`, and everything under
 `docs/superpowers/` are **closed history**: read them, never update them.

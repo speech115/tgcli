@@ -71,6 +71,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0062](ADR-0062-job-session-role.md) | Named session roles (arbitrary names, `primary` reserved): `accounts login --role NAME` authorizes another device whose lock frees the primary during long jobs; global `--session-role` flag; no implicit fallback between roles | accepted |
 | [0063](ADR-0063-tg-changes-design.md) | `tg changes --cursor` foreground feed, hybrid coverage: cursor-held channel subscriptions with full `read`-shape events, `channel_activity` signals elsewhere, per-scope loud gaps, deletion tombstones, `--wait` with 2 s settle, no state files | accepted |
 | [0064](ADR-0064-forward-origin-from-message-chat.md) | Forward-origin `from_id` labels use `message.forward.get_chat()` / `get_sender()` when standalone `get_entity` refuses (issue #80) | accepted |
+| [0065](ADR-0065-active-documentation-drift-gates.md) | Active-doc gate covers README discoverability/global flags/safety summaries, benchmark claims, MAP inventory, and devlog routing; shipped status closure becomes an explicit workflow duty | accepted |
 
 Notes on supersessions:
 
