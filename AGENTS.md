@@ -104,6 +104,9 @@ The project is feature-complete and in production use. Default posture:
 - Stateless: no background processes, no state outside
   `~/.config/tgcli/` (config) and `~/.local/state/tgcli/` (sessions,
   locks, audit, cache).
+- Runtime boundary: never open a tgcli `.session` file with bare `python3` or
+  a system/user-site Telethon. Use the `tg` entrypoint or `.venv/bin/python`
+  from this checkout; `tg doctor` reports the active runtime for diagnosis.
 - stdout is sacred: only contract data. Debug/progress/warnings → stderr.
 - State files that are read back later are replaced atomically via
   `tgcli.atomic.replace_text`, never `write_text`

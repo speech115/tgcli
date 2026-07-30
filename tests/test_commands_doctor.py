@@ -1,9 +1,11 @@
 """Offline-first doctor checks (ADR-0040)."""
 
 import json
+import sys
 from contextlib import asynccontextmanager
 
 import pytest
+import telethon
 
 from tgcli.cli import main
 from tgcli.commands import doctor as doctor_cmd
@@ -124,6 +126,17 @@ def test_doctor_run_connect_false_skips_client(config_env, monkeypatch):
     config = load_config()
     data = __import__("asyncio").run(doctor_cmd.run(config, "main", connect=False))
     assert data["accounts"][0]["checks"]["authorized"] is None
+
+
+def test_doctor_reports_runtime_fingerprint(config_env, capsys):
+    _touch_session("main")
+
+    assert main(["doctor", "--account", "main", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+
+    assert data["runtime"]["python"] == sys.executable
+    assert data["runtime"]["python_version"] == sys.version.split()[0]
+    assert data["runtime"]["telethon"] == telethon.__version__
 
 
 def test_doctor_hints_the_remedy_for_loose_preview_modes(config_env, capsys):

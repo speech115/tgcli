@@ -33,6 +33,7 @@ Same `dialog` and message shape as `read`, plus the submitted `query`:
  "messages": [{"id": 42, "date": "2026-07-06T10:00:00+00:00",
                "from": {"id": 111, "name": "Alice", "username": null},
                "text": "hello", "media": null, "media_info": null,
+               "voice_played": null,
                "reply_to": null, "quote_text": null, "permalink": null,
                "edited_at": null,
                "outgoing": false, "forwarded_from": null, "reactions": [],

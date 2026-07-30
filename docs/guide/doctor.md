@@ -69,12 +69,18 @@ with `--connect`, `ok` additionally requires `authorized: true`.
 ## JSON
 
 ```json
-{"accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
+{"runtime":{"python":"/home/me/tgcli/.venv/bin/python","python_version":"3.12.9","telethon":"1.44.0"},
+"accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
 "checks":{"session_file":true,"lock_free":true,"state_writable":true,
 "preview_perms_ok":true,"audit_perms_ok":true,"session_perms_ok":true,
 "state_size":4096,"authorized":null},
 "user":null,"ok":true}],"ok":true}
 ```
+
+The top-level `runtime` object identifies the Python interpreter and Telethon
+version used by this `tg` invocation. It is diagnostic only. If a helper script
+needs to open a session, use `tg` or the checkout's `.venv/bin/python`, never
+bare `python3`.
 
 With `--connect`, `authorized` becomes a boolean and `user` is populated
 (`id`, `username`, `name`) on success.

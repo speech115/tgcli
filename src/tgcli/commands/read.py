@@ -50,6 +50,14 @@ def _media_info(message) -> dict | None:
     }
 
 
+def _voice_played(message) -> bool | None:
+    """Expose Telegram's voice-message listened flag without false positives."""
+    if getattr(message, "voice", None) is None:
+        return None
+    media_unread = getattr(message, "media_unread", None)
+    return None if media_unread is None else not media_unread
+
+
 def _reactions(message) -> list[dict]:
     results = getattr(getattr(message, "reactions", None), "results", None) or []
     output = []
@@ -175,6 +183,7 @@ def message_to_dict(message, entity=None) -> dict:
         "text": _body_text(message),
         "media": type(message.media).__name__ if message.media else None,
         "media_info": _media_info(message),
+        "voice_played": _voice_played(message),
         "reply_to": _reply_to(message, entity),
         "quote_text": _quote_text(message),
         "permalink": _permalink(entity, message.id),
