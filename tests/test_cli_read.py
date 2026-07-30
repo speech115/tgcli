@@ -121,6 +121,7 @@ def test_read_json_matches_contract(config_env, monkeypatch, capsys):
                 "text": "hello",
                 "media": None,
                 "media_info": None,
+                "voice_played": None,
                 "reply_to": None,
                 "quote_text": None,
                 "permalink": None,

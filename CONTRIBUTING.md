@@ -33,6 +33,9 @@ Requires Python 3.12+ and [`uv`](https://docs.astral.sh/uv/). No account is
 needed to run the test suite; the live smoke tests stay off unless
 `TGCLI_LIVE_SMOKE=1` is set with a test account.
 
+Do not open tgcli session files with bare `python3` or a system/user-site
+Telethon. Use the `tg` entrypoint or `.venv/bin/python` from this checkout.
+
 ## The gate
 
 One command runs exactly what CI runs, in the same order:

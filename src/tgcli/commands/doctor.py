@@ -1,7 +1,10 @@
 """Read-only environment and session health checks (ADR-0028 / ADR-0040 / ADR-0062)."""
 
 import stat
+import sys
 from pathlib import Path
+
+import telethon
 
 from tgcli import safety, session
 from tgcli.config import Config, resolve_account
@@ -70,6 +73,15 @@ def _state_size() -> int:
             except OSError:
                 pass
     return total
+
+
+def _runtime_fingerprint() -> dict[str, str]:
+    """Identify the interpreter and Telethon build running this command."""
+    return {
+        "python": sys.executable,
+        "python_version": sys.version.split()[0],
+        "telethon": telethon.__version__,
+    }
 
 
 def _local_ok(checks: dict) -> bool:
@@ -177,7 +189,11 @@ async def run(
             "preview files are readable by other users; tighten them with: "
             "tg store cleanup --confirm"
         )
-    return {"accounts": reports, "ok": all(report["ok"] for report in reports)}
+    return {
+        "runtime": _runtime_fingerprint(),
+        "accounts": reports,
+        "ok": all(report["ok"] for report in reports),
+    }
 
 
 def to_rows(data: dict) -> list[tuple]:

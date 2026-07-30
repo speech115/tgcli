@@ -22,6 +22,11 @@ uv run tg --help
 `telethon`). `uv run tg --help` confirms the entrypoint works without
 touching Telegram or reading your config.
 
+Keep this runtime boundary when writing helper scripts: use `tg` or
+`.venv/bin/python` from this checkout to open tgcli sessions. Never open a
+`~/.local/state/tgcli/sessions/*.session` file with bare `python3`, because a
+system/user-site Telethon may expect a different SQLite session schema.
+
 ## Put `tg` on your PATH
 
 ```bash

@@ -42,6 +42,11 @@ Design lineage: [openclaw/gogcli](https://github.com/openclaw/gogcli) (architect
 
 `tgcli` requires Python 3.12+ and [`uv`](https://docs.astral.sh/uv/).
 
+Use `tg` (or this checkout's `.venv/bin/python`) for any code that opens a
+tgcli session. Do not open `~/.local/state/tgcli/sessions/*.session` with bare
+`python3`: a system/user-site Telethon may use an incompatible SQLite session
+schema. `tg --json doctor` reports the active runtime under `runtime`.
+
 ```bash
 git clone https://github.com/speech115/tgcli.git
 cd tgcli

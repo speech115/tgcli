@@ -26,6 +26,9 @@ selected account session, does one operation, and exits.
 - Run one process per account session at a time. Exit 3 can mean a busy
   session lock; retry in a few seconds. For concurrency, authorize a named
   role (`accounts login ALIAS --role job`) and pass `--session-role job`.
+- Never open a tgcli `.session` file with bare `python3` or a system/user-site
+  Telethon. Use the `tg` entrypoint or `./.venv/bin/python` from this checkout;
+  `tg doctor` reports the active Python and Telethon runtime under `runtime`.
 
 ## Command routing
 
@@ -114,6 +117,10 @@ Custom emoji cannot be invented — reuse real ids. Every read
 from any readable post (e.g. read a channel that uses the emoji you want),
 then drop `<tg-emoji emoji-id="ID">` into a `--format html` send/edit. Sending
 custom emoji requires the account to have Telegram Premium.
+
+Voice messages additionally expose `voice_played`: `false` means Telegram's
+`media_unread` flag is set, `true` means it is clear, and `null` means the
+message is not a voice message or the flag was unavailable.
 
 ## Correspondence recipes
 

@@ -45,6 +45,7 @@ def test_message_to_dict_projects_message_contract():
         "text": "hello",
         "media": None,
         "media_info": None,
+        "voice_played": None,
         "reply_to": None,
         "quote_text": None,
         "permalink": None,
@@ -57,6 +58,42 @@ def test_message_to_dict_projects_message_contract():
         "grouped_id": None,
         "is_service": False,
     }
+
+
+@pytest.mark.parametrize(
+    ("media_unread", "expected"),
+    [(True, False), (False, True), (None, None)],
+)
+def test_message_to_dict_reports_voice_played_from_media_unread(media_unread, expected):
+    message = _ns(
+        id=9,
+        date=None,
+        sender_id=1,
+        sender=None,
+        text=None,
+        media=_ns(),
+        voice=_ns(),
+        media_unread=media_unread,
+        reply_to_msg_id=None,
+    )
+
+    assert message_to_dict(message)["voice_played"] is expected
+
+
+def test_message_to_dict_leaves_voice_played_null_for_non_voice_media():
+    message = _ns(
+        id=10,
+        date=None,
+        sender_id=1,
+        sender=None,
+        text="photo",
+        media=_ns(),
+        voice=None,
+        media_unread=False,
+        reply_to_msg_id=None,
+    )
+
+    assert message_to_dict(message)["voice_played"] is None
 
 
 def test_message_to_dict_keeps_same_chat_reply_as_bare_id():

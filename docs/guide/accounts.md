@@ -180,6 +180,12 @@ if overridden). This SQLite file holds both the Telethon auth key and the
 entity cache that makes short-lived processes fast — it must never be opened
 by two clients at once.
 
+Open this file only through the `tg` entrypoint or `.venv/bin/python` from the
+tgcli checkout. Do not use bare `python3` or a system/user-site Telethon:
+Telethon versions can use incompatible SQLite session schemas. When debugging,
+`tg --json doctor` reports the active interpreter and Telethon version in its
+top-level `runtime` object.
+
 To enforce that, every session open takes an exclusive, non-blocking
 `flock` on a sibling `<session>.lock` file for the lifetime of the process.
 A second `tg` process against the *same* account while one is already

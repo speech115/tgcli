@@ -119,6 +119,7 @@ them as channels; broadcast channels remain `channel`.
  "messages": [{"id": 42, "date": "2026-07-06T10:00:00+00:00",
                "from": {"id": 111, "name": "Alice", "username": null},
                "text": "hello", "media": null, "media_info": null,
+               "voice_played": null,
                "reply_to": null, "quote_text": null, "permalink": null,
                "edited_at": null,
                "outgoing": false, "forwarded_from": null, "reactions": [],
@@ -140,6 +141,9 @@ replies (and when `reply_to_peer_id` is absent); for a cross-chat quote reply it
 is `{"id": <msg_id>, "peer": <bot-api peer id>}` so the id is not resolved
 against the chat being read. `quote_text` is the quoted fragment string when
 the reply header carries one, otherwise `null`.
+`voice_played` is `false` when Telegram reports `media_unread: true`, `true`
+when it reports `media_unread: false`, and `null` for non-voice messages or when
+Telegram did not provide the flag.
 
 `read` accepts `--before-id INT` (messages older than an id), `--after-id INT`
 (messages newer than an id), `--since ISO`, `--until ISO`, and `--topic INT`
@@ -154,6 +158,7 @@ newest-first output and stops when it reaches the lower date boundary.
  "messages": [{"id": 42, "date": "2026-07-06T10:00:00+00:00",
                "from": {"id": 111, "name": "Alice", "username": null},
                "text": "hello", "media": null, "media_info": null,
+               "voice_played": null,
                "reply_to": null, "quote_text": null, "permalink": null,
                "edited_at": null,
                "outgoing": false, "forwarded_from": null, "reactions": [],
@@ -186,6 +191,7 @@ one message in that same shape:
  "message": {"id": 42, "date": "2026-07-06T10:00:00+00:00",
              "from": {"id": 111, "name": "Alice", "username": null},
              "text": "hello", "media": null, "media_info": null,
+             "voice_played": null,
              "reply_to": null, "quote_text": null, "permalink": null,
              "edited_at": null,
              "outgoing": false, "forwarded_from": null, "reactions": [],
@@ -730,12 +736,17 @@ locked and creates no lock file. These probes do not mutate Telegram.
 `--json` emits:
 
 ```json
-{"accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
+{"runtime":{"python":"/home/me/tgcli/.venv/bin/python","python_version":"3.12.9","telethon":"1.44.0"},
+"accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
 "checks":{"session_file":true,"lock_free":true,"state_writable":true,
 "preview_perms_ok":true,"audit_perms_ok":true,"session_perms_ok":true,
 "state_size":4096,"authorized":null},
 "user":null,"roles":[],"ok":true}],"ok":true}
 ```
+
+The top-level `runtime` object identifies the interpreter and Telethon build
+that produced the report. It is diagnostic only and does not change health
+status or exit codes.
 
 With `--connect`, `authorized` is a boolean and `user` is populated on success.
 Any ordinary online exception, including a session/configuration failure, is
