@@ -11,6 +11,16 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.20] — 2026-07-30
+
+### Added
+
+- Voice-message playback state in the universal message JSON as the additive
+  `voice_played` field (ADR-0066, issue #97).
+- Runtime identity diagnostics in `tg doctor`, plus the documented runtime
+  boundary that keeps session access on the checkout's pinned Telethon
+  environment (ADR-0067, issue #96).
+
 ## [1.2.19] — 2026-07-27
 
 The three sequential releases planned in PR #91, landed as one integrator
@@ -523,6 +533,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.20]: https://github.com/speech115/tgcli/compare/v1.2.19...v1.2.20
 [1.2.19]: https://github.com/speech115/tgcli/compare/v1.2.18...v1.2.19
 [1.2.18]: https://github.com/speech115/tgcli/compare/v1.2.17...v1.2.18
 [1.2.17]: https://github.com/speech115/tgcli/compare/v1.2.16...v1.2.17
