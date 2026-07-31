@@ -248,7 +248,8 @@ async def light_reconcile(
         return summary
     previous = store_mod.read_account_sync(conn).get("reconcile") or {}
     offset = int(previous.get("next_offset") or 0) % len(dialogs)
-    chosen = [dialogs[(offset + i) % len(dialogs)] for i in range(min(sample, len(dialogs)))]
+    take = min(sample, len(dialogs))
+    chosen = [dialogs[(offset + i) % len(dialogs)] for i in range(take)]
     for row in chosen:
         peer = int(row["peer_id"])
         local = int(
