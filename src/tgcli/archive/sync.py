@@ -11,6 +11,7 @@ from telethon import errors as telethon_errors
 
 from tgcli import changes_cursor
 from tgcli.archive import (
+    media as media_mod,
     scope as scope_mod,
     store as store_mod,
 )
@@ -118,7 +119,7 @@ def apply_events(
                     peer_id,
                     oldest_id=int(message["id"]),
                     newest_id=int(message["id"]),
-                    more=bool(state["more"]) if state else False,
+                    more=True if state is None else bool(state["more"]),
                     last_error=None,
                     touch_sync=True,
                     kind=(state or {}).get("kind") or kind,
@@ -243,14 +244,24 @@ def _media_candidates(
     )
     order = "ORDER BY m.date DESC, t.peer_id DESC, t.message_id DESC"
     pending = conn.execute(
-        base + "AND (t.media_path IS NULL OR t.media_path = '') " + order + " LIMIT ?",
-        (limit,),
+        base
+        + "AND (t.media_path IS NULL OR t.media_path = '') "
+        + "AND t.media_status IN ('pending', 'retryable') "
+        + "AND t.media_attempts < ? "
+        + order
+        + " LIMIT ?",
+        (media_mod.MAX_MEDIA_ATTEMPTS, limit),
     ).fetchall()
     if len(pending) >= limit:
         return pending
 
     missing_paths = conn.execute(
-        base + "AND t.media_path IS NOT NULL AND t.media_path <> '' " + order,
+        base
+        + "AND t.media_path IS NOT NULL AND t.media_path <> '' "
+        + "AND t.media_status IN ('pending', 'retryable', 'done') "
+        + "AND t.media_attempts < ? "
+        + order,
+        (media_mod.MAX_MEDIA_ATTEMPTS,),
     ).fetchall()
     for row in missing_paths:
         relative = Path(str(row["media_path"]))
@@ -276,7 +287,8 @@ async def fetch_media(
 
     The database row is the queue checkpoint; media is published by the
     existing resumable download seam and only then recorded as available.
-    A failed item remains retryable on the next foreground run.
+    An ordinary failed item is retryable until its media attempt cap; a
+    permanently unavailable item then becomes terminal.
     """
     downloaded = 0
     skipped = 0
@@ -289,7 +301,7 @@ async def fetch_media(
             payload = json.loads(row["payload"])
             info = payload.get("media_info") or {}
             media_kind = str(row["media_kind"])
-            relative = row["media_path"] or store_mod.media_relative_path(
+            relative = row["media_path"] or media_mod.media_relative_path(
                 peer_id,
                 message_id,
                 media_kind=media_kind,
@@ -301,7 +313,7 @@ async def fetch_media(
             destination = account_dir / relative_path
             if destination.exists():
                 with conn:
-                    store_mod.set_media_path(
+                    media_mod.set_media_path(
                         conn,
                         peer_id,
                         message_id,
@@ -325,7 +337,7 @@ async def fetch_media(
                     "media downloader returned without publishing a file"
                 )
             with conn:
-                store_mod.set_media_path(
+                media_mod.set_media_path(
                     conn,
                     peer_id,
                     message_id,
@@ -335,10 +347,6 @@ async def fetch_media(
             downloaded += 1
         except telethon_errors.FloodWaitError as exc:
             seconds = int(exc.seconds)
-            with conn:
-                store_mod.record_media_failure(
-                    conn, peer_id, message_id, error=f"FLOOD_WAIT:{seconds}"
-                )
             cooldown_mod.arm_account(account_user_id, seconds)
             raise RateLimitError(
                 f"rate limited during archive media fetch of {message_id}",
@@ -347,7 +355,7 @@ async def fetch_media(
         except Exception as exc:
             error = f"{type(exc).__name__}:{exc}"
             with conn:
-                store_mod.record_media_failure(conn, peer_id, message_id, error=error)
+                media_mod.record_media_failure(conn, peer_id, message_id, error=error)
             failed.append(
                 {"peer_id": peer_id, "message_id": message_id, "error": error}
             )

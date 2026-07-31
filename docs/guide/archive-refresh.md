@@ -18,13 +18,14 @@ uses one FloodWait budget for the network stage and has no implicit 60-second
 deadline; pass an explicit `--timeout` when a shorter wall-clock limit is
 needed.
 
-A network failure, unavailable local transcription engine, or item-level
-media/transcription failure increments the account's refresh failure streak.
-The completed stage data is returned for item-level failures and the command
-exits nonzero. A fully successful run resets the streak. After three
-consecutive failed runs, macOS receives one generic notification; it is not
-repeated until a successful run starts a new failure episode. Inspect the
-state with:
+A network failure or unavailable local transcription engine increments the
+account's refresh failure streak. Item-level media/transcription failures are
+returned in the completed stage data and exit nonzero, but do not increment the
+account-level streak. FLOOD_WAIT exits with its normal rate-limit result and
+does not increment the streak. Any completed pipeline resets the streak. After
+three consecutive run-level failures, macOS receives one generic notification;
+it is not repeated until a completed run starts a new failure episode. Inspect
+the state with:
 
 ```bash
 tg --json archive status

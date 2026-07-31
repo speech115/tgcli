@@ -21,12 +21,19 @@ accepts the existing sync caps plus explicit transcription caps; an explicit
 scheduled pass.
 
 Persist an account-level refresh failure streak in `account_sync`. A failed
-RPC, local transcription engine failure, or item-level media/transcription
-failure increments the streak; a fully successful refresh resets it. On the
-third consecutive failure episode, the command makes one best-effort macOS
-notification through `desktop.py`. The notification is generic and contains
-no message text, account secret, or exception detail. A successful run starts
-a new notification episode.
+run-level RPC or local transcription-engine failure increments the streak; an
+item-level media/transcription failure is reported in the result but does not
+represent an account outage. FLOOD_WAIT is expected rate-limit pressure and
+does not increment the streak. Any completed pipeline resets the streak. On
+the third consecutive run-level failure, the command makes one best-effort
+macOS notification through `desktop.py`. The notification is generic and
+contains no message text, account secret, or exception detail. A completed run
+starts a new notification episode.
+
+Keep media acquisition retry state separate from transcription attempts:
+media failures have a fixed three-attempt cap, with retryable and terminal
+`media_status` values. This prevents one unavailable file from remaining in
+the queue forever or disabling future outage notifications.
 
 Ship a checked-in launchd plist as a manual template with a 3600-second
 interval. The template uses explicit path placeholders and does not install,
@@ -48,6 +55,7 @@ load, or supervise a resident process. Operators may substitute paths and run
 ## Contract impact
 
 `tg archive refresh` and its bounded flags are added to CONTRACT.md. Archive
-stores migrate from schema v4 to v5 by adding refresh failure fields to
-`account_sync`; existing message, revision, tombstone, media, and transcript
-data is preserved.
+stores migrate from schema v5 to v6 by adding independent media retry fields
+to `transcripts`; existing message, revision, tombstone, media, and transcript
+data is preserved. The media retry seam lives in `archive/media.py` so the
+SQLite store remains focused on persistence and FTS.

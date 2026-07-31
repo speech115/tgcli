@@ -1659,7 +1659,7 @@ tg archive rebaseline
 
 Per-account SQLite/WAL store under `~/.local/state/tgcli/archive/<alias>/`
 (override with `[archive] root = "…"` in `config.toml`). Directory mode
-`0700`; `archive.db` mode `0600`. Schema v5 tables: `messages`, `revisions`,
+`0700`; `archive.db` mode `0600`. Schema v6 tables: `messages`, `revisions`,
 `tombstones`, `transcripts`, `scope`, `sync_state` (with peer identity
 columns), `account_sync` (account-level `tg changes` cursor + gap), plus an
 FTS5 index over message text and transcript text with
@@ -1730,8 +1730,10 @@ record is exit **4**.
 empty→all sentinel. Default `--limit` is **100** messages per dialog; hard
 caps are **1000** messages per dialog and **20** explicit `CHAT`s per
 invocation. `--private` uses `--max-dialogs` (default **20**, hard cap
-**100**) and skips dialogs whose last checkpoint already has `more:
-false`. Groups/channels must be `add`ed first (exit 2 otherwise); private
+**100**) and skips only dialogs whose backfill has actually recorded an end
+checkpoint (`last_backfill_at` is set and `more: false`). A delta-only
+private peer is therefore eligible even if an older row happens to say
+`more: false`. Groups/channels must be `add`ed first (exit 2 otherwise); private
 dialogs may be backfilled without `add`. Each run walks recent→older
 history (resuming from the stored oldest id), upserts the universal
 message shape, appends revisions on edit, persists per-dialog identity on
@@ -1776,15 +1778,17 @@ must be positive and within its hard ceiling; there is no unlimited sentinel.
 An explicit `--timeout` may bound the run, but no implicit 60-second deadline
 is applied.
 
-A network exception, unavailable transcription engine, or item-level media /
-transcription failure records the failure in `account_sync`, increments the
-consecutive `failure_streak`, and exits nonzero (completed stage data is
-returned for item-level failures). A fully successful refresh resets the
-streak, last error, and notification episode. On the third consecutive failed
-run, one best-effort generic macOS notification is sent through `desktop.py`;
-it is not repeated until a successful run resets the episode. Notification
-failure does not change the archive result. `tg archive status` exposes the
-streak, last error, threshold, and notification marker.
+A network exception or unavailable transcription engine records the failure in
+`account_sync`, increments the consecutive `failure_streak`, and exits
+nonzero. Item-level media/transcription failures return completed stage data
+and exit nonzero, but do not increment the account-level streak. A
+`FLOOD_WAIT` exits **5** without changing that streak. A completed pipeline
+(including one with item-level failures) resets the streak, last error, and
+notification episode. On the third consecutive run-level failure, one
+best-effort generic macOS notification is sent through `desktop.py`; it is
+not repeated until a completed run resets the episode. Notification failure
+does not change the archive result. `tg archive status` exposes the streak,
+last error, threshold, and notification marker.
 
 `docs/assets/tgcli-archive-refresh.plist` is a manual launchd template with a
 3600-second interval. It contains explicit path placeholders; it is never
@@ -1796,9 +1800,14 @@ uses a fixed default budget of **50** media items per run; `sync` exposes
 `--max-media`, which defaults to **50** and accepts at most **500** items.
 The sync flag limits media downloads only, so message events and the sync
 cursor are still applied in full. Downloads are idempotent: a transcript
-queue row is marked with its controlled relative `media_path` only after the file is
-published successfully. Download failures remain retryable and a
-`FLOOD_WAIT` arms the shared account cooldown and exits **5**.
+queue row is marked with its controlled relative `media_path` only after the
+file is published successfully. Media acquisition has an independent fixed
+cap of **3** attempts, separate from transcription attempts. Ordinary
+failures are `media_status: "retryable"` until the cap, then become terminal
+`media_status: "no_media"` and are not returned by later media queues. A
+later successful publish resets that media counter and sets
+`media_status: "done"`. A `FLOOD_WAIT` leaves the media item retryable,
+arms the shared account cooldown, and exits **5**.
 
 `tg archive transcribe` is foreground-only and offline. It drains the
 newest ready media rows first through the local `transcribe` CLI
@@ -1826,7 +1835,7 @@ under readonly; `read` and `history` are also offline read-only commands.
 
 ```json
 {"created":true,"path":"…/archive/main/archive.db",
- "account":{"alias":"main","user_id":42},"schema_version":5}
+ "account":{"alias":"main","user_id":42},"schema_version":6}
 ```
 
 ```json
@@ -1838,7 +1847,7 @@ under readonly; `read` and `history` are also offline read-only commands.
 
 ```json
 {"account":{"alias":"main","user_id":42},"path":"…",
- "schema_version":5,
+ "schema_version":6,
  "counts":{"messages":0,"revisions":0,"tombstones":0,"transcripts":0,
            "scope":0,"transcript_queue":0},
  "dialogs":[],"transcript_queue":0,
@@ -1925,6 +1934,10 @@ under readonly; `read` and `history` are also offline read-only commands.
  "errors":[{"peer_id":7,"message_id":8,"status":"no_transcript",
              "error":"…"}]}
 ```
+
+`status.transcript_errors` rows also carry `attempts`, `media_attempts`, and
+`media_status`; the latter distinguishes a retryable media download from a
+terminal `no_media` row without consuming transcription attempts.
 
 `--plain` rows: `init` → `created,alias,user_id,path`; `list` → standing +
 explicit peer rows; `status` → counts summary (+ gap/cursor/transcript and

@@ -44,7 +44,7 @@ selected account session, does one operation, and exits.
 | Backfill selected dialogs into archive | `tg --json archive backfill CHAT [CHAT …] [--limit N]` |
 | Backfill standing private dialogs | `tg --json archive backfill --private [--max-dialogs N] [--limit N]` |
 | Sync archive from changes cursor | `tg --json archive sync [--max-events N] [--max-dialogs N] [--max-media N]` (applies full difference; caps catch-up RPCs and media downloads) |
-| Run one bounded archive refresh | `tg --json archive refresh [--max-events N] [--max-dialogs N] [--max-media N] [--transcribe-limit N] [--max-attempts N]` (sync → media → offline transcription; streak/notification state in `archive status`) |
+| Run one bounded archive refresh | `tg --json archive refresh [--max-events N] [--max-dialogs N] [--max-media N] [--transcribe-limit N] [--max-attempts N]` (sync → media → offline transcription; run-level streak/notification state in `archive status`) |
 | Transcribe archived voice/video notes | `tg --json archive transcribe [--limit N] [--max-attempts N]` (offline local FluidAudio/Parakeet queue) |
 | Rebaseline archive changes cursor | `tg --json archive rebaseline` |
 | Offline archive status | `tg --json archive status` |

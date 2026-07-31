@@ -13,7 +13,7 @@ from tgcli import desktop
 from tgcli.archive import refresh as refresh_mod, store as store_mod
 from tgcli.cli import main
 from tgcli.commands import archive as archive_cmd
-from tgcli.errors import PartialFailure
+from tgcli.errors import PartialFailure, RateLimitError
 
 SAMPLE = """
 default_account = "main"
@@ -213,7 +213,7 @@ async def test_refresh_records_consecutive_failures_and_notifies_once(
 
 
 @pytest.mark.asyncio
-async def test_refresh_item_failure_returns_stage_data_and_increments_streak(
+async def test_refresh_item_failure_returns_stage_data_without_incrementing_streak(
     tmp_path, monkeypatch
 ):
     conn = _connection(tmp_path)
@@ -252,8 +252,38 @@ async def test_refresh_item_failure_returns_stage_data_and_increments_streak(
                 max_attempts=3,
             )
         assert caught.value.data["sync"]["applied"]["events"] == 1
-        assert caught.value.data["refresh"]["failure_streak"] == 1
-        assert store_mod.read_account_sync(conn)["refresh_failure_streak"] == 1
+        assert caught.value.data["refresh"]["failure_streak"] == 0
+        assert store_mod.read_account_sync(conn)["refresh_failure_streak"] == 0
+    finally:
+        conn.close()
+
+
+@pytest.mark.asyncio
+async def test_refresh_rate_limit_does_not_increment_streak(tmp_path, monkeypatch):
+    conn = _connection(tmp_path)
+
+    async def raise_rate_limit(*_args, **_kwargs):
+        raise RateLimitError("retry later", retry_after=30)
+
+    monkeypatch.setattr(refresh_mod.sync_mod, "sync_archive", raise_rate_limit)
+    try:
+        with pytest.raises(RateLimitError):
+            await refresh_mod.run(
+                object(),
+                conn,
+                account_alias="main",
+                account_user_id=42,
+                account_dir=tmp_path,
+                max_events=5,
+                max_dialogs=6,
+                max_media=7,
+                transcribe_limit=8,
+                max_attempts=3,
+            )
+        state = store_mod.read_account_sync(conn)
+        assert state["refresh_failure_streak"] == 0
+        assert state["refresh_last_error"] is None
+        assert state["refresh_notification_sent"] is False
     finally:
         conn.close()
 

@@ -52,7 +52,9 @@ Pass explicit `CHAT`s **or** `--private` (enumerate standing private 1:1
 dialogs under `--max-dialogs`) — never both, and never an empty→all
 sentinel. Default limit is 100 messages per dialog; hard caps are 1000
 messages/dialog, 20 explicit chats, and 100 private dialogs per run.
-`--private` skips dialogs already checkpointed with `more: false`.
+`--private` skips only dialogs whose backfill has recorded an end checkpoint
+(`last_backfill_at` is set and `more: false`), so a delta-only peer is still
+backfilled.
 Groups/channels need `add` first; private dialogs do not. Each run is
 checkpointed and resumable. Long `FLOOD_WAIT` exits 5 after checkpointing.
 Media downloads are bounded separately from message acquisition; the message
@@ -94,8 +96,10 @@ tg --json archive refresh --max-events 500 --max-dialogs 20 \
 ```
 
 It applies the bounded sync, acquires media, and drains the bounded local
-transcription queue under one invocation. A full success resets the refresh
-failure streak; recurring failures are visible in `archive status` and cause
+transcription queue under one invocation. Run-level failures increment the
+refresh failure streak; item-level failures are returned but do not poison it,
+and FLOOD_WAIT does not count as an outage. A completed pipeline resets the
+streak. Recurring run-level failures are visible in `archive status` and cause
 one generic macOS notification after three consecutive failed runs. The
 manual launchd template and load/unload commands are in the separate
 [refresh scheduling guide](archive-refresh.md).
@@ -106,8 +110,12 @@ Backfill and sync queue `voice` and `video_note` messages for media download
 into the account-local `media/` directory. Backfill uses a fixed budget of 50
 media items per run; sync exposes `--max-media`, which defaults to 50 and has
 a hard cap of 500. Existing files are reused, and the transcript queue
-records `media_path` only after a successful publish. A media failure remains
-retryable; a `FLOOD_WAIT` exits 5 and arms the shared account cooldown.
+records `media_path` only after a successful publish. Media acquisition has
+three attempts independent of transcription attempts; failures are marked
+`media_status: "retryable"` and then terminal `media_status: "no_media"`.
+A successful later publish resets the media counter and marks it `done`.
+A `FLOOD_WAIT` leaves the item retryable, exits 5, and arms the shared
+account cooldown.
 
 After media is available, drain the local Parakeet queue in a separate
 foreground invocation:

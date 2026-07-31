@@ -13,7 +13,7 @@ from tgcli.archive import (
     transcribe as transcribe_mod,
 )
 from tgcli.clone import flood
-from tgcli.errors import PartialFailure, TgcliError
+from tgcli.errors import PartialFailure, RateLimitError, TgcliError
 
 FAILURE_NOTIFICATION_THRESHOLD = 3
 
@@ -32,9 +32,7 @@ def _refresh_state(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def record_refresh_failure(
-    conn: sqlite3.Connection, *, error: str
-) -> dict[str, Any]:
+def record_refresh_failure(conn: sqlite3.Connection, *, error: str) -> dict[str, Any]:
     """Increment the account-level failure streak for one refresh run."""
     existing = store_mod.read_account_sync(conn)
     streak = int(existing["refresh_failure_streak"]) + 1
@@ -122,6 +120,8 @@ async def run(
             limit=transcribe_limit,
             max_attempts=max_attempts,
         )
+    except RateLimitError:
+        raise
     except Exception as exc:
         _record_failure(conn, _error_text(exc))
         raise
@@ -131,12 +131,9 @@ async def run(
     transcript_failures = transcribe_data.get("errors") or []
     missing_media = int(transcribe_data.get("skipped_missing_media") or 0)
     if media_failures or transcript_failures or missing_media:
-        state = _record_failure(
-            conn,
-            "archive stages reported "
-            f"{len(media_failures)} media, {missing_media} missing-media, "
-            f"and {len(transcript_failures)} transcription failures",
-        )
+        # The pipeline completed; item failures are reported in stage data but
+        # must not poison the account-level outage episode.
+        state = record_refresh_success(conn)
         data["refresh"] = _refresh_state(state)
         raise PartialFailure(
             "archive refresh completed with item failures",

@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from telethon import errors as telethon_errors
 
 from tgcli.archive import (
     explore as explore_module,
+    media as media_module,
     store,
     sync as sync_module,
     transcribe as transcribe_module,
 )
+from tgcli.errors import RateLimitError
 
 
 def _payload(message_id: int, text: str, *, media_kind: str = "voice") -> dict:
@@ -38,7 +42,7 @@ def test_message_edit_rebuild_preserves_transcript_in_fts(tmp_path):
     conn = _connection(tmp_path)
     try:
         assert store.upsert_message(conn, 7, _payload(1, "caption")) == "inserted"
-        store.set_media_path(
+        media_module.set_media_path(
             conn,
             7,
             1,
@@ -73,7 +77,7 @@ def test_transcript_queue_is_newest_first_and_bounded(tmp_path):
     try:
         for message_id in (1, 2, 3):
             store.upsert_message(conn, 7, _payload(message_id, str(message_id)))
-            store.set_media_path(
+            media_module.set_media_path(
                 conn,
                 7,
                 message_id,
@@ -89,13 +93,19 @@ def test_transcript_queue_is_newest_first_and_bounded(tmp_path):
         conn.close()
 
 
-def test_schema_v5_adds_refresh_failure_state(tmp_path):
+def test_schema_v6_adds_refresh_and_media_failure_state(tmp_path):
     conn = _connection(tmp_path)
     try:
         columns = {
             row[1] for row in conn.execute("PRAGMA table_info(transcripts)").fetchall()
         }
-        assert {"media_path", "media_kind", "last_error"} <= columns
+        assert {
+            "media_path",
+            "media_kind",
+            "last_error",
+            "media_attempts",
+            "media_status",
+        } <= columns
         assert {
             "refresh_failure_streak",
             "refresh_last_error",
@@ -103,17 +113,48 @@ def test_schema_v5_adds_refresh_failure_state(tmp_path):
         } <= {
             row[1] for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
         }
-        assert store.schema_version(conn) == 5
+        assert store.schema_version(conn) == 6
+    finally:
+        conn.close()
+
+
+def test_schema_v5_migrates_media_retry_state(tmp_path):
+    path = tmp_path / "archive.db"
+    old_sql = store._SCHEMA_SQL.replace(
+        "    media_attempts INTEGER NOT NULL DEFAULT 0,\n"
+        "    media_status TEXT NOT NULL DEFAULT 'pending',\n",
+        "",
+    )
+    raw = sqlite3.connect(path)
+    raw.executescript(old_sql)
+    raw.execute("PRAGMA user_version=5")
+    raw.execute(
+        "INSERT INTO transcripts(peer_id, message_id, status, attempts, updated_at, "
+        "media_path, media_kind, last_error) VALUES (7, 1, 'pending', 0, ?, ?, ?, ?)",
+        ("2026-01-01T00:00:00+00:00", "media/7/1.ogg", "voice", "old error"),
+    )
+    raw.commit()
+    raw.close()
+
+    conn = store.connect(path)
+    try:
+        row = store.transcript_row(conn, 7, 1)
+        assert store.schema_version(conn) == 6
+        assert row["media_attempts"] == 0
+        assert row["media_status"] == "done"
     finally:
         conn.close()
 
 
 def test_media_relative_path_uses_controlled_suffixes():
-    assert store.media_relative_path(7, 9, media_kind="voice") == "media/7/9.ogg"
-    assert store.media_relative_path(7, 9, media_kind="video_note") == "media/7/9.mp4"
-    assert store.media_relative_path(7, 9, media_kind="audio", mime="audio/mp4") == (
-        "media/7/9.m4a"
+    assert media_module.media_relative_path(7, 9, media_kind="voice") == "media/7/9.ogg"
+    assert (
+        media_module.media_relative_path(7, 9, media_kind="video_note")
+        == "media/7/9.mp4"
     )
+    assert media_module.media_relative_path(
+        7, 9, media_kind="audio", mime="audio/mp4"
+    ) == ("media/7/9.m4a")
 
 
 @pytest.mark.asyncio
@@ -166,6 +207,87 @@ async def test_media_fetch_publishes_and_is_idempotent(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_media_failure_retries_then_becomes_terminal(tmp_path, monkeypatch):
+    conn = _connection(tmp_path)
+    account_dir = tmp_path / "account"
+    account_dir.mkdir()
+    try:
+        store.upsert_message(conn, 7, _payload(1, "caption"))
+        conn.commit()
+        calls = []
+
+        async def failed_download(_tg, source, _alias, *, output, parallel):
+            calls.append((source.message_id, output, parallel))
+            raise RuntimeError("media is unavailable")
+
+        monkeypatch.setattr(sync_module.media_cmd, "download_media", failed_download)
+        for attempt in range(1, media_module.MAX_MEDIA_ATTEMPTS + 1):
+            result = await sync_module.fetch_media(
+                object(),
+                conn,
+                account_alias="main",
+                account_user_id=42,
+                account_dir=account_dir,
+                limit=10,
+            )
+            row = store.transcript_row(conn, 7, 1)
+            assert result["queued"] == 1
+            assert result["failed"][0]["message_id"] == 1
+            assert row["media_attempts"] == attempt
+            assert row["media_status"] == (
+                "no_media"
+                if attempt == media_module.MAX_MEDIA_ATTEMPTS
+                else "retryable"
+            )
+            assert result["remaining"] is (attempt < media_module.MAX_MEDIA_ATTEMPTS)
+
+        result = await sync_module.fetch_media(
+            object(),
+            conn,
+            account_alias="main",
+            account_user_id=42,
+            account_dir=account_dir,
+            limit=10,
+        )
+        assert result["queued"] == 0
+        assert len(calls) == media_module.MAX_MEDIA_ATTEMPTS
+    finally:
+        conn.close()
+
+
+@pytest.mark.asyncio
+async def test_media_flood_wait_does_not_consume_media_attempt(tmp_path, monkeypatch):
+    conn = _connection(tmp_path)
+    account_dir = tmp_path / "account"
+    account_dir.mkdir()
+    try:
+        store.upsert_message(conn, 7, _payload(1, "caption"))
+        conn.commit()
+        flood_wait = telethon_errors.FloodWaitError(request=None)
+        flood_wait.seconds = 30
+
+        async def raise_flood(*_args, **_kwargs):
+            raise flood_wait
+
+        monkeypatch.setattr(sync_module.media_cmd, "download_media", raise_flood)
+        monkeypatch.setattr(sync_module.cooldown_mod, "arm_account", lambda *_a: None)
+        with pytest.raises(RateLimitError):
+            await sync_module.fetch_media(
+                object(),
+                conn,
+                account_alias="main",
+                account_user_id=42,
+                account_dir=account_dir,
+                limit=10,
+            )
+        row = store.transcript_row(conn, 7, 1)
+        assert row["media_attempts"] == 0
+        assert row["media_status"] == "pending"
+    finally:
+        conn.close()
+
+
+@pytest.mark.asyncio
 async def test_media_fetch_reaches_backlog_older_than_candidate_window(
     tmp_path, monkeypatch
 ):
@@ -181,7 +303,7 @@ async def test_media_fetch_reaches_backlog_older_than_candidate_window(
                 path = account_dir / f"media/7/{message_id}.ogg"
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b"voice")
-                store.set_media_path(
+                media_module.set_media_path(
                     conn,
                     7,
                     message_id,
@@ -224,7 +346,9 @@ def test_transcribe_queue_stores_parakeet_text_and_metadata(tmp_path, monkeypatc
     media_path.write_bytes(b"voice")
     try:
         store.upsert_message(conn, 7, _payload(1, "caption"))
-        store.set_media_path(conn, 7, 1, path="media/7/1.ogg", media_kind="voice")
+        media_module.set_media_path(
+            conn, 7, 1, path="media/7/1.ogg", media_kind="voice"
+        )
         conn.commit()
 
         monkeypatch.setattr(
@@ -285,7 +409,9 @@ def test_transcribe_retryable_failure_becomes_terminal_at_cap(tmp_path, monkeypa
     (media_dir / "1.ogg").write_bytes(b"voice")
     try:
         store.upsert_message(conn, 7, _payload(1, "caption"))
-        store.set_media_path(conn, 7, 1, path="media/7/1.ogg", media_kind="voice")
+        media_module.set_media_path(
+            conn, 7, 1, path="media/7/1.ogg", media_kind="voice"
+        )
         conn.commit()
         monkeypatch.setattr(
             transcribe_module.shutil, "which", lambda _: "/bin/transcribe"
@@ -329,7 +455,9 @@ def test_transcribe_missing_media_returns_item_to_media_queue(tmp_path, monkeypa
     account_dir.mkdir()
     try:
         store.upsert_message(conn, 7, _payload(1, "caption"))
-        store.set_media_path(conn, 7, 1, path="media/7/1.ogg", media_kind="voice")
+        media_module.set_media_path(
+            conn, 7, 1, path="media/7/1.ogg", media_kind="voice"
+        )
         conn.commit()
         monkeypatch.setattr(
             transcribe_module.shutil, "which", lambda _: "/bin/transcribe"
@@ -345,6 +473,8 @@ def test_transcribe_missing_media_returns_item_to_media_queue(tmp_path, monkeypa
         assert row["media_path"] is None
         assert row["status"] == "pending"
         assert row["attempts"] == 0
+        assert row["media_attempts"] == 1
+        assert row["media_status"] == "retryable"
         assert store.list_transcript_queue(conn, limit=20, max_attempts=3) == []
         assert sync_module._media_candidates(conn, account_dir, 1)[0]["message_id"] == 1
     finally:

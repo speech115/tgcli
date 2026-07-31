@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from tgcli.archive import store as store_mod
+from tgcli.archive import media as media_mod, store as store_mod
 from tgcli.errors import PolicyError
 
 DEFAULT_LIMIT = 20
@@ -34,9 +34,7 @@ def validate_limit(value: int | None, *, label: str = "limit") -> int:
     if value <= 0:
         raise PolicyError(f"archive transcribe --{label} must be positive")
     if value > MAX_LIMIT:
-        raise PolicyError(
-            f"archive transcribe --{label} accepts at most {MAX_LIMIT}"
-        )
+        raise PolicyError(f"archive transcribe --{label} accepts at most {MAX_LIMIT}")
     return value
 
 
@@ -183,7 +181,7 @@ def run_queue(
             media_path = _resolve_media_path(account_dir, row.get("media_path"))
             if not media_path.is_file():
                 with conn:
-                    store_mod.record_media_failure(
+                    media_mod.record_media_failure(
                         conn,
                         peer_id,
                         message_id,
