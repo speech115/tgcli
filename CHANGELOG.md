@@ -11,6 +11,31 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.25] — 2026-07-31
+
+### Added
+
+- Archive Phase 6 (ADR-0070): `tg archive refresh` composes delta sync,
+  media acquisition, and local transcription into one bounded foreground
+  pass suitable for a scheduler; an account-level failure streak with one
+  best-effort macOS notification after three consecutive failed runs,
+  reported under `archive status`; and a manual hourly launchd plist
+  template that tgcli never installs or supervises. CONTRACT §13.
+
+### Fixed
+
+- A private dialog first seen through the delta feed was recorded as
+  having no further history, so `archive backfill --private` skipped it
+  permanently and its past correspondence never arrived. New peers now
+  start with `more=true`, and `--private` only skips dialogs that actually
+  walked their history; a single recovery run refills them.
+- Archive media downloads gained their own attempt counter and terminal
+  `no_media` status (schema v6), so a permanently unavailable voice note
+  stops being retried every run. Item-level media and transcription
+  failures, and `FLOOD_WAIT` backpressure, no longer feed the refresh
+  failure streak — previously one dead item could latch the notification
+  and silence every later outage.
+
 ## [1.2.24] — 2026-07-31
 
 ### Added
@@ -600,6 +625,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.25]: https://github.com/speech115/tgcli/compare/v1.2.24...v1.2.25
 [1.2.24]: https://github.com/speech115/tgcli/compare/v1.2.23...v1.2.24
 [1.2.23]: https://github.com/speech115/tgcli/compare/v1.2.22...v1.2.23
 [1.2.22]: https://github.com/speech115/tgcli/compare/v1.2.21...v1.2.22
