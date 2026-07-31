@@ -74,6 +74,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0065](ADR-0065-active-documentation-drift-gates.md) | Active-doc gate covers README discoverability/global flags/safety summaries, benchmark claims, MAP inventory, and devlog routing; shipped status closure becomes an explicit workflow duty | accepted |
 | [0066](ADR-0066-voice-played-json-field.md) | Additive `voice_played` field exposes Telegram voice playback state without mutation | accepted |
 | [0067](ADR-0067-pinned-runtime-diagnostics.md) | Supported session runtime boundary plus additive `doctor` runtime fingerprint | accepted |
+| [0068](ADR-0068-local-archive-store.md) | Native `tg archive` SQLite+FTS5 store: private dialogs auto-scoped, append-only history, local transcription, hourly one-shot refresh; telecrawl sidecar rejected | accepted |
 
 Notes on supersessions:
 

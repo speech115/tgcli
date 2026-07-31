@@ -320,6 +320,59 @@ is on the server in the chat, so `tg send --commit`'s
 needed. `--pick N` for ambiguous recipients is likewise moot — Telegram
 usernames are unique, and display-name search already returns a list.
 
+### Local archive and search — telecrawl-inspired owner scenario (2026-07-30)
+
+The generic local mirror was previously declined because Telegram has a
+server-side history and search surface. The owner has now named a different,
+concrete scenario: Telegram is the primary communication app, and information
+must be searched frequently across private chats, groups, and selected
+channels. That makes a local archive a user-facing retrieval layer rather than
+an abstract backend replacement.
+
+[`openclaw/telecrawl`](https://github.com/openclaw/telecrawl) validates one
+candidate shape: import local Telegram Desktop `tdata` or macOS Postbox data
+into a local SQLite archive, keep a `messages` table plus SQLite FTS5, and
+expose local search over chats, topics, senders, replies, media metadata, and
+dates. It also records observable edits and deletions and keeps ordinary
+archive/search commands local; encrypted GitHub backup is explicit rather than
+implicit.
+
+This is a proposal, not an approval to add a mirror. `tgcli` remains the live
+Telegram control route; a local archive would be read-only and account-scoped.
+The first candidate should be an explicit, foreground import for selected
+dialogs, not a daemon or an automatic full-account mirror. The Telegram server
+remains the source of truth; gaps, incomplete local Desktop/Postbox history,
+account changes, edits, and deletions require explicit freshness and
+rebaseline semantics. The storage and privacy model must also be chosen before
+any message bodies are placed under `~/.local/state/tgcli/`.
+
+| Item | Value | Effort | Status |
+|---|---|---|---|
+| Selected-dialog local archive + FTS5 search | high | M | **accepted — ADR-0068 (native store; plan 2026-07-31-archive-store)** |
+| Import/rebuild/status with account identity and gap reporting | high | M | **accepted — ADR-0068 (folded into the same plan)** |
+| Continuous event-driven mirror | ? | L | **rejected for this effort — hourly foreground one-shots instead (ADR-0068)** |
+
+Resolution (2026-07-31): wayfinder map #100 worked the gates below to closure
+— research #101–#103, decisions #104–#108, ADR-0068 accepted, plan at
+`docs/superpowers/plans/2026-07-31-archive-store.md`. The sidecar question is
+settled (native store; telecrawl rejected with grounds in #104), and the
+Desktop/Postbox-history question is moot: acquisition is server-side via
+tgcli's own export/changes surfaces. The remaining gates live on in the plan
+as Phase 2's proof-of-value acceptance and the global read-only constraint.
+
+Original re-entry gates (historical):
+
+- compare local results with live `tg search` over a fixed set of real search
+  tasks, including private chats and selected channels;
+- prove which history is actually available from local Desktop/Postbox data and
+  which requires a Telegram API backfill;
+- define account binding, permissions, retention, deletion, rebuild, and
+  backup rules before storing message text locally;
+- choose between a telecrawl sidecar and a native tgcli store without coupling
+  the Python control plane to an unreviewed Go binary contract;
+- keep imports and local search read-only, with no send/edit/delete/clone
+  mutation path through the archive.
+
 ---
 
 ## Hardening / simplification backlog (2026-07-26 campaign review)
@@ -438,10 +491,14 @@ bf-01-class defects.
 
 ## Suggested sequencing (remaining items only)
 
-1. **Data tail (S/M):** `export bundle` and typed temporary/permanent media
+1. **Local archive/search (M, accepted — ADR-0068):** execute
+   `docs/superpowers/plans/2026-07-31-archive-store.md` — native store, no
+   sidecar; fidelity prerequisites first, and Phase 2's proof-of-value
+   acceptance gates any full-account backfill.
+2. **Data tail (S/M):** `export bundle` and typed temporary/permanent media
    failures, only against a concrete backup workflow.
-2. **Measured performance (S):** baseline → `--profile` → per-run RPC cache.
-3. **Verticals (M/L, per-scenario ADRs):** community, moderation, stats, and
+3. **Measured performance (S):** baseline → `--profile` → per-run RPC cache.
+4. **Verticals (M/L, per-scenario ADRs):** community, moderation, stats, and
    security only against concrete demand.
-4. **Runtime direction (L):** only after an explicit owner decision that
+5. **Runtime direction (L):** only after an explicit owner decision that
    continuous 24/7 cloning is a product requirement.
