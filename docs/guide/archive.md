@@ -70,9 +70,11 @@ tg --json archive rebaseline
 `sync` holds an account-level `tg changes` cursor, applies new/edit/delete
 events (and scoped channel catch-up), and records
 `differenceTooLong`-class gaps loudly in `status`. Caps bound events and
-catch-up dialogs per run. `rebaseline` is the explicit recovery that
-re-inits the cursor and clears a stored gap — never silent. A light
-local-vs-Telegram count sample is attached as `reconcile`.
+catch-up dialogs per run. Private deletes without a peer may tombstone
+every archived dialog that shares that numeric message id. `rebaseline` is
+the explicit recovery that re-inits the cursor and clears a stored gap —
+never silent. A light local-vs-Telegram count sample is attached as
+`reconcile`.
 
 ## Search (thin / offline)
 

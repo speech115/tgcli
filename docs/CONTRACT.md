@@ -1708,7 +1708,10 @@ local message ids); `channel_activity` for scoped channels/groups triggers
 a bounded catch-up (`iter_messages` with `min_id`). Caps: `--max-events`
 (default **500**, hard cap **5000**) and `--max-dialogs` catch-ups
 (default **20**, hard cap **50**). Non-positive / over-cap values are exit
-**2**. A `differenceTooLong`-class gap is stored loudly in `account_sync`
+**2**. Private `UpdateDeleteMessages` resolves peers by matching local
+`message_id` values only — if the same id exists in more than one archived
+private dialog, sync tombstones every matching peer (MTProto does not name
+the peer). A `differenceTooLong`-class gap is stored loudly in `account_sync`
 and surfaced by `status` / sync JSON; exit **0** (a gap is data). Light
 reconciliation (sampled local vs Telegram message totals) runs at the end
 of sync and is reported under `reconcile` / `status.reconcile`.

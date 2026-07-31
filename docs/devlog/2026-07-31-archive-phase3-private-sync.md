@@ -22,8 +22,10 @@ tombstone acceptance.
 - CONTRACT §13, guide/archive, SKILL, MAP, FEATURES, PROPOSALS updated.
 - Live acceptance on `--account main` Saved Messages (`me`): send →
   backfill → edit → sync (revision) → delete → sync (tombstone) for
-  message id 284561. Fake-proven apply path remains in
-  `tests/test_cli_archive_phase3.py`.
+  message id 284561. Sync JSON after the delete pass reported
+  `applied.tombstones >= 1` and `status` counts showed a tombstone row;
+  no session material or message text retained here. Fake-proven apply
+  path remains in `tests/test_cli_archive_phase3.py`.
 
 ## Gate
 

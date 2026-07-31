@@ -91,12 +91,9 @@ def apply_events(
             peer_id = int(peer)
             kind = "user" if peer_id > 0 else None
             if not _in_archive_scope(conn, peer_id, kind):
-                if peer_id > 0:
-                    kind = "user"
-                else:
-                    applied["skipped_out_of_scope"] += 1
-                    applied["events"] += 1
-                    continue
+                applied["skipped_out_of_scope"] += 1
+                applied["events"] += 1
+                continue
             with conn:
                 action = store_mod.upsert_message(conn, peer_id, message)
                 state = store_mod.get_sync_state(conn, peer_id)

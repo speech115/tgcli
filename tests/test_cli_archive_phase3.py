@@ -7,10 +7,15 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+from telethon import utils
+from telethon.tl.functions.channels import GetFullChannelRequest
 from telethon.tl.functions.updates import GetDifferenceRequest, GetStateRequest
 from telethon.tl.types import (
+    Channel,
     Message,
+    PeerChannel,
     PeerUser,
+    UpdateChannelTooLong,
     UpdateDeleteMessages,
     UpdateEditMessage,
     User,
@@ -23,7 +28,7 @@ from telethon.tl.types.updates import (
 
 from tests.conftest import FakeClient, make_session_fake
 from tgcli import changes_cursor
-from tgcli.archive import store as store_mod
+from tgcli.archive import store as store_mod, sync as sync_mod
 from tgcli.changes_cursor import ChangesCursor
 from tgcli.cli import main
 from tgcli.commands import archive as archive_cmd
@@ -413,6 +418,166 @@ def test_sync_rejects_non_positive_event_cap(config_env, monkeypatch, capsys):
     capsys.readouterr()
     assert main(["archive", "sync", "--max-events", "0", "--json"]) == 2
     assert "max-events" in capsys.readouterr().err.lower()
+
+
+def test_sync_rejects_over_cap_events_and_dialogs(config_env, monkeypatch, capsys):
+    make_session_fake(monkeypatch, _client())
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    over_events = str(archive_cmd.MAX_SYNC_EVENTS + 1)
+    assert main(["archive", "sync", "--max-events", over_events, "--json"]) == 2
+    assert "max-events" in capsys.readouterr().err.lower()
+    assert main(["archive", "sync", "--max-dialogs", "0", "--json"]) == 2
+    assert "max-dialogs" in capsys.readouterr().err.lower()
+    over_dialogs = str(archive_cmd.MAX_SYNC_DIALOGS + 1)
+    assert main(["archive", "sync", "--max-dialogs", over_dialogs, "--json"]) == 2
+    assert "max-dialogs" in capsys.readouterr().err.lower()
+
+
+def test_sync_and_rebaseline_verify_live_account_id(config_env, monkeypatch, capsys):
+    make_session_fake(monkeypatch, _client(me=_me(user_id=42)))
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    make_session_fake(monkeypatch, _client(me=_me(user_id=99)))
+    assert main(["archive", "sync", "--json"]) == 2
+    assert "account" in capsys.readouterr().err.lower()
+    assert main(["archive", "rebaseline", "--json"]) == 2
+    assert "account" in capsys.readouterr().err.lower()
+
+
+def test_private_delete_tombstones_every_peer_sharing_message_id(tmp_path):
+    """MTProto private deletes omit peer; local id match may hit many dialogs."""
+    conn = store_mod.connect(tmp_path / "archive.db")
+    try:
+        store_mod.ensure_meta(conn, account_user_id=42, account_alias="main")
+        for peer in (7, 8):
+            store_mod.upsert_message(
+                conn,
+                peer,
+                {
+                    "id": 42,
+                    "date": "2026-01-02T00:00:00+00:00",
+                    "text": f"shared-id peer {peer}",
+                    "from": {"id": peer},
+                },
+            )
+        conn.commit()
+        applied = sync_mod.apply_events(
+            conn,
+            [{"type": "message_delete", "peer": None, "ids": [42]}],
+            max_events=10,
+        )
+        assert applied["tombstones"] == 2
+        peers = {
+            int(row["peer_id"])
+            for row in conn.execute("SELECT peer_id FROM tombstones").fetchall()
+        }
+        assert peers == {7, 8}
+    finally:
+        conn.close()
+
+
+def test_sync_channel_activity_catchup_for_scoped_channel(
+    config_env, monkeypatch, capsys
+):
+    channel = Channel(
+        id=1234,
+        title="News",
+        photo=None,
+        date=datetime(2026, 1, 1, tzinfo=UTC),
+        access_hash=99,
+        megagroup=False,
+        username="news",
+    )
+    peer = utils.get_peer_id(channel)
+    catchup = Message(
+        id=10,
+        peer_id=PeerChannel(1234),
+        message="caught up",
+        date=datetime(2026, 1, 4, tzinfo=UTC),
+        out=False,
+    )
+
+    class CatchupClient(FakeClient):
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, GetFullChannelRequest):
+                # Force skip subscription so UpdateChannelTooLong stays visible.
+                raise RuntimeError("pts unavailable")
+            if isinstance(request, GetStateRequest):
+                return _state(pts=5, qts=1, seq=1)
+            if isinstance(request, GetDifferenceRequest):
+                return Difference(
+                    new_messages=[],
+                    new_encrypted_messages=[],
+                    other_updates=[UpdateChannelTooLong(channel_id=1234, pts=None)],
+                    chats=[channel],
+                    users=[],
+                    state=_state(pts=6, qts=1, seq=2),
+                )
+            raise AssertionError(request)
+
+        async def get_entity(self, key):
+            if key in (peer, 1234, channel, "@news", "news"):
+                return channel
+            return await super().get_entity(key)
+
+    client = CatchupClient(
+        me=_me(),
+        entities={peer: channel, 1234: channel, "@news": channel, "news": channel},
+        messages=[catchup],
+        message_total=1,
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    path = archive_cmd.db_path("main")
+    conn = store_mod.connect(path)
+    try:
+        store_mod.add_scope(
+            conn,
+            peer_id=peer,
+            kind="channel",
+            title="News",
+            username="news",
+            chat_ref="@news",
+        )
+        store_mod.upsert_sync_state(
+            conn,
+            peer,
+            oldest_id=1,
+            newest_id=5,
+            more=False,
+            kind="channel",
+            title="News",
+            username="news",
+            chat_ref="@news",
+        )
+        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
+        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert main(["archive", "sync", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["applied"]["channel_activity"] >= 1
+    assert data["catchups"]
+    assert data["catchups"][0]["peer_id"] == peer
+    assert data["catchups"][0]["stored"] >= 1
+    assert client.iter_messages_calls
+    assert client.iter_messages_calls[0][2] == sync_mod.CATCHUP_LIMIT
+    assert client.iter_messages_kwargs.get("min_id") == 5
+    conn = store_mod.connect(path)
+    try:
+        row = conn.execute(
+            "SELECT text FROM messages WHERE peer_id = ? AND message_id = ?",
+            (peer, 10),
+        ).fetchone()
+        assert row is not None
+        assert row["text"] == "caught up"
+    finally:
+        conn.close()
 
 
 def test_sync_new_private_dialog_enters_sync_state(config_env, monkeypatch, capsys):
