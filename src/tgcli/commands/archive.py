@@ -9,6 +9,7 @@ from tgcli.archive import (
     scope as scope_mod,
     store as store_mod,
 )
+from tgcli.clone import cooldown as cooldown_mod, flood
 from tgcli.config import Config, load_config, resolve_account
 from tgcli.errors import NotFoundError, PolicyError
 from tgcli.session import state_dir
@@ -160,11 +161,21 @@ async def backfill(
     limit = backfill_mod.validate_limit(
         limit, default=DEFAULT_BACKFILL_LIMIT, maximum=MAX_BACKFILL_LIMIT
     )
-    me = await tg.get_me()
+    # Enforce the shared per-account cooldown before any archive RPC loop
+    # (ADR-0045/0052); with_cooldown needs CloneState, so backfill arms the
+    # account record directly and reuses WaitBudget on short waits.
+    me = await cooldown_mod.cooled_account(tg)
     conn = _open_existing(alias, config)
     try:
         store_mod.require_bound_user(conn, int(me.id), alias)
-        dialogs = await backfill_mod.backfill_dialogs(tg, conn, chats, limit=limit)
+        dialogs = await backfill_mod.backfill_dialogs(
+            tg,
+            conn,
+            chats,
+            limit=limit,
+            account_user_id=int(me.id),
+            budget=flood.WaitBudget(),
+        )
     finally:
         conn.close()
     return {

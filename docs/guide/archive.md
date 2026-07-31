@@ -48,7 +48,9 @@ At least one `CHAT` is required — there is no empty→all sentinel. Default
 limit is 100 messages per dialog; hard caps are 1000 messages/dialog and
 20 dialogs per invocation. Groups/channels need `add` first; private
 dialogs do not. Each run is checkpointed and resumable: a later call
-continues older history from the stored oldest id.
+continues older history from the stored oldest id. Multiple chats in one
+invocation are sequential — a failure mid-list leaves earlier dialogs
+already written. Long `FLOOD_WAIT` exits 5 after checkpointing.
 
 Stored message bodies reuse the universal `tg read` JSON shape
 (`message_to_dict`). Edits append revisions; deletions (later sync) become

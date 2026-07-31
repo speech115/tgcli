@@ -256,6 +256,102 @@ def test_readonly_blocks_mutating_archive_commands(config_env, monkeypatch, caps
     assert "readonly" in capsys.readouterr().err.lower()
 
 
+def test_readonly_blocks_backfill(config_env, monkeypatch, capsys):
+    make_session_fake(monkeypatch, _client())
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    assert main(["--readonly", "archive", "backfill", "@alice", "--json"]) == 2
+    assert "readonly" in capsys.readouterr().err.lower()
+
+
+def test_list_and_status_before_init_are_not_found(config_env, capsys):
+    assert main(["archive", "list", "--json"]) == 4
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"]["code"] == "NOT_FOUND"
+    assert main(["archive", "status", "--json"]) == 4
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"]["code"] == "NOT_FOUND"
+
+
+def test_offline_alias_store_mismatch(config_env, monkeypatch, capsys):
+    import sqlite3
+
+    make_session_fake(monkeypatch, _client())
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    conn = sqlite3.connect(archive_cmd.db_path("main"))
+    conn.execute("UPDATE meta SET account_alias = 'other'")
+    conn.commit()
+    conn.close()
+    assert main(["archive", "list", "--json"]) == 2
+    assert "alias" in capsys.readouterr().err.lower()
+    assert main(["archive", "status", "--json"]) == 2
+    assert "alias" in capsys.readouterr().err.lower()
+
+
+def test_backfill_flood_wait_persists_checkpoint_and_exits_5(
+    config_env, monkeypatch, capsys
+):
+    from telethon import errors as telethon_errors
+
+    from tgcli.clone import flood
+
+    user = _user()
+    messages = [_msg(mid=3, text="c"), _msg(mid=2, text="b"), _msg(mid=1, text="a")]
+
+    class FloodMidIter(FakeClient):
+        async def iter_messages(self, entity, **kwargs):
+            self.iter_messages_calls.append(
+                (entity, kwargs.get("search"), kwargs.get("limit"))
+            )
+            yielded = 0
+            async for message in super().iter_messages(entity, **kwargs):
+                if yielded >= 1:
+                    raise telethon_errors.FloodWaitError(request=None, capture=90)
+                yielded += 1
+                yield message
+
+    client = FloodMidIter(
+        me=_me(user_id=42),
+        entities={"@alice": user, 7: user},
+        messages=messages,
+    )
+    client._self_id = 42
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    assert main(["archive", "backfill", "@alice", "--limit", "10", "--json"]) == 5
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"]["code"] == "FLOOD_WAIT"
+    assert err["error"]["retry_after"] == 90
+    assert flood.cooldown_deadline(42) is not None
+    assert main(["archive", "status", "--json"]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["counts"]["messages"] == 1
+    assert status["dialogs"]
+    assert status["dialogs"][0]["last_error"].startswith("FLOOD_WAIT:")
+    assert status["dialogs"][0]["oldest_id"] == 3
+    assert status["dialogs"][0]["newest_id"] == 3
+
+
+def test_backfill_respects_armed_account_cooldown(config_env, monkeypatch, capsys):
+    from datetime import timedelta
+
+    from tgcli.clone import flood
+
+    user = _user()
+    client = _client(entities={"@alice": user, 7: user}, messages=[_msg()])
+    client._self_id = 42
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
+    assert main(["archive", "backfill", "@alice", "--json"]) == 5
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"]["code"] == "FLOOD_WAIT"
+    assert client.iter_messages_calls == []
+
+
 def test_network_command_verifies_live_account_id(config_env, monkeypatch, capsys):
     make_session_fake(monkeypatch, _client(me=_me(user_id=42)))
     assert main(["archive", "init", "--json"]) == 0

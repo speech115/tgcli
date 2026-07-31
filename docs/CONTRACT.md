@@ -1666,8 +1666,11 @@ or over-cap `--limit` is exit 2. Groups/channels must be `add`ed first
 (exit 2 otherwise); private dialogs may be backfilled without `add`.
 Each run walks recent→older history (resuming from the stored oldest id),
 upserts the universal message shape, appends revisions on edit, and
-persists a per-dialog checkpoint in `sync_state`. Full-history /
-whole-account flags are out of Phase 1.
+persists a per-dialog checkpoint in `sync_state`. Dialogs in one invocation
+are processed sequentially: if chat *N* fails, earlier chats in the argv
+list may already be persisted. A `FLOOD_WAIT` during backfill arms the
+shared per-account cooldown (ADR-0045/0052), persists the dialog checkpoint,
+and exits **5**. Full-history / whole-account flags are out of Phase 1.
 
 **Readonly.** `init` / `add` / `remove` / `backfill` mutate local state and
 are blocked by `--readonly` / `TGCLI_READONLY=1` (exit 2). `list` and
