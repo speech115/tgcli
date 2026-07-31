@@ -16,7 +16,10 @@ shipped** — archive side used direct FTS queries against
   private 1:1 dialogs needed no add (standing private scope).
 - Backfill: `--limit 300` on five chats → **1209** messages stored.
 
-### Dialogs (lightly anonymized)
+### Dialogs
+
+Labels below are shorthand; `chatref` values are the real refs used in the
+run (private repo — not further redacted).
 
 | Label | Kind | chatref | Stored | Window note |
 |-------|------|---------|--------|-------------|

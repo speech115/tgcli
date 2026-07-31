@@ -397,3 +397,214 @@ def test_config_archive_root_override(tmp_path, monkeypatch, capsys):
     assert main(["archive", "init", "--json"]) == 0
     assert (custom / "main" / "archive.db").is_file()
     assert not (state / "archive").exists()
+
+
+def _seed_search_corpus(monkeypatch):
+    """Init store + insert searchable rows without a live Telegram read path."""
+    from tgcli.archive import store as store_mod
+
+    make_session_fake(monkeypatch, _client())
+    assert main(["archive", "init", "--json"]) == 0
+    path = archive_cmd.db_path("main")
+    conn = store_mod.connect(path)
+    try:
+        store_mod.ensure_meta(conn, account_user_id=42, account_alias="main")
+        store_mod.add_scope(
+            conn,
+            peer_id=-1001234,
+            kind="channel",
+            title="News",
+            username="news",
+            chat_ref="@news",
+        )
+        store_mod.upsert_message(
+            conn,
+            7,
+            {
+                "id": 1,
+                "date": "2026-01-02T00:00:00+00:00",
+                "text": "сообщение про ёлка",
+                "from": {"id": 7},
+            },
+        )
+        store_mod.upsert_message(
+            conn,
+            7,
+            {
+                "id": 2,
+                "date": "2026-01-03T00:00:00+00:00",
+                "text": "хакатоны S26 рядом",
+                "from": {"id": 7},
+            },
+        )
+        store_mod.upsert_message(
+            conn,
+            -1001234,
+            {
+                "id": 10,
+                "date": "2026-01-04T00:00:00+00:00",
+                "text": "channel хакатон note",
+                "from": {"id": 1},
+            },
+        )
+        store_mod.upsert_sync_state(
+            conn, 7, oldest_id=1, newest_id=2, more=True, last_error=None
+        )
+        store_mod.upsert_sync_state(
+            conn, -1001234, oldest_id=10, newest_id=10, more=False, last_error=None
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _block_telegram_session(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    from tgcli import session
+
+    opened = {"n": 0}
+
+    @asynccontextmanager
+    async def boom(*_a, **_k):
+        opened["n"] += 1
+        raise AssertionError("offline archive must not open a Telegram session")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(session, "client", boom)
+    return opened
+
+
+def test_archive_search_rejects_empty_query(config_env, monkeypatch, capsys):
+    _seed_search_corpus(monkeypatch)
+    capsys.readouterr()
+    assert main(["archive", "search", "", "--json"]) == 2
+    assert "query" in capsys.readouterr().err.lower()
+    assert main(["archive", "search", "   ", "--json"]) == 2
+    assert "query" in capsys.readouterr().err.lower()
+
+
+def test_archive_search_rejects_non_positive_and_over_cap_limit(
+    config_env, monkeypatch, capsys
+):
+    from tgcli.commands import archive as arch
+
+    _seed_search_corpus(monkeypatch)
+    capsys.readouterr()
+    assert main(["archive", "search", "ёлка", "--limit", "0", "--json"]) == 2
+    assert "limit" in capsys.readouterr().err.lower()
+    over = str(arch.MAX_SEARCH_LIMIT + 1)
+    assert main(["archive", "search", "ёлка", "--limit", over, "--json"]) == 2
+    assert "limit" in capsys.readouterr().err.lower()
+
+
+def test_archive_search_missing_store_is_not_found(config_env, capsys):
+    assert main(["archive", "search", "needle", "--json"]) == 4
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"]["code"] == "NOT_FOUND"
+
+
+def test_archive_search_is_offline_and_folds_yo(config_env, monkeypatch, capsys):
+    _seed_search_corpus(monkeypatch)
+    capsys.readouterr()
+    opened = _block_telegram_session(monkeypatch)
+    assert main(["archive", "search", "елка", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert opened["n"] == 0
+    assert data["query"] == "елка"
+    assert data["limit"] == 20
+    assert len(data["hits"]) == 1
+    hit = data["hits"][0]
+    assert hit["peer_id"] == 7
+    assert hit["message_id"] == 1
+    assert "ёлк" in hit["text"] or "елк" in hit["text"] or "ёлка" in hit["text"]
+    assert data["scope"]["archived_peers_only"] is True
+    assert data["scope"]["stale"] is True
+    assert (
+        "more" in data["scope"]["note"].lower()
+        or "stale" in data["scope"]["note"].lower()
+        or "incomplete" in data["scope"]["note"].lower()
+    )
+
+
+def test_archive_search_prefix_star_is_raw_match(config_env, monkeypatch, capsys):
+    _seed_search_corpus(monkeypatch)
+    capsys.readouterr()
+    _block_telegram_session(monkeypatch)
+    assert main(["archive", "search", "хакатон*", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    ids = {(h["peer_id"], h["message_id"]) for h in data["hits"]}
+    assert (7, 2) in ids
+    assert (-1001234, 10) in ids
+    assert data["match_mode"] == "raw"
+
+
+def test_archive_search_chat_filter_and_unknown_chat(config_env, monkeypatch, capsys):
+    _seed_search_corpus(monkeypatch)
+    capsys.readouterr()
+    _block_telegram_session(monkeypatch)
+    assert main(["archive", "search", "хакатон*", "--chat", "@news", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert len(data["hits"]) == 1
+    assert data["hits"][0]["peer_id"] == -1001234
+    assert data["hits"][0]["chat_ref"] == "@news"
+    assert data["hits"][0]["title"] == "News"
+    assert main(["archive", "search", "хакатон*", "--chat", "@missing", "--json"]) == 4
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"]["code"] == "NOT_FOUND"
+
+
+def test_archive_search_plain_tsv_and_readonly(config_env, monkeypatch, capsys):
+    _seed_search_corpus(monkeypatch)
+    capsys.readouterr()
+    _block_telegram_session(monkeypatch)
+    assert main(["--readonly", "--plain", "archive", "search", "елка"]) == 0
+    out = capsys.readouterr().out.strip().splitlines()
+    assert len(out) == 1
+    cols = out[0].split("\t")
+    assert cols[0] == "7"
+    assert cols[1] == "1"
+
+
+def test_archive_v1_store_migrates_fts_tokenizer(config_env, monkeypatch):
+    import sqlite3
+
+    from tgcli.archive import store as store_mod
+
+    make_session_fake(monkeypatch, _client())
+    assert main(["archive", "init", "--json"]) == 0
+    path = archive_cmd.db_path("main")
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        DROP TABLE IF EXISTS messages_fts;
+        CREATE VIRTUAL TABLE messages_fts USING fts5(
+            text, transcript, peer_id UNINDEXED, message_id UNINDEXED
+        );
+        DELETE FROM messages;
+        INSERT INTO messages(
+            peer_id, message_id, date, from_id, text, edited_at, payload
+        )
+        VALUES (7, 1, '2026-01-02T00:00:00+00:00', 7, 'про ёлка', NULL, '{}');
+        INSERT INTO messages_fts(text, transcript, peer_id, message_id)
+        VALUES ('про ёлка', '', 7, 1);
+        PRAGMA user_version=1;
+        """
+    )
+    conn.commit()
+    conn.close()
+    conn = store_mod.connect(path)
+    try:
+        assert store_mod.schema_version(conn) == 2
+        rows = conn.execute(
+            "SELECT peer_id, message_id FROM messages_fts WHERE messages_fts MATCH ?",
+            (store_mod.fold_yo("елка"),),
+        ).fetchall()
+        assert len(rows) == 1
+        sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name='messages_fts'"
+        ).fetchone()[0]
+        assert "unicode61" in sql
+        assert "remove_diacritics" in sql
+    finally:
+        conn.close()

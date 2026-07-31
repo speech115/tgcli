@@ -11,10 +11,12 @@ from typing import Any
 from tgcli.errors import NotFoundError, PolicyError
 from tgcli.session import ensure_state_dir, restrict_file
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DB_NAME = "archive.db"
 
-_SCHEMA_SQL = """
+_FTS_TOKENIZER = 'tokenize = "unicode61 remove_diacritics 2"'
+
+_SCHEMA_SQL = f"""
 CREATE TABLE IF NOT EXISTS meta (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     account_user_id INTEGER NOT NULL,
@@ -77,13 +79,25 @@ CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     text,
     transcript,
     peer_id UNINDEXED,
-    message_id UNINDEXED
+    message_id UNINDEXED,
+    {_FTS_TOKENIZER}
 );
 """
 
 
+def fold_yo(text: str) -> str:
+    """Map Cyrillic yo→ye for FTS indexing/queries.
+
+    SQLite's ``unicode61 remove_diacritics 2`` folds Latin diacritics but does
+    not treat Cyrillic ``ё`` as ``е`` + diaeresis on current libsqlite builds,
+    so archive search applies this thin fold at FTS write and MATCH time.
+    ``messages.text`` stays unmodified.
+    """
+    return text.replace("ё", "е").replace("Ё", "Е")
+
+
 def connect(path: Path) -> sqlite3.Connection:
-    """Open (or create) an archive DB with WAL pragmas and schema v1."""
+    """Open (or create) an archive DB with WAL pragmas and schema v2."""
     path.parent.mkdir(parents=True, exist_ok=True)
     created = not path.exists()
     conn = sqlite3.connect(path)
@@ -97,6 +111,8 @@ def connect(path: Path) -> sqlite3.Connection:
             conn.executescript(_SCHEMA_SQL)
             conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             conn.commit()
+        elif version == 1:
+            _migrate_v1_to_v2(conn)
         elif version != SCHEMA_VERSION:
             conn.close()
             raise PolicyError(
@@ -115,6 +131,45 @@ def connect(path: Path) -> sqlite3.Connection:
         restrict_file(path)
     _restrict_sidecars(path)
     return conn
+
+
+def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
+    """Rebuild messages_fts with unicode61 remove_diacritics 2; keep tables."""
+    with conn:
+        conn.execute("DROP TABLE IF EXISTS messages_fts")
+        conn.execute(
+            f"""
+            CREATE VIRTUAL TABLE messages_fts USING fts5(
+                text,
+                transcript,
+                peer_id UNINDEXED,
+                message_id UNINDEXED,
+                {_FTS_TOKENIZER}
+            )
+            """
+        )
+        rows = conn.execute(
+            """
+            SELECT m.peer_id, m.message_id, m.text, t.text AS transcript
+            FROM messages AS m
+            LEFT JOIN transcripts AS t
+              ON t.peer_id = m.peer_id AND t.message_id = m.message_id
+            """
+        ).fetchall()
+        conn.executemany(
+            "INSERT INTO messages_fts(text, transcript, peer_id, message_id) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                (
+                    fold_yo(row["text"] or ""),
+                    fold_yo(row["transcript"] or ""),
+                    int(row["peer_id"]),
+                    int(row["message_id"]),
+                )
+                for row in rows
+            ],
+        )
+        conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
 
 def integrity_report(conn: sqlite3.Connection) -> str:
@@ -238,7 +293,7 @@ def upsert_message(
         conn.execute(
             "INSERT INTO messages_fts(text, transcript, peer_id, message_id) "
             "VALUES (?, '', ?, ?)",
-            (text or "", peer_id, message_id),
+            (fold_yo(text or ""), peer_id, message_id),
         )
         return "inserted"
     if existing["payload"] == body:
@@ -263,7 +318,7 @@ def upsert_message(
     conn.execute(
         "INSERT INTO messages_fts(text, transcript, peer_id, message_id) "
         "VALUES (?, '', ?, ?)",
-        (text or "", peer_id, message_id),
+        (fold_yo(text or ""), peer_id, message_id),
     )
     return "updated"
 

@@ -1629,7 +1629,7 @@ Boundary constants: common `GetDifferenceRequest.pts_total_limit =
 100000`; per-channel `GetChannelDifferenceRequest.limit = 100` with
 `ChannelMessagesFilterEmpty`.
 
-## 13. Local Archive (`tg archive`; ADR-0068 Phase 1)
+## 13. Local Archive (`tg archive`; ADR-0068 Phase 1 + thin search)
 
 ```
 tg archive init
@@ -1637,27 +1637,44 @@ tg archive add CHAT
 tg archive remove CHAT
 tg archive list
 tg archive status
+tg archive search QUERY [--chat CHAT] [--limit N]
 tg archive backfill CHAT [CHAT ...] [--limit N]
 ```
 
 Per-account SQLite/WAL store under `~/.local/state/tgcli/archive/<alias>/`
 (override with `[archive] root = "…"` in `config.toml`). Directory mode
-`0700`; `archive.db` mode `0600`. Schema v1 tables: `messages`, `revisions`,
+`0700`; `archive.db` mode `0600`. Schema v2 tables: `messages`, `revisions`,
 `tombstones`, `transcripts`, `scope`, `sync_state`, plus an FTS5 index over
-message text (and later transcripts). The message payload is the universal
-`message_to_dict` JSON shape from `tg read` — not a second representation.
+message text (and later transcripts) with
+`tokenize = "unicode61 remove_diacritics 2"` (Cyrillic `ё`/`е` folded at
+FTS write/query time). Opening a v1 store migrates in place by rebuilding
+`messages_fts`. The message payload is the universal `message_to_dict` JSON
+shape from `tg read` — not a second representation.
 
 **Account binding.** `init` binds the live `get_me().id` and selected alias
 into `meta`. Every network command (`init`, `add`, `remove`, `backfill`)
 re-checks the live user id against the store before touching data; mismatch
-is exit **2** and never merges stores. Offline commands (`list`, `status`)
-do not open a Telegram session; they refuse an alias/store mismatch (exit 2)
-and report `NOT_FOUND` (exit 4) when the store is missing.
+is exit **2** and never merges stores. Offline commands (`list`, `status`,
+`search`) do not open a Telegram session; they refuse an alias/store
+mismatch (exit 2) and report `NOT_FOUND` (exit 4) when the store is missing.
 
 **Scope.** Private 1:1 dialogs are a standing category — always in scope,
 including future correspondents; `add` of a private user is exit 2.
 Groups and channels join only via `add` / leave via `remove`. `list`
 returns the standing category plus the explicit allowlist.
+
+**Search (thin).** Offline FTS5 over archived messages only. Default MATCH
+is exact (no auto-prefix on short tokens); if `QUERY` contains FTS
+operators such as `*`, `"`, `AND`/`OR`/`NOT`/`NEAR`, or parentheses, it is
+passed through as a raw MATCH escape hatch. Default `--limit` is **20**;
+hard cap **50**. Empty/whitespace `QUERY`, non-positive `--limit`, or
+over-cap `--limit` is exit **2**. Optional `--chat` scopes to one peer
+resolved offline from `scope.chat_ref` / `username` / numeric `peer_id`
+(also accepted when that peer appears in `messages` / `sync_state`); unknown
+chat is exit **4**. JSON includes `hits` plus a `scope` object noting
+archived-peers-only coverage and whether any dialog has `more: true`
+(staleness). `--plain` emits one TSV row per hit:
+`peer_id`, `message_id`, `date`, `chat_ref|title`, `text`.
 
 **Backfill.** At least one `CHAT` is required — there is **no** empty→all
 sentinel. Default `--limit` is **100** messages per dialog; hard caps are
@@ -1673,14 +1690,14 @@ shared per-account cooldown (ADR-0045/0052), persists the dialog checkpoint,
 and exits **5**. Full-history / whole-account flags are out of Phase 1.
 
 **Readonly.** `init` / `add` / `remove` / `backfill` mutate local state and
-are blocked by `--readonly` / `TGCLI_READONLY=1` (exit 2). `list` and
-`status` are allowed under readonly.
+are blocked by `--readonly` / `TGCLI_READONLY=1` (exit 2). `list`,
+`status`, and `search` are allowed under readonly.
 
-`--json` shapes (Phase 1):
+`--json` shapes:
 
 ```json
 {"created":true,"path":"…/archive/main/archive.db",
- "account":{"alias":"main","user_id":42},"schema_version":1}
+ "account":{"alias":"main","user_id":42},"schema_version":2}
 ```
 
 ```json
@@ -1692,10 +1709,19 @@ are blocked by `--readonly` / `TGCLI_READONLY=1` (exit 2). `list` and
 
 ```json
 {"account":{"alias":"main","user_id":42},"path":"…",
- "schema_version":1,
+ "schema_version":2,
  "counts":{"messages":0,"revisions":0,"tombstones":0,"transcripts":0,
            "scope":0,"transcript_queue":0},
  "dialogs":[],"transcript_queue":0,"last_errors":[]}
+```
+
+```json
+{"account":{"alias":"main"},"query":"елка","match":"елка","match_mode":"exact",
+ "limit":20,"chat":null,"peer_id":null,
+ "hits":[{"peer_id":7,"message_id":1,"date":"…","text":"…",
+          "chat_ref":null,"title":null}],
+ "scope":{"archived_peers_only":true,"stale":true,
+          "note":"Results cover archived peers only. At least one dialog still has more history on Telegram (more=true)."}}
 ```
 
 ```json
@@ -1707,8 +1733,11 @@ are blocked by `--readonly` / `TGCLI_READONLY=1` (exit 2). `list` and
 ```
 
 `--plain` rows: `init` → `created,alias,user_id,path`; `list` → standing +
-explicit peer rows; `status` → counts summary; `backfill` → per-dialog
+explicit peer rows; `status` → counts summary; `search` → per-hit
+`peer_id,message_id,date,chat_ref|title,text`; `backfill` → per-dialog
 `chat,stored,inserted,updated,more`.
 
-Search / sync / transcribe / refresh / purge are later phases and are not
-part of this surface yet.
+Full Phase 5 filters (`--from`/`--since`/`--until`/`--kind`/
+`--transcripts-only`), BM25-led ranking UX, paging, and
+`read`/`history`/`sync`/`transcribe`/`refresh`/`purge` remain later
+phases.

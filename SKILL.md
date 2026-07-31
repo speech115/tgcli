@@ -43,6 +43,7 @@ selected account session, does one operation, and exits.
 | Opt a group/channel into archive scope | `tg --json archive add CHAT` / `remove CHAT` / `list` |
 | Backfill selected dialogs into archive | `tg --json archive backfill CHAT [CHAT …] [--limit N]` |
 | Offline archive status | `tg --json archive status` |
+| Offline archive search | `tg --json archive search QUERY [--chat CHAT] [--limit N]` |
 | Remove a configured account | `tg --json accounts remove ALIAS --confirm` |
 | Remove one session role | `tg --json accounts remove ALIAS --role job --confirm` |
 | Import old-stack sessions | `tg --json accounts import` |

@@ -42,6 +42,20 @@ def _prepare_archive(args) -> None:
     cmd = args.archive_command
     if cmd in ("init", "add", "remove", "backfill"):
         safety.enforce_local_mutation_allowed(args.readonly)
+    if cmd == "search":
+        from tgcli.archive import search as search_mod
+        from tgcli.commands import archive as archive_cmd
+
+        args.query = search_mod.validate_query(getattr(args, "query", None))
+        chat = getattr(args, "chat", None)
+        if chat is not None and not str(chat).strip():
+            raise PolicyError("archive search --chat must be non-empty")
+        args.limit = search_mod.validate_limit(
+            getattr(args, "limit", None),
+            default=archive_cmd.DEFAULT_SEARCH_LIMIT,
+            maximum=archive_cmd.MAX_SEARCH_LIMIT,
+        )
+        return
     if cmd != "backfill":
         return
     from tgcli.archive import backfill as backfill_mod

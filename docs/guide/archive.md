@@ -2,8 +2,9 @@
 
 `tg archive` keeps a per-account, read-only Telegram archive on disk
 ([ADR-0068](../decisions/ADR-0068-local-archive-store.md)). Phase 1 ships
-the store, scope, and selected-dialog backfill. Search, delta sync,
-transcription, and hourly refresh come later.
+the store, scope, and selected-dialog backfill. A thin offline
+`tg archive search` is available for FTS5 lookups; full Phase 5 filters,
+delta sync, transcription, and hourly refresh come later.
 
 Default location: `~/.local/state/tgcli/archive/<alias>/archive.db`
 (directories `0700`). Override with:
@@ -34,8 +35,8 @@ tg --json archive remove @channel
 tg --json archive list
 ```
 
-`list` and `status` are offline: they load config + the local DB and do
-**not** open a Telegram session.
+`list`, `status`, and `search` are offline: they load config + the local
+DB and do **not** open a Telegram session.
 
 ## Backfill
 
@@ -55,6 +56,21 @@ already written. Long `FLOOD_WAIT` exits 5 after checkpointing.
 Stored message bodies reuse the universal `tg read` JSON shape
 (`message_to_dict`). Edits append revisions; deletions (later sync) become
 tombstones.
+
+## Search (thin / offline)
+
+```bash
+tg --json archive search "query"
+tg --json archive search "хакатон*" --chat @channel --limit 20
+tg --plain archive search "елка"
+```
+
+Exact FTS5 `MATCH` by default (no auto-prefix). Include `*` (or other FTS
+operators) for a raw MATCH escape hatch. Default limit 20, hard cap 50.
+Optional `--chat` scopes to an archived peer resolved from the local
+`scope` table / numeric peer id. Results cover archived peers only; JSON
+`scope.stale` is true when any dialog still has `more: true` on Telegram.
+Allowed under `--readonly`.
 
 ## Status and hygiene
 

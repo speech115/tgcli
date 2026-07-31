@@ -60,9 +60,10 @@ tgcli/
 │   ├── changes_cursor.py      [done]    opaque v1 cursor codec for tg changes (ADR-0063; pure)
 │   ├── login_state.py         [done]    logins/ attempt state and session promotion (ADR-0042)
 │   ├── transfer.py            [done]    striped download + parallel Save*FilePart upload, one progress cadence (ADR-0047/0049/0055)
-│   ├── archive/               [wip]     local archive store (ADR-0068 Phase 1)
-│   │   ├── store.py           [done]    schema v1, WAL, account binding, FTS5, scope/sync_state helpers
+│   ├── archive/               [wip]     local archive store (ADR-0068)
+│   │   ├── store.py           [done]    schema v2, WAL, FTS5 unicode61+diacritics, v1→v2 migrate, scope/sync_state helpers
 │   │   ├── scope.py           [done]    standing private category + group/channel classification
+│   │   ├── search.py          [done]    thin offline FTS5 MATCH builder + peer resolve
 │   │   └── backfill.py        [done]    selected-dialog history walk + caps/checkpoint
 │   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045/0046/0047/0049/0054/0055)
 │   │   ├── state.py           [done]    CloneState seam + dirty-tracked save/load (SQLite via statedb; ADR-0017/0060)
@@ -95,7 +96,7 @@ tgcli/
 │   │   ├── login.py           [done]    tg accounts login QR/phone + --continue + --role (ADR-0042/0062)
 │   │   ├── doctor.py          [done]    offline/online health for primary + role sessions (ADR-0028/0040/0062)
 │   │   ├── changes.py         [done]    tg changes daemonless feed (ADR-0063 / FEED-001)
-│   │   ├── archive.py         [done]    tg archive init|add|remove|list|status|backfill (ADR-0068 Phase 1)
+│   │   ├── archive.py         [done]    tg archive init|add|remove|list|status|search|backfill (ADR-0068)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
 │   │   ├── read.py            [done]    tg read <chat>                (phase 1)
 │   │   ├── search.py          [done]    tg search / latest / message (phase 2)

@@ -44,6 +44,8 @@ Status values:
 - **Bot API (HTTP)** — non-goal; tgcli is an MTProto user-account tool.
 - **Signup** — account creation is a ToS and ban risk; authorize with
   `tg accounts login`, or `tg accounts import` for an old-stack session.
-- **Local archive search/sync/transcribe** — Phase 1 of ADR-0068 ships the
-  store, scope, and selected-dialog backfill (`tg archive`); FTS search,
-  delta sync, and transcription remain later plan phases.
+- **Local archive search/sync/transcribe** — ADR-0068 Phase 1 ships the
+  store, scope, and selected-dialog backfill (`tg archive`); a thin offline
+  `tg archive search` (exact/raw FTS5 MATCH, `--chat`, 50-cap) is available
+  for Phase 2 PoV. Full Phase 5 filters, delta sync, and transcription
+  remain later plan phases.

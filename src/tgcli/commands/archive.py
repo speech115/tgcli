@@ -1,4 +1,4 @@
-"""`tg archive` surface: init/add/remove/list/status/backfill (ADR-0068 Phase 1)."""
+"""`tg archive` surface: init/add/remove/list/status/search/backfill (ADR-0068)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from pathlib import Path
 from tgcli.archive import (
     backfill as backfill_mod,
     scope as scope_mod,
+    search as search_mod,
     store as store_mod,
 )
 from tgcli.clone import cooldown as cooldown_mod, flood
@@ -17,6 +18,8 @@ from tgcli.session import state_dir
 DEFAULT_BACKFILL_LIMIT = 100
 MAX_BACKFILL_LIMIT = 1000
 MAX_BACKFILL_DIALOGS = 20
+DEFAULT_SEARCH_LIMIT = search_mod.DEFAULT_LIMIT
+MAX_SEARCH_LIMIT = search_mod.MAX_LIMIT
 
 
 def archive_root(config: Config | None = None) -> Path:
@@ -133,6 +136,7 @@ def status(alias: str, config: Config | None = None) -> dict:
             for row in dialogs
             if row.get("last_error")
         ]
+        version = store_mod.schema_version(conn)
     finally:
         conn.close()
     return {
@@ -141,12 +145,35 @@ def status(alias: str, config: Config | None = None) -> dict:
             "user_id": meta["account_user_id"],
         },
         "path": str(db_path(alias, config)),
-        "schema_version": store_mod.SCHEMA_VERSION,
+        "schema_version": version,
         "counts": counts,
         "dialogs": dialogs,
         "transcript_queue": counts["transcript_queue"],
         "last_errors": last_errors,
     }
+
+
+def search(
+    alias: str,
+    query: str,
+    *,
+    chat: str | None = None,
+    limit: int | None = None,
+    config: Config | None = None,
+) -> dict:
+    conn = _open_existing(alias, config)
+    try:
+        store_mod.require_bound_alias(conn, alias)
+        data = search_mod.search(
+            conn,
+            query,
+            chat=chat,
+            limit=DEFAULT_SEARCH_LIMIT if limit is None else limit,
+        )
+    finally:
+        conn.close()
+    data["account"] = {"alias": alias}
+    return data
 
 
 async def backfill(
@@ -242,6 +269,21 @@ def status_rows(data: dict) -> list[tuple]:
         ("dialogs", len(data["dialogs"])),
         ("last_errors", len(data["last_errors"])),
     ]
+
+
+def search_rows(data: dict) -> list[tuple]:
+    rows: list[tuple] = []
+    for hit in data["hits"]:
+        rows.append(
+            (
+                hit["peer_id"],
+                hit["message_id"],
+                hit.get("date"),
+                hit.get("chat_ref") or hit.get("title"),
+                hit.get("text"),
+            )
+        )
+    return rows
 
 
 def backfill_rows(data: dict) -> list[tuple]:

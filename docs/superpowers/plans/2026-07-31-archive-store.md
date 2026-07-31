@@ -59,26 +59,26 @@ argparse, pytest. Transcription via the local FluidAudio/Parakeet CLI
 Fixes from #103 that the archive depends on; each lands with tests and is
 independently releasable.
 
-- [ ] `message_to_dict` permalink: resolve the entity so exported/archived
+- [x] `message_to_dict` permalink: resolve the entity so exported/archived
       messages carry a real `permalink`, not `null`.
-- [ ] `_media_kind`: add `video_note` (circles) as a distinct kind.
-- [ ] Cross-chat quote-replies: preserve the source chat id instead of
+- [x] `_media_kind`: add `video_note` (circles) as a distinct kind.
+- [x] Cross-chat quote-replies: preserve the source chat id instead of
       collapsing to a bare message id.
-- [ ] Bulk `media download`: existing destination file → per-item skip
+- [x] Bulk `media download`: existing destination file → per-item skip
       (reported), not a batch-stopping `PolicyError`.
 
 ## Phase 1 — store, scope, selected-dialog backfill (M)
 
-- [ ] `archive/store.py`: schema v1 (`messages`, `revisions`, `tombstones`,
+- [x] `archive/store.py`: schema v1 (`messages`, `revisions`, `tombstones`,
       `transcripts`, `scope`, `sync_state`, FTS5 index), WAL, migrations,
       0700 dirs, config-overridable root, account binding.
-- [ ] `tg archive init` (binds account, creates store),
+- [x] `tg archive init` (binds account, creates store),
       `tg archive add/remove/list` (groups/channels opt-in; private-dialog
       category is implicit and listed as such), `tg archive status`
       (freshness per dialog, counts, queue depth, last errors).
-- [ ] Backfill for an explicit dialog list: checkpointed, resumable,
+- [x] Backfill for an explicit dialog list: checkpointed, resumable,
       budget-capped history walk storing the universal message shape.
-- [ ] `tg store stats` reports the archive; cleanup never touches it.
+- [x] `tg store stats` reports the archive; cleanup never touches it.
 
 ## Phase 2 — proof-of-value gate (HITL, S)
 

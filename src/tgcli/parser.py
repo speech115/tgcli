@@ -205,6 +205,14 @@ def build_parser() -> argparse.ArgumentParser:
     archive_sub.add_parser(
         "status", help="Offline archive freshness and counts", parents=[global_flags]
     )
+    p_archive_search = archive_sub.add_parser(
+        "search", help="Offline FTS5 archive search", parents=[global_flags]
+    )
+    p_archive_search.add_argument("query", help="FTS5 MATCH query")
+    p_archive_search.add_argument("--chat", help="archived peer scope")
+    p_archive_search.add_argument(
+        "--limit", type=int, help="max hits (default 20, cap 50)"
+    )
     p_archive_backfill = archive_sub.add_parser(
         "backfill",
         help="Backfill an explicit dialog list into the archive",
