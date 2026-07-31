@@ -11,6 +11,26 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.24] — 2026-07-31
+
+### Added
+
+- Archive Phase 5 (ADR-0068, ADR-0069): `tg archive search` gains
+  `--from`, `--since`, `--until`, `--kind`, `--transcripts-only`,
+  `--sort`, and `--page` with BM25 ranking, a recency tiebreak, a 50-hit
+  cap with paging, and transcript-aware snippets; new offline
+  `tg archive read` (timeline centred on an id or date) and
+  `tg archive history` (revisions plus tombstone). Hits carry per-peer
+  `tg://` handoff links. Query composition lives in the read-only
+  `archive/explore.py` module (ADR-0069). CONTRACT §13.
+
+### Fixed
+
+- `archive search --from` matched names through SQLite's ASCII-only
+  `lower()`, so a Cyrillic display name silently returned no hits; the
+  comparison now folds case for Unicode. Malformed raw FTS5 queries are
+  usage errors (exit **2**) instead of runtime failures.
+
 ## [1.2.23] — 2026-07-31
 
 ### Added
@@ -580,6 +600,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.24]: https://github.com/speech115/tgcli/compare/v1.2.23...v1.2.24
 [1.2.23]: https://github.com/speech115/tgcli/compare/v1.2.22...v1.2.23
 [1.2.22]: https://github.com/speech115/tgcli/compare/v1.2.21...v1.2.22
 [1.2.21]: https://github.com/speech115/tgcli/compare/v1.2.20...v1.2.21

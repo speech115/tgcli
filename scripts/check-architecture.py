@@ -31,7 +31,8 @@ CEILINGS = {
     # mutation path (set/reset around _audit_before → network → _audit_after).
     # +21 for ADR-0068: offline archive list/status/search path in _execute.
     # +9 for ADR-0068 Phase 4: offline transcribe routing.
-    "src/tgcli/cli.py": 585,
+    # +24 for ADR-0068 Phase 5: offline read/history routing.
+    "src/tgcli/cli.py": 609,
     # +2 for ADR-0057: isort section blanks, E501 split in the --format help.
     # +47 for ADR-0062 --session-role / accounts --role flags and the
     # ADR-0063 tg changes subcommand surface.
@@ -40,13 +41,17 @@ CEILINGS = {
     # +30 for ADR-0068 Phase 3: --private/--max-dialogs backfill mode and the
     # sync/rebaseline subcommands.
     # +18 for ADR-0068 Phase 4: --max-media and the transcribe subcommand.
-    "src/tgcli/parser.py": 663,
+    # +39 for ADR-0068 Phase 5: search filter/sort/paging flags plus the
+    # read and history subcommands.
+    "src/tgcli/parser.py": 702,
     # +40 for ADR-0062 role validation and ADR-0063 changes preflight.
     # +37 for ADR-0068: archive preflight (readonly gates, backfill/search
     # caps).
     # +25 for ADR-0068 Phase 3: private-mode validation and sync caps.
     # +21 for ADR-0068 Phase 4: media/transcribe cap validation.
-    "src/tgcli/preflight.py": 374,
+    # +43 for ADR-0068 Phase 5: filter/date/sort/paging validation for
+    # search, read, and history.
+    "src/tgcli/preflight.py": 417,
     # +2 for ADR-0057: isort section blanks.
     # +17 for ADR-0062: role lookup threaded into session.client.
     # +23 for ADR-0068: archive network dispatch (init/add/remove/backfill).
@@ -99,12 +104,19 @@ CEILINGS = {
     # are seeded at the phase-4 size so further growth is deliberate; store.py
     # is the one to split first if it keeps growing (schema + migrations +
     # message/transcript/scope/sync accessors all live there today).
-    "src/tgcli/archive/store.py": 995,
+    # +6 for the Phase 5 review fix (Unicode casefold helper). Still the
+    # first split candidate if it grows again.
+    "src/tgcli/archive/store.py": 1001,
     "src/tgcli/archive/sync.py": 588,
     "src/tgcli/archive/backfill.py": 310,
     "src/tgcli/archive/transcribe.py": 251,
-    "src/tgcli/archive/search.py": 169,
-    "src/tgcli/commands/archive.py": 493,
+    # ADR-0069: read-only query composition split out of store/commands so
+    # Phase 5 SQL does not land in the persistence hotspot.
+    "src/tgcli/archive/explore.py": 578,
+    # search.py shrank to MATCH normalization + peer resolution once
+    # explore.py superseded its query path (ADR-0069).
+    "src/tgcli/archive/search.py": 78,
+    "src/tgcli/commands/archive.py": 533,
 }
 
 # Modules that must reach read commands only through the read_ops seam
