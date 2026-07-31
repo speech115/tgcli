@@ -128,6 +128,12 @@ resumable runs (not one unbounded shot).
       batches; stores text + model + version; indexes into FTS5;
       retryable-vs-terminal taxonomy; exhausted retries mark `no
       transcript` (queryable in `status` and `search`).
+- [ ] **FTS rebuild must preserve transcripts:** `upsert_message` today
+      rewrites the FTS row with `transcript=''` on edit ([store.py](../../src/tgcli/archive/store.py)).
+      Harmless while transcripts are empty; before Phase 4 search relies on
+      them, re-read the `transcripts` row (or equivalent) when rebuilding
+      the FTS entry so an edit cannot silently drop transcript text from
+      the index.
 
 ## Phase 5 — search and exploration surfaces (M)
 
