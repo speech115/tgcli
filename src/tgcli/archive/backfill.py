@@ -149,6 +149,11 @@ async def backfill_one(
         raise
 
     assert entity is not None and peer is not None and kind is not None
+    username = getattr(entity, "username", None)
+    title = scope_mod.entity_title(entity)
+    chat_ref = chat
+    if username and not str(chat).lstrip("@").casefold() == str(username).casefold():
+        chat_ref = f"@{username}" if not str(chat).startswith("@") else chat
     with conn:
         store_mod.upsert_sync_state(
             conn,
@@ -157,6 +162,10 @@ async def backfill_one(
             newest_id=max(ids) if ids else (state or {}).get("newest_id"),
             more=more,
             last_error=None,
+            kind=kind,
+            title=title,
+            username=username,
+            chat_ref=chat_ref,
         )
     return {
         "chat": chat,
@@ -187,7 +196,7 @@ def validate_limit(limit: int | None, *, default: int, maximum: int) -> int:
 def validate_dialogs(chats: list[str], *, maximum: int) -> list[str]:
     if not chats:
         raise PolicyError(
-            "archive backfill requires at least one CHAT; "
+            "archive backfill requires at least one CHAT or --private; "
             "there is no empty-list all-dialogs sentinel"
         )
     cleaned = [chat for chat in chats if chat]
@@ -198,3 +207,104 @@ def validate_dialogs(chats: list[str], *, maximum: int) -> list[str]:
             f"archive backfill accepts at most {maximum} dialogs per invocation"
         )
     return cleaned
+
+
+def validate_max_dialogs(value: int | None, *, default: int, maximum: int) -> int:
+    if value is None:
+        return default
+    if value <= 0:
+        raise PolicyError("archive backfill --max-dialogs must be positive")
+    if value > maximum:
+        raise PolicyError(
+            f"archive backfill --max-dialogs accepts at most {maximum} dialogs"
+        )
+    return value
+
+
+def validate_private_mode(*, private: bool, chats: list[str]) -> None:
+    if private and chats:
+        raise PolicyError(
+            "archive backfill --private enumerates private dialogs; "
+            "do not pass CHAT arguments with --private"
+        )
+    if not private and not chats:
+        raise PolicyError(
+            "archive backfill requires at least one CHAT or --private; "
+            "there is no empty-list all-dialogs sentinel"
+        )
+
+
+async def enumerate_private_dialogs(
+    tg,
+    conn: sqlite3.Connection,
+    *,
+    max_dialogs: int,
+    skip_complete: bool = True,
+) -> tuple[list[str], int]:
+    """Return chat refs for private 1:1 dialogs under ``max_dialogs``.
+
+    Skips dialogs whose ``sync_state.more`` is already false when
+    ``skip_complete`` is set. Returns ``(chat_refs, skipped_complete)``.
+    """
+    refs: list[str] = []
+    skipped = 0
+    async for dialog in tg.iter_dialogs():
+        entity = dialog.entity
+        try:
+            kind = scope_mod.classify_entity(entity)
+        except PolicyError:
+            continue
+        if kind != "user":
+            continue
+        peer = scope_mod.peer_id(entity)
+        state = store_mod.get_sync_state(conn, peer)
+        if skip_complete and state is not None and not state.get("more", True):
+            # more=false means the last page was short — treat as complete.
+            if state.get("oldest_id") is not None:
+                skipped += 1
+                continue
+        username = getattr(entity, "username", None)
+        ref = f"@{username}" if username else str(peer)
+        refs.append(ref)
+        if len(refs) >= max_dialogs:
+            break
+    return refs, skipped
+
+
+async def backfill_private(
+    tg,
+    conn: sqlite3.Connection,
+    *,
+    limit: int,
+    max_dialogs: int,
+    account_user_id: int,
+    budget: flood.WaitBudget | None = None,
+) -> dict[str, Any]:
+    refs, skipped = await enumerate_private_dialogs(
+        tg, conn, max_dialogs=max_dialogs, skip_complete=True
+    )
+    if not refs:
+        return {
+            "mode": "private",
+            "limit": limit,
+            "max_dialogs": max_dialogs,
+            "dialogs": [],
+            "stored": 0,
+            "skipped_complete": skipped,
+        }
+    dialogs = await backfill_dialogs(
+        tg,
+        conn,
+        refs,
+        limit=limit,
+        account_user_id=account_user_id,
+        budget=budget,
+    )
+    return {
+        "mode": "private",
+        "limit": limit,
+        "max_dialogs": max_dialogs,
+        "dialogs": dialogs,
+        "stored": sum(item["stored"] for item in dialogs),
+        "skipped_complete": skipped,
+    }

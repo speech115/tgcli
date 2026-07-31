@@ -1,4 +1,4 @@
-"""`tg archive` surface: init/add/remove/list/status/search/backfill (ADR-0068)."""
+"""`tg archive` surface: init/add/remove/list/status/search/backfill/sync (ADR-0068)."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from tgcli.archive import (
     scope as scope_mod,
     search as search_mod,
     store as store_mod,
+    sync as sync_mod,
 )
 from tgcli.clone import cooldown as cooldown_mod, flood
 from tgcli.config import Config, load_config, resolve_account
@@ -18,8 +19,14 @@ from tgcli.session import state_dir
 DEFAULT_BACKFILL_LIMIT = 100
 MAX_BACKFILL_LIMIT = 1000
 MAX_BACKFILL_DIALOGS = 20
+DEFAULT_PRIVATE_DIALOGS = 20
+MAX_PRIVATE_DIALOGS = 100
 DEFAULT_SEARCH_LIMIT = search_mod.DEFAULT_LIMIT
 MAX_SEARCH_LIMIT = search_mod.MAX_LIMIT
+DEFAULT_SYNC_EVENTS = sync_mod.DEFAULT_MAX_CATCHUP_MESSAGES
+MAX_SYNC_EVENTS = sync_mod.MAX_CATCHUP_MESSAGES
+DEFAULT_SYNC_DIALOGS = sync_mod.DEFAULT_MAX_CATCHUP_DIALOGS
+MAX_SYNC_DIALOGS = sync_mod.MAX_CATCHUP_DIALOGS
 
 
 def archive_root(config: Config | None = None) -> Path:
@@ -131,6 +138,7 @@ def status(alias: str, config: Config | None = None) -> dict:
         meta = store_mod.require_bound_alias(conn, alias)
         counts = store_mod.counts(conn)
         dialogs = store_mod.list_sync_state(conn)
+        account_sync = store_mod.read_account_sync(conn)
         last_errors = [
             {"peer_id": row["peer_id"], "error": row["last_error"]}
             for row in dialogs
@@ -150,6 +158,10 @@ def status(alias: str, config: Config | None = None) -> dict:
         "dialogs": dialogs,
         "transcript_queue": counts["transcript_queue"],
         "last_errors": last_errors,
+        "gap": account_sync["gap"],
+        "last_sync_at": account_sync["last_sync_at"],
+        "reconcile": account_sync["reconcile"],
+        "has_cursor": account_sync["changes_cursor"] is not None,
     }
 
 
@@ -182,19 +194,35 @@ async def backfill(
     chats: list[str],
     *,
     limit: int | None = None,
+    private: bool = False,
+    max_dialogs: int | None = None,
     config: Config | None = None,
 ) -> dict:
-    chats = backfill_mod.validate_dialogs(chats, maximum=MAX_BACKFILL_DIALOGS)
+    backfill_mod.validate_private_mode(private=private, chats=chats)
     limit = backfill_mod.validate_limit(
         limit, default=DEFAULT_BACKFILL_LIMIT, maximum=MAX_BACKFILL_LIMIT
     )
-    # Enforce the shared per-account cooldown before any archive RPC loop
-    # (ADR-0045/0052); with_cooldown needs CloneState, so backfill arms the
-    # account record directly and reuses WaitBudget on short waits.
     me = await cooldown_mod.cooled_account(tg)
     conn = _open_existing(alias, config)
     try:
         store_mod.require_bound_user(conn, int(me.id), alias)
+        if private:
+            max_dialogs = backfill_mod.validate_max_dialogs(
+                max_dialogs,
+                default=DEFAULT_PRIVATE_DIALOGS,
+                maximum=MAX_PRIVATE_DIALOGS,
+            )
+            data = await backfill_mod.backfill_private(
+                tg,
+                conn,
+                limit=limit,
+                max_dialogs=max_dialogs,
+                account_user_id=int(me.id),
+                budget=flood.WaitBudget(),
+            )
+            data["account"] = {"alias": alias, "user_id": int(me.id)}
+            return data
+        chats = backfill_mod.validate_dialogs(chats, maximum=MAX_BACKFILL_DIALOGS)
         dialogs = await backfill_mod.backfill_dialogs(
             tg,
             conn,
@@ -207,10 +235,57 @@ async def backfill(
         conn.close()
     return {
         "account": {"alias": alias, "user_id": int(me.id)},
+        "mode": "chats",
         "limit": limit,
         "dialogs": dialogs,
         "stored": sum(item["stored"] for item in dialogs),
     }
+
+
+async def sync(
+    tg,
+    alias: str,
+    *,
+    max_events: int | None = None,
+    max_dialogs: int | None = None,
+    config: Config | None = None,
+) -> dict:
+    max_events = sync_mod.validate_max_events(
+        max_events, default=DEFAULT_SYNC_EVENTS, maximum=MAX_SYNC_EVENTS
+    )
+    max_dialogs = sync_mod.validate_max_dialogs(
+        max_dialogs, default=DEFAULT_SYNC_DIALOGS, maximum=MAX_SYNC_DIALOGS
+    )
+    me = await cooldown_mod.cooled_account(tg)
+    conn = _open_existing(alias, config)
+    try:
+        store_mod.require_bound_user(conn, int(me.id), alias)
+        data = await sync_mod.sync_archive(
+            tg,
+            conn,
+            account_user_id=int(me.id),
+            max_events=max_events,
+            max_dialogs=max_dialogs,
+            budget=flood.WaitBudget(),
+        )
+    finally:
+        conn.close()
+    data["account"] = {"alias": alias, "user_id": int(me.id)}
+    data["max_events"] = max_events
+    data["max_dialogs"] = max_dialogs
+    return data
+
+
+async def rebaseline(tg, alias: str, *, config: Config | None = None) -> dict:
+    me = await cooldown_mod.cooled_account(tg)
+    conn = _open_existing(alias, config)
+    try:
+        store_mod.require_bound_user(conn, int(me.id), alias)
+        data = await sync_mod.rebaseline(tg, conn)
+    finally:
+        conn.close()
+    data["account"] = {"alias": alias, "user_id": int(me.id)}
+    return data
 
 
 def init_rows(data: dict) -> list[tuple]:
@@ -258,6 +333,7 @@ def list_rows(data: dict) -> list[tuple]:
 
 def status_rows(data: dict) -> list[tuple]:
     counts = data["counts"]
+    gap = data.get("gap")
     return [
         ("alias", data["account"]["alias"]),
         ("user_id", data["account"]["user_id"]),
@@ -268,6 +344,8 @@ def status_rows(data: dict) -> list[tuple]:
         ("transcript_queue", data["transcript_queue"]),
         ("dialogs", len(data["dialogs"])),
         ("last_errors", len(data["last_errors"])),
+        ("gap", None if gap is None else gap.get("reason")),
+        ("has_cursor", data.get("has_cursor")),
     ]
 
 
@@ -287,7 +365,13 @@ def search_rows(data: dict) -> list[tuple]:
 
 
 def backfill_rows(data: dict) -> list[tuple]:
-    rows: list[tuple] = [("stored", data["stored"]), ("limit", data["limit"])]
+    rows: list[tuple] = [
+        ("mode", data.get("mode", "chats")),
+        ("stored", data["stored"]),
+        ("limit", data["limit"]),
+    ]
+    if data.get("mode") == "private":
+        rows.append(("skipped_complete", data.get("skipped_complete", 0)))
     for item in data["dialogs"]:
         rows.append(
             (
@@ -299,6 +383,29 @@ def backfill_rows(data: dict) -> list[tuple]:
             )
         )
     return rows
+
+
+def sync_rows(data: dict) -> list[tuple]:
+    applied = data["applied"]
+    gap = data.get("gap")
+    return [
+        ("initialized", data.get("initialized")),
+        ("events", applied["events"]),
+        ("received", applied.get("received", applied["events"])),
+        ("inserted", applied["inserted"]),
+        ("updated", applied["updated"]),
+        ("edits", applied["edits"]),
+        ("tombstones", applied["tombstones"]),
+        ("gap", None if gap is None else gap.get("reason")),
+    ]
+
+
+def rebaseline_rows(data: dict) -> list[tuple]:
+    return [
+        ("rebaselined", data["rebaselined"]),
+        ("peers", len(data.get("peers") or [])),
+        ("gap", data.get("gap")),
+    ]
 
 
 def resolve_alias(account_flag: str | None, config: Config | None = None) -> str:

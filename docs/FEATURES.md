@@ -25,7 +25,7 @@ Status values:
 | fragment | api | No dedicated workflow; use raw TL only after task-specific review. |
 | help | api | No dedicated workflow; use raw TL only after task-specific review. |
 | langpack | api | No dedicated workflow; use raw TL only after task-specific review. |
-| messages | wrapped | `read`, `search`, `latest`, `message`, `send`, export, `clone sync` (native forward + protected reupload), and `archive` backfill (ADR-0068 Phase 1) cover daily work; raw TL covers the long tail. |
+| messages | wrapped | `read`, `search`, `latest`, `message`, `send`, export, `clone sync` (native forward + protected reupload), `archive` backfill/sync (ADR-0068 Phase 3), and `changes` cover daily work; raw TL covers the long tail. |
 | payments | api | No dedicated workflow; mutations remain behind raw write safety gates. |
 | phone | excluded | Voice and video calls need a WebRTC media stack and are out of scope. |
 | photos | api | `getUserPhotos` is an allowlisted read; other calls use raw safety gates. |
@@ -34,7 +34,7 @@ Status values:
 | stats | api | Four broadcast, megagroup, and message stats reads are allowlisted (ADR-0010). |
 | stickers | api | No dedicated workflow; use raw TL only after task-specific review. |
 | stories | api | Read allowlist: `getPeerStories`, `getStoriesArchive`, `getStoriesByID`, `getStoryViewsList` (ADR-0010). No dedicated workflow; story publish/delete stay out. |
-| updates | wrapped | `tg changes` (ADR-0063): foreground getDifference / getChannelDifference feed with opaque cursor; no daemon. |
+| updates | wrapped | `tg changes` (ADR-0063) plus `archive sync` reuse of the same cursor/GetDifference seam (ADR-0068 Phase 3). |
 | upload | excluded | Raw part-upload remains impractical over JSON; wrapped media/send paths own it, including protected clone reupload. |
 | users | wrapped | `info` covers daily identity inspection; raw TL covers the long tail. |
 
@@ -44,8 +44,7 @@ Status values:
 - **Bot API (HTTP)** — non-goal; tgcli is an MTProto user-account tool.
 - **Signup** — account creation is a ToS and ban risk; authorize with
   `tg accounts login`, or `tg accounts import` for an old-stack session.
-- **Local archive search/sync/transcribe** — ADR-0068 Phase 1 ships the
-  store, scope, and selected-dialog backfill (`tg archive`); a thin offline
-  `tg archive search` (exact/raw FTS5 MATCH, `--chat`, 50-cap) is available
-  for Phase 2 PoV. Full Phase 5 filters, delta sync, and transcription
+- **Local archive search/sync/transcribe** — ADR-0068 Phase 3 ships private
+  `--private` backfill, `archive sync` / `rebaseline`, gap reporting, and
+  thin offline search. Phase 4 media/transcribe and Phase 5 full search UX
   remain later plan phases.

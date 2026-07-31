@@ -42,6 +42,9 @@ selected account session, does one operation, and exits.
 | Init local archive store | `tg --json archive init` |
 | Opt a group/channel into archive scope | `tg --json archive add CHAT` / `remove CHAT` / `list` |
 | Backfill selected dialogs into archive | `tg --json archive backfill CHAT [CHAT …] [--limit N]` |
+| Backfill standing private dialogs | `tg --json archive backfill --private [--max-dialogs N] [--limit N]` |
+| Sync archive from changes cursor | `tg --json archive sync [--max-events N] [--max-dialogs N]` (applies full difference; caps catch-up RPCs) |
+| Rebaseline archive changes cursor | `tg --json archive rebaseline` |
 | Offline archive status | `tg --json archive status` |
 | Offline archive search | `tg --json archive search QUERY [--chat CHAT] [--limit N]` |
 | Remove a configured account | `tg --json accounts remove ALIAS --confirm` |

@@ -33,7 +33,7 @@ page is a bug** ([ADR-0041](../decisions/ADR-0041-user-facing-guide-split.md)).
 | [contacts](contacts.md) | `contacts`, `resolve`, `mutual-chats` |
 | [batch](batch.md) | `batch` — read-only operations from JSONL on stdin |
 | [changes](changes.md) | `changes` — daemonless update feed with opaque cursor |
-| [archive](archive.md) | `archive` — local selected-dialog store (ADR-0068 Phase 1) |
+| [archive](archive.md) | `archive` — local store, private backfill, sync (ADR-0068 Phase 3) |
 
 ## Writing
 

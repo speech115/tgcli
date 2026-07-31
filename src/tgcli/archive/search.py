@@ -64,7 +64,7 @@ def resolve_peer_id(conn: sqlite3.Connection, chat: str) -> int:
         raise NotFoundError(f"chat not in archive store: {chat!r}")
 
     needle = raw.lstrip("@").casefold()
-    for row in store_mod.list_scope(conn):
+    for row in list(store_mod.list_scope(conn)) + store_mod.list_sync_identity(conn):
         candidates = [
             row.get("chat_ref"),
             row.get("username"),
@@ -111,14 +111,15 @@ def search(
                m.message_id AS message_id,
                m.date AS date,
                m.text AS text,
-               s.chat_ref AS chat_ref,
-               s.title AS title,
-               s.username AS username
+               COALESCE(s.chat_ref, ss.chat_ref) AS chat_ref,
+               COALESCE(s.title, ss.title) AS title,
+               COALESCE(s.username, ss.username) AS username
         FROM messages_fts
         JOIN messages AS m
           ON m.peer_id = messages_fts.peer_id
          AND m.message_id = messages_fts.message_id
         LEFT JOIN scope AS s ON s.peer_id = m.peer_id
+        LEFT JOIN sync_state AS ss ON ss.peer_id = m.peer_id
         WHERE messages_fts MATCH ?
     """
     params: list[Any] = [match]

@@ -88,9 +88,9 @@ def test_archive_requires_subcommand(config_env, capsys):
 
 
 def test_backfill_requires_at_least_one_chat(config_env, capsys):
-    assert main(["archive", "backfill", "--json"]) == 1
+    assert main(["archive", "backfill", "--json"]) == 2
     err = capsys.readouterr().err.lower()
-    assert "chat" in err or "required" in err
+    assert "chat" in err or "private" in err
 
 
 def test_backfill_rejects_non_positive_and_over_cap_limit(config_env, capsys):
@@ -595,7 +595,7 @@ def test_archive_v1_store_migrates_fts_tokenizer(config_env, monkeypatch):
     conn.close()
     conn = store_mod.connect(path)
     try:
-        assert store_mod.schema_version(conn) == 2
+        assert store_mod.schema_version(conn) == 3
         rows = conn.execute(
             "SELECT peer_id, message_id FROM messages_fts WHERE messages_fts MATCH ?",
             (store_mod.fold_yo("елка"),),

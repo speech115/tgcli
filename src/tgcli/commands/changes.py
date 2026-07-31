@@ -163,7 +163,14 @@ def _message_event(kind: str, message, *, chats) -> dict:
     }
 
 
-def _map_update(update, *, subscribed: set[int], chats, skipped: dict) -> list[dict]:
+def _map_update(
+    update,
+    *,
+    subscribed: set[int],
+    chats,
+    skipped: dict,
+    private_deletes: bool = False,
+) -> list[dict]:
     events: list[dict] = []
     if isinstance(update, (UpdateNewMessage, UpdateNewChannelMessage)):
         message = update.message
@@ -204,6 +211,15 @@ def _map_update(update, *, subscribed: set[int], chats, skipped: dict) -> list[d
         )
         return events
     if isinstance(update, UpdateDeleteMessages):
+        if private_deletes:
+            events.append(
+                {
+                    "type": "message_delete",
+                    "peer": None,
+                    "ids": list(update.messages),
+                }
+            )
+            return events
         _bump_skipped(skipped, type(update).__name__, len(update.messages) or 1)
         return events
     if isinstance(update, UpdateChannelTooLong):
@@ -242,7 +258,7 @@ def _gap(scope, *, reason: str) -> dict:
 
 
 async def _poll_common(
-    tg, cursor: ChangesCursor, *, skipped: dict
+    tg, cursor: ChangesCursor, *, skipped: dict, private_deletes: bool = False
 ) -> tuple[list[dict], ChangesCursor, dict | None, list]:
     events: list[dict] = []
     gap = None
@@ -287,7 +303,11 @@ async def _poll_common(
             for update in result.other_updates or ():
                 events.extend(
                     _map_update(
-                        update, subscribed=subscribed, chats=chats, skipped=skipped
+                        update,
+                        subscribed=subscribed,
+                        chats=chats,
+                        skipped=skipped,
+                        private_deletes=private_deletes,
                     )
                 )
             common_state = (
@@ -362,15 +382,22 @@ async def _poll_channel(
     return events, changes_cursor.with_channel(cursor, peer, pts), gap, requests
 
 
-async def once(tg, cursor: ChangesCursor) -> tuple[dict, ChangesCursor, list]:
-    """One difference pass. Returns document body, cursor, requests made."""
+async def once(
+    tg, cursor: ChangesCursor, *, private_deletes: bool = False
+) -> tuple[dict, ChangesCursor, list]:
+    """One difference pass. Returns document body, cursor, requests made.
+
+    When ``private_deletes`` is true, ``UpdateDeleteMessages`` becomes
+    ``message_delete`` events with ``peer: null`` (archive resolves peers
+    from the local store). Public ``tg changes`` keeps the default skip.
+    """
     skipped: dict[str, int] = {}
     events: list[dict] = []
     gap = None
     all_requests: list = []
 
     common_events, cursor, common_gap, reqs = await _poll_common(
-        tg, cursor, skipped=skipped
+        tg, cursor, skipped=skipped, private_deletes=private_deletes
     )
     events.extend(common_events)
     all_requests.extend(reqs)

@@ -100,21 +100,21 @@ feature branch. Full-account private backfill is a different FLOOD_WAIT
 order of magnitude than the 5-chat PoV; keep per-run budgets and many
 resumable runs (not one unbounded shot).
 
-- [ ] Enumerate private 1:1 dialogs as the standing category; full
+- [x] Enumerate private 1:1 dialogs as the standing category; full
       backfill under per-run budgets across multiple resumable runs.
-- [ ] `tg archive sync`: delta via the `tg changes` cursor held in
+- [x] `tg archive sync`: delta via the `tg changes` cursor held in
       `sync_state` (message_new/edit → rows + revisions; message_delete →
       tombstones; channel_activity → targeted per-channel catch-up for
       subscribed scope entries); new private dialogs auto-enter scope.
-- [ ] **Live acceptance of append-only history:** in a test chat, edit then
+- [x] **Live acceptance of append-only history:** in a test chat, edit then
       delete a message; after `tg archive sync`, observe a `revisions` row
       and a `tombstones` row. Schema alone is not proof — this is required
       before calling sync done.
-- [ ] Gap handling: `differenceTooLong`-class gaps recorded loudly in
+- [x] Gap handling: `differenceTooLong`-class gaps recorded loudly in
       `sync_state` + `status`; `tg archive rebaseline` as the explicit
       recovery command.
-- [ ] Reconciliation sweep (light count comparison) on a documented cadence.
-- [ ] Quick UX fix carried from Phase 2 PoV: `archive search --chat` must
+- [x] Reconciliation sweep (light count comparison) on a documented cadence.
+- [x] Quick UX fix carried from Phase 2 PoV: `archive search --chat` must
       resolve private usernames/chatrefs, not only numeric `peer_id`
       (standing private scope has no `scope` row today).
 
