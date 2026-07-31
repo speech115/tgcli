@@ -9,6 +9,7 @@ import pytest
 from tests.conftest import make_session_fake
 from tests.test_cli_archive import _block_telegram_session, _client
 from tgcli.archive import store as store_mod
+from tgcli.archive.explore import tg_link
 from tgcli.cli import main
 from tgcli.commands import archive as archive_cmd
 
@@ -69,6 +70,16 @@ def _seed_phase5_corpus(monkeypatch):
                 "Alice",
                 "alice",
                 "voice",
+            ),
+            (
+                7,
+                3,
+                "2026-01-05T00:00:00+00:00",
+                "maria note",
+                8,
+                "Мария",
+                "maria_ru",
+                None,
             ),
             (
                 -1001234,
@@ -162,7 +173,7 @@ def test_archive_search_filters_ranking_paging_and_handoff(
     assert [(hit["peer_id"], hit["message_id"]) for hit in data["hits"]] == [(7, 2)]
     hit = data["hits"][0]
     assert hit["tg_link"].startswith("tg://")
-    assert hit["tg_link"] == "tg://openmessage?chat_id=7&message_id=2"
+    assert hit["tg_link"] == "tg://openmessage?user_id=7&message_id=2"
     assert hit["match_fields"] == ["text"]
     assert data["has_more"] is False
 
@@ -191,6 +202,49 @@ def test_archive_search_filters_ranking_paging_and_handoff(
     assert main(["archive", "search", "common", "--sort", "date", "--json"]) == 0
     dated = json.loads(capsys.readouterr().out)
     assert [hit["message_id"] for hit in dated["hits"]] == [10, 2, 1]
+    assert dated["hits"][0]["tg_link"] == "tg://resolve?domain=news&post=10"
+
+
+def test_archive_search_casefolds_unicode_sender_names_and_rejects_bad_match(
+    config_env, monkeypatch, capsys
+):
+    _seed_phase5_corpus(monkeypatch)
+    capsys.readouterr()
+
+    for sender in ("Мария", "мария"):
+        assert (
+            main(
+                [
+                    "archive",
+                    "search",
+                    "maria",
+                    "--from",
+                    sender,
+                    "--json",
+                ]
+            )
+            == 0
+        )
+        data = json.loads(capsys.readouterr().out)
+        assert [(hit["peer_id"], hit["message_id"]) for hit in data["hits"]] == [(7, 3)]
+
+    assert main(["archive", "search", "foo AND", "--json"]) == 2
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"]["code"] == "BLOCKED"
+    assert "fts5" in error["error"]["message"].lower()
+
+
+def test_archive_tg_links_use_supported_message_forms():
+    assert tg_link(7, 2, kind="user") == ("tg://openmessage?user_id=7&message_id=2")
+    assert tg_link(-1001234, 10, kind="channel") == (
+        "tg://privatepost?channel=1234&post=10"
+    )
+    assert tg_link(-1001234, 10, username="news", kind="channel") == (
+        "tg://resolve?domain=news&post=10"
+    )
+    assert tg_link(-1234, 10, kind="group") == (
+        "tg://openmessage?chat_id=-1234&message_id=10"
+    )
 
 
 def test_archive_search_rejects_invalid_phase5_filters(config_env, monkeypatch, capsys):
@@ -234,6 +288,8 @@ def test_archive_read_is_offline_and_can_center_on_id_or_date(
                 "2026-01-02",
                 "--since",
                 "2026-01-02",
+                "--until",
+                "2026-01-03",
                 "--json",
             ]
         )

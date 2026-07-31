@@ -1699,8 +1699,12 @@ with message date as the recency tiebreak; `--sort date` uses newest date
 first. `--page` is 1-based (default 1, hard cap 10,000); `has_more` and
 `next_page` make the next bounded query explicit. Hits include a short
 `snippet`, its `snippet_source`, `match_fields`, the stored HTTPS `permalink`
-when available, and a `tg_link` of the form
-`tg://openmessage?chat_id=PEER_ID&message_id=MESSAGE_ID` for a live handoff.
+when available, and a `tg_link` for a live handoff. Private users use
+`tg://openmessage?user_id=USER_ID&message_id=MESSAGE_ID`; public
+groups/channels use `tg://resolve?domain=USERNAME&post=MESSAGE_ID`; private
+groups/channels use `tg://privatepost?channel=CHANNEL_ID&post=MESSAGE_ID`
+(the `-100` peer prefix is removed). Basic groups without a public username
+fall back to `tg://openmessage?chat_id=CHAT_ID&message_id=MESSAGE_ID`.
 `--plain` emits one TSV row per hit: `peer_id`, `message_id`, `date`,
 `chat_ref|title`, `text`, `transcript`, `transcript_status`, `tg_link`,
 `snippet`.
@@ -1825,7 +1829,7 @@ under readonly; `read` and `history` are also offline read-only commands.
           "transcript":null,"transcript_status":null,"kind":"text",
           "chat_ref":"@alice","title":"Alice","rank":-1.2,
           "match_fields":["text"],"snippet":"[[елка]]","snippet_source":"text",
-          "permalink":null,"tg_link":"tg://openmessage?chat_id=7&message_id=1"}],
+          "permalink":null,"tg_link":"tg://openmessage?user_id=7&message_id=1"}],
  "scope":{"archived_peers_only":true,"stale":true,
           "note":"Results cover archived peers only. At least one dialog still has more history on Telegram (more=true)."}}
 ```
@@ -1834,13 +1838,13 @@ under readonly; `read` and `history` are also offline read-only commands.
 {"account":{"alias":"main"},"chat":"@alice","peer_id":7,
  "identity":{"chat_ref":"@alice","title":"Alice","username":"alice","kind":"user"},
  "around_id":42,"around_date":null,"since":null,"until":null,"limit":20,
- "messages":[{"id":42,"peer_id":7,"date":"…","text":"…","tg_link":"tg://openmessage?chat_id=7&message_id=42"}],
+ "messages":[{"id":42,"peer_id":7,"date":"…","text":"…","tg_link":"tg://openmessage?user_id=7&message_id=42"}],
  "scope":{"archived_peers_only":true,"stale":false,"note":"Results cover archived peers only."}}
 ```
 
 ```json
 {"account":{"alias":"main"},"chat":"@alice","peer_id":7,"message_id":42,
- "status":"deleted","current":{"id":42,"text":"new body","tg_link":"tg://openmessage?chat_id=7&message_id=42"},
+ "status":"deleted","current":{"id":42,"text":"new body","tg_link":"tg://openmessage?user_id=7&message_id=42"},
  "revisions":[{"edited_at":"…","recorded_at":"…","message":{"id":42,"text":"old body"}}],
  "tombstone":{"deleted_at":"…"}}
 ```

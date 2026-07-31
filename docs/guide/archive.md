@@ -127,6 +127,9 @@ stored sender name. `--since` / `--until` are inclusive; `--kind` accepts
 `--transcripts-only` searches successful transcript text only. Each hit keeps
 the stored transcript/status, a marked snippet, the stored HTTPS `permalink`
 when available, and a `tg_link` for handing the id to live `tg read` tooling.
+The link uses Telegram's user, public-message, or private-message form based
+on the archived peer; basic groups without a public username use the internal
+`openmessage?chat_id=...` fallback.
 Results cover archived peers only; JSON `scope.stale` is true when any dialog
 still has `more: true` on Telegram. Allowed under `--readonly`.
 

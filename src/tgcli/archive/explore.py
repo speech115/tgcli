@@ -6,6 +6,7 @@ import json
 import sqlite3
 from datetime import datetime
 from typing import Any
+from urllib.parse import quote
 
 from tgcli.archive import search as search_mod
 from tgcli.errors import NotFoundError, PolicyError
@@ -86,7 +87,22 @@ def validate_read_centers(around_id: int | None, around_date: datetime | None) -
         )
 
 
-def tg_link(peer_id: int, message_id: int) -> str:
+def tg_link(
+    peer_id: int,
+    message_id: int,
+    *,
+    username: str | None = None,
+    kind: str | None = None,
+) -> str:
+    if kind in ("group", "channel"):
+        if username:
+            return f"tg://resolve?domain={quote(username, safe='')}&post={message_id}"
+        peer_ref = str(peer_id)
+        if kind == "channel" or peer_ref.startswith("-100"):
+            channel_id = peer_ref[4:] if peer_ref.startswith("-100") else peer_ref
+            return f"tg://privatepost?channel={channel_id}&post={message_id}"
+    if peer_id > 0:
+        return f"tg://openmessage?user_id={peer_id}&message_id={message_id}"
     return f"tg://openmessage?chat_id={peer_id}&message_id={message_id}"
 
 
@@ -121,13 +137,15 @@ def _record(
     message_id: int,
     transcript: str | None = None,
     transcript_status: str | None = None,
+    username: str | None = None,
+    kind: str | None = None,
 ) -> dict[str, Any]:
     record = dict(payload)
     record["id"] = message_id
     record["peer_id"] = peer_id
     record["transcript"] = transcript
     record["transcript_status"] = transcript_status
-    record["tg_link"] = tg_link(peer_id, message_id)
+    record["tg_link"] = tg_link(peer_id, message_id, username=username, kind=kind)
     return record
 
 
@@ -191,8 +209,8 @@ def _search_filters(
         else:
             wanted = wanted.lstrip("@").casefold()
             clauses.append(
-                "(lower(json_extract(m.payload, '$.from.username')) = ? "
-                "OR lower(json_extract(m.payload, '$.from.name')) = ?)"
+                "(tgcli_casefold(json_extract(m.payload, '$.from.username')) = ? "
+                "OR tgcli_casefold(json_extract(m.payload, '$.from.name')) = ?)"
             )
             params.extend((wanted, wanted))
     date_sql, date_params = _date_parts(since, until)
@@ -233,7 +251,12 @@ def _search_row(row: sqlite3.Row) -> dict[str, Any]:
         if isinstance(payload.get("from"), dict)
         else row["from_id"],
         "permalink": payload.get("permalink"),
-        "tg_link": tg_link(int(row["peer_id"]), int(row["message_id"])),
+        "tg_link": tg_link(
+            int(row["peer_id"]),
+            int(row["message_id"]),
+            username=row["username"],
+            kind=row["kind"],
+        ),
         "rank": float(row["score"]),
         "match_fields": fields,
         "snippet": snippet or None,
@@ -279,6 +302,7 @@ def search(
                COALESCE(s.chat_ref, ss.chat_ref) AS chat_ref,
                COALESCE(s.title, ss.title) AS title,
                COALESCE(s.username, ss.username) AS username,
+               COALESCE(s.kind, ss.kind) AS kind,
                t.text AS transcript, t.status AS transcript_status,
                bm25(messages_fts) AS score,
                snippet(messages_fts, 0, '[[', ']]', '…', 12) AS text_snippet,
@@ -299,9 +323,16 @@ def search(
         else "ORDER BY score ASC, julianday(m.date) DESC, m.peer_id, m.message_id"
     )
     sql += f" {order} LIMIT ? OFFSET ?"
-    page_rows = conn.execute(
-        sql, [fts_match, *params, limit + 1, (page - 1) * limit]
-    ).fetchall()
+    try:
+        page_rows = conn.execute(
+            sql, [fts_match, *params, limit + 1, (page - 1) * limit]
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        if "fts5" in str(exc).lower():
+            raise PolicyError(
+                "archive search QUERY is not a valid FTS5 MATCH expression"
+            ) from exc
+        raise
     has_more = len(page_rows) > limit
     hits = [_search_row(row) for row in page_rows[:limit]]
     return {
@@ -409,6 +440,7 @@ def read(
         limit, default=READ_DEFAULT_LIMIT, maximum=READ_MAX_LIMIT, label="read"
     )
     peer_id = search_mod.resolve_peer_id(conn, chat)
+    identity = _identity(conn, peer_id)
     rows = _read_rows(
         conn,
         peer_id,
@@ -425,13 +457,15 @@ def read(
             message_id=int(row["message_id"]),
             transcript=row["transcript"],
             transcript_status=row["transcript_status"],
+            username=identity["username"],
+            kind=identity["kind"],
         )
         for row in rows
     ]
     return {
         "chat": chat,
         "peer_id": peer_id,
-        "identity": _identity(conn, peer_id),
+        "identity": identity,
         "around_id": around_id,
         "around_date": _iso(around_date),
         "since": _iso(since),
@@ -461,6 +495,7 @@ def history(conn: sqlite3.Connection, chat: str, message_id: int) -> dict[str, A
     ).fetchone()
     if current is None and not revisions and tombstone is None:
         raise NotFoundError(f"message not in archive: {chat!r}/{message_id}")
+    identity = _identity(conn, peer_id)
     current_record = None
     if current is not None:
         current_record = _record(
@@ -469,12 +504,14 @@ def history(conn: sqlite3.Connection, chat: str, message_id: int) -> dict[str, A
             message_id=message_id,
             transcript=current["transcript"],
             transcript_status=current["transcript_status"],
+            username=identity["username"],
+            kind=identity["kind"],
         )
     return {
         "chat": chat,
         "peer_id": peer_id,
         "message_id": message_id,
-        "identity": _identity(conn, peer_id),
+        "identity": identity,
         "status": "deleted" if tombstone is not None else "present",
         "current": current_record,
         "revisions": [
@@ -485,6 +522,8 @@ def history(conn: sqlite3.Connection, chat: str, message_id: int) -> dict[str, A
                     _payload(row["payload"], peer_id, message_id),
                     peer_id=peer_id,
                     message_id=message_id,
+                    username=identity["username"],
+                    kind=identity["kind"],
                 ),
             }
             for row in revisions

@@ -19,6 +19,11 @@ NO_TRANSCRIPT_MARKER = "no_transcript no transcript"
 
 _FTS_TOKENIZER = 'tokenize = "unicode61 remove_diacritics 2"'
 
+
+def _casefold(value: str | None) -> str | None:
+    return value.casefold() if value is not None else None
+
+
 _SCHEMA_SQL = f"""
 CREATE TABLE IF NOT EXISTS meta (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -120,6 +125,7 @@ def connect(path: Path) -> sqlite3.Connection:
     created = not path.exists()
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
+    conn.create_function("tgcli_casefold", 1, _casefold)
     try:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
