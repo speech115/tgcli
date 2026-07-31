@@ -315,6 +315,7 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
         "list",
         "status",
         "search",
+        "transcribe",
     ):
         alias = archive_cmd.resolve_alias(args.account, config)
         if args.archive_command == "list":
@@ -323,6 +324,14 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
         if args.archive_command == "status":
             data = archive_cmd.status(alias, config)
             return data, archive_cmd.status_rows(data)
+        if args.archive_command == "transcribe":
+            data = archive_cmd.transcribe(
+                alias,
+                limit=getattr(args, "limit", None),
+                max_attempts=getattr(args, "max_attempts", None),
+                config=config,
+            )
+            return data, archive_cmd.transcribe_rows(data)
         data = archive_cmd.search(
             alias,
             args.query,

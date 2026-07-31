@@ -1,10 +1,11 @@
 # Archive: local selected-dialog store
 
 `tg archive` keeps a per-account, read-only Telegram archive on disk
-([ADR-0068](../decisions/ADR-0068-local-archive-store.md)). Phase 1–3 ship
-the store, scope, selected and private backfill, thin offline search, and
-delta sync via the `tg changes` cursor. Full Phase 5 filters, transcription,
-and hourly refresh come later.
+([ADR-0068](../decisions/ADR-0068-local-archive-store.md)). Phase 1–4 ship
+the store, scope, selected and private backfill, thin offline search, delta
+sync via the `tg changes` cursor, bounded voice/video-note acquisition, and
+foreground local Parakeet transcription. Full Phase 5 filters and hourly
+refresh come later.
 
 Default location: `~/.local/state/tgcli/archive/<alias>/archive.db`
 (directories `0700`). Override with:
@@ -35,8 +36,8 @@ tg --json archive remove @channel
 tg --json archive list
 ```
 
-`list`, `status`, and `search` are offline: they load config + the local
-DB and do **not** open a Telegram session.
+`list`, `status`, `search`, and `transcribe` are offline: they load config +
+the local DB and do **not** open a Telegram session.
 
 ## Backfill
 
@@ -53,6 +54,8 @@ messages/dialog, 20 explicit chats, and 100 private dialogs per run.
 `--private` skips dialogs already checkpointed with `more: false`.
 Groups/channels need `add` first; private dialogs do not. Each run is
 checkpointed and resumable. Long `FLOOD_WAIT` exits 5 after checkpointing.
+Media downloads are bounded separately from message acquisition; the message
+checkpoint never advances by dropping a fetched tail.
 
 Stored message bodies reuse the universal `tg read` JSON shape
 (`message_to_dict`). Edits append revisions; deletions via sync become
@@ -63,7 +66,7 @@ tombstones. Backfill/sync persist peer identity on `sync_state` so offline
 
 ```bash
 tg --json archive sync
-tg --json archive sync --max-events 500 --max-dialogs 20
+tg --json archive sync --max-events 500 --max-dialogs 20 --max-media 50
 tg --json archive rebaseline
 ```
 
@@ -78,6 +81,30 @@ every user/basic-group dialog that shares that numeric message id
 that re-inits the cursor and clears a stored gap — never silent. A rotating
 local-vs-Telegram count sample is attached as `reconcile`.
 
+## Media and transcription
+
+Backfill and sync queue `voice` and `video_note` messages for media download
+into the account-local `media/` directory. `--max-media` defaults to 50 and
+has a hard cap of 500. Existing files are reused, and the transcript queue
+records `media_path` only after a successful publish. A media failure remains
+retryable; a `FLOOD_WAIT` exits 5 and arms the shared account cooldown.
+
+After media is available, drain the local Parakeet queue in a separate
+foreground invocation:
+
+```bash
+tg --json archive transcribe
+tg --json archive transcribe --limit 20 --max-attempts 3
+tg --plain archive transcribe --limit 5
+```
+
+The command runs the local `transcribe` executable (FluidAudio/Parakeet),
+newest media first. Successful rows store transcript text, engine, and model
+version in SQLite and are searchable through the existing FTS index. A
+retryable failure stays queued until the attempt cap; terminal or exhausted
+rows become `no_transcript` with an error for status/reporting. Transcripts
+survive message edits and FTS rebuilds.
+
 ## Search (thin / offline)
 
 ```bash
@@ -89,8 +116,11 @@ tg --plain archive search "елка"
 Exact FTS5 `MATCH` by default (no auto-prefix). Include `*` (or other FTS
 operators) for a raw MATCH escape hatch. Default limit 20, hard cap 50.
 Optional `--chat` resolves from `scope` or private `sync_state` identity.
-Results cover archived peers only; JSON `scope.stale` is true when any
-dialog still has `more: true` on Telegram. Allowed under `--readonly`.
+Transcript text is searched through the same FTS index; each hit reports the
+stored transcript and its status. The `no_transcript` marker can be searched
+to find exhausted/terminal rows. Results cover archived peers only; JSON
+`scope.stale` is true when any dialog still has `more: true` on Telegram.
+Allowed under `--readonly`.
 
 ## Status and hygiene
 
@@ -100,8 +130,9 @@ tg --json store stats
 ```
 
 `status` reports message/revision/tombstone counts, per-dialog freshness,
-gap/cursor state, reconcile sample, transcript queue depth (empty until
-Phase 4), and last errors. `store stats` inventories archive bytes under
+gap/cursor state, reconcile sample, transcript queue depth/status/errors, and
+last errors.
+`store stats` inventories archive bytes under
 the state root; `store cleanup` never deletes anything under the archive
 root.
 

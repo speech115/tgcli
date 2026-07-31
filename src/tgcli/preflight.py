@@ -40,7 +40,15 @@ def _prepare_archive(args) -> None:
     if args.command != "archive":
         return
     cmd = args.archive_command
-    if cmd in ("init", "add", "remove", "backfill", "sync", "rebaseline"):
+    if cmd in (
+        "init",
+        "add",
+        "remove",
+        "backfill",
+        "sync",
+        "rebaseline",
+        "transcribe",
+    ):
         safety.enforce_local_mutation_allowed(args.readonly)
     if cmd == "search":
         from tgcli.archive import search as search_mod
@@ -69,6 +77,19 @@ def _prepare_archive(args) -> None:
             getattr(args, "max_dialogs", None),
             default=archive_cmd.DEFAULT_SYNC_DIALOGS,
             maximum=archive_cmd.MAX_SYNC_DIALOGS,
+        )
+        args.max_media = sync_mod.validate_max_media(
+            getattr(args, "max_media", None),
+            default=archive_cmd.DEFAULT_SYNC_MEDIA,
+            maximum=archive_cmd.MAX_SYNC_MEDIA,
+        )
+        return
+    if cmd == "transcribe":
+        from tgcli.archive import transcribe as transcribe_mod
+
+        args.limit = transcribe_mod.validate_limit(getattr(args, "limit", None))
+        args.max_attempts = transcribe_mod.validate_max_attempts(
+            getattr(args, "max_attempts", None)
         )
         return
     if cmd != "backfill":

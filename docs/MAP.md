@@ -61,11 +61,12 @@ tgcli/
 │   ├── login_state.py         [done]    logins/ attempt state and session promotion (ADR-0042)
 │   ├── transfer.py            [done]    striped download + parallel Save*FilePart upload, one progress cadence (ADR-0047/0049/0055)
 │   ├── archive/               [wip]     local archive store (ADR-0068)
-│   │   ├── store.py           [done]    schema v3, WAL, FTS5, account_sync, sync_state identity, tombstones
+│   │   ├── store.py           [done]    schema v4, WAL, FTS5 text+transcripts, account_sync, sync_state identity, tombstones
 │   │   ├── scope.py           [done]    standing private category + group/channel classification
 │   │   ├── search.py          [done]    thin offline FTS5 MATCH + scope/sync_state peer resolve
 │   │   ├── backfill.py        [done]    selected + --private history walk + caps/checkpoint
-│   │   └── sync.py            [done]    changes.once apply, gap/rebaseline, light reconcile
+│   │   ├── sync.py            [done]    changes.once apply, gap/rebaseline, light reconcile, bounded media fetch
+│   │   └── transcribe.py      [done]    foreground local FluidAudio/Parakeet queue
 │   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045/0046/0047/0049/0054/0055)
 │   │   ├── state.py           [done]    CloneState seam + dirty-tracked save/load (SQLite via statedb; ADR-0017/0060)
 │   │   ├── statedb.py         [done]    per-clone SQLite/WAL backend, import/export helpers (ADR-0060)
@@ -97,7 +98,7 @@ tgcli/
 │   │   ├── login.py           [done]    tg accounts login QR/phone + --continue + --role (ADR-0042/0062)
 │   │   ├── doctor.py          [done]    offline/online health for primary + role sessions (ADR-0028/0040/0062)
 │   │   ├── changes.py         [done]    tg changes daemonless feed (ADR-0063 / FEED-001)
-│   │   ├── archive.py         [done]    tg archive init|add|remove|list|status|search|backfill|sync|rebaseline (ADR-0068)
+│   │   ├── archive.py         [done]    tg archive init|add|remove|list|status|search|backfill|sync|transcribe|rebaseline (ADR-0068)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
 │   │   ├── read.py            [done]    tg read <chat>                (phase 1)
 │   │   ├── search.py          [done]    tg search / latest / message (phase 2)

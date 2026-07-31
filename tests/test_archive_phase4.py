@@ -1,0 +1,264 @@
+"""Archive Phase 4 store and transcription-boundary tests."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from tgcli.archive import (
+    search as search_module,
+    store,
+    sync as sync_module,
+    transcribe as transcribe_module,
+)
+
+
+def _payload(message_id: int, text: str, *, media_kind: str = "voice") -> dict:
+    return {
+        "id": message_id,
+        "date": f"2026-01-{message_id:02d}T00:00:00+00:00",
+        "from": {"id": 7},
+        "text": text,
+        "media": "MessageMediaDocument",
+        "media_info": {"mime": "audio/ogg", "size": 10},
+        "media_kind": media_kind,
+    }
+
+
+def _connection(tmp_path):
+    conn = store.connect(tmp_path / "archive.db")
+    store.ensure_meta(conn, account_user_id=42, account_alias="main")
+    return conn
+
+
+def test_message_edit_rebuild_preserves_transcript_in_fts(tmp_path):
+    conn = _connection(tmp_path)
+    try:
+        assert store.upsert_message(conn, 7, _payload(1, "caption")) == "inserted"
+        store.set_media_path(
+            conn,
+            7,
+            1,
+            path="media/7/1.ogg",
+            media_kind="voice",
+        )
+        store.record_transcript_success(
+            conn,
+            7,
+            1,
+            text="русский transcript",
+            model="fluidaudio-parakeet-v3",
+            model_version="v3",
+        )
+
+        edited = _payload(1, "edited caption")
+        assert store.upsert_message(conn, 7, edited) == "updated"
+        rows = conn.execute(
+            "SELECT text, transcript FROM messages_fts WHERE messages_fts MATCH ?",
+            (store.fold_yo("русский"),),
+        ).fetchall()
+        assert [(row["text"], row["transcript"]) for row in rows] == [
+            ("edited caption", "русский transcript")
+        ]
+        assert store.transcript_row(conn, 7, 1)["text"] == "русский transcript"
+    finally:
+        conn.close()
+
+
+def test_transcript_queue_is_newest_first_and_bounded(tmp_path):
+    conn = _connection(tmp_path)
+    try:
+        for message_id in (1, 2, 3):
+            store.upsert_message(conn, 7, _payload(message_id, str(message_id)))
+            store.set_media_path(
+                conn,
+                7,
+                message_id,
+                path=f"media/7/{message_id}.ogg",
+                media_kind="voice",
+            )
+        conn.commit()
+
+        queue = store.list_transcript_queue(conn, limit=2, max_attempts=3)
+        assert [row["message_id"] for row in queue] == [3, 2]
+        assert all(row["status"] == "pending" for row in queue)
+    finally:
+        conn.close()
+
+
+def test_schema_v4_adds_media_metadata_columns(tmp_path):
+    conn = _connection(tmp_path)
+    try:
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(transcripts)").fetchall()
+        }
+        assert {"media_path", "media_kind", "last_error"} <= columns
+        assert store.schema_version(conn) == 4
+    finally:
+        conn.close()
+
+
+def test_media_relative_path_uses_controlled_suffixes():
+    assert store.media_relative_path(7, 9, media_kind="voice") == "media/7/9.ogg"
+    assert store.media_relative_path(7, 9, media_kind="video_note") == "media/7/9.mp4"
+    assert store.media_relative_path(7, 9, media_kind="audio", mime="audio/mp4") == (
+        "media/7/9.m4a"
+    )
+
+
+@pytest.mark.asyncio
+async def test_media_fetch_publishes_and_is_idempotent(tmp_path, monkeypatch):
+    conn = _connection(tmp_path)
+    account_dir = tmp_path / "account"
+    account_dir.mkdir()
+    try:
+        store.upsert_message(conn, 7, _payload(1, "caption"))
+        conn.commit()
+        calls = []
+
+        async def fake_download(_tg, source, alias, *, output, parallel):
+            calls.append((source, alias, output, parallel))
+            target = Path(output)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"voice")
+            return {"path": output, "bytes": 5}
+
+        monkeypatch.setattr(sync_module.media_cmd, "download_media", fake_download)
+        first = await sync_module.fetch_media(
+            object(),
+            conn,
+            account_alias="main",
+            account_user_id=42,
+            account_dir=account_dir,
+            limit=10,
+        )
+        assert first["downloaded"] == 1
+        assert len(calls) == 1
+        assert calls[0][0].message_id == 1
+        assert calls[0][1] == "main"
+        assert calls[0][3] == 1
+        assert store.transcript_row(conn, 7, 1)["media_path"] == "media/7/1.ogg"
+        assert (account_dir / "media/7/1.ogg").read_bytes() == b"voice"
+
+        second = await sync_module.fetch_media(
+            object(),
+            conn,
+            account_alias="main",
+            account_user_id=42,
+            account_dir=account_dir,
+            limit=10,
+        )
+        assert second["queued"] == 0
+        assert len(calls) == 1
+    finally:
+        conn.close()
+
+
+def test_transcribe_queue_stores_parakeet_text_and_metadata(tmp_path, monkeypatch):
+    conn = _connection(tmp_path)
+    media_dir = tmp_path / "account" / "media" / "7"
+    media_dir.mkdir(parents=True)
+    media_path = media_dir / "1.ogg"
+    media_path.write_bytes(b"voice")
+    try:
+        store.upsert_message(conn, 7, _payload(1, "caption"))
+        store.set_media_path(conn, 7, 1, path="media/7/1.ogg", media_kind="voice")
+        conn.commit()
+
+        monkeypatch.setattr(
+            transcribe_module.shutil, "which", lambda _: "/bin/transcribe"
+        )
+
+        def fake_run(argv, **_kwargs):
+            output_dir = Path(argv[argv.index("--out") + 1])
+            (output_dir / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "engine": "fluidaudio-parakeet-v3",
+                        "asr_model": "v3",
+                    }
+                )
+            )
+            (output_dir / "transcript.json").write_text(
+                json.dumps(
+                    {
+                        "turns": [
+                            {"text": "первая реплика"},
+                            {"text": "вторая реплика"},
+                        ]
+                    }
+                )
+            )
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(transcribe_module.subprocess, "run", fake_run)
+        result = transcribe_module.run_queue(
+            conn,
+            tmp_path / "account",
+            limit=20,
+            max_attempts=3,
+        )
+        assert result["transcribed"] == 1
+        row = store.transcript_row(conn, 7, 1)
+        assert row["status"] == "done"
+        assert row["text"] == "первая реплика\nвторая реплика"
+        assert row["model"] == "fluidaudio-parakeet-v3"
+        assert row["model_version"] == "v3"
+        hits = conn.execute(
+            "SELECT peer_id, message_id FROM messages_fts WHERE messages_fts MATCH ?",
+            (store.fold_yo("вторая"),),
+        ).fetchall()
+        assert [(row["peer_id"], row["message_id"]) for row in hits] == [(7, 1)]
+        result = search_module.search(conn, "вторая")
+        assert result["hits"][0]["transcript"] == "первая реплика\nвторая реплика"
+        assert result["hits"][0]["transcript_status"] == "done"
+    finally:
+        conn.close()
+
+
+def test_transcribe_retryable_failure_becomes_terminal_at_cap(tmp_path, monkeypatch):
+    conn = _connection(tmp_path)
+    media_dir = tmp_path / "account" / "media" / "7"
+    media_dir.mkdir(parents=True)
+    (media_dir / "1.ogg").write_bytes(b"voice")
+    try:
+        store.upsert_message(conn, 7, _payload(1, "caption"))
+        store.set_media_path(conn, 7, 1, path="media/7/1.ogg", media_kind="voice")
+        conn.commit()
+        monkeypatch.setattr(
+            transcribe_module.shutil, "which", lambda _: "/bin/transcribe"
+        )
+        monkeypatch.setattr(
+            transcribe_module.subprocess,
+            "run",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                returncode=1, stdout="", stderr="temporary engine failure"
+            ),
+        )
+        result = transcribe_module.run_queue(
+            conn,
+            tmp_path / "account",
+            limit=20,
+            max_attempts=1,
+        )
+        assert result["retryable"] == 0
+        assert result["no_transcript"] == 1
+        row = store.transcript_row(conn, 7, 1)
+        assert row["status"] == "no_transcript"
+        assert row["attempts"] == 1
+        assert "temporary engine failure" in row["last_error"]
+        assert store.transcript_status_counts(conn) == {
+            "pending": 0,
+            "retryable": 0,
+            "done": 0,
+            "no_transcript": 1,
+        }
+        errors = store.transcript_errors(conn)
+        assert errors[0]["status"] == "no_transcript"
+        result = search_module.search(conn, "no_transcript")
+        assert result["hits"][0]["transcript_status"] == "no_transcript"
+    finally:
+        conn.close()

@@ -429,6 +429,17 @@ def test_sync_rejects_over_cap_events_and_dialogs(config_env, monkeypatch, capsy
     assert "max-events" in capsys.readouterr().err.lower()
     assert main(["archive", "sync", "--max-dialogs", "0", "--json"]) == 2
     assert "max-dialogs" in capsys.readouterr().err.lower()
+
+
+def test_sync_rejects_invalid_media_budget(config_env, monkeypatch, capsys):
+    make_session_fake(monkeypatch, _client())
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    assert main(["archive", "sync", "--max-media", "0", "--json"]) == 2
+    assert "max-media" in capsys.readouterr().err.lower()
+    over = str(archive_cmd.MAX_SYNC_MEDIA + 1)
+    assert main(["archive", "sync", "--max-media", over, "--json"]) == 2
+    assert "max-media" in capsys.readouterr().err.lower()
     over_dialogs = str(archive_cmd.MAX_SYNC_DIALOGS + 1)
     assert main(["archive", "sync", "--max-dialogs", over_dialogs, "--json"]) == 2
     assert "max-dialogs" in capsys.readouterr().err.lower()

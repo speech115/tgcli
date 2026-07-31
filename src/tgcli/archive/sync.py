@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
+from pathlib import Path
 from typing import Any
 
 from telethon import errors as telethon_errors
@@ -13,8 +15,9 @@ from tgcli.archive import (
     store as store_mod,
 )
 from tgcli.changes_cursor import ChangesCursor
-from tgcli.clone import flood
+from tgcli.clone import cooldown as cooldown_mod, flood
 from tgcli.commands import changes as changes_cmd
+from tgcli.commands import media as media_cmd
 from tgcli.commands.read import message_to_dict
 from tgcli.errors import PolicyError, RateLimitError
 from tgcli.output import note
@@ -23,6 +26,8 @@ DEFAULT_MAX_CATCHUP_MESSAGES = 500
 MAX_CATCHUP_MESSAGES = 5000
 DEFAULT_MAX_CATCHUP_DIALOGS = 20
 MAX_CATCHUP_DIALOGS = 50
+DEFAULT_MAX_MEDIA = 50
+MAX_MEDIA = 500
 CATCHUP_LIMIT = 50
 RECONCILE_SAMPLE = 5
 # Marked channel/supergroup peer ids are at or below this bound.
@@ -47,6 +52,16 @@ def validate_max_dialogs(value: int | None, *, default: int, maximum: int) -> in
         raise PolicyError("archive sync --max-dialogs must be positive")
     if value > maximum:
         raise PolicyError(f"archive sync --max-dialogs accepts at most {maximum}")
+    return value
+
+
+def validate_max_media(value: int | None, *, default: int, maximum: int) -> int:
+    if value is None:
+        return default
+    if value <= 0:
+        raise PolicyError("archive sync --max-media must be positive")
+    if value > maximum:
+        raise PolicyError(f"archive sync --max-media accepts at most {maximum}")
     return value
 
 
@@ -216,6 +231,128 @@ async def _catch_up_peer(
     return {"peer_id": peer_id, "stored": stored}
 
 
+def _media_candidates(
+    conn: sqlite3.Connection, account_dir: Path, limit: int
+) -> list[sqlite3.Row]:
+    rows = conn.execute(
+        "SELECT t.peer_id, t.message_id, t.media_path, t.media_kind, m.payload "
+        "FROM transcripts AS t JOIN messages AS m "
+        "ON m.peer_id = t.peer_id AND m.message_id = t.message_id "
+        "WHERE t.media_kind IN ('voice', 'video_note') "
+        "ORDER BY m.date DESC, t.peer_id DESC, t.message_id DESC LIMIT ?",
+        (MAX_MEDIA + 1,),
+    ).fetchall()
+    pending = []
+    for row in rows:
+        relative = row["media_path"]
+        if relative:
+            path = Path(str(relative))
+            if not path.is_absolute() and ".." not in path.parts:
+                if (account_dir / path).is_file():
+                    continue
+        pending.append(row)
+        if len(pending) >= limit:
+            break
+    return pending
+
+
+async def fetch_media(
+    tg,
+    conn: sqlite3.Connection,
+    *,
+    account_alias: str,
+    account_user_id: int,
+    account_dir: Path,
+    limit: int,
+) -> dict[str, Any]:
+    """Download queued voice/video-note media into the account archive.
+
+    The database row is the queue checkpoint; media is published by the
+    existing resumable download seam and only then recorded as available.
+    A failed item remains retryable on the next foreground run.
+    """
+    downloaded = 0
+    skipped = 0
+    failed: list[dict[str, Any]] = []
+    rows = _media_candidates(conn, account_dir, limit)
+    for row in rows:
+        peer_id = int(row["peer_id"])
+        message_id = int(row["message_id"])
+        try:
+            payload = json.loads(row["payload"])
+            info = payload.get("media_info") or {}
+            media_kind = str(row["media_kind"])
+            relative = row["media_path"] or store_mod.media_relative_path(
+                peer_id,
+                message_id,
+                media_kind=media_kind,
+                mime=info.get("mime"),
+            )
+            relative_path = Path(str(relative))
+            if relative_path.is_absolute() or ".." in relative_path.parts:
+                raise PolicyError("archive media path escapes the account store")
+            destination = account_dir / relative_path
+            if destination.exists():
+                with conn:
+                    store_mod.set_media_path(
+                        conn,
+                        peer_id,
+                        message_id,
+                        path=str(relative_path),
+                        media_kind=media_kind,
+                    )
+                skipped += 1
+                continue
+            destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            await media_cmd.download_media(
+                tg,
+                media_cmd.MediaSource(
+                    chat=str(peer_id), message_id=message_id, private_channel_id=None
+                ),
+                account_alias,
+                output=str(destination),
+                parallel=1,
+            )
+            if not destination.is_file():
+                raise RuntimeError(
+                    "media downloader returned without publishing a file"
+                )
+            with conn:
+                store_mod.set_media_path(
+                    conn,
+                    peer_id,
+                    message_id,
+                    path=str(relative_path),
+                    media_kind=media_kind,
+                )
+            downloaded += 1
+        except telethon_errors.FloodWaitError as exc:
+            seconds = int(exc.seconds)
+            with conn:
+                store_mod.record_media_failure(
+                    conn, peer_id, message_id, error=f"FLOOD_WAIT:{seconds}"
+                )
+            cooldown_mod.arm_account(account_user_id, seconds)
+            raise RateLimitError(
+                f"rate limited during archive media fetch of {message_id}",
+                retry_after=seconds,
+            ) from exc
+        except Exception as exc:
+            error = f"{type(exc).__name__}:{exc}"
+            with conn:
+                store_mod.record_media_failure(conn, peer_id, message_id, error=error)
+            failed.append(
+                {"peer_id": peer_id, "message_id": message_id, "error": error}
+            )
+    return {
+        "queued": len(rows),
+        "downloaded": downloaded,
+        "skipped": skipped,
+        "failed": failed,
+        "remaining": bool(_media_candidates(conn, account_dir, 1)),
+    }
+
+
 async def _ensure_channel_subscriptions(
     tg, conn: sqlite3.Connection, cursor: ChangesCursor
 ) -> ChangesCursor:
@@ -295,6 +432,9 @@ async def sync_archive(
     account_user_id: int,
     max_events: int,
     max_dialogs: int,
+    max_media: int,
+    account_alias: str,
+    account_dir: Path,
     budget: flood.WaitBudget | None = None,
     reconcile: bool = True,
 ) -> dict[str, Any]:
@@ -336,6 +476,15 @@ async def sync_archive(
         catchups.append(result)
         remaining = max(0, remaining - int(result.get("stored") or 0))
 
+    media = await fetch_media(
+        tg,
+        conn,
+        account_alias=account_alias,
+        account_user_id=account_user_id,
+        account_dir=account_dir,
+        limit=max_media,
+    )
+
     gap = doc.get("gap")
     encoded = changes_cursor.encode(cursor)
     store_mod.write_account_sync(
@@ -362,6 +511,7 @@ async def sync_archive(
             "received": len(events),
         },
         "catchups": catchups,
+        "media": media,
         "gap": gap,
         "skipped": doc.get("skipped") or {},
         "next_cursor": encoded,

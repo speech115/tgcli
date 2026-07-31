@@ -214,6 +214,7 @@ async def _run_archive(tg, args, account) -> tuple[dict, list[tuple]]:
             alias,
             max_events=getattr(args, "max_events", None),
             max_dialogs=getattr(args, "max_dialogs", None),
+            max_media=getattr(args, "max_media", None),
         )
         return data, archive_cmd.sync_rows(data)
     if cmd == "rebaseline":
