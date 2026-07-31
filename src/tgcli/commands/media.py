@@ -14,6 +14,7 @@ from telethon import errors as telethon_errors, functions
 from telethon.tl import types
 
 from tgcli import atomic, chatref
+from tgcli.commands.read import _media_kind
 from tgcli.errors import (
     NotFoundError,
     PartialFailure,
@@ -571,24 +572,6 @@ def bulk_to_rows(data: dict) -> list[tuple]:
 
 
 MEDIA_KINDS = ("photo", "video", "video_note", "audio", "voice", "document")
-
-
-def _media_kind(message) -> str | None:
-    if not getattr(message, "media", None):
-        return None
-    if getattr(message, "photo", None):
-        return "photo"
-    if getattr(message, "video_note", None):
-        return "video_note"
-    if getattr(message, "video", None):
-        return "video"
-    if getattr(message, "voice", None):
-        return "voice"
-    if getattr(message, "audio", None):
-        return "audio"
-    if getattr(message, "document", None):
-        return "document"
-    return None
 
 
 def _manifest_item(message, kind: str) -> dict:

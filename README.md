@@ -35,7 +35,7 @@ Design lineage: [openclaw/gogcli](https://github.com/openclaw/gogcli) (architect
 - **Media and export** — manifest before download, bulk filtered downloads, JSONL message export with `--resume`, and CSV subscriber export for broadcast channels.
 - **Chat clone** — copy broadcast channels, megagroup supergroups (forum and non-forum), legacy basic groups, and private dialogs into tool-created destinations, with native forwards plus protected-content reupload. See [docs/guide/clone.md](docs/guide/clone.md).
 - **Daemonless change feed** — `tg changes` returns Telegram updates plus an opaque caller-held cursor, with explicit channel subscriptions, deletion tombstones, and loud gap reporting. See [docs/guide/changes.md](docs/guide/changes.md).
-- **Local archive store (Phase 1)** — `tg archive` binds a per-account SQLite store, opts groups/channels into scope, and backfills an explicit dialog list; private 1:1 dialogs are always in scope. See [docs/guide/archive.md](docs/guide/archive.md).
+- **Local archive store (Phase 4)** — `tg archive` binds a per-account SQLite store, backfills selected/private dialogs, syncs the changes cursor, acquires bounded voice/video-note media, and transcribes locally with Parakeet. See [docs/guide/archive.md](docs/guide/archive.md).
 - **Raw TL escape hatch** — `tg api` reaches the long tail of the pinned Telethon layer behind a default-deny read allowlist, an explicit `--write` gate, typed confirmations for destructive verbs, and a permanent denylist.
 - **Diagnostics and hygiene** — `tg doctor` reports locally by default (`--connect` for live checks); `tg store stats` / `tg store cleanup` inspect and reclaim local state without ever touching sessions or the audit log.
 

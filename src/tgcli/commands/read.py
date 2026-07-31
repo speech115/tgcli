@@ -36,6 +36,25 @@ def _permalink(entity, message_id: int) -> str | None:
     return None
 
 
+def _media_kind(message) -> str | None:
+    """Return the stable media category used by archive acquisition."""
+    if not getattr(message, "media", None):
+        return None
+    if getattr(message, "photo", None):
+        return "photo"
+    if getattr(message, "video_note", None):
+        return "video_note"
+    if getattr(message, "video", None):
+        return "video"
+    if getattr(message, "voice", None):
+        return "voice"
+    if getattr(message, "audio", None):
+        return "audio"
+    if getattr(message, "document", None):
+        return "document"
+    return None
+
+
 def _media_info(message) -> dict | None:
     file = getattr(message, "file", None)
     if file is None:
@@ -183,6 +202,7 @@ def message_to_dict(message, entity=None) -> dict:
         "text": _body_text(message),
         "media": type(message.media).__name__ if message.media else None,
         "media_info": _media_info(message),
+        "media_kind": _media_kind(message),
         "voice_played": _voice_played(message),
         "reply_to": _reply_to(message, entity),
         "quote_text": _quote_text(message),

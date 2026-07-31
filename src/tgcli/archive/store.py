@@ -11,8 +11,11 @@ from typing import Any
 from tgcli.errors import NotFoundError, PolicyError
 from tgcli.session import ensure_state_dir, restrict_file
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 DB_NAME = "archive.db"
+MEDIA_DIR_NAME = "media"
+TRANSCRIBABLE_MEDIA_KINDS = ("voice", "video_note")
+NO_TRANSCRIPT_MARKER = "no_transcript no transcript"
 
 _FTS_TOKENIZER = 'tokenize = "unicode61 remove_diacritics 2"'
 
@@ -64,6 +67,9 @@ CREATE TABLE IF NOT EXISTS transcripts (
     status TEXT NOT NULL,
     attempts INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL,
+    media_path TEXT,
+    media_kind TEXT,
+    last_error TEXT,
     PRIMARY KEY (peer_id, message_id)
 );
 CREATE TABLE IF NOT EXISTS scope (
@@ -126,8 +132,12 @@ def connect(path: Path) -> sqlite3.Connection:
         elif version == 1:
             _migrate_v1_to_v2(conn)
             _migrate_v2_to_v3(conn)
+            _migrate_v3_to_v4(conn)
         elif version == 2:
             _migrate_v2_to_v3(conn)
+            _migrate_v3_to_v4(conn)
+        elif version == 3:
+            _migrate_v3_to_v4(conn)
         elif version != SCHEMA_VERSION:
             conn.close()
             raise PolicyError(
@@ -208,6 +218,22 @@ def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
         for name in ("kind", "title", "username", "chat_ref"):
             if name not in cols:
                 conn.execute(f"ALTER TABLE sync_state ADD COLUMN {name} TEXT")
+        conn.execute("PRAGMA user_version=3")
+
+
+def _migrate_v3_to_v4(conn: sqlite3.Connection) -> None:
+    """Add media acquisition metadata to the transcript queue."""
+    with conn:
+        cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(transcripts)").fetchall()
+        }
+        for name, declaration in (
+            ("media_path", "TEXT"),
+            ("media_kind", "TEXT"),
+            ("last_error", "TEXT"),
+        ):
+            if name not in cols:
+                conn.execute(f"ALTER TABLE transcripts ADD COLUMN {name} {declaration}")
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
 
@@ -303,13 +329,18 @@ def require_bound_user(
 
 
 def upsert_message(
-    conn: sqlite3.Connection, peer_id: int, payload: dict[str, Any]
+    conn: sqlite3.Connection,
+    peer_id: int,
+    payload: dict[str, Any],
+    *,
+    media_kind: str | None = None,
 ) -> str:
     """Insert or update a message. Returns 'inserted' | 'updated' | 'unchanged'.
 
     Edits that change the stored payload append a revision of the previous body.
     """
     message_id = int(payload["id"])
+    media_kind = media_kind or payload.get("media_kind")
     text = payload.get("text")
     date = payload.get("date")
     edited_at = payload.get("edited_at")
@@ -334,8 +365,12 @@ def upsert_message(
             "VALUES (?, '', ?, ?)",
             (fold_yo(text or ""), peer_id, message_id),
         )
+        if media_kind in TRANSCRIBABLE_MEDIA_KINDS:
+            ensure_transcript_queue(conn, peer_id, message_id, media_kind=media_kind)
         return "inserted"
     if existing["payload"] == body:
+        if media_kind in TRANSCRIBABLE_MEDIA_KINDS:
+            ensure_transcript_queue(conn, peer_id, message_id, media_kind=media_kind)
         return "unchanged"
     recorded_at = datetime.now(UTC).isoformat()
     rev_key = existing["edited_at"] or recorded_at
@@ -350,16 +385,219 @@ def upsert_message(
         "payload = ? WHERE peer_id = ? AND message_id = ?",
         (date, from_id, text, edited_at, body, peer_id, message_id),
     )
+    _replace_fts_row(conn, peer_id, message_id, text)
+    if media_kind in TRANSCRIBABLE_MEDIA_KINDS:
+        ensure_transcript_queue(conn, peer_id, message_id, media_kind=media_kind)
+    return "updated"
+
+
+def _transcript_text(conn: sqlite3.Connection, peer_id: int, message_id: int) -> str:
+    row = conn.execute(
+        "SELECT text, status FROM transcripts WHERE peer_id = ? AND message_id = ?",
+        (peer_id, message_id),
+    ).fetchone()
+    if row is None:
+        return ""
+    if row["text"]:
+        return fold_yo(row["text"])
+    if row["status"] == "no_transcript":
+        return NO_TRANSCRIPT_MARKER
+    return ""
+
+
+def _replace_fts_row(
+    conn: sqlite3.Connection, peer_id: int, message_id: int, text: str | None
+) -> None:
+    """Replace one FTS row without dropping its stored transcript."""
     conn.execute(
         "DELETE FROM messages_fts WHERE peer_id = ? AND message_id = ?",
         (peer_id, message_id),
     )
     conn.execute(
         "INSERT INTO messages_fts(text, transcript, peer_id, message_id) "
-        "VALUES (?, '', ?, ?)",
-        (fold_yo(text or ""), peer_id, message_id),
+        "VALUES (?, ?, ?, ?)",
+        (
+            fold_yo(text or ""),
+            _transcript_text(conn, peer_id, message_id),
+            peer_id,
+            message_id,
+        ),
     )
-    return "updated"
+
+
+def ensure_transcript_queue(
+    conn: sqlite3.Connection,
+    peer_id: int,
+    message_id: int,
+    *,
+    media_kind: str,
+) -> None:
+    """Create or enrich the queue row for one voice/video-note message."""
+    now = datetime.now(UTC).isoformat()
+    conn.execute(
+        "INSERT INTO transcripts("
+        "peer_id, message_id, text, model, model_version, status, attempts, "
+        "updated_at, media_path, media_kind, last_error"
+        ") VALUES (?, ?, NULL, NULL, NULL, 'pending', 0, ?, NULL, ?, NULL) "
+        "ON CONFLICT(peer_id, message_id) DO UPDATE SET "
+        "media_kind = excluded.media_kind, updated_at = excluded.updated_at",
+        (peer_id, message_id, now, media_kind),
+    )
+
+
+def transcript_row(
+    conn: sqlite3.Connection, peer_id: int, message_id: int
+) -> dict[str, Any] | None:
+    row = conn.execute(
+        "SELECT * FROM transcripts WHERE peer_id = ? AND message_id = ?",
+        (peer_id, message_id),
+    ).fetchone()
+    return _transcript_row(row) if row is not None else None
+
+
+def _transcript_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "peer_id": int(row["peer_id"]),
+        "message_id": int(row["message_id"]),
+        "text": row["text"],
+        "model": row["model"],
+        "model_version": row["model_version"],
+        "status": str(row["status"]),
+        "attempts": int(row["attempts"]),
+        "updated_at": str(row["updated_at"]),
+        "media_path": row["media_path"],
+        "media_kind": row["media_kind"],
+        "last_error": row["last_error"],
+    }
+
+
+def list_transcript_queue(
+    conn: sqlite3.Connection, *, limit: int, max_attempts: int
+) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT t.*, m.date "
+        "FROM transcripts AS t JOIN messages AS m "
+        "ON m.peer_id = t.peer_id AND m.message_id = t.message_id "
+        "WHERE t.status IN ('pending', 'retryable') "
+        "AND t.media_path IS NOT NULL AND t.attempts < ? "
+        "ORDER BY m.date DESC, t.peer_id DESC, t.message_id DESC LIMIT ?",
+        (max_attempts, limit),
+    ).fetchall()
+    return [_transcript_row(row) | {"date": row["date"]} for row in rows]
+
+
+def set_media_path(
+    conn: sqlite3.Connection,
+    peer_id: int,
+    message_id: int,
+    *,
+    path: str,
+    media_kind: str,
+) -> None:
+    """Record a downloaded media path while keeping the queue retryable."""
+    ensure_transcript_queue(conn, peer_id, message_id, media_kind=media_kind)
+    now = datetime.now(UTC).isoformat()
+    conn.execute(
+        "UPDATE transcripts SET media_path = ?, media_kind = ?, "
+        "status = CASE WHEN status = 'no_transcript' THEN 'pending' ELSE status END, "
+        "last_error = NULL, updated_at = ? "
+        "WHERE peer_id = ? AND message_id = ?",
+        (path, media_kind, now, peer_id, message_id),
+    )
+    message = conn.execute(
+        "SELECT text FROM messages WHERE peer_id = ? AND message_id = ?",
+        (peer_id, message_id),
+    ).fetchone()
+    _replace_fts_row(
+        conn,
+        peer_id,
+        message_id,
+        message["text"] if message is not None else "",
+    )
+
+
+def record_media_failure(
+    conn: sqlite3.Connection, peer_id: int, message_id: int, *, error: str
+) -> None:
+    now = datetime.now(UTC).isoformat()
+    conn.execute(
+        "UPDATE transcripts SET media_path = NULL, last_error = ?, updated_at = ? "
+        "WHERE peer_id = ? AND message_id = ?",
+        (error, now, peer_id, message_id),
+    )
+
+
+def record_transcript_success(
+    conn: sqlite3.Connection,
+    peer_id: int,
+    message_id: int,
+    *,
+    text: str,
+    model: str,
+    model_version: str,
+) -> None:
+    now = datetime.now(UTC).isoformat()
+    conn.execute(
+        "UPDATE transcripts SET text = ?, model = ?, model_version = ?, "
+        "status = 'done', last_error = NULL, updated_at = ? "
+        "WHERE peer_id = ? AND message_id = ?",
+        (text, model, model_version, now, peer_id, message_id),
+    )
+    message = conn.execute(
+        "SELECT text FROM messages WHERE peer_id = ? AND message_id = ?",
+        (peer_id, message_id),
+    ).fetchone()
+    _replace_fts_row(
+        conn,
+        peer_id,
+        message_id,
+        message["text"] if message is not None else "",
+    )
+
+
+def record_transcript_failure(
+    conn: sqlite3.Connection,
+    peer_id: int,
+    message_id: int,
+    *,
+    status: str,
+    error: str,
+) -> None:
+    if status not in {"retryable", "no_transcript"}:
+        raise PolicyError(f"unsupported transcript failure status: {status}")
+    now = datetime.now(UTC).isoformat()
+    conn.execute(
+        "UPDATE transcripts SET attempts = attempts + 1, status = ?, "
+        "last_error = ?, updated_at = ? WHERE peer_id = ? AND message_id = ?",
+        (status, error, now, peer_id, message_id),
+    )
+    message = conn.execute(
+        "SELECT text FROM messages WHERE peer_id = ? AND message_id = ?",
+        (peer_id, message_id),
+    ).fetchone()
+    _replace_fts_row(
+        conn,
+        peer_id,
+        message_id,
+        message["text"] if message is not None else "",
+    )
+
+
+def media_relative_path(
+    peer_id: int, message_id: int, *, media_kind: str, mime: str | None = None
+) -> str:
+    suffix = ".bin"
+    if media_kind == "voice":
+        suffix = ".ogg"
+    elif media_kind == "video_note":
+        suffix = ".mp4"
+    elif mime:
+        suffix = {
+            "audio/mpeg": ".mp3",
+            "audio/mp4": ".m4a",
+            "video/mp4": ".mp4",
+        }.get(mime, suffix)
+    return f"{MEDIA_DIR_NAME}/{peer_id}/{message_id}{suffix}"
 
 
 def counts(conn: sqlite3.Connection) -> dict[str, int]:
@@ -367,7 +605,7 @@ def counts(conn: sqlite3.Connection) -> dict[str, int]:
         return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 
     pending = conn.execute(
-        "SELECT COUNT(*) FROM transcripts WHERE status = 'pending'"
+        "SELECT COUNT(*) FROM transcripts WHERE status IN ('pending', 'retryable')"
     ).fetchone()[0]
     return {
         "messages": _count("messages"),
@@ -377,6 +615,40 @@ def counts(conn: sqlite3.Connection) -> dict[str, int]:
         "scope": _count("scope"),
         "transcript_queue": int(pending),
     }
+
+
+def transcript_status_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for status in ("pending", "retryable", "done", "no_transcript"):
+        counts[status] = 0
+    rows = conn.execute(
+        "SELECT status, COUNT(*) AS count FROM transcripts GROUP BY status"
+    ).fetchall()
+    for row in rows:
+        counts[str(row["status"])] = int(row["count"])
+    return counts
+
+
+def transcript_errors(
+    conn: sqlite3.Connection, *, limit: int = 20
+) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT peer_id, message_id, status, attempts, updated_at, last_error "
+        "FROM transcripts WHERE last_error IS NOT NULL "
+        "ORDER BY updated_at DESC, peer_id DESC, message_id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [
+        {
+            "peer_id": int(row["peer_id"]),
+            "message_id": int(row["message_id"]),
+            "status": str(row["status"]),
+            "attempts": int(row["attempts"]),
+            "updated_at": str(row["updated_at"]),
+            "error": str(row["last_error"]),
+        }
+        for row in rows
+    ]
 
 
 def list_scope(conn: sqlite3.Connection) -> list[dict[str, Any]]:

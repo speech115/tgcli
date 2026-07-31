@@ -113,13 +113,17 @@ def search(
                m.text AS text,
                COALESCE(s.chat_ref, ss.chat_ref) AS chat_ref,
                COALESCE(s.title, ss.title) AS title,
-               COALESCE(s.username, ss.username) AS username
+               COALESCE(s.username, ss.username) AS username,
+               t.text AS transcript,
+               t.status AS transcript_status
         FROM messages_fts
         JOIN messages AS m
           ON m.peer_id = messages_fts.peer_id
          AND m.message_id = messages_fts.message_id
         LEFT JOIN scope AS s ON s.peer_id = m.peer_id
         LEFT JOIN sync_state AS ss ON ss.peer_id = m.peer_id
+        LEFT JOIN transcripts AS t
+          ON t.peer_id = m.peer_id AND t.message_id = m.message_id
         WHERE messages_fts MATCH ?
     """
     params: list[Any] = [match]
@@ -136,6 +140,8 @@ def search(
             "message_id": int(row["message_id"]),
             "date": row["date"],
             "text": row["text"] or "",
+            "transcript": row["transcript"],
+            "transcript_status": row["transcript_status"],
             "chat_ref": row["chat_ref"]
             or (f"@{row['username']}" if row["username"] else None),
             "title": row["title"],

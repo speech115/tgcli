@@ -100,7 +100,7 @@ SIGINT, SIGTERM, or SIGHUP journals `INTERRUPTED` / `TERMINATED` with
 `exit_code` 128+signal and then dies by that signal, so the shell still sees
 a signal death. SIGKILL cannot be caught and journals nothing.
 
-## 5. Core JSON Shapes (phase 1–3)
+## 5. Core JSON Shapes (phase 1–4)
 
 `tg dialogs [--unread-only] [--kind {user,group,channel}] --json`:
 ```json
@@ -119,6 +119,7 @@ them as channels; broadcast channels remain `channel`.
  "messages": [{"id": 42, "date": "2026-07-06T10:00:00+00:00",
                "from": {"id": 111, "name": "Alice", "username": null},
                "text": "hello", "media": null, "media_info": null,
+               "media_kind": null,
                "voice_played": null,
                "reply_to": null, "quote_text": null, "permalink": null,
                "edited_at": null,
@@ -129,7 +130,9 @@ them as channels; broadcast channels remain `channel`.
 ```
 
 All message-shape additions since 0.1 are additive; `media` remains the Telethon
-class name string, `media_info` carries structured metadata. `custom_emoji` is a
+class name string, `media_info` carries structured metadata, and `media_kind` is
+the normalized category (`photo`, `video`, `video_note`, `audio`, `voice`, or
+`document`) or `null`. `custom_emoji` is a
 (possibly empty) list of the message's custom (premium) emoji as
 `{"id", "emoji", "offset", "length"}`, where `id` is the reusable `document_id`
 as a **decimal string** (so IEEE-754 JSON number parsers cannot round it; the
@@ -158,6 +161,7 @@ newest-first output and stops when it reaches the lower date boundary.
  "messages": [{"id": 42, "date": "2026-07-06T10:00:00+00:00",
                "from": {"id": 111, "name": "Alice", "username": null},
                "text": "hello", "media": null, "media_info": null,
+               "media_kind": null,
                "voice_played": null,
                "reply_to": null, "quote_text": null, "permalink": null,
                "edited_at": null,
@@ -191,6 +195,7 @@ one message in that same shape:
  "message": {"id": 42, "date": "2026-07-06T10:00:00+00:00",
              "from": {"id": 111, "name": "Alice", "username": null},
              "text": "hello", "media": null, "media_info": null,
+             "media_kind": null,
              "voice_played": null,
              "reply_to": null, "quote_text": null, "permalink": null,
              "edited_at": null,
@@ -1629,7 +1634,7 @@ Boundary constants: common `GetDifferenceRequest.pts_total_limit =
 100000`; per-channel `GetChannelDifferenceRequest.limit = 100` with
 `ChannelMessagesFilterEmpty`.
 
-## 13. Local Archive (`tg archive`; ADR-0068 Phase 1–3 + thin search)
+## 13. Local Archive (`tg archive`; ADR-0068 Phase 1–4 + thin search)
 
 ```
 tg archive init
@@ -1640,18 +1645,19 @@ tg archive status
 tg archive search QUERY [--chat CHAT] [--limit N]
 tg archive backfill CHAT [CHAT ...] [--limit N]
 tg archive backfill --private [--limit N] [--max-dialogs N]
-tg archive sync [--max-events N] [--max-dialogs N]
+tg archive sync [--max-events N] [--max-dialogs N] [--max-media N]
+tg archive transcribe [--limit N] [--max-attempts N]
 tg archive rebaseline
 ```
 
 Per-account SQLite/WAL store under `~/.local/state/tgcli/archive/<alias>/`
 (override with `[archive] root = "…"` in `config.toml`). Directory mode
-`0700`; `archive.db` mode `0600`. Schema v3 tables: `messages`, `revisions`,
+`0700`; `archive.db` mode `0600`. Schema v4 tables: `messages`, `revisions`,
 `tombstones`, `transcripts`, `scope`, `sync_state` (with peer identity
 columns), `account_sync` (account-level `tg changes` cursor + gap), plus an
-FTS5 index over message text (and later transcripts) with
+FTS5 index over message text and transcript text with
 `tokenize = "unicode61 remove_diacritics 2"` (Cyrillic `ё`/`е` folded at
-FTS write/query time). Opening a v1/v2 store migrates in place. The message
+FTS write/query time). Opening a v1/v2/v3 store migrates in place. The message
 payload is the universal `message_to_dict` JSON shape from `tg read` — not
 a second representation.
 
@@ -1659,7 +1665,7 @@ a second representation.
 into `meta`. Every network command (`init`, `add`, `remove`, `backfill`,
 `sync`, `rebaseline`) re-checks the live user id against the store before
 touching data; mismatch is exit **2** and never merges stores. Offline
-commands (`list`, `status`, `search`) do not open a Telegram session; they
+commands (`list`, `status`, `search`, `transcribe`) do not open a Telegram session; they
 refuse an alias/store mismatch (exit 2) and report `NOT_FOUND` (exit 4)
 when the store is missing.
 
@@ -1722,11 +1728,34 @@ stored loudly in `account_sync` and surfaced by `status` / sync JSON; exit
 message totals, rotating across tracked dialogs) runs at the end of sync
 and is reported under `reconcile` / `status.reconcile`.
 
+**Media and transcription.** `backfill` and `sync` acquire queued `voice`
+and `video_note` media into the account-local `media/` directory. Backfill
+uses a fixed default budget of **50** media items per run; `sync` exposes
+`--max-media`, which defaults to **50** and accepts at most **500** items.
+The sync flag limits media downloads only, so message events and the sync
+cursor are still applied in full. Downloads are idempotent: a transcript
+queue row is marked with its controlled relative `media_path` only after the file is
+published successfully. Download failures remain retryable and a
+`FLOOD_WAIT` arms the shared account cooldown and exits **5**.
+
+`tg archive transcribe` is foreground-only and offline. It drains the
+newest ready media rows first through the local `transcribe` CLI
+(FluidAudio/Parakeet), with `--limit` default **20** and hard cap **100**.
+`--max-attempts` defaults to **3** and hard cap **5**. Successful rows store
+transcript text, engine, and model version in `transcripts` and refresh the
+FTS row. Retryable engine failures remain queued until the attempt cap;
+terminal or exhausted failures become `no_transcript` with the last error,
+so they remain visible in `status`; the `no_transcript` marker is also
+searchable and every hit reports `transcript` plus `transcript_status`. A
+rebuild or
+message edit preserves an existing transcript rather than replacing it with
+an empty FTS value.
+
 **Rebaseline.** `tg archive rebaseline` is the explicit gap recovery:
 re-inits the changes cursor (and re-subscribes explicit scope channels)
 and clears the stored gap. It does not silently rebuild message history.
 
-**Readonly.** `init` / `add` / `remove` / `backfill` / `sync` /
+**Readonly.** `init` / `add` / `remove` / `backfill` / `sync` / `transcribe` /
 `rebaseline` mutate local state and are blocked by `--readonly` /
 `TGCLI_READONLY=1` (exit 2). `list`, `status`, and `search` are allowed
 under readonly.
@@ -1735,7 +1764,7 @@ under readonly.
 
 ```json
 {"created":true,"path":"…/archive/main/archive.db",
- "account":{"alias":"main","user_id":42},"schema_version":3}
+ "account":{"alias":"main","user_id":42},"schema_version":4}
 ```
 
 ```json
@@ -1747,10 +1776,12 @@ under readonly.
 
 ```json
 {"account":{"alias":"main","user_id":42},"path":"…",
- "schema_version":3,
+ "schema_version":4,
  "counts":{"messages":0,"revisions":0,"tombstones":0,"transcripts":0,
            "scope":0,"transcript_queue":0},
- "dialogs":[],"transcript_queue":0,"last_errors":[],
+ "dialogs":[],"transcript_queue":0,
+ "transcript_status":{"pending":0,"retryable":0,"done":0,"no_transcript":0},
+ "transcript_errors":[],"last_errors":[],
  "gap":null,"last_sync_at":null,"reconcile":null,"has_cursor":false}
 ```
 
@@ -1758,6 +1789,7 @@ under readonly.
 {"account":{"alias":"main"},"query":"елка","match":"елка","match_mode":"exact",
  "limit":20,"chat":null,"peer_id":null,
  "hits":[{"peer_id":7,"message_id":1,"date":"…","text":"…",
+          "transcript":null,"transcript_status":null,
           "chat_ref":"@alice","title":"Alice"}],
  "scope":{"archived_peers_only":true,"stale":true,
           "note":"Results cover archived peers only. At least one dialog still has more history on Telegram (more=true)."}}
@@ -1778,10 +1810,11 @@ under readonly.
 
 ```json
 {"account":{"alias":"main","user_id":42},"initialized":false,
- "max_events":500,"max_dialogs":20,
+ "max_events":500,"max_dialogs":20,"max_media":50,
  "applied":{"events":3,"received":3,"inserted":1,"updated":1,"edits":1,
             "tombstones":1,"skipped_out_of_scope":0,"channel_activity":0},
  "catchups":[],"gap":null,"skipped":{},"next_cursor":"v1:…",
+ "media":{"limit":50,"queued":0,"downloaded":0,"skipped":0,"failed":[],"remaining":false},
  "reconcile":{"sampled":1,"mismatched":0,"next_offset":1,
               "comparisons":[…]},"requests":1}
 ```
@@ -1791,12 +1824,23 @@ under readonly.
  "next_cursor":"v1:…","gap":null,"peers":["@news"]}
 ```
 
+```json
+{"account":{"alias":"main"},"limit":20,"max_attempts":3,
+ "queued":2,"attempted":2,"transcribed":1,"retryable":0,
+ "no_transcript":1,"skipped_missing_media":0,"remaining":false,
+ "errors":[{"peer_id":7,"message_id":8,"status":"no_transcript",
+             "error":"…"}]}
+```
+
 `--plain` rows: `init` → `created,alias,user_id,path`; `list` → standing +
-explicit peer rows; `status` → counts summary (+ gap/cursor); `search` →
-per-hit `peer_id,message_id,date,chat_ref|title,text`; `backfill` → mode +
-per-dialog `chat,stored,inserted,updated,more`; `sync` → applied counters;
+explicit peer rows; `status` → counts summary (+ gap/cursor/transcript
+statuses); `search` → per-hit
+`peer_id,message_id,date,chat_ref|title,text,transcript,transcript_status`;
+`backfill` → mode +
+per-dialog `chat,stored,inserted,updated,more` plus media counters; `sync` →
+applied and media counters; `transcribe` → queue counters;
 `rebaseline` → `rebaselined,peers,gap`.
 
 Full Phase 5 filters (`--from`/`--since`/`--until`/`--kind`/
 `--transcripts-only`), BM25-led ranking UX, paging, and
-`read`/`history`/`transcribe`/`refresh`/`purge` remain later phases.
+`read`/`history`/`refresh`/`purge` remain later phases.

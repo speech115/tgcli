@@ -45,6 +45,7 @@ def test_message_to_dict_projects_message_contract():
         "text": "hello",
         "media": None,
         "media_info": None,
+        "media_kind": None,
         "voice_played": None,
         "reply_to": None,
         "quote_text": None,
@@ -78,6 +79,26 @@ def test_message_to_dict_reports_voice_played_from_media_unread(media_unread, ex
     )
 
     assert message_to_dict(message)["voice_played"] is expected
+
+
+@pytest.mark.parametrize(
+    ("attribute", "expected"),
+    [("voice", "voice"), ("video_note", "video_note")],
+)
+def test_message_to_dict_classifies_transcribable_media(attribute, expected):
+    message = _ns(
+        id=11,
+        date=None,
+        sender_id=1,
+        sender=None,
+        text="",
+        media=_ns(),
+        voice=_ns() if attribute == "voice" else None,
+        video_note=_ns() if attribute == "video_note" else None,
+        reply_to_msg_id=None,
+    )
+
+    assert message_to_dict(message)["media_kind"] == expected
 
 
 def test_message_to_dict_leaves_voice_played_null_for_non_voice_media():

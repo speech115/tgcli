@@ -254,6 +254,24 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help="channel catch-up dialogs per run (default 20, hard cap 50)",
     )
+    p_archive_sync.add_argument(
+        "--max-media",
+        type=int,
+        help="voice/video-note media downloads per run (default 50, hard cap 500)",
+    )
+    p_archive_transcribe = archive_sub.add_parser(
+        "transcribe",
+        help="Transcribe queued voice/video notes with local Parakeet",
+        parents=[global_flags],
+    )
+    p_archive_transcribe.add_argument(
+        "--limit", type=int, help="media items per run (default 20, hard cap 100)"
+    )
+    p_archive_transcribe.add_argument(
+        "--max-attempts",
+        type=int,
+        help="retryable attempts before no transcript (default 3, hard cap 5)",
+    )
     archive_sub.add_parser(
         "rebaseline",
         help="Explicitly re-init the archive changes cursor (gap recovery)",

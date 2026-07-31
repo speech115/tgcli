@@ -107,6 +107,44 @@ def test_backfill_rejects_too_many_dialogs(config_env, capsys):
     assert "dialog" in capsys.readouterr().err.lower()
 
 
+def test_transcribe_validates_caps_and_readonly(config_env, capsys):
+    assert main(["archive", "transcribe", "--limit", "0", "--json"]) == 2
+    assert "limit" in capsys.readouterr().err.lower()
+    assert main(["archive", "transcribe", "--limit", "-1", "--json"]) == 2
+    assert "limit" in capsys.readouterr().err.lower()
+    assert main(["archive", "transcribe", "--limit", "101", "--json"]) == 2
+    assert "limit" in capsys.readouterr().err.lower()
+    assert main(["archive", "transcribe", "--max-attempts", "-1", "--json"]) == 2
+    assert "max-attempts" in capsys.readouterr().err.lower()
+    assert main(["archive", "transcribe", "--max-attempts", "6", "--json"]) == 2
+    assert "max-attempts" in capsys.readouterr().err.lower()
+    assert main(["--readonly", "archive", "transcribe", "--json"]) == 2
+    assert "readonly" in capsys.readouterr().err.lower()
+
+
+def test_transcribe_is_offline_and_empty_queue_is_a_noop(
+    config_env, monkeypatch, capsys
+):
+    from contextlib import asynccontextmanager
+
+    from tgcli import session
+
+    make_session_fake(monkeypatch, _client())
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+
+    @asynccontextmanager
+    async def boom(*_args, **_kwargs):
+        raise AssertionError("archive transcribe must not open Telegram")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(session, "client", boom)
+    assert main(["archive", "transcribe", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["queued"] == 0
+    assert data["transcribed"] == 0
+
+
 def test_init_creates_store_and_binds_account(config_env, monkeypatch, capsys):
     client = _client()
     make_session_fake(monkeypatch, client)
@@ -595,7 +633,7 @@ def test_archive_v1_store_migrates_fts_tokenizer(config_env, monkeypatch):
     conn.close()
     conn = store_mod.connect(path)
     try:
-        assert store_mod.schema_version(conn) == 3
+        assert store_mod.schema_version(conn) == 4
         rows = conn.execute(
             "SELECT peer_id, message_id FROM messages_fts WHERE messages_fts MATCH ?",
             (store_mod.fold_yo("елка"),),
