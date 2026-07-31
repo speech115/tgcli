@@ -143,7 +143,9 @@ async def export_messages(
                         entity, limit=limit, reverse=True, min_id=min_id
                     ):
                         handle.write(
-                            json.dumps(message_to_dict(message), ensure_ascii=False)
+                            json.dumps(
+                                message_to_dict(message, entity), ensure_ascii=False
+                            )
                             + "\n"
                         )
                         count += 1
@@ -156,7 +158,8 @@ async def export_messages(
                     entity, limit=limit, reverse=True, min_id=min_id
                 ):
                     handle.write(
-                        json.dumps(message_to_dict(message), ensure_ascii=False) + "\n"
+                        json.dumps(message_to_dict(message, entity), ensure_ascii=False)
+                        + "\n"
                     )
                     count += 1
 

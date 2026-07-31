@@ -427,6 +427,7 @@ async def download_media_bulk(
 
     items = []
     failed = []
+    skipped = []
     hard_error = None
     selected = 0
     for message_id in message_ids:
@@ -469,7 +470,14 @@ async def download_media_bulk(
             )
         except NotFoundError as exc:
             failed.append({"message_id": message_id, "error": str(exc)})
-        except (PolicyError, telethon_errors.FloodWaitError) as exc:
+        except PolicyError as exc:
+            if str(exc).startswith("output path already exists: "):
+                skipped.append({"message_id": message_id, "reason": str(exc)})
+                continue
+            hard_error = exc
+            failed.append({"message_id": message_id, "error": str(exc)})
+            break
+        except telethon_errors.FloodWaitError as exc:
             hard_error = exc
             failed.append({"message_id": message_id, "error": str(exc)})
             break
@@ -485,6 +493,7 @@ async def download_media_bulk(
         "items": items,
         "count": len(items),
         "failed": failed,
+        "skipped": skipped,
     }
     if failed or hard_error is not None:
         if isinstance(hard_error, telethon_errors.FloodWaitError):
@@ -512,7 +521,7 @@ def bulk_to_rows(data: dict) -> list[tuple]:
     return [(item["path"], item["bytes"], item["resumed"], 1) for item in data["items"]]
 
 
-MEDIA_KINDS = ("photo", "video", "audio", "voice", "document")
+MEDIA_KINDS = ("photo", "video", "video_note", "audio", "voice", "document")
 
 
 def _media_kind(message) -> str | None:
@@ -520,6 +529,8 @@ def _media_kind(message) -> str | None:
         return None
     if getattr(message, "photo", None):
         return "photo"
+    if getattr(message, "video_note", None):
+        return "video_note"
     if getattr(message, "video", None):
         return "video"
     if getattr(message, "voice", None):

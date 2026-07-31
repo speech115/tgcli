@@ -8,6 +8,7 @@ import pytest
 from telethon import errors as telethon_errors
 from telethon.tl import types
 
+from tests.conftest import ns
 from tgcli.commands import media
 from tgcli.commands.media import (
     MediaSource,
@@ -474,6 +475,94 @@ def test_resume_offset_restarts_when_state_is_missing(tmp_path):
 
     assert _resume_offset(tmp_path / "state.json", part_path, source, destination) == 0
     assert not part_path.exists()
+
+
+async def test_bulk_download_skips_existing_destinations_and_continues(
+    tmp_path, monkeypatch
+):
+    entity = ns(id=-1001, title="Channel")
+    first = ns(
+        id=41,
+        date=None,
+        sender_id=1,
+        sender=None,
+        text="",
+        media=object(),
+        reply_to_msg_id=None,
+        file=ns(name="already.bin", size=10, mime_type="application/octet-stream"),
+        photo=None,
+        video=None,
+        audio=None,
+        voice=None,
+        document=object(),
+    )
+    second = ns(
+        id=42,
+        date=None,
+        sender_id=1,
+        sender=None,
+        text="",
+        media=object(),
+        reply_to_msg_id=None,
+        file=ns(name="fresh.bin", size=20, mime_type="application/octet-stream"),
+        photo=None,
+        video=None,
+        audio=None,
+        voice=None,
+        document=object(),
+    )
+
+    class FakeTelegram:
+        async def get_entity(self, chat):
+            assert chat == "@channel"
+            return entity
+
+        async def get_messages(self, requested_entity, ids):
+            assert requested_entity is entity
+            return {41: first, 42: second}[ids]
+
+    async def fake_download_media(tg, source, account_alias, **kwargs):
+        target = Path(kwargs["output"])
+        if source.message_id == 41:
+            raise PolicyError(f"output path already exists: {target}")
+        assert source.message_id == 42
+        return {
+            "source": "@channel:42",
+            "path": str(target),
+            "bytes": 20,
+            "resumed": False,
+            "parallel": 1,
+        }
+
+    monkeypatch.setattr(media, "download_media", fake_download_media)
+
+    data = await media.download_media_bulk(
+        FakeTelegram(),
+        "@channel",
+        "main",
+        message_ids=[41, 42],
+        output=str(tmp_path),
+    )
+
+    assert data == {
+        "dialog": {"id": -1001, "name": "Channel"},
+        "items": [
+            {
+                "message_id": 42,
+                "path": str(tmp_path / "fresh.bin"),
+                "bytes": 20,
+                "resumed": False,
+            }
+        ],
+        "count": 1,
+        "failed": [],
+        "skipped": [
+            {
+                "message_id": 41,
+                "reason": f"output path already exists: {tmp_path / 'already.bin'}",
+            }
+        ],
+    }
 
 
 async def test_resolve_message_uses_public_chat_reference():

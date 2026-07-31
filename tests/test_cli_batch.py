@@ -224,7 +224,8 @@ def test_batch_media_manifest_rejects_unknown_type(config_env, monkeypatch, caps
     result = json.loads(capsys.readouterr().out)
     assert result["ok"] is False
     assert result["error"]["message"] == (
-        "batch media.manifest.type must be one of: photo, video, audio, voice, document"
+        "batch media.manifest.type must be one of: "
+        "photo, video, video_note, audio, voice, document"
     )
 
 

@@ -378,13 +378,16 @@ Do not combine a positional `message_id` with bulk flags (exit 2). Hard cap
 default filter limit 100). `--output` is a destination directory. Success /
 partial JSON:
 `{"dialog":{…},"items":[{"message_id","path","bytes","resumed"}],"count":N,
-"failed":[{"message_id","error"}]}`. Per-item NotFound goes into `failed` and
-continues; FloodWait/auth/policy stop the loop. Any non-empty `failed` →
+"failed":[{"message_id","error"}],"skipped":[{"message_id","reason"}]}`.
+`count` is the number of files downloaded in this run only. A per-item
+`output path already exists: …` becomes an additive `skipped` row and the
+loop continues. Per-item NotFound goes into `failed` and continues;
+FloodWait/auth/other policy failures stop the loop. Any non-empty `failed` →
 nonzero exit (typically 4) while still emitting the JSON document on
 `--json`; successful files remain on disk. Unbounded `--all` is not offered.
 
 ```
-tg media manifest CHAT [--type photo|video|audio|voice|document] [--since ISO] [--limit N]
+tg media manifest CHAT [--type photo|video|video_note|audio|voice|document] [--since ISO] [--limit N]
 ```
 
 `media manifest` is a dry-run inventory (ADR-0029): it walks recent messages
@@ -828,8 +831,9 @@ tg export subscribers <channel> --output <path> [--limit <n>]
   `--output`, then behaves as `--append --after-id <that>`. Missing, empty, or
   corrupt last line → exit 1. No sidecar state file.
 - `messages` iterates through a Telethon takeout session from oldest to newest.
-  The destination is UTF-8 JSONL: one `read`-shape message object per line,
-  with `id`, `date`, `from`, `text`, `media`, and `reply_to` fields.
+  The destination is UTF-8 JSONL: one `read`-shape message object per line.
+  Export resolves the source entity too, so rows preserve the same permalink
+  and cross-chat `reply_to` fidelity as live `read`.
 - `subscribers` writes UTF-8 CSV with the frozen header
   `id,username,first_name,last_name,phone,is_bot`; standard CSV quoting is
   used for field values. Username and name cells whose first non-whitespace
