@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from tgcli.archive import (
-    search as search_module,
+    explore as explore_module,
     store,
     sync as sync_module,
     transcribe as transcribe_module,
@@ -264,7 +264,7 @@ def test_transcribe_queue_stores_parakeet_text_and_metadata(tmp_path, monkeypatc
             (store.fold_yo("вторая"),),
         ).fetchall()
         assert [(row["peer_id"], row["message_id"]) for row in hits] == [(7, 1)]
-        result = search_module.search(conn, "вторая")
+        result = explore_module.search(conn, "вторая")
         assert result["hits"][0]["transcript"] == "первая реплика\nвторая реплика"
         assert result["hits"][0]["transcript_status"] == "done"
     finally:
@@ -310,7 +310,7 @@ def test_transcribe_retryable_failure_becomes_terminal_at_cap(tmp_path, monkeypa
         }
         errors = store.transcript_errors(conn)
         assert errors[0]["status"] == "no_transcript"
-        result = search_module.search(conn, "no_transcript")
+        result = explore_module.search(conn, "no_transcript")
         assert result["hits"][0]["transcript_status"] == "no_transcript"
     finally:
         conn.close()

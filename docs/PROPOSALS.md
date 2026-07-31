@@ -348,8 +348,8 @@ any message bodies are placed under `~/.local/state/tgcli/`.
 
 | Item | Value | Effort | Status |
 |---|---|---|---|
-| Selected-dialog local archive + FTS5 search | high | M | **in progress — Phase 4 media/transcription on `codex/archive-phase4` (ADR-0068); Phase 5 remains** |
-| Import/rebuild/status with account identity and gap reporting | high | M | **in progress — Phase 4 media queue and transcript-preserving FTS (ADR-0068); rebuild/purge later** |
+| Selected-dialog local archive + FTS5 search | high | M | **Phase 5 implemented on `codex/archive-phase5` — filtered/ranked search plus offline read/history (ADR-0068/0069); Phase 6 refresh remains** |
+| Import/rebuild/status with account identity and gap reporting | high | M | **Phase 5 archive store/search/history shipped; rebuild/purge remain deferred (ADR-0068/0069)** |
 | Continuous event-driven mirror | ? | L | **rejected for this effort — hourly foreground one-shots instead (ADR-0068)** |
 
 Resolution (2026-07-31): wayfinder map #100 worked the gates below to closure
@@ -491,10 +491,11 @@ bf-01-class defects.
 
 ## Suggested sequencing (remaining items only)
 
-1. **Local archive/search (M, in progress — ADR-0068 Phase 4):** execute
+1. **Local archive/search (M, in progress — ADR-0068 Phase 5):** execute
    `docs/superpowers/plans/2026-07-31-archive-store.md` — native store, no
    telecrawl; Phase 4 (bounded media + local transcription) is on
-   `codex/archive-phase4`. Phase 5 full search UX remains.
+   `codex/archive-phase5`. Phase 5 search/read/history is implemented; Phase 6
+   refresh/launchd packaging remains.
 2. **Data tail (S/M):** `export bundle` and typed temporary/permanent media
    failures, only against a concrete backup workflow.
 3. **Measured performance (S):** baseline → `--profile` → per-run RPC cache.

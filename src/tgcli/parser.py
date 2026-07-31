@@ -211,8 +211,47 @@ def build_parser() -> argparse.ArgumentParser:
     p_archive_search.add_argument("query", help="FTS5 MATCH query")
     p_archive_search.add_argument("--chat", help="archived peer scope")
     p_archive_search.add_argument(
+        "--from", dest="from_user", help="sender id, @username, or name"
+    )
+    p_archive_search.add_argument("--since", help="ISO date/datetime lower bound")
+    p_archive_search.add_argument("--until", help="ISO date/datetime upper bound")
+    p_archive_search.add_argument(
+        "--kind",
+        choices=["text", "photo", "video", "video_note", "audio", "voice", "document"],
+        help="message media kind",
+    )
+    p_archive_search.add_argument(
+        "--transcripts-only", action="store_true", help="match transcript text only"
+    )
+    p_archive_search.add_argument(
+        "--sort", choices=["relevance", "date"], help="result order (default relevance)"
+    )
+    p_archive_search.add_argument(
         "--limit", type=int, help="max hits (default 20, cap 50)"
     )
+    p_archive_search.add_argument("--page", type=int, help="1-based result page")
+    p_archive_read = archive_sub.add_parser(
+        "read", help="Read the local archive timeline offline", parents=[global_flags]
+    )
+    p_archive_read.add_argument("chat", help="archived peer scope")
+    p_archive_read.add_argument(
+        "--around-id", type=int, help="center timeline on message id"
+    )
+    p_archive_read.add_argument(
+        "--around-date", help="center timeline on ISO date/datetime"
+    )
+    p_archive_read.add_argument("--since", help="ISO date/datetime lower bound")
+    p_archive_read.add_argument("--until", help="ISO date/datetime upper bound")
+    p_archive_read.add_argument(
+        "--limit", type=int, help="timeline rows (default 20, cap 50)"
+    )
+    p_archive_history = archive_sub.add_parser(
+        "history",
+        help="Read local revisions and deletion history offline",
+        parents=[global_flags],
+    )
+    p_archive_history.add_argument("chat", help="archived peer scope")
+    p_archive_history.add_argument("message_id", type=int)
     p_archive_backfill = archive_sub.add_parser(
         "backfill",
         help="Backfill dialogs into the archive (CHAT list or --private)",

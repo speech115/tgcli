@@ -35,7 +35,7 @@ tgcli/
 │   ├── guide/                 [done]    user-facing task pages, 24 + index (ADR-0041/0065)
 │   ├── assets/                [done]    README banner, dark + light SVG (no external assets)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
-│   ├── decisions/             [done]    ADR-0001…0068 + README.md index (ADR-0026 maintenance mode)
+│   ├── decisions/             [done]    ADR-0001…0069 + README.md index (ADR-0026 maintenance mode)
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -60,10 +60,11 @@ tgcli/
 │   ├── changes_cursor.py      [done]    opaque v1 cursor codec for tg changes (ADR-0063; pure)
 │   ├── login_state.py         [done]    logins/ attempt state and session promotion (ADR-0042)
 │   ├── transfer.py            [done]    striped download + parallel Save*FilePart upload, one progress cadence (ADR-0047/0049/0055)
-│   ├── archive/               [wip]     local archive store (ADR-0068)
+│   ├── archive/               [wip]     local archive store + Phase 5 exploration (ADR-0068/0069)
 │   │   ├── store.py           [done]    schema v4, WAL, FTS5 text+transcripts, account_sync, sync_state identity, tombstones
 │   │   ├── scope.py           [done]    standing private category + group/channel classification
-│   │   ├── search.py          [done]    thin offline FTS5 MATCH + scope/sync_state peer resolve
+│   │   ├── search.py          [done]    FTS5 MATCH normalization + scope/sync_state peer resolve
+│   │   ├── explore.py         [done]    filtered search, paging, offline timeline/history, tg:// handoff (ADR-0069)
 │   │   ├── backfill.py        [done]    selected + --private history walk + caps/checkpoint
 │   │   ├── sync.py            [done]    changes.once apply, gap/rebaseline, light reconcile, bounded media fetch
 │   │   └── transcribe.py      [done]    foreground local FluidAudio/Parakeet queue
@@ -98,7 +99,7 @@ tgcli/
 │   │   ├── login.py           [done]    tg accounts login QR/phone + --continue + --role (ADR-0042/0062)
 │   │   ├── doctor.py          [done]    offline/online health for primary + role sessions (ADR-0028/0040/0062)
 │   │   ├── changes.py         [done]    tg changes daemonless feed (ADR-0063 / FEED-001)
-│   │   ├── archive.py         [done]    tg archive init|add|remove|list|status|search|backfill|sync|transcribe|rebaseline (ADR-0068)
+│   │   ├── archive.py         [done]    tg archive init|add|remove|list|status|search|read|history|backfill|sync|transcribe|rebaseline (ADR-0068/0069)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
 │   │   ├── read.py            [done]    tg read <chat>                (phase 1)
 │   │   ├── search.py          [done]    tg search / latest / message (phase 2)
