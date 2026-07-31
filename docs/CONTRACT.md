@@ -647,6 +647,8 @@ No config and no Telegram session. `--json` emits:
  "clones":{"bytes":0,"db":{"count":0,"bytes":0},"wal":{"count":0,"bytes":0},
            "shm":{"count":0,"bytes":0},"imported":{"count":0,"bytes":0}},
  "clone_media_cache":{"count":0,"bytes":0},
+ "archive":{"bytes":0,"db":{"count":0,"bytes":0},"wal":{"count":0,"bytes":0},
+            "shm":{"count":0,"bytes":0}},
  "downloads":{"bytes":0},
  "relics":[{"name":"labs","bytes":11}]}
 ```
@@ -665,7 +667,10 @@ everything under `clones/` and additionally breaks out SQLite state files
 auto-deleted. `clone_media_cache`
 reports abandoned `clones/<clone_id>-media/` directories left by a failed
 `clone sync` reupload batch (ADR-0052); their bytes are also included in the
-aggregate `clones` figure. Relic directories
+aggregate `clones` figure. `archive` reports
+`archive/<account>/` under the state root (ADR-0068): aggregate bytes plus
+`archive.db` / WAL / SHM counts; never auto-deleted. A custom
+`[archive] root` outside the state root is not inventoried here. Relic directories
 (`mirrors`, `mirror-lab`, `labs`, `probes`) are reported when present and never
 auto-deleted. New previews are written mode `0600`; `store cleanup` also
 tightens surviving preview modes to `0600`.
@@ -684,8 +689,8 @@ removed and
 stderr prints a one-line `--confirm` hint. With `--confirm`, those files are
 deleted. Never touches `audit.jsonl`, `sessions/` (including `.bak`), live
 login attempts, live `.json` within TTL, clone state JSON, a media cache
-younger than one hour (`MEDIA_CACHE_MIN_AGE`, the running-sync guard), or
-relic directories.
+younger than one hour (`MEDIA_CACHE_MIN_AGE`, the running-sync guard), the
+archive store under `archive/` (ADR-0068), or relic directories.
 `.pending` files are
 protected (ADR-0028 `random_id`) and are eligible only with `--include-pending`
 and only when far past TTL (`expires_at + PREVIEW_TTL`). Staged sessions are
@@ -708,7 +713,7 @@ guard is for Telegram sends, and cleanup reaches no network.
 ```json
 {"removed":[],"would_remove":["p_spent0.used","p_expired.json"],"bytes":130,
  "confirmed":false,"kept":{"audit_log":true,"sessions":true,
- "session_backups":true,"relics":["labs"]}}
+ "session_backups":true,"archive":true,"relics":["labs"]}}
 ```
 
 With `--confirm`, `removed` is populated and `would_remove` is empty.
@@ -1623,3 +1628,84 @@ is data:
 Boundary constants: common `GetDifferenceRequest.pts_total_limit =
 100000`; per-channel `GetChannelDifferenceRequest.limit = 100` with
 `ChannelMessagesFilterEmpty`.
+
+## 13. Local Archive (`tg archive`; ADR-0068 Phase 1)
+
+```
+tg archive init
+tg archive add CHAT
+tg archive remove CHAT
+tg archive list
+tg archive status
+tg archive backfill CHAT [CHAT ...] [--limit N]
+```
+
+Per-account SQLite/WAL store under `~/.local/state/tgcli/archive/<alias>/`
+(override with `[archive] root = "…"` in `config.toml`). Directory mode
+`0700`; `archive.db` mode `0600`. Schema v1 tables: `messages`, `revisions`,
+`tombstones`, `transcripts`, `scope`, `sync_state`, plus an FTS5 index over
+message text (and later transcripts). The message payload is the universal
+`message_to_dict` JSON shape from `tg read` — not a second representation.
+
+**Account binding.** `init` binds the live `get_me().id` and selected alias
+into `meta`. Every network command (`init`, `add`, `remove`, `backfill`)
+re-checks the live user id against the store before touching data; mismatch
+is exit **2** and never merges stores. Offline commands (`list`, `status`)
+do not open a Telegram session; they refuse an alias/store mismatch (exit 2)
+and report `NOT_FOUND` (exit 4) when the store is missing.
+
+**Scope.** Private 1:1 dialogs are a standing category — always in scope,
+including future correspondents; `add` of a private user is exit 2.
+Groups and channels join only via `add` / leave via `remove`. `list`
+returns the standing category plus the explicit allowlist.
+
+**Backfill.** At least one `CHAT` is required — there is **no** empty→all
+sentinel. Default `--limit` is **100** messages per dialog; hard caps are
+**1000** messages per dialog and **20** dialogs per invocation. Non-positive
+or over-cap `--limit` is exit 2. Groups/channels must be `add`ed first
+(exit 2 otherwise); private dialogs may be backfilled without `add`.
+Each run walks recent→older history (resuming from the stored oldest id),
+upserts the universal message shape, appends revisions on edit, and
+persists a per-dialog checkpoint in `sync_state`. Full-history /
+whole-account flags are out of Phase 1.
+
+**Readonly.** `init` / `add` / `remove` / `backfill` mutate local state and
+are blocked by `--readonly` / `TGCLI_READONLY=1` (exit 2). `list` and
+`status` are allowed under readonly.
+
+`--json` shapes (Phase 1):
+
+```json
+{"created":true,"path":"…/archive/main/archive.db",
+ "account":{"alias":"main","user_id":42},"schema_version":1}
+```
+
+```json
+{"account":{"alias":"main"},
+ "standing":{"kind":"private","description":"private 1:1 dialogs"},
+ "explicit":[{"peer_id":-1001234,"kind":"channel","title":"News",
+              "username":"news","chat_ref":"@news","added_at":"…"}]}
+```
+
+```json
+{"account":{"alias":"main","user_id":42},"path":"…",
+ "schema_version":1,
+ "counts":{"messages":0,"revisions":0,"tombstones":0,"transcripts":0,
+           "scope":0,"transcript_queue":0},
+ "dialogs":[],"transcript_queue":0,"last_errors":[]}
+```
+
+```json
+{"account":{"alias":"main","user_id":42},"limit":100,
+ "dialogs":[{"chat":"@alice","peer_id":7,"kind":"user",
+             "dialog":{"id":7,"name":"Alice"},"stored":2,"inserted":2,
+             "updated":0,"more":true,"oldest_id":2,"newest_id":3}],
+ "stored":2}
+```
+
+`--plain` rows: `init` → `created,alias,user_id,path`; `list` → standing +
+explicit peer rows; `status` → counts summary; `backfill` → per-dialog
+`chat,stored,inserted,updated,more`.
+
+Search / sync / transcribe / refresh / purge are later phases and are not
+part of this surface yet.

@@ -44,6 +44,10 @@ use `tg accounts show` / `tg accounts remove` for the account-scoped view.
 by the removed `tg mirror` surface. `stats` reports them when present and
 flags them "remove by hand" — `store cleanup` never touches them.
 
+**Archive** (`archive/<account>/`, ADR-0068) is inventoried by `stats`
+(bytes + `archive.db` / WAL / SHM) and is never deleted by cleanup. A custom
+`[archive] root` outside the state directory is not counted here.
+
 ## Clean up: `store cleanup`
 
 ```bash
@@ -82,6 +86,7 @@ Cleanup's scope is narrow and non-negotiable:
   record of every mutation; a cleanup command able to erase it would hand
   an agent a way to cover its tracks.
 - **Never deletes sessions.**
+- **Never deletes the archive store** under `archive/` (ADR-0068).
 - **Never deletes a live preview within its TTL** — only expired or spent
   ones are eligible, regardless of `--older-than`.
 - **`.pending` previews are protected**: they hold the idempotency

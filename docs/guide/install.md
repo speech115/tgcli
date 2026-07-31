@@ -70,6 +70,7 @@ Schema, as read by the config loader:
 | `accounts.<alias>.api_id` | yes | Telegram API id (integer) from my.telegram.org. |
 | `accounts.<alias>.api_hash` | yes | Telegram API hash (string) from my.telegram.org. |
 | `accounts.<alias>.session` | no | Session file base name under `~/.local/state/tgcli/sessions/`. Defaults to the alias itself. |
+| `archive.root` | no | Override the archive store root (default `~/.local/state/tgcli/archive/`). See [archive.md](archive.md). |
 
 A missing `api_id` or `api_hash` for a configured alias is a config error
 (exit 3) the moment that alias is selected. See [accounts.md](accounts.md)

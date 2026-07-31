@@ -32,7 +32,7 @@ tgcli/
 │   ├── DEVLOG-v1.md           [done]    closed log of the phases 0–7 build
 │   ├── devlog/                [done]    per-session entry files YYYY-MM-DD-slug.md (ADR-0058)
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── guide/                 [done]    user-facing task pages, 23 + index (ADR-0041/0065)
+│   ├── guide/                 [done]    user-facing task pages, 24 + index (ADR-0041/0065)
 │   ├── assets/                [done]    README banner, dark + light SVG (no external assets)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
 │   ├── decisions/             [done]    ADR-0001…0068 + README.md index (ADR-0026 maintenance mode)
@@ -46,7 +46,7 @@ tgcli/
 │   ├── output.py              [done]    emit(data) → stdout as JSON/plain; note()/warn() → stderr
 │   ├── errors.py              [done]    TgcliError hierarchy ↔ exit codes (CONTRACT.md §4)
 │   ├── chatref.py             [done]    chat reference normalization (numeric dialog id → int)
-│   ├── config.py              [done]    ~/.config/tgcli/config.toml, accounts registry, alias + role-name validation
+│   ├── config.py              [done]    ~/.config/tgcli/config.toml, accounts registry, alias + role-name validation, optional [archive] root (ADR-0068)
 │   ├── session.py             [done]    primary + named-role session paths/locks + TelegramClient factory (ADR-0004/0062)
 │   ├── atomic.py              [done]    atomic state/config file replacement (the only sanctioned writer)
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
@@ -60,6 +60,10 @@ tgcli/
 │   ├── changes_cursor.py      [done]    opaque v1 cursor codec for tg changes (ADR-0063; pure)
 │   ├── login_state.py         [done]    logins/ attempt state and session promotion (ADR-0042)
 │   ├── transfer.py            [done]    striped download + parallel Save*FilePart upload, one progress cadence (ADR-0047/0049/0055)
+│   ├── archive/               [wip]     local archive store (ADR-0068 Phase 1)
+│   │   ├── store.py           [done]    schema v1, WAL, account binding, FTS5, scope/sync_state helpers
+│   │   ├── scope.py           [done]    standing private category + group/channel classification
+│   │   └── backfill.py        [done]    selected-dialog history walk + caps/checkpoint
 │   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045/0046/0047/0049/0054/0055)
 │   │   ├── state.py           [done]    CloneState seam + dirty-tracked save/load (SQLite via statedb; ADR-0017/0060)
 │   │   ├── statedb.py         [done]    per-clone SQLite/WAL backend, import/export helpers (ADR-0060)
@@ -91,6 +95,7 @@ tgcli/
 │   │   ├── login.py           [done]    tg accounts login QR/phone + --continue + --role (ADR-0042/0062)
 │   │   ├── doctor.py          [done]    offline/online health for primary + role sessions (ADR-0028/0040/0062)
 │   │   ├── changes.py         [done]    tg changes daemonless feed (ADR-0063 / FEED-001)
+│   │   ├── archive.py         [done]    tg archive init|add|remove|list|status|backfill (ADR-0068 Phase 1)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
 │   │   ├── read.py            [done]    tg read <chat>                (phase 1)
 │   │   ├── search.py          [done]    tg search / latest / message (phase 2)
@@ -102,7 +107,7 @@ tgcli/
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── draft.py           [done]    tg draft set|show|clear|list (ADR-0039)
 │   │   ├── mutate.py          [done]    tg edit|delete|forward preview / commit; tg mark-read|mark-unread (ADR-0028/0029)
-│   │   ├── store.py           [done]    tg store stats|cleanup; previews + logins + session_backups + clone media caches (ADR-0040/0042/0052)
+│   │   ├── store.py           [done]    tg store stats|cleanup; previews + logins + session_backups + clone media caches + archive inventory (ADR-0040/0042/0052/0068)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (+ incremental messages ADR-0032; broadcast walk ADR-0031)
 │   │   └── clone.py           [done]    clone status/init/sync/refresh/export-state surface (ADR-0017…0025/0045/0046/0047/0048/0052/0054/0055/0060; live gates for clone path)

@@ -33,6 +33,29 @@ def prepare(parser: argparse.ArgumentParser, args) -> None:
     _prepare_previews(parser, args)
     _prepare_api(parser, args)
     _prepare_changes(args)
+    _prepare_archive(args)
+
+
+def _prepare_archive(args) -> None:
+    if args.command != "archive":
+        return
+    cmd = args.archive_command
+    if cmd in ("init", "add", "remove", "backfill"):
+        safety.enforce_local_mutation_allowed(args.readonly)
+    if cmd != "backfill":
+        return
+    from tgcli.archive import backfill as backfill_mod
+    from tgcli.commands import archive as archive_cmd
+
+    chats = list(getattr(args, "chats", None) or [])
+    args.chats = backfill_mod.validate_dialogs(
+        chats, maximum=archive_cmd.MAX_BACKFILL_DIALOGS
+    )
+    args.limit = backfill_mod.validate_limit(
+        getattr(args, "limit", None),
+        default=archive_cmd.DEFAULT_BACKFILL_LIMIT,
+        maximum=archive_cmd.MAX_BACKFILL_LIMIT,
+    )
 
 
 def _prepare_changes(args) -> None:

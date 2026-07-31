@@ -25,7 +25,7 @@ Status values:
 | fragment | api | No dedicated workflow; use raw TL only after task-specific review. |
 | help | api | No dedicated workflow; use raw TL only after task-specific review. |
 | langpack | api | No dedicated workflow; use raw TL only after task-specific review. |
-| messages | wrapped | `read`, `search`, `latest`, `message`, `send`, export, and `clone sync` (native forward + protected reupload) cover daily work; raw TL covers the long tail. |
+| messages | wrapped | `read`, `search`, `latest`, `message`, `send`, export, `clone sync` (native forward + protected reupload), and `archive` backfill (ADR-0068 Phase 1) cover daily work; raw TL covers the long tail. |
 | payments | api | No dedicated workflow; mutations remain behind raw write safety gates. |
 | phone | excluded | Voice and video calls need a WebRTC media stack and are out of scope. |
 | photos | api | `getUserPhotos` is an allowlisted read; other calls use raw safety gates. |
@@ -44,3 +44,6 @@ Status values:
 - **Bot API (HTTP)** — non-goal; tgcli is an MTProto user-account tool.
 - **Signup** — account creation is a ToS and ban risk; authorize with
   `tg accounts login`, or `tg accounts import` for an old-stack session.
+- **Local archive search/sync/transcribe** — Phase 1 of ADR-0068 ships the
+  store, scope, and selected-dialog backfill (`tg archive`); FTS search,
+  delta sync, and transcription remain later plan phases.

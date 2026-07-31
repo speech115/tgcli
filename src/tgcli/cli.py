@@ -22,6 +22,7 @@ from tgcli import dispatch, invocations, output, preflight, safety, session
 from tgcli.commands import (
     accounts as accounts_cmd,
     api as api_cmd,
+    archive as archive_cmd,
     clone as clone_cmd,
     doctor as doctor_cmd,
     login as login_cmd,
@@ -310,6 +311,13 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
         return data, store_cmd.cleanup_rows(data)
 
     config = load_config()
+    if args.command == "archive" and args.archive_command in ("list", "status"):
+        alias = archive_cmd.resolve_alias(args.account, config)
+        if args.archive_command == "list":
+            data = archive_cmd.list_scope(alias, config)
+            return data, archive_cmd.list_rows(data)
+        data = archive_cmd.status(alias, config)
+        return data, archive_cmd.status_rows(data)
     if args.command == "accounts" and args.subcommand == "show":
         data = accounts_cmd.show_account(config, args.alias)
         return data, accounts_cmd.show_rows(data)
