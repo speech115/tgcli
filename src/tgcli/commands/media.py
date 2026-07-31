@@ -423,7 +423,7 @@ async def download_media_bulk(
     failed = []
     skipped = []
     hard_error = None
-    async for source, message in _iter_bulk_candidates(
+    async for source, message, resolve_error in _iter_bulk_candidates(
         tg,
         entity,
         chat,
@@ -434,6 +434,11 @@ async def download_media_bulk(
     ):
         if len(items) >= effective_limit:
             break
+        if resolve_error is not None:
+            failed.append(
+                {"message_id": source.message_id, "error": str(resolve_error)}
+            )
+            continue
         try:
             result = await download_media(
                 tg,
@@ -515,26 +520,35 @@ async def _iter_bulk_candidates(
     kind: str | None,
     since,
 ):
+    """Yield ``(source, message, resolve_error)`` rows for bulk download.
+
+    Candidate-resolution ``NotFoundError`` is yielded as ``resolve_error`` so
+    the caller can record an additive ``failed`` row and continue the batch.
+    """
     if message_ids is not None:
         for message_id in message_ids:
             source = MediaSource(
                 chat=chat, message_id=message_id, private_channel_id=None
             )
-            if kind is not None or since is not None:
-                message = await tg.get_messages(entity, ids=message_id)
-                if message is None:
-                    raise NotFoundError(f"message not found: {message_id}")
-                if kind is not None and _media_kind(message) != kind:
-                    continue
-                if (
-                    since is not None
-                    and message.date is not None
-                    and message.date < since
-                ):
-                    continue
-            else:
-                _, message = await resolve_message(tg, source, account_alias)
-            yield source, message
+            try:
+                if kind is not None or since is not None:
+                    message = await tg.get_messages(entity, ids=message_id)
+                    if message is None:
+                        raise NotFoundError(f"message not found: {message_id}")
+                    if kind is not None and _media_kind(message) != kind:
+                        continue
+                    if (
+                        since is not None
+                        and message.date is not None
+                        and message.date < since
+                    ):
+                        continue
+                else:
+                    _, message = await resolve_message(tg, source, account_alias)
+            except NotFoundError as exc:
+                yield source, None, exc
+                continue
+            yield source, message, None
         return
 
     async for message in tg.iter_messages(entity, limit=None):
@@ -547,6 +561,7 @@ async def _iter_bulk_candidates(
         yield (
             MediaSource(chat=chat, message_id=message.id, private_channel_id=None),
             message,
+            None,
         )
 
 

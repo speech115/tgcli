@@ -163,6 +163,105 @@ def test_media_download_bulk_failed_nonzero_exit(
     assert data["failed"][0]["message_id"] == 11
 
 
+def test_media_download_missing_explicit_id_continues_without_filters(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    """Candidate resolution NotFound must become failed, not a top-level abort."""
+    make_session_fake(
+        monkeypatch,
+        FakeClient(
+            messages=[_media_message(11, "photo")],
+            entities={"@chan": ns(id=5, title="C")},
+        ),
+    )
+    downloaded = []
+
+    async def fake_download(tg, source, account_alias, **kwargs):
+        downloaded.append(source.message_id)
+        path = tmp_path / f"{source.message_id}.bin"
+        path.write_bytes(b"x")
+        return {
+            "source": f"@chan:{source.message_id}",
+            "path": str(path),
+            "bytes": 1,
+            "resumed": False,
+            "parallel": 1,
+        }
+
+    monkeypatch.setattr(media_cmd, "download_media", fake_download)
+
+    assert (
+        main(
+            [
+                "--json",
+                "media",
+                "download",
+                "@chan",
+                "--message-ids",
+                "10,11",
+                "--output",
+                str(tmp_path),
+            ]
+        )
+        == 4
+    )
+    data = json.loads(capsys.readouterr().out)
+    assert downloaded == [11]
+    assert [item["message_id"] for item in data["items"]] == [11]
+    assert data["failed"] == [
+        {"message_id": 10, "error": "downloadable media not found: 10"}
+    ]
+
+
+def test_media_download_missing_explicit_id_continues_with_filters(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    make_session_fake(
+        monkeypatch,
+        FakeClient(
+            messages=[_media_message(11, "video")],
+            entities={"@chan": ns(id=5, title="C")},
+        ),
+    )
+    downloaded = []
+
+    async def fake_download(tg, source, account_alias, **kwargs):
+        downloaded.append(source.message_id)
+        path = tmp_path / f"{source.message_id}.bin"
+        path.write_bytes(b"x")
+        return {
+            "source": f"@chan:{source.message_id}",
+            "path": str(path),
+            "bytes": 1,
+            "resumed": False,
+            "parallel": 1,
+        }
+
+    monkeypatch.setattr(media_cmd, "download_media", fake_download)
+
+    assert (
+        main(
+            [
+                "--json",
+                "media",
+                "download",
+                "@chan",
+                "--message-ids",
+                "10,11",
+                "--type",
+                "video",
+                "--output",
+                str(tmp_path),
+            ]
+        )
+        == 4
+    )
+    data = json.loads(capsys.readouterr().out)
+    assert downloaded == [11]
+    assert [item["message_id"] for item in data["items"]] == [11]
+    assert data["failed"] == [{"message_id": 10, "error": "message not found: 10"}]
+
+
 def _bulk_download_fake(tmp_path, missing=()):
     async def fake_download(tg, source, account_alias, **kwargs):
         if source.message_id in missing:
