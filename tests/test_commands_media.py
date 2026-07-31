@@ -9,6 +9,7 @@ from telethon import errors as telethon_errors
 from telethon.tl import types
 
 from tests.conftest import ns
+from tests.test_cli_media import _media_message
 from tgcli.commands import media
 from tgcli.commands.media import (
     MediaSource,
@@ -563,6 +564,74 @@ async def test_bulk_download_skips_existing_destinations_and_continues(
             }
         ],
     }
+
+
+async def test_bulk_download_filter_limit_counts_successes_not_skipped_attempts(
+    tmp_path, monkeypatch
+):
+    entity = ns(id=-1001, title="Channel")
+    messages = {
+        41: _media_message(41, "video_note"),
+        42: _media_message(42, "video_note"),
+        43: _media_message(43, "video_note"),
+        44: _media_message(44, "video_note"),
+    }
+    client = type(
+        "FakeTelegram",
+        (),
+        {
+            "get_entity": lambda self, chat: _async_result(entity),
+            "iter_messages": lambda self, requested_entity, limit=None: _iter_messages(
+                list(messages.values())
+            ),
+        },
+    )()
+    downloaded = []
+
+    async def fake_download_media(tg, source, account_alias, **kwargs):
+        target = Path(kwargs["output"])
+        if source.message_id in {41, 42}:
+            raise PolicyError(f"output path already exists: {target}")
+        downloaded.append(source.message_id)
+        return {
+            "source": f"@channel:{source.message_id}",
+            "path": str(target),
+            "bytes": 20,
+            "resumed": False,
+            "parallel": 1,
+        }
+
+    monkeypatch.setattr(media, "download_media", fake_download_media)
+    monkeypatch.setattr(
+        media,
+        "resolve_message",
+        lambda tg, source, account_alias: _async_result(
+            (entity, messages[source.message_id])
+        ),
+    )
+
+    data = await media.download_media_bulk(
+        client,
+        "@channel",
+        "main",
+        kind="video_note",
+        limit=2,
+        output=str(tmp_path),
+    )
+
+    assert downloaded == [43, 44]
+    assert [item["message_id"] for item in data["items"]] == [43, 44]
+    assert [item["message_id"] for item in data["skipped"]] == [41, 42]
+    assert data["count"] == 2
+
+
+async def _async_result(value):
+    return value
+
+
+async def _iter_messages(messages):
+    for message in messages:
+        yield message
 
 
 async def test_resolve_message_uses_public_chat_reference():

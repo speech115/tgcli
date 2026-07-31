@@ -411,13 +411,7 @@ async def download_media_bulk(
     if effective_limit > BULK_DOWNLOAD_CAP:
         raise PolicyError(f"bulk media --limit may not exceed {BULK_DOWNLOAD_CAP}")
 
-    explicit_ids = message_ids is not None
-    if message_ids is None:
-        inventory = await manifest(
-            tg, chat, kind=kind, since=since, limit=effective_limit
-        )
-        message_ids = [item["message_id"] for item in inventory["items"]]
-    elif len(message_ids) > BULK_DOWNLOAD_CAP:
+    if message_ids is not None and len(message_ids) > BULK_DOWNLOAD_CAP:
         raise PolicyError(
             f"bulk media accepts at most {BULK_DOWNLOAD_CAP} downloads per call"
         )
@@ -429,23 +423,18 @@ async def download_media_bulk(
     failed = []
     skipped = []
     hard_error = None
-    selected = 0
-    for message_id in message_ids:
-        if selected >= effective_limit:
+    async for source, message in _iter_bulk_candidates(
+        tg,
+        entity,
+        chat,
+        account_alias,
+        message_ids=message_ids,
+        kind=kind,
+        since=since,
+    ):
+        if len(items) >= effective_limit:
             break
-        source = MediaSource(chat=chat, message_id=message_id, private_channel_id=None)
         try:
-            if explicit_ids and (kind is not None or since is not None):
-                message = await tg.get_messages(entity, ids=message_id)
-                if message is None:
-                    raise NotFoundError(f"message not found: {message_id}")
-            else:
-                _, message = await resolve_message(tg, source, account_alias)
-            if kind is not None and _media_kind(message) != kind:
-                continue
-            if since is not None and message.date is not None and message.date < since:
-                continue
-            selected += 1
             result = await download_media(
                 tg,
                 source,
@@ -455,37 +444,37 @@ async def download_media_bulk(
                     / _message_filename(
                         # download_media resolves again for transfer metadata
                         message,
-                        message_id,
+                        source.message_id,
                     )
                 ),
                 progress=progress,
             )
             items.append(
                 {
-                    "message_id": message_id,
+                    "message_id": source.message_id,
                     "path": result["path"],
                     "bytes": result["bytes"],
                     "resumed": result["resumed"],
                 }
             )
         except NotFoundError as exc:
-            failed.append({"message_id": message_id, "error": str(exc)})
+            failed.append({"message_id": source.message_id, "error": str(exc)})
         except PolicyError as exc:
             if str(exc).startswith("output path already exists: "):
-                skipped.append({"message_id": message_id, "reason": str(exc)})
+                skipped.append({"message_id": source.message_id, "reason": str(exc)})
                 continue
             hard_error = exc
-            failed.append({"message_id": message_id, "error": str(exc)})
+            failed.append({"message_id": source.message_id, "error": str(exc)})
             break
         except telethon_errors.FloodWaitError as exc:
             hard_error = exc
-            failed.append({"message_id": message_id, "error": str(exc)})
+            failed.append({"message_id": source.message_id, "error": str(exc)})
             break
         except telethon_errors.SessionRevokedError:
             raise
         except Exception as exc:
             hard_error = exc
-            failed.append({"message_id": message_id, "error": str(exc)})
+            failed.append({"message_id": source.message_id, "error": str(exc)})
             break
 
     data = {
@@ -514,6 +503,51 @@ async def download_media_bulk(
             rows=bulk_to_rows(data),
         )
     return data
+
+
+async def _iter_bulk_candidates(
+    tg,
+    entity,
+    chat: str,
+    account_alias: str,
+    *,
+    message_ids: list[int] | None,
+    kind: str | None,
+    since,
+):
+    if message_ids is not None:
+        for message_id in message_ids:
+            source = MediaSource(
+                chat=chat, message_id=message_id, private_channel_id=None
+            )
+            if kind is not None or since is not None:
+                message = await tg.get_messages(entity, ids=message_id)
+                if message is None:
+                    raise NotFoundError(f"message not found: {message_id}")
+                if kind is not None and _media_kind(message) != kind:
+                    continue
+                if (
+                    since is not None
+                    and message.date is not None
+                    and message.date < since
+                ):
+                    continue
+            else:
+                _, message = await resolve_message(tg, source, account_alias)
+            yield source, message
+        return
+
+    async for message in tg.iter_messages(entity, limit=None):
+        if since is not None and message.date is not None and message.date < since:
+            break
+        if kind is not None and _media_kind(message) != kind:
+            continue
+        if not getattr(message, "media", None):
+            continue
+        yield (
+            MediaSource(chat=chat, message_id=message.id, private_channel_id=None),
+            message,
+        )
 
 
 def bulk_to_rows(data: dict) -> list[tuple]:
