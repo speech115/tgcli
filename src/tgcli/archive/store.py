@@ -11,7 +11,7 @@ from typing import Any
 from tgcli.errors import NotFoundError, PolicyError
 from tgcli.session import ensure_state_dir, restrict_file
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 DB_NAME = "archive.db"
 MEDIA_DIR_NAME = "media"
 TRANSCRIBABLE_MEDIA_KINDS = ("voice", "video_note")
@@ -37,7 +37,10 @@ CREATE TABLE IF NOT EXISTS account_sync (
     gap_json TEXT,
     last_sync_at TEXT,
     last_reconcile_at TEXT,
-    reconcile_json TEXT
+    reconcile_json TEXT,
+    refresh_failure_streak INTEGER NOT NULL DEFAULT 0,
+    refresh_last_error TEXT,
+    refresh_notification_sent INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS messages (
     peer_id INTEGER NOT NULL,
@@ -139,11 +142,16 @@ def connect(path: Path) -> sqlite3.Connection:
             _migrate_v1_to_v2(conn)
             _migrate_v2_to_v3(conn)
             _migrate_v3_to_v4(conn)
+            _migrate_v4_to_v5(conn)
         elif version == 2:
             _migrate_v2_to_v3(conn)
             _migrate_v3_to_v4(conn)
+            _migrate_v4_to_v5(conn)
         elif version == 3:
             _migrate_v3_to_v4(conn)
+            _migrate_v4_to_v5(conn)
+        elif version == 4:
+            _migrate_v4_to_v5(conn)
         elif version != SCHEMA_VERSION:
             conn.close()
             raise PolicyError(
@@ -240,6 +248,24 @@ def _migrate_v3_to_v4(conn: sqlite3.Connection) -> None:
         ):
             if name not in cols:
                 conn.execute(f"ALTER TABLE transcripts ADD COLUMN {name} {declaration}")
+        conn.execute("PRAGMA user_version=4")
+
+
+def _migrate_v4_to_v5(conn: sqlite3.Connection) -> None:
+    """Add account-level refresh failure state for scheduled runs."""
+    with conn:
+        cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
+        }
+        for name, declaration in (
+            ("refresh_failure_streak", "INTEGER NOT NULL DEFAULT 0"),
+            ("refresh_last_error", "TEXT"),
+            ("refresh_notification_sent", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if name not in cols:
+                conn.execute(
+                    f"ALTER TABLE account_sync ADD COLUMN {name} {declaration}"
+                )
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
 
@@ -905,6 +931,9 @@ def read_account_sync(conn: sqlite3.Connection) -> dict[str, Any]:
             "last_sync_at": None,
             "last_reconcile_at": None,
             "reconcile": None,
+            "refresh_failure_streak": 0,
+            "refresh_last_error": None,
+            "refresh_notification_sent": False,
         }
     gap = None
     if row["gap_json"]:
@@ -918,6 +947,9 @@ def read_account_sync(conn: sqlite3.Connection) -> dict[str, Any]:
         "last_sync_at": row["last_sync_at"],
         "last_reconcile_at": row["last_reconcile_at"],
         "reconcile": reconcile,
+        "refresh_failure_streak": int(row["refresh_failure_streak"]),
+        "refresh_last_error": row["refresh_last_error"],
+        "refresh_notification_sent": bool(row["refresh_notification_sent"]),
     }
 
 
@@ -962,15 +994,28 @@ def write_account_sync(
         conn.execute(
             "INSERT INTO account_sync("
             "id, changes_cursor, gap_json, last_sync_at, "
-            "last_reconcile_at, reconcile_json"
-            ") VALUES (1, ?, ?, ?, ?, ?) "
+            "last_reconcile_at, reconcile_json, refresh_failure_streak, "
+            "refresh_last_error, refresh_notification_sent"
+            ") VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET "
             "changes_cursor = excluded.changes_cursor, "
             "gap_json = excluded.gap_json, "
             "last_sync_at = excluded.last_sync_at, "
             "last_reconcile_at = excluded.last_reconcile_at, "
-            "reconcile_json = excluded.reconcile_json",
-            (cursor, gap_json, last_sync, last_reconcile, reconcile_json),
+            "reconcile_json = excluded.reconcile_json, "
+            "refresh_failure_streak = excluded.refresh_failure_streak, "
+            "refresh_last_error = excluded.refresh_last_error, "
+            "refresh_notification_sent = excluded.refresh_notification_sent",
+            (
+                cursor,
+                gap_json,
+                last_sync,
+                last_reconcile,
+                reconcile_json,
+                existing["refresh_failure_streak"],
+                existing["refresh_last_error"],
+                int(existing["refresh_notification_sent"]),
+            ),
         )
 
 

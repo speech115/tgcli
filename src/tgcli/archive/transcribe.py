@@ -28,13 +28,15 @@ class _TerminalError(Exception):
     pass
 
 
-def validate_limit(value: int | None) -> int:
+def validate_limit(value: int | None, *, label: str = "limit") -> int:
     if value is None:
         return DEFAULT_LIMIT
     if value <= 0:
-        raise PolicyError("archive transcribe --limit must be positive")
+        raise PolicyError(f"archive transcribe --{label} must be positive")
     if value > MAX_LIMIT:
-        raise PolicyError(f"archive transcribe --limit accepts at most {MAX_LIMIT}")
+        raise PolicyError(
+            f"archive transcribe --{label} accepts at most {MAX_LIMIT}"
+        )
     return value
 
 

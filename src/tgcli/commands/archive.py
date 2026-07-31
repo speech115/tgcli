@@ -7,12 +7,14 @@ from pathlib import Path
 from tgcli.archive import (
     backfill as backfill_mod,
     explore as explore_mod,
+    refresh as refresh_mod,
     scope as scope_mod,
     store as store_mod,
     sync as sync_mod,
     transcribe as transcribe_mod,
 )
 from tgcli.clone import cooldown as cooldown_mod, flood
+from tgcli.commands import archive_refresh as refresh_cmd
 from tgcli.config import Config, load_config, resolve_account
 from tgcli.errors import NotFoundError, PolicyError
 from tgcli.session import state_dir
@@ -32,6 +34,8 @@ DEFAULT_SYNC_DIALOGS = sync_mod.DEFAULT_MAX_CATCHUP_DIALOGS
 MAX_SYNC_DIALOGS = sync_mod.MAX_CATCHUP_DIALOGS
 DEFAULT_SYNC_MEDIA = sync_mod.DEFAULT_MAX_MEDIA
 MAX_SYNC_MEDIA = sync_mod.MAX_MEDIA
+refresh = refresh_cmd.refresh
+refresh_rows = refresh_cmd.refresh_rows
 
 
 def archive_root(config: Config | None = None) -> Path:
@@ -182,6 +186,12 @@ def status(alias: str, config: Config | None = None) -> dict:
         "last_sync_at": account_sync["last_sync_at"],
         "reconcile": account_sync["reconcile"],
         "has_cursor": account_sync["changes_cursor"] is not None,
+        "refresh": {
+            "failure_streak": account_sync["refresh_failure_streak"],
+            "last_error": account_sync["refresh_last_error"],
+            "notification_sent": account_sync["refresh_notification_sent"],
+            "notification_threshold": refresh_mod.FAILURE_NOTIFICATION_THRESHOLD,
+        },
     }
 
 
@@ -447,6 +457,8 @@ def status_rows(data: dict) -> list[tuple]:
         ("last_errors", len(data["last_errors"])),
         ("gap", None if gap is None else gap.get("reason")),
         ("has_cursor", data.get("has_cursor")),
+        ("refresh_failure_streak", data["refresh"]["failure_streak"]),
+        ("refresh_notification_sent", data["refresh"]["notification_sent"]),
     ]
 
 

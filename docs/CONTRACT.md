@@ -23,7 +23,7 @@ Global flags (available on every command):
 | `--json` | machine output: one JSON document to stdout |
 | `--plain` | stable TSV to stdout (no colors, no alignment) |
 | `--readonly` | hard-block any mutating call in this invocation |
-| `--timeout <sec>` | overall invocation deadline covering preflight and execution (default 60; no default deadline for media, exports, or `clone init|sync|refresh`, which may wait out a short FloodWait; `accounts login` defaults to 120 and `--continue` takes none) |
+| `--timeout <sec>` | overall invocation deadline covering preflight and execution (default 60; no default deadline for media, exports, `clone init|sync|refresh`, or `archive refresh`, which may wait out bounded work; `accounts login` defaults to 120 and `--continue` takes none) |
 | `-v/--verbose` | Python and Telethon debug diagnostics on stderr for this invocation |
 
 Env equivalents: `TGCLI_ACCOUNT`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`.
@@ -1634,7 +1634,7 @@ Boundary constants: common `GetDifferenceRequest.pts_total_limit =
 100000`; per-channel `GetChannelDifferenceRequest.limit = 100` with
 `ChannelMessagesFilterEmpty`.
 
-## 13. Local Archive (`tg archive`; ADR-0068 Phase 1–5 + ADR-0069)
+## 13. Local Archive (`tg archive`; ADR-0068 Phase 1–6 + ADR-0069/0070)
 
 ```
 tg archive init
@@ -1651,24 +1651,28 @@ tg archive history CHAT MESSAGE_ID
 tg archive backfill CHAT [CHAT ...] [--limit N]
 tg archive backfill --private [--limit N] [--max-dialogs N]
 tg archive sync [--max-events N] [--max-dialogs N] [--max-media N]
+tg archive refresh [--max-events N] [--max-dialogs N] [--max-media N]
+  [--transcribe-limit N] [--max-attempts N]
 tg archive transcribe [--limit N] [--max-attempts N]
 tg archive rebaseline
 ```
 
 Per-account SQLite/WAL store under `~/.local/state/tgcli/archive/<alias>/`
 (override with `[archive] root = "…"` in `config.toml`). Directory mode
-`0700`; `archive.db` mode `0600`. Schema v4 tables: `messages`, `revisions`,
+`0700`; `archive.db` mode `0600`. Schema v5 tables: `messages`, `revisions`,
 `tombstones`, `transcripts`, `scope`, `sync_state` (with peer identity
 columns), `account_sync` (account-level `tg changes` cursor + gap), plus an
 FTS5 index over message text and transcript text with
 `tokenize = "unicode61 remove_diacritics 2"` (Cyrillic `ё`/`е` folded at
-FTS write/query time). Opening a v1/v2/v3 store migrates in place. The message
+FTS write/query time). `account_sync` also stores the refresh failure streak,
+last error, and whether the one-shot notification was sent. Opening a
+v1/v2/v3/v4 store migrates in place. The message
 payload is the universal `message_to_dict` JSON shape from `tg read` — not
 a second representation.
 
 **Account binding.** `init` binds the live `get_me().id` and selected alias
 into `meta`. Every network command (`init`, `add`, `remove`, `backfill`,
-`sync`, `rebaseline`) re-checks the live user id against the store before
+`sync`, `refresh`, `rebaseline`) re-checks the live user id against the store before
 touching data; mismatch is exit **2** and never merges stores. Offline
 commands (`list`, `status`, `search`, `read`, `history`, `transcribe`) do not open a Telegram session; they
 refuse an alias/store mismatch (exit 2) and report `NOT_FOUND` (exit 4)
@@ -1762,6 +1766,30 @@ stored loudly in `account_sync` and surfaced by `status` / sync JSON; exit
 message totals, rotating across tracked dialogs) runs at the end of sync
 and is reported under `reconcile` / `status.reconcile`.
 
+**Refresh.** `tg archive refresh` is a foreground one-shot for scheduling. It
+runs the bounded sync (whose final stage acquires media) and then the offline
+transcription queue, passing one in-memory FloodWait budget through the
+network stage. `--max-events`, `--max-dialogs`, and `--max-media` keep the sync
+caps above; `--transcribe-limit` defaults to **20** and is capped at **100**;
+`--max-attempts` defaults to **3** and is capped at **5**. Every numeric cap
+must be positive and within its hard ceiling; there is no unlimited sentinel.
+An explicit `--timeout` may bound the run, but no implicit 60-second deadline
+is applied.
+
+A network exception, unavailable transcription engine, or item-level media /
+transcription failure records the failure in `account_sync`, increments the
+consecutive `failure_streak`, and exits nonzero (completed stage data is
+returned for item-level failures). A fully successful refresh resets the
+streak, last error, and notification episode. On the third consecutive failed
+run, one best-effort generic macOS notification is sent through `desktop.py`;
+it is not repeated until a successful run resets the episode. Notification
+failure does not change the archive result. `tg archive status` exposes the
+streak, last error, threshold, and notification marker.
+
+`docs/assets/tgcli-archive-refresh.plist` is a manual launchd template with a
+3600-second interval. It contains explicit path placeholders; it is never
+installed or loaded automatically.
+
 **Media and transcription.** `backfill` and `sync` acquire queued `voice`
 and `video_note` media into the account-local `media/` directory. Backfill
 uses a fixed default budget of **50** media items per run; `sync` exposes
@@ -1789,7 +1817,7 @@ an empty FTS value.
 re-inits the changes cursor (and re-subscribes explicit scope channels)
 and clears the stored gap. It does not silently rebuild message history.
 
-**Readonly.** `init` / `add` / `remove` / `backfill` / `sync` / `transcribe` /
+**Readonly.** `init` / `add` / `remove` / `backfill` / `sync` / `refresh` / `transcribe` /
 `rebaseline` mutate local state and are blocked by `--readonly` /
 `TGCLI_READONLY=1` (exit 2). `list`, `status`, and `search` are allowed
 under readonly; `read` and `history` are also offline read-only commands.
@@ -1798,7 +1826,7 @@ under readonly; `read` and `history` are also offline read-only commands.
 
 ```json
 {"created":true,"path":"…/archive/main/archive.db",
- "account":{"alias":"main","user_id":42},"schema_version":4}
+ "account":{"alias":"main","user_id":42},"schema_version":5}
 ```
 
 ```json
@@ -1810,13 +1838,15 @@ under readonly; `read` and `history` are also offline read-only commands.
 
 ```json
 {"account":{"alias":"main","user_id":42},"path":"…",
- "schema_version":4,
+ "schema_version":5,
  "counts":{"messages":0,"revisions":0,"tombstones":0,"transcripts":0,
            "scope":0,"transcript_queue":0},
  "dialogs":[],"transcript_queue":0,
  "transcript_status":{"pending":0,"retryable":0,"done":0,"no_transcript":0},
  "transcript_errors":[],"last_errors":[],
- "gap":null,"last_sync_at":null,"reconcile":null,"has_cursor":false}
+ "gap":null,"last_sync_at":null,"reconcile":null,"has_cursor":false,
+ "refresh":{"failure_streak":0,"last_error":null,
+             "notification_sent":false,"notification_threshold":3}}
 ```
 
 ```json
@@ -1874,6 +1904,16 @@ under readonly; `read` and `history` are also offline read-only commands.
 ```
 
 ```json
+{"account":{"alias":"main","user_id":42},
+ "max_events":500,"max_dialogs":20,"max_media":50,
+ "transcribe_limit":20,"max_attempts":3,
+ "sync":{"applied":{…},"media":{…}},
+ "transcribe":{"transcribed":2,"errors":[],"remaining":false},
+ "refresh":{"failure_streak":0,"last_error":null,
+             "notification_sent":false,"notification_threshold":3}}
+```
+
+```json
 {"account":{"alias":"main","user_id":42},"rebaselined":true,
  "next_cursor":"v1:…","gap":null,"peers":["@news"]}
 ```
@@ -1887,14 +1927,13 @@ under readonly; `read` and `history` are also offline read-only commands.
 ```
 
 `--plain` rows: `init` → `created,alias,user_id,path`; `list` → standing +
-explicit peer rows; `status` → counts summary (+ gap/cursor/transcript
-statuses); `search` → per-hit
+explicit peer rows; `status` → counts summary (+ gap/cursor/transcript and
+refresh statuses); `search` → per-hit
 `peer_id,message_id,date,chat_ref|title,text,transcript,transcript_status,tg_link,snippet`;
 `read` → per-message `id,date,from_name,text,tg_link`; `history` → status,
 message id, current text, revision count, and deletion date;
 `backfill` → mode +
 per-dialog `chat,stored,inserted,updated,more` plus media counters; `sync` →
 applied and media counters; `transcribe` → queue counters;
-`rebaseline` → `rebaselined,peers,gap`.
-
-`refresh` and `purge` remain later phases.
+`rebaseline` → `rebaselined,peers,gap`; `refresh` → sync event/media
+counters, transcription counters, and `failure_streak,notification_sent`.

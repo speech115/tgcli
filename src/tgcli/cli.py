@@ -99,6 +99,10 @@ def _default_timeout(args) -> float | None:
         # ADR-0052 lets these wait out a short FloodWait (up to 61s in the
         # foreground), which never fits inside a 60s default deadline.
         return None
+    if args.command == "archive" and args.archive_command == "refresh":
+        # A scheduled archive pass includes bounded media and local
+        # transcription; only an explicit --timeout should clip it.
+        return None
     if args.command == "accounts" and args.subcommand == "login":
         # CONTRACT §10: the QR wait defaults to 120s; --continue waits on the
         # operator and takes no default deadline at all.

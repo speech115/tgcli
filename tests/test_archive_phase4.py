@@ -89,14 +89,21 @@ def test_transcript_queue_is_newest_first_and_bounded(tmp_path):
         conn.close()
 
 
-def test_schema_v4_adds_media_metadata_columns(tmp_path):
+def test_schema_v5_adds_refresh_failure_state(tmp_path):
     conn = _connection(tmp_path)
     try:
         columns = {
             row[1] for row in conn.execute("PRAGMA table_info(transcripts)").fetchall()
         }
         assert {"media_path", "media_kind", "last_error"} <= columns
-        assert store.schema_version(conn) == 4
+        assert {
+            "refresh_failure_streak",
+            "refresh_last_error",
+            "refresh_notification_sent",
+        } <= {
+            row[1] for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
+        }
+        assert store.schema_version(conn) == 5
     finally:
         conn.close()
 

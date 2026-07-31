@@ -32,10 +32,10 @@ tgcli/
 │   ├── DEVLOG-v1.md           [done]    closed log of the phases 0–7 build
 │   ├── devlog/                [done]    per-session entry files YYYY-MM-DD-slug.md (ADR-0058)
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── guide/                 [done]    user-facing task pages, 24 + index (ADR-0041/0065)
-│   ├── assets/                [done]    README banner, dark + light SVG (no external assets)
+│   ├── guide/                 [done]    user-facing task pages, 25 + index (ADR-0041/0065)
+│   ├── assets/                [done]    README banner, dark + light SVG, launchd template (no external assets)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
-│   ├── decisions/             [done]    ADR-0001…0069 + README.md index (ADR-0026 maintenance mode)
+│   ├── decisions/             [done]    ADR-0001…0070 + README.md index (ADR-0026 maintenance mode)
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -60,11 +60,12 @@ tgcli/
 │   ├── changes_cursor.py      [done]    opaque v1 cursor codec for tg changes (ADR-0063; pure)
 │   ├── login_state.py         [done]    logins/ attempt state and session promotion (ADR-0042)
 │   ├── transfer.py            [done]    striped download + parallel Save*FilePart upload, one progress cadence (ADR-0047/0049/0055)
-│   ├── archive/               [wip]     local archive store + Phase 5 exploration (ADR-0068/0069)
-│   │   ├── store.py           [done]    schema v4, WAL, FTS5 text+transcripts, account_sync, sync_state identity, tombstones
+│   ├── archive/               [done]    local archive store + Phase 6 refresh (ADR-0068/0069/0070)
+│   │   ├── store.py           [done]    schema v5, WAL, FTS5 text+transcripts, account/peer sync state, tombstones
 │   │   ├── scope.py           [done]    standing private category + group/channel classification
 │   │   ├── search.py          [done]    FTS5 MATCH normalization + scope/sync_state peer resolve
 │   │   ├── explore.py         [done]    filtered search, paging, offline timeline/history, tg:// handoff (ADR-0069)
+│   │   ├── refresh.py          [done]    bounded sync → media → transcription composition and failure notification (ADR-0070)
 │   │   ├── backfill.py        [done]    selected + --private history walk + caps/checkpoint
 │   │   ├── sync.py            [done]    changes.once apply, gap/rebaseline, light reconcile, bounded media fetch
 │   │   └── transcribe.py      [done]    foreground local FluidAudio/Parakeet queue
@@ -99,7 +100,8 @@ tgcli/
 │   │   ├── login.py           [done]    tg accounts login QR/phone + --continue + --role (ADR-0042/0062)
 │   │   ├── doctor.py          [done]    offline/online health for primary + role sessions (ADR-0028/0040/0062)
 │   │   ├── changes.py         [done]    tg changes daemonless feed (ADR-0063 / FEED-001)
-│   │   ├── archive.py         [done]    tg archive init|add|remove|list|status|search|read|history|backfill|sync|transcribe|rebaseline (ADR-0068/0069)
+│   │   ├── archive.py         [done]    tg archive init|add|remove|list|status|search|read|history|backfill|sync|refresh|transcribe|rebaseline (ADR-0068/0069/0070)
+│   │   ├── archive_refresh.py [done]    network command wrapper and plain rows for scheduled archive refresh (ADR-0070)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
 │   │   ├── read.py            [done]    tg read <chat>                (phase 1)
 │   │   ├── search.py          [done]    tg search / latest / message (phase 2)

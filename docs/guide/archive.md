@@ -1,11 +1,12 @@
 # Archive: local selected-dialog store
 
 `tg archive` keeps a per-account, read-only Telegram archive on disk
-([ADR-0068](../decisions/ADR-0068-local-archive-store.md)). Phases 1–5 ship
+([ADR-0068](../decisions/ADR-0068-local-archive-store.md)). Phases 1–6 ship
 the store, scope, selected and private backfill, filtered/ranked offline
 search, delta sync via the `tg changes` cursor, bounded voice/video-note
 acquisition, foreground local Parakeet transcription, and offline timeline /
-history views. Hourly refresh remains Phase 6.
+history views, plus a bounded one-shot refresh suitable for manual launchd
+scheduling.
 
 Default location: `~/.local/state/tgcli/archive/<alias>/archive.db`
 (directories `0700`). Override with:
@@ -80,6 +81,24 @@ every user/basic-group dialog that shares that numeric message id
 (channel `-100…` peers are excluded). `rebaseline` is the explicit recovery
 that re-inits the cursor and clears a stored gap — never silent. A rotating
 local-vs-Telegram count sample is attached as `reconcile`.
+
+## One-shot refresh
+
+For an hourly foreground pass, use the composition command instead of
+manually chaining the network and local stages:
+
+```bash
+tg --json archive refresh
+tg --json archive refresh --max-events 500 --max-dialogs 20 \
+  --max-media 50 --transcribe-limit 20 --max-attempts 3
+```
+
+It applies the bounded sync, acquires media, and drains the bounded local
+transcription queue under one invocation. A full success resets the refresh
+failure streak; recurring failures are visible in `archive status` and cause
+one generic macOS notification after three consecutive failed runs. The
+manual launchd template and load/unload commands are in the separate
+[refresh scheduling guide](archive-refresh.md).
 
 ## Media and transcription
 
@@ -162,8 +181,8 @@ tg --json store stats
 ```
 
 `status` reports message/revision/tombstone counts, per-dialog freshness,
-gap/cursor state, reconcile sample, transcript queue depth/status/errors, and
-last errors.
+gap/cursor state, reconcile sample, transcript queue depth/status/errors, last
+errors, and the refresh failure streak/notification state.
 `store stats` inventories archive bytes under
 the state root; `store cleanup` never deletes anything under the archive
 root.
@@ -173,4 +192,6 @@ root.
 - [CONTRACT.md §13](../CONTRACT.md) — flags, caps, JSON shapes, exit codes
 - [store.md](store.md) — local state inventory and cleanup boundary
 - [changes.md](changes.md) — delta cursor reused by `archive sync`
+- [archive-refresh.md](archive-refresh.md) — one-shot scheduling and launchd template
 - [ADR-0068](../decisions/ADR-0068-local-archive-store.md)
+- [ADR-0070](../decisions/ADR-0070-archive-refresh-scheduling.md)
