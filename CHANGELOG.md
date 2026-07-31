@@ -11,6 +11,21 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.22] — 2026-07-31
+
+### Added
+
+- Archive Phase 3 (ADR-0068): `tg archive backfill --private` (bounded
+  standing-category enumeration with `--max-dialogs`, skip-complete
+  resume), `tg archive sync` (changes-cursor delta: new/edit → rows +
+  revisions, deletes → tombstones, scoped `channel_activity` catch-up
+  under a `--max-events` message budget, rotating light reconcile) and
+  `tg archive rebaseline`. Difference events are always applied in full
+  before the cursor advances; peer-less deletes never touch `-100…`
+  channel peers. Private `--chat` resolution in `archive search`.
+  Live-accepted on `main` (revision + tombstone observed through sync).
+  CONTRACT §13.
+
 ## [1.2.21] — 2026-07-31
 
 ### Added
@@ -552,6 +567,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.22]: https://github.com/speech115/tgcli/compare/v1.2.21...v1.2.22
 [1.2.21]: https://github.com/speech115/tgcli/compare/v1.2.20...v1.2.21
 [1.2.20]: https://github.com/speech115/tgcli/compare/v1.2.19...v1.2.20
 [1.2.19]: https://github.com/speech115/tgcli/compare/v1.2.18...v1.2.19
