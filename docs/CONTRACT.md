@@ -1,6 +1,6 @@
 # CLI Automation Contract
 
-Version: 1.2.19 (tracks the package release; see `CHANGELOG.md` and
+Version: 1.2.21 (tracks the package release; see `CHANGELOG.md` and
 `pyproject.toml`). Any change here lands in the same commit as the code
 change (AGENTS.md / ADR-0038).
 
@@ -378,13 +378,16 @@ Do not combine a positional `message_id` with bulk flags (exit 2). Hard cap
 default filter limit 100). `--output` is a destination directory. Success /
 partial JSON:
 `{"dialog":{…},"items":[{"message_id","path","bytes","resumed"}],"count":N,
-"failed":[{"message_id","error"}]}`. Per-item NotFound goes into `failed` and
-continues; FloodWait/auth/policy stop the loop. Any non-empty `failed` →
+"failed":[{"message_id","error"}],"skipped":[{"message_id","reason"}]}`.
+`count` is the number of files downloaded in this run only. A per-item
+`output path already exists: …` becomes an additive `skipped` row and the
+loop continues. Per-item NotFound goes into `failed` and continues;
+FloodWait/auth/other policy failures stop the loop. Any non-empty `failed` →
 nonzero exit (typically 4) while still emitting the JSON document on
 `--json`; successful files remain on disk. Unbounded `--all` is not offered.
 
 ```
-tg media manifest CHAT [--type photo|video|audio|voice|document] [--since ISO] [--limit N]
+tg media manifest CHAT [--type photo|video|video_note|audio|voice|document] [--since ISO] [--limit N]
 ```
 
 `media manifest` is a dry-run inventory (ADR-0029): it walks recent messages
@@ -644,6 +647,8 @@ No config and no Telegram session. `--json` emits:
  "clones":{"bytes":0,"db":{"count":0,"bytes":0},"wal":{"count":0,"bytes":0},
            "shm":{"count":0,"bytes":0},"imported":{"count":0,"bytes":0}},
  "clone_media_cache":{"count":0,"bytes":0},
+ "archive":{"bytes":0,"db":{"count":0,"bytes":0},"wal":{"count":0,"bytes":0},
+            "shm":{"count":0,"bytes":0}},
  "downloads":{"bytes":0},
  "relics":[{"name":"labs","bytes":11}]}
 ```
@@ -662,7 +667,10 @@ everything under `clones/` and additionally breaks out SQLite state files
 auto-deleted. `clone_media_cache`
 reports abandoned `clones/<clone_id>-media/` directories left by a failed
 `clone sync` reupload batch (ADR-0052); their bytes are also included in the
-aggregate `clones` figure. Relic directories
+aggregate `clones` figure. `archive` reports
+`archive/<account>/` under the state root (ADR-0068): aggregate bytes plus
+`archive.db` / WAL / SHM counts; never auto-deleted. A custom
+`[archive] root` outside the state root is not inventoried here. Relic directories
 (`mirrors`, `mirror-lab`, `labs`, `probes`) are reported when present and never
 auto-deleted. New previews are written mode `0600`; `store cleanup` also
 tightens surviving preview modes to `0600`.
@@ -681,8 +689,8 @@ removed and
 stderr prints a one-line `--confirm` hint. With `--confirm`, those files are
 deleted. Never touches `audit.jsonl`, `sessions/` (including `.bak`), live
 login attempts, live `.json` within TTL, clone state JSON, a media cache
-younger than one hour (`MEDIA_CACHE_MIN_AGE`, the running-sync guard), or
-relic directories.
+younger than one hour (`MEDIA_CACHE_MIN_AGE`, the running-sync guard), the
+archive store under `archive/` (ADR-0068), or relic directories.
 `.pending` files are
 protected (ADR-0028 `random_id`) and are eligible only with `--include-pending`
 and only when far past TTL (`expires_at + PREVIEW_TTL`). Staged sessions are
@@ -705,7 +713,7 @@ guard is for Telegram sends, and cleanup reaches no network.
 ```json
 {"removed":[],"would_remove":["p_spent0.used","p_expired.json"],"bytes":130,
  "confirmed":false,"kept":{"audit_log":true,"sessions":true,
- "session_backups":true,"relics":["labs"]}}
+ "session_backups":true,"archive":true,"relics":["labs"]}}
 ```
 
 With `--confirm`, `removed` is populated and `would_remove` is empty.
@@ -828,8 +836,9 @@ tg export subscribers <channel> --output <path> [--limit <n>]
   `--output`, then behaves as `--append --after-id <that>`. Missing, empty, or
   corrupt last line → exit 1. No sidecar state file.
 - `messages` iterates through a Telethon takeout session from oldest to newest.
-  The destination is UTF-8 JSONL: one `read`-shape message object per line,
-  with `id`, `date`, `from`, `text`, `media`, and `reply_to` fields.
+  The destination is UTF-8 JSONL: one `read`-shape message object per line.
+  Export resolves the source entity too, so rows preserve the same permalink
+  and cross-chat `reply_to` fidelity as live `read`.
 - `subscribers` writes UTF-8 CSV with the frozen header
   `id,username,first_name,last_name,phone,is_bot`; standard CSV quoting is
   used for field values. Username and name cells whose first non-whitespace
@@ -1619,3 +1628,116 @@ is data:
 Boundary constants: common `GetDifferenceRequest.pts_total_limit =
 100000`; per-channel `GetChannelDifferenceRequest.limit = 100` with
 `ChannelMessagesFilterEmpty`.
+
+## 13. Local Archive (`tg archive`; ADR-0068 Phase 1 + thin search)
+
+```
+tg archive init
+tg archive add CHAT
+tg archive remove CHAT
+tg archive list
+tg archive status
+tg archive search QUERY [--chat CHAT] [--limit N]
+tg archive backfill CHAT [CHAT ...] [--limit N]
+```
+
+Per-account SQLite/WAL store under `~/.local/state/tgcli/archive/<alias>/`
+(override with `[archive] root = "…"` in `config.toml`). Directory mode
+`0700`; `archive.db` mode `0600`. Schema v2 tables: `messages`, `revisions`,
+`tombstones`, `transcripts`, `scope`, `sync_state`, plus an FTS5 index over
+message text (and later transcripts) with
+`tokenize = "unicode61 remove_diacritics 2"` (Cyrillic `ё`/`е` folded at
+FTS write/query time). Opening a v1 store migrates in place by rebuilding
+`messages_fts`. The message payload is the universal `message_to_dict` JSON
+shape from `tg read` — not a second representation.
+
+**Account binding.** `init` binds the live `get_me().id` and selected alias
+into `meta`. Every network command (`init`, `add`, `remove`, `backfill`)
+re-checks the live user id against the store before touching data; mismatch
+is exit **2** and never merges stores. Offline commands (`list`, `status`,
+`search`) do not open a Telegram session; they refuse an alias/store
+mismatch (exit 2) and report `NOT_FOUND` (exit 4) when the store is missing.
+
+**Scope.** Private 1:1 dialogs are a standing category — always in scope,
+including future correspondents; `add` of a private user is exit 2.
+Groups and channels join only via `add` / leave via `remove`. `list`
+returns the standing category plus the explicit allowlist.
+
+**Search (thin).** Offline FTS5 over archived messages only. Default MATCH
+is exact (no auto-prefix on short tokens); if `QUERY` contains FTS
+operators such as `*`, `"`, `AND`/`OR`/`NOT`/`NEAR`, or parentheses, it is
+passed through as a raw MATCH escape hatch. Default `--limit` is **20**;
+hard cap **50**. Empty/whitespace `QUERY`, non-positive `--limit`, or
+over-cap `--limit` is exit **2**. Optional `--chat` scopes to one peer
+resolved offline from `scope.chat_ref` / `username` / numeric `peer_id`
+(also accepted when that peer appears in `messages` / `sync_state`); unknown
+chat is exit **4**. JSON includes `hits` plus a `scope` object noting
+archived-peers-only coverage and whether any dialog has `more: true`
+(staleness). `--plain` emits one TSV row per hit:
+`peer_id`, `message_id`, `date`, `chat_ref|title`, `text`.
+
+**Backfill.** At least one `CHAT` is required — there is **no** empty→all
+sentinel. Default `--limit` is **100** messages per dialog; hard caps are
+**1000** messages per dialog and **20** dialogs per invocation. Non-positive
+or over-cap `--limit` is exit 2. Groups/channels must be `add`ed first
+(exit 2 otherwise); private dialogs may be backfilled without `add`.
+Each run walks recent→older history (resuming from the stored oldest id),
+upserts the universal message shape, appends revisions on edit, and
+persists a per-dialog checkpoint in `sync_state`. Dialogs in one invocation
+are processed sequentially: if chat *N* fails, earlier chats in the argv
+list may already be persisted. A `FLOOD_WAIT` during backfill arms the
+shared per-account cooldown (ADR-0045/0052), persists the dialog checkpoint,
+and exits **5**. Full-history / whole-account flags are out of Phase 1.
+
+**Readonly.** `init` / `add` / `remove` / `backfill` mutate local state and
+are blocked by `--readonly` / `TGCLI_READONLY=1` (exit 2). `list`,
+`status`, and `search` are allowed under readonly.
+
+`--json` shapes:
+
+```json
+{"created":true,"path":"…/archive/main/archive.db",
+ "account":{"alias":"main","user_id":42},"schema_version":2}
+```
+
+```json
+{"account":{"alias":"main"},
+ "standing":{"kind":"private","description":"private 1:1 dialogs"},
+ "explicit":[{"peer_id":-1001234,"kind":"channel","title":"News",
+              "username":"news","chat_ref":"@news","added_at":"…"}]}
+```
+
+```json
+{"account":{"alias":"main","user_id":42},"path":"…",
+ "schema_version":2,
+ "counts":{"messages":0,"revisions":0,"tombstones":0,"transcripts":0,
+           "scope":0,"transcript_queue":0},
+ "dialogs":[],"transcript_queue":0,"last_errors":[]}
+```
+
+```json
+{"account":{"alias":"main"},"query":"елка","match":"елка","match_mode":"exact",
+ "limit":20,"chat":null,"peer_id":null,
+ "hits":[{"peer_id":7,"message_id":1,"date":"…","text":"…",
+          "chat_ref":null,"title":null}],
+ "scope":{"archived_peers_only":true,"stale":true,
+          "note":"Results cover archived peers only. At least one dialog still has more history on Telegram (more=true)."}}
+```
+
+```json
+{"account":{"alias":"main","user_id":42},"limit":100,
+ "dialogs":[{"chat":"@alice","peer_id":7,"kind":"user",
+             "dialog":{"id":7,"name":"Alice"},"stored":2,"inserted":2,
+             "updated":0,"more":true,"oldest_id":2,"newest_id":3}],
+ "stored":2}
+```
+
+`--plain` rows: `init` → `created,alias,user_id,path`; `list` → standing +
+explicit peer rows; `status` → counts summary; `search` → per-hit
+`peer_id,message_id,date,chat_ref|title,text`; `backfill` → per-dialog
+`chat,stored,inserted,updated,more`.
+
+Full Phase 5 filters (`--from`/`--since`/`--until`/`--kind`/
+`--transcripts-only`), BM25-led ranking UX, paging, and
+`read`/`history`/`sync`/`transcribe`/`refresh`/`purge` remain later
+phases.

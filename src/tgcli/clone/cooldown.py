@@ -69,6 +69,12 @@ def enforce(clone_state: state.CloneState) -> None:
         raise_if_cooling(max(deadlines))
 
 
+def arm_account(account_user_id: int, seconds: int) -> None:
+    """Arm the per-account flood record (no clone-state dependency)."""
+    deadline = datetime.now(UTC) + timedelta(seconds=seconds)
+    flood.arm_cooldown(account_user_id, deadline)
+
+
 def arm(clone_state: state.CloneState, seconds: int) -> None:
     deadline = datetime.now(UTC) + timedelta(seconds=seconds)
     clone_state.set_cooldown(deadline)

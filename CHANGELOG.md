@@ -11,6 +11,25 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.21] — 2026-07-31
+
+### Added
+
+- Local archive store (ADR-0068 phases 0–2): per-account SQLite/WAL under
+  `archive/<alias>/`, standing private scope + explicit group/channel
+  allowlist, selected-dialog `tg archive backfill`, offline
+  `list`/`status`, and thin offline `tg archive search` (exact/raw FTS5
+  MATCH, `--chat`, 50-cap) with FTS schema v2 (`unicode61` + ё→е fold).
+  CONTRACT §13. Phase 2 PoV gate closed on live `main` after full-depth
+  remeasure.
+
+### Fixed
+
+- Export/media fidelity prerequisites for the archive: real `permalink`s,
+  distinct `video_note` kind, cross-chat reply peer preservation, and bulk
+  `media download` skip-existing / per-item NotFound continuation
+  (ADR-0068 Phase 0 / issue #103).
+
 ## [1.2.20] — 2026-07-30
 
 ### Added
@@ -533,6 +552,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.21]: https://github.com/speech115/tgcli/compare/v1.2.20...v1.2.21
 [1.2.20]: https://github.com/speech115/tgcli/compare/v1.2.19...v1.2.20
 [1.2.19]: https://github.com/speech115/tgcli/compare/v1.2.18...v1.2.19
 [1.2.18]: https://github.com/speech115/tgcli/compare/v1.2.17...v1.2.18

@@ -106,6 +106,14 @@ def _media_message(message_id, kind, *, date=None, size=10, mime=None, filename=
             "voice": None,
             "document": object(),
         },
+        "video_note": {
+            "photo": None,
+            "video": None,
+            "audio": None,
+            "voice": None,
+            "document": None,
+            "video_note": object(),
+        },
     }[kind]
     return ns(
         id=message_id,
@@ -195,6 +203,29 @@ def test_media_manifest_type_filter(config_env, monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["count"] == 1
     assert payload["items"][0]["type"] == "video"
+    assert payload["items"][0]["message_id"] == 2
+
+
+def test_media_manifest_type_filter_accepts_video_note(config_env, monkeypatch, capsys):
+    from tests.conftest import ns
+
+    entity = ns(id=-1001, title="Channel")
+    client = FakeClient(
+        messages=[
+            _media_message(3, "video"),
+            _media_message(2, "video_note"),
+            _media_message(1, "audio"),
+        ],
+        entities={"@channel": entity},
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert (
+        main(["--json", "media", "manifest", "@channel", "--type", "video_note"]) == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["count"] == 1
+    assert payload["items"][0]["type"] == "video_note"
     assert payload["items"][0]["message_id"] == 2
 
 

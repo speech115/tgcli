@@ -39,6 +39,11 @@ selected account session, does one operation, and exits.
 | Authorize / re-authorize a session | `tg --json accounts login ALIAS` (QR) / `--phone` / `--continue LOGIN_ID` |
 | Authorize a named session role | `tg --json accounts login ALIAS --role job` |
 | Poll a daemonless change feed | `tg --json changes --init` then `tg --json changes --cursor C [--wait N]` |
+| Init local archive store | `tg --json archive init` |
+| Opt a group/channel into archive scope | `tg --json archive add CHAT` / `remove CHAT` / `list` |
+| Backfill selected dialogs into archive | `tg --json archive backfill CHAT [CHAT …] [--limit N]` |
+| Offline archive status | `tg --json archive status` |
+| Offline archive search | `tg --json archive search QUERY [--chat CHAT] [--limit N]` |
 | Remove a configured account | `tg --json accounts remove ALIAS --confirm` |
 | Remove one session role | `tg --json accounts remove ALIAS --role job --confirm` |
 | Import old-stack sessions | `tg --json accounts import` |

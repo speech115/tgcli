@@ -96,6 +96,7 @@ def test_cleanup_dry_run_reports_without_deleting(tmp_path, monkeypatch):
     assert result["bytes"] > 0
     assert result["kept"]["audit_log"] is True
     assert result["kept"]["sessions"] is True
+    assert result["kept"]["archive"] is True
     assert "labs" in result["kept"]["relics"]
     assert (tmp_path / "previews" / "p_expired.json").exists()
     assert (tmp_path / "previews" / "p_spent0.used").exists()

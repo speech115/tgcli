@@ -180,6 +180,56 @@ def build_parser() -> argparse.ArgumentParser:
         help="actually delete; without this, dry-run only",
     )
 
+    p_archive = sub.add_parser(
+        "archive",
+        help="Local archive store (ADR-0068)",
+        parents=[global_flags],
+    )
+    archive_sub = p_archive.add_subparsers(dest="archive_command", required=True)
+    archive_sub.add_parser(
+        "init", help="Create and bind the account archive store", parents=[global_flags]
+    )
+    p_archive_add = archive_sub.add_parser(
+        "add", help="Opt a group/channel into archive scope", parents=[global_flags]
+    )
+    p_archive_add.add_argument("chat", help="@username, t.me link, or dialog id")
+    p_archive_remove = archive_sub.add_parser(
+        "remove",
+        help="Remove a group/channel from archive scope",
+        parents=[global_flags],
+    )
+    p_archive_remove.add_argument("chat", help="@username, t.me link, or dialog id")
+    archive_sub.add_parser(
+        "list", help="List standing + explicit archive scope", parents=[global_flags]
+    )
+    archive_sub.add_parser(
+        "status", help="Offline archive freshness and counts", parents=[global_flags]
+    )
+    p_archive_search = archive_sub.add_parser(
+        "search", help="Offline FTS5 archive search", parents=[global_flags]
+    )
+    p_archive_search.add_argument("query", help="FTS5 MATCH query")
+    p_archive_search.add_argument("--chat", help="archived peer scope")
+    p_archive_search.add_argument(
+        "--limit", type=int, help="max hits (default 20, cap 50)"
+    )
+    p_archive_backfill = archive_sub.add_parser(
+        "backfill",
+        help="Backfill an explicit dialog list into the archive",
+        parents=[global_flags],
+    )
+    p_archive_backfill.add_argument(
+        "chats",
+        nargs="+",
+        metavar="CHAT",
+        help="one or more dialogs (no empty→all sentinel)",
+    )
+    p_archive_backfill.add_argument(
+        "--limit",
+        type=int,
+        help="messages per dialog (default 100, hard cap 1000)",
+    )
+
     p_read = sub.add_parser(
         "read", help="Read recent messages from a dialog", parents=[global_flags]
     )

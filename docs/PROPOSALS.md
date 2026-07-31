@@ -348,8 +348,8 @@ any message bodies are placed under `~/.local/state/tgcli/`.
 
 | Item | Value | Effort | Status |
 |---|---|---|---|
-| Selected-dialog local archive + FTS5 search | high | M | **accepted — ADR-0068 (native store; plan 2026-07-31-archive-store)** |
-| Import/rebuild/status with account identity and gap reporting | high | M | **accepted — ADR-0068 (folded into the same plan)** |
+| Selected-dialog local archive + FTS5 search | high | M | **in progress — Phase 1 store/scope/backfill on `codex/archive-store` (ADR-0068)** |
+| Import/rebuild/status with account identity and gap reporting | high | M | **in progress — Phase 1 init/status/account guard (ADR-0068); rebuild/purge later** |
 | Continuous event-driven mirror | ? | L | **rejected for this effort — hourly foreground one-shots instead (ADR-0068)** |
 
 Resolution (2026-07-31): wayfinder map #100 worked the gates below to closure
@@ -491,10 +491,11 @@ bf-01-class defects.
 
 ## Suggested sequencing (remaining items only)
 
-1. **Local archive/search (M, accepted — ADR-0068):** execute
+1. **Local archive/search (M, in progress — ADR-0068 Phase 1):** execute
    `docs/superpowers/plans/2026-07-31-archive-store.md` — native store, no
-   sidecar; fidelity prerequisites first, and Phase 2's proof-of-value
-   acceptance gates any full-account backfill.
+   telecrawl; Phase 1 (store/scope/selected-dialog backfill) is on
+   `codex/archive-store`. Remaining phases stay gated by the plan's
+   proof-of-value acceptance before any full-account backfill.
 2. **Data tail (S/M):** `export bundle` and typed temporary/permanent media
    failures, only against a concrete backup workflow.
 3. **Measured performance (S):** baseline → `--profile` → per-run RPC cache.

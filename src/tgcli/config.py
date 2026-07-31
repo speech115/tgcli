@@ -28,6 +28,7 @@ class Account:
 class Config:
     default_account: str | None
     accounts: dict[str, Account]
+    archive_root: Path | None = None
 
 
 def validate_role_name(role: str) -> str:
@@ -72,7 +73,25 @@ def load_config(path: Path | None = None) -> Config:
         except (TypeError, ValueError) as exc:
             raise ConfigError(f"account {alias!r}: invalid value: {exc}") from exc
     _reject_colliding_sessions(accounts)
-    return Config(default_account=raw.get("default_account"), accounts=accounts)
+    archive_root = _parse_archive_root(raw.get("archive"))
+    return Config(
+        default_account=raw.get("default_account"),
+        accounts=accounts,
+        archive_root=archive_root,
+    )
+
+
+def _parse_archive_root(raw_archive: object) -> Path | None:
+    if raw_archive is None:
+        return None
+    if not isinstance(raw_archive, dict):
+        raise ConfigError("archive must be an [archive] table")
+    if "root" not in raw_archive:
+        return None
+    root = raw_archive["root"]
+    if not isinstance(root, str) or not root.strip():
+        raise ConfigError("archive.root must be a non-empty path string")
+    return Path(root).expanduser()
 
 
 def _reject_colliding_sessions(accounts: dict[str, Account]) -> None:

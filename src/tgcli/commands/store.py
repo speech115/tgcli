@@ -242,6 +242,23 @@ def scan(root: Path, *, now: datetime | None = None) -> dict:
         else []
     )
 
+    archive_root = root / "archive"
+    archive_db_files = (
+        [p for p in archive_root.glob("*/archive.db") if p.is_file()]
+        if archive_root.is_dir()
+        else []
+    )
+    archive_wal_files = (
+        [p for p in archive_root.glob("*/archive.db-wal") if p.is_file()]
+        if archive_root.is_dir()
+        else []
+    )
+    archive_shm_files = (
+        [p for p in archive_root.glob("*/archive.db-shm") if p.is_file()]
+        if archive_root.is_dir()
+        else []
+    )
+
     return {
         "previews": previews,
         "previews_world_readable": world_readable,
@@ -278,6 +295,21 @@ def scan(root: Path, *, now: datetime | None = None) -> dict:
         "clone_media_cache": {
             "count": len(media_dirs),
             "bytes": sum(_dir_bytes(path) for path in media_dirs),
+        },
+        "archive": {
+            "bytes": _dir_bytes(archive_root),
+            "db": {
+                "count": len(archive_db_files),
+                "bytes": sum(_file_bytes(path) for path in archive_db_files),
+            },
+            "wal": {
+                "count": len(archive_wal_files),
+                "bytes": sum(_file_bytes(path) for path in archive_wal_files),
+            },
+            "shm": {
+                "count": len(archive_shm_files),
+                "bytes": sum(_file_bytes(path) for path in archive_shm_files),
+            },
         },
         "downloads": {"bytes": _dir_bytes(root / "downloads")},
         "relics": relics,
@@ -317,6 +349,10 @@ def stats_rows(data: dict) -> list[tuple]:
             data["clone_media_cache"]["bytes"],
         )
     )
+    rows.append(("archive", None, data["archive"]["bytes"]))
+    for name in ("db", "wal", "shm"):
+        bucket = data["archive"][name]
+        rows.append((f"archive.{name}", bucket["count"], bucket["bytes"]))
     rows.append(("downloads", None, data["downloads"]["bytes"]))
     for relic in data["relics"]:
         rows.append((f"relic.{relic['name']}", None, relic["bytes"]))
@@ -494,6 +530,7 @@ def cleanup(
             "audit_log": True,
             "sessions": True,
             "session_backups": True,
+            "archive": True,
             "relics": [item["name"] for item in inventory["relics"]],
         },
     }

@@ -29,16 +29,22 @@ CEILINGS = {
     # +signal handling and the whole-body deadline (1.2.16).
     # +22 for ADR-0062: the audit-role window wrapping the whole cli-level
     # mutation path (set/reset around _audit_before → network → _audit_after).
-    "src/tgcli/cli.py": 555,
+    # +21 for ADR-0068: offline archive list/status/search path in _execute.
+    "src/tgcli/cli.py": 576,
     # +2 for ADR-0057: isort section blanks, E501 split in the --format help.
     # +47 for ADR-0062 --session-role / accounts --role flags and the
     # ADR-0063 tg changes subcommand surface.
-    "src/tgcli/parser.py": 565,
+    # +50 for ADR-0068: tg archive subcommand surface (init/add/remove/list/
+    # status/backfill/search).
+    "src/tgcli/parser.py": 615,
     # +40 for ADR-0062 role validation and ADR-0063 changes preflight.
-    "src/tgcli/preflight.py": 291,
+    # +37 for ADR-0068: archive preflight (readonly gates, backfill/search
+    # caps).
+    "src/tgcli/preflight.py": 328,
     # +2 for ADR-0057: isort section blanks.
     # +17 for ADR-0062: role lookup threaded into session.client.
-    "src/tgcli/dispatch.py": 276,
+    # +23 for ADR-0068: archive network dispatch (init/add/remove/backfill).
+    "src/tgcli/dispatch.py": 299,
     "src/tgcli/commands/batch.py": 96,
     # +3 for ADR-0057: isort section blanks.
     "src/tgcli/read_ops.py": 437,

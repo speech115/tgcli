@@ -1,0 +1,311 @@
+"""`tg archive` surface: init/add/remove/list/status/search/backfill (ADR-0068)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from tgcli.archive import (
+    backfill as backfill_mod,
+    scope as scope_mod,
+    search as search_mod,
+    store as store_mod,
+)
+from tgcli.clone import cooldown as cooldown_mod, flood
+from tgcli.config import Config, load_config, resolve_account
+from tgcli.errors import NotFoundError, PolicyError
+from tgcli.session import state_dir
+
+DEFAULT_BACKFILL_LIMIT = 100
+MAX_BACKFILL_LIMIT = 1000
+MAX_BACKFILL_DIALOGS = 20
+DEFAULT_SEARCH_LIMIT = search_mod.DEFAULT_LIMIT
+MAX_SEARCH_LIMIT = search_mod.MAX_LIMIT
+
+
+def archive_root(config: Config | None = None) -> Path:
+    cfg = config if config is not None else load_config()
+    if cfg.archive_root is not None:
+        root = cfg.archive_root
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            if root.stat().st_mode & 0o777 != 0o700:
+                root.chmod(0o700)
+        except OSError:
+            pass
+        return root
+    return store_mod.default_archive_root()
+
+
+def account_dir(alias: str, config: Config | None = None) -> Path:
+    return store_mod.ensure_account_dir(archive_root(config), alias)
+
+
+def db_path(alias: str, config: Config | None = None) -> Path:
+    return store_mod.db_path_for(account_dir(alias, config))
+
+
+def _open_existing(alias: str, config: Config | None = None):
+    path = db_path(alias, config)
+    if not path.exists():
+        raise NotFoundError("archive store is not initialized; run: tg archive init")
+    return store_mod.connect(path)
+
+
+async def init_archive(tg, alias: str, config: Config | None = None) -> dict:
+    me = await tg.get_me()
+    if me is None or getattr(me, "id", None) is None:
+        raise PolicyError("archive init requires an authorized session")
+    directory = account_dir(alias, config)
+    path = store_mod.db_path_for(directory)
+    conn = store_mod.connect(path)
+    try:
+        created = store_mod.ensure_meta(
+            conn, account_user_id=int(me.id), account_alias=alias
+        )
+        meta = store_mod.read_meta(conn)
+    finally:
+        conn.close()
+    return {
+        "created": created,
+        "path": str(path),
+        "account": {"alias": meta["account_alias"], "user_id": meta["account_user_id"]},
+        "schema_version": store_mod.SCHEMA_VERSION,
+    }
+
+
+async def add_chat(tg, alias: str, chat: str, config: Config | None = None) -> dict:
+    me = await tg.get_me()
+    conn = _open_existing(alias, config)
+    try:
+        store_mod.require_bound_user(conn, int(me.id), alias)
+        entity = await backfill_mod.resolve_entity(tg, chat)
+        kind = scope_mod.classify_entity(entity)
+        scope_mod.require_explicit_kind(kind)
+        entry = store_mod.add_scope(
+            conn,
+            peer_id=scope_mod.peer_id(entity),
+            kind=kind,
+            title=scope_mod.entity_title(entity),
+            username=getattr(entity, "username", None),
+            chat_ref=chat,
+        )
+    finally:
+        conn.close()
+    return {"added": entry}
+
+
+async def remove_chat(tg, alias: str, chat: str, config: Config | None = None) -> dict:
+    me = await tg.get_me()
+    conn = _open_existing(alias, config)
+    try:
+        store_mod.require_bound_user(conn, int(me.id), alias)
+        entity = await backfill_mod.resolve_entity(tg, chat)
+        removed = store_mod.remove_scope(conn, scope_mod.peer_id(entity))
+        if removed is None:
+            raise NotFoundError(f"chat not in archive scope: {chat!r}")
+    finally:
+        conn.close()
+    return {"removed": removed}
+
+
+def list_scope(alias: str, config: Config | None = None) -> dict:
+    conn = _open_existing(alias, config)
+    try:
+        store_mod.require_bound_alias(conn, alias)
+        explicit = store_mod.list_scope(conn)
+    finally:
+        conn.close()
+    return {
+        "account": {"alias": alias},
+        "standing": {
+            "kind": "private",
+            "description": "private 1:1 dialogs",
+        },
+        "explicit": explicit,
+    }
+
+
+def status(alias: str, config: Config | None = None) -> dict:
+    conn = _open_existing(alias, config)
+    try:
+        meta = store_mod.require_bound_alias(conn, alias)
+        counts = store_mod.counts(conn)
+        dialogs = store_mod.list_sync_state(conn)
+        last_errors = [
+            {"peer_id": row["peer_id"], "error": row["last_error"]}
+            for row in dialogs
+            if row.get("last_error")
+        ]
+        version = store_mod.schema_version(conn)
+    finally:
+        conn.close()
+    return {
+        "account": {
+            "alias": meta["account_alias"],
+            "user_id": meta["account_user_id"],
+        },
+        "path": str(db_path(alias, config)),
+        "schema_version": version,
+        "counts": counts,
+        "dialogs": dialogs,
+        "transcript_queue": counts["transcript_queue"],
+        "last_errors": last_errors,
+    }
+
+
+def search(
+    alias: str,
+    query: str,
+    *,
+    chat: str | None = None,
+    limit: int | None = None,
+    config: Config | None = None,
+) -> dict:
+    conn = _open_existing(alias, config)
+    try:
+        store_mod.require_bound_alias(conn, alias)
+        data = search_mod.search(
+            conn,
+            query,
+            chat=chat,
+            limit=DEFAULT_SEARCH_LIMIT if limit is None else limit,
+        )
+    finally:
+        conn.close()
+    data["account"] = {"alias": alias}
+    return data
+
+
+async def backfill(
+    tg,
+    alias: str,
+    chats: list[str],
+    *,
+    limit: int | None = None,
+    config: Config | None = None,
+) -> dict:
+    chats = backfill_mod.validate_dialogs(chats, maximum=MAX_BACKFILL_DIALOGS)
+    limit = backfill_mod.validate_limit(
+        limit, default=DEFAULT_BACKFILL_LIMIT, maximum=MAX_BACKFILL_LIMIT
+    )
+    # Enforce the shared per-account cooldown before any archive RPC loop
+    # (ADR-0045/0052); with_cooldown needs CloneState, so backfill arms the
+    # account record directly and reuses WaitBudget on short waits.
+    me = await cooldown_mod.cooled_account(tg)
+    conn = _open_existing(alias, config)
+    try:
+        store_mod.require_bound_user(conn, int(me.id), alias)
+        dialogs = await backfill_mod.backfill_dialogs(
+            tg,
+            conn,
+            chats,
+            limit=limit,
+            account_user_id=int(me.id),
+            budget=flood.WaitBudget(),
+        )
+    finally:
+        conn.close()
+    return {
+        "account": {"alias": alias, "user_id": int(me.id)},
+        "limit": limit,
+        "dialogs": dialogs,
+        "stored": sum(item["stored"] for item in dialogs),
+    }
+
+
+def init_rows(data: dict) -> list[tuple]:
+    account = data["account"]
+    return [
+        ("created", data["created"]),
+        ("alias", account["alias"]),
+        ("user_id", account["user_id"]),
+        ("path", data["path"]),
+    ]
+
+
+def add_rows(data: dict) -> list[tuple]:
+    entry = data["added"]
+    return [
+        ("peer_id", entry["peer_id"]),
+        ("kind", entry["kind"]),
+        ("title", entry.get("title")),
+        ("created", entry.get("created")),
+    ]
+
+
+def remove_rows(data: dict) -> list[tuple]:
+    entry = data["removed"]
+    return [
+        ("peer_id", entry["peer_id"]),
+        ("kind", entry["kind"]),
+        ("title", entry.get("title")),
+    ]
+
+
+def list_rows(data: dict) -> list[tuple]:
+    rows: list[tuple] = [("standing", "private", None, data["standing"]["description"])]
+    for entry in data["explicit"]:
+        rows.append(
+            (
+                entry["kind"],
+                entry["peer_id"],
+                entry.get("username") or entry.get("chat_ref"),
+                entry.get("title"),
+            )
+        )
+    return rows
+
+
+def status_rows(data: dict) -> list[tuple]:
+    counts = data["counts"]
+    return [
+        ("alias", data["account"]["alias"]),
+        ("user_id", data["account"]["user_id"]),
+        ("messages", counts["messages"]),
+        ("revisions", counts["revisions"]),
+        ("tombstones", counts["tombstones"]),
+        ("scope", counts["scope"]),
+        ("transcript_queue", data["transcript_queue"]),
+        ("dialogs", len(data["dialogs"])),
+        ("last_errors", len(data["last_errors"])),
+    ]
+
+
+def search_rows(data: dict) -> list[tuple]:
+    rows: list[tuple] = []
+    for hit in data["hits"]:
+        rows.append(
+            (
+                hit["peer_id"],
+                hit["message_id"],
+                hit.get("date"),
+                hit.get("chat_ref") or hit.get("title"),
+                hit.get("text"),
+            )
+        )
+    return rows
+
+
+def backfill_rows(data: dict) -> list[tuple]:
+    rows: list[tuple] = [("stored", data["stored"]), ("limit", data["limit"])]
+    for item in data["dialogs"]:
+        rows.append(
+            (
+                item["chat"],
+                item["stored"],
+                item["inserted"],
+                item["updated"],
+                item["more"],
+            )
+        )
+    return rows
+
+
+def resolve_alias(account_flag: str | None, config: Config | None = None) -> str:
+    cfg = config if config is not None else load_config()
+    return resolve_account(cfg, account_flag).alias
+
+
+# Re-export for store stats callers that only need the default root under state_dir.
+def default_state_archive_root() -> Path:
+    return state_dir() / "archive"

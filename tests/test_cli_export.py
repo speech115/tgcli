@@ -150,6 +150,39 @@ def test_export_messages_streams_ten_thousand_messages(
     assert json.loads(lines[-1])["id"] == 10_000
 
 
+def test_export_messages_preserves_permalink_and_foreign_reply_peer(
+    config_env, monkeypatch, tmp_path
+):
+    from telethon.tl import types
+
+    entity = ns(id=4454061248, title="Channel", username="chan", broadcast=True)
+    message = ns(
+        id=2374,
+        date=dt.datetime(2026, 7, 31, 10, 0, tzinfo=dt.UTC),
+        sender_id=111,
+        sender=ns(first_name="Alice", last_name=None),
+        text="comment",
+        media=None,
+        reply_to_msg_id=1244,
+        reply_to=types.MessageReplyHeader(
+            reply_to_msg_id=1244,
+            reply_to_peer_id=types.PeerChannel(2275285084),
+            quote_text="foreign quote",
+            reply_to_top_id=2373,
+        ),
+    )
+    fake = FakeClient(messages=[message], entities={"@chan": entity})
+    make_session_fake(monkeypatch, fake)
+    destination = tmp_path / "messages.jsonl"
+
+    assert main(["export", "messages", "@chan", "--output", str(destination)]) == 0
+
+    exported = json.loads(destination.read_text(encoding="utf-8").splitlines()[0])
+    assert exported["permalink"] == "https://t.me/chan/2374"
+    assert exported["reply_to"] == {"id": 1244, "peer": -1002275285084}
+    assert exported["quote_text"] == "foreign quote"
+
+
 def test_export_messages_unknown_dialog_exits_4(
     config_env, monkeypatch, tmp_path, capsys
 ):

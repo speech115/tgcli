@@ -12,6 +12,7 @@ from telethon import errors as telethon_errors
 from tgcli import output, read_ops, session
 from tgcli.commands import (
     api as api_cmd,
+    archive as archive_cmd,
     batch as batch_cmd,
     changes as changes_cmd,
     clone as clone_cmd,
@@ -127,6 +128,8 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
                     wait=getattr(args, "changes_wait", None),
                 )
                 return data, changes_cmd.to_rows(data)
+            if args.command == "archive":
+                return await _run_archive(tg, args, account)
             if args.command == "export":
                 if args.export_kind == "messages":
                     data = await export_cmd.export_messages(
@@ -181,6 +184,26 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
         raise RateLimitError(
             f"rate limited for {exc.seconds}s", retry_after=exc.seconds
         ) from exc
+
+
+async def _run_archive(tg, args, account) -> tuple[dict, list[tuple]]:
+    cmd = args.archive_command
+    alias = account.alias
+    if cmd == "init":
+        data = await archive_cmd.init_archive(tg, alias)
+        return data, archive_cmd.init_rows(data)
+    if cmd == "add":
+        data = await archive_cmd.add_chat(tg, alias, args.chat)
+        return data, archive_cmd.add_rows(data)
+    if cmd == "remove":
+        data = await archive_cmd.remove_chat(tg, alias, args.chat)
+        return data, archive_cmd.remove_rows(data)
+    if cmd == "backfill":
+        data = await archive_cmd.backfill(
+            tg, alias, list(args.chats), limit=getattr(args, "limit", None)
+        )
+        return data, archive_cmd.backfill_rows(data)
+    raise AssertionError(f"unhandled network archive command: {cmd}")
 
 
 async def _run_draft(tg, args) -> tuple[dict, list[tuple]]:
