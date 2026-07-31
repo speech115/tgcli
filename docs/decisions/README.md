@@ -32,7 +32,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0023](ADR-0023-clone-channel-comments.md) | Comments via a linked discussion group; author-identity ladder; `init --replace` | accepted |
 | [0024](ADR-0024-clone-source-roster.md) | Best-effort source-side participant roster snapshot during sync | accepted |
 | [0025](ADR-0025-clone-preserve-reforward-header.md) | Per-batch `drop_author` keeps the native forward header on re-forwarded posts | accepted |
-| [0026](ADR-0026-maintenance-mode.md) | Maintenance mode: fixes need a reproducing test; features need an ADR + scoped plan | accepted |
+| [0026](ADR-0026-maintenance-mode.md) | Maintenance mode: fixes need a reproducing test; features need an ADR + scoped plan | accepted; rule 1 (posture) superseded by ADR-0071 |
 | [0027](ADR-0027-ci-lint-typecheck.md) | CI enforces ruff lint/format and pyright basic over `src/` | accepted |
 | [0028](ADR-0028-agent-correspondence-scope.md) | v1.1 agent correspondence: richer message JSON, pagination, full mutation set with random_id commits, discovery flags, doctor | accepted |
 | [0029](ADR-0029-discovery-inbox-scope.md) | discovery & inbox quick-wins: resolve (+resolvePhone allowlist), contacts, media manifest, mark-unread/dialog pin, thread | accepted |
@@ -77,6 +77,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0068](ADR-0068-local-archive-store.md) | Native `tg archive` SQLite+FTS5 store: private dialogs auto-scoped, append-only history, local transcription, hourly one-shot refresh; telecrawl sidecar rejected | accepted |
 | [0069](ADR-0069-archive-exploration-module.md) | Keep Phase 5 archive search/read/history queries in a read-only archive module | accepted |
 | [0070](ADR-0070-archive-refresh-scheduling.md) | Compose bounded archive refreshes and notify once after recurring failures | accepted |
+| [0071](ADR-0071-owner-gated-development.md) | Posture renamed to owner-gated development: same gate (owner request + ADR + scoped plan; fixes start from a reproducing test; agents never widen scope), without the retired "feature-complete / do not add features" claim | accepted |
 
 Notes on supersessions:
 
@@ -88,3 +89,7 @@ Notes on supersessions:
   retention and ADR-0016 fidelity rules carry forward into clone, which is
   why 0014–0016 stay "accepted" as rule sources while the mirror surface
   is gone.
+- ADR-0071 supersedes only ADR-0026's rule 1 (the "maintenance mode /
+  feature-complete" posture wording). ADR-0026 rules 2–4 — scope routing to
+  docs/ISSUES.md, the clone chronicle in docs/CLONE.md, and this index —
+  remain in force, which is why 0026 stays a live rule source.

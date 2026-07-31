@@ -15,7 +15,7 @@ tgcli/
 ├── .github/workflows/release-tag.yml [done] tags the merged release commit vX.Y.Z on push to main (ADR-0038)
 ├── .github/ISSUE_TEMPLATE/    [done]    bug-report + proposal forms, both labelled needs-triage (ADR-0056)
 ├── .github/PULL_REQUEST_TEMPLATE.md [done] gate evidence + documentation/safety checklist (ADR-0056)
-├── .cursor/rules/             [done]    Cursor always-apply maintenance/TDD/docs rule
+├── .cursor/rules/             [done]    Cursor always-apply adapter for AGENTS.md (TDD, review handoff, gate)
 ├── .claude/agents/            [done]    repo-local subagents (reviewer: independent pre-merge diff review)
 ├── AGENTS.md                  [done]    agent contract, doc discipline
 ├── CLAUDE.md                  [done]    Claude adapter → AGENTS.md
@@ -35,7 +35,7 @@ tgcli/
 │   ├── guide/                 [done]    user-facing task pages, 25 + index (ADR-0041/0065)
 │   ├── assets/                [done]    README banner, dark + light SVG, launchd template (no external assets)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
-│   ├── decisions/             [done]    ADR-0001…0070 + README.md index (ADR-0026 maintenance mode)
+│   ├── decisions/             [done]    ADR-0001…0071 + README.md index (ADR-0071 owner-gated development)
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only

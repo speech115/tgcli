@@ -10,7 +10,7 @@ belong in separate PRs. Full rules: CONTRIBUTING.md and AGENTS.md.
 ## Scope
 
 - Kind: <!-- bug fix | docs | tooling | owner-requested behavior (ADR: ____) -->
-- Authorized by: <!-- issue #N, ADR-NNNN, or "maintenance: bug fix" -->
+- Authorized by: <!-- issue #N, ADR-NNNN, or "bug fix: reproducing test" -->
 
 ## Evidence
 

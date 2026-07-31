@@ -1,14 +1,15 @@
 name: Proposal
-description: Suggest new behavior — read the maintenance-mode rule first
+description: Suggest new behavior — read the owner-gate rule first
 labels: ["needs-triage"]
 body:
   - type: markdown
     attributes:
       value: |
-        This project is in maintenance mode
-        ([ADR-0026](../blob/main/docs/decisions/ADR-0026-maintenance-mode.md)):
-        it is feature-complete and in production use. New behavior needs an
-        owner request plus an ADR before any code — a proposal lands in
+        This project is owner-gated
+        ([ADR-0071](../blob/main/docs/decisions/ADR-0071-owner-gated-development.md)):
+        it is in production use and still gains features, but the owner
+        decides which. New behavior needs an owner request plus an ADR
+        before any code — a proposal lands in
         [docs/PROPOSALS.md](../blob/main/docs/PROPOSALS.md) first, and only
         graduates to work once it passes that gate. Pull requests that add
         unrequested behavior are closed.
