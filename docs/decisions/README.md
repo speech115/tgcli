@@ -75,6 +75,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0066](ADR-0066-voice-played-json-field.md) | Additive `voice_played` field exposes Telegram voice playback state without mutation | accepted |
 | [0067](ADR-0067-pinned-runtime-diagnostics.md) | Supported session runtime boundary plus additive `doctor` runtime fingerprint | accepted |
 | [0068](ADR-0068-local-archive-store.md) | Native `tg archive` SQLite+FTS5 store: private dialogs auto-scoped, append-only history, local transcription, hourly one-shot refresh; telecrawl sidecar rejected | accepted |
+| [0069](ADR-0069-archive-exploration-module.md) | Keep Phase 5 archive search/read/history queries in a read-only archive module | accepted |
 
 Notes on supersessions:
 

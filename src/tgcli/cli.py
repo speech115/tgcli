@@ -315,6 +315,8 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
         "list",
         "status",
         "search",
+        "read",
+        "history",
         "transcribe",
     ):
         alias = archive_cmd.resolve_alias(args.account, config)
@@ -332,11 +334,33 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
                 config=config,
             )
             return data, archive_cmd.transcribe_rows(data)
+        if args.archive_command == "read":
+            data = archive_cmd.read(
+                alias,
+                args.chat,
+                around_id=getattr(args, "around_id", None),
+                around_date=getattr(args, "around_date", None),
+                since=getattr(args, "since", None),
+                until=getattr(args, "until", None),
+                limit=getattr(args, "limit", None),
+                config=config,
+            )
+            return data, archive_cmd.read_rows(data)
+        if args.archive_command == "history":
+            data = archive_cmd.history(alias, args.chat, args.message_id, config=config)
+            return data, archive_cmd.history_rows(data)
         data = archive_cmd.search(
             alias,
             args.query,
             chat=getattr(args, "chat", None),
+            from_user=getattr(args, "from_user", None),
+            since=getattr(args, "since", None),
+            until=getattr(args, "until", None),
+            kind=getattr(args, "kind", None),
+            transcripts_only=bool(getattr(args, "transcripts_only", False)),
+            sort=getattr(args, "sort", "relevance"),
             limit=getattr(args, "limit", None),
+            page=getattr(args, "page", None),
             config=config,
         )
         return data, archive_cmd.search_rows(data)

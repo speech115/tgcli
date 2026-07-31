@@ -1,11 +1,11 @@
 # Archive: local selected-dialog store
 
 `tg archive` keeps a per-account, read-only Telegram archive on disk
-([ADR-0068](../decisions/ADR-0068-local-archive-store.md)). Phase 1–4 ship
-the store, scope, selected and private backfill, thin offline search, delta
-sync via the `tg changes` cursor, bounded voice/video-note acquisition, and
-foreground local Parakeet transcription. Full Phase 5 filters and hourly
-refresh come later.
+([ADR-0068](../decisions/ADR-0068-local-archive-store.md)). Phases 1–5 ship
+the store, scope, selected and private backfill, filtered/ranked offline
+search, delta sync via the `tg changes` cursor, bounded voice/video-note
+acquisition, foreground local Parakeet transcription, and offline timeline /
+history views. Hourly refresh remains Phase 6.
 
 Default location: `~/.local/state/tgcli/archive/<alias>/archive.db`
 (directories `0700`). Override with:
@@ -36,7 +36,7 @@ tg --json archive remove @channel
 tg --json archive list
 ```
 
-`list`, `status`, `search`, and `transcribe` are offline: they load config +
+`list`, `status`, `search`, `read`, `history`, and `transcribe` are offline: they load config +
 the local DB and do **not** open a Telegram session.
 
 ## Backfill
@@ -106,22 +106,50 @@ retryable failure stays queued until the attempt cap; terminal or exhausted
 rows become `no_transcript` with an error for status/reporting. Transcripts
 survive message edits and FTS rebuilds.
 
-## Search (thin / offline)
+## Search (offline)
 
 ```bash
 tg --json archive search "query"
-tg --json archive search "хакатон*" --chat @alice --limit 20
+tg --json archive search "хакатон*" --chat @alice --from @alice --limit 20
+tg --json archive search "needle" --transcripts-only --since 2026-01-01
+tg --json archive search "query" --kind voice --sort date --page 2 --limit 50
 tg --plain archive search "елка"
 ```
 
 Exact FTS5 `MATCH` by default (no auto-prefix). Include `*` (or other FTS
-operators) for a raw MATCH escape hatch. Default limit 20, hard cap 50.
-Optional `--chat` resolves from `scope` or private `sync_state` identity.
-Transcript text is searched through the same FTS index; each hit reports the
-stored transcript and its status. The `no_transcript` marker can be searched
-to find exhausted/terminal rows. Results cover archived peers only; JSON
-`scope.stale` is true when any dialog still has `more: true` on Telegram.
-Allowed under `--readonly`.
+operators) for a raw MATCH escape hatch. Default limit is 20 and the hard cap
+is 50 rows per page. `--page` is 1-based and returns `has_more` / `next_page`.
+Relevance uses FTS5 BM25 with message date as the recency tiebreak; use
+`--sort date` for newest-first ordering. `--chat` resolves from `scope` or
+private `sync_state` identity. `--from` accepts a sender id, `@username`, or
+stored sender name. `--since` / `--until` are inclusive; `--kind` accepts
+`text`, `photo`, `video`, `video_note`, `audio`, `voice`, and `document`.
+`--transcripts-only` searches successful transcript text only. Each hit keeps
+the stored transcript/status, a marked snippet, the stored HTTPS `permalink`
+when available, and a `tg_link` for handing the id to live `tg read` tooling.
+Results cover archived peers only; JSON `scope.stale` is true when any dialog
+still has `more: true` on Telegram. Allowed under `--readonly`.
+
+## Offline timeline and history
+
+```bash
+tg --json archive read @alice --around-id 42 --limit 20
+tg --json archive read @alice --around-date 2026-01-10 --since 2026-01-01
+tg --plain archive read @alice --until 2026-01-31
+tg --json archive history @alice 42
+```
+
+`archive read` never opens Telegram. Without a center it returns the newest
+bounded local window in chronological order. `--around-id` centers on a stored
+message id; `--around-date` centers on a date/datetime. `--since` and `--until`
+further bound the window. The returned messages keep the universal `tg read`
+shape and add `peer_id`, transcript fields, and `tg_link`.
+
+`archive history` exposes the current local body, append-only revisions, and a
+tombstone when sync observed a deletion. A tombstoned message reports
+`status: "deleted"`; historical bodies remain available. Unknown chats and
+message ids with no local record return exit 4. Both commands are read-only
+and safe under `--readonly`.
 
 ## Status and hygiene
 

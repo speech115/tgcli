@@ -6,8 +6,8 @@ from pathlib import Path
 
 from tgcli.archive import (
     backfill as backfill_mod,
+    explore as explore_mod,
     scope as scope_mod,
-    search as search_mod,
     store as store_mod,
     sync as sync_mod,
     transcribe as transcribe_mod,
@@ -22,8 +22,10 @@ MAX_BACKFILL_LIMIT = 1000
 MAX_BACKFILL_DIALOGS = 20
 DEFAULT_PRIVATE_DIALOGS = 20
 MAX_PRIVATE_DIALOGS = 100
-DEFAULT_SEARCH_LIMIT = search_mod.DEFAULT_LIMIT
-MAX_SEARCH_LIMIT = search_mod.MAX_LIMIT
+DEFAULT_SEARCH_LIMIT = explore_mod.SEARCH_DEFAULT_LIMIT
+MAX_SEARCH_LIMIT = explore_mod.SEARCH_MAX_LIMIT
+DEFAULT_READ_LIMIT = explore_mod.READ_DEFAULT_LIMIT
+MAX_READ_LIMIT = explore_mod.READ_MAX_LIMIT
 DEFAULT_SYNC_EVENTS = sync_mod.DEFAULT_MAX_CATCHUP_MESSAGES
 MAX_SYNC_EVENTS = sync_mod.MAX_CATCHUP_MESSAGES
 DEFAULT_SYNC_DIALOGS = sync_mod.DEFAULT_MAX_CATCHUP_DIALOGS
@@ -59,6 +61,17 @@ def _open_existing(alias: str, config: Config | None = None):
     if not path.exists():
         raise NotFoundError("archive store is not initialized; run: tg archive init")
     return store_mod.connect(path)
+
+
+def _offline(alias: str, operation, *args, config: Config | None = None, **kwargs):
+    conn = _open_existing(alias, config)
+    try:
+        store_mod.require_bound_alias(conn, alias)
+        data = operation(conn, *args, **kwargs)
+    finally:
+        conn.close()
+    data["account"] = {"alias": alias}
+    return data
 
 
 async def init_archive(tg, alias: str, config: Config | None = None) -> dict:
@@ -177,22 +190,61 @@ def search(
     query: str,
     *,
     chat: str | None = None,
+    from_user: str | None = None,
+    since=None,
+    until=None,
+    kind: str | None = None,
+    transcripts_only: bool = False,
+    sort: str = "relevance",
+    limit: int | None = None,
+    page: int | None = None,
+    config: Config | None = None,
+) -> dict:
+    return _offline(
+        alias,
+        explore_mod.search,
+        query,
+        chat=chat,
+        from_user=from_user,
+        since=since,
+        until=until,
+        kind=kind,
+        transcripts_only=transcripts_only,
+        sort=sort,
+        limit=DEFAULT_SEARCH_LIMIT if limit is None else limit,
+        page=1 if page is None else page,
+        config=config,
+    )
+
+
+def read(
+    alias: str,
+    chat: str,
+    *,
+    around_id: int | None = None,
+    around_date=None,
+    since=None,
+    until=None,
     limit: int | None = None,
     config: Config | None = None,
 ) -> dict:
-    conn = _open_existing(alias, config)
-    try:
-        store_mod.require_bound_alias(conn, alias)
-        data = search_mod.search(
-            conn,
-            query,
-            chat=chat,
-            limit=DEFAULT_SEARCH_LIMIT if limit is None else limit,
-        )
-    finally:
-        conn.close()
-    data["account"] = {"alias": alias}
-    return data
+    return _offline(
+        alias,
+        explore_mod.read,
+        chat,
+        around_id=around_id,
+        around_date=around_date,
+        since=since,
+        until=until,
+        limit=DEFAULT_READ_LIMIT if limit is None else limit,
+        config=config,
+    )
+
+
+def history(
+    alias: str, chat: str, message_id: int, config: Config | None = None
+) -> dict:
+    return _offline(alias, explore_mod.history, chat, message_id, config=config)
 
 
 async def backfill(
@@ -410,21 +462,9 @@ def transcribe_rows(data: dict) -> list[tuple]:
     ]
 
 
-def search_rows(data: dict) -> list[tuple]:
-    rows: list[tuple] = []
-    for hit in data["hits"]:
-        rows.append(
-            (
-                hit["peer_id"],
-                hit["message_id"],
-                hit.get("date"),
-                hit.get("chat_ref") or hit.get("title"),
-                hit.get("text"),
-                hit.get("transcript"),
-                hit.get("transcript_status"),
-            )
-        )
-    return rows
+search_rows = explore_mod.search_rows
+read_rows = explore_mod.read_rows
+history_rows = explore_mod.history_rows
 
 
 def backfill_rows(data: dict) -> list[tuple]:

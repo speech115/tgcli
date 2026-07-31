@@ -51,18 +51,50 @@ def _prepare_archive(args) -> None:
     ):
         safety.enforce_local_mutation_allowed(args.readonly)
     if cmd == "search":
-        from tgcli.archive import search as search_mod
+        from tgcli.archive import explore as explore_mod, search as search_mod
         from tgcli.commands import archive as archive_cmd
 
         args.query = search_mod.validate_query(getattr(args, "query", None))
         chat = getattr(args, "chat", None)
         if chat is not None and not str(chat).strip():
             raise PolicyError("archive search --chat must be non-empty")
-        args.limit = search_mod.validate_limit(
+        args.from_user = explore_mod.validate_filter(
+            getattr(args, "from_user", None), "--from"
+        )
+        args.kind = explore_mod.validate_kind(getattr(args, "kind", None))
+        args.sort = explore_mod.validate_sort(getattr(args, "sort", None))
+        explore_mod.validate_date_range(args.since, args.until, "search")
+        args.limit = explore_mod.validate_limit(
             getattr(args, "limit", None),
             default=archive_cmd.DEFAULT_SEARCH_LIMIT,
             maximum=archive_cmd.MAX_SEARCH_LIMIT,
+            label="search",
         )
+        args.page = explore_mod.validate_page(getattr(args, "page", None))
+        return
+    if cmd == "read":
+        from tgcli.archive import explore as explore_mod
+        from tgcli.commands import archive as archive_cmd
+
+        if not str(args.chat).strip():
+            raise PolicyError("archive read CHAT must be non-empty")
+        explore_mod.validate_date_range(args.since, args.until, "read")
+        explore_mod.validate_read_centers(
+            getattr(args, "around_id", None), args.around_date
+        )
+        args.limit = explore_mod.validate_limit(
+            getattr(args, "limit", None),
+            default=archive_cmd.DEFAULT_READ_LIMIT,
+            maximum=archive_cmd.MAX_READ_LIMIT,
+            label="read",
+        )
+        return
+    if cmd == "history":
+        from tgcli.archive import explore as explore_mod
+
+        if not str(args.chat).strip():
+            raise PolicyError("archive history CHAT must be non-empty")
+        args.message_id = explore_mod.validate_message_id(args.message_id)
         return
     if cmd == "sync":
         from tgcli.archive import sync as sync_mod
@@ -180,13 +212,24 @@ def _prepare_batch(args) -> None:
 
 
 def _prepare_time_bounds(parser: argparse.ArgumentParser, args) -> None:
-    if args.command not in ("read", "search") and not (
-        args.command == "media" and args.media_command in ("manifest", "download")
+    archive_read = args.command == "archive" and args.archive_command == "read"
+    archive_search = args.command == "archive" and args.archive_command == "search"
+    if (
+        args.command not in ("read", "search")
+        and not archive_read
+        and not archive_search
+        and not (
+            args.command == "media" and args.media_command in ("manifest", "download")
+        )
     ):
         return
     args.since = _parse_when(parser, getattr(args, "since", None), "--since")
     if args.command != "media" or args.media_command == "manifest":
         args.until = _parse_when(parser, getattr(args, "until", None), "--until")
+    if archive_read:
+        args.around_date = _parse_when(
+            parser, getattr(args, "around_date", None), "--around-date"
+        )
 
 
 def _prepare_mutations(args) -> None:

@@ -47,7 +47,9 @@ selected account session, does one operation, and exits.
 | Transcribe archived voice/video notes | `tg --json archive transcribe [--limit N] [--max-attempts N]` (offline local FluidAudio/Parakeet queue) |
 | Rebaseline archive changes cursor | `tg --json archive rebaseline` |
 | Offline archive status | `tg --json archive status` |
-| Offline archive search | `tg --json archive search QUERY [--chat CHAT] [--limit N]` |
+| Offline archive search | `tg --json archive search QUERY [--chat CHAT] [--from SENDER] [--since ISO] [--until ISO] [--kind KIND] [--transcripts-only] [--sort {relevance,date}] [--limit N] [--page N]` |
+| Offline archive timeline | `tg --json archive read CHAT [--around-id ID | --around-date ISO] [--since ISO] [--until ISO] [--limit N]` |
+| Offline archive history | `tg --json archive history CHAT MESSAGE_ID` |
 | Remove a configured account | `tg --json accounts remove ALIAS --confirm` |
 | Remove one session role | `tg --json accounts remove ALIAS --role job --confirm` |
 | Import old-stack sessions | `tg --json accounts import` |

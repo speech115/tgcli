@@ -1634,7 +1634,7 @@ Boundary constants: common `GetDifferenceRequest.pts_total_limit =
 100000`; per-channel `GetChannelDifferenceRequest.limit = 100` with
 `ChannelMessagesFilterEmpty`.
 
-## 13. Local Archive (`tg archive`; ADR-0068 Phase 1–4 + thin search)
+## 13. Local Archive (`tg archive`; ADR-0068 Phase 1–5 + ADR-0069)
 
 ```
 tg archive init
@@ -1642,7 +1642,12 @@ tg archive add CHAT
 tg archive remove CHAT
 tg archive list
 tg archive status
-tg archive search QUERY [--chat CHAT] [--limit N]
+tg archive search QUERY [--chat CHAT] [--from SENDER] [--since ISO]
+  [--until ISO] [--kind KIND] [--transcripts-only]
+  [--sort {relevance,date}] [--limit N] [--page N]
+tg archive read CHAT [--around-id ID | --around-date ISO]
+  [--since ISO] [--until ISO] [--limit N]
+tg archive history CHAT MESSAGE_ID
 tg archive backfill CHAT [CHAT ...] [--limit N]
 tg archive backfill --private [--limit N] [--max-dialogs N]
 tg archive sync [--max-events N] [--max-dialogs N] [--max-media N]
@@ -1665,7 +1670,7 @@ a second representation.
 into `meta`. Every network command (`init`, `add`, `remove`, `backfill`,
 `sync`, `rebaseline`) re-checks the live user id against the store before
 touching data; mismatch is exit **2** and never merges stores. Offline
-commands (`list`, `status`, `search`, `transcribe`) do not open a Telegram session; they
+commands (`list`, `status`, `search`, `read`, `history`, `transcribe`) do not open a Telegram session; they
 refuse an alias/store mismatch (exit 2) and report `NOT_FOUND` (exit 4)
 when the store is missing.
 
@@ -1674,18 +1679,43 @@ including future correspondents; `add` of a private user is exit 2.
 Groups and channels join only via `add` / leave via `remove`. `list`
 returns the standing category plus the explicit allowlist.
 
-**Search (thin).** Offline FTS5 over archived messages only. Default MATCH
+**Search.** Offline FTS5 over archived messages only. Default MATCH
 is exact (no auto-prefix on short tokens); if `QUERY` contains FTS
 operators such as `*`, `"`, `AND`/`OR`/`NOT`/`NEAR`, or parentheses, it is
 passed through as a raw MATCH escape hatch. Default `--limit` is **20**;
-hard cap **50**. Empty/whitespace `QUERY`, non-positive `--limit`, or
-over-cap `--limit` is exit **2**. Optional `--chat` scopes to one peer
+hard cap **50 per page**. Empty/whitespace `QUERY`, non-positive/over-cap
+`--limit`, non-positive/over-cap `--page`, or an inverted date range is exit
+**2**. Optional `--chat` scopes to one peer
 resolved offline from `scope` **or** `sync_state` identity
 (`chat_ref` / `username` / numeric `peer_id`, including private peers that
 have no `scope` row); unknown chat is exit **4**. JSON includes `hits`
 plus a `scope` object noting archived-peers-only coverage and whether any
-dialog has `more: true` (staleness). `--plain` emits one TSV row per hit:
-`peer_id`, `message_id`, `date`, `chat_ref|title`, `text`.
+dialog has `more: true` (staleness). `--from` accepts a numeric sender id,
+`@username`, or stored sender name. `--since`/`--until` are inclusive ISO
+bounds. `--kind` accepts `text`, `photo`, `video`, `video_note`, `audio`,
+`voice`, or `document`; `--transcripts-only` restricts MATCH to successful
+transcript text. Relevance sorting uses SQLite FTS5 BM25 (`rank` ascending)
+with message date as the recency tiebreak; `--sort date` uses newest date
+first. `--page` is 1-based (default 1, hard cap 10,000); `has_more` and
+`next_page` make the next bounded query explicit. Hits include a short
+`snippet`, its `snippet_source`, `match_fields`, the stored HTTPS `permalink`
+when available, and a `tg_link` of the form
+`tg://openmessage?chat_id=PEER_ID&message_id=MESSAGE_ID` for a live handoff.
+`--plain` emits one TSV row per hit: `peer_id`, `message_id`, `date`,
+`chat_ref|title`, `text`, `transcript`, `transcript_status`, `tg_link`,
+`snippet`.
+
+**Offline timeline and history.** `tg archive read CHAT` never opens Telegram.
+It returns at most 50 stored messages in chronological order. Without a
+center it returns the newest bounded window; `--around-id` centers on a
+message id and `--around-date` centers on an ISO date/datetime. `--since` and
+`--until` further bound the window. Each message keeps the universal
+`tg read` payload and adds `peer_id`, transcript fields, and `tg_link`.
+`tg archive history CHAT MESSAGE_ID` returns the current stored body, all
+append-only revisions, and a deletion tombstone when present. A message with
+a tombstone has `status: "deleted"`; historical bodies remain readable. An
+unknown chat is exit **4**, and a message with no current/revision/tombstone
+record is exit **4**.
 
 **Backfill.** Either one or more `CHAT` arguments **or** `--private`
 (standing private category enumeration) — never both, and never an
@@ -1758,7 +1788,7 @@ and clears the stored gap. It does not silently rebuild message history.
 **Readonly.** `init` / `add` / `remove` / `backfill` / `sync` / `transcribe` /
 `rebaseline` mutate local state and are blocked by `--readonly` /
 `TGCLI_READONLY=1` (exit 2). `list`, `status`, and `search` are allowed
-under readonly.
+under readonly; `read` and `history` are also offline read-only commands.
 
 `--json` shapes:
 
@@ -1787,12 +1817,32 @@ under readonly.
 
 ```json
 {"account":{"alias":"main"},"query":"елка","match":"елка","match_mode":"exact",
- "limit":20,"chat":null,"peer_id":null,
+ "limit":20,"page":1,"next_page":null,"has_more":false,
+ "chat":null,"peer_id":null,
+ "filters":{"from":null,"since":null,"until":null,"kind":null,
+            "transcripts_only":false},"sort":"relevance",
  "hits":[{"peer_id":7,"message_id":1,"date":"…","text":"…",
-          "transcript":null,"transcript_status":null,
-          "chat_ref":"@alice","title":"Alice"}],
+          "transcript":null,"transcript_status":null,"kind":"text",
+          "chat_ref":"@alice","title":"Alice","rank":-1.2,
+          "match_fields":["text"],"snippet":"[[елка]]","snippet_source":"text",
+          "permalink":null,"tg_link":"tg://openmessage?chat_id=7&message_id=1"}],
  "scope":{"archived_peers_only":true,"stale":true,
           "note":"Results cover archived peers only. At least one dialog still has more history on Telegram (more=true)."}}
+```
+
+```json
+{"account":{"alias":"main"},"chat":"@alice","peer_id":7,
+ "identity":{"chat_ref":"@alice","title":"Alice","username":"alice","kind":"user"},
+ "around_id":42,"around_date":null,"since":null,"until":null,"limit":20,
+ "messages":[{"id":42,"peer_id":7,"date":"…","text":"…","tg_link":"tg://openmessage?chat_id=7&message_id=42"}],
+ "scope":{"archived_peers_only":true,"stale":false,"note":"Results cover archived peers only."}}
+```
+
+```json
+{"account":{"alias":"main"},"chat":"@alice","peer_id":7,"message_id":42,
+ "status":"deleted","current":{"id":42,"text":"new body","tg_link":"tg://openmessage?chat_id=7&message_id=42"},
+ "revisions":[{"edited_at":"…","recorded_at":"…","message":{"id":42,"text":"old body"}}],
+ "tombstone":{"deleted_at":"…"}}
 ```
 
 ```json
@@ -1835,12 +1885,12 @@ under readonly.
 `--plain` rows: `init` → `created,alias,user_id,path`; `list` → standing +
 explicit peer rows; `status` → counts summary (+ gap/cursor/transcript
 statuses); `search` → per-hit
-`peer_id,message_id,date,chat_ref|title,text,transcript,transcript_status`;
+`peer_id,message_id,date,chat_ref|title,text,transcript,transcript_status,tg_link,snippet`;
+`read` → per-message `id,date,from_name,text,tg_link`; `history` → status,
+message id, current text, revision count, and deletion date;
 `backfill` → mode +
 per-dialog `chat,stored,inserted,updated,more` plus media counters; `sync` →
 applied and media counters; `transcribe` → queue counters;
 `rebaseline` → `rebaselined,peers,gap`.
 
-Full Phase 5 filters (`--from`/`--since`/`--until`/`--kind`/
-`--transcripts-only`), BM25-led ranking UX, paging, and
-`read`/`history`/`refresh`/`purge` remain later phases.
+`refresh` and `purge` remain later phases.
