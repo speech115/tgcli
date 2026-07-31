@@ -1705,16 +1705,22 @@ scope channels are subscribed into the cursor. Apply vocabulary:
 peers auto-enter `sync_state`; `message_delete` → tombstones (channel
 deletes carry `peer`; private `UpdateDeleteMessages` are resolved against
 local message ids); `channel_activity` for scoped channels/groups triggers
-a bounded catch-up (`iter_messages` with `min_id`). Caps: `--max-events`
-(default **500**, hard cap **5000**) and `--max-dialogs` catch-ups
+a bounded catch-up (`iter_messages` with `min_id`). Difference events from
+the poll are **always applied in full** before the cursor advances — there
+is no apply-side truncation (dropping a tail while advancing the cursor
+would silently lose archive history). Caps bound the expensive catch-up
+RPCs only: `--max-events` is the catch-up **message** budget (default
+**500**, hard cap **5000**) and `--max-dialogs` is catch-up dialog count
 (default **20**, hard cap **50**). Non-positive / over-cap values are exit
 **2**. Private `UpdateDeleteMessages` resolves peers by matching local
-`message_id` values only — if the same id exists in more than one archived
-private dialog, sync tombstones every matching peer (MTProto does not name
-the peer). A `differenceTooLong`-class gap is stored loudly in `account_sync`
-and surfaced by `status` / sync JSON; exit **0** (a gap is data). Light
-reconciliation (sampled local vs Telegram message totals) runs at the end
-of sync and is reported under `reconcile` / `status.reconcile`.
+`message_id` values on users/basic groups only (channel/supergroup
+`-100…` peers are excluded — their id space collides). If the same id
+exists in more than one matching dialog, sync tombstones every matching
+peer (MTProto does not name the peer). A `differenceTooLong`-class gap is
+stored loudly in `account_sync` and surfaced by `status` / sync JSON; exit
+**0** (a gap is data). Light reconciliation (sampled local vs Telegram
+message totals, rotating across tracked dialogs) runs at the end of sync
+and is reported under `reconcile` / `status.reconcile`.
 
 **Rebaseline.** `tg archive rebaseline` is the explicit gap recovery:
 re-inits the changes cursor (and re-subscribes explicit scope channels)
@@ -1773,10 +1779,11 @@ under readonly.
 ```json
 {"account":{"alias":"main","user_id":42},"initialized":false,
  "max_events":500,"max_dialogs":20,
- "applied":{"events":3,"inserted":1,"updated":1,"edits":1,"tombstones":1,
-            "skipped_out_of_scope":0,"channel_activity":0,"truncated":false},
+ "applied":{"events":3,"received":3,"inserted":1,"updated":1,"edits":1,
+            "tombstones":1,"skipped_out_of_scope":0,"channel_activity":0},
  "catchups":[],"gap":null,"skipped":{},"next_cursor":"v1:…",
- "reconcile":{"sampled":1,"mismatched":0,"comparisons":[…]},"requests":1}
+ "reconcile":{"sampled":1,"mismatched":0,"next_offset":1,
+              "comparisons":[…]},"requests":1}
 ```
 
 ```json

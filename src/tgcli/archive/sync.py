@@ -19,15 +19,18 @@ from tgcli.commands.read import message_to_dict
 from tgcli.errors import PolicyError, RateLimitError
 from tgcli.output import note
 
-DEFAULT_MAX_EVENTS = 500
-MAX_EVENTS = 5000
+DEFAULT_MAX_CATCHUP_MESSAGES = 500
+MAX_CATCHUP_MESSAGES = 5000
 DEFAULT_MAX_CATCHUP_DIALOGS = 20
 MAX_CATCHUP_DIALOGS = 50
 CATCHUP_LIMIT = 50
 RECONCILE_SAMPLE = 5
+# Marked channel/supergroup peer ids are at or below this bound.
+CHANNEL_PEER_CEILING = -(10**12)
 
 
 def validate_max_events(value: int | None, *, default: int, maximum: int) -> int:
+    """Validate ``--max-events`` as the catch-up message budget (not apply)."""
     if value is None:
         return default
     if value <= 0:
@@ -59,11 +62,14 @@ def _in_archive_scope(conn: sqlite3.Connection, peer_id: int, kind: str | None) 
 def apply_events(
     conn: sqlite3.Connection,
     events: list[dict[str, Any]],
-    *,
-    max_events: int,
 ) -> dict[str, Any]:
-    """Apply a bounded event list; returns counters + truncated flag."""
-    applied = {
+    """Apply every event from a difference pass (never truncate).
+
+    Difference events are already paid for on the wire; dropping a tail while
+    advancing the changes cursor would silently lose archive history. Caps
+    belong on catch-up RPCs, not on local SQLite applies.
+    """
+    applied: dict[str, Any] = {
         "events": 0,
         "inserted": 0,
         "updated": 0,
@@ -71,13 +77,9 @@ def apply_events(
         "tombstones": 0,
         "skipped_out_of_scope": 0,
         "channel_activity": 0,
-        "truncated": False,
     }
     activity_peers: list[int] = []
     for event in events:
-        if applied["events"] >= max_events:
-            applied["truncated"] = True
-            break
         etype = event.get("type")
         if etype in ("message_new", "message_edit"):
             peer = event.get("peer")
@@ -126,7 +128,7 @@ def apply_events(
             ids = [int(mid) for mid in (event.get("ids") or [])]
             targets: list[tuple[int, int]]
             if peer is None:
-                targets = store_mod.find_message_peers(conn, ids)
+                targets = store_mod.find_message_peers(conn, ids, exclude_channels=True)
             else:
                 targets = [(int(peer), mid) for mid in ids]
             with conn:
@@ -156,7 +158,10 @@ async def _catch_up_peer(
     *,
     account_user_id: int,
     budget: flood.WaitBudget,
+    message_budget: int,
 ) -> dict[str, Any]:
+    if message_budget <= 0:
+        return {"peer_id": peer_id, "stored": 0, "skipped_budget": True}
     state = store_mod.get_sync_state(conn, peer_id)
     min_id = int(state["newest_id"]) if state and state.get("newest_id") else 0
     chat = (state or {}).get("chat_ref") or str(peer_id)
@@ -166,10 +171,9 @@ async def _catch_up_peer(
         return {"peer_id": peer_id, "stored": 0, "error": "unresolvable"}
     stored = 0
     ids: list[int] = []
+    limit = min(CATCHUP_LIMIT, message_budget)
     try:
-        async for message in tg.iter_messages(
-            entity, limit=CATCHUP_LIMIT, min_id=min_id
-        ):
+        async for message in tg.iter_messages(entity, limit=limit, min_id=min_id):
             payload = message_to_dict(message, entity)
             with conn:
                 store_mod.upsert_message(conn, peer_id, payload)
@@ -235,10 +239,17 @@ async def _ensure_channel_subscriptions(
 async def light_reconcile(
     tg, conn: sqlite3.Connection, *, sample: int = RECONCILE_SAMPLE
 ) -> dict[str, Any]:
-    """Cheap local-vs-Telegram count sample for a few tracked dialogs."""
-    dialogs = store_mod.list_sync_state(conn)[:sample]
+    """Cheap local-vs-Telegram count sample; rotates across tracked dialogs."""
+    dialogs = store_mod.list_sync_state(conn)
     comparisons: list[dict[str, Any]] = []
-    for row in dialogs:
+    if not dialogs:
+        summary = {"sampled": 0, "mismatched": 0, "comparisons": [], "next_offset": 0}
+        store_mod.write_account_sync(conn, reconcile=summary)
+        return summary
+    previous = store_mod.read_account_sync(conn).get("reconcile") or {}
+    offset = int(previous.get("next_offset") or 0) % len(dialogs)
+    chosen = [dialogs[(offset + i) % len(dialogs)] for i in range(min(sample, len(dialogs)))]
+    for row in chosen:
         peer = int(row["peer_id"])
         local = int(
             conn.execute(
@@ -261,6 +272,7 @@ async def light_reconcile(
                 "error": error,
             }
         )
+    next_offset = (offset + sample) % len(dialogs)
     summary = {
         "sampled": len(comparisons),
         "mismatched": sum(
@@ -269,6 +281,7 @@ async def light_reconcile(
             if item["telegram"] is not None and item["telegram"] != item["local"]
         ),
         "comparisons": comparisons,
+        "next_offset": next_offset,
     }
     store_mod.write_account_sync(conn, reconcile=summary)
     return summary
@@ -284,6 +297,12 @@ async def sync_archive(
     budget: flood.WaitBudget | None = None,
     reconcile: bool = True,
 ) -> dict[str, Any]:
+    """Apply a full difference pass, then budgeted channel catch-ups.
+
+    ``max_events`` caps catch-up *message fetches* (network), not how many
+    difference events are applied locally — those are always applied in full
+    before the changes cursor advances.
+    """
     run_budget = budget if budget is not None else flood.WaitBudget()
     account = store_mod.read_account_sync(conn)
     if account["changes_cursor"]:
@@ -299,19 +318,22 @@ async def sync_archive(
 
     cursor = await _ensure_channel_subscriptions(tg, conn, cursor)
     doc, cursor, requests = await changes_cmd.once(tg, cursor, private_deletes=True)
-    applied = apply_events(conn, doc.get("events") or [], max_events=max_events)
-    await _enrich_private_identity(tg, conn, doc.get("events") or [])
+    events = list(doc.get("events") or [])
+    applied = apply_events(conn, events)
+    await _enrich_private_identity(tg, conn, events)
     catchups: list[dict[str, Any]] = []
+    remaining = max_events
     for peer in (applied.get("activity_peers") or [])[:max_dialogs]:
-        catchups.append(
-            await _catch_up_peer(
-                tg,
-                conn,
-                peer,
-                account_user_id=account_user_id,
-                budget=run_budget,
-            )
+        result = await _catch_up_peer(
+            tg,
+            conn,
+            peer,
+            account_user_id=account_user_id,
+            budget=run_budget,
+            message_budget=remaining,
         )
+        catchups.append(result)
+        remaining = max(0, remaining - int(result.get("stored") or 0))
 
     gap = doc.get("gap")
     encoded = changes_cursor.encode(cursor)
@@ -336,7 +358,7 @@ async def sync_archive(
             "tombstones": applied["tombstones"],
             "skipped_out_of_scope": applied["skipped_out_of_scope"],
             "channel_activity": applied["channel_activity"],
-            "truncated": applied["truncated"],
+            "received": len(events),
         },
         "catchups": catchups,
         "gap": gap,

@@ -461,11 +461,21 @@ def test_private_delete_tombstones_every_peer_sharing_message_id(tmp_path):
                     "from": {"id": peer},
                 },
             )
+        channel_peer = -1001234567890
+        store_mod.upsert_message(
+            conn,
+            channel_peer,
+            {
+                "id": 42,
+                "date": "2026-01-02T00:00:00+00:00",
+                "text": "channel collision",
+                "from": {"id": 1},
+            },
+        )
         conn.commit()
         applied = sync_mod.apply_events(
             conn,
             [{"type": "message_delete", "peer": None, "ids": [42]}],
-            max_events=10,
         )
         assert applied["tombstones"] == 2
         peers = {
@@ -473,6 +483,45 @@ def test_private_delete_tombstones_every_peer_sharing_message_id(tmp_path):
             for row in conn.execute("SELECT peer_id FROM tombstones").fetchall()
         }
         assert peers == {7, 8}
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM tombstones WHERE peer_id = ?",
+                (channel_peer,),
+            ).fetchone()[0]
+            == 0
+        )
+    finally:
+        conn.close()
+
+
+def test_apply_events_applies_full_batch_without_truncation(tmp_path):
+    """Difference events are cheap locally — never drop a tail while syncing."""
+    conn = store_mod.connect(tmp_path / "archive.db")
+    try:
+        store_mod.ensure_meta(conn, account_user_id=42, account_alias="main")
+        events = [
+            {
+                "type": "message_new",
+                "peer": 7,
+                "message": {
+                    "id": i,
+                    "date": "2026-01-02T00:00:00+00:00",
+                    "text": f"msg {i}",
+                    "from": {"id": 7},
+                },
+            }
+            for i in range(1, 601)
+        ]
+        applied = sync_mod.apply_events(conn, events)
+        assert applied["events"] == 600
+        assert applied["inserted"] == 600
+        assert "truncated" not in applied
+        assert (
+            conn.execute("SELECT COUNT(*) FROM messages WHERE peer_id = 7").fetchone()[
+                0
+            ]
+            == 600
+        )
     finally:
         conn.close()
 

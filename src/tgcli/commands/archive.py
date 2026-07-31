@@ -23,8 +23,8 @@ DEFAULT_PRIVATE_DIALOGS = 20
 MAX_PRIVATE_DIALOGS = 100
 DEFAULT_SEARCH_LIMIT = search_mod.DEFAULT_LIMIT
 MAX_SEARCH_LIMIT = search_mod.MAX_LIMIT
-DEFAULT_SYNC_EVENTS = sync_mod.DEFAULT_MAX_EVENTS
-MAX_SYNC_EVENTS = sync_mod.MAX_EVENTS
+DEFAULT_SYNC_EVENTS = sync_mod.DEFAULT_MAX_CATCHUP_MESSAGES
+MAX_SYNC_EVENTS = sync_mod.MAX_CATCHUP_MESSAGES
 DEFAULT_SYNC_DIALOGS = sync_mod.DEFAULT_MAX_CATCHUP_DIALOGS
 MAX_SYNC_DIALOGS = sync_mod.MAX_CATCHUP_DIALOGS
 
@@ -391,12 +391,12 @@ def sync_rows(data: dict) -> list[tuple]:
     return [
         ("initialized", data.get("initialized")),
         ("events", applied["events"]),
+        ("received", applied.get("received", applied["events"])),
         ("inserted", applied["inserted"]),
         ("updated", applied["updated"]),
         ("edits", applied["edits"]),
         ("tombstones", applied["tombstones"]),
         ("gap", None if gap is None else gap.get("reason")),
-        ("truncated", applied["truncated"]),
     ]
 
 

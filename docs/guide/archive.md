@@ -67,14 +67,16 @@ tg --json archive sync --max-events 500 --max-dialogs 20
 tg --json archive rebaseline
 ```
 
-`sync` holds an account-level `tg changes` cursor, applies new/edit/delete
-events (and scoped channel catch-up), and records
-`differenceTooLong`-class gaps loudly in `status`. Caps bound events and
-catch-up dialogs per run. Private deletes without a peer may tombstone
-every archived dialog that shares that numeric message id. `rebaseline` is
-the explicit recovery that re-inits the cursor and clears a stored gap —
-never silent. A light local-vs-Telegram count sample is attached as
-`reconcile`.
+`sync` holds an account-level `tg changes` cursor, applies **every**
+new/edit/delete event from the poll (no apply-side truncation — the cursor
+advances only after a full apply), then runs scoped channel catch-up.
+`--max-events` budgets catch-up message fetches; `--max-dialogs` caps how
+many channels get catch-up in one run. `differenceTooLong`-class gaps are
+recorded loudly in `status`. Private deletes without a peer may tombstone
+every user/basic-group dialog that shares that numeric message id
+(channel `-100…` peers are excluded). `rebaseline` is the explicit recovery
+that re-inits the cursor and clears a stored gap — never silent. A rotating
+local-vs-Telegram count sample is attached as `reconcile`.
 
 ## Search (thin / offline)
 

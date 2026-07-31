@@ -247,7 +247,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_archive_sync.add_argument(
         "--max-events",
         type=int,
-        help="events applied per run (default 500, hard cap 5000)",
+        help="catch-up message budget per run (default 500, hard cap 5000)",
     )
     p_archive_sync.add_argument(
         "--max-dialogs",
