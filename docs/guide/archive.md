@@ -1,10 +1,10 @@
 # Archive: local selected-dialog store
 
 `tg archive` keeps a per-account, read-only Telegram archive on disk
-([ADR-0068](../decisions/ADR-0068-local-archive-store.md)). Phase 1 ships
-the store, scope, and selected-dialog backfill. A thin offline
-`tg archive search` is available for FTS5 lookups; full Phase 5 filters,
-delta sync, transcription, and hourly refresh come later.
+([ADR-0068](../decisions/ADR-0068-local-archive-store.md)). Phase 1–3 ship
+the store, scope, selected and private backfill, thin offline search, and
+delta sync via the `tg changes` cursor. Full Phase 5 filters, transcription,
+and hourly refresh come later.
 
 Default location: `~/.local/state/tgcli/archive/<alias>/archive.db`
 (directories `0700`). Override with:
@@ -43,34 +43,50 @@ DB and do **not** open a Telegram session.
 ```bash
 tg --json archive backfill @alice --limit 100
 tg --json archive backfill @alice @channel --limit 200
+tg --json archive backfill --private --max-dialogs 20 --limit 100
 ```
 
-At least one `CHAT` is required — there is no empty→all sentinel. Default
-limit is 100 messages per dialog; hard caps are 1000 messages/dialog and
-20 dialogs per invocation. Groups/channels need `add` first; private
-dialogs do not. Each run is checkpointed and resumable: a later call
-continues older history from the stored oldest id. Multiple chats in one
-invocation are sequential — a failure mid-list leaves earlier dialogs
-already written. Long `FLOOD_WAIT` exits 5 after checkpointing.
+Pass explicit `CHAT`s **or** `--private` (enumerate standing private 1:1
+dialogs under `--max-dialogs`) — never both, and never an empty→all
+sentinel. Default limit is 100 messages per dialog; hard caps are 1000
+messages/dialog, 20 explicit chats, and 100 private dialogs per run.
+`--private` skips dialogs already checkpointed with `more: false`.
+Groups/channels need `add` first; private dialogs do not. Each run is
+checkpointed and resumable. Long `FLOOD_WAIT` exits 5 after checkpointing.
 
 Stored message bodies reuse the universal `tg read` JSON shape
-(`message_to_dict`). Edits append revisions; deletions (later sync) become
-tombstones.
+(`message_to_dict`). Edits append revisions; deletions via sync become
+tombstones. Backfill/sync persist peer identity on `sync_state` so offline
+`search --chat @username` works for private peers.
+
+## Sync and rebaseline
+
+```bash
+tg --json archive sync
+tg --json archive sync --max-events 500 --max-dialogs 20
+tg --json archive rebaseline
+```
+
+`sync` holds an account-level `tg changes` cursor, applies new/edit/delete
+events (and scoped channel catch-up), and records
+`differenceTooLong`-class gaps loudly in `status`. Caps bound events and
+catch-up dialogs per run. `rebaseline` is the explicit recovery that
+re-inits the cursor and clears a stored gap — never silent. A light
+local-vs-Telegram count sample is attached as `reconcile`.
 
 ## Search (thin / offline)
 
 ```bash
 tg --json archive search "query"
-tg --json archive search "хакатон*" --chat @channel --limit 20
+tg --json archive search "хакатон*" --chat @alice --limit 20
 tg --plain archive search "елка"
 ```
 
 Exact FTS5 `MATCH` by default (no auto-prefix). Include `*` (or other FTS
 operators) for a raw MATCH escape hatch. Default limit 20, hard cap 50.
-Optional `--chat` scopes to an archived peer resolved from the local
-`scope` table / numeric peer id. Results cover archived peers only; JSON
-`scope.stale` is true when any dialog still has `more: true` on Telegram.
-Allowed under `--readonly`.
+Optional `--chat` resolves from `scope` or private `sync_state` identity.
+Results cover archived peers only; JSON `scope.stale` is true when any
+dialog still has `more: true` on Telegram. Allowed under `--readonly`.
 
 ## Status and hygiene
 
@@ -80,12 +96,14 @@ tg --json store stats
 ```
 
 `status` reports message/revision/tombstone counts, per-dialog freshness,
-transcript queue depth (empty until Phase 4), and last errors. `store
-stats` inventories archive bytes under the state root; `store cleanup`
-never deletes anything under the archive root.
+gap/cursor state, reconcile sample, transcript queue depth (empty until
+Phase 4), and last errors. `store stats` inventories archive bytes under
+the state root; `store cleanup` never deletes anything under the archive
+root.
 
 ## See also
 
 - [CONTRACT.md §13](../CONTRACT.md) — flags, caps, JSON shapes, exit codes
 - [store.md](store.md) — local state inventory and cleanup boundary
+- [changes.md](changes.md) — delta cursor reused by `archive sync`
 - [ADR-0068](../decisions/ADR-0068-local-archive-store.md)

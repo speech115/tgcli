@@ -200,9 +200,25 @@ async def _run_archive(tg, args, account) -> tuple[dict, list[tuple]]:
         return data, archive_cmd.remove_rows(data)
     if cmd == "backfill":
         data = await archive_cmd.backfill(
-            tg, alias, list(args.chats), limit=getattr(args, "limit", None)
+            tg,
+            alias,
+            list(getattr(args, "chats", None) or []),
+            limit=getattr(args, "limit", None),
+            private=bool(getattr(args, "private", False)),
+            max_dialogs=getattr(args, "max_dialogs", None),
         )
         return data, archive_cmd.backfill_rows(data)
+    if cmd == "sync":
+        data = await archive_cmd.sync(
+            tg,
+            alias,
+            max_events=getattr(args, "max_events", None),
+            max_dialogs=getattr(args, "max_dialogs", None),
+        )
+        return data, archive_cmd.sync_rows(data)
+    if cmd == "rebaseline":
+        data = await archive_cmd.rebaseline(tg, alias)
+        return data, archive_cmd.rebaseline_rows(data)
     raise AssertionError(f"unhandled network archive command: {cmd}")
 
 

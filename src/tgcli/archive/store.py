@@ -11,7 +11,7 @@ from typing import Any
 from tgcli.errors import NotFoundError, PolicyError
 from tgcli.session import ensure_state_dir, restrict_file
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 DB_NAME = "archive.db"
 
 _FTS_TOKENIZER = 'tokenize = "unicode61 remove_diacritics 2"'
@@ -22,6 +22,14 @@ CREATE TABLE IF NOT EXISTS meta (
     account_user_id INTEGER NOT NULL,
     account_alias TEXT NOT NULL,
     created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS account_sync (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    changes_cursor TEXT,
+    gap_json TEXT,
+    last_sync_at TEXT,
+    last_reconcile_at TEXT,
+    reconcile_json TEXT
 );
 CREATE TABLE IF NOT EXISTS messages (
     peer_id INTEGER NOT NULL,
@@ -73,7 +81,11 @@ CREATE TABLE IF NOT EXISTS sync_state (
     last_backfill_at TEXT,
     last_sync_at TEXT,
     last_error TEXT,
-    more INTEGER NOT NULL DEFAULT 0
+    more INTEGER NOT NULL DEFAULT 0,
+    kind TEXT,
+    title TEXT,
+    username TEXT,
+    chat_ref TEXT
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     text,
@@ -97,7 +109,7 @@ def fold_yo(text: str) -> str:
 
 
 def connect(path: Path) -> sqlite3.Connection:
-    """Open (or create) an archive DB with WAL pragmas and schema v2."""
+    """Open (or create) an archive DB with WAL pragmas and current schema."""
     path.parent.mkdir(parents=True, exist_ok=True)
     created = not path.exists()
     conn = sqlite3.connect(path)
@@ -113,6 +125,9 @@ def connect(path: Path) -> sqlite3.Connection:
             conn.commit()
         elif version == 1:
             _migrate_v1_to_v2(conn)
+            _migrate_v2_to_v3(conn)
+        elif version == 2:
+            _migrate_v2_to_v3(conn)
         elif version != SCHEMA_VERSION:
             conn.close()
             raise PolicyError(
@@ -169,6 +184,30 @@ def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
                 for row in rows
             ],
         )
+        conn.execute("PRAGMA user_version=2")
+
+
+def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
+    """Add account_sync + sync_state identity columns (Phase 3)."""
+    with conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS account_sync (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                changes_cursor TEXT,
+                gap_json TEXT,
+                last_sync_at TEXT,
+                last_reconcile_at TEXT,
+                reconcile_json TEXT
+            )
+            """
+        )
+        cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(sync_state)").fetchall()
+        }
+        for name in ("kind", "title", "username", "chat_ref"):
+            if name not in cols:
+                conn.execute(f"ALTER TABLE sync_state ADD COLUMN {name} TEXT")
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
 
@@ -422,6 +461,16 @@ def get_sync_state(conn: sqlite3.Connection, peer_id: int) -> dict[str, Any] | N
     ).fetchone()
     if row is None:
         return None
+    return _sync_state_row(row)
+
+
+def list_sync_state(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = conn.execute("SELECT * FROM sync_state ORDER BY peer_id").fetchall()
+    return [_sync_state_row(row) for row in rows]
+
+
+def _sync_state_row(row: sqlite3.Row) -> dict[str, Any]:
+    keys = set(row.keys())
     return {
         "peer_id": int(row["peer_id"]),
         "oldest_id": row["oldest_id"],
@@ -430,23 +479,11 @@ def get_sync_state(conn: sqlite3.Connection, peer_id: int) -> dict[str, Any] | N
         "last_sync_at": row["last_sync_at"],
         "last_error": row["last_error"],
         "more": bool(row["more"]),
+        "kind": row["kind"] if "kind" in keys else None,
+        "title": row["title"] if "title" in keys else None,
+        "username": row["username"] if "username" in keys else None,
+        "chat_ref": row["chat_ref"] if "chat_ref" in keys else None,
     }
-
-
-def list_sync_state(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    rows = conn.execute("SELECT * FROM sync_state ORDER BY peer_id").fetchall()
-    return [
-        {
-            "peer_id": int(row["peer_id"]),
-            "oldest_id": row["oldest_id"],
-            "newest_id": row["newest_id"],
-            "last_backfill_at": row["last_backfill_at"],
-            "last_sync_at": row["last_sync_at"],
-            "last_error": row["last_error"],
-            "more": bool(row["more"]),
-        }
-        for row in rows
-    ]
 
 
 def upsert_sync_state(
@@ -457,15 +494,33 @@ def upsert_sync_state(
     newest_id: int | None,
     more: bool,
     last_error: str | None = None,
+    kind: str | None = None,
+    title: str | None = None,
+    username: str | None = None,
+    chat_ref: str | None = None,
+    touch_sync: bool = False,
 ) -> None:
     now = datetime.now(UTC).isoformat()
     existing = get_sync_state(conn, peer_id)
     if existing is None:
         conn.execute(
             "INSERT INTO sync_state("
-            "peer_id, oldest_id, newest_id, last_backfill_at, last_error, more"
-            ") VALUES (?, ?, ?, ?, ?, ?)",
-            (peer_id, oldest_id, newest_id, now, last_error, int(more)),
+            "peer_id, oldest_id, newest_id, last_backfill_at, last_sync_at, "
+            "last_error, more, kind, title, username, chat_ref"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                peer_id,
+                oldest_id,
+                newest_id,
+                None if touch_sync else now,
+                now if touch_sync else None,
+                last_error,
+                int(more),
+                kind,
+                title,
+                username,
+                chat_ref,
+            ),
         )
         return
     merged_oldest = oldest_id
@@ -478,11 +533,153 @@ def upsert_sync_state(
         merged_newest = max(int(existing["newest_id"]), newest_id)
     elif existing["newest_id"] is not None:
         merged_newest = int(existing["newest_id"])
+    merged_kind = kind if kind is not None else existing.get("kind")
+    merged_title = title if title is not None else existing.get("title")
+    merged_username = username if username is not None else existing.get("username")
+    merged_ref = chat_ref if chat_ref is not None else existing.get("chat_ref")
+    last_backfill = existing["last_backfill_at"] if touch_sync else now
+    last_sync = now if touch_sync else existing["last_sync_at"]
     conn.execute(
         "UPDATE sync_state SET oldest_id = ?, newest_id = ?, "
-        "last_backfill_at = ?, last_error = ?, more = ? WHERE peer_id = ?",
-        (merged_oldest, merged_newest, now, last_error, int(more), peer_id),
+        "last_backfill_at = ?, last_sync_at = ?, last_error = ?, more = ?, "
+        "kind = ?, title = ?, username = ?, chat_ref = ? WHERE peer_id = ?",
+        (
+            merged_oldest,
+            merged_newest,
+            last_backfill,
+            last_sync,
+            last_error,
+            int(more),
+            merged_kind,
+            merged_title,
+            merged_username,
+            merged_ref,
+            peer_id,
+        ),
     )
+
+
+def insert_tombstone(
+    conn: sqlite3.Connection,
+    peer_id: int,
+    message_id: int,
+    *,
+    deleted_at: str | None = None,
+) -> bool:
+    """Insert a deletion tombstone. Returns True when a new row was written."""
+    when = deleted_at or datetime.now(UTC).isoformat()
+    before = conn.execute(
+        "SELECT 1 FROM tombstones WHERE peer_id = ? AND message_id = ?",
+        (peer_id, message_id),
+    ).fetchone()
+    conn.execute(
+        "INSERT OR IGNORE INTO tombstones(peer_id, message_id, deleted_at) "
+        "VALUES (?, ?, ?)",
+        (peer_id, message_id, when),
+    )
+    return before is None
+
+
+def find_message_peers(
+    conn: sqlite3.Connection, message_ids: list[int]
+) -> list[tuple[int, int]]:
+    """Return ``(peer_id, message_id)`` rows present for the given ids."""
+    if not message_ids:
+        return []
+    placeholders = ",".join("?" for _ in message_ids)
+    rows = conn.execute(
+        f"SELECT peer_id, message_id FROM messages "
+        f"WHERE message_id IN ({placeholders})",
+        [int(mid) for mid in message_ids],
+    ).fetchall()
+    return [(int(row["peer_id"]), int(row["message_id"])) for row in rows]
+
+
+def list_sync_identity(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Identity rows used by offline ``--chat`` resolution (private peers)."""
+    return [
+        row
+        for row in list_sync_state(conn)
+        if row.get("chat_ref") or row.get("username") or row.get("title")
+    ]
+
+
+def read_account_sync(conn: sqlite3.Connection) -> dict[str, Any]:
+    row = conn.execute("SELECT * FROM account_sync WHERE id = 1").fetchone()
+    if row is None:
+        return {
+            "changes_cursor": None,
+            "gap": None,
+            "last_sync_at": None,
+            "last_reconcile_at": None,
+            "reconcile": None,
+        }
+    gap = None
+    if row["gap_json"]:
+        gap = json.loads(row["gap_json"])
+    reconcile = None
+    if row["reconcile_json"]:
+        reconcile = json.loads(row["reconcile_json"])
+    return {
+        "changes_cursor": row["changes_cursor"],
+        "gap": gap,
+        "last_sync_at": row["last_sync_at"],
+        "last_reconcile_at": row["last_reconcile_at"],
+        "reconcile": reconcile,
+    }
+
+
+def write_account_sync(
+    conn: sqlite3.Connection,
+    *,
+    changes_cursor: str | None = None,
+    gap: dict[str, Any] | None = None,
+    touch_sync: bool = False,
+    reconcile: dict[str, Any] | None = None,
+    clear_gap: bool = False,
+) -> None:
+    existing = read_account_sync(conn)
+    now = datetime.now(UTC).isoformat()
+    cursor = (
+        changes_cursor if changes_cursor is not None else existing["changes_cursor"]
+    )
+    if clear_gap:
+        gap_json = None
+    elif gap is not None:
+        gap_json = json.dumps(gap, ensure_ascii=False, separators=(",", ":"))
+    elif existing["gap"] is not None:
+        gap_json = json.dumps(
+            existing["gap"], ensure_ascii=False, separators=(",", ":")
+        )
+    else:
+        gap_json = None
+    last_sync = now if touch_sync else existing["last_sync_at"]
+    if reconcile is not None:
+        reconcile_json = json.dumps(
+            reconcile, ensure_ascii=False, separators=(",", ":")
+        )
+        last_reconcile = now
+    else:
+        reconcile_json = (
+            json.dumps(existing["reconcile"], ensure_ascii=False, separators=(",", ":"))
+            if existing["reconcile"] is not None
+            else None
+        )
+        last_reconcile = existing["last_reconcile_at"]
+    with conn:
+        conn.execute(
+            "INSERT INTO account_sync("
+            "id, changes_cursor, gap_json, last_sync_at, "
+            "last_reconcile_at, reconcile_json"
+            ") VALUES (1, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET "
+            "changes_cursor = excluded.changes_cursor, "
+            "gap_json = excluded.gap_json, "
+            "last_sync_at = excluded.last_sync_at, "
+            "last_reconcile_at = excluded.last_reconcile_at, "
+            "reconcile_json = excluded.reconcile_json",
+            (cursor, gap_json, last_sync, last_reconcile, reconcile_json),
+        )
 
 
 def db_path_for(account_dir: Path) -> Path:

@@ -215,19 +215,49 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_archive_backfill = archive_sub.add_parser(
         "backfill",
-        help="Backfill an explicit dialog list into the archive",
+        help="Backfill dialogs into the archive (CHAT list or --private)",
         parents=[global_flags],
     )
     p_archive_backfill.add_argument(
         "chats",
-        nargs="+",
+        nargs="*",
         metavar="CHAT",
-        help="one or more dialogs (no empty→all sentinel)",
+        help="one or more dialogs (no empty→all sentinel; omit with --private)",
+    )
+    p_archive_backfill.add_argument(
+        "--private",
+        action="store_true",
+        help="enumerate standing private 1:1 dialogs under --max-dialogs",
     )
     p_archive_backfill.add_argument(
         "--limit",
         type=int,
         help="messages per dialog (default 100, hard cap 1000)",
+    )
+    p_archive_backfill.add_argument(
+        "--max-dialogs",
+        type=int,
+        help="private enumeration cap (default 20, hard cap 100)",
+    )
+    p_archive_sync = archive_sub.add_parser(
+        "sync",
+        help="Apply tg changes delta into the archive",
+        parents=[global_flags],
+    )
+    p_archive_sync.add_argument(
+        "--max-events",
+        type=int,
+        help="events applied per run (default 500, hard cap 5000)",
+    )
+    p_archive_sync.add_argument(
+        "--max-dialogs",
+        type=int,
+        help="channel catch-up dialogs per run (default 20, hard cap 50)",
+    )
+    archive_sub.add_parser(
+        "rebaseline",
+        help="Explicitly re-init the archive changes cursor (gap recovery)",
+        parents=[global_flags],
     )
 
     p_read = sub.add_parser(

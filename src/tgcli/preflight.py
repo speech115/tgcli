@@ -40,7 +40,7 @@ def _prepare_archive(args) -> None:
     if args.command != "archive":
         return
     cmd = args.archive_command
-    if cmd in ("init", "add", "remove", "backfill"):
+    if cmd in ("init", "add", "remove", "backfill", "sync", "rebaseline"):
         safety.enforce_local_mutation_allowed(args.readonly)
     if cmd == "search":
         from tgcli.archive import search as search_mod
@@ -56,15 +56,40 @@ def _prepare_archive(args) -> None:
             maximum=archive_cmd.MAX_SEARCH_LIMIT,
         )
         return
+    if cmd == "sync":
+        from tgcli.archive import sync as sync_mod
+        from tgcli.commands import archive as archive_cmd
+
+        args.max_events = sync_mod.validate_max_events(
+            getattr(args, "max_events", None),
+            default=archive_cmd.DEFAULT_SYNC_EVENTS,
+            maximum=archive_cmd.MAX_SYNC_EVENTS,
+        )
+        args.max_dialogs = sync_mod.validate_max_dialogs(
+            getattr(args, "max_dialogs", None),
+            default=archive_cmd.DEFAULT_SYNC_DIALOGS,
+            maximum=archive_cmd.MAX_SYNC_DIALOGS,
+        )
+        return
     if cmd != "backfill":
         return
     from tgcli.archive import backfill as backfill_mod
     from tgcli.commands import archive as archive_cmd
 
+    private = bool(getattr(args, "private", False))
     chats = list(getattr(args, "chats", None) or [])
-    args.chats = backfill_mod.validate_dialogs(
-        chats, maximum=archive_cmd.MAX_BACKFILL_DIALOGS
-    )
+    backfill_mod.validate_private_mode(private=private, chats=chats)
+    if private:
+        args.max_dialogs = backfill_mod.validate_max_dialogs(
+            getattr(args, "max_dialogs", None),
+            default=archive_cmd.DEFAULT_PRIVATE_DIALOGS,
+            maximum=archive_cmd.MAX_PRIVATE_DIALOGS,
+        )
+        args.chats = []
+    else:
+        args.chats = backfill_mod.validate_dialogs(
+            chats, maximum=archive_cmd.MAX_BACKFILL_DIALOGS
+        )
     args.limit = backfill_mod.validate_limit(
         getattr(args, "limit", None),
         default=archive_cmd.DEFAULT_BACKFILL_LIMIT,
