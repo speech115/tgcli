@@ -1,11 +1,12 @@
 # Archive: local selected-dialog store
 
 `tg archive` keeps a per-account, read-only Telegram archive on disk
-([ADR-0068](../decisions/ADR-0068-local-archive-store.md)). Phases 1–5 ship
+([ADR-0068](../decisions/ADR-0068-local-archive-store.md)). Phases 1–6 ship
 the store, scope, selected and private backfill, filtered/ranked offline
 search, delta sync via the `tg changes` cursor, bounded voice/video-note
 acquisition, foreground local Parakeet transcription, and offline timeline /
-history views. Hourly refresh remains Phase 6.
+history views, plus a bounded one-shot refresh suitable for manual launchd
+scheduling.
 
 Default location: `~/.local/state/tgcli/archive/<alias>/archive.db`
 (directories `0700`). Override with:
@@ -51,7 +52,9 @@ Pass explicit `CHAT`s **or** `--private` (enumerate standing private 1:1
 dialogs under `--max-dialogs`) — never both, and never an empty→all
 sentinel. Default limit is 100 messages per dialog; hard caps are 1000
 messages/dialog, 20 explicit chats, and 100 private dialogs per run.
-`--private` skips dialogs already checkpointed with `more: false`.
+`--private` skips only dialogs whose backfill has recorded an end checkpoint
+(`last_backfill_at` is set and `more: false`), so a delta-only peer is still
+backfilled.
 Groups/channels need `add` first; private dialogs do not. Each run is
 checkpointed and resumable. Long `FLOOD_WAIT` exits 5 after checkpointing.
 Media downloads are bounded separately from message acquisition; the message
@@ -81,14 +84,38 @@ every user/basic-group dialog that shares that numeric message id
 that re-inits the cursor and clears a stored gap — never silent. A rotating
 local-vs-Telegram count sample is attached as `reconcile`.
 
+## One-shot refresh
+
+For an hourly foreground pass, use the composition command instead of
+manually chaining the network and local stages:
+
+```bash
+tg --json archive refresh
+tg --json archive refresh --max-events 500 --max-dialogs 20 \
+  --max-media 50 --transcribe-limit 20 --max-attempts 3
+```
+
+It applies the bounded sync, acquires media, and drains the bounded local
+transcription queue under one invocation. Run-level failures increment the
+refresh failure streak; item-level failures are returned but do not poison it,
+and FLOOD_WAIT does not count as an outage. A completed pipeline resets the
+streak. Recurring run-level failures are visible in `archive status` and cause
+one generic macOS notification after three consecutive failed runs. The
+manual launchd template and load/unload commands are in the separate
+[refresh scheduling guide](archive-refresh.md).
+
 ## Media and transcription
 
 Backfill and sync queue `voice` and `video_note` messages for media download
 into the account-local `media/` directory. Backfill uses a fixed budget of 50
 media items per run; sync exposes `--max-media`, which defaults to 50 and has
 a hard cap of 500. Existing files are reused, and the transcript queue
-records `media_path` only after a successful publish. A media failure remains
-retryable; a `FLOOD_WAIT` exits 5 and arms the shared account cooldown.
+records `media_path` only after a successful publish. Media acquisition has
+three attempts independent of transcription attempts; failures are marked
+`media_status: "retryable"` and then terminal `media_status: "no_media"`.
+A successful later publish resets the media counter and marks it `done`.
+A `FLOOD_WAIT` leaves the item retryable, exits 5, and arms the shared
+account cooldown.
 
 After media is available, drain the local Parakeet queue in a separate
 foreground invocation:
@@ -162,8 +189,8 @@ tg --json store stats
 ```
 
 `status` reports message/revision/tombstone counts, per-dialog freshness,
-gap/cursor state, reconcile sample, transcript queue depth/status/errors, and
-last errors.
+gap/cursor state, reconcile sample, transcript queue depth/status/errors, last
+errors, and the refresh failure streak/notification state.
 `store stats` inventories archive bytes under
 the state root; `store cleanup` never deletes anything under the archive
 root.
@@ -173,4 +200,6 @@ root.
 - [CONTRACT.md §13](../CONTRACT.md) — flags, caps, JSON shapes, exit codes
 - [store.md](store.md) — local state inventory and cleanup boundary
 - [changes.md](changes.md) — delta cursor reused by `archive sync`
+- [archive-refresh.md](archive-refresh.md) — one-shot scheduling and launchd template
 - [ADR-0068](../decisions/ADR-0068-local-archive-store.md)
+- [ADR-0070](../decisions/ADR-0070-archive-refresh-scheduling.md)

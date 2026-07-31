@@ -217,6 +217,17 @@ async def _run_archive(tg, args, account) -> tuple[dict, list[tuple]]:
             max_media=getattr(args, "max_media", None),
         )
         return data, archive_cmd.sync_rows(data)
+    if cmd == "refresh":
+        data = await archive_cmd.refresh(
+            tg,
+            alias,
+            max_events=getattr(args, "max_events", None),
+            max_dialogs=getattr(args, "max_dialogs", None),
+            max_media=getattr(args, "max_media", None),
+            transcribe_limit=getattr(args, "transcribe_limit", None),
+            max_attempts=getattr(args, "max_attempts", None),
+        )
+        return data, archive_cmd.refresh_rows(data)
     if cmd == "rebaseline":
         data = await archive_cmd.rebaseline(tg, alias)
         return data, archive_cmd.rebaseline_rows(data)

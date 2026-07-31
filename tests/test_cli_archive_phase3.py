@@ -28,7 +28,11 @@ from telethon.tl.types.updates import (
 
 from tests.conftest import FakeClient, make_session_fake
 from tgcli import changes_cursor
-from tgcli.archive import store as store_mod, sync as sync_mod
+from tgcli.archive import (
+    backfill as backfill_mod,
+    store as store_mod,
+    sync as sync_mod,
+)
 from tgcli.changes_cursor import ChangesCursor
 from tgcli.cli import main
 from tgcli.commands import archive as archive_cmd
@@ -273,6 +277,35 @@ def test_backfill_private_enumerates_users_and_skips_complete(
     assert 7 in peers
     assert 8 not in peers
     assert data["skipped_complete"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_private_backfill_does_not_skip_delta_only_state(tmp_path):
+    alice = _user()
+    client = _client(dialogs=[_dialog(alice, name="Alice")])
+    conn = store_mod.connect(tmp_path / "archive.db")
+    try:
+        store_mod.upsert_sync_state(
+            conn,
+            7,
+            oldest_id=42,
+            newest_id=42,
+            more=False,
+            kind="user",
+            title="Alice",
+            username="alice",
+            chat_ref="@alice",
+            touch_sync=True,
+        )
+        refs, skipped = await backfill_mod.enumerate_private_dialogs(
+            client,
+            conn,
+            max_dialogs=5,
+        )
+        assert refs == ["@alice"]
+        assert skipped == 0
+    finally:
+        conn.close()
 
 
 def test_sync_applies_edit_revision_and_private_delete_tombstone(
@@ -533,6 +566,10 @@ def test_apply_events_applies_full_batch_without_truncation(tmp_path):
             ]
             == 600
         )
+        state = store_mod.get_sync_state(conn, 7)
+        assert state is not None
+        assert state["more"] is True
+        assert state["last_backfill_at"] is None
     finally:
         conn.close()
 

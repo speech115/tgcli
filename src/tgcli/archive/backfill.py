@@ -243,7 +243,7 @@ async def enumerate_private_dialogs(
 ) -> tuple[list[str], int]:
     """Return chat refs for private 1:1 dialogs under ``max_dialogs``.
 
-    Skips dialogs whose ``sync_state.more`` is already false when
+    Skips dialogs whose backfill has actually reached its end when
     ``skip_complete`` is set. Returns ``(chat_refs, skipped_complete)``.
     """
     refs: list[str] = []
@@ -258,11 +258,15 @@ async def enumerate_private_dialogs(
             continue
         peer = scope_mod.peer_id(entity)
         state = store_mod.get_sync_state(conn, peer)
-        if skip_complete and state is not None and not state.get("more", True):
-            # more=false means the last page was short — treat as complete.
-            if state.get("oldest_id") is not None:
-                skipped += 1
-                continue
+        if (
+            skip_complete
+            and state is not None
+            and state.get("last_backfill_at") is not None
+            and not state.get("more", True)
+        ):
+            # A delta-only row may have more=false but has never walked history.
+            skipped += 1
+            continue
         username = getattr(entity, "username", None)
         ref = f"@{username}" if username else str(peer)
         refs.append(ref)

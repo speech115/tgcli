@@ -25,7 +25,7 @@ Status values:
 | fragment | api | No dedicated workflow; use raw TL only after task-specific review. |
 | help | api | No dedicated workflow; use raw TL only after task-specific review. |
 | langpack | api | No dedicated workflow; use raw TL only after task-specific review. |
-| messages | wrapped | `read`, `search`, `latest`, `message`, `send`, export, `clone sync` (native forward + protected reupload), `archive` backfill/sync/transcribe/search/read/history (ADR-0068 Phase 5), and `changes` cover daily work; raw TL covers the long tail. |
+| messages | wrapped | `read`, `search`, `latest`, `message`, `send`, export, `clone sync` (native forward + protected reupload), `archive` backfill/sync/refresh/transcribe/search/read/history (ADR-0068 Phase 6), and `changes` cover daily work; raw TL covers the long tail. |
 | payments | api | No dedicated workflow; mutations remain behind raw write safety gates. |
 | phone | excluded | Voice and video calls need a WebRTC media stack and are out of scope. |
 | photos | api | `getUserPhotos` is an allowlisted read; other calls use raw safety gates. |
@@ -44,8 +44,8 @@ Status values:
 - **Bot API (HTTP)** — non-goal; tgcli is an MTProto user-account tool.
 - **Signup** — account creation is a ToS and ban risk; authorize with
   `tg accounts login`, or `tg accounts import` for an old-stack session.
-- **Local archive search/sync/transcribe** — ADR-0068 Phase 5 ships private
-  `--private` backfill, `archive sync` / `rebaseline`, bounded media
-  acquisition, local Parakeet transcription, gap reporting, filtered/ranked
-  offline search, and read/history exploration. Phase 6 refresh packaging
-  remains a later plan phase.
+- **Local archive search/sync/transcribe** — ADR-0068 Phase 6 ships private
+  `--private` backfill, `archive sync` / `refresh` / `rebaseline`, bounded
+  media acquisition, local Parakeet transcription, gap reporting,
+  filtered/ranked offline search, read/history exploration, and manual launchd
+  packaging. Archive purge/rebuild and off-machine backup remain deferred.

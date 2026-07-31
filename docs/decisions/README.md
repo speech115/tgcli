@@ -76,6 +76,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0067](ADR-0067-pinned-runtime-diagnostics.md) | Supported session runtime boundary plus additive `doctor` runtime fingerprint | accepted |
 | [0068](ADR-0068-local-archive-store.md) | Native `tg archive` SQLite+FTS5 store: private dialogs auto-scoped, append-only history, local transcription, hourly one-shot refresh; telecrawl sidecar rejected | accepted |
 | [0069](ADR-0069-archive-exploration-module.md) | Keep Phase 5 archive search/read/history queries in a read-only archive module | accepted |
+| [0070](ADR-0070-archive-refresh-scheduling.md) | Compose bounded archive refreshes and notify once after recurring failures | accepted |
 
 Notes on supersessions:
 
