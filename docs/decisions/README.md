@@ -62,7 +62,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0053](ADR-0053-json-error-envelope-on-stdout.md) | With `--json` the error envelope is written to stdout as the run's single JSON document and still mirrored to stderr; human/`--plain`/`batch`/exit codes unchanged | accepted |
 | [0054](ADR-0054-clone-prefix-backfill.md) | `clone refresh` backfills body prefixes into already-copied posts under preview→commit, eligible only when the destination body is byte identical to the unprefixed source; poll snapshots, native re-forwards, and the discussion leg excluded | accepted |
 | [0055](ADR-0055-clone-pinned-and-photo-fidelity.md) | `clone sync` pins the mapped source pin silently when the posts leg is exhausted (never unpins, never overrides an existing pin, reports status); photo downscaling is measured before it is fixed, and the striped path picks the largest `PhotoSize` explicitly | accepted |
-| [0056](ADR-0056-project-presentation-and-community-health.md) | MIT license; `CONTRIBUTING.md` as the human short form of AGENTS.md; `SECURITY.md` with a private channel, redaction rules, and scope; `needs-triage` issue forms + PR template; README badges, contents, and a dark/light banner pair | accepted |
+| [0056](ADR-0056-project-presentation-and-community-health.md) | MIT license; `CONTRIBUTING.md` as the human short form of AGENTS.md; `SECURITY.md` with a private channel, redaction rules, and scope; `needs-triage` issue forms + PR template; README badges, contents, and a dark/light banner pair | accepted; items 4–5 posture wording amended by ADR-0071 |
 | [0057](ADR-0057-lint-policy-expansion.md) | Ruff selection widens from `E4/E7/E9/F` to `E/W/F/I/UP/C4` (`UP040` ignored, `combine-as-imports`); `B`/`SIM`/`PTH`/`ARG`/`RUF` excluded with stated reasons; one-time layout-only cleanup, five architecture ceilings raised by the isort blank-line cost | accepted |
 | [0058](ADR-0058-process-speed-revisions.md) | Integrator assigns version/CHANGELOG at merge; devlog is one file per session under `docs/devlog/`; ceilings get a +50 grace band (`--strict` for merge-time true-up); waves branch from the integration head; ADR-lite for XS/S | accepted |
 | [0059](ADR-0059-verification-infrastructure.md) | Hypothesis property tests pin the audit's defect classes (derandomized in the gate); PR-gated macOS CI leg runs the suite; pytest-xdist parallelizes gate and CI | accepted |
@@ -92,4 +92,6 @@ Notes on supersessions:
 - ADR-0071 supersedes only ADR-0026's rule 1 (the "maintenance mode /
   feature-complete" posture wording). ADR-0026 rules 2–4 — scope routing to
   docs/ISSUES.md, the clone chronicle in docs/CLONE.md, and this index —
-  remain in force, which is why 0026 stays a live rule source.
+  remain in force, which is why 0026 stays a live rule source. ADR-0071 also
+  amends the posture wording ADR-0056 items 4–5 prescribe for the README
+  badge and the proposal form; those surfaces are otherwise untouched.

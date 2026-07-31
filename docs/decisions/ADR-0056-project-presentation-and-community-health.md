@@ -1,7 +1,10 @@
 # ADR-0056: MIT license and the standard community-health surface
 
 Date: 2026-07-26
-Status: accepted
+Status: accepted; the posture wording in items 4–5 (the proposal form's
+"ADR-0026 gate", the README "maintenance status" badge) is amended by
+[ADR-0071](ADR-0071-owner-gated-development.md) — the surfaces themselves
+are unchanged, only the name of the posture they state.
 
 ## Context
 

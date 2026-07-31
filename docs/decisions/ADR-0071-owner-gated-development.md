@@ -14,9 +14,10 @@ feature passed its live gates at v1.0.0. Its rule 1 reads "do not add
 features"; two weeks later the repository is at v1.2.25 with ADRs up to
 0070, and three subsystems that did not exist at v1.0.0 have shipped:
 `accounts login` ([ADR-0042](ADR-0042-accounts-login.md)), the FEED stack
-([ADR-0060](ADR-0060-clone-state-sqlite-proposal.md),
-[ADR-0062](ADR-0062-job-session-role.md),
-[ADR-0063](ADR-0063-tg-changes-design.md)), and the local archive
+([ADR-0062](ADR-0062-job-session-role.md),
+[ADR-0063](ADR-0063-tg-changes-design.md), landed in the same campaign as
+the clone-state rewrite [ADR-0060](ADR-0060-clone-state-sqlite-proposal.md)),
+and the local archive
 ([ADR-0068](ADR-0068-local-archive-store.md)–[ADR-0070](ADR-0070-archive-refresh-scheduling.md)).
 
 What actually held was never the freeze — it was the gate: nothing reached
@@ -32,12 +33,16 @@ ones next to it.
 ## Decision
 
 1. The posture is named **owner-gated development**. Its mechanics are
-   ADR-0026 rule 1 unchanged, with the freeze claim dropped:
+   ADR-0026 rule 1 with the freeze claim dropped and nothing else weakened:
    - A new feature or behavior change needs an **explicit owner request plus
      an ADR and a scoped plan** — never a new phase in `docs/PLAN.md`.
    - **A bug fix starts from a reproducing test**, then the minimal fix.
    - **An agent never widens the scope it was given**; when in doubt whether
-     something is a fix or a feature, ask the owner.
+     something is a fix or a feature, ask the owner. The second half is
+     ADR-0026 rule 1 verbatim; the first half is not new policy either — it
+     restates the scope rule that until now lived only in AGENTS.md's review
+     workflow ("no unapproved behavior was added") and in the one-slice PR
+     rule, where a session reading the posture section could miss it.
 2. ADR-0026 rules 2–4 are untouched: `docs/ISSUES.md` plus the ADR index
    carry current scope, the clone chronicle lives in `docs/CLONE.md`, and
    `docs/decisions/README.md` remains the canonical ADR index whose row is
@@ -45,9 +50,15 @@ ones next to it.
 3. The wording lands wherever the old label was asserted: the AGENTS.md
    section, `CONTRIBUTING.md` "What lands here", the README status badge and
    its Status/Contributing sections, the `docs/PROPOSALS.md` and
-   `docs/ISSUES.md` gate headers, the `docs/PLAN.md` status note, and the
-   Cursor adapter rule (renamed to `.cursor/rules/tgcli-agent-contract.mdc`,
-   which is what it always contained).
+   `docs/ISSUES.md` gate headers, the `docs/PLAN.md` status note, the
+   `.github/ISSUE_TEMPLATE/proposal.yml` gate paragraph, the
+   `.github/PULL_REQUEST_TEMPLATE.md` "Authorized by" hint, the `docs/MAP.md`
+   rows for those files, and the Cursor adapter rule (renamed to
+   `.cursor/rules/tgcli-agent-contract.mdc`, which is what it always
+   contained). The last two surfaces are described normatively by
+   [ADR-0056](ADR-0056-project-presentation-and-community-health.md) items
+   4–5, whose posture wording this ADR amends; ADR-0056 keeps its header
+   note so a later session cannot restore the old label from it.
 
 ## Rejected alternatives
 
