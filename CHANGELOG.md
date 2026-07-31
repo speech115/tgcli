@@ -11,6 +11,19 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [1.2.23] — 2026-07-31
+
+### Added
+
+- Archive Phase 4 (ADR-0068): `backfill` and `sync` acquire queued `voice`
+  and `video_note` media into the account-local `media/` directory
+  (idempotent atomic publish; `sync --max-media` budget, backfill a fixed
+  50), and `tg archive transcribe` drains the queue offline through the
+  local Parakeet CLI newest→oldest — storing text plus model and version,
+  indexing transcripts into FTS5, and marking exhausted retries
+  `no_transcript`, queryable in `status` and `search`. Schema v4; FTS
+  rebuilds now preserve transcripts across message edits. CONTRACT §13.
+
 ## [1.2.22] — 2026-07-31
 
 ### Added
@@ -567,6 +580,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[1.2.23]: https://github.com/speech115/tgcli/compare/v1.2.22...v1.2.23
 [1.2.22]: https://github.com/speech115/tgcli/compare/v1.2.21...v1.2.22
 [1.2.21]: https://github.com/speech115/tgcli/compare/v1.2.20...v1.2.21
 [1.2.20]: https://github.com/speech115/tgcli/compare/v1.2.19...v1.2.20

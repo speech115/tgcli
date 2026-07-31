@@ -30,7 +30,8 @@ CEILINGS = {
     # +22 for ADR-0062: the audit-role window wrapping the whole cli-level
     # mutation path (set/reset around _audit_before → network → _audit_after).
     # +21 for ADR-0068: offline archive list/status/search path in _execute.
-    "src/tgcli/cli.py": 576,
+    # +9 for ADR-0068 Phase 4: offline transcribe routing.
+    "src/tgcli/cli.py": 585,
     # +2 for ADR-0057: isort section blanks, E501 split in the --format help.
     # +47 for ADR-0062 --session-role / accounts --role flags and the
     # ADR-0063 tg changes subcommand surface.
@@ -38,17 +39,20 @@ CEILINGS = {
     # status/backfill/search).
     # +30 for ADR-0068 Phase 3: --private/--max-dialogs backfill mode and the
     # sync/rebaseline subcommands.
-    "src/tgcli/parser.py": 645,
+    # +18 for ADR-0068 Phase 4: --max-media and the transcribe subcommand.
+    "src/tgcli/parser.py": 663,
     # +40 for ADR-0062 role validation and ADR-0063 changes preflight.
     # +37 for ADR-0068: archive preflight (readonly gates, backfill/search
     # caps).
     # +25 for ADR-0068 Phase 3: private-mode validation and sync caps.
-    "src/tgcli/preflight.py": 353,
+    # +21 for ADR-0068 Phase 4: media/transcribe cap validation.
+    "src/tgcli/preflight.py": 374,
     # +2 for ADR-0057: isort section blanks.
     # +17 for ADR-0062: role lookup threaded into session.client.
     # +23 for ADR-0068: archive network dispatch (init/add/remove/backfill).
     # +16 for ADR-0068 Phase 3: sync/rebaseline dispatch.
-    "src/tgcli/dispatch.py": 315,
+    # +1 for ADR-0068 Phase 4: media budget threading.
+    "src/tgcli/dispatch.py": 316,
     "src/tgcli/commands/batch.py": 96,
     # +3 for ADR-0057: isort section blanks.
     "src/tgcli/read_ops.py": 437,
@@ -91,6 +95,16 @@ CEILINGS = {
     # +1 for ADR-0061: the ResolveContext destination_group field.
     "src/tgcli/clone/quotes.py": 392,
     "src/tgcli/clone/quote_fallback.py": 127,
+    # ADR-0068: the archive package grew across phases 0-4 untracked. Ceilings
+    # are seeded at the phase-4 size so further growth is deliberate; store.py
+    # is the one to split first if it keeps growing (schema + migrations +
+    # message/transcript/scope/sync accessors all live there today).
+    "src/tgcli/archive/store.py": 995,
+    "src/tgcli/archive/sync.py": 588,
+    "src/tgcli/archive/backfill.py": 310,
+    "src/tgcli/archive/transcribe.py": 251,
+    "src/tgcli/archive/search.py": 169,
+    "src/tgcli/commands/archive.py": 493,
 }
 
 # Modules that must reach read commands only through the read_ops seam
