@@ -8,9 +8,9 @@ from pathlib import Path
 SCRIPT = Path(__file__).parents[1] / "scripts" / "check-architecture.py"
 CEILINGS = {
     "src/tgcli/cli.py": 576,
-    "src/tgcli/parser.py": 615,
-    "src/tgcli/preflight.py": 328,
-    "src/tgcli/dispatch.py": 299,
+    "src/tgcli/parser.py": 645,
+    "src/tgcli/preflight.py": 353,
+    "src/tgcli/dispatch.py": 315,
     "src/tgcli/commands/batch.py": 96,
     "src/tgcli/read_ops.py": 437,
     "src/tgcli/commands/clone.py": 1230,

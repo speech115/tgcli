@@ -36,15 +36,19 @@ CEILINGS = {
     # ADR-0063 tg changes subcommand surface.
     # +50 for ADR-0068: tg archive subcommand surface (init/add/remove/list/
     # status/backfill/search).
-    "src/tgcli/parser.py": 615,
+    # +30 for ADR-0068 Phase 3: --private/--max-dialogs backfill mode and the
+    # sync/rebaseline subcommands.
+    "src/tgcli/parser.py": 645,
     # +40 for ADR-0062 role validation and ADR-0063 changes preflight.
     # +37 for ADR-0068: archive preflight (readonly gates, backfill/search
     # caps).
-    "src/tgcli/preflight.py": 328,
+    # +25 for ADR-0068 Phase 3: private-mode validation and sync caps.
+    "src/tgcli/preflight.py": 353,
     # +2 for ADR-0057: isort section blanks.
     # +17 for ADR-0062: role lookup threaded into session.client.
     # +23 for ADR-0068: archive network dispatch (init/add/remove/backfill).
-    "src/tgcli/dispatch.py": 299,
+    # +16 for ADR-0068 Phase 3: sync/rebaseline dispatch.
+    "src/tgcli/dispatch.py": 315,
     "src/tgcli/commands/batch.py": 96,
     # +3 for ADR-0057: isort section blanks.
     "src/tgcli/read_ops.py": 437,
