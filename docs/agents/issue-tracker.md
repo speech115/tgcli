@@ -34,16 +34,21 @@ request; resolve it with `gh pr view` and fall back to `gh issue view`.
 
 - **Map:** create one issue labelled `wayfinder:map`. Its body owns
   Notes, Decisions-so-far, and Fog.
-- **Child:** link each decision ticket as a native GitHub sub-issue. Use a
-  task list in the map plus `Part of #<map>` in the child only when sub-issues
-  are unavailable. Label the child `wayfinder:<type>`, where type is
-  `research`, `prototype`, `grilling`, or `task`.
+- **Child:** link each decision ticket as a native GitHub sub-issue:
+  `gh api repos/<owner>/<repo>/issues/<map>/sub_issues -F sub_issue_id=<child-database-id>`.
+  Use a task list in the map plus `Part of #<map>` in the child only when
+  sub-issues are unavailable. Label the child `wayfinder:<type>`, where type
+  is `research`, `prototype`, `grilling`, or `task`.
 - **Blocking edge:** use GitHub's native issue-dependency endpoint:
-  `POST repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by` with
-  `issue_id=<blocker-database-id>`. Fetch that numeric database id with
-  `gh api repos/<owner>/<repo>/issues/<number> --jq .id`; do not pass the
-  `#number` or GraphQL `node_id`. If dependencies are unavailable, put
-  `Blocked by: #<number>, ...` at the top of the child.
+  `gh api repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-database-id>`.
+  If dependencies are unavailable, put `Blocked by: #<number>, ...` at the
+  top of the child.
+- **Ids for both endpoints:** `sub_issue_id` and `issue_id` are numeric
+  database ids, not the `#number` and not the GraphQL `node_id`. Fetch one
+  with `gh api repos/<owner>/<repo>/issues/<number> --jq .id`. Pass it with
+  `gh api -F` (typed), never `-f`: `-f` sends the value as a JSON string and
+  both endpoints reject it with HTTP 422
+  `Invalid property /<field>: "<id>" is not of type integer`.
 - **Frontier:** list the map's open children in map order. Exclude assigned
   children and any child whose `issue_dependencies_summary.blocked_by` is
   non-zero (or whose fallback `Blocked by` issue remains open). The first
