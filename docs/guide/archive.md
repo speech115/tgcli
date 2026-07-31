@@ -84,8 +84,9 @@ local-vs-Telegram count sample is attached as `reconcile`.
 ## Media and transcription
 
 Backfill and sync queue `voice` and `video_note` messages for media download
-into the account-local `media/` directory. `--max-media` defaults to 50 and
-has a hard cap of 500. Existing files are reused, and the transcript queue
+into the account-local `media/` directory. Backfill uses a fixed budget of 50
+media items per run; sync exposes `--max-media`, which defaults to 50 and has
+a hard cap of 500. Existing files are reused, and the transcript queue
 records `media_path` only after a successful publish. A media failure remains
 retryable; a `FLOOD_WAIT` exits 5 and arms the shared account cooldown.
 

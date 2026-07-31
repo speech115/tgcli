@@ -385,10 +385,6 @@ def upsert_message(
         "payload = ? WHERE peer_id = ? AND message_id = ?",
         (date, from_id, text, edited_at, body, peer_id, message_id),
     )
-    conn.execute(
-        "DELETE FROM messages_fts WHERE peer_id = ? AND message_id = ?",
-        (peer_id, message_id),
-    )
     _replace_fts_row(conn, peer_id, message_id, text)
     if media_kind in TRANSCRIBABLE_MEDIA_KINDS:
         ensure_transcript_queue(conn, peer_id, message_id, media_kind=media_kind)
@@ -525,7 +521,7 @@ def record_media_failure(
 ) -> None:
     now = datetime.now(UTC).isoformat()
     conn.execute(
-        "UPDATE transcripts SET last_error = ?, updated_at = ? "
+        "UPDATE transcripts SET media_path = NULL, last_error = ?, updated_at = ? "
         "WHERE peer_id = ? AND message_id = ?",
         (error, now, peer_id, message_id),
     )

@@ -135,6 +135,7 @@ async def test_media_fetch_publishes_and_is_idempotent(tmp_path, monkeypatch):
             account_dir=account_dir,
             limit=10,
         )
+        assert first["limit"] == 10
         assert first["downloaded"] == 1
         assert len(calls) == 1
         assert calls[0][0].message_id == 1
@@ -153,6 +154,57 @@ async def test_media_fetch_publishes_and_is_idempotent(tmp_path, monkeypatch):
         )
         assert second["queued"] == 0
         assert len(calls) == 1
+    finally:
+        conn.close()
+
+
+@pytest.mark.asyncio
+async def test_media_fetch_reaches_backlog_older_than_candidate_window(
+    tmp_path, monkeypatch
+):
+    conn = _connection(tmp_path)
+    account_dir = tmp_path / "account"
+    account_dir.mkdir()
+    try:
+        for message_id in range(1, 701):
+            payload = _payload(message_id, str(message_id))
+            payload["date"] = f"{message_id:04d}"
+            store.upsert_message(conn, 7, payload)
+            if message_id > 50:
+                path = account_dir / f"media/7/{message_id}.ogg"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"voice")
+                store.set_media_path(
+                    conn,
+                    7,
+                    message_id,
+                    path=f"media/7/{message_id}.ogg",
+                    media_kind="voice",
+                )
+        conn.commit()
+        calls = []
+
+        async def fake_download(_tg, source, alias, *, output, parallel):
+            calls.append((source, alias, output, parallel))
+            target = Path(output)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"voice")
+            return {"path": output, "bytes": 5}
+
+        monkeypatch.setattr(sync_module.media_cmd, "download_media", fake_download)
+        result = await sync_module.fetch_media(
+            object(),
+            conn,
+            account_alias="main",
+            account_user_id=42,
+            account_dir=account_dir,
+            limit=1,
+        )
+        assert result["queued"] == 1
+        assert result["downloaded"] == 1
+        assert result["remaining"] is True
+        assert calls[0][0].message_id == 50
+        assert store.transcript_row(conn, 7, 50)["media_path"] == "media/7/50.ogg"
     finally:
         conn.close()
 
@@ -260,5 +312,33 @@ def test_transcribe_retryable_failure_becomes_terminal_at_cap(tmp_path, monkeypa
         assert errors[0]["status"] == "no_transcript"
         result = search_module.search(conn, "no_transcript")
         assert result["hits"][0]["transcript_status"] == "no_transcript"
+    finally:
+        conn.close()
+
+
+def test_transcribe_missing_media_returns_item_to_media_queue(tmp_path, monkeypatch):
+    conn = _connection(tmp_path)
+    account_dir = tmp_path / "account"
+    account_dir.mkdir()
+    try:
+        store.upsert_message(conn, 7, _payload(1, "caption"))
+        store.set_media_path(conn, 7, 1, path="media/7/1.ogg", media_kind="voice")
+        conn.commit()
+        monkeypatch.setattr(
+            transcribe_module.shutil, "which", lambda _: "/bin/transcribe"
+        )
+        result = transcribe_module.run_queue(
+            conn,
+            account_dir,
+            limit=20,
+            max_attempts=3,
+        )
+        assert result["skipped_missing_media"] == 1
+        row = store.transcript_row(conn, 7, 1)
+        assert row["media_path"] is None
+        assert row["status"] == "pending"
+        assert row["attempts"] == 0
+        assert store.list_transcript_queue(conn, limit=20, max_attempts=3) == []
+        assert sync_module._media_candidates(conn, account_dir, 1)[0]["message_id"] == 1
     finally:
         conn.close()

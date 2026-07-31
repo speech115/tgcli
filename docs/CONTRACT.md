@@ -1728,12 +1728,13 @@ stored loudly in `account_sync` and surfaced by `status` / sync JSON; exit
 message totals, rotating across tracked dialogs) runs at the end of sync
 and is reported under `reconcile` / `status.reconcile`.
 
-**Media and transcription.** `backfill` and `sync` also acquire queued
-`voice` and `video_note` media into the account-local `media/` directory.
-`--max-media` defaults to **50** and accepts at most **500** items; it
-limits media downloads only, so message events and the sync cursor are
-still applied in full. Downloads are idempotent: a transcript queue row is
-marked with its controlled relative `media_path` only after the file is
+**Media and transcription.** `backfill` and `sync` acquire queued `voice`
+and `video_note` media into the account-local `media/` directory. Backfill
+uses a fixed default budget of **50** media items per run; `sync` exposes
+`--max-media`, which defaults to **50** and accepts at most **500** items.
+The sync flag limits media downloads only, so message events and the sync
+cursor are still applied in full. Downloads are idempotent: a transcript
+queue row is marked with its controlled relative `media_path` only after the file is
 published successfully. Download failures remain retryable and a
 `FLOOD_WAIT` arms the shared account cooldown and exits **5**.
 
@@ -1745,7 +1746,8 @@ transcript text, engine, and model version in `transcripts` and refresh the
 FTS row. Retryable engine failures remain queued until the attempt cap;
 terminal or exhausted failures become `no_transcript` with the last error,
 so they remain visible in `status`; the `no_transcript` marker is also
-searchable and every hit reports `transcript` plus `transcript_status`. A rebuild or
+searchable and every hit reports `transcript` plus `transcript_status`. A
+rebuild or
 message edit preserves an existing transcript rather than replacing it with
 an empty FTS value.
 

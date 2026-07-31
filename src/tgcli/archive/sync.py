@@ -16,8 +16,7 @@ from tgcli.archive import (
 )
 from tgcli.changes_cursor import ChangesCursor
 from tgcli.clone import cooldown as cooldown_mod, flood
-from tgcli.commands import changes as changes_cmd
-from tgcli.commands import media as media_cmd
+from tgcli.commands import changes as changes_cmd, media as media_cmd
 from tgcli.commands.read import message_to_dict
 from tgcli.errors import PolicyError, RateLimitError
 from tgcli.output import note
@@ -234,22 +233,30 @@ async def _catch_up_peer(
 def _media_candidates(
     conn: sqlite3.Connection, account_dir: Path, limit: int
 ) -> list[sqlite3.Row]:
-    rows = conn.execute(
+    if limit <= 0:
+        return []
+    base = (
         "SELECT t.peer_id, t.message_id, t.media_path, t.media_kind, m.payload "
         "FROM transcripts AS t JOIN messages AS m "
         "ON m.peer_id = t.peer_id AND m.message_id = t.message_id "
         "WHERE t.media_kind IN ('voice', 'video_note') "
-        "ORDER BY m.date DESC, t.peer_id DESC, t.message_id DESC LIMIT ?",
-        (MAX_MEDIA + 1,),
+    )
+    order = "ORDER BY m.date DESC, t.peer_id DESC, t.message_id DESC"
+    pending = conn.execute(
+        base + "AND (t.media_path IS NULL OR t.media_path = '') " + order + " LIMIT ?",
+        (limit,),
     ).fetchall()
-    pending = []
-    for row in rows:
-        relative = row["media_path"]
-        if relative:
-            path = Path(str(relative))
-            if not path.is_absolute() and ".." not in path.parts:
-                if (account_dir / path).is_file():
-                    continue
+    if len(pending) >= limit:
+        return pending
+
+    missing_paths = conn.execute(
+        base + "AND t.media_path IS NOT NULL AND t.media_path <> '' " + order,
+    ).fetchall()
+    for row in missing_paths:
+        relative = Path(str(row["media_path"]))
+        if not relative.is_absolute() and ".." not in relative.parts:
+            if (account_dir / relative).is_file():
+                continue
         pending.append(row)
         if len(pending) >= limit:
             break
@@ -345,6 +352,7 @@ async def fetch_media(
                 {"peer_id": peer_id, "message_id": message_id, "error": error}
             )
     return {
+        "limit": limit,
         "queued": len(rows),
         "downloaded": downloaded,
         "skipped": skipped,

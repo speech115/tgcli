@@ -110,6 +110,14 @@ def test_backfill_rejects_too_many_dialogs(config_env, capsys):
 def test_transcribe_validates_caps_and_readonly(config_env, capsys):
     assert main(["archive", "transcribe", "--limit", "0", "--json"]) == 2
     assert "limit" in capsys.readouterr().err.lower()
+    assert main(["archive", "transcribe", "--limit", "-1", "--json"]) == 2
+    assert "limit" in capsys.readouterr().err.lower()
+    assert main(["archive", "transcribe", "--limit", "101", "--json"]) == 2
+    assert "limit" in capsys.readouterr().err.lower()
+    assert main(["archive", "transcribe", "--max-attempts", "-1", "--json"]) == 2
+    assert "max-attempts" in capsys.readouterr().err.lower()
+    assert main(["archive", "transcribe", "--max-attempts", "6", "--json"]) == 2
+    assert "max-attempts" in capsys.readouterr().err.lower()
     assert main(["--readonly", "archive", "transcribe", "--json"]) == 2
     assert "readonly" in capsys.readouterr().err.lower()
 
