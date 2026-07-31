@@ -38,15 +38,18 @@ learn how it behaves now, and never update them when behaviour changes.
   directory; do not create `docs/adr/`. See
   [docs/agents/domain.md](docs/agents/domain.md).
 
-## Maintenance Mode (ADR-0026, since 2026-07-17)
+## Owner-Gated Development (ADR-0071, replacing ADR-0026's posture)
 
-The project is feature-complete and in production use. Default posture:
+The project is in production use and still evolving; what gates it is the
+owner, not a freeze. Default posture:
 
-- **Do not add features.** A new feature or behavior change needs an
-  explicit owner request plus an ADR and a scoped plan — never a new
-  phase in PLAN.md.
+- **A new feature or behavior change needs an explicit owner request plus
+  an ADR and a scoped plan** — never a new phase in PLAN.md. An unvetted
+  idea waits in docs/PROPOSALS.md; it does not become code.
 - **A bug fix starts from a reproducing test**, then the minimal fix.
-- When in doubt whether something is a fix or a feature, ask the owner.
+- **Never widen the scope you were given.** Adjacent improvements you spot
+  are reported, not implemented. When in doubt whether something is a fix
+  or a feature, ask the owner.
 
 ## Documentation Discipline (mandatory)
 

@@ -1,7 +1,10 @@
 # ADR-0026: Maintenance mode — default posture after v1 completion
 
 Date: 2026-07-17
-Status: accepted
+Status: accepted; rule 1 superseded by
+[ADR-0071](ADR-0071-owner-gated-development.md) (the posture keeps the same
+mechanics under the name *owner-gated development*; the "feature-complete,
+do not add features" framing is retired). Rules 2–4 remain in force.
 
 ## Context
 

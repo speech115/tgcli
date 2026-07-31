@@ -4,8 +4,8 @@ This file tracks deliberately deferred product work that should survive the
 current implementation plan. Items here are not promises for the current
 release.
 
-Unvetted owner wishlist ideas that have **not** passed the maintenance-mode
-gate live in [PROPOSALS.md](PROPOSALS.md); an item graduates to this file
+Unvetted owner wishlist ideas that have **not** passed the owner gate
+(ADR-0071) live in [PROPOSALS.md](PROPOSALS.md); an item graduates to this file
 once it has an owner request + ADR (as MSG-001 and FEED-001 already did).
 
 ## CLONE-001 — Poll cloning

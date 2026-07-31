@@ -4,7 +4,7 @@ Owner wishlist first reviewed 2026-07-21 against the real CLI surface
 (post-PR #17, ADR-0028) and status-maintained as items graduate or ship.
 This is a backlog of **not-yet-vetted** ideas, not a plan.
 
-**Maintenance-mode gate (ADR-0026):** no current backlog row here is
+**Owner gate (ADR-0071):** no current backlog row here is
 approved. Shipped rows are retained only as provenance; every remaining item
 needs an explicit owner request + an ADR + a scoped plan before code.
 
@@ -378,7 +378,7 @@ Original re-entry gates (historical):
 ## Hardening / simplification backlog (2026-07-26 campaign review)
 
 Engineering (non-feature) proposals from the Fable 5 hardening campaign's
-whole-project review. Same maintenance-mode gate as everything else here:
+whole-project review. Same owner gate as everything else here:
 each item needs an explicit owner request + ADR + scoped plan before code.
 Evidence pointers reference the campaign audit; in-campaign work (error
 boundary in `cli.py`, defensive state loading, the `commands/clone.py`
@@ -401,8 +401,8 @@ split, peer-id consistency fixes) is tracked in
 ## Backend performance and runtime direction (owner discussion, 2026-07-26)
 
 Recorded from an owner-side design discussion held while the 1.2.16
-hardening campaign ran. **Nothing here is approved** — the maintenance-mode
-gate applies to every row, and the runtime rows additionally need a product
+hardening campaign ran. **Nothing here is approved** — the owner gate
+applies to every row, and the runtime rows additionally need a product
 decision from the owner before any ADR is worth writing.
 
 The discussion proposed a full stack: a long-lived per-account runtime, a
@@ -455,7 +455,7 @@ baseline and `--profile` → per-run RPC cache → *then* answer the
 Owner question: changes feel slow — is the test/process discipline worth
 revisiting? Answered with measurements over the merged PR history (39
 merged PRs), the gate, and shared-file churn, taken on the campaign branch
-at `673033a`. Same maintenance-mode gate as everything else: process rules
+at `673033a`. Same owner gate as everything else: process rules
 live in AGENTS.md, so each adopted row lands as an AGENTS.md edit in its
 own slice, plus an ADR where the row amends an existing decision.
 

@@ -6,9 +6,9 @@ disagree.
 
 ## What lands here
 
-The project is **in maintenance mode**
-([ADR-0026](docs/decisions/ADR-0026-maintenance-mode.md)): it is
-feature-complete and in production use.
+The project is in production use and **owner-gated**
+([ADR-0071](docs/decisions/ADR-0071-owner-gated-development.md)): it still
+gains features, but the owner decides which ones, before any code exists.
 
 - **Bug fix** — welcome. It starts from a failing test that reproduces the
   bug, then the minimal fix.

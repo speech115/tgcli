@@ -9,7 +9,7 @@
 [![CI](https://github.com/speech115/tgcli/actions/workflows/ci.yml/badge.svg)](https://github.com/speech115/tgcli/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/tag/speech115/tgcli?label=release&color=2aabee)](https://github.com/speech115/tgcli/releases)
 [![python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
-[![status](https://img.shields.io/badge/status-maintenance-informational)](docs/decisions/ADR-0026-maintenance-mode.md)
+[![status](https://img.shields.io/badge/status-owner--gated-informational)](docs/decisions/ADR-0071-owner-gated-development.md)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A stateless Telegram client built on [`telethon`](https://github.com/LonamiWebs/Telethon). Signs in as your own user account over MTProto, does exactly one operation per invocation, and gives you JSON-first reading, search, media, export, and preview → commit correspondence from the command line — for humans, scripts, and AI agents alike.
@@ -185,13 +185,13 @@ tg --json send --commit p_9f3a
 
 ## Status
 
-v1.2 in maintenance mode (ADR-0026): feature-complete and in production use. New behavior needs an explicit owner request plus an ADR; a bug fix starts from a reproducing test.
+v1.2, in production use and owner-gated (ADR-0071): the project still ships features, but new behavior needs an explicit owner request plus an ADR and a scoped plan, and a bug fix starts from a reproducing test.
 
 CI runs `pytest`, `ruff`, `pyright`, and a fail-closed TL coverage gate on every push and PR ([.github/workflows/ci.yml](.github/workflows/ci.yml)). `scripts/bench.py` is a representative 13-step live smoke benchmark of core read, write, media, and export paths.
 
 ## Contributing
 
-Maintenance mode shapes what lands here: a bug fix starts from a reproducing test, and new behavior needs an owner request plus an ADR. [CONTRIBUTING.md](CONTRIBUTING.md) has the working rules — branch names, the one-command gate, documentation duties — and [AGENTS.md](AGENTS.md) is the full contract every agent follows in this repo. Report a security or privacy issue privately via [SECURITY.md](SECURITY.md); never paste session material or phone numbers into an issue.
+The owner gate shapes what lands here: a bug fix starts from a reproducing test, and new behavior needs an owner request plus an ADR before any code. [CONTRIBUTING.md](CONTRIBUTING.md) has the working rules — branch names, the one-command gate, documentation duties — and [AGENTS.md](AGENTS.md) is the full contract every agent follows in this repo. Report a security or privacy issue privately via [SECURITY.md](SECURITY.md); never paste session material or phone numbers into an issue.
 
 ## Credits
 
