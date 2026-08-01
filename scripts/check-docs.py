@@ -25,7 +25,9 @@ guide-only gate could not see:
      fresh preview after a failed ``clone init`` / ``clone refresh`` commit;
   7. any exhaustive benchmark claim requires actual parser-wide coverage;
   8. MAP guide/ADR inventory matches the tree;
-  9. contributor workflow docs route session entries to ``docs/devlog/``.
+  9. contributor workflow docs route session entries to ``docs/devlog/``;
+ 10. every ADR in the tree has its row in the ``docs/decisions/README.md``
+     index, which AGENTS.md requires in the same commit as the ADR.
 
 Run from the repo root: ``uv run python scripts/check-docs.py``.
 """
@@ -240,6 +242,30 @@ def map_inventory_problems(project_map: Path, pages: list[Path]) -> list[str]:
     return problems
 
 
+def adr_index_problems(index: Path) -> list[str]:
+    """Every ADR file has a row in the index (AGENTS.md, extending ADR-0007).
+
+    The rule is unconditional and carries no status carve-out: the index has a
+    Status column precisely so a not-yet-accepted ADR can be listed as one.
+    Without this check the rule held only by memory, and AGENTS.md "Read First"
+    sends every fresh session to the index before touching a governed area — an
+    ADR missing from it is invisible to the next agent.
+    """
+    problems: list[str] = []
+    try:
+        text = index.read_text()
+    except FileNotFoundError:
+        return [f"{index.name}: ADR index is missing"]
+
+    for path in sorted(DECISIONS.glob("ADR-*.md")):
+        match = re.match(r"ADR-(\d{4})-", path.name)
+        if match is None:
+            continue
+        if f"({path.name})" not in text:
+            problems.append(f"{index.name}: no index row for ADR-{match.group(1)}")
+    return problems
+
+
 def devlog_routing_problems(contributing: Path, pr_template: Path) -> list[str]:
     """ADR-0058 closed DEVLOG.md; active workflow docs must route to devlog/."""
     stale = re.compile(
@@ -311,6 +337,7 @@ def main(argv: list[str] | None = None) -> int:
     cli.add_argument("--bench", type=Path, default=BENCH)
     cli.add_argument("--contributing", type=Path, default=CONTRIBUTING)
     cli.add_argument("--pr-template", type=Path, default=PR_TEMPLATE)
+    cli.add_argument("--adr-index", type=Path, default=DECISIONS / "README.md")
     args = cli.parse_args(argv)
 
     if not args.changelog.is_file():
@@ -346,6 +373,7 @@ def main(argv: list[str] | None = None) -> int:
     problems += benchmark_claim_problems(args.readme, args.map, args.bench, parser)
     problems += map_inventory_problems(args.map, pages)
     problems += devlog_routing_problems(args.contributing, args.pr_template)
+    problems += adr_index_problems(args.adr_index)
     for page in pages:
         text = page.read_text()
 

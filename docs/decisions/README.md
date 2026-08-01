@@ -78,6 +78,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0069](ADR-0069-archive-exploration-module.md) | Keep Phase 5 archive search/read/history queries in a read-only archive module | accepted |
 | [0070](ADR-0070-archive-refresh-scheduling.md) | Compose bounded archive refreshes and notify once after recurring failures | accepted |
 | [0071](ADR-0071-owner-gated-development.md) | Posture renamed to owner-gated development: same gate (owner request + ADR + scoped plan; fixes start from a reproducing test; agents never widen scope), without the retired "feature-complete / do not add features" claim | accepted |
+| [0072](ADR-0072-account-request-governor.md) | Account-wide request governor: cooldowns independent per Telegram request type (peer excluded on purpose), a self-verifying probe instead of a bypass flag, a persisted per-type pacing interval plus a windowed peer-breadth budget, the seam wrapping Telethon's `_call`, and the deadline demoted to a hang detector — supersedes ADR-0045 decision 1 and ADR-0052 decisions 1–5 | proposed |
 
 Notes on supersessions:
 

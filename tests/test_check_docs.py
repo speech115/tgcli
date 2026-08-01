@@ -26,6 +26,7 @@ def run(
     bench: Path | None = None,
     contributing: Path | None = None,
     pr_template: Path | None = None,
+    adr_index: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     argv = [sys.executable, str(SCRIPT), "--changelog", str(changelog)]
     if readme is not None:
@@ -38,6 +39,8 @@ def run(
         argv.extend(["--contributing", str(contributing)])
     if pr_template is not None:
         argv.extend(["--pr-template", str(pr_template)])
+    if adr_index is not None:
+        argv.extend(["--adr-index", str(adr_index)])
     return subprocess.run(
         argv,
         cwd=ROOT,
@@ -181,6 +184,25 @@ def test_equivalent_exhaustive_benchmark_claims_are_checked(tmp_path, claim):
 
     assert result.returncode == 1
     assert "benchmark claims every command but omits:" in result.stdout
+
+
+def test_every_adr_must_have_its_index_row(tmp_path):
+    """AGENTS.md requires the index row in the same commit as the ADR.
+
+    The rule carries no status carve-out — the index has a Status column so a
+    not-yet-accepted ADR is listed as one. Until this check existed the rule
+    held only by memory, and ADR-0072 shipped for review without its row.
+    """
+    index = copy_with_replacement(
+        tmp_path,
+        ROOT / "docs" / "decisions" / "README.md",
+        "| [0072](ADR-0072-account-request-governor.md)",
+        "| [0072](ADR-0072-removed-from-the-index.md)",
+    )
+    result = run(ROOT / "CHANGELOG.md", adr_index=index)
+
+    assert result.returncode == 1
+    assert "README.md: no index row for ADR-0072" in result.stdout
 
 
 def test_map_inventory_counts_must_match_the_tree(tmp_path):
