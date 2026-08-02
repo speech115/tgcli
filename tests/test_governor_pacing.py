@@ -480,14 +480,9 @@ def test_backfill_stops_normally_when_the_wall_clock_cap_is_exhausted(
         conn.close()
 
 
-def test_no_command_keeps_a_deadline_exemption(monkeypatch):
-    """D2: `--timeout` is uniform; governed sleep is the only exemption.
-
-    Walk build_parser(): every command gets the same default deadline, and
-    the deadline logic in cli.py has no command-name branches (the old
-    `_default_timeout`/`_long_running`/`_deadline` exemption lists are
-    gone; only the QR-path login default, CONTRACT §10, differs).
-    """
+def test_deadline_defaults_match_the_contract(monkeypatch):
+    """D2: the deadline is a hang detector — governed sleep is exempt, and
+    long-running commands keep no implicit deadline (CONTRACT §1)."""
     from tgcli import cli
     from tgcli.parser import build_parser
 
@@ -498,22 +493,25 @@ def test_no_command_keeps_a_deadline_exemption(monkeypatch):
         cli._apply_global_defaults(args)
         return args.timeout
 
-    # Exemptions removed: clone init/sync/refresh, archive refresh, export
-    # and media all take the 60 s default now.
-    assert default_timeout_for(["clone", "init", "@s"]) == 60.0
-    assert default_timeout_for(["clone", "sync", "@s"]) == 60.0
-    assert default_timeout_for(["clone", "refresh", "@s"]) == 60.0
-    assert default_timeout_for(["archive", "refresh"]) == 60.0
-    assert default_timeout_for(["export", "messages", "@c", "--output", "x"]) == 60.0
+    # Short commands: uniform 60 s default.
     assert default_timeout_for(["dialogs"]) == 60.0
-    # CONTRACT §10/§12 remain the per-command defaults: QR and long-poll
+    assert default_timeout_for(["changes"]) == 60.0
+    assert default_timeout_for(["send", "@x", "hi", "--preview"]) == 60.0
+    # Long-running commands keep no implicit deadline (CONTRACT §1): an
+    # implicit 60 s would kill them mid-run.
+    assert default_timeout_for(["clone", "init", "@s"]) is None
+    assert default_timeout_for(["clone", "sync", "@s"]) is None
+    assert default_timeout_for(["clone", "refresh", "@s"]) is None
+    assert default_timeout_for(["archive", "refresh"]) is None
+    assert default_timeout_for(["export", "messages", "@c", "--output", "x"]) is None
+    assert default_timeout_for(["media", "download", "@c", "1"]) is None
+    # CONTRACT §10/§12 remain per-command defaults: QR and long-poll
     # operator time are their own deadlines, not work to bound.
     assert default_timeout_for(["changes", "--wait", "300"]) is None
-    assert default_timeout_for(["changes"]) == 60.0
     assert default_timeout_for(["accounts", "login", "main"]) == 120.0
     assert default_timeout_for(["accounts", "login", "main", "--continue", "c"]) is None
-    # No `_long_running`/`_deadline` machinery survives.
-    assert not hasattr(cli, "_long_running")
+    # The exemption list is data, not deadline logic: the detector itself
+    # has no command branches.
     assert not hasattr(cli, "_deadline")
 
 
@@ -757,3 +755,36 @@ def test_timeout_must_be_positive(config_env, capsys):
     assert main(["--timeout", "0", "dialogs", "--json"]) == 2
     assert "positive" in capsys.readouterr().err.lower()
     assert main(["--timeout", "-1", "dialogs", "--json"]) == 2
+
+
+async def test_the_reservation_loser_wait_to_the_next_slot(clock, sleeper, tmp_path):
+    """Review blocker 3: a process that loses the reservation race must not
+    dispatch with zero spacing from the winner — it waits to the winner's
+    slot plus the interval and claims that."""
+    from tgcli.governor import pacing
+    from tgcli.governor.ledger import Ledger
+
+    path = tmp_path / "governor.db"
+    with Ledger.open(path) as ledger:
+        # A competitor already reserved t=2.0; we start at the same instant.
+        ledger.reserve(ACCOUNT, HISTORY_KEY, 2.0)
+        clock["t"] = 2.0
+
+        calls = []
+
+        async def racing_sleep(seconds):
+            calls.append(seconds)
+            if seconds == 3.0 and len(calls) == 1:
+                # While we sleep the interval out, the competitor reaches its
+                # dispatch moment at exactly our moment (t=5.0) — the race.
+                ledger.reserve(ACCOUNT, HISTORY_KEY, clock["t"] + seconds)
+            clock["t"] += seconds
+
+        await pacing.pace_before_dispatch(
+            ledger, ACCOUNT, history(), now=clock["t"], sleep=racing_sleep
+        )
+
+        # We waited to the competitor's slot + the 3 s interval (t=8.0),
+        # not just to the competitor's slot (t=5.0).
+        assert calls == [3.0, 3.0]
+        assert ledger.last_reserved(ACCOUNT, HISTORY_KEY) == 8.0

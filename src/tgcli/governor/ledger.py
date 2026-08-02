@@ -333,10 +333,11 @@ class Ledger:
         top of the pace.
 
         The claim is atomic against a fresher competitor (review fix m1):
-        a reservation stamped earlier than one already on record loses,
-        so two processes that both read "nothing reserved" cannot both
-        dispatch back-to-back — the loser's claim is refused and it must
-        re-read and sleep the remainder.
+        a reservation stamped at or before one already on record loses —
+        strictly *before*, so an identical instant is refused rather than
+        overwriting (review blocker 3) — and two processes that both read
+        "nothing reserved" cannot both dispatch back-to-back. The loser
+        re-reads and waits to the winner's slot plus the interval.
         """
         try:
             cursor = self._db.execute(
@@ -344,7 +345,7 @@ class Ledger:
                 "VALUES (?, ?, ?) "
                 "ON CONFLICT(account_user_id, request_key) DO UPDATE SET "
                 "reserved_at = excluded.reserved_at "
-                "WHERE pacing.reserved_at <= excluded.reserved_at",
+                "WHERE pacing.reserved_at < excluded.reserved_at",
                 (account_user_id, request_key, at),
             )
             self._db.commit()

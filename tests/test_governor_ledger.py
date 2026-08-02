@@ -262,3 +262,16 @@ def test_cooldown_armed_at_rejects_naive_timestamps(ledger):
     ledger._db.commit()
 
     assert ledger.cooldown_armed_at(ACCOUNT, HISTORY) is None
+
+
+def test_reserve_at_the_same_moment_loses_not_overwrites(tmp_path):
+    """Review blocker 3: two processes dispatching at the same instant must
+    not both claim it — the loser's equal-timestamp claim is refused, and
+    the winner's reservation survives untouched."""
+    path = tmp_path / "governor.db"
+    with Ledger.open(path) as first, Ledger.open(path) as second:
+        assert first.reserve(ACCOUNT, HISTORY, 10.0) is True
+        # Identical moment: strict comparison refuses the second claim
+        # instead of overwriting the first (the old <= let it through).
+        assert second.reserve(ACCOUNT, HISTORY, 10.0) is False
+        assert first.last_reserved(ACCOUNT, HISTORY) == 10.0

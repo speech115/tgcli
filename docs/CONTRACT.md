@@ -23,7 +23,8 @@ Global flags (available on every command):
 | `--json` | machine output: one JSON document to stdout |
 | `--plain` | stable TSV to stdout (no colors, no alignment) |
 | `--readonly` | hard-block any mutating call in this invocation |
-| `--timeout <sec>` | overall invocation deadline covering preflight and execution (default 60; no default deadline for media, exports, `clone init|sync|refresh`, or `archive refresh`, which may wait out bounded work; `accounts login` defaults to 120 and `--continue` takes none) |
+| `--timeout <sec>` | overall invocation **hang detector** covering preflight and execution (default 60; governed sleep does not count against it; no default deadline for media, exports, `clone init|sync|refresh`, or `archive refresh`, which may wait out bounded work; `accounts login` defaults to 120 and `--continue` takes none) |
+| `--max-runtime <sec>` | explicit wall-clock cap for long runs: governed sleep counts against it, exhausting it is a normal stop (exit 0) with `stop_reason` and a resume pointer |
 | `-v/--verbose` | Python and Telethon debug diagnostics on stderr for this invocation |
 
 Env equivalents: `TGCLI_ACCOUNT`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`.
@@ -88,6 +89,12 @@ flag.
 | 3 | config/auth error | missing `--account` / `default_account`, dead session, bad api_id |
 | 4 | not found | unknown dialog, message id, media; unknown alias on `accounts show\|remove` (lookup) |
 | 5 | rate limited | FloodWait longer than threshold; `retry_after` in error JSON |
+
+A scheduled `archive refresh` that wakes into a partial cooldown exits **0**
+with `stop_reason: "cooldown_deferred"` and a `deferred` list instead of
+exit 5: it does what the free request types allow (local transcription) and
+reports the rest as deferred. A consumer polling exit 5 as "the account
+needs to wait" must poll the journal/JSON fields instead.
 
 Exit 1 covers several distinguishable error codes in the JSON envelope:
 `TIMEOUT` (the `--timeout` deadline elapsed), `RUNTIME` (an untranslated
@@ -732,14 +739,26 @@ tg doctor [--account ALIAS] [--connect]
 `doctor` is a read-only health report: without `--account`, it checks every
 configured account; with it, it checks only that account. **By default it is
 offline** — config/session file presence, lock freeness, state writability,
-preview/audit/session permission tightness, and total state size — and does
-not open a Telegram client. `session_perms_ok` covers the account's
-`.session` and its `.session.bak`; a missing file is healthy. All permission
-checks reject group **and** other bits, not just other. Live authorization (`get_me`) runs only under `--connect`.
+preview/audit/session permission tightness, total state size, and the request
+governor's cooldowns — and does not open a Telegram client.
+`session_perms_ok` covers the account's `.session` and its `.session.bak`; a
+missing file is healthy. All permission checks reject group **and** other
+bits, not just other. Live authorization (`get_me`) runs only under
+`--connect`, and it is the one network call exempt from the governor
+(ADR-0072 decision 1): `doctor` must work precisely when every gated type is
+cooling.
 
 When `--connect` is absent, `checks.authorized` is `null` (unknown), not
 `false`. Per-account `ok` reflects only local checks offline; with `--connect`,
 `ok` also requires `authorized: true`.
+
+`checks.governor_cooldowns` maps each cooling request type to its deadline
+(an empty object when nothing is cooling); `checks.governor_degraded` is
+`true` when the governor's ledger could not be opened (reads fail open, so
+protection degrades without blocking). A cooldown is reportable state, not a
+failure: it does not set `ok: false`. The governor probes each cooldown once
+at half its wait, so an early-lifted limit clears itself without operator
+action.
 
 The health checks make short-lived local probes: for an existing session they
 may create and acquire its `.lock` file, and they create then remove a
@@ -753,7 +772,7 @@ locked and creates no lock file. These probes do not mutate Telegram.
 "accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
 "checks":{"session_file":true,"lock_free":true,"state_writable":true,
 "preview_perms_ok":true,"audit_perms_ok":true,"session_perms_ok":true,
-"state_size":4096,"authorized":null},
+"state_size":4096,"governor_cooldowns":{},"governor_degraded":false,"authorized":null},
 "user":null,"roles":[],"ok":true}],"ok":true}
 ```
 
@@ -886,10 +905,16 @@ Every successfully parsed command appends one JSON object to
 `~/.local/state/tgcli/invocations.jsonl` (or `TGCLI_STATE_DIR/invocations.jsonl`):
 `timestamp`, `command`, resolved `account` when applicable, `role` when
 `--session-role` was set (ADR-0062; omitted for the primary), `exit_code`,
-structured `error` code when applicable, and `duration_ms`. The journal never
-contains message/search text, chat references, raw API parameters, or command
-output. A journal-write failure emits a warning to stderr but does not change
-the command result.
+structured `error` code when applicable, and `duration_ms`. Runs that
+actually issued governed requests additionally carry `governed_sleep_ms`
+(total deliberate pacing/flood sleep) and `request_count`. A flood-related
+exit (exit 5) additionally carries `retry_after`, `request_type` (the
+governed key, e.g. `messages.GetHistoryRequest`) and `provenance`
+(`server` | `account_cooldown` | `resolve_phone_cooldown`). A normal stop
+carries `stop_reason` (`breadth_budget_exhausted` | `wall_clock_cap` |
+`cooldown_deferred`). The journal never contains message/search text, chat
+references, raw API parameters, or command output. A journal-write failure
+emits a warning to stderr but does not change the command result.
 
 `-v` / `--verbose` enables Python and Telethon debug logs on stderr for the
 current process. Stdout remains contract data in all output modes.
@@ -1113,7 +1138,7 @@ exists, `readable` is whether it loads under the current version (`null` when
 absent), and `replace` echoes the flag. JSON:
 
 ```json
-{"preview_id":"p_...","expires_at":"...","clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":null,"status":"planned","commit_required":true},"approximate_message_count":321,"protected":false,"supersede":{"existing":false,"readable":null,"replace":false},"peers_to_create":1,"account_flood":{"cooldown_until":null,"last_peer_created_at":null}}
+{"preview_id":"p_...","expires_at":"...","clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":null,"status":"planned","commit_required":true},"approximate_message_count":321,"protected":false,"supersede":{"existing":false,"readable":null,"replace":false},"peers_to_create":1}
 ```
 
 `peers_to_create` is how many `CreateChannelRequest` calls this commit would
@@ -1121,10 +1146,9 @@ make: `0` when a destination peer id is already recorded and `--replace` is
 not set, `1` for a posts-only init (`--no-comments`, non-broadcast, or a
 broadcast with no linked discussion), or `2` when a broadcast source has a
 linked discussion and no destination is recorded yet (or `--replace` will
-supersede the slot). `account_flood` mirrors the
-account-scoped flood record (ADR-0045): `cooldown_until` / 
-`last_peer_created_at` as ISO timestamps or null. Both fields are data for
-the caller — they never block preview. `--no-comments` is stored in the
+supersede the slot). Active account cooldowns are not echoed in the preview —
+they are per request type in the governor's ledger and surfaced by
+`tg doctor`. `--no-comments` is stored in the
 preview payload and honored at commit; it creates a posts-only clone with
 `comments: "disabled"`, creates one peer, and links nothing. Re-running
 init with `--no-comments` against a slot whose state already has
@@ -1220,19 +1244,19 @@ Animated or video avatar motion is not preserved (ADR-0020).
 Every create, title-edit, description-edit, and avatar-edit attempt appends a
 fail-closed shared audit record before dispatch. A profile-copy failure exits 2
 while retaining the recorded destination for a new-preview retry; it never
-creates a second destination. Telegram FloodWait during profile reads, downloads,
-uploads, or edits persists `retry_not_before` in clone state **and** arms an
-account-scoped cooldown record under
-`TGCLI_STATE_DIR/clones/account-<account_user_id>.json` (ADR-0045). Later
+creates a second destination. A Telegram FloodWait during profile reads,
+downloads, uploads, or edits persists `retry_not_before` in clone state and
+arms the request-governor's per-type cooldown (ADR-0072). Later
 `clone init --commit`, `clone sync`, and `clone refresh` for **any** clone of
-that account exit 5
-locally (no network) while either the per-clone or the account deadline is
-active — `retry_after` is computed from `max(per-clone, account)`. Read-only
-surfaces (`clone status`, init preview, refresh preview) are never blocked by
+that account refuse locally (no network) while the gated request type is
+cooling — `retry_after` comes from the governor's ledger. Read-only surfaces
+(`clone status`, init preview, refresh preview) are never blocked by
 readonly gates; refresh preview still respects an active FloodWait cooldown
 because the scan is real network work. A roster FloodWait
 (ADR-0024) still arms neither cooldown. Init keeps the global 60-second
-default timeout.
+default timeout; `clone sync` and `clone refresh` keep no implicit deadline
+(CONTRACT §1) and may be bounded with `--max-runtime` (exhausting it is a
+normal stop, exit 0, with a resume pointer).
 
 `sync SOURCE` requires initialized state and a private creator-owned destination
 of the source-dependent kind. It verifies the destination tail before reading
@@ -1492,23 +1516,22 @@ download failure leaves the batch cursor and mapping unchanged and occurs
 before the fail-closed `clone-sync-reupload` audit/write boundary. Striped
 downloads of a `Photo` (files over 512 KB) select the largest `PhotoSize` by
 byte count explicitly rather than trusting Telegram's `sizes` list order
-(ADR-0055). A `FloodWaitError` of at most 60
-seconds (`SHORT_WAIT`) is waited out once in the foreground when the
-per-process wait budget still has room (at most 180 seconds of pausing per
-invocation; `WAIT_BUDGET`), after a non-contractual stderr progress line
-naming the seconds, then the same request is retried; a second failure, a wait
-over 60 seconds, or a spent budget persists the clone cooldown and raises.
+(ADR-0055). A `FloodWaitError` arms the request-governor's per-type cooldown
+(ADR-0072) and the run exits 5 locally with `retry_after`; there is no
+foreground retry. Upload parts and download chunks are paced by the governor
+(3 s per file, per request-type key), and the run's governed sleep does not
+count against `--timeout` (a hang detector).
 Both `UpdateMessageID` batches and the single-message
 `UpdateShortSentMessage` envelope require exact positive confirmation before
 state advances.
 
 `--limit N` must be positive and copies at most N message batches. If another
 source row remains, JSON reports `"more":true`; the next run resumes at the
-saved cursor. Sync has no implicit overall timeout, uses a mutation-safe
-session, and is blocked by all readonly gates before config/session work.
-A short FloodWait (≤ 60 s) is waited out once under the 180-second per-process
-budget as above; a second failure, a longer wait, or a spent budget persists
-the clone cooldown and exits 5 without advancing the current message. JSON:
+saved cursor. Sync has no implicit overall timeout (CONTRACT §1), uses a
+mutation-safe session, and is blocked by all readonly gates before
+config/session work. `--max-runtime` bounds the whole run: exhausting it is
+a normal stop (exit 0) with `stop_reason: "wall_clock_cap"` and a resume
+pointer. A flood exits 5 without advancing the current message. JSON:
 
 ```json
 {"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"pinned":{"source_id":12,"destination_id":9,"status":"set"},"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}}}
@@ -1738,9 +1761,14 @@ dialogs may be backfilled without `add`. Each run walks recent→older
 history (resuming from the stored oldest id), upserts the universal
 message shape, appends revisions on edit, persists per-dialog identity on
 `sync_state` (`kind`/`title`/`username`/`chat_ref`), and checkpoints
-progress. Dialogs in one invocation are processed sequentially. A
-`FLOOD_WAIT` during backfill arms the shared per-account cooldown
-(ADR-0045/0052), persists the dialog checkpoint, and exits **5**.
+progress. Dialogs in one invocation are processed sequentially. Requests
+are paced by the governor (3 s between history reads); a
+`FLOOD_WAIT` during backfill arms the governor's per-type cooldown
+(ADR-0072), persists the dialog checkpoint, and exits **5**. A wait that
+fits the remaining `--max-runtime` cap is slept out once and resumed;
+exhausting the cap is a normal stop (exit 0) with
+`stop_reason: "breadth_budget_exhausted"` / `"wall_clock_cap"` and a
+resume pointer.
 
 **Sync.** `tg archive sync` holds an account-level `tg changes` cursor in
 `account_sync` (not only per-peer). First run initializes the cursor via
@@ -1770,19 +1798,25 @@ and is reported under `reconcile` / `status.reconcile`.
 
 **Refresh.** `tg archive refresh` is a foreground one-shot for scheduling. It
 runs the bounded sync (whose final stage acquires media) and then the offline
-transcription queue, passing one in-memory FloodWait budget through the
-network stage. `--max-events`, `--max-dialogs`, and `--max-media` keep the sync
+transcription queue; requests are paced by the request governor (ADR-0072).
+`--max-events`, `--max-dialogs`, and `--max-media` keep the sync
 caps above; `--transcribe-limit` defaults to **20** and is capped at **100**;
 `--max-attempts` defaults to **3** and is capped at **5**. Every numeric cap
 must be positive and within its hard ceiling; there is no unlimited sentinel.
-An explicit `--timeout` may bound the run, but no implicit 60-second deadline
-is applied.
+`--timeout` is a hang detector whose governed sleep does not count against
+it, and no implicit 60-second deadline is applied; `--max-runtime` bounds the
+whole pass — exhausting it is a normal stop (exit 0) with
+`stop_reason: "wall_clock_cap"`.
 
 A network exception or unavailable transcription engine records the failure in
 `account_sync`, increments the consecutive `failure_streak`, and exits
 nonzero. Item-level media/transcription failures return completed stage data
 and exit nonzero, but do not increment the account-level streak. A
-`FLOOD_WAIT` exits **5** without changing that streak. A completed pipeline
+`FLOOD_WAIT` arms the governor's per-type cooldown and exits **5** without
+changing that streak; a scheduled pass waking into a partial cooldown defers
+the blocked stage and exits **0** with `stop_reason: "cooldown_deferred"`
+and a `deferred` list — it is a success that deferred work, not a failure to
+alert on (the alert fires once, when the flood arms). A completed pipeline
 (including one with item-level failures) resets the streak, last error, and
 notification episode. On the third consecutive run-level failure, one
 best-effort generic macOS notification is sent through `desktop.py`; it is
@@ -1807,7 +1841,7 @@ failures are `media_status: "retryable"` until the cap, then become terminal
 `media_status: "no_media"` and are not returned by later media queues. A
 later successful publish resets that media counter and sets
 `media_status: "done"`. A `FLOOD_WAIT` leaves the media item retryable,
-arms the shared account cooldown, and exits **5**.
+arms the governor's per-type cooldown (ADR-0072), and exits **5**.
 
 `tg archive transcribe` is foreground-only and offline. It drains the
 newest ready media rows first through the local `transcribe` CLI

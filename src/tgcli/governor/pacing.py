@@ -161,15 +161,22 @@ async def pace_before_dispatch(
         _note_sleep(wait)  # write-ahead (review fix C1)
         await sleep(wait)
         moment += wait
-    # Atomic claim (review fix m1): if a competitor reserved a *fresher*
-    # slot while we slept, our claim loses — re-read and sleep the
-    # remainder so the start-to-start floor still holds.
-    if not ledger.reserve(account, key, moment):
+    # Atomic claim (review fix m1 / blocker 3): if a competitor reserved a
+    # slot at or after ours while we slept, our claim loses. We must not
+    # dispatch with zero spacing from the winner — wait to the later of the
+    # two slots plus the interval and claim that, retrying until the claim
+    # lands.
+    while not ledger.reserve(account, key, moment):
         newer = ledger.last_reserved(account, key)
-        extra = (newer or moment) - moment
-        if extra > 0:
-            _note_sleep(extra)
-            await sleep(extra)
+        if newer is None:
+            # The record vanished (cleared concurrently); retry the claim.
+            continue
+        target = max(newer, moment) + interval
+        wait = target - moment
+        if wait > 0:
+            _note_sleep(wait)
+            await sleep(wait)
+        moment = target
 
 
 def touch_history_peer(

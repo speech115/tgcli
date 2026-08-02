@@ -89,22 +89,32 @@ def _restore_diagnostics(configured) -> None:
 
 
 def _default_timeout(args) -> float | None:
-    """The deadline for an invocation that supplied no --timeout (CONTRACT §1).
+    """The default deadline (CONTRACT §1): 60 s, a hang detector.
 
-    One number for every command: governed sleep does not count against it
-    (ADR-0072 decision 6), so a paced run that would previously have needed
-    a per-command exemption now simply does not hit the deadline. Only two
-    commands differ, and both wait on an external party rather than doing
-    work:
-    - `accounts login` — the QR wait is operator time (CONTRACT §10);
-    - `changes --wait N` — the long-poll budget is its own deadline; an
-      implicit 60 s must not clip it (CONTRACT §12).
+    Governed sleep never counts against it (ADR-0072 decision 6), and
+    long-running commands keep no implicit deadline — CONTRACT §1 lists
+    them; only explicit `--timeout`/`--max-runtime` bounds them.
     """
     if args.command == "accounts" and args.subcommand == "login":
         return None if getattr(args, "continue_id", None) else 120.0
     if args.command == "changes" and getattr(args, "changes_wait", None) is not None:
         return None
+    if _long_running_command(args):
+        return None
     return 60.0
+
+
+def _long_running_command(args) -> bool:
+    """Commands CONTRACT §1 exempts from the implicit 60 s deadline."""
+    return (
+        args.command == "media"
+        or args.command == "export"
+        or (
+            args.command == "clone"
+            and args.clone_command in ("init", "sync", "refresh")
+        )
+        or (args.command == "archive" and args.archive_command == "refresh")
+    )
 
 
 def _apply_global_defaults(args) -> None:
@@ -126,14 +136,12 @@ def _apply_global_defaults(args) -> None:
 def _armed(seconds: float | None):
     """Hold the invocation deadline over the whole body, preflight included.
 
-    asyncio.wait_for only covers the network coroutine; everything before it —
-    `tg batch` reading stdin, `accounts login --continue` reading a password —
+    asyncio.wait_for covers only the network coroutine; stdin reads etc.
     would otherwise run with no deadline at all.
 
-    The deadline is a hang detector (ADR-0072 decision 6): when the SIGALRM
-    fires, the handler asks pacing how much of the elapsed wall time was
-    deliberate governed sleep, and if that leaves the deadline unspent,
-    re-arms the timer for the remainder instead of killing the run.
+    The deadline is a hang detector (ADR-0072 decision 6): on SIGALRM the
+    handler asks pacing how much wall time was governed sleep and re-arms
+    the timer for the remainder instead of killing the run.
     """
     if (
         seconds is None
@@ -198,10 +206,9 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
 def _run_with_deadline(coro, timeout):
     """Run one coroutine under `--timeout` as the documented TIMEOUT error.
 
-    Governed sleep does not count against the deadline (ADR-0072 decision
-    6): the loop re-reads pacing's slept total on every wake and grants
-    back that much wall time, so a run pacing itself out of a flood is not
-    killed for doing the right thing.
+    Governed sleep is discounted (ADR-0072 decision 6): the loop re-reads
+    pacing's slept total on every wake and grants it back, so a run pacing
+    itself out of a flood is not killed for doing the right thing.
     """
     from tgcli.governor import pacing
 

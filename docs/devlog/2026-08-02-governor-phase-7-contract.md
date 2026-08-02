@@ -79,3 +79,17 @@ landing the CONTRACT/CHANGELOG/version edits above and the compare link;
   leak (a real order-dependent failure surfaced during this pass and is
   fixed deterministically: the wall-clock journal test no longer races a
   real 0.001 s window).
+
+### Third review pass — owner blockers (CONTRACT in the branch)
+
+- **Blocker 2 fixed: `docs/CONTRACT.md` is edited in this branch.** The
+  owner ruled that CONTRACT belongs with the behaviour (the shared-set
+  split gives the integrator only version/CHANGELOG). All six planned
+  edits plus the reconciliation: §1 `--timeout`/`--max-runtime` rows, §4
+  exit-5 note for cooldown-deferred scheduled refresh, §9 journal fields,
+  §5.1 doctor checks and JSON sample, clone § (removed `account_flood`,
+  retired `SHORT_WAIT`/`WAIT_BUDGET` machinery, per-type cooldown and
+  `--max-runtime`), archive § (refresh deferred exit-0, backfill/media
+  cooldown wording). No `SHORT_WAIT`/`WAIT_BUDGET`/`account_flood`
+  reference remains. Version and CHANGELOG stay with the integrator.
+- **ADR-0072 header now says implemented** (was "not implemented").

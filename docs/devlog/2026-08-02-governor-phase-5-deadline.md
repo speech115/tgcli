@@ -90,3 +90,15 @@ storage (`clone/flood.py` account record, `cooled_account`).
   This is a deliberate, conservative choice (the old `SHORT_WAIT`/`WAIT_BUDGET`
   foreground retry is gone); an operator who wants waits slept out must pass
   `--max-runtime`. The integrator's CONTRACT edit should state this.
+
+### Third review pass — owner blockers (deadline scope)
+
+- **Blocker 1 fixed: long-running commands keep no implicit deadline.**
+  `_default_timeout` now returns None for the CONTRACT §1 set (media,
+  exports, `clone init|sync|refresh`, `archive refresh`) in addition to
+  login/changes; the 60 s default is for short commands only. The deadline
+  stays a hang detector (governed sleep exempt); long runs are bounded by
+  explicit `--timeout`/`--max-runtime`. The phase plan's "one number for
+  every command" was wrong — it would kill a 10k-message export mid-run —
+  and the owner flagged it; the CONTRACT §1 list is now data
+  (`_long_running_command`), not deadline logic.

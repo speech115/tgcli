@@ -318,3 +318,76 @@ async def test_a_flood_alert_fires_once_at_arming(ledger, capsys):
     with pytest.raises(RateLimitError):
         await fresh._call(None, history())
     assert "cooling for 600s" not in capsys.readouterr().err
+
+
+async def test_the_raw_api_path_refuses_locally_on_a_gated_type(ledger):
+    """G5: `tg api` goes through the governed seam — a cooling type refuses
+    with zero RPCs, not a raw send into the penalty."""
+    from telethon.tl.functions.users import GetFullUserRequest
+
+    error = telethon_errors.FloodWaitError(request=None)
+    error.seconds = 600
+    client = FakeClient(raises=error)
+    gate.install(client, ledger)
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        await client._call(None, GetFullUserRequest(id=42))
+
+    api = FakeClient()
+    gate.install(api, ledger)
+    with pytest.raises(RateLimitError):
+        await api._call(None, GetFullUserRequest(id=42))
+    assert api.sent == []
+
+
+@pytest.mark.parametrize(
+    ("rpc_request", "expected_key"),
+    [
+        (
+            messages.GetHistoryRequest(
+                peer="p",
+                offset_id=0,
+                offset_date=None,
+                add_offset=0,
+                limit=100,
+                max_id=0,
+                min_id=0,
+                hash=0,
+            ),
+            "messages.GetHistoryRequest",
+        ),
+        (
+            messages.GetDialogsRequest(
+                offset_date=None, offset_id=0, offset_peer="p", limit=100, hash=0
+            ),
+            "messages.GetDialogsRequest",
+        ),
+        (messages.SendMessageRequest("p", "hi"), "messages.SendMessageRequest"),
+        (
+            upload.GetFileRequest(location=None, offset=0, limit=1),
+            "upload.GetFileRequest",
+        ),
+        (messages.GetMessagesRequest(id=[1]), "messages.GetMessagesRequest"),
+    ],
+)
+async def test_every_command_family_refuses_locally_on_its_type(
+    ledger, rpc_request, expected_key
+):
+    """G3: each command family issues a known request type, and a cooldown
+    on that exact type refuses locally with zero RPCs — a command can never
+    send into a live penalty for the type it is about to issue."""
+    error = telethon_errors.FloodWaitError(request=None)
+    error.seconds = 600
+    source = FakeClient(raises=error)
+    gate.install(source, ledger)
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        await source._call(None, rpc_request)
+
+    target = FakeClient()
+    gate.install(target, ledger)
+    with pytest.raises(RateLimitError) as caught:
+        await target._call(None, rpc_request)
+    assert caught.value.details["retry_after"] > 0
+    assert target.sent == []
+    assert set(ledger.active_cooldowns(ACCOUNT)) == {expected_key}

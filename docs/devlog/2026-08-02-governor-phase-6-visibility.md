@@ -97,3 +97,23 @@ for the integrator, operator guides for a cooling account, and flipping
 - **m11: dead `clone_state` parameters removed** from `cooldown.mutate` and
   `reupload.uploaded_media` (and all their callers).
 - **D5: deferred refresh JSON carries `"sync": {}`**, never `null`.
+
+### Third review pass — owner blockers
+
+- **Blocker 3 fixed: the reservation loser waits to the winner's slot plus
+  the interval.** A competitor claiming an identical instant is refused by
+  strict `<` (was `<=`), and the loser retries at `max(newer, moment) +
+  interval` until its claim lands — no zero-spacing dispatch after the
+  winner. Two tests pin it (equal-instant refusal; loser sleeps to the next
+  slot).
+- **G3/G5 tests added** — a parametrized sweep over the command families'
+  real request types (history, dialogs, mutations, media, by-id) proving
+  each refuses locally on its own key, and the `tg api` raw path proving
+  it stays under the governor.
+- **Partial-cooldown simplification recorded:** `archive refresh` defers
+  the whole sync stage when any of its request types is cooling, rather
+  than doing "the free part" per ADR-0072 decision 4's literal wording.
+  Transcription (local) still runs. Reasonable simplification, flagged by
+  the owner, not silently shipped.
+- **CONTRACT.md updated in this branch** (see phase-7 devlog entry) —
+  the owner ruled it belongs with the behaviour, not the integrator.
