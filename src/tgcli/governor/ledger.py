@@ -164,6 +164,34 @@ class Ledger:
         clamped = min(deadline, moment + timedelta(seconds=MAX_COOLDOWN_S))
         return clamped if clamped > moment else None
 
+    def cooldown_armed_at(
+        self, account_user_id: int, request_key: str
+    ) -> datetime | None:
+        """When the current cooldown record was armed, or ``None``.
+
+        Read for the probe's elapsed-fraction computation (plan phase 3);
+        the deadline alone cannot say how much of the wait is already over.
+        Fails open like every other read, and an unparseable value reads as
+        "not yet 50%" — the probe refuses rather than sends into a guess.
+        """
+        try:
+            row = self._db.execute(
+                "SELECT armed_at FROM cooldowns "
+                "WHERE account_user_id = ? AND request_key = ?",
+                (account_user_id, request_key),
+            ).fetchone()
+        except sqlite3.Error:
+            return None
+        if row is None:
+            return None
+        try:
+            armed_at = datetime.fromisoformat(row[0])
+        except (TypeError, ValueError):
+            return None
+        if armed_at.tzinfo is None:
+            return None
+        return armed_at.astimezone(UTC)
+
     def arm_cooldown(
         self,
         account_user_id: int,

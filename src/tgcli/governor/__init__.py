@@ -9,5 +9,6 @@ Modules land in dependency order (see
 ``docs/superpowers/plans/2026-08-02-account-request-governor.md``):
 
 * ``registry`` — which request type belongs to which paced class (phase 0);
-* ``seam`` — the ``_call`` wrapper and its fail-fast pin (phases 0 and 2).
+* ``seam`` — the ``_call`` wrapper and its fail-fast pin (phases 0 and 2);
+* ``probe`` — the self-verifying probe for recorded cooldowns (phase 3).
 """

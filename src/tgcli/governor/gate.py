@@ -33,7 +33,7 @@ from math import ceil
 from telethon import errors as telethon_errors
 
 from tgcli.errors import RateLimitError
-from tgcli.governor import registry
+from tgcli.governor import probe, registry
 from tgcli.governor.ledger import Ledger
 
 # Which flood families arm an account-wide, peer-agnostic cooldown.
@@ -72,14 +72,18 @@ def install(client, ledger: Ledger, *, account_source=None) -> None:
     async def governed(self, sender, request, *args, **kwargs):
         account = resolve()
         key = registry.request_key(request)
+        is_probe = False
         if account is not None:
-            refuse_if_cooling(ledger, account, key)
+            is_probe = refuse_if_cooling(ledger, account, key)
         try:
-            return await original(sender, request, *args, **kwargs)
+            result = await original(sender, request, *args, **kwargs)
         except ARMING_ERRORS as exc:
             if account is not None:
                 arm_from_flood(ledger, account, key, exc)
             raise
+        if is_probe and account is not None:
+            probe.settle(ledger, account, key)
+        return result
 
     client._call = types.MethodType(governed, client)
     client._tgcli_governor = ledger
@@ -103,14 +107,23 @@ def _govern_cdn_children(client, ledger: Ledger, resolve) -> None:
     client._get_cdn_client = types.MethodType(governed_factory, client)
 
 
-def refuse_if_cooling(ledger: Ledger, account: int, request_key: str) -> None:
-    """Raise before any RPC when this request type is still cooling."""
+def refuse_if_cooling(ledger: Ledger, account: int, request_key: str) -> bool:
+    """Refuse before any RPC when this request type is still cooling.
+
+    Returns ``True`` when the request may proceed *as the self-verifying
+    probe* (plan phase 3): the probe was claimed write-ahead, so the caller
+    settles the record on success and lets the normal flood path re-arm it
+    on failure. Raises ``RateLimitError`` when the type is cooling and the
+    probe must not fire.
+    """
     deadline = ledger.cooldown_deadline(account, request_key)
     if deadline is None:
-        return
+        return False
     retry_after = ceil((deadline - datetime.now(UTC)).total_seconds())
     if retry_after <= 0:
-        return
+        return False
+    if probe.claim_if_due(ledger, account, request_key):
+        return True
     raise RateLimitError(
         f"{request_key} is rate limited for {retry_after}s",
         retry_after=retry_after,
