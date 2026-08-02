@@ -1,7 +1,14 @@
 # ADR-0052: Surviving a long clone run — short flood waits and media reuse
 
 Date: 2026-07-25
-Status: accepted
+Status: accepted; decisions 1–5 (the `SHORT_WAIT`/`WAIT_BUDGET`
+foreground-retry mechanism) superseded by
+[ADR-0072](ADR-0072-account-request-governor.md). That supersession is
+declared but **not yet effective**: ADR-0072 is accepted as a design and
+its governor is unimplemented, so this mechanism is still what actually
+runs and stays authoritative for current behaviour until the
+implementation slice lands. Decisions 6–7 (the reupload media cache) are
+untouched and remain in force.
 
 Amends [ADR-0045](ADR-0045-clone-flood-containment.md) in one clause: what a
 `clone sync` process does with a *short* `FloodWaitError`. The account-scoped
