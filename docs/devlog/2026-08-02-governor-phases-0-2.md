@@ -1,6 +1,6 @@
 ## 2026-08-02 — Governor implementation, phases 0–2 (Claude)
 
-**Did:** opened the ADR-0072 implementation slice (#145) with a seven-phase
+**Did:** opened the ADR-0072 implementation slice (#145) with an eight-phase
 plan (`docs/superpowers/plans/2026-08-02-account-request-governor.md`) and
 landed the first three: the request-type registry with its seam pins, the
 persisted ledger, and the governed `_call` wrapper. 52 new tests.
