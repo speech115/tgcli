@@ -10,6 +10,28 @@ not renegotiated here — where this plan resolves something the matrix left
 open (field names, flag names), it says so explicitly and the matrix row
 still governs the behaviour.
 
+## Status and per-phase plans
+
+Eight phases, numbered 0–7. Phases 0–2 are merged (`0307e1e`, PR #148).
+Phases 3–7 each have their own executable plan — this document is the index
+and the shared context; the per-phase documents are what an implementer works
+from.
+
+| Phase | Plan | Status |
+|---|---|---|
+| 0 — registry and seam pins | (in this document) | merged |
+| 1 — the ledger | (in this document) | merged |
+| 2 — the seam | (in this document) | merged |
+| 3 — the probe | [phase 3](2026-08-02-governor-phase-3-probe.md) | not started |
+| 4 — pacing and breadth | [phase 4](2026-08-02-governor-phase-4-pacing.md) | not started |
+| 5 — deadline reconciliation | [phase 5](2026-08-02-governor-phase-5-deadline.md) | not started |
+| 6 — visibility, retire old guards | [phase 6](2026-08-02-governor-phase-6-visibility.md) | not started |
+| 7 — contract, release, guides | [phase 7](2026-08-02-governor-phase-7-contract.md) | not started |
+
+**Nothing shipped so far prevents a flood.** Phases 0–2 stop the tool making a
+live penalty worse; phase 4 is the one that stops the penalty happening. Until
+it lands, the ADR-0045/0052 mechanisms remain the actual protection.
+
 ## Why phases, and why this order
 
 The matrix has ~50 rows across seven areas plus 28 existing tests in two
