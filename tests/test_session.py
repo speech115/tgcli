@@ -28,6 +28,10 @@ class FakeTelethonClient:
     async def disconnect(self):
         self.connected = False
 
+    async def _call(self, sender, request, *args, **kwargs):
+        """Present because the real client has it — the governor wraps it."""
+        return None
+
 
 @pytest.fixture
 def state(tmp_path, monkeypatch):
@@ -213,6 +217,7 @@ def test_make_client_sets_stable_telegram_device_identity(tmp_path, monkeypatch)
     assert result is not None
     assert captured["args"] == (str(tmp_path / "regular"), 1, "h")
     assert captured["kwargs"] == {
+        "flood_sleep_threshold": 0,
         "device_model": "tgcli",
         "system_version": "TestOS",
         "app_version": session.__version__,
@@ -287,11 +292,17 @@ async def test_mutation_safe_telethon_client_surfaces_short_flood_wait_without_s
     assert sleeps == []
 
 
-def test_regular_telethon_client_keeps_read_retry_defaults(tmp_path):
+def test_regular_telethon_client_never_sleeps_off_a_flood(tmp_path):
+    """ADR-0072 decision 2: threshold 0 on every client, not just mutations.
+
+    Telethon's own sleeping is what made the incident invisible — it absorbed
+    shorter waits silently, so nothing upstream could record the flood it was
+    hiding. Read retries stay at Telethon's default; only the sleeping goes.
+    """
     tg = session._make_client(Path(tmp_path / "regular"), ACCOUNT)
 
     assert tg._request_retries == 5
-    assert tg.flood_sleep_threshold == 60
+    assert tg.flood_sleep_threshold == 0
 
 
 def test_real_telethon_creates_the_session_file_during_construction(tmp_path):

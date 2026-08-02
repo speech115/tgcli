@@ -25,14 +25,23 @@ from tgcli.errors import ConfigError
 REQUIRED_PARAMETERS = ("sender", "request")
 
 
-def verify_seam(client_class: type) -> None:
+def verify_seam(client_class: type | None = None) -> None:
     """Raise ``ConfigError`` unless ``_call`` is still the shape we wrap.
 
     Called at client construction, not at first RPC: a governor that fails
     open on its very first request is indistinguishable from no governor, and
     the incident this ADR answers was caused by exactly that kind of silent
     absence.
+
+    Defaults to the *installed* Telethon class rather than whatever the caller
+    happens to hold. The pin is a claim about the library, so a test double
+    swapped in to capture constructor arguments must not be able to fail it —
+    or to pass it on the real library's behalf.
     """
+    if client_class is None:
+        from telethon import TelegramClient
+
+        client_class = TelegramClient
     call = getattr(client_class, "_call", None)
     if call is None:
         raise ConfigError(
