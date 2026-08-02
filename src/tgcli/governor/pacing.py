@@ -1,0 +1,125 @@
+"""Sleep-before-dispatch pacing and the rolling breadth budget.
+
+ADR-0072 decision 3, plan phase 4. The incident ran wholly unpaced:
+Telethon's own throttle only arms above a caller's ``limit > 3000``, so
+``--limit 1000`` never engaged it and tgcli added none of its own. This
+module is the gap the incident found: a persisted, cross-process minimum
+interval per request type, enforced *before* dispatch.
+
+The interval is **start-to-start** (ADR-0072 decision 3): the reservation
+stamps the moment the request will actually leave, taken before the RPC
+goes out. Stamping on return would turn a 3 s interval into ~4.8 s once a
+typical 1.8 s request latency is added — the #140 canary measured exactly
+that, which is why the ADR now says it out loud.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import time
+
+from telethon import utils as telethon_utils
+
+from tgcli.governor import registry
+from tgcli.governor.ledger import Ledger
+
+
+def _charge(request: object) -> float | None:
+    """The interval this request owes, after per-unit adjustment.
+
+    ``None`` means the class is unpaced: no pre-emptive interval, still
+    fully gated on its cooldown. BY_ID pays one interval per request (the
+    "10 s per 300 ids" default covers a batch; commands chunk at
+    ``BY_ID_BATCH`` themselves, and a 600-id call must not pay two gaps).
+    MEDIA pays per *file*, not per chunk: a large file is many
+    ``upload.GetFileRequest`` calls, and the first chunk (offset 0) of a
+    file is what opens the gap.
+    """
+    request_class = registry.classify(request)
+    interval = registry.INTERVALS[request_class]
+    if interval is None:
+        return None
+    if (
+        request_class is registry.RequestClass.MEDIA
+        and getattr(request, "offset", 0) != 0
+    ):
+        return None
+    return interval
+
+
+async def pace_before_dispatch(
+    ledger: Ledger,
+    account: int,
+    request: object,
+    *,
+    now: float | None = None,
+    sleep=asyncio.sleep,
+) -> None:
+    """Sleep until the start-to-start floor holds, then reserve.
+
+    The reservation lands *before* the request leaves, at the moment the
+    request will actually be dispatched. Where the request's own latency
+    already exceeds the interval, no sleep is owed — the interval is a
+    floor on spacing, not an added delay.
+    """
+    interval = _charge(request)
+    if interval is None:
+        return
+    key = registry.request_key(request)
+    moment = time.time() if now is None else now
+    ledger.clamp_reservation(account, key, moment)
+    last = ledger.last_reserved(account, key)
+    wait = interval - (moment - last) if last is not None else 0.0
+    if wait > 0:
+        await sleep(wait)
+        moment += wait
+    ledger.reserve(account, key, moment)
+
+
+def touch_history_peer(
+    ledger: Ledger, account: int, request: object, *, now: float | None = None
+) -> None:
+    """Record a history read's peer against the breadth budget.
+
+    Called before dispatch; durable per peer (ADR-0072 decision 5) so a
+    killed process does not hand back budget for peers it really read.
+    A request without a peer (search-global, difference) is not a breadth
+    read and touches nothing.
+    """
+    if registry.classify(request) is not registry.RequestClass.HISTORY:
+        return
+    peer = getattr(request, "peer", None)
+    if peer is None:
+        return
+    try:
+        peer_id = telethon_utils.get_peer_id(peer)
+    except (TypeError, ValueError):
+        return
+    moment = time.time() if now is None else now
+    ledger.touch_peer(account, peer_id, moment)
+
+
+def budget_ok(ledger: Ledger, account: int, *, now: float | None = None) -> bool:
+    """Whether starting work on a *new* peer fits the rolling budget.
+
+    Commands that walk peers call this before each new one and stop
+    *normally* (exit 0, ``stop_reason``, checkpoint intact) when it
+    returns False.
+    """
+    moment = time.time() if now is None else now
+    return ledger.breadth_remaining(account, moment) > 0
+
+
+def governor_of(tg) -> tuple[Ledger, int] | None:
+    """The ledger and account id attached to this client, if governed.
+
+    Commands reach the governor through the client the session built for
+    them: the seam installs ``_tgcli_governor`` and Telethon restores
+    ``_self_id`` at connect, so no RPC is needed and no second code path
+    exists to drift.
+    """
+    ledger = getattr(tg, "_tgcli_governor", None)
+    account = getattr(tg, "_self_id", None)
+    if ledger is None or not isinstance(account, int):
+        return None
+    return ledger, account

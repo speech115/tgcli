@@ -13,6 +13,7 @@ from tgcli.archive import scope as scope_mod, store as store_mod
 from tgcli.clone import cooldown as cooldown_mod, flood
 from tgcli.commands.read import _dialog_name, message_to_dict
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
+from tgcli.governor import pacing
 from tgcli.output import note
 
 
@@ -31,11 +32,20 @@ async def backfill_dialogs(
     limit: int,
     account_user_id: int,
     budget: flood.WaitBudget | None = None,
-) -> list[dict[str, Any]]:
-    """Fetch up to ``limit`` recent messages per chat; resume older pages."""
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Fetch up to ``limit`` recent messages per chat; resume older pages.
+
+    Returns ``(results, stop_reason)``: ``stop_reason`` is set when the
+    rolling peer-breadth budget ran out mid-sweep and the run stopped
+    normally — the caller turns that into exit 0 with a deferred report,
+    never an error (plan phase 4).
+    """
     run_budget = budget if budget is not None else flood.WaitBudget()
     results: list[dict[str, Any]] = []
+    governor = pacing.governor_of(tg)
     for chat in chats:
+        if governor is not None and not pacing.budget_ok(*governor):
+            return results, "breadth_budget_exhausted"
         results.append(
             await backfill_one(
                 tg,
@@ -46,7 +56,7 @@ async def backfill_dialogs(
                 budget=run_budget,
             )
         )
-    return results
+    return results, None
 
 
 def _checkpoint_flood(
@@ -296,7 +306,7 @@ async def backfill_private(
             "stored": 0,
             "skipped_complete": skipped,
         }
-    dialogs = await backfill_dialogs(
+    dialogs, stop_reason = await backfill_dialogs(
         tg,
         conn,
         refs,
@@ -304,7 +314,7 @@ async def backfill_private(
         account_user_id=account_user_id,
         budget=budget,
     )
-    return {
+    data: dict[str, Any] = {
         "mode": "private",
         "limit": limit,
         "max_dialogs": max_dialogs,
@@ -312,3 +322,8 @@ async def backfill_private(
         "stored": sum(item["stored"] for item in dialogs),
         "skipped_complete": skipped,
     }
+    if stop_reason is not None:
+        data["stop_reason"] = stop_reason
+        data["deferred"] = len(refs) - len(dialogs)
+        data["resume"] = refs[len(dialogs)] if len(dialogs) < len(refs) else None
+    return data

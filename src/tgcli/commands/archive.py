@@ -291,7 +291,7 @@ async def backfill(
             )
         else:
             chats = backfill_mod.validate_dialogs(chats, maximum=MAX_BACKFILL_DIALOGS)
-            dialogs = await backfill_mod.backfill_dialogs(
+            dialogs, stop_reason = await backfill_mod.backfill_dialogs(
                 tg,
                 conn,
                 chats,
@@ -305,6 +305,11 @@ async def backfill(
                 "dialogs": dialogs,
                 "stored": sum(item["stored"] for item in dialogs),
             }
+            if stop_reason is not None:
+                data["stop_reason"] = stop_reason
+                data["deferred"] = len(chats) - len(dialogs)
+                resume = chats[len(dialogs)] if len(dialogs) < len(chats) else None
+                data["resume"] = resume
         data["media"] = await sync_mod.fetch_media(
             tg,
             conn,

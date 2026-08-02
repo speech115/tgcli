@@ -26,6 +26,8 @@ land in the ungated authorization window instead.
 
 from __future__ import annotations
 
+import asyncio
+import time
 import types
 from datetime import UTC, datetime, timedelta
 from math import ceil
@@ -33,7 +35,7 @@ from math import ceil
 from telethon import errors as telethon_errors
 
 from tgcli.errors import RateLimitError
-from tgcli.governor import probe, registry
+from tgcli.governor import pacing, probe, registry
 from tgcli.governor.ledger import Ledger
 
 # Which flood families arm an account-wide, peer-agnostic cooldown.
@@ -58,13 +60,21 @@ def account_id(client) -> int | None:
     return value if isinstance(value, int) else None
 
 
-def install(client, ledger: Ledger, *, account_source=None) -> None:
+def install(
+    client,
+    ledger: Ledger,
+    *,
+    account_source=None,
+    sleep=asyncio.sleep,
+    clock=time.time,
+) -> None:
     """Wrap this client's ``_call`` so every request passes the gate.
 
     ``account_source`` overrides where the account id comes from. A CDN client
     is constructed fresh by Telethon and has no ``_self_id``, so it is given
     its parent's — otherwise it would look like unauthenticated traffic and
-    skip the gate entirely.
+    skip the gate entirely. ``sleep`` and ``clock`` are injectable so tests
+    can fake time instead of sleeping in real time.
     """
     original = client._call
     resolve = (lambda: account_id(client)) if account_source is None else account_source
@@ -75,6 +85,14 @@ def install(client, ledger: Ledger, *, account_source=None) -> None:
         is_probe = False
         if account is not None:
             is_probe = refuse_if_cooling(ledger, account, key)
+            if not is_probe:
+                # The probe must not pace itself out of its own cooldown
+                # window; every other request reserves start-to-start
+                # *before* dispatch (ADR-0072 decision 3, plan phase 4).
+                await pacing.pace_before_dispatch(
+                    ledger, account, request, now=clock(), sleep=sleep
+                )
+            pacing.touch_history_peer(ledger, account, request, now=clock())
         try:
             result = await original(sender, request, *args, **kwargs)
         except ARMING_ERRORS as exc:
