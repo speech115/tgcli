@@ -13,16 +13,21 @@ tg --json archive refresh \
 
 The caps are per run: sync accepts at most 5000 catch-up messages, 50
 dialogs, and 500 media items; transcription accepts at most 100 items and 5
-attempts. All values must be positive. There is no unlimited value. The job
-uses one FloodWait budget for the network stage and has no implicit 60-second
-deadline; pass an explicit `--timeout` when a shorter wall-clock limit is
-needed.
+attempts. All values must be positive. There is no unlimited value. The
+job's requests are paced by the request governor (ADR-0072): history reads
+and dialog enumeration wait 3 s between requests, and the run's governed
+sleep does not count against the default 60-second `--timeout`, which is a
+hang detector rather than a job bound. Pass `--max-runtime` when the whole
+pass must fit a wall-clock budget — exhausting it is a *normal* stop (exit
+0) with a `stop_reason: "wall_clock_cap"` and the schedule resumes the
+next pass.
 
 A network failure or unavailable local transcription engine increments the
 account's refresh failure streak. Item-level media/transcription failures are
 returned in the completed stage data and exit nonzero, but do not increment the
-account-level streak. FLOOD_WAIT exits with its normal rate-limit result and
-does not increment the streak. Any completed pipeline resets the streak. After
+account-level streak. A `FLOOD_WAIT` arms a per-request-type cooldown in the
+governor's ledger and exits with its normal rate-limit result without
+incrementing the streak. Any completed pipeline resets the streak. After
 three consecutive run-level failures, macOS receives one generic notification;
 it is not repeated until a completed run starts a new failure episode. Inspect
 the state with:
@@ -30,6 +35,22 @@ the state with:
 ```bash
 tg --json archive status
 ```
+
+## When the account is cooling
+
+A `FLOOD_WAIT` is recorded **per request type**, so "the account is cooling"
+is no longer a single state. `tg doctor` reports every active cooldown with
+its deadline; a cooling type refuses locally with exit 5 and `retry_after`,
+without any network call, until its deadline passes (the governor probes once
+at half the wait, so an early-lifted limit is noticed automatically).
+
+A scheduled refresh that wakes into a partial cooldown does what the free
+request types allow, reports the rest as deferred, and **exits 0** with
+`stop_reason: "cooldown_deferred"` and `deferred: ["sync"]` — it is a
+success that deferred work, not a failure to alert on. The alert (the
+stderr line) fires once, when the flood arms; later wakes are silent.
+A refresh that is fully blocked stops normally and the schedule resumes
+it later.
 
 The `status.refresh` object contains `failure_streak`, `last_error`, the
 notification threshold, and `notification_sent`. Notification delivery is
