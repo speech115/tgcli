@@ -76,3 +76,24 @@ for the integrator, operator guides for a cooling account, and flipping
   reads legacy records.
 - **M6: `docs/MAP.md` matches reality** — the deleted `flood.py` row is
   gone and `cooldown.py` is described as the per-clone gate.
+
+### Second review pass (minor findings)
+
+- **m1: no zero governor-accounting fields for offline runs.** `cli.main`
+  writes `governed_sleep_ms`/`request_count` only when requests were
+  actually governed; a refusal before the seam carries neither.
+- **m3: `doctor --connect` is fully exempt.** `session.client` gained
+  `govern=False`; doctor opens an ungoverned client so a
+  `users.GetUsersRequest` cooldown cannot block the diagnosis. Test drives
+  the exemption with a live ledger.
+- **m4: doctor's JSON schema is stable.** `governor_cooldowns` and
+  `governor_degraded` are always present (empty/False without a session or
+  cached user id), never absent.
+- **m6: the arm-time alert has a positive test** (stderr line at arming,
+  silent refusal afterwards).
+- **m7: all three journal provenance values tested** — `server`,
+  `account_cooldown`, `resolve_phone_cooldown`.
+- **m8: ledger comments no longer reference the deleted `clone/flood.py`.**
+- **m11: dead `clone_state` parameters removed** from `cooldown.mutate` and
+  `reupload.uploaded_media` (and all their callers).
+- **D5: deferred refresh JSON carries `"sync": {}`**, never `null`.

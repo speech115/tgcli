@@ -366,7 +366,6 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
                 else functions.channels.CreateChannelRequest(
                     title=marker, about="", broadcast=True, megagroup=False
                 ),
-                clone_state,
             )
             candidates = [
                 item
@@ -381,16 +380,13 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
     if forum and not getattr(destination, "forum", False):
         safety.append_audit("clone-init-forum", account_alias, {"clone_id": clone_id})
     if forum:
-        await topics.ensure_forum(
-            lambda request: _mutate(tg, request, clone_state), destination
-        )
+        await topics.ensure_forum(lambda request: _mutate(tg, request), destination)
     titled = attribution.destination_title(clone_state.source_title)
     if getattr(destination, "title", None) != titled:
         safety.append_audit("clone-init-title", account_alias, {"clone_id": clone_id})
         await _mutate(
             tg,
             functions.channels.EditTitleRequest(channel=destination, title=titled),
-            clone_state,
         )
         destination.title = titled
     full_chat = await _copy_profile(
@@ -529,14 +525,10 @@ async def _reupload_batch(
             request = functions.messages.SendMediaRequest(
                 **common,
                 media=await _uploaded_media(
-                    tg,
-                    message,
-                    downloads[message.id],
-                    clone_state,
-                    progress,
+                    tg, message, downloads[message.id], progress
                 ),
             )
-        response = await _mutate(tg, request, clone_state)
+        response = await _mutate(tg, request)
     else:
         multi_media = []
         for index, (message, random_id) in enumerate(
@@ -547,12 +539,11 @@ async def _reupload_batch(
                     f"clone album item is not reconstructable: {message.id}"
                 )
             uploaded = await _uploaded_media(
-                tg, message, downloads[message.id], clone_state, progress
+                tg, message, downloads[message.id], progress
             )
             stored = await _mutate(
                 tg,
                 functions.messages.UploadMediaRequest(peer=destination, media=uploaded),
-                clone_state,
             )
             text, entities = _body_text(message, author if index == 0 else None, plan)
             multi_media.append(
@@ -566,7 +557,7 @@ async def _reupload_batch(
         request = functions.messages.SendMultiMediaRequest(
             peer=destination, multi_media=multi_media, reply_to=reply_to
         )
-        response = await _mutate(tg, request, clone_state)
+        response = await _mutate(tg, request)
     # Only a successful send clears the cache — a FloodWait mid-upload must
     # leave downloaded bytes for the next invocation (ADR-0052).
     shutil.rmtree(cache, ignore_errors=True)
@@ -653,7 +644,6 @@ async def _forward_batch(
                 drop_author=False,
                 top_msg_id=top_msg_id,
             ),
-            clone_state,
         )
     elif plan.mode == "snapshots":
         rendered_text, rendered_entities, poll_marker = await snapshot.render(
@@ -687,7 +677,6 @@ async def _forward_batch(
                 no_webpage=True,
                 entities=entities,
             ),
-            clone_state,
         )
     elif plan.mode == "forwarded":
         safety.append_audit(
@@ -703,7 +692,7 @@ async def _forward_batch(
             drop_author=_drops_author(leg, messages),
             top_msg_id=top_msg_id,
         )
-        response = await _mutate(tg, request, clone_state)
+        response = await _mutate(tg, request)
     else:
         response = await _reupload_batch(
             tg,
@@ -780,7 +769,7 @@ async def sync_text(
     counters = {"topics_created": 0, "skipped_service": 0, "skipped_autoforward": 0}
 
     def mutate(request):
-        return _mutate(tg, request, clone_state)
+        return _mutate(tg, request)
 
     def cap_exhausted() -> bool:
         """--max-runtime hit: stop normally, keep the cursor for resume."""
@@ -1004,7 +993,7 @@ async def sync_text(
     if cap_exhausted() and not more:
         # --max-runtime exhausted: a normal stop, not an error — the cursor
         # advanced and the next invocation resumes (ADR-0072 decision 6).
-        data["stop_reason"] = "wall_clock_cap"
+        data["stop_reason"] = "wall_clock_cap"  # type: ignore[index]
         data["resume"] = {"cursor": clone_state.cursor}
     return data
 
@@ -1168,7 +1157,6 @@ async def commit_refresh(tg, source: str, account_alias: str, payload: dict) -> 
                     message=rendered_text,
                     entities=rendered_entities,
                 ),
-                clone_state,
             )
         except MessageNotModifiedError:
             pass

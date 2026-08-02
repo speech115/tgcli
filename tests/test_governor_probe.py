@@ -218,3 +218,29 @@ async def test_the_request_after_a_successful_probe_paces_from_it(ledger):
     # own dispatch moment (the probe reserved on success), not 0.
     assert sleeps == [3.0]
     assert ledger.last_reserved(ACCOUNT, HISTORY_KEY) == 3.0
+
+
+async def test_the_probe_itself_is_not_paced(ledger):
+    """m6 review fix: the probe must not wait out its own cooldown window —
+    it skips the pacing reservation (plan phase 4 trap)."""
+
+    sleeps = []
+    clock = {"t": 0.0}
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+        clock["t"] += seconds
+
+    client = FakeClient()
+    gate.install(client, ledger, sleep=fake_sleep, clock=lambda: clock["t"])
+    arm_elapsed(ledger)
+
+    # The probe fires immediately — no pacing sleep, even though the type
+    # is a history read that normally paces at 3 s.
+    assert await client._call(None, history()) == "result"
+    assert sleeps == []
+
+    # The next request paces from the probe's own reservation (M8), so the
+    # probe's skip does not leak into the following request.
+    assert await client._call(None, history()) == "result"
+    assert sleeps == [3.0]

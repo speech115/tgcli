@@ -98,21 +98,18 @@ async def run(
     transcribe_limit: int,
     max_attempts: int,
 ) -> dict[str, Any]:
-    """Run sync (including media) and local transcription as one bounded job."""
+    """Run sync (incl. media) and local transcription as one bounded job."""
     from tgcli.governor import pacing
 
     deferred: list[str] = []
     sync_data = None
     remaining = pacing.wall_clock_remaining()
     if remaining is not None and remaining <= 0:
-        # --max-runtime already exhausted before dispatch: a normal stop,
-        # like the cooldown-deferred path (ADR-0072 decision 6).
+        # Cap already exhausted before dispatch: a normal stop (ADR-0072 d6).
         deferred.append("sync")
     elif sync_types_cooling(tg):
-        # ADR-0072 decision 4 / plan phase 6: a scheduled pass waking into a
-        # partial cooldown does what the free request types allow, reports
-        # the rest as deferred, and exits 0 — not the old exit 5 on every
-        # wake. Transcription is local and always free.
+        # Partial cooldown: do what is free, defer the rest, exit 0 —
+        # not the old exit 5 on every wake (ADR-0072 decision 4).
         deferred.append("sync")
     else:
         try:
@@ -138,7 +135,10 @@ async def run(
         max_attempts=max_attempts,
     )
 
-    data: dict[str, Any] = {"sync": sync_data, "transcribe": transcribe_data}
+    data: dict[str, Any] = {
+        "sync": sync_data or {},  # empty (not null) when deferred
+        "transcribe": transcribe_data,
+    }
     if deferred:
         data["deferred"] = deferred
         data["stop_reason"] = (
@@ -170,13 +170,10 @@ async def run(
 
 
 def sync_types_cooling(tg) -> bool:
-    """Whether the request types sync depends on are cooling right now.
+    """Whether the request types sync depends on are cooling (ADR-0072).
 
-    The governor keys cooldowns per Telegram request type (ADR-0072
-    decision 1); a scheduled refresh checks the ledger before dispatching
-    so a hot account is reported as deferred rather than failing. The set
-    covers everything the sync path actually sends: the changes poll,
-    channel catch-ups, entity resolution, and media acquisition.
+    Covers the changes poll, channel catch-ups, entity resolution, and
+    media acquisition; a hot account defers rather than fails.
     """
     from tgcli.governor import pacing
 

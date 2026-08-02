@@ -36,3 +36,22 @@ automatically; nothing to add here.
 point where the start-to-start reservation decision 3 mandates actually gets
 exercised. This phase still does not *prevent* a flood; it stops the tool
 from guessing into one.
+
+## Review fixes (independent review, same session)
+
+- **m1 (phases 3-4): atomic pacing reservation.** `ledger.reserve` is now a
+  conditional upsert (`WHERE pacing.reserved_at <= excluded.reserved_at`);
+  a competitor's fresher stamp wins and the loser re-reads and sleeps the
+  remainder. `clamp_reservation` repairs unconditionally (a future stamp is
+  unambiguously wrong, not a race) and `pace_before_dispatch` uses its
+  return instead of re-reading. Tests cover the two-connection race.
+- **m5: P6 test added** — two `ResolvePhoneRequest`s pace at 3 s through
+  the general mechanism.
+- **m6: probe-skip-of-pacing pinned by a test** (probe fires with zero
+  sleeps; the next request paces from the probe's reservation).
+- **m8: single read in `pace_before_dispatch`** — `clamp_reservation`'s
+  return is used, no second `last_reserved`.
+- **m9: `cooldown_armed_at` unit tests** — roundtrip, missing row, naive
+  tz rejection.
+- **m5 (phases 3-4): pacing counters isolated per test** — an autouse
+  fixture resets the process-wide state so test order cannot leak.

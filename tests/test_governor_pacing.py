@@ -93,6 +93,17 @@ def sleeper(clock):
     return fake_sleep
 
 
+@pytest.fixture(autouse=True)
+def clean_pacing_state():
+    """m5 review fix: the process-wide pacing counters are shared state;
+    every test starts from a clean slate so order cannot leak."""
+    from tgcli.governor import pacing
+
+    pacing.reset_runtime()
+    yield
+    pacing.reset_runtime()
+
+
 @pytest.fixture
 def ledger(tmp_path):
     with Ledger.open(tmp_path / "governor.db") as store:
@@ -548,7 +559,10 @@ def test_journal_carries_governor_fields_on_a_flood_stop(
     assert entry["retry_after"] == 123
     assert entry["request_type"] == "updates.GetStateRequest"
     assert entry["provenance"] == "server"
-    assert entry["request_count"] == 0
+    # The refusal happened before any request reached the seam, so no
+    # governor accounting fields (review fix m1).
+    assert "request_count" not in entry
+    assert "governed_sleep_ms" not in entry
 
 
 def test_journal_carries_stop_reason_on_a_normal_stop(config_env, monkeypatch, capsys):
@@ -561,7 +575,9 @@ def test_journal_carries_stop_reason_on_a_normal_stop(config_env, monkeypatch, c
     from tgcli.cli import main
     from tgcli.governor import pacing
 
-    pacing.reset_runtime(cap=0.0)
+    # Deterministic: the cap is always exhausted at the first check, instead
+    # of racing a real 0.001 s wall-clock window.
+    monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: 0.0)
     me = _me(user_id=42)
     alice = _user(user_id=7, username="alice")
     client = FakeClient(
@@ -574,21 +590,8 @@ def test_journal_carries_stop_reason_on_a_normal_stop(config_env, monkeypatch, c
     _init(monkeypatch, client)
     capsys.readouterr()
 
-    assert (
-        main(
-            [
-                "archive",
-                "backfill",
-                "--private",
-                "--max-dialogs",
-                "5",
-                "--max-runtime",
-                "0.001",
-                "--json",
-            ]
-        )
-        == 0
-    )
+    args = ["archive", "backfill", "--private", "--max-dialogs", "5", "--json"]
+    assert main(args) == 0
     capsys.readouterr()
 
     entry = _journal_lines()[-1]
@@ -684,3 +687,73 @@ def test_max_runtime_must_be_positive(config_env, capsys):
     assert main(["--max-runtime", "0", "dialogs", "--json"]) == 2
     assert "positive" in capsys.readouterr().err.lower()
     assert main(["--max-runtime", "-5", "dialogs", "--json"]) == 2
+
+
+async def test_resolve_twice_within_three_seconds_paces_like_today(client, sleeper):
+    """P6: ResolvePhoneRequest keeps its 3 s pace via the general mechanism.
+
+    The file-based pre-flight gate in resolve_phone.py stays (its own tests
+    pin it); this pins that the seam's pacing covers the same request type
+    at the same interval.
+    """
+    from telethon.tl.functions.contacts import ResolvePhoneRequest
+
+    await client._call(None, ResolvePhoneRequest(phone="+100"))
+    await client._call(None, ResolvePhoneRequest(phone="+200"))
+
+    assert sleeper.calls == [3.0]
+
+
+def test_journal_records_resolve_phone_cooldown_provenance(
+    config_env, monkeypatch, capsys
+):
+    """m7 review fix: the third provenance value lands in the journal.
+
+    The pre-flight resolve_phone gate records its own stop; a second
+    resolve within 3 s exits 5 with provenance=resolve_phone_cooldown.
+    """
+
+    from tgcli import resolve_phone
+    from tgcli.cli import main
+    from tgcli.session import state_dir
+
+    (state_dir() / "sessions").mkdir(parents=True, exist_ok=True)
+    (state_dir() / "sessions" / "main.session").write_bytes(b"x")
+
+    clock = {"t": 1_000.0}
+    monkeypatch.setattr(resolve_phone.time, "time", lambda: clock["t"])
+
+    from telethon.tl import types
+
+    from tests.conftest import FakeClient, make_session_fake
+    from tests.test_cli_archive_phase3 import _me
+
+    user = _me(user_id=42)
+    resolved = types.PeerUser(user_id=42)
+    client = FakeClient(
+        me=user,
+        resolve_phone_result=type(
+            "R", (), {"peer": resolved, "users": [user], "chats": []}
+        )(),
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["resolve", "+99512345678", "--json"]) == 0
+    capsys.readouterr()
+    assert main(["resolve", "+99512345678", "--json"]) == 5
+    capsys.readouterr()
+
+    entry = _journal_lines()[-1]
+    assert entry["provenance"] == "resolve_phone_cooldown"
+    assert entry["request_type"] == "contacts.ResolvePhoneRequest"
+    assert entry["retry_after"] >= 1
+
+
+def test_timeout_must_be_positive(config_env, capsys):
+    """Review D2: --timeout 0 / negative is misuse, exit 2, not a split
+    personality between local and network commands."""
+    from tgcli.cli import main
+
+    assert main(["--timeout", "0", "dialogs", "--json"]) == 2
+    assert "positive" in capsys.readouterr().err.lower()
+    assert main(["--timeout", "-1", "dialogs", "--json"]) == 2

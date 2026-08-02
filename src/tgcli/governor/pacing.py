@@ -155,14 +155,21 @@ async def pace_before_dispatch(
         return
     key = registry.request_key(request)
     moment = time.time() if now is None else now
-    ledger.clamp_reservation(account, key, moment)
-    last = ledger.last_reserved(account, key)
+    last = ledger.clamp_reservation(account, key, moment)
     wait = interval - (moment - last) if last is not None else 0.0
     if wait > 0:
         _note_sleep(wait)  # write-ahead (review fix C1)
         await sleep(wait)
         moment += wait
-    ledger.reserve(account, key, moment)
+    # Atomic claim (review fix m1): if a competitor reserved a *fresher*
+    # slot while we slept, our claim loses — re-read and sleep the
+    # remainder so the start-to-start floor still holds.
+    if not ledger.reserve(account, key, moment):
+        newer = ledger.last_reserved(account, key)
+        extra = (newer or moment) - moment
+        if extra > 0:
+            _note_sleep(extra)
+            await sleep(extra)
 
 
 def touch_history_peer(

@@ -42,6 +42,11 @@ def _prepare_max_runtime(args) -> None:
     cap = getattr(args, "max_runtime", None)
     if cap is not None and cap <= 0:
         raise PolicyError("--max-runtime must be a positive number of seconds")
+    # --timeout is a hang detector; a non-positive deadline is meaningless
+    # and behaves differently for local vs network commands (review D2).
+    timeout = getattr(args, "timeout", None)
+    if timeout is not None and timeout <= 0:
+        raise PolicyError("--timeout must be a positive number of seconds")
 
 
 def _prepare_archive(args) -> None:

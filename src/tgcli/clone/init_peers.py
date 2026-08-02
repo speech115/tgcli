@@ -149,7 +149,7 @@ async def init_discussion(
         return await make_awaitable()
 
     def mutate(request):
-        return cooldown_mod.mutate(tg, request, clone_state)
+        return cooldown_mod.mutate(tg, request)
 
     try:
         source_group = await tg.get_entity(types.PeerChannel(linked))

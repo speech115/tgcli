@@ -13,7 +13,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from math import ceil
 
-from tgcli.clone import state
 from tgcli.errors import RateLimitError
 
 
@@ -25,13 +24,13 @@ def raise_if_cooling(deadline: datetime) -> None:
         )
 
 
-def enforce(clone_state: state.CloneState) -> None:
+def enforce(clone_state) -> None:
     deadline = clone_state.cooldown_deadline()
     if deadline is not None:
         raise_if_cooling(deadline)
 
 
-async def mutate(tg, request, clone_state: state.CloneState):
+async def mutate(tg, request):
     """Send one mutation through the governed seam.
 
     Floods are handled by the governor's ``_call`` wrapper: it arms the

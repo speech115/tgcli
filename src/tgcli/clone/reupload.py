@@ -80,7 +80,7 @@ async def uploaded_thumb(tg, message, document, path: Path, invoke):
         return None
 
 
-async def uploaded_media(tg, message, path, clone_state, progress=None):
+async def uploaded_media(tg, message, path, progress=None):
     async def invoke(make_awaitable):
         return await make_awaitable()
 

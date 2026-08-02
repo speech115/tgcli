@@ -111,7 +111,7 @@ async def _check_role(account, role: str, *, connect: bool) -> dict:
         checks["authorized"] = False
         if checks["session_file"] and checks["lock_free"]:
             try:
-                async with session.client(account, role=role) as tg:
+                async with session.client(account, role=role, govern=False) as tg:
                     me = await tg.get_me()
                     checks["authorized"] = me is not None
                     if me is not None:
@@ -145,9 +145,8 @@ def _governor_check(session_file: Path) -> dict:
     from tgcli.governor.ledger import Ledger
 
     user_id = session.session_user_id(session_file)
-    result: dict = {"governor_degraded": False}
+    result: dict = {"governor_degraded": False, "governor_cooldowns": {}}
     if user_id is None:
-        result["governor_cooldowns"] = None
         return result
     with Ledger.open() as ledger:
         result["governor_degraded"] = ledger.degraded
@@ -173,14 +172,15 @@ async def check_account(account, *, connect: bool = False) -> dict:
         "state_size": _state_size(),
         "authorized": None,
     }
-    if has_session_file:
-        checks.update(_governor_check(session_file))
+    # Governor keys are always present (empty when there is no session or
+    # no cached user id) so the JSON schema is stable (review fix m4).
+    checks.update(_governor_check(session_file))
     user = None
     if connect:
         checks["authorized"] = False
         if checks["session_file"] and checks["lock_free"]:
             try:
-                async with session.client(account) as tg:
+                async with session.client(account, govern=False) as tg:
                     me = await tg.get_me()
                     checks["authorized"] = me is not None
                     if me is not None:

@@ -75,3 +75,18 @@ storage (`clone/flood.py` account record, `cooled_account`).
   it is exempt, exactly like `accounts login`.
 - **`--max-runtime` validation**: non-positive values now exit 2
   (PolicyError), not a silent no-op.
+
+### Decisions recorded after review (M3, m1)
+
+- **Clone commands exit 5 on any flood — no foreground retry.** `clone
+  sync/init/refresh` do not use `sleep_flood`; a flood arms the governor's
+  per-type cooldown and the run exits 5 immediately, resumed by re-running.
+  This deliberately replaces ADR-0052's ≤60 s foreground retry for clone:
+  the governor's pacing makes floods rare, and an interactive `clone sync`
+  has no schedule to wait out a wait for. The plan's "slept out if it fits
+  the remaining cap" applies to `archive backfill` only.
+- **`sleep_flood` without `--max-runtime` never sleeps.** With no wall-clock
+  cap there is no budget to judge a wait against, so every flood exits 5.
+  This is a deliberate, conservative choice (the old `SHORT_WAIT`/`WAIT_BUDGET`
+  foreground retry is gone); an operator who wants waits slept out must pass
+  `--max-runtime`. The integrator's CONTRACT edit should state this.

@@ -310,7 +310,7 @@ def _audit_after(args, account, data) -> None:
         safety.finish_commit(args.commit)
 
 
-def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
+def _execute(args) -> tuple[dict, list[tuple]]:
     """Run one prepared invocation, opening only the resources it needs."""
     if args.command == "accounts" and args.subcommand == "import":
         data = accounts_cmd.import_accounts(
@@ -515,7 +515,6 @@ def main(argv: list[str] | None = None) -> int:
     if isinstance(parsed, int):
         return parsed
     args = parsed
-    timeout_supplied = hasattr(args, "timeout")
     _apply_global_defaults(args)
     from tgcli.governor import pacing
 
@@ -529,7 +528,7 @@ def main(argv: list[str] | None = None) -> int:
         with _honest_termination():
             with _armed(args.timeout):
                 preflight.prepare(parser, args)
-                data, rows = _execute(args, timeout_supplied=timeout_supplied)
+                data, rows = _execute(args)
             result_data = data
             # Emitting is part of the invocation: a failure here is journaled,
             # not reported as a success.
@@ -624,6 +623,10 @@ def main(argv: list[str] | None = None) -> int:
             stop_fields = pacing.last_stop() or {}
         else:
             stop_fields = {}
+        # Governor accounting only belongs on runs that actually governed
+        # requests (review fix m1): offline commands carry neither field.
+        slept_ms = int(pacing.total_governed_sleep() * 1000)
+        requests = pacing.request_count()
         invocations.log_invocation(
             command=args.command,
             account=args.account,
@@ -631,8 +634,8 @@ def main(argv: list[str] | None = None) -> int:
             exit_code=exit_code,
             error=error_code,
             duration_ms=duration_ms,
-            governed_sleep_ms=int(pacing.total_governed_sleep() * 1000),
-            request_count=pacing.request_count(),
+            governed_sleep_ms=slept_ms if requests else None,
+            request_count=requests or None,
             **stop_fields,
         )
         _restore_diagnostics(verbose_diagnostics)

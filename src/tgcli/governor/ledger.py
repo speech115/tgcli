@@ -8,7 +8,7 @@ a second process must see the first one's clock rather than keep its own.
 Three behaviours are load-bearing and each answers a specific past failure:
 
 * **Reads fail open.** A missing or corrupt ledger must never wedge the CLI.
-  ``clone/flood.py`` already works this way; the cost of failing closed on
+  the pre-governor clone record already worked this way; the cost of failing closed on
   corruption is an account that cannot be used at all with no way out but
   hand-editing state.
 * **Deadlines are clamped at read time, not at write time.** A host clock that
@@ -30,8 +30,8 @@ from tgcli.session import ensure_state_dir, restrict_file, state_dir
 SCHEMA_VERSION = 1
 
 # Telegram's longest realistic FloodWait is on the order of a day; anything
-# further ahead is skew or corruption (`clone/flood.py:35`, kept deliberately
-# identical so the two agree while both are live).
+# further ahead is skew or corruption — the same ceiling the pre-governor
+# clone record used.
 MAX_COOLDOWN_S = 86_400
 
 # ADR-0072 decision 3: 100 distinct peers touched by history reads per rolling
@@ -331,29 +331,47 @@ class Ledger:
         Called *before* the request leaves (ADR-0072 decision 3): the interval
         is start-to-start, so a slow request must not add its own latency on
         top of the pace.
+
+        The claim is atomic against a fresher competitor (review fix m1):
+        a reservation stamped earlier than one already on record loses,
+        so two processes that both read "nothing reserved" cannot both
+        dispatch back-to-back — the loser's claim is refused and it must
+        re-read and sleep the remainder.
         """
         try:
-            self._db.execute(
+            cursor = self._db.execute(
                 "INSERT INTO pacing (account_user_id, request_key, reserved_at) "
                 "VALUES (?, ?, ?) "
                 "ON CONFLICT(account_user_id, request_key) DO UPDATE SET "
-                "reserved_at = excluded.reserved_at",
+                "reserved_at = excluded.reserved_at "
+                "WHERE pacing.reserved_at <= excluded.reserved_at",
                 (account_user_id, request_key, at),
             )
             self._db.commit()
         except sqlite3.Error:
             return False
-        return True
+        return cursor.rowcount == 1
 
     def clamp_reservation(self, account_user_id: int, request_key: str, now: float):
         """Repair a reservation stamped in the future by a stepped-back clock.
 
         Same failure `resolve_phone.py` already guards: without this, one NTP
         correction wedges a request type until the wall clock catches up.
+        Repairing is not a race — the future stamp is unambiguously wrong —
+        so it overwrites unconditionally rather than going through the
+        atomic `reserve`.
         """
         last = self.last_reserved(account_user_id, request_key)
         if last is not None and last > now:
-            self.reserve(account_user_id, request_key, now)
+            try:
+                self._db.execute(
+                    "UPDATE pacing SET reserved_at = ? "
+                    "WHERE account_user_id = ? AND request_key = ?",
+                    (now, account_user_id, request_key),
+                )
+                self._db.commit()
+            except sqlite3.Error:
+                pass
             return now
         return last
 

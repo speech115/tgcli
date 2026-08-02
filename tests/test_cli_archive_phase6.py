@@ -347,6 +347,7 @@ def test_refresh_waking_into_a_partial_cooldown_exits_zero_with_deferred(
     data = json.loads(capsys.readouterr().out)
     assert data["stop_reason"] == "cooldown_deferred"
     assert data["deferred"] == ["sync"]
+    assert data["sync"] == {}  # stable shape, not null (review fix D5)
     assert "transcribe" in data
 
 

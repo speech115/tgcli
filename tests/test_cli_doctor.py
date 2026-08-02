@@ -60,7 +60,7 @@ def _fake_client(monkeypatch):
     from tgcli import session
 
     @asynccontextmanager
-    async def fake_session(account, *, mutation_safe=False, role=None):
+    async def fake_session(account, *, mutation_safe=False, role=None, govern=True):
         yield DoctorClient()
 
     monkeypatch.setattr(session, "client", fake_session)
@@ -100,7 +100,9 @@ def test_doctor_reports_config_error_in_payload(config_env, monkeypatch, capsys)
     _touch_session("main")
 
     @asynccontextmanager
-    async def unavailable_session(account, *, mutation_safe=False, role=None):
+    async def unavailable_session(
+        account, *, mutation_safe=False, role=None, govern=True
+    ):
         raise ConfigError("session 'main' is not authorized")
         yield
 
@@ -121,7 +123,7 @@ def test_doctor_reports_runtime_error_in_payload(config_env, monkeypatch, capsys
     _touch_session("main")
 
     @asynccontextmanager
-    async def failing_session(account, *, mutation_safe=False, role=None):
+    async def failing_session(account, *, mutation_safe=False, role=None, govern=True):
         raise RuntimeError("unexpected transport failure")
         yield
 
@@ -198,3 +200,31 @@ def test_doctor_works_while_every_gated_type_is_cooling(
     report = data["accounts"][0]
     assert report["ok"] is True
     assert len(report["checks"]["governor_cooldowns"]) == 3
+
+
+def test_doctor_connect_is_exempt_from_governor_cooldowns(
+    config_env, monkeypatch, capsys
+):
+    """m3 review fix: doctor --connect is the one command exempt from the
+    governor (ADR-0072 decision 1) — a users.GetUsersRequest cooldown must
+    not block the diagnosis."""
+    from datetime import UTC, datetime, timedelta
+
+    from tgcli.governor.ledger import Ledger
+
+    _touch_session("main", user_id=1)
+    _fake_client(monkeypatch)
+
+    with Ledger.open() as ledger:
+        ledger.arm_cooldown(
+            1, "users.GetUsersRequest", datetime.now(UTC) + timedelta(hours=2)
+        )
+
+    assert main(["doctor", "--connect", "--account", "main", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    report = data["accounts"][0]
+    # The get_me probe is ungoverned, so authorization is still confirmed
+    # and the run reports the cooldown it was exempt from.
+    assert report["checks"]["authorized"] is True
+    assert "users.GetUsersRequest" in report["checks"]["governor_cooldowns"]
+    assert report["ok"] is True

@@ -430,7 +430,7 @@ def test_cli_wait_has_no_implicit_deadline(config_env, monkeypatch, capsys):
     from tgcli import session
 
     @asynccontextmanager
-    async def fake_session(account, *, mutation_safe=False, role=None):
+    async def fake_session(account, *, mutation_safe=False, role=None, govern=True):
         yield tg
 
     monkeypatch.setattr(session, "client", fake_session)
@@ -456,7 +456,7 @@ def test_cli_init_json(config_env, monkeypatch, capsys):
     from tgcli import session
 
     @asynccontextmanager
-    async def fake_session(account, *, mutation_safe=False, role=None):
+    async def fake_session(account, *, mutation_safe=False, role=None, govern=True):
         yield tg
 
     monkeypatch.setattr(session, "client", fake_session)
@@ -489,7 +489,7 @@ def test_drop_unsubscribed_peer_exits_2(config_env, monkeypatch, capsys):
     from tgcli import session
 
     @asynccontextmanager
-    async def fake_session(account, *, mutation_safe=False, role=None):
+    async def fake_session(account, *, mutation_safe=False, role=None, govern=True):
         yield tg
 
     monkeypatch.setattr(session, "client", fake_session)
@@ -504,7 +504,7 @@ def _fake_session(monkeypatch, tg):
     from tgcli import session
 
     @asynccontextmanager
-    async def fake_session(account, *, mutation_safe=False, role=None):
+    async def fake_session(account, *, mutation_safe=False, role=None, govern=True):
         yield tg
 
     monkeypatch.setattr(session, "client", fake_session)

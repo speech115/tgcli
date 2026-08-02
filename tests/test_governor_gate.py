@@ -294,3 +294,27 @@ async def test_siblings_do_not_issue_rpcs_while_a_flood_is_armed(ledger):
         with pytest.raises(RateLimitError):
             await sibling._call(None, history())
         assert sibling.sent == []
+
+
+async def test_a_flood_alert_fires_once_at_arming(ledger, capsys):
+    """m6 review fix: the stderr alert is written exactly when the flood
+    arms — the scheduled wakes under the cooldown stay silent."""
+    error = telethon_errors.FloodWaitError(request=None)
+    error.seconds = 600
+    client = FakeClient(raises=error)
+    gate.install(client, ledger)
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        await client._call(None, history())
+
+    alert = capsys.readouterr().err
+    assert "telegram flood on messages.GetHistoryRequest" in alert
+    assert "cooling for 600s" in alert
+
+    # A later wake that refuses on the armed cooldown (before 50% elapsed)
+    # is not an arming event — no new alert.
+    fresh = FakeClient()
+    gate.install(fresh, ledger)
+    with pytest.raises(RateLimitError):
+        await fresh._call(None, history())
+    assert "cooling for 600s" not in capsys.readouterr().err

@@ -190,7 +190,11 @@ def _make_client(
 
 @asynccontextmanager
 async def client(
-    account: Account, *, mutation_safe: bool = False, role: str | None = None
+    account: Account,
+    *,
+    mutation_safe: bool = False,
+    role: str | None = None,
+    govern: bool = True,
 ):
     path = session_path(account, role)
     label = session_label(account, role)
@@ -213,11 +217,17 @@ async def client(
     # Telethon creates the SQLite session during client construction; tighten it
     # before any network use.
     restrict_file(path)
-    from tgcli.governor.gate import install as install_governor
-    from tgcli.governor.ledger import Ledger
+    if govern:
+        from tgcli.governor.gate import install as install_governor
+        from tgcli.governor.ledger import Ledger
 
-    governor = Ledger.open()
-    install_governor(tg, governor)
+        governor = Ledger.open()
+        install_governor(tg, governor)
+    else:
+        # `doctor --connect` is the one command exempt from the governor
+        # (ADR-0072 decision 1): it must work precisely when every gated
+        # type is cooling. No seam, no pacing — the diagnosis is the point.
+        governor = None
     try:
         await tg.connect()
         if not await tg.is_user_authorized():
@@ -239,6 +249,7 @@ async def client(
         ) from exc
     finally:
         await tg.disconnect()  # type: ignore  # Telethon stub: Coroutine | None
-        governor.close()
+        if governor is not None:
+            governor.close()
         fcntl.flock(lock, fcntl.LOCK_UN)
         lock.close()

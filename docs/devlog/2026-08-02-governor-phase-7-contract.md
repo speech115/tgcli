@@ -68,3 +68,14 @@ landing the CONTRACT/CHANGELOG/version edits above and the compare link;
 - **Docs consistency**: `doctor.md` JSON sample now carries
   `governor_cooldowns`/`governor_degraded`/`roles`; `ADR-0045` decision 3
   notes the removed `account_flood` field; stale docstrings corrected.
+
+### Second review pass (minor findings)
+
+- **D2: `--timeout` non-positive is now validated** (exit 2, like
+  `--max-runtime`) — a 0/-1 deadline behaved differently for local vs
+  network commands.
+- **m5 (phases 3-4): pacing counters isolated per test** — autouse fixture
+  in the pacing suite resets the process-wide state so test order cannot
+  leak (a real order-dependent failure surfaced during this pass and is
+  fixed deterministically: the wall-clock journal test no longer races a
+  real 0.001 s window).
