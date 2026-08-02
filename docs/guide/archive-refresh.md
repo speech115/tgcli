@@ -15,12 +15,12 @@ The caps are per run: sync accepts at most 5000 catch-up messages, 50
 dialogs, and 500 media items; transcription accepts at most 100 items and 5
 attempts. All values must be positive. There is no unlimited value. The
 job's requests are paced by the request governor (ADR-0072): history reads
-and dialog enumeration wait 3 s between requests, and the run's governed
-sleep does not count against the default 60-second `--timeout`, which is a
-hang detector rather than a job bound. Pass `--max-runtime` when the whole
-pass must fit a wall-clock budget — exhausting it is a *normal* stop (exit
-0) with a `stop_reason: "wall_clock_cap"` and the schedule resumes the
-next pass.
+and dialog enumeration wait 3 s between requests, and `archive refresh`
+keeps no implicit 60-second deadline — an explicit `--timeout` acts as a
+hang detector whose governed sleep does not count against it, not a job
+bound. Pass `--max-runtime` when the whole pass must fit a wall-clock
+budget: a wake whose cap is already exhausted defers sync and exits 0 with
+a `stop_reason: "wall_clock_cap"`, and the schedule resumes the next pass.
 
 A network failure or unavailable local transcription engine increments the
 account's refresh failure streak. Item-level media/transcription failures are

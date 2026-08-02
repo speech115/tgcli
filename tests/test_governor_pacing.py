@@ -395,10 +395,10 @@ def test_a_flood_beyond_the_cap_exits_without_sleeping(monkeypatch):
 def test_a_long_paced_run_is_not_killed_by_the_default_deadline(monkeypatch):
     """D6: 75 s of governed sleep under a 60 s default deadline completes.
 
-    The pacing sleeps are discounted write-ahead, so a run that spends its
-    wall time in deliberate intervals survives a deadline shorter than the
-    sum of its sleeps. Without the discount the run would be cancelled at
-    the deadline.
+    The deadline counts only ungoverned time — the sum total of governed
+    sleep is discounted — so a run that spends its wall time in deliberate
+    intervals survives a deadline shorter than the sum of its sleeps.
+    Without the discount the run would be cancelled at the deadline.
     """
     import asyncio
 
@@ -438,7 +438,10 @@ def test_backfill_stops_normally_when_the_wall_clock_cap_is_exhausted(
     from tgcli.commands import archive as archive_cmd
     from tgcli.governor import pacing
 
-    pacing.reset_runtime(cap=0.0)  # already exhausted before the first chat
+    # Deterministic (L9 pattern): the cap is always exhausted at the first
+    # check, whatever the real wall clock says. `main` re-arms the runtime
+    # from --max-runtime, so a real-time race must not decide this test.
+    monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: 0.0)
 
     me = _me(user_id=42)
     alice = _user(user_id=7, username="alice")
@@ -605,14 +608,17 @@ def test_journal_counts_governed_sleep_and_requests(config_env, monkeypatch, cap
 
     async def paced_run_network(args, account):
         # The seam counts each governed request and its deliberate sleep.
+        # sleep_flood owes the sleep only when a wall-clock cap is set.
+        import asyncio
+
         pacing.note_request()
-        pacing._note_sleep(3.0)
+        await pacing.sleep_flood(3.0, sleep=lambda s: asyncio.sleep(0))
         pacing.note_request()
         return {"dialogs": []}, []
 
     monkeypatch.setattr(dispatch, "run_network", paced_run_network)
 
-    assert main(["dialogs", "--json"]) == 0
+    assert main(["--max-runtime", "30", "dialogs", "--json"]) == 0
     capsys.readouterr()
 
     entry = _journal_lines()[-1]
@@ -788,3 +794,30 @@ async def test_the_reservation_loser_wait_to_the_next_slot(clock, sleeper, tmp_p
         # not just to the competitor's slot (t=5.0).
         assert calls == [3.0, 3.0]
         assert ledger.last_reserved(ACCOUNT, HISTORY_KEY) == 8.0
+
+
+async def test_a_lost_reservation_with_an_unreadable_ledger_dispatches(
+    clock, sleeper, tmp_path
+):
+    """Review major 1: when the reservation loses AND the ledger cannot be
+    read back (degraded mode), the pace must fail open — dispatch now —
+    rather than spin in a retry loop with no sleep. A long-running command
+    without a default deadline would otherwise hang forever."""
+    from tgcli.governor.ledger import Ledger
+
+    path = tmp_path / "governor.db"
+    ledger = Ledger.open(path)
+    # Break the connection from underneath: every read and write now raises,
+    # which is exactly the degraded state `reserve` returning False with
+    # `last_reserved` returning None models.
+    ledger._db.close()
+
+    clock["t"] = 10.0
+    await pacing.pace_before_dispatch(
+        ledger, ACCOUNT, history(), now=clock["t"], sleep=sleeper
+    )
+
+    # Failed open: no sleep was owed, no infinite retry, the caller may
+    # dispatch immediately. The clock is untouched and the sleep log empty.
+    assert clock["t"] == 10.0
+    assert sleeper.calls == []

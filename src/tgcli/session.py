@@ -6,6 +6,7 @@ import platform
 import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import quote
 
 from telethon import TelegramClient, errors as telethon_errors
 
@@ -137,7 +138,9 @@ def session_user_id(session_file: Path) -> int | None:
     read-only so a locked session file degrades to None, not a write error.
     """
     try:
-        connection = sqlite3.connect(f"file:{session_file}?mode=ro", uri=True)
+        connection = sqlite3.connect(
+            f"file:{quote(str(session_file))}?mode=ro", uri=True
+        )
     except (sqlite3.Error, OSError):
         return None
     try:

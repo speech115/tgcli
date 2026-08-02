@@ -44,6 +44,11 @@ class FakeClient:
             raise self._raises
         return "result"
 
+    async def __call__(self, request, *args, **kwargs):
+        # What Telethon's `client(request)` resolves to; the `tg api` path
+        # dispatches through here (api.py), so the seam must sit on `_call`.
+        return await self._call(self, request, *args, **kwargs)
+
 
 @pytest.fixture
 def ledger(tmp_path):
@@ -325,18 +330,22 @@ async def test_the_raw_api_path_refuses_locally_on_a_gated_type(ledger):
     with zero RPCs, not a raw send into the penalty."""
     from telethon.tl.functions.users import GetFullUserRequest
 
+    from tgcli.commands import api as api_cmd
+
     error = telethon_errors.FloodWaitError(request=None)
     error.seconds = 600
-    client = FakeClient(raises=error)
-    gate.install(client, ledger)
+    source = FakeClient(raises=error)
+    gate.install(source, ledger)
 
     with pytest.raises(telethon_errors.FloodWaitError):
-        await client._call(None, GetFullUserRequest(id=42))
+        await source._call(None, GetFullUserRequest(id=42))
 
     api = FakeClient()
     gate.install(api, ledger)
+    # The whole `tg api` path: canonical request built from JSON, dispatched
+    # through the client — not a synthetic _call that could drift from it.
     with pytest.raises(RateLimitError):
-        await api._call(None, GetFullUserRequest(id=42))
+        await api_cmd.call(api, "users.getFullUser", '{"id": 42}')
     assert api.sent == []
 
 

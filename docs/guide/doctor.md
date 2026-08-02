@@ -85,7 +85,7 @@ early-lifted limit clears itself without operator action.
 "accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
 "checks":{"session_file":true,"lock_free":true,"state_writable":true,
 "preview_perms_ok":true,"audit_perms_ok":true,"session_perms_ok":true,
-"state_size":4096,"governor_cooldowns":{},"governor_degraded":false,"authorized":null},
+"state_size":4096,"authorized":null,"governor_degraded":false,"governor_cooldowns":{}},
 "user":null,"roles":[],"ok":true}],"ok":true}
 ```
 

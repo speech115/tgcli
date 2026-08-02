@@ -196,6 +196,19 @@ intended. Where a request's latency itself exceeds the interval, no
 additional sleep is owed; the interval is a floor on start-to-start
 spacing, not an added delay.
 
+*The reservation is claimed atomically against a fresher competitor.*
+Because tgcli runs are short-lived one-shots, two processes may race the
+same slot; the persisted row is claimed with a conditional upsert that
+refuses a stamp at or before the one on record (strictly *before* — an
+identical instant is refused, not overwritten), and the loser waits to the
+winner's slot plus the interval and retries until its claim lands. Known
+limit of the protocol: two processes that both read "nothing reserved"
+before either claims can each dispatch with sub-millisecond spacing (both
+stamps are fresh, so neither loses). It is bounded by the scheduler, below
+the interval, and self-healing — the next claim is ≥ one interval away —
+and fixing it would require row locks, which this ledger deliberately
+avoids.
+
 *Why not rely on Telethon's own `wait_time`.* It covers only
 `RequestIter`-based calls, not one-shot RPCs, and its state lives in the
 process and dies with it. tgcli is short-lived one-shots by design (no

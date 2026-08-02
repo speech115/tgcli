@@ -24,7 +24,7 @@ Global flags (available on every command):
 | `--plain` | stable TSV to stdout (no colors, no alignment) |
 | `--readonly` | hard-block any mutating call in this invocation |
 | `--timeout <sec>` | overall invocation **hang detector** covering preflight and execution (default 60; governed sleep does not count against it; no default deadline for media, exports, `clone init|sync|refresh`, or `archive refresh`, which may wait out bounded work; `accounts login` defaults to 120 and `--continue` takes none) |
-| `--max-runtime <sec>` | explicit wall-clock cap for long runs: governed sleep counts against it, exhausting it is a normal stop (exit 0) with `stop_reason` and a resume pointer |
+| `--max-runtime <sec>` | explicit wall-clock cap for long runs: governed sleep counts against it; exhausting it is a normal stop (exit 0), with `stop_reason` and a resume pointer where the command keeps a cursor (clone sync, archive backfill; archive refresh defers sync and stops with `stop_reason: "wall_clock_cap"` and no cursor) |
 | `-v/--verbose` | Python and Telethon debug diagnostics on stderr for this invocation |
 
 Env equivalents: `TGCLI_ACCOUNT`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`.
@@ -772,7 +772,7 @@ locked and creates no lock file. These probes do not mutate Telegram.
 "accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
 "checks":{"session_file":true,"lock_free":true,"state_writable":true,
 "preview_perms_ok":true,"audit_perms_ok":true,"session_perms_ok":true,
-"state_size":4096,"governor_cooldowns":{},"governor_degraded":false,"authorized":null},
+"state_size":4096,"authorized":null,"governor_degraded":false,"governor_cooldowns":{}},
 "user":null,"roles":[],"ok":true}],"ok":true}
 ```
 
@@ -1245,18 +1245,20 @@ Every create, title-edit, description-edit, and avatar-edit attempt appends a
 fail-closed shared audit record before dispatch. A profile-copy failure exits 2
 while retaining the recorded destination for a new-preview retry; it never
 creates a second destination. A Telegram FloodWait during profile reads,
-downloads, uploads, or edits persists `retry_not_before` in clone state and
-arms the request-governor's per-type cooldown (ADR-0072). Later
+downloads, uploads, or edits arms the request-governor's per-type cooldown
+(ADR-0072); the legacy per-clone `retry_not_before` deadline (ADR-0045) is
+only read back for old clones, never written anew. Later
 `clone init --commit`, `clone sync`, and `clone refresh` for **any** clone of
 that account refuse locally (no network) while the gated request type is
 cooling — `retry_after` comes from the governor's ledger. Read-only surfaces
 (`clone status`, init preview, refresh preview) are never blocked by
 readonly gates; refresh preview still respects an active FloodWait cooldown
 because the scan is real network work. A roster FloodWait
-(ADR-0024) still arms neither cooldown. Init keeps the global 60-second
-default timeout; `clone sync` and `clone refresh` keep no implicit deadline
-(CONTRACT §1) and may be bounded with `--max-runtime` (exhausting it is a
-normal stop, exit 0, with a resume pointer).
+(ADR-0024) still arms neither cooldown. `clone init`, `clone sync`, and
+`clone refresh` keep no implicit deadline (CONTRACT §1); `clone sync` may be
+bounded with `--max-runtime` (exhausting it is a normal stop, exit 0, with
+a resume pointer) — `clone refresh`'s passes are short and bounded by their
+own caps, and read no wall clock.
 
 `sync SOURCE` requires initialized state and a private creator-owned destination
 of the source-dependent kind. It verifies the destination tail before reading
@@ -1332,7 +1334,7 @@ or an unresolved peer), sync does **not** exit non-zero: it persists
 this and later runs, and exits 0 — the same permanent honest marker init
 would have written for an unreadable linked group (ADR-0023). A
 `FloodWaitError` while resolving that group still exits 5 and arms the
-account-scoped cooldown (ADR-0045). An unavailable *destination*
+request-governor's per-type cooldown (ADR-0072). An unavailable *destination*
 discussion group remains exit 2 (`PolicyError`). When `comments` is
 `"disabled"`, `"unavailable"`, or `"none"`, the comment phase and the
 discussion roster snapshot are skipped entirely.
@@ -1456,9 +1458,9 @@ individual edit is swallowed and the run continues. Commit JSON:
 exclusion reason). Exit 0 when every candidate was either edited or correctly
 declined.
 
-FloodWait during preview or commit exits 5 through the same per-clone and
-account-scoped cooldown as `sync` and `init --commit`; there is no retry loop
-inside `refresh` (ADR-0045). Recovery is a **fresh** preview after the
+FloodWait during preview or commit exits 5 through the same request-governor
+per-type cooldown as `sync` and `init --commit`; there is no retry loop
+inside `refresh` (ADR-0072). Recovery is a **fresh** preview after the
 cooldown, not a retried `--commit` of the same already-consumed preview id
 (contrast `send`/`edit`'s `begin_commit` retry idiom). Posts already fixed no
 longer match eligibility, so a second run is a quiet no-op.
@@ -1518,8 +1520,9 @@ downloads of a `Photo` (files over 512 KB) select the largest `PhotoSize` by
 byte count explicitly rather than trusting Telegram's `sizes` list order
 (ADR-0055). A `FloodWaitError` arms the request-governor's per-type cooldown
 (ADR-0072) and the run exits 5 locally with `retry_after`; there is no
-foreground retry. Upload parts and download chunks are paced by the governor
-(3 s per file, per request-type key), and the run's governed sleep does not
+foreground retry. Download chunks are paced by the governor (3 s per file,
+per request-type key); upload parts owe no pre-emptive interval — their
+floods still gate the type. The run's governed sleep does not
 count against `--timeout` (a hang detector).
 Both `UpdateMessageID` batches and the single-message
 `UpdateShortSentMessage` envelope require exact positive confirmation before
@@ -1804,9 +1807,9 @@ caps above; `--transcribe-limit` defaults to **20** and is capped at **100**;
 `--max-attempts` defaults to **3** and is capped at **5**. Every numeric cap
 must be positive and within its hard ceiling; there is no unlimited sentinel.
 `--timeout` is a hang detector whose governed sleep does not count against
-it, and no implicit 60-second deadline is applied; `--max-runtime` bounds the
-whole pass — exhausting it is a normal stop (exit 0) with
-`stop_reason: "wall_clock_cap"`.
+it, and no implicit 60-second deadline is applied; `--max-runtime` bounds
+the pass — a wake whose cap is already exhausted defers sync and exits 0
+with `stop_reason: "wall_clock_cap"` (checked once, before dispatch).
 
 A network exception or unavailable transcription engine records the failure in
 `account_sync`, increments the consecutive `failure_streak`, and exits

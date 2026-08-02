@@ -115,13 +115,10 @@ def test_explicit_version_still_prints_and_exits_zero(config_env, capsys):
     assert capsys.readouterr().out.strip() == __version__
 
 
-def test_clone_init_has_the_uniform_default_deadline(config_env, monkeypatch, capsys):
-    """D2: no command keeps a deadline exemption; clone init gets the 60s default.
-
-    Governed sleep does not count against it (ADR-0072 decision 6), so a
-    paced run is not punished for pacing — the deadline is a hang detector,
-    not a job bound.
-    """
+def test_clone_init_runs_without_an_implicit_deadline(config_env, monkeypatch, capsys):
+    """D2: clone init keeps no implicit deadline (CONTRACT §1) — a long copy
+    must not be killed by a default. The exemption itself is pinned by
+    test_deadline_defaults_match_the_contract; this test guards the run."""
     from tests.test_cli_clone_init import CloneInitClient
 
     make_session_fake(monkeypatch, CloneInitClient())
@@ -137,7 +134,7 @@ def test_clone_init_still_honours_an_explicit_timeout(config_env, monkeypatch, c
     assert main(["clone", "init", "@source", "--timeout", "30", "--json"]) == 0
 
 
-def test_clone_refresh_has_the_uniform_default_deadline(
+def test_clone_refresh_runs_without_an_implicit_deadline(
     config_env, monkeypatch, capsys
 ):
     from tests.test_cli_clone_refresh import RefreshClient, _eligible_pair, seed_clone

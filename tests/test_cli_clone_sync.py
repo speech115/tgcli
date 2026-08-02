@@ -4650,6 +4650,11 @@ def test_clone_sync_max_runtime_stops_normally_with_resume(
     config_env, monkeypatch, capsys
 ):
     """M5 review fix: --max-runtime bounds clone sync as a normal stop."""
+    from tgcli.governor import pacing
+
+    # Deterministic: the cap is always exhausted at the first check, whatever
+    # the real wall clock says (`main` re-arms the runtime from the flag).
+    monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: 0.0)
     seed_clone()
     client = CloneSyncClient([message(2), message(3)])
     make_session_fake(monkeypatch, client)

@@ -102,3 +102,37 @@ storage (`clone/flood.py` account record, `cooled_account`).
   every command" was wrong — it would kill a 10k-message export mid-run —
   and the owner flagged it; the CONTRACT §1 list is now data
   (`_long_running_command`), not deadline logic.
+
+### Fourth review pass — independent sub-agent sweep, all fixed
+
+- **Fail-open on an unreadable ledger (major 1).** `pace_before_dispatch`
+  no longer spins forever when the reservation loses AND the ledger cannot
+  be read back (`newer is None`): it dispatches now — the pace degrades,
+  the command does not hang. A long-running command without a default
+  deadline would otherwise hang forever in degraded mode. Pinned by
+  `test_a_lost_reservation_with_an_unreadable_ledger_dispatches` (broken
+  connection underneath a real ledger).
+- **CONTRACT §11 de-staled (major 2 + minors).** `clone init` keeps no
+  implicit deadline like the rest of §1's list (the old "keeps the global
+  60-second default" line contradicted the code and §1); `--max-runtime`
+  is promised only for `clone sync` (refresh passes read no wall clock);
+  stale ADR-0045 "account-scoped cooldown" citations now point at
+  ADR-0072; "upload parts paced" is corrected (only download chunks pay a
+  pre-emptive interval); the "whole pass" `--max-runtime` claim in §13 is
+  the one check before dispatch; the legacy `retry_not_before` write
+  claim is now "read back for old clones, never written anew"; the doctor
+  JSON sample matches the real key order. Guides (`archive-refresh`,
+  `clone`, `doctor`) updated to match — notably archive-refresh no longer
+  promises a default 60-second `--timeout`.
+- **Known protocol limit recorded in ADR-0072**: two processes reading
+  "nothing reserved" before either claims can each dispatch sub-millisecond
+  apart; bounded by the scheduler, self-healing, deliberately without row
+  locks.
+- **Test hygiene**: D6's docstring no longer overclaims write-ahead
+  (D1 alone catches that regression); two 1 ms real-time tests moved to
+  the monkeypatched `wall_clock_remaining` pattern; the G5 test now walks
+  the whole `tg api` path (`api.call` → `client(...)` → seam) instead of a
+  synthetic `_call`; the journal test uses `sleep_flood` instead of the
+  private `_note_sleep`; `set_cooldown` is marked legacy/test-only;
+  `session_user_id` URI-encodes the session path (aliases with spaces or
+  `?`/`#` no longer mis-parse).

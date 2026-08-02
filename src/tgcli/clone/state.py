@@ -192,6 +192,12 @@ class CloneState:
         return max(self.discussion_id_map.values(), default=None)
 
     def set_cooldown(self, deadline: datetime) -> None:
+        """Persist the per-clone deadline (legacy ADR-0045 field).
+
+        Production no longer writes this field — floods arm the governor's
+        per-type cooldown instead (ADR-0072). Kept for old clones' state
+        and for tests that stage a cooling clone.
+        """
         aware = _require_aware(deadline)
         current = self.cooldown_deadline()
         if current is not None and current > aware:

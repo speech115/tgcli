@@ -169,8 +169,11 @@ async def pace_before_dispatch(
     while not ledger.reserve(account, key, moment):
         newer = ledger.last_reserved(account, key)
         if newer is None:
-            # The record vanished (cleared concurrently); retry the claim.
-            continue
+            # The record vanished or the ledger became unreadable (degraded
+            # mode). Retrying here would spin forever with no sleep — losing
+            # a pacing reservation degrades the pace, it must not hang a
+            # command (fail-open contract, ledger.py). Dispatch now.
+            break
         target = max(newer, moment) + interval
         wait = target - moment
         if wait > 0:
