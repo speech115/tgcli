@@ -56,17 +56,25 @@ async def refresh(
         transcribe_limit, label="transcribe-limit"
     )
     max_attempts = transcribe_mod.validate_max_attempts(max_attempts)
-    me = await tg.get_me()
     cfg = config if config is not None else load_config()
     directory = _account_dir(alias, cfg)
     conn = _open_existing(alias, directory)
     try:
-        store_mod.require_bound_user(conn, int(me.id), alias)
+        # A scheduled wake into a cooldown must not even send the get_me
+        # RPC to learn who it is — the ledger knows, and the store already
+        # bound the account (plan phase 6, review fix M2).
+        meta = store_mod.read_meta(conn)
+        if refresh_mod.sync_types_cooling(tg):
+            user_id = int(meta["account_user_id"])
+        else:
+            me = await tg.get_me()
+            store_mod.require_bound_user(conn, int(me.id), alias)
+            user_id = int(me.id)
         data = await refresh_mod.run(
             tg,
             conn,
             account_alias=alias,
-            account_user_id=int(me.id),
+            account_user_id=user_id,
             account_dir=directory,
             max_events=max_events,
             max_dialogs=max_dialogs,
@@ -75,7 +83,7 @@ async def refresh(
             max_attempts=max_attempts,
         )
     except PartialFailure as exc:
-        exc.data["account"] = {"alias": alias, "user_id": int(me.id)}
+        exc.data["account"] = {"alias": alias, "user_id": user_id}
         exc.data["max_events"] = max_events
         exc.data["max_dialogs"] = max_dialogs
         exc.data["max_media"] = max_media
@@ -85,7 +93,7 @@ async def refresh(
         raise
     finally:
         conn.close()
-    data["account"] = {"alias": alias, "user_id": int(me.id)}
+    data["account"] = {"alias": alias, "user_id": user_id}
     data["max_events"] = max_events
     data["max_dialogs"] = max_dialogs
     data["max_media"] = max_media

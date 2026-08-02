@@ -4644,3 +4644,17 @@ def test_sync_short_flood_wait_exits_5_without_foreground_retry(
     payload = json.loads(captured.out)
     assert payload["error"]["retry_after"] == 3
     assert "flood wait: retrying" not in captured.err
+
+
+def test_clone_sync_max_runtime_stops_normally_with_resume(
+    config_env, monkeypatch, capsys
+):
+    """M5 review fix: --max-runtime bounds clone sync as a normal stop."""
+    seed_clone()
+    client = CloneSyncClient([message(2), message(3)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--max-runtime", "0.001", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["stop_reason"] == "wall_clock_cap"
+    assert "resume" in data

@@ -252,19 +252,42 @@ class Ledger:
             return True
         return bool(row[0]) if row is not None else False
 
-    def spend_probe(self, account_user_id: int, request_key: str) -> bool:
+    def spend_probe(
+        self,
+        account_user_id: int,
+        request_key: str,
+        *,
+        expected_deadline: datetime | None = None,
+    ) -> bool:
         """Mark the probe spent *before* it is attempted (ADR-0072 decision 5).
 
         Write-ahead is the whole point: a crash between marking and sending
         must leave the record spent, so the next invocation waits the deadline
         out instead of probing again.
+
+        ``expected_deadline`` pins the record the probe was decided against:
+        a concurrent re-arm (fresh flood on the other process's own probe)
+        must not be claimed at 0% of its wait — the claim lands only on the
+        exact deadline the 50%-window was computed from (review fix M7).
         """
         try:
-            cursor = self._db.execute(
-                "UPDATE cooldowns SET probe_spent = 1 "
-                "WHERE account_user_id = ? AND request_key = ? AND probe_spent = 0",
-                (account_user_id, request_key),
-            )
+            if expected_deadline is None:
+                cursor = self._db.execute(
+                    "UPDATE cooldowns SET probe_spent = 1 "
+                    "WHERE account_user_id = ? AND request_key = ? AND probe_spent = 0",
+                    (account_user_id, request_key),
+                )
+            else:
+                cursor = self._db.execute(
+                    "UPDATE cooldowns SET probe_spent = 1 "
+                    "WHERE account_user_id = ? AND request_key = ? "
+                    "AND probe_spent = 0 AND deadline = ?",
+                    (
+                        account_user_id,
+                        request_key,
+                        expected_deadline.astimezone(UTC).isoformat(),
+                    ),
+                )
             self._db.commit()
         except sqlite3.Error:
             return False

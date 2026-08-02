@@ -133,10 +133,11 @@ def session_user_id(session_file: Path) -> int | None:
     ``access_hash`` is the user id (its "hack to not need to change the
     session files", `telegrambaseclient.py`). Reading it directly lets
     `doctor` report the governor's cooldowns without connecting — the one
-    command that must work precisely when everything else refuses.
+    command that must work precisely when everything else refuses. Opened
+    read-only so a locked session file degrades to None, not a write error.
     """
     try:
-        connection = sqlite3.connect(str(session_file))
+        connection = sqlite3.connect(f"file:{session_file}?mode=ro", uri=True)
     except (sqlite3.Error, OSError):
         return None
     try:

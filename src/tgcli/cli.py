@@ -93,13 +93,17 @@ def _default_timeout(args) -> float | None:
 
     One number for every command: governed sleep does not count against it
     (ADR-0072 decision 6), so a paced run that would previously have needed
-    a per-command exemption now simply does not hit the deadline. Only
-    `accounts login` differs — its QR wait is operator time, not work.
+    a per-command exemption now simply does not hit the deadline. Only two
+    commands differ, and both wait on an external party rather than doing
+    work:
+    - `accounts login` — the QR wait is operator time (CONTRACT §10);
+    - `changes --wait N` — the long-poll budget is its own deadline; an
+      implicit 60 s must not clip it (CONTRACT §12).
     """
     if args.command == "accounts" and args.subcommand == "login":
-        # CONTRACT §10: the QR wait defaults to 120s; --continue waits on the
-        # operator and takes no default deadline at all.
         return None if getattr(args, "continue_id", None) else 120.0
+    if args.command == "changes" and getattr(args, "changes_wait", None) is not None:
+        return None
     return 60.0
 
 
@@ -202,6 +206,8 @@ def _run_with_deadline(coro, timeout):
     from tgcli.governor import pacing
 
     async def run():
+        if timeout is None:
+            return await coro
         task = asyncio.create_task(coro)
         started = time.monotonic()
         base_slept = pacing.total_governed_sleep()
@@ -606,12 +612,18 @@ def main(argv: list[str] | None = None) -> int:
                 exit_code,
                 duration_ms,
             )
-        stop_fields = pacing.last_stop() or {}
         stop_reason = None
         if isinstance(result_data, dict):
             stop_reason = result_data.get("stop_reason")
         if stop_reason is not None:
-            stop_fields["stop_reason"] = stop_reason
+            stop_fields = {"stop_reason": stop_reason}
+        elif exit_code != 0:
+            # A flood-family stop (refusal or unhandled flood) only counts
+            # when the run actually ended on it; a flood that was slept out
+            # and survived is not a flood-related exit (plan phase 6).
+            stop_fields = pacing.last_stop() or {}
+        else:
+            stop_fields = {}
         invocations.log_invocation(
             command=args.command,
             account=args.account,

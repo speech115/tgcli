@@ -107,6 +107,10 @@ def install(
             raise
         if is_probe and account is not None:
             probe.settle(ledger, account, key)
+            # The probe skipped the pacing reservation; stamp one now so
+            # the next request paces from the probe, not from before the
+            # cooldown (review fix M8).
+            ledger.reserve(account, key, clock())
         return result
 
     client._call = types.MethodType(governed, client)

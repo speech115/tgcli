@@ -10,7 +10,7 @@ deadline gate remains here.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from math import ceil
 
 from tgcli.clone import state
@@ -29,12 +29,6 @@ def enforce(clone_state: state.CloneState) -> None:
     deadline = clone_state.cooldown_deadline()
     if deadline is not None:
         raise_if_cooling(deadline)
-
-
-def arm(clone_state: state.CloneState, seconds: int) -> None:
-    deadline = datetime.now(UTC) + timedelta(seconds=seconds)
-    clone_state.set_cooldown(deadline)
-    state.save(clone_state)
 
 
 async def mutate(tg, request, clone_state: state.CloneState):

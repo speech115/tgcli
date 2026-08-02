@@ -26,6 +26,7 @@ MUTATION_POSITIONALS = {
 
 def prepare(parser: argparse.ArgumentParser, args) -> None:
     _prepare_session_role(args)
+    _prepare_max_runtime(args)
     _prepare_search(parser, args)
     _prepare_batch(args)
     _prepare_time_bounds(parser, args)
@@ -34,6 +35,13 @@ def prepare(parser: argparse.ArgumentParser, args) -> None:
     _prepare_api(parser, args)
     _prepare_changes(args)
     _prepare_archive(args)
+
+
+def _prepare_max_runtime(args) -> None:
+    """--max-runtime is a wall-clock cap: non-positive values are misuse."""
+    cap = getattr(args, "max_runtime", None)
+    if cap is not None and cap <= 0:
+        raise PolicyError("--max-runtime must be a positive number of seconds")
 
 
 def _prepare_archive(args) -> None:

@@ -58,3 +58,20 @@ contract break lands.
 stop reason, governed sleep, request count), `doctor` cooldown check,
 scheduled wake exit 0 with deferred report, and retiring the ADR-0045/0052
 storage (`clone/flood.py` account record, `cooled_account`).
+
+## Review fixes (independent review, same session)
+
+- **C1 (critical): active governed sleep is now discounted write-ahead.**
+  `_note_sleep` moved *before* `await sleep` in both `pace_before_dispatch`
+  and `sleep_flood`, so a flood-sleep longer than the remaining `--timeout`
+  is not killed at the wall deadline. D1/D6 rewritten to advance real wall
+  time past a shorter deadline; both now fail on the old post-sleep
+  accounting.
+- **C3 (critical): `changes --wait` keeps no implicit deadline.** The
+  long-poll budget is its own deadline (CONTRACT §12), so `_default_timeout`
+  returns None for `changes --wait`; `_run_with_deadline(None)` runs without
+  a timer. Regression test drives `--wait 120` past the old 60 s default.
+- **D2 test corrected**: `changes --wait` is no longer asserted at 60 s —
+  it is exempt, exactly like `accounts login`.
+- **`--max-runtime` validation**: non-positive values now exit 2
+  (PolicyError), not a silent no-op.

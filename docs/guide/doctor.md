@@ -85,8 +85,17 @@ early-lifted limit clears itself without operator action.
 "accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
 "checks":{"session_file":true,"lock_free":true,"state_writable":true,
 "preview_perms_ok":true,"audit_perms_ok":true,"session_perms_ok":true,
-"state_size":4096,"authorized":null},
-"user":null,"ok":true}],"ok":true}
+"state_size":4096,"governor_cooldowns":{},"governor_degraded":false,"authorized":null},
+"user":null,"roles":[],"ok":true}],"ok":true}
+```
+
+`governor_cooldowns` maps each cooling request type to its deadline (an
+empty object means nothing is cooling); `governor_degraded: true` means the
+governor's ledger could not be opened. When cooldowns are active,
+`governor_cooldowns` looks like:
+
+```json
+{"messages.GetHistoryRequest":"2026-08-03T00:00:00+00:00"}
 ```
 
 The top-level `runtime` object identifies the Python interpreter and Telethon

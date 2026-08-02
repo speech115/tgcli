@@ -401,6 +401,48 @@ async def test_wait_settle_uses_fake_clock(monkeypatch):
     assert any(s <= changes_cmd.SETTLE_SECONDS for s in sleeps)
 
 
+def test_cli_wait_has_no_implicit_deadline(config_env, monkeypatch, capsys):
+    """C3 regression: `changes --wait 120` must not be clipped by the 60 s
+    default deadline — the long-poll budget is its own deadline (CONTRACT
+    §12). The fake clock advances wall time past 60 s; the run survives."""
+    import json
+
+    clock = {"t": 0.0}
+
+    def mono():
+        return clock["t"]
+
+    async def fake_sleep(seconds):
+        clock["t"] += seconds
+
+    monkeypatch.setattr(changes_cmd, "_monotonic", mono)
+    monkeypatch.setattr(changes_cmd, "_sleep", fake_sleep)
+
+    async def handler(request, tg):
+        if isinstance(request, GetDifferenceRequest):
+            return DifferenceEmpty(date=datetime(2026, 1, 1, tzinfo=UTC), seq=1)
+        raise AssertionError(type(request))
+
+    tg = FakeTg(handler)
+
+    from contextlib import asynccontextmanager
+
+    from tgcli import session
+
+    @asynccontextmanager
+    async def fake_session(account, *, mutation_safe=False, role=None):
+        yield tg
+
+    monkeypatch.setattr(session, "client", fake_session)
+    cursor = changes_cursor.encode(ChangesCursor(pts=1, qts=0, date=0, seq=0))
+
+    assert main(["changes", "--cursor", cursor, "--wait", "120", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["events"] == []
+    # The poll loop ran past the old 60 s default deadline.
+    assert clock["t"] > 60.0
+
+
 def test_cli_init_json(config_env, monkeypatch, capsys):
     async def handler(request, tg):
         if isinstance(request, GetStateRequest):

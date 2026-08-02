@@ -45,3 +45,26 @@ true.
 **Next:** the integrator merges this branch as the release (2.0.0),
 landing the CONTRACT/CHANGELOG/version edits above and the compare link;
 `docs/ISSUES.md` then closes #145 and unblocks #146 (the job-model map).
+
+## Review fixes (independent review, same session)
+
+- **M5: `--max-runtime` bounds `clone sync` and `archive refresh` as normal
+  stops.** `sync_text` checks the cap before each batch and reports
+  `stop_reason: "wall_clock_cap"` with a resume cursor; `refresh` defers
+  sync when the cap is already exhausted at dispatch. The guides' promises
+  now match code. (`archive backfill` already had it.)
+- **M7: probe claim pinned to the deadline it was decided against.**
+  `spend_probe` takes `expected_deadline` and includes it in the UPDATE, so
+  a concurrent re-arm between due-check and spend cannot be claimed at 0%
+  of its fresh wait. New test covers the re-arm race.
+- **M8: a successful probe reserves the pacing slot.** The seam stamps the
+  reservation on settle, so the next request paces from the probe's own
+  dispatch moment instead of from before the cooldown. New test asserts the
+  3 s interval after a successful probe.
+- **C2: upload parts are not paced per part.** MEDIA pacing only applies to
+  downloads (`GetFileRequest`/`GetCdnFileRequest`, keyed on `offset`); the
+  `SaveFilePart`/`SaveBigFilePart` upload family has no `offset` and owes
+  nothing pre-emptively — its floods still gate the type.
+- **Docs consistency**: `doctor.md` JSON sample now carries
+  `governor_cooldowns`/`governor_degraded`/`roles`; `ADR-0045` decision 3
+  notes the removed `account_flood` field; stale docstrings corrected.

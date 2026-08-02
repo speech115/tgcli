@@ -33,6 +33,7 @@ from tgcli.clone import (
     transport,
 )
 from tgcli.errors import NotFoundError, PartialFailure, PolicyError
+from tgcli.governor import pacing
 from tgcli.output import note
 
 
@@ -781,6 +782,11 @@ async def sync_text(
     def mutate(request):
         return _mutate(tg, request, clone_state)
 
+    def cap_exhausted() -> bool:
+        """--max-runtime hit: stop normally, keep the cursor for resume."""
+        remaining = pacing.wall_clock_remaining()
+        return remaining is not None and remaining <= 0
+
     reply_flattened = 0
     quote_flattened: list[dict] = []
     poll_votes: list[dict] = []
@@ -881,6 +887,8 @@ async def sync_text(
             if limit is not None and copied_batches >= limit:
                 more = True
                 break
+            if cap_exhausted():
+                break
             if isinstance(event, batching.ServiceSkip):
                 source_message = event.message
                 if forum and isinstance(
@@ -917,9 +925,9 @@ async def sync_text(
         # ADR-0051: alternate posts×WINDOW with comments until both exhaust.
         # Enter comments only while --limit budget remains; a limit hit during
         # posts ends the run (same as today for limit < WINDOW).
-        while not more:
+        while not more and not cap_exhausted():
             ran = await run_posts_window(legs.WINDOW)
-            if more:
+            if more or cap_exhausted():
                 break
             posts_exhausted = ran < legs.WINDOW
             progress.phase("comments")
@@ -993,6 +1001,11 @@ async def sync_text(
             cause=PolicyError("clone planted quote fallback(s)"),
             rows=sync_rows(data),
         )
+    if cap_exhausted() and not more:
+        # --max-runtime exhausted: a normal stop, not an error — the cursor
+        # advanced and the next invocation resumes (ADR-0072 decision 6).
+        data["stop_reason"] = "wall_clock_cap"
+        data["resume"] = {"cursor": clone_state.cursor}
     return data
 
 

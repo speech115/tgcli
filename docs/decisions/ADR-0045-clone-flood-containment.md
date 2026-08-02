@@ -66,7 +66,9 @@ engineered away; the goal is to flood rarely, cheaply, and only once.
    (`{"cooldown_until": ISO|null, "last_peer_created_at": ISO|null}` from
    the account record; peer creations are timestamped into the same
    record). Hints are data, not policy — the agent or owner decides
-   whether to commit now or wait. Plain output is unchanged.
+   whether to commit now or wait. Plain output is unchanged. (The
+   `account_flood` preview field was removed by the ADR-0072 slice; the
+   governor's ledger is surfaced by `tg doctor` instead.)
 
 ## Consequences
 

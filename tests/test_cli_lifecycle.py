@@ -11,7 +11,7 @@ import time
 import pytest
 
 from tests.conftest import FakeClient, make_session_fake
-from tgcli import __version__, cli
+from tgcli import __version__
 from tgcli.cli import main
 from tgcli.session import state_dir
 
@@ -113,18 +113,6 @@ def test_explicit_help_still_prints_and_exits_zero(config_env, capsys):
 def test_explicit_version_still_prints_and_exits_zero(config_env, capsys):
     assert main(["--version"]) == 0
     assert capsys.readouterr().out.strip() == __version__
-
-
-def _record_wait_for(monkeypatch):
-    observed = []
-    original = cli.asyncio.wait_for
-
-    async def record(awaitable, timeout):
-        observed.append(timeout)
-        return await original(awaitable, timeout)
-
-    monkeypatch.setattr(cli.asyncio, "wait_for", record)
-    return observed
 
 
 def test_clone_init_has_the_uniform_default_deadline(config_env, monkeypatch, capsys):

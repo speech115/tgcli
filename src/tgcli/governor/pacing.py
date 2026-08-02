@@ -102,8 +102,12 @@ async def sleep_flood(seconds: float, *, sleep=asyncio.sleep) -> bool:
     remaining = wall_clock_remaining()
     if remaining is None or seconds > remaining:
         return False
-    await sleep(seconds)
+    # Write-ahead (review fix C1): count the sleep as governed *before* it
+    # starts, so the deadline discounts it even while it is still in
+    # flight. A flood-sleep longer than the remaining `--timeout` must not
+    # be killed for doing exactly what the governor decided.
     _note_sleep(seconds)
+    await sleep(seconds)
     return True
 
 
@@ -116,17 +120,18 @@ def _charge(request: object) -> float | None:
     ``BY_ID_BATCH`` themselves, and a 600-id call must not pay two gaps).
     MEDIA pays per *file*, not per chunk: a large file is many
     ``upload.GetFileRequest`` calls, and the first chunk (offset 0) of a
-    file is what opens the gap.
+    file is what opens the gap. Upload parts (``SaveFilePartRequest`` /
+    ``SaveBigFilePartRequest``) have no ``offset`` — they are one file, so
+    they owe nothing pre-emptively; their floods still gate the type.
     """
     request_class = registry.classify(request)
     interval = registry.INTERVALS[request_class]
     if interval is None:
         return None
-    if (
-        request_class is registry.RequestClass.MEDIA
-        and getattr(request, "offset", 0) != 0
-    ):
-        return None
+    if request_class is registry.RequestClass.MEDIA:
+        offset = getattr(request, "offset", None)
+        if offset is None or offset != 0:
+            return None
     return interval
 
 
@@ -154,8 +159,8 @@ async def pace_before_dispatch(
     last = ledger.last_reserved(account, key)
     wait = interval - (moment - last) if last is not None else 0.0
     if wait > 0:
+        _note_sleep(wait)  # write-ahead (review fix C1)
         await sleep(wait)
-        _note_sleep(wait)
         moment += wait
     ledger.reserve(account, key, moment)
 

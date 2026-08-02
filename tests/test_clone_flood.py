@@ -2,9 +2,9 @@
 
 The per-account flood record moved from one JSON file under `clones/` to
 the governor's SQLite ledger (ADR-0072 decision 4, plan phase 6). These
-tests pin the same behaviours the JSON record promised: roundtrip, expiry,
-read-time clamping, fail-open reads, and keeping the later of two
-deadlines.
+tests pin the ledger's contract: roundtrip, expiry, read-time clamping,
+fail-open reads, and that the latest arm wins (a fresh 420 supersedes an
+older one, matching Telegram's own in-process record).
 """
 
 from datetime import UTC, datetime, timedelta

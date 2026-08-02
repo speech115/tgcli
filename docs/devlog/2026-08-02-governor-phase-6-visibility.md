@@ -59,3 +59,20 @@ RPCs are not governed). Archive refresh unit tests needed a
 drafted on #141 reconciled against what shipped, the 2.0.0 version call
 for the integrator, operator guides for a cooling account, and flipping
 `docs/MAP.md`'s governor rows to `[done]`.
+
+## Review fixes (independent review, same session)
+
+- **M1: journal flood-fields only on flood-related exits.** `cli.main` now
+  writes `retry_after`/`request_type`/`provenance` only when the run ended
+  non-zero; a flood that was slept out and survived carries none of them.
+  Two new tests cover survived-vs-refused.
+- **M2: cooldown-wake check happens before `get_me`.** `archive refresh`
+  reads the bound user from the store and consults the ledger before any
+  RPC, so a `users.GetUsersRequest` cooldown also defers instead of
+  exiting 5. `sync_types_cooling` now covers every type sync actually
+  sends (changes poll, catch-ups, entity resolution, media).
+- **M4: dead `cooldown.arm()` deleted** — nothing armed the per-clone
+  `retry_not_before` since `with_cooldown` went away; the gate now only
+  reads legacy records.
+- **M6: `docs/MAP.md` matches reality** — the deleted `flood.py` row is
+  gone and `cooldown.py` is described as the per-clone gate.

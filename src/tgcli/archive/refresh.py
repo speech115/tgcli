@@ -99,9 +99,16 @@ async def run(
     max_attempts: int,
 ) -> dict[str, Any]:
     """Run sync (including media) and local transcription as one bounded job."""
+    from tgcli.governor import pacing
+
     deferred: list[str] = []
     sync_data = None
-    if _sync_types_cooling(tg, account_user_id):
+    remaining = pacing.wall_clock_remaining()
+    if remaining is not None and remaining <= 0:
+        # --max-runtime already exhausted before dispatch: a normal stop,
+        # like the cooldown-deferred path (ADR-0072 decision 6).
+        deferred.append("sync")
+    elif sync_types_cooling(tg):
         # ADR-0072 decision 4 / plan phase 6: a scheduled pass waking into a
         # partial cooldown does what the free request types allow, reports
         # the rest as deferred, and exits 0 — not the old exit 5 on every
@@ -134,7 +141,11 @@ async def run(
     data: dict[str, Any] = {"sync": sync_data, "transcribe": transcribe_data}
     if deferred:
         data["deferred"] = deferred
-        data["stop_reason"] = "cooldown_deferred"
+        data["stop_reason"] = (
+            "wall_clock_cap"
+            if remaining is not None and remaining <= 0
+            else "cooldown_deferred"
+        )
         state = store_mod.read_account_sync(conn)
         data["refresh"] = _refresh_state(state)
         return data
@@ -158,12 +169,14 @@ async def run(
     return data
 
 
-def _sync_types_cooling(tg, account_user_id: int) -> bool:
+def sync_types_cooling(tg) -> bool:
     """Whether the request types sync depends on are cooling right now.
 
     The governor keys cooldowns per Telegram request type (ADR-0072
     decision 1); a scheduled refresh checks the ledger before dispatching
-    so a hot account is reported as deferred rather than failing.
+    so a hot account is reported as deferred rather than failing. The set
+    covers everything the sync path actually sends: the changes poll,
+    channel catch-ups, entity resolution, and media acquisition.
     """
     from tgcli.governor import pacing
 
@@ -176,6 +189,11 @@ def _sync_types_cooling(tg, account_user_id: int) -> bool:
         "updates.GetDifferenceRequest",
         "updates.GetChannelDifferenceRequest",
         "messages.GetHistoryRequest",
+        "messages.GetMessagesRequest",
+        "messages.GetDialogsRequest",
+        "users.GetUsersRequest",
+        "contacts.ResolveUsernameRequest",
+        "channels.GetFullChannelRequest",
         "upload.GetFileRequest",
     }
     return bool(active.keys() & sync_types)

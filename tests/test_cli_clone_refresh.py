@@ -203,7 +203,8 @@ def test_clone_refresh_unreachable_destination_exits_2(
 def test_clone_refresh_preview_floodwait_arms_cooldown_exit_5(
     config_env, monkeypatch, capsys
 ):
-    """FloodWait on the preview scan get_messages must arm cooldowns (ADR-0054)."""
+    """A FloodWait on the preview scan exits 5 locally (ADR-0072: the seam
+    arms the per-type cooldown and the run refuses)."""
     clone_state = seed_clone()
     clone_state.record_mapping(54, 154)
     state.save(clone_state)

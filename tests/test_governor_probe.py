@@ -173,3 +173,48 @@ async def test_an_unparseable_armed_at_refuses_rather_than_probing(ledger):
         await client._call(None, history())
 
     assert client.sent == []
+
+
+async def test_a_rearm_between_due_and_spend_is_not_claimed(ledger):
+    """M7 review fix: the spend pins the deadline it was decided against.
+
+    A concurrent process re-arming the record (fresh flood on its own
+    probe) between our due-check and our spend must not let us claim the
+    fresh record at 0% of its wait.
+    """
+    client = FakeClient()
+    gate.install(client, ledger)
+    arm_elapsed(ledger)
+
+    # Claim is decided against the current deadline...
+    assert probe.probe_due(ledger, ACCOUNT, HISTORY_KEY) is not None
+    # ...but a re-arm lands before the spend.
+    ledger.arm_cooldown(ACCOUNT, HISTORY_KEY, datetime.now(UTC) + timedelta(hours=6))
+
+    assert probe.claim_if_due(ledger, ACCOUNT, HISTORY_KEY) is False
+    assert client.sent == []
+
+
+async def test_the_request_after_a_successful_probe_paces_from_it(ledger):
+    """M8 review fix: the probe stamps a reservation on success, so the
+    next request of the type waits the interval from the probe, not from
+    before the cooldown."""
+
+    sleeps = []
+    clock = {"t": 0.0}
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+        clock["t"] += seconds
+
+    client = FakeClient()
+    gate.install(client, ledger, sleep=fake_sleep, clock=lambda: clock["t"])
+    arm_elapsed(ledger)
+
+    assert await client._call(None, history()) == "result"  # the probe
+    assert await client._call(None, history()) == "result"  # paced after it
+
+    # The second request waited the 3 s interval measured from the probe's
+    # own dispatch moment (the probe reserved on success), not 0.
+    assert sleeps == [3.0]
+    assert ledger.last_reserved(ACCOUNT, HISTORY_KEY) == 3.0

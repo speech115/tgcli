@@ -9,9 +9,9 @@ answer and nothing else is sent; because ``arm_cooldown`` resets
 ``probe_spent``, a fresh deadline earns a fresh probe, bounding the cost at
 one request per confirmed deadline rather than a loop.
 
-Once phase 4 lands, the probe is paced by the same seam as any other
-request — the start-to-start reservation happens around ``_call`` — so no
-pacing is implemented here.
+The probe itself is deliberately **not** paced (plan phase 4 trap): it must
+not wait out its own cooldown window. Every *other* request reserves the
+start-to-start slot around ``_call``; the probe skips that reservation.
 """
 
 from __future__ import annotations
@@ -31,24 +31,29 @@ def probe_due(
     request_key: str,
     *,
     now: datetime | None = None,
-) -> bool:
-    """Whether the probe window is open: 50% elapsed and the probe unspent.
+) -> tuple[datetime, datetime] | None:
+    """The (armed_at, deadline) pair the probe window opened on, or None.
 
-    An unparseable ``armed_at`` (hand-edited row) reads as "not yet 50%" —
-    the safe direction is to refuse rather than to send into a live
-    penalty.
+    Returns the pair only when both hold: at least 50% of the recorded wait
+    has elapsed and the probe is unspent. The deadline is the exact value
+    the 50%-window was computed from, so ``claim_if_due`` can pin the spend
+    to it (review fix M7). An unparseable ``armed_at`` (hand-edited row)
+    reads as "not yet 50%" — the safe direction is to refuse rather than to
+    send into a live penalty.
     """
     if ledger.probe_spent(account, request_key):
-        return False
+        return None
     moment = datetime.now(UTC) if now is None else now
     deadline = ledger.cooldown_deadline(account, request_key, now=moment)
     armed_at = ledger.cooldown_armed_at(account, request_key)
     if deadline is None or armed_at is None:
-        return False
+        return None
     wait = (deadline - armed_at).total_seconds()
     if wait <= 0:
-        return False
-    return (moment - armed_at).total_seconds() >= PROBE_FRACTION * wait
+        return None
+    if (moment - armed_at).total_seconds() < PROBE_FRACTION * wait:
+        return None
+    return armed_at, deadline
 
 
 def claim_if_due(
@@ -65,10 +70,15 @@ def claim_if_due(
     between claim and send leaves the probe spent. ``False`` means refuse
     normally without sending — the window is closed, or another process
     already claimed the probe.
+
+    The spend is pinned to the exact deadline the window was computed from:
+    a concurrent re-arm cannot be claimed at 0% of its fresh wait (M7).
     """
-    if not probe_due(ledger, account, request_key, now=now):
+    window = probe_due(ledger, account, request_key, now=now)
+    if window is None:
         return False
-    return ledger.spend_probe(account, request_key)
+    _armed_at, deadline = window
+    return ledger.spend_probe(account, request_key, expected_deadline=deadline)
 
 
 def settle(ledger: Ledger, account: int, request_key: str) -> None:

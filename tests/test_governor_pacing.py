@@ -152,6 +152,24 @@ async def test_media_paces_per_file_not_per_chunk(client, sleeper):
     assert sleeper.calls == [3.0, 3.0]
 
 
+async def test_upload_parts_are_not_paced_per_part(client, sleeper):
+    """Review C2: SaveFilePart has no offset — a multi-part upload must not
+    pay 3 s per part (it is one file, like the download side)."""
+    parts = [
+        upload.SaveFilePartRequest(file_id=1, file_part=0, bytes=b"a" * 100),
+        upload.SaveFilePartRequest(file_id=1, file_part=1, bytes=b"b" * 100),
+        upload.SaveFilePartRequest(file_id=1, file_part=2, bytes=b"c" * 100),
+    ]
+    big = upload.SaveBigFilePartRequest(
+        file_id=2, file_part=0, file_total_parts=3, bytes=b"d" * 100
+    )
+
+    for part in parts + [big]:
+        await client._call(None, part)
+
+    assert sleeper.calls == []
+
+
 async def test_dialog_pages_are_paced_three_seconds(client, sleeper):
     """P4: two dialog enumeration pages owe one 3 s gap."""
     await client._call(None, dialogs_page())
@@ -300,27 +318,33 @@ def test_backfill_stops_normally_when_the_breadth_budget_is_exhausted(
 
 
 def test_the_deadline_does_not_count_governed_sleep(monkeypatch):
-    """D1: --timeout counts only ungoverned time (ADR-0072 decision 6)."""
+    """D1: --timeout counts only ungoverned time (ADR-0072 decision 6).
+
+    The run's *active* governed sleep is discounted write-ahead: a task
+    sleeping a flood out past the wall-clock deadline must survive, because
+    the governor decided to sleep it.
+    """
+    import asyncio
 
     from tgcli import cli
     from tgcli.governor import pacing
 
+    pacing.reset_runtime(cap=120.0)
     sleeps = []
 
     async def fake_sleep(seconds):
         sleeps.append(seconds)
+        # A long governed flood-sleep: wall time advances while the sleep is
+        # still in flight. The deadline must see it as governed immediately.
+        await asyncio.sleep(0.2)
 
-    # The governor reports 3 s of governed sleep; the run itself never sleeps
-    # in real time, so the 5 s deadline must not fire.
-    monkeypatch.setattr(pacing, "total_governed_sleep", lambda: 3.0)
-    monkeypatch.setattr(cli.asyncio, "sleep", fake_sleep)
+    async def flood_sleep():
+        return await pacing.sleep_flood(60.0, sleep=fake_sleep)
 
-    async def work():
-        await fake_sleep(0.0)
-        return "done"
-
-    # _run_with_deadline owns asyncio.run itself; the coroutine is passed raw.
-    assert cli._run_with_deadline(work(), 5.0) == "done"
+    # 0.1 s deadline, 0.2 s of governed flood-sleep: the sleep is reserved
+    # before it happens, so the deadline grants it back and the run wins.
+    assert cli._run_with_deadline(flood_sleep(), 0.1) is True
+    assert sleeps == [60.0]
 
 
 def test_a_flood_that_fits_the_wall_clock_cap_is_slept_out(monkeypatch):
@@ -358,31 +382,35 @@ def test_a_flood_beyond_the_cap_exits_without_sleeping(monkeypatch):
 
 
 def test_a_long_paced_run_is_not_killed_by_the_default_deadline(monkeypatch):
-    """D6: 75 s of governed sleep under a 60 s default deadline completes."""
+    """D6: 75 s of governed sleep under a 60 s default deadline completes.
+
+    The pacing sleeps are discounted write-ahead, so a run that spends its
+    wall time in deliberate intervals survives a deadline shorter than the
+    sum of its sleeps. Without the discount the run would be cancelled at
+    the deadline.
+    """
+    import asyncio
 
     from tgcli import cli
     from tgcli.governor import pacing
 
-    slept = {"total": 0.0}
+    pacing.reset_runtime(cap=300.0)
     sleeps = []
 
     async def fake_sleep(seconds):
         sleeps.append(seconds)
-
-    def note_sleep(seconds):
-        slept["total"] += seconds
-
-    monkeypatch.setattr(pacing, "_note_sleep", note_sleep)
-    monkeypatch.setattr(pacing, "total_governed_sleep", lambda: slept["total"])
-    monkeypatch.setattr(cli.asyncio, "sleep", fake_sleep)
+        # Real wall time advances while each paced interval is in flight.
+        await asyncio.sleep(0.02)
 
     async def paced_work():
         for _ in range(25):  # 25 x 3 s pacing intervals = 75 s governed sleep
-            note_sleep(3.0)
-            await fake_sleep(0.0)
+            await pacing.sleep_flood(3.0, sleep=fake_sleep)
         return "done"
 
-    assert cli._run_with_deadline(paced_work(), 60.0) == "done"
+    # 0.3 s deadline, 0.5 s of real wall time spent in governed sleeps: the
+    # write-ahead discount lets the run finish instead of being killed.
+    assert cli._run_with_deadline(paced_work(), 0.3) == "done"
+    assert len(sleeps) == 25
 
 
 def test_backfill_stops_normally_when_the_wall_clock_cap_is_exhausted(
@@ -459,16 +487,18 @@ def test_no_command_keeps_a_deadline_exemption(monkeypatch):
         cli._apply_global_defaults(args)
         return args.timeout
 
-    # Exemptions removed: clone init/sync/refresh, archive refresh, export,
-    # media and changes --wait all take the 60 s default now.
+    # Exemptions removed: clone init/sync/refresh, archive refresh, export
+    # and media all take the 60 s default now.
     assert default_timeout_for(["clone", "init", "@s"]) == 60.0
     assert default_timeout_for(["clone", "sync", "@s"]) == 60.0
     assert default_timeout_for(["clone", "refresh", "@s"]) == 60.0
     assert default_timeout_for(["archive", "refresh"]) == 60.0
     assert default_timeout_for(["export", "messages", "@c", "--output", "x"]) == 60.0
-    assert default_timeout_for(["changes", "--wait", "5"]) == 60.0
     assert default_timeout_for(["dialogs"]) == 60.0
-    # CONTRACT §10 remains the one per-command default: QR operator time.
+    # CONTRACT §10/§12 remain the per-command defaults: QR and long-poll
+    # operator time are their own deadlines, not work to bound.
+    assert default_timeout_for(["changes", "--wait", "300"]) is None
+    assert default_timeout_for(["changes"]) == 60.0
     assert default_timeout_for(["accounts", "login", "main"]) == 120.0
     assert default_timeout_for(["accounts", "login", "main", "--continue", "c"]) is None
     # No `_long_running`/`_deadline` machinery survives.
@@ -587,3 +617,70 @@ def test_journal_counts_governed_sleep_and_requests(config_env, monkeypatch, cap
     entry = _journal_lines()[-1]
     assert entry["governed_sleep_ms"] == 3000
     assert entry["request_count"] == 2
+
+
+def test_journal_omits_flood_fields_on_a_survived_flood(
+    config_env, monkeypatch, capsys
+):
+    """M1 review fix: a flood that was slept out and survived is not a
+    flood-related exit — the journal carries no retry_after/provenance on
+    the successful run that absorbed it."""
+    from tgcli import dispatch
+    from tgcli.cli import main
+    from tgcli.governor import pacing
+
+    async def survived_flood(args, account):
+        # The seam recorded the flood at arming...
+        pacing.note_stop(
+            retry_after=5,
+            request_type="messages.GetHistoryRequest",
+            provenance="server",
+        )
+        # ...but the run slept it out and completed.
+        return {"dialogs": []}, []
+
+    monkeypatch.setattr(dispatch, "run_network", survived_flood)
+
+    assert main(["dialogs", "--json"]) == 0
+    capsys.readouterr()
+
+    entry = _journal_lines()[-1]
+    assert entry["exit_code"] == 0
+    assert "retry_after" not in entry
+    assert "request_type" not in entry
+    assert "provenance" not in entry
+
+
+def test_journal_keeps_flood_fields_on_a_refused_flood(config_env, monkeypatch, capsys):
+    """L6-L8: a run that actually ended on a refusal still carries them."""
+    from tgcli import dispatch
+    from tgcli.cli import main
+    from tgcli.errors import RateLimitError
+    from tgcli.governor import pacing
+
+    async def refused(args, account):
+        pacing.note_stop(
+            retry_after=123,
+            request_type="messages.GetHistoryRequest",
+            provenance="account_cooldown",
+        )
+        raise RateLimitError("rate limited for 123s", retry_after=123)
+
+    monkeypatch.setattr(dispatch, "run_network", refused)
+
+    assert main(["dialogs", "--json"]) == 5
+    capsys.readouterr()
+
+    entry = _journal_lines()[-1]
+    assert entry["retry_after"] == 123
+    assert entry["request_type"] == "messages.GetHistoryRequest"
+    assert entry["provenance"] == "account_cooldown"
+
+
+def test_max_runtime_must_be_positive(config_env, capsys):
+    """Review fix: --max-runtime 0 / negative is misuse, exit 2, not a no-op."""
+    from tgcli.cli import main
+
+    assert main(["--max-runtime", "0", "dialogs", "--json"]) == 2
+    assert "positive" in capsys.readouterr().err.lower()
+    assert main(["--max-runtime", "-5", "dialogs", "--json"]) == 2
