@@ -27,7 +27,9 @@ guide-only gate could not see:
   8. MAP guide/ADR inventory matches the tree;
   9. contributor workflow docs route session entries to ``docs/devlog/``;
  10. every ADR in the tree has its row in the ``docs/decisions/README.md``
-     index, which AGENTS.md requires in the same commit as the ADR.
+     index, which AGENTS.md requires in the same commit as the ADR;
+ 11. every ADR named by a ``Supersedes`` clause records that supersession in
+     its own ``Status`` header, which AGENTS.md requires in the same commit.
 
 Run from the repo root: ``uv run python scripts/check-docs.py``.
 """
@@ -266,6 +268,50 @@ def adr_index_problems(index: Path) -> list[str]:
     return problems
 
 
+def adr_supersession_problems(decisions: Path | None = None) -> list[str]:
+    """A superseded ADR records it in its own Status (AGENTS.md).
+
+    The index row is not enough: AGENTS.md's "Read First" sends an agent to a
+    specific ADR as often as to the index, and a file whose header still reads
+    a bare `accepted` looks authoritative on its own. ADR-0008 and ADR-0026 set
+    the precedent for recording partial supersession in the target's header.
+
+    This is the sibling of `adr_index_problems`, and it was added for the same
+    reason: the rule held only by memory, so ADR-0072 landed its supersessions
+    in the index while ADR-0045's and ADR-0052's own headers stayed silent.
+    """
+    decisions = DECISIONS if decisions is None else decisions
+    problems: list[str] = []
+    for path in sorted(decisions.glob("ADR-*.md")):
+        source = re.match(r"ADR-(\d{4})-", path.name)
+        if source is None:
+            continue
+        preamble = path.read_text().split("\n## ", 1)[0]
+        # Each "Supersedes" clause runs until the next one or the preamble end;
+        # the first ADR id inside it is the target being superseded.
+        for clause in preamble.split("Supersedes")[1:]:
+            target = re.search(r"ADR-(\d{4})", clause)
+            if target is None:
+                problems.append(
+                    f"ADR-{source.group(1)}: Supersedes clause names no ADR"
+                )
+                continue
+            files = sorted(decisions.glob(f"ADR-{target.group(1)}-*.md"))
+            if not files:
+                problems.append(
+                    f"ADR-{source.group(1)}: supersedes ADR-{target.group(1)}, "
+                    "which has no ADR file"
+                )
+                continue
+            header = files[0].read_text().split("\n## ", 1)[0]
+            if f"ADR-{source.group(1)}" not in header:
+                problems.append(
+                    f"ADR-{target.group(1)}: Status does not record being "
+                    f"superseded by ADR-{source.group(1)}"
+                )
+    return problems
+
+
 def devlog_routing_problems(contributing: Path, pr_template: Path) -> list[str]:
     """ADR-0058 closed DEVLOG.md; active workflow docs must route to devlog/."""
     stale = re.compile(
@@ -374,6 +420,7 @@ def main(argv: list[str] | None = None) -> int:
     problems += map_inventory_problems(args.map, pages)
     problems += devlog_routing_problems(args.contributing, args.pr_template)
     problems += adr_index_problems(args.adr_index)
+    problems += adr_supersession_problems()
     for page in pages:
         text = page.read_text()
 

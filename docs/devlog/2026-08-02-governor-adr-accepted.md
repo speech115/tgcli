@@ -41,6 +41,20 @@ contradiction. So the gap was never "underspecified"; it was "intent stated in
 one decision, contradicted by the ergonomics of another, reconciled nowhere."
 Decision 3 now says it outright, with the ~60% rate difference spelled out.
 
+**Learned — the same rule broke the same way twice, so it is now a gate check.**
+Review caught that this change updated the *index* rows for ADR-0045 and
+ADR-0052 but left those ADRs' own `Status:` headers reading a bare `accepted`.
+AGENTS.md requires both in the same commit, and ADR-0008/ADR-0026 are the
+precedent for recording partial supersession in the target's header. This is
+the second consecutive session where an ADR bookkeeping rule held only by
+memory got past a green gate — last time it was the index row, which became
+check 10. `scripts/check-docs.py` now carries **check 11**
+(`adr_supersession_problems`): every ADR named by a `Supersedes` clause must
+record that supersession in its own header. Verified it fires on the actual
+defect before the fix, with two negative tests and one asserting the current
+tree is clean. Zero historical debt — all seven existing supersessions in the
+tree already comply.
+
 **Learned — the version drift was real and older than it looked.**
 `pyproject.toml` and `docs/CONTRACT.md` both said `1.2.21` while
 `src/tgcli/__init__.py` and the newest tag said `1.2.25` — four patch releases

@@ -6,6 +6,7 @@ not exist. Nothing in the gate could see it. These tests pin the check that
 now can.
 """
 
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -203,6 +204,67 @@ def test_every_adr_must_have_its_index_row(tmp_path):
 
     assert result.returncode == 1
     assert "README.md: no index row for ADR-0072" in result.stdout
+
+
+def load_check_docs():
+    """`check-docs.py` is not importable by name — the hyphen forbids it."""
+    spec = importlib.util.spec_from_file_location("check_docs", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def write_adr(decisions: Path, number: str, slug: str, header: str) -> None:
+    path = decisions / f"ADR-{number}-{slug}.md"
+    path.write_text(
+        f"# ADR-{number}: {slug}\n\nDate: 2026-08-02\n{header}\n\n## Context\n"
+    )
+
+
+def test_a_superseded_adr_must_say_so_in_its_own_status(tmp_path):
+    """AGENTS.md requires the target's Status to record the supersession.
+
+    The index row is a separate rule with its own check; both are required in
+    the same commit as the superseding ADR. This one held only by memory until
+    ADR-0072 landed its supersessions in the index while ADR-0045's and
+    ADR-0052's headers stayed a bare `accepted`.
+    """
+    decisions = tmp_path / "decisions"
+    decisions.mkdir()
+    write_adr(decisions, "0001", "old-rule", "Status: accepted")
+    write_adr(
+        decisions,
+        "0002",
+        "new-rule",
+        "Status: accepted\nSupersedes: [ADR-0001](ADR-0001-old-rule.md) entirely.",
+    )
+
+    problems = load_check_docs().adr_supersession_problems(decisions)
+
+    assert problems == ["ADR-0001: Status does not record being superseded by ADR-0002"]
+
+
+def test_a_superseded_adr_that_records_it_passes(tmp_path):
+    decisions = tmp_path / "decisions"
+    decisions.mkdir()
+    write_adr(
+        decisions,
+        "0001",
+        "old-rule",
+        "Status: accepted; superseded by [ADR-0002](ADR-0002-new-rule.md).",
+    )
+    write_adr(
+        decisions,
+        "0002",
+        "new-rule",
+        "Status: accepted\nSupersedes: [ADR-0001](ADR-0001-old-rule.md) entirely.",
+    )
+
+    assert load_check_docs().adr_supersession_problems(decisions) == []
+
+
+def test_the_repository_supersessions_are_all_recorded():
+    assert load_check_docs().adr_supersession_problems() == []
 
 
 def test_map_inventory_counts_must_match_the_tree(tmp_path):
