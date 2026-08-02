@@ -16,7 +16,7 @@ from tgcli.archive import (
     store as store_mod,
 )
 from tgcli.changes_cursor import ChangesCursor
-from tgcli.clone import cooldown as cooldown_mod, flood
+from tgcli.clone import cooldown as cooldown_mod
 from tgcli.commands import changes as changes_cmd, media as media_cmd
 from tgcli.commands.read import message_to_dict
 from tgcli.errors import PolicyError, RateLimitError
@@ -172,7 +172,6 @@ async def _catch_up_peer(
     peer_id: int,
     *,
     account_user_id: int,
-    budget: flood.WaitBudget,
     message_budget: int,
 ) -> dict[str, Any]:
     if message_budget <= 0:
@@ -451,7 +450,6 @@ async def sync_archive(
     max_media: int,
     account_alias: str,
     account_dir: Path,
-    budget: flood.WaitBudget | None = None,
     reconcile: bool = True,
 ) -> dict[str, Any]:
     """Apply a full difference pass, then budgeted channel catch-ups.
@@ -460,7 +458,6 @@ async def sync_archive(
     difference events are applied locally — those are always applied in full
     before the changes cursor advances.
     """
-    run_budget = budget if budget is not None else flood.WaitBudget()
     account = store_mod.read_account_sync(conn)
     if account["changes_cursor"]:
         cursor = changes_cursor.decode(account["changes_cursor"])
@@ -486,7 +483,6 @@ async def sync_archive(
             conn,
             peer,
             account_user_id=account_user_id,
-            budget=run_budget,
             message_budget=remaining,
         )
         catchups.append(result)

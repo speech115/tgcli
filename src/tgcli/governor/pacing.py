@@ -23,6 +23,54 @@ from telethon import utils as telethon_utils
 from tgcli.governor import registry
 from tgcli.governor.ledger import Ledger
 
+# Process-wide governed sleep and the optional wall-clock cap (plan phase 5).
+# The deadline asks pacing how much it has slept so `--timeout` can count
+# only ungoverned time; the wall-clock cap is the explicit `--max-runtime`
+# that bounds a long run including its sleeps.
+_slept_seconds = 0.0
+_wall_clock_cap: float | None = None
+_wall_clock_started = 0.0
+
+
+def reset_runtime(*, cap: float | None = None) -> None:
+    """Start a fresh invocation: zero the sleep counter, set the cap."""
+    global _slept_seconds, _wall_clock_cap, _wall_clock_started
+    _slept_seconds = 0.0
+    _wall_clock_cap = cap
+    _wall_clock_started = time.monotonic()
+
+
+def total_governed_sleep() -> float:
+    """Seconds the governor has deliberately slept in this process so far."""
+    return _slept_seconds
+
+
+def _note_sleep(seconds: float) -> None:
+    global _slept_seconds
+    _slept_seconds += seconds
+
+
+def wall_clock_remaining() -> float | None:
+    """Seconds left under `--max-runtime`, or ``None`` when no cap is set."""
+    if _wall_clock_cap is None:
+        return None
+    return _wall_clock_cap - (time.monotonic() - _wall_clock_started)
+
+
+async def sleep_flood(seconds: float, *, sleep=asyncio.sleep) -> bool:
+    """Sleep a FloodWait out if it fits the remaining wall-clock cap.
+
+    Returns ``True`` when the caller may retry; ``False`` when the wait
+    cannot fit — the caller exits 5 immediately without sleeping at all,
+    not even partially (ADR-0072 decision 6, plan phase 5).
+    """
+    remaining = wall_clock_remaining()
+    if remaining is None or seconds > remaining:
+        return False
+    await sleep(seconds)
+    _note_sleep(seconds)
+    return True
+
 
 def _charge(request: object) -> float | None:
     """The interval this request owes, after per-unit adjustment.
@@ -72,6 +120,7 @@ async def pace_before_dispatch(
     wait = interval - (moment - last) if last is not None else 0.0
     if wait > 0:
         await sleep(wait)
+        _note_sleep(wait)
         moment += wait
     ledger.reserve(account, key, moment)
 

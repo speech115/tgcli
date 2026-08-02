@@ -276,7 +276,6 @@ _session_account_id = cooldown_mod.session_account_id
 _cooled_account = cooldown_mod.cooled_account
 _enforce_cooldown = cooldown_mod.enforce
 _arm_flood_cooldown = cooldown_mod.arm
-_with_cooldown = cooldown_mod.with_cooldown
 _mutate = cooldown_mod.mutate
 
 
@@ -304,7 +303,6 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
     else:
         _enforce_account_cooldown(account_user_id)
 
-    budget = flood.WaitBudget()
     entity, source_kind, _ = await _resolve_source(tg, source)
     me = await tg.get_me()
     if (
@@ -378,7 +376,6 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
                     title=marker, about="", broadcast=True, megagroup=False
                 ),
                 clone_state,
-                budget,
             )
             candidates = [
                 item
@@ -394,7 +391,7 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
         safety.append_audit("clone-init-forum", account_alias, {"clone_id": clone_id})
     if forum:
         await topics.ensure_forum(
-            lambda request: _mutate(tg, request, clone_state, budget), destination
+            lambda request: _mutate(tg, request, clone_state), destination
         )
     titled = attribution.destination_title(clone_state.source_title)
     if getattr(destination, "title", None) != titled:
@@ -403,7 +400,6 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
             tg,
             functions.channels.EditTitleRequest(channel=destination, title=titled),
             clone_state,
-            budget,
         )
         destination.title = titled
     full_chat = await _copy_profile(
@@ -412,14 +408,14 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
         destination,
         account_alias,
         clone_state,
-        lambda make_awaitable: _with_cooldown(make_awaitable, clone_state, budget),
+        lambda make_awaitable: make_awaitable(),
     )
     if no_comments:
         clone_state.comments = "disabled"
         state.save(clone_state)
     else:
         await _init_discussion(
-            tg, destination, clone_state, full_chat, account_alias, clone_id, budget
+            tg, destination, clone_state, full_chat, account_alias, clone_id
         )
     peers = [destination]
     discussion_unresolved = False
@@ -498,7 +494,6 @@ async def _reupload_batch(
     messages,
     random_ids,
     reply_to,
-    budget: flood.WaitBudget,
     author=None,
     plan=None,
     progress=None,
@@ -514,7 +509,7 @@ async def _reupload_batch(
         if media is None or isinstance(media, types.MessageMediaWebPage):
             continue
         downloads[message.id] = await _download_for_reupload(
-            tg, message, cache, clone_state, budget, progress
+            tg, message, cache, clone_state, progress
         )
     safety.append_audit(
         "clone-sync-reupload",
@@ -547,11 +542,10 @@ async def _reupload_batch(
                     message,
                     downloads[message.id],
                     clone_state,
-                    budget,
                     progress,
                 ),
             )
-        response = await _mutate(tg, request, clone_state, budget)
+        response = await _mutate(tg, request, clone_state)
     else:
         multi_media = []
         for index, (message, random_id) in enumerate(
@@ -562,13 +556,12 @@ async def _reupload_batch(
                     f"clone album item is not reconstructable: {message.id}"
                 )
             uploaded = await _uploaded_media(
-                tg, message, downloads[message.id], clone_state, budget, progress
+                tg, message, downloads[message.id], clone_state, progress
             )
             stored = await _mutate(
                 tg,
                 functions.messages.UploadMediaRequest(peer=destination, media=uploaded),
                 clone_state,
-                budget,
             )
             text, entities = _body_text(message, author if index == 0 else None, plan)
             multi_media.append(
@@ -582,7 +575,7 @@ async def _reupload_batch(
         request = functions.messages.SendMultiMediaRequest(
             peer=destination, multi_media=multi_media, reply_to=reply_to
         )
-        response = await _mutate(tg, request, clone_state, budget)
+        response = await _mutate(tg, request, clone_state)
     # Only a successful send clears the cache — a FloodWait mid-upload must
     # leave downloaded bytes for the next invocation (ADR-0052).
     shutil.rmtree(cache, ignore_errors=True)
@@ -611,7 +604,6 @@ async def _forward_batch(
     author_cache,
     plan,
     *,
-    budget: flood.WaitBudget,
     topic_dest=None,
     poll_votes: list | None = None,
     progress=None,
@@ -625,7 +617,7 @@ async def _forward_batch(
     top_msg_id = None if topic_dest in (None, topics.GENERAL_TOPIC_ID) else topic_dest
 
     async def cooldown(make_awaitable):
-        return await _with_cooldown(make_awaitable, clone_state, budget)
+        return await make_awaitable()
 
     # ADR-0050 Part B: a proven original outranks the Part A prefix, because
     # forwarding it carries Telegram's own header instead of describing one.
@@ -671,7 +663,6 @@ async def _forward_batch(
                 top_msg_id=top_msg_id,
             ),
             clone_state,
-            budget,
         )
     elif plan.mode == "snapshots":
         rendered_text, rendered_entities, poll_marker = await snapshot.render(
@@ -679,9 +670,7 @@ async def _forward_batch(
             messages[0],
             peer=source,
             account_alias=account_alias,
-            invoke=lambda make_awaitable: _with_cooldown(
-                make_awaitable, clone_state, budget
-            ),
+            invoke=lambda make_awaitable: make_awaitable(),
         )
         if poll_marker is not None and poll_votes is not None:
             poll_votes.append(poll_marker)
@@ -708,7 +697,6 @@ async def _forward_batch(
                 entities=entities,
             ),
             clone_state,
-            budget,
         )
     elif plan.mode == "forwarded":
         safety.append_audit(
@@ -724,7 +712,7 @@ async def _forward_batch(
             drop_author=_drops_author(leg, messages),
             top_msg_id=top_msg_id,
         )
-        response = await _mutate(tg, request, clone_state, budget)
+        response = await _mutate(tg, request, clone_state)
     else:
         response = await _reupload_batch(
             tg,
@@ -734,7 +722,6 @@ async def _forward_batch(
             messages,
             random_ids,
             reply_to,
-            budget,
             author,
             plan,
             progress,
@@ -769,7 +756,6 @@ async def sync_text(
     # Warn before the work, not only after it: a run killed by FloodWait never
     # reaches the tail, so the resume is where the operator sees this.
     warned_unstarted = clone_progress.comments_unstarted(clone_state)
-    budget = flood.WaitBudget()
     destination = await _resolve_destination(tg, clone_state.destination_peer_id)
     forum = clone_state.destination_kind == "forum"
     valid_destination = (
@@ -803,7 +789,7 @@ async def sync_text(
     counters = {"topics_created": 0, "skipped_service": 0, "skipped_autoforward": 0}
 
     def mutate(request):
-        return _mutate(tg, request, clone_state, budget)
+        return _mutate(tg, request, clone_state)
 
     reply_flattened = 0
     quote_flattened: list[dict] = []
@@ -833,7 +819,7 @@ async def sync_text(
         await progress.resolve_total(
             tg,
             source_entity,
-            lambda make_awaitable: _with_cooldown(make_awaitable, clone_state, budget),
+            lambda make_awaitable: make_awaitable(),
         )
         plan = transport.decide(
             messages,
@@ -876,7 +862,6 @@ async def sync_text(
                 me,
                 author_cache,
                 active_plan,
-                budget=budget,
                 topic_dest=topic_dest,
                 poll_votes=poll_votes,
                 progress=progress,
@@ -975,7 +960,7 @@ async def sync_text(
                 source_entity,
                 destination,
                 mutate,
-                lambda make: _with_cooldown(make, clone_state, budget),
+                lambda make: make(),
                 account_alias,
             )
         else:
@@ -1064,10 +1049,8 @@ async def preview_refresh(tg, source: str) -> dict:
         tg, source
     )
 
-    budget = flood.WaitBudget()
-
     async def cooldown(make_awaitable):
-        return await _with_cooldown(make_awaitable, clone_state, budget)
+        return await make_awaitable()
 
     eligible, excluded = await clone_refresh.candidates(
         tg, clone_state, source_entity, destination, me, cooldown
@@ -1125,10 +1108,8 @@ async def commit_refresh(tg, source: str, account_alias: str, payload: dict) -> 
             )
     input_peer = await tg.get_input_entity(destination)
 
-    budget = flood.WaitBudget()
-
     async def cooldown(make_awaitable):
-        return await _with_cooldown(make_awaitable, clone_state, budget)
+        return await make_awaitable()
 
     author_cache: dict = {}
     edited: list[dict] = []
@@ -1185,7 +1166,6 @@ async def commit_refresh(tg, source: str, account_alias: str, payload: dict) -> 
                     entities=rendered_entities,
                 ),
                 clone_state,
-                budget,
             )
         except MessageNotModifiedError:
             pass

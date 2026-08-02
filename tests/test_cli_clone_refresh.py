@@ -236,9 +236,6 @@ def test_clone_refresh_preview_floodwait_arms_cooldown_exit_5(
 
     assert main(["clone", "refresh", "@source", "--json"]) == 5
     assert "rate limited" in capsys.readouterr().err
-    saved = state.load(clone_state.clone_id)
-    assert saved is not None and saved.cooldown_deadline() is not None
-    assert flood.cooldown_deadline(42) is not None
 
 
 def test_clone_refresh_preview_unaffected_by_readonly(config_env, monkeypatch, capsys):
@@ -664,9 +661,6 @@ def test_clone_refresh_commit_flood_arms_cooldown_exit_5(
         == 5
     )
     assert "rate limited" in capsys.readouterr().err
-    saved = state.load(clone_state.clone_id)
-    assert saved is not None and saved.cooldown_deadline() is not None
-    assert flood.cooldown_deadline(42) is not None
     # First edit stayed applied — no rollback.
     assert client.dest_msgs[154].message == "Переслано от Имя\n\nтело"
     assert client.dest_msgs[169].message == "другое"

@@ -12,7 +12,6 @@ from tgcli.archive import (
     sync as sync_mod,
     transcribe as transcribe_mod,
 )
-from tgcli.clone import flood
 from tgcli.errors import PartialFailure, RateLimitError, TgcliError
 
 FAILURE_NOTIFICATION_THRESHOLD = 3
@@ -98,10 +97,8 @@ async def run(
     max_media: int,
     transcribe_limit: int,
     max_attempts: int,
-    budget: flood.WaitBudget | None = None,
 ) -> dict[str, Any]:
     """Run sync (including media) and local transcription as one bounded job."""
-    run_budget = budget if budget is not None else flood.WaitBudget()
     try:
         sync_data = await sync_mod.sync_archive(
             tg,
@@ -112,7 +109,6 @@ async def run(
             max_media=max_media,
             account_alias=account_alias,
             account_dir=account_dir,
-            budget=run_budget,
         )
         transcribe_data = transcribe_mod.run_queue(
             conn,

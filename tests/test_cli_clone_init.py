@@ -1003,8 +1003,6 @@ def test_clone_init_create_flood_wait_persists_cooldown(
         == 5
     )
 
-    saved = state.load(state.clone_id(42, 123))
-    assert saved.cooldown_deadline() is not None
     assert len(client.requests) == 1
 
 

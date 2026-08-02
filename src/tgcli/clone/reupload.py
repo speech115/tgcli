@@ -14,7 +14,7 @@ from pathlib import Path
 from telethon import errors as telethon_errors
 from telethon.tl import types
 
-from tgcli.clone import cooldown, progress as clone_progress, state
+from tgcli.clone import progress as clone_progress, state
 from tgcli.errors import PolicyError
 from tgcli.output import note
 from tgcli.transfer import (
@@ -80,9 +80,9 @@ async def uploaded_thumb(tg, message, document, path: Path, invoke):
         return None
 
 
-async def uploaded_media(tg, message, path, clone_state, budget, progress=None):
+async def uploaded_media(tg, message, path, clone_state, progress=None):
     async def invoke(make_awaitable):
-        return await cooldown.with_cooldown(make_awaitable, clone_state, budget)
+        return await make_awaitable()
 
     input_file = await upload_parts(
         tg,
@@ -120,7 +120,7 @@ def complete_marker(target: Path) -> Path:
 
 
 async def download_for_reupload(
-    tg, message, workdir: Path, clone_state, budget, progress=None
+    tg, message, workdir: Path, clone_state, progress=None
 ) -> Path:
     target = workdir / f"src-{message.id}"
     marker = complete_marker(target)
@@ -144,26 +144,18 @@ async def download_for_reupload(
         # sparse file the reuse check would upload as real media (ADR-0052).
         part = target.with_name(f"{target.name}.part")
         part.unlink(missing_ok=True)
-        await cooldown.with_cooldown(
-            lambda: download_striped(
-                tg,
-                message.media,
-                part,
-                size=size,
-                parallel=CLONE_TRANSFER_PARALLEL,
-                progress=clone_progress.transfer_of(progress, message, "download"),
-            ),
-            clone_state,
-            budget,
+        await download_striped(
+            tg,
+            message.media,
+            part,
+            size=size,
+            parallel=CLONE_TRANSFER_PARALLEL,
+            progress=clone_progress.transfer_of(progress, message, "download"),
         )
         os.replace(part, target)
         marker.touch()
         return target
-    downloaded = await cooldown.with_cooldown(
-        lambda: tg.download_media(message, file=target),
-        clone_state,
-        budget,
-    )
+    downloaded = await tg.download_media(message, file=target)
     if downloaded is None:
         raise PolicyError(f"clone media download failed at source message {message.id}")
     path = Path(downloaded)

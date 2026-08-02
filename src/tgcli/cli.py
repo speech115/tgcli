@@ -89,20 +89,13 @@ def _restore_diagnostics(configured) -> None:
 
 
 def _default_timeout(args) -> float | None:
-    """The deadline for an invocation that supplied no --timeout (CONTRACT §1)."""
-    if args.command == "export":
-        return None
-    if args.command == "changes" and getattr(args, "changes_wait", None) is not None:
-        # --wait owns the budget; an implicit 60s must not clip it.
-        return None
-    if args.command == "clone" and args.clone_command in ("init", "sync", "refresh"):
-        # ADR-0052 lets these wait out a short FloodWait (up to 61s in the
-        # foreground), which never fits inside a 60s default deadline.
-        return None
-    if args.command == "archive" and args.archive_command == "refresh":
-        # A scheduled archive pass includes bounded media and local
-        # transcription; only an explicit --timeout should clip it.
-        return None
+    """The deadline for an invocation that supplied no --timeout (CONTRACT §1).
+
+    One number for every command: governed sleep does not count against it
+    (ADR-0072 decision 6), so a paced run that would previously have needed
+    a per-command exemption now simply does not hit the deadline. Only
+    `accounts login` differs — its QR wait is operator time, not work.
+    """
     if args.command == "accounts" and args.subcommand == "login":
         # CONTRACT §10: the QR wait defaults to 120s; --continue waits on the
         # operator and takes no default deadline at all.
@@ -125,20 +118,6 @@ def _apply_global_defaults(args) -> None:
             setattr(args, name, default)
 
 
-def _long_running(args) -> bool:
-    """Commands that pace themselves rather than honour a default deadline."""
-    return args.command == "media" or (
-        args.command == "clone" and args.clone_command == "sync"
-    )
-
-
-def _deadline(args, *, timeout_supplied: bool) -> float | None:
-    """The budget for preflight plus execute together, or None when exempt."""
-    if args.timeout is None or (not timeout_supplied and _long_running(args)):
-        return None
-    return args.timeout
-
-
 @contextlib.contextmanager
 def _armed(seconds: float | None):
     """Hold the invocation deadline over the whole body, preflight included.
@@ -146,6 +125,11 @@ def _armed(seconds: float | None):
     asyncio.wait_for only covers the network coroutine; everything before it —
     `tg batch` reading stdin, `accounts login --continue` reading a password —
     would otherwise run with no deadline at all.
+
+    The deadline is a hang detector (ADR-0072 decision 6): when the SIGALRM
+    fires, the handler asks pacing how much of the elapsed wall time was
+    deliberate governed sleep, and if that leaves the deadline unspent,
+    re-arms the timer for the remainder instead of killing the run.
     """
     if (
         seconds is None
@@ -155,7 +139,18 @@ def _armed(seconds: float | None):
         yield
         return
 
+    from tgcli.governor import pacing
+
+    base_slept = pacing.total_governed_sleep()
+    started = time.monotonic()
+
     def fire(signum, frame):
+        elapsed = time.monotonic() - started
+        governed = pacing.total_governed_sleep() - base_slept
+        remaining = seconds - (elapsed - governed)
+        if remaining > 0:
+            signal.setitimer(signal.ITIMER_REAL, remaining + DEADLINE_GRACE)
+            return
         raise _DeadlineSignal
 
     previous = signal.signal(signal.SIGALRM, fire)
@@ -197,9 +192,31 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
 
 
 def _run_with_deadline(coro, timeout):
-    """Run one coroutine under `--timeout` as the documented TIMEOUT error."""
+    """Run one coroutine under `--timeout` as the documented TIMEOUT error.
+
+    Governed sleep does not count against the deadline (ADR-0072 decision
+    6): the loop re-reads pacing's slept total on every wake and grants
+    back that much wall time, so a run pacing itself out of a flood is not
+    killed for doing the right thing.
+    """
+    from tgcli.governor import pacing
+
+    async def run():
+        task = asyncio.create_task(coro)
+        started = time.monotonic()
+        base_slept = pacing.total_governed_sleep()
+        while True:
+            governed = pacing.total_governed_sleep() - base_slept
+            remaining = timeout - (time.monotonic() - started - governed)
+            if remaining <= 0:
+                task.cancel()
+                raise TimeoutError
+            done, _ = await asyncio.wait({task}, timeout=remaining)
+            if done:
+                return task.result()
+
     try:
-        return asyncio.run(asyncio.wait_for(coro, timeout=timeout))
+        return asyncio.run(run())
     except TimeoutError:  # asyncio.TimeoutError is this alias since 3.11
         raise CommandTimeoutError(
             f"invocation exceeded the --timeout deadline of {timeout}s"
@@ -433,10 +450,7 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
     try:
         _audit_before(args, account)
         network = _run_network(args, account)
-        if _long_running(args) and not timeout_supplied:
-            data, rows = asyncio.run(network)
-        else:
-            data, rows = _run_with_deadline(network, args.timeout)
+        data, rows = _run_with_deadline(network, args.timeout)
         _audit_after(args, account, data)
         return data, rows
     finally:
@@ -497,13 +511,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parsed
     timeout_supplied = hasattr(args, "timeout")
     _apply_global_defaults(args)
+    from tgcli.governor import pacing
+
+    pacing.reset_runtime(cap=getattr(args, "max_runtime", None))
     verbose_diagnostics = _enable_verbose_diagnostics() if args.verbose else []
     started = time.monotonic()
     exit_code = 1
     error_code = None
     try:
         with _honest_termination():
-            with _armed(_deadline(args, timeout_supplied=timeout_supplied)):
+            with _armed(args.timeout):
                 preflight.prepare(parser, args)
                 data, rows = _execute(args, timeout_supplied=timeout_supplied)
             # Emitting is part of the invocation: a failure here is journaled,

@@ -131,7 +131,7 @@ Full guide: **[docs/guide/](docs/guide/README.md)**
 
 Config lives at `~/.config/tgcli/config.toml`; sessions, locks, previews, the audit log, and cache live under `~/.local/state/tgcli/` (mode `0700`). Account selection order is `--account` > `TGCLI_ACCOUNT` > `default_account`.
 
-**Global flags:** `--account NAME`, `--session-role NAME`, `--json`, `--plain`, `--readonly`, `--timeout SEC` (command-specific defaults; see [CONTRACT §1](docs/CONTRACT.md#1-invocation)), `-v/--verbose`, `--version`.
+**Global flags:** `--account NAME`, `--session-role NAME`, `--json`, `--plain`, `--readonly`, `--timeout SEC` (deadline; governed sleep does not count — see [CONTRACT §1](docs/CONTRACT.md#1-invocation)), `--max-runtime SEC` (wall-clock cap for long runs: normal stop with a resume pointer), `-v/--verbose`, `--version`.
 
 **Environment overrides:**
 

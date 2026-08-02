@@ -15,7 +15,7 @@ from tests.test_cli_clone_sync import (
     seed_clone,
 )
 from tgcli.cli import main
-from tgcli.clone import flood, state
+from tgcli.clone import state
 from tgcli.commands import clone as clone_cmd
 from tgcli.transfer import CHUNK_SIZE, media_byte_size
 
@@ -61,9 +61,8 @@ async def test_download_reuses_matching_name_and_size(state_dir_env, monkeypatch
         async def download_media(self, message, file=None):
             raise AssertionError("matching cache must not download")
 
-    budget = flood.WaitBudget()
     path = await clone_cmd._download_for_reupload(
-        NoDownloadTg(), msg, cache, clone_state, budget
+        NoDownloadTg(), msg, cache, clone_state
     )
     assert path == target
     assert path.read_bytes() == payload
@@ -94,8 +93,7 @@ async def test_unmarked_full_size_cache_file_is_redownloaded(state_dir_env):
             downloads.append(path)
             return str(path)
 
-    budget = flood.WaitBudget()
-    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state, budget)
+    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state)
 
     assert len(downloads) == 1
     assert path.read_bytes() == b"R" * size
@@ -123,8 +121,7 @@ async def test_download_rejects_stale_size_and_redownloads(state_dir_env):
             downloads.append(path)
             return str(path)
 
-    budget = flood.WaitBudget()
-    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state, budget)
+    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state)
     assert path.read_bytes() == b"x" * 20
     assert len(downloads) == 1
 
@@ -159,8 +156,7 @@ async def test_stale_large_cache_redownloads_without_file_exists_error(state_dir
                 return
             yield b"N" * min(request_size or remaining, remaining)
 
-    budget = flood.WaitBudget()
-    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state, budget)
+    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state)
     assert path == target
     assert path.stat().st_size == size
     assert path.read_bytes()[:13] != b"stale-partial"
@@ -200,8 +196,7 @@ async def test_striped_download_publishes_final_name_only_when_complete(state_di
                 return
             yield b"N" * min(request_size or remaining, remaining)
 
-    budget = flood.WaitBudget()
-    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state, budget)
+    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state)
     assert final_seen and not any(final_seen)
     assert path == target
     assert target.stat().st_size == size
@@ -226,9 +221,8 @@ async def test_interrupted_striped_download_leaves_no_final_file(state_dir_env):
             raise telethon_errors.RPCError(SimpleNamespace(), "BROKEN", 400)
             yield b""  # pragma: no cover - generator marker
 
-    budget = flood.WaitBudget()
     with pytest.raises(telethon_errors.RPCError):
-        await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state, budget)
+        await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state)
     assert not (cache / "src-2").exists()
 
 
@@ -256,8 +250,7 @@ async def test_abandoned_part_file_is_not_reused_and_redownloads(state_dir_env):
                 return
             yield b"N" * min(request_size or remaining, remaining)
 
-    budget = flood.WaitBudget()
-    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state, budget)
+    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state)
     assert path == cache / "src-2"
     assert path.read_bytes()[:1] == b"N"
     assert not part.exists()
@@ -291,13 +284,8 @@ async def test_striped_download_result_is_reused_without_rpcs(state_dir_env):
             raise AssertionError("complete cache must not download")
             yield b""  # pragma: no cover - generator marker
 
-    budget = flood.WaitBudget()
-    first = await clone_cmd._download_for_reupload(
-        Tg(), msg, cache, clone_state, budget
-    )
-    again = await clone_cmd._download_for_reupload(
-        NoRpcTg(), msg, cache, clone_state, budget
-    )
+    first = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state)
+    again = await clone_cmd._download_for_reupload(NoRpcTg(), msg, cache, clone_state)
     assert again == first
     assert again.stat().st_size == size
 
@@ -329,8 +317,7 @@ async def test_download_without_predictable_size_never_reuses(state_dir_env):
             downloads.append(path)
             return str(path)
 
-    budget = flood.WaitBudget()
-    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state, budget)
+    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state)
     assert path.read_bytes() == b"fresh"
     assert len(downloads) == 1
 
@@ -353,12 +340,6 @@ def test_successful_reupload_removes_media_cache(config_env, monkeypatch, capsys
 def test_failed_reupload_leaves_downloaded_media_on_disk(
     config_env, monkeypatch, capsys
 ):
-    sleeps: list[float] = []
-
-    async def fake_sleep(seconds):
-        sleeps.append(seconds)
-
-    monkeypatch.setattr("tgcli.clone.cooldown.asyncio.sleep", fake_sleep)
     clone_state = seed_clone()
     photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
 
@@ -390,8 +371,6 @@ def test_failed_reupload_leaves_downloaded_media_on_disk(
     # marker first — the first macOS CI leg caught this).
     assert (cache / "src-2").read_bytes() == b"x" * 50
     assert (cache / "src-2.done").is_file()
-    # Long wait — no sleep/retry.
-    assert sleeps == []
 
 
 def test_reupload_uses_persistent_cache_path_not_temp(

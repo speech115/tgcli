@@ -132,7 +132,7 @@ async def copy_profile(tg, source, destination, account_alias, clone_state, cool
 
 
 async def init_discussion(
-    tg, destination, clone_state, full_chat, account_alias, clone_id, budget
+    tg, destination, clone_state, full_chat, account_alias, clone_id
 ) -> None:
     """Create/adopt and link the destination discussion group before any post.
     An unreadable source group is not an error: the clone stays posts-only and
@@ -145,11 +145,11 @@ async def init_discussion(
         return state.save(clone_state)
     clone_state.discussion_source_peer_id = linked
 
-    def cooldown(make_awaitable):
-        return cooldown_mod.with_cooldown(make_awaitable, clone_state, budget)
+    async def cooldown(make_awaitable):
+        return await make_awaitable()
 
     def mutate(request):
-        return cooldown_mod.mutate(tg, request, clone_state, budget)
+        return cooldown_mod.mutate(tg, request, clone_state)
 
     try:
         source_group = await tg.get_entity(types.PeerChannel(linked))

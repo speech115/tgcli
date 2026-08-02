@@ -13,7 +13,7 @@ from tgcli.archive import (
     sync as sync_mod,
     transcribe as transcribe_mod,
 )
-from tgcli.clone import cooldown as cooldown_mod, flood
+from tgcli.clone import cooldown as cooldown_mod
 from tgcli.commands import archive_refresh as refresh_cmd
 from tgcli.config import Config, load_config, resolve_account
 from tgcli.errors import NotFoundError, PolicyError
@@ -287,7 +287,6 @@ async def backfill(
                 limit=limit,
                 max_dialogs=max_dialogs,
                 account_user_id=int(me.id),
-                budget=flood.WaitBudget(),
             )
         else:
             chats = backfill_mod.validate_dialogs(chats, maximum=MAX_BACKFILL_DIALOGS)
@@ -297,7 +296,6 @@ async def backfill(
                 chats,
                 limit=limit,
                 account_user_id=int(me.id),
-                budget=flood.WaitBudget(),
             )
             data = {
                 "mode": "chats",
@@ -355,7 +353,6 @@ async def sync(
             max_media=max_media,
             account_alias=alias,
             account_dir=account_dir(alias, config),
-            budget=flood.WaitBudget(),
         )
     finally:
         conn.close()

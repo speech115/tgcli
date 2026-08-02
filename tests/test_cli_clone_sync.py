@@ -3709,16 +3709,15 @@ def test_clone_sync_flood_wait_persists_cooldown_without_advancing(
     saved = state.load(clone_state.clone_id)
     assert saved.cursor == 0
     assert saved.dest_for(2) is None
-    assert saved.cooldown_deadline() is not None
     assert len(client.requests) == 1
     assert client.session_mutation_safe is True
 
 
-def test_clone_sync_flood_wait_arms_account_cooldown_for_other_clones(
+def test_clone_sync_flood_wait_exits_5_without_advancing(
     config_env, monkeypatch, capsys
 ):
-    from tgcli.clone import flood
-
+    """A flood exits 5 locally; the governor's seam arms the per-type
+    cooldown (covered by the governor unit tests) and the cursor stays put."""
     seed_clone()
     other = state.CloneState.new(
         account_user_id=42,
@@ -3738,32 +3737,9 @@ def test_clone_sync_flood_wait_arms_account_cooldown_for_other_clones(
     make_session_fake(monkeypatch, client)
 
     assert main(["clone", "sync", "@source", "--json"]) == 5
-    assert flood.cooldown_deadline(42) is not None
-    first_requests = len(client.requests)
-    capsys.readouterr()
-
-    class OtherClient(CloneSyncClient):
-        def __init__(self):
-            super().__init__([])
-            self.source = channel(456, "Other channel")
-            self.destination = channel(888, "Other channel", creator=True)
-
-        async def get_entity(self, ref):
-            if isinstance(ref, types.PeerChannel):
-                if ref.channel_id == 888:
-                    return self.destination
-                raise ValueError("peer not found")
-            assert ref == "@other"
-            return self.source
-
-    other_client = OtherClient()
-    make_session_fake(monkeypatch, other_client)
-
-    assert main(["clone", "sync", "@other", "--json"]) == 5
-    err = json.loads(capsys.readouterr().err)["error"]
-    assert err["retry_after"] > 0
-    assert other_client.requests == []
-    assert first_requests == 1
+    assert len(client.requests) == 1
+    err = json.loads(capsys.readouterr().err.splitlines()[-1])["error"]
+    assert err["retry_after"] == 600
 
 
 def test_clone_sync_account_cooldown_blocks_before_network(
@@ -4068,7 +4044,6 @@ def test_clone_sync_reupload_striped_download_flood_wait_exits_5(
     )
     saved = state.load(clone_state.clone_id)
     assert saved.cursor == 0
-    assert saved.cooldown_deadline() is not None
 
 
 def test_clone_sync_reupload_part_flood_wait_exits_5_without_send(
@@ -4109,7 +4084,6 @@ def test_clone_sync_reupload_part_flood_wait_exits_5_without_send(
     )
     saved = state.load(clone_state.clone_id)
     assert saved.cursor == 0
-    assert saved.cooldown_deadline() is not None
 
 
 # --- ADR-0050 Part B: native re-forward of a proven original --------------
@@ -4371,7 +4345,6 @@ def test_clone_sync_reforward_search_flood_wait_exits_5_without_send(
     )
     saved = state.load(clone_state.clone_id)
     assert saved.cursor == 0
-    assert saved.cooldown_deadline() is not None
 
 
 def test_clone_sync_reforward_group_entity_flood_wait_exits_5_without_send(
@@ -4413,7 +4386,6 @@ def test_clone_sync_reforward_group_entity_flood_wait_exits_5_without_send(
     )
     saved = state.load(clone_state.clone_id)
     assert saved.cursor == 0
-    assert saved.cooldown_deadline() is not None
 
 
 def progress_lines(stderr: str) -> list[str]:
@@ -4626,8 +4598,8 @@ def test_sync_with_nothing_to_copy_asks_for_no_approximate_total(
 def test_sync_flood_wait_on_the_approximate_total_arms_the_cooldown(
     config_env, monkeypatch, capsys
 ):
-    """The best-effort total must never swallow FloodWait (ADR-0045)."""
-    clone_state = seed_clone()
+    """The best-effort total must never swallow FloodWait (ADR-0072)."""
+    seed_clone()
 
     class FloodingTotalClient(CloneSyncClient):
         async def get_messages(self, entity, limit=None):
@@ -4644,8 +4616,6 @@ def test_sync_flood_wait_on_the_approximate_total_arms_the_cooldown(
     assert error["code"] == "FLOOD_WAIT"
     assert error["retry_after"] == 61
     assert client.requests == []
-    saved = state.load(clone_state.clone_id)
-    assert saved.cooldown_deadline() is not None
 
 
 def test_completing_sync_pins_mapped_source_and_reports_set(
@@ -4734,43 +4704,26 @@ def test_forum_sync_omits_pinned_key(config_env, monkeypatch, capsys):
     )
 
 
-def test_sync_short_flood_wait_retries_once_and_keeps_json_stdout(
+def test_sync_short_flood_wait_exits_5_without_foreground_retry(
     config_env, monkeypatch, capsys
 ):
-    """ADR-0052: ≤60s FloodWait sleeps once (injectable), retries; one JSON."""
-    sleeps: list[float] = []
-
-    async def fake_sleep(seconds):
-        sleeps.append(seconds)
-
-    monkeypatch.setattr("tgcli.clone.cooldown.asyncio.sleep", fake_sleep)
+    """ADR-0072 decision 6: no foreground short-wait retry — the governor arms
+    the cooldown and the run exits 5; the schedule resumes it later."""
     seed_clone()
 
-    class OnceFloodClient(CloneSyncClient):
+    class FloodClient(CloneSyncClient):
         def __init__(self, messages):
             super().__init__(messages)
-            self._flooded = False
 
         async def __call__(self, request):
-            if (
-                isinstance(request, functions.messages.ForwardMessagesRequest)
-                and not self._flooded
-            ):
-                self._flooded = True
-                raise telethon_errors.FloodWaitError(request=None, capture=3)
-            return await super().__call__(request)
+            raise telethon_errors.FloodWaitError(request=None, capture=3)
 
-    client = OnceFloodClient([message(2)])
+    client = FloodClient([message(2)])
     make_session_fake(monkeypatch, client)
 
-    assert main(["clone", "sync", "@source", "--json"]) == 0
+    assert main(["clone", "sync", "@source", "--json"]) == 5
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert payload["sync"]["copied"] == 1
-    assert payload["sync"]["forwarded"] == 1
-    assert "flood wait: retrying in 3s" in captured.err
-    assert sleeps == [4]
-    # Exactly one JSON document on stdout — no wait noise.
-    assert captured.out.count("{") >= 1
-    json.loads(captured.out)  # round-trip already; single document
+    assert payload["error"]["retry_after"] == 3
+    assert "flood wait: retrying" not in captured.err

@@ -269,3 +269,28 @@ async def test_the_wrapper_forwards_arguments_untouched(ledger):
     assert await client._call("snd", history(), ordered=True) == "ok"
     assert seen["sender"] == "snd"
     assert seen["kwargs"] == {"ordered": True}
+
+
+async def test_siblings_do_not_issue_rpcs_while_a_flood_is_armed(ledger):
+    """FloodGate behaviour, re-proved on the governor (plan phase 5).
+
+    ADR-0052 parked sibling upload workers while one slept a shared
+    FloodWait out. The governor replaces that: the flood arms a per-type
+    cooldown, and every sibling request of that type refuses locally with
+    zero RPCs instead of sleeping the same wait again.
+    """
+    error = telethon_errors.FloodWaitError(request=None)
+    error.seconds = 600
+    client = FakeClient(raises=error)
+    gate.install(client, ledger)
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        await client._call(None, history())
+
+    siblings = [FakeClient() for _ in range(3)]
+    for sibling in siblings:
+        gate.install(sibling, ledger)
+    for sibling in siblings:
+        with pytest.raises(RateLimitError):
+            await sibling._call(None, history())
+        assert sibling.sent == []

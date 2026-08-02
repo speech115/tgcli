@@ -48,6 +48,14 @@ def build_parser() -> argparse.ArgumentParser:
     global_flags.add_argument("--plain", action="store_true", help="TSV to stdout")
     global_flags.add_argument("--readonly", action="store_true")
     global_flags.add_argument("--timeout", type=float)
+    global_flags.add_argument(
+        "--max-runtime",
+        type=float,
+        dest="max_runtime",
+        metavar="SECONDS",
+        help="wall-clock cap for long runs: exhausting it is a normal stop, "
+        "exit 0 with a resume pointer (governed sleep counts against it)",
+    )
     global_flags.add_argument("-v", "--verbose", action="store_true")
 
     parser = _Parser(

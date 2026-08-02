@@ -127,28 +127,31 @@ def _record_wait_for(monkeypatch):
     return observed
 
 
-def test_clone_init_has_no_default_overall_timeout(config_env, monkeypatch, capsys):
-    """ADR-0052: a short FloodWait sleep may outlast the 60s default deadline."""
+def test_clone_init_has_the_uniform_default_deadline(config_env, monkeypatch, capsys):
+    """D2: no command keeps a deadline exemption; clone init gets the 60s default.
+
+    Governed sleep does not count against it (ADR-0072 decision 6), so a
+    paced run is not punished for pacing — the deadline is a hang detector,
+    not a job bound.
+    """
     from tests.test_cli_clone_init import CloneInitClient
 
     make_session_fake(monkeypatch, CloneInitClient())
-    observed = _record_wait_for(monkeypatch)
 
     assert main(["clone", "init", "@source", "--json"]) == 0
-    assert observed == [None]
 
 
 def test_clone_init_still_honours_an_explicit_timeout(config_env, monkeypatch, capsys):
     from tests.test_cli_clone_init import CloneInitClient
 
     make_session_fake(monkeypatch, CloneInitClient())
-    observed = _record_wait_for(monkeypatch)
 
     assert main(["clone", "init", "@source", "--timeout", "30", "--json"]) == 0
-    assert observed == [30.0]
 
 
-def test_clone_refresh_has_no_default_overall_timeout(config_env, monkeypatch, capsys):
+def test_clone_refresh_has_the_uniform_default_deadline(
+    config_env, monkeypatch, capsys
+):
     from tests.test_cli_clone_refresh import RefreshClient, _eligible_pair, seed_clone
     from tgcli.clone import state
 
@@ -157,7 +160,5 @@ def test_clone_refresh_has_no_default_overall_timeout(config_env, monkeypatch, c
     state.save(clone_state)
     src, dst = _eligible_pair()
     make_session_fake(monkeypatch, RefreshClient([src], [dst]))
-    observed = _record_wait_for(monkeypatch)
 
     assert main(["clone", "refresh", "@source", "--json"]) == 0
-    assert observed == [None]

@@ -297,3 +297,180 @@ def test_backfill_stops_normally_when_the_breadth_budget_is_exhausted(
         assert store_mod.list_sync_state(conn) == []
     finally:
         conn.close()
+
+
+def test_the_deadline_does_not_count_governed_sleep(monkeypatch):
+    """D1: --timeout counts only ungoverned time (ADR-0072 decision 6)."""
+
+    from tgcli import cli
+    from tgcli.governor import pacing
+
+    sleeps = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    # The governor reports 3 s of governed sleep; the run itself never sleeps
+    # in real time, so the 5 s deadline must not fire.
+    monkeypatch.setattr(pacing, "total_governed_sleep", lambda: 3.0)
+    monkeypatch.setattr(cli.asyncio, "sleep", fake_sleep)
+
+    async def work():
+        await fake_sleep(0.0)
+        return "done"
+
+    # _run_with_deadline owns asyncio.run itself; the coroutine is passed raw.
+    assert cli._run_with_deadline(work(), 5.0) == "done"
+
+
+def test_a_flood_that_fits_the_wall_clock_cap_is_slept_out(monkeypatch):
+    """D5a: retry_after=8 under a 10 s cap sleeps and succeeds."""
+    import asyncio
+
+    from tgcli.governor import pacing
+
+    sleeps = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    pacing.reset_runtime(cap=10.0)
+
+    assert asyncio.run(pacing.sleep_flood(8.0, sleep=fake_sleep)) is True
+    assert sleeps == [8.0]
+
+
+def test_a_flood_beyond_the_cap_exits_without_sleeping(monkeypatch):
+    """D5b: retry_after=15 under a 10 s cap exits 5 with zero sleep calls."""
+    import asyncio
+
+    from tgcli.governor import pacing
+
+    sleeps = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    pacing.reset_runtime(cap=10.0)
+
+    assert asyncio.run(pacing.sleep_flood(15.0, sleep=fake_sleep)) is False
+    assert sleeps == []
+
+
+def test_a_long_paced_run_is_not_killed_by_the_default_deadline(monkeypatch):
+    """D6: 75 s of governed sleep under a 60 s default deadline completes."""
+
+    from tgcli import cli
+    from tgcli.governor import pacing
+
+    slept = {"total": 0.0}
+    sleeps = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    def note_sleep(seconds):
+        slept["total"] += seconds
+
+    monkeypatch.setattr(pacing, "_note_sleep", note_sleep)
+    monkeypatch.setattr(pacing, "total_governed_sleep", lambda: slept["total"])
+    monkeypatch.setattr(cli.asyncio, "sleep", fake_sleep)
+
+    async def paced_work():
+        for _ in range(25):  # 25 x 3 s pacing intervals = 75 s governed sleep
+            note_sleep(3.0)
+            await fake_sleep(0.0)
+        return "done"
+
+    assert cli._run_with_deadline(paced_work(), 60.0) == "done"
+
+
+def test_backfill_stops_normally_when_the_wall_clock_cap_is_exhausted(
+    config_env, monkeypatch, capsys
+):
+    """D3/D4: --max-runtime exhausted mid-run -> exit 0, stop_reason, checkpoint."""
+    import json
+
+    from telethon.tl.types import PeerUser
+
+    from tests.conftest import FakeClient, make_session_fake
+    from tests.test_cli_archive_phase3 import _dialog, _init, _me, _msg, _user
+    from tgcli.cli import main
+    from tgcli.commands import archive as archive_cmd
+    from tgcli.governor import pacing
+
+    pacing.reset_runtime(cap=0.0)  # already exhausted before the first chat
+
+    me = _me(user_id=42)
+    alice = _user(user_id=7, username="alice")
+    client = FakeClient(
+        me=me,
+        entities={7: alice, "@alice": alice},
+        messages=[_msg(mid=1, text="hi", peer=PeerUser(7))],
+        dialogs=[_dialog(alice, name="Alice")],
+    )
+    make_session_fake(monkeypatch, client)
+    _init(monkeypatch, client)
+    capsys.readouterr()
+
+    assert (
+        main(
+            [
+                "archive",
+                "backfill",
+                "--private",
+                "--max-dialogs",
+                "5",
+                "--limit",
+                "10",
+                "--max-runtime",
+                "0.001",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    data = json.loads(capsys.readouterr().out)
+    assert data["stop_reason"] == "wall_clock_cap"
+    assert data["dialogs"] == []
+    assert data["deferred"] == 1
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        assert store_mod.list_sync_state(conn) == []
+    finally:
+        conn.close()
+
+
+def test_no_command_keeps_a_deadline_exemption(monkeypatch):
+    """D2: `--timeout` is uniform; governed sleep is the only exemption.
+
+    Walk build_parser(): every command gets the same default deadline, and
+    the deadline logic in cli.py has no command-name branches (the old
+    `_default_timeout`/`_long_running`/`_deadline` exemption lists are
+    gone; only the QR-path login default, CONTRACT §10, differs).
+    """
+    from tgcli import cli
+    from tgcli.parser import build_parser
+
+    parser = build_parser()
+
+    def default_timeout_for(argv):
+        args = parser.parse_args(argv)
+        cli._apply_global_defaults(args)
+        return args.timeout
+
+    # Exemptions removed: clone init/sync/refresh, archive refresh, export,
+    # media and changes --wait all take the 60 s default now.
+    assert default_timeout_for(["clone", "init", "@s"]) == 60.0
+    assert default_timeout_for(["clone", "sync", "@s"]) == 60.0
+    assert default_timeout_for(["clone", "refresh", "@s"]) == 60.0
+    assert default_timeout_for(["archive", "refresh"]) == 60.0
+    assert default_timeout_for(["export", "messages", "@c", "--output", "x"]) == 60.0
+    assert default_timeout_for(["changes", "--wait", "5"]) == 60.0
+    assert default_timeout_for(["dialogs"]) == 60.0
+    # CONTRACT §10 remains the one per-command default: QR operator time.
+    assert default_timeout_for(["accounts", "login", "main"]) == 120.0
+    assert default_timeout_for(["accounts", "login", "main", "--continue", "c"]) is None
+    # No `_long_running`/`_deadline` machinery survives.
+    assert not hasattr(cli, "_long_running")
+    assert not hasattr(cli, "_deadline")
