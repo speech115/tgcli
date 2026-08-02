@@ -1,12 +1,13 @@
 # ADR-0072: Account-wide Telegram request governor
 
 Date: 2026-08-01
-Status: **proposed — drafted for review, blocked on #140's live canary**.
-This ADR records the decisions reached across map #131 and tickets
-#132–#139. It must not be marked `accepted` until #140's canary runs (no
-earlier than 2026-08-01T12:27:47Z, owner-approved) and its evidence is
-folded in; see "Blocked on #140" below for exactly which parts that
-affects.
+Status: **accepted** (2026-08-02). This ADR records the decisions reached
+across map #131 and tickets #132–#139. It was drafted `proposed` and held
+there until #140's owner-gated live canary ran on 2026-08-02; the evidence
+is folded in under "Evidence from #140" below, which also records what the
+canary did *not* establish. The governor described here is not implemented
+— this ADR authorizes an implementation slice, and `docs/CONTRACT.md`
+changes ship with that behaviour, not with this document.
 Supersedes: [ADR-0045](ADR-0045-clone-flood-containment.md) decision 1
 only (account-scoped cooldown storage and clone-only enforcement); ADR-0045
 decisions 2–3 (`--no-comments`, preview flood hints) stay in force, with
@@ -176,6 +177,24 @@ peers touched by history reads per rolling 24 hours — rather than a
 per-invocation cap; exhausting it is a normal stop (exit 0, checkpoints
 intact, resume time reported), not an error. The probe from decision 1
 fires at 50% of a recorded wait having elapsed.
+
+*The interval is measured start-to-start, and that binds the `_call`
+wrapper.* The per-type timestamp is written **when the request is about to
+be dispatched, not when it returns** — a reservation taken under the lock
+before the RPC leaves, exactly as
+`enforce_resolve_phone_cooldown()` already does
+(`src/tgcli/resolve_phone.py`, which writes the timestamp inside the
+pre-flight check and whose own comment calls it a reservation). Stated
+explicitly because decision 2's seam pulls the other way: a `_call` wrapper
+must handle flood exceptions *after* the wrapped call anyway, so stamping
+on return is the locally natural thing to write, and an implementer
+following decision 2 faithfully could land end-to-start pacing without
+noticing it contradicts the precedent this decision cites. The difference
+is not cosmetic — with a median request latency near 1.8 s, an end-to-start
+3 s interval yields ~4.8 s between request starts, roughly 60% slower than
+intended. Where a request's latency itself exceeds the interval, no
+additional sleep is owed; the interval is a floor on start-to-start
+spacing, not an added delay.
 
 *Why not rely on Telethon's own `wait_time`.* It covers only
 `RequestIter`-based calls, not one-shot RPCs, and its state lives in the
@@ -371,10 +390,12 @@ data. Both are stated here deliberately rather than left implicit.
    directly answers the question for that record — if a probe sent late in
    a wait comes back with a *longer* `retry_after` than the time already
    elapsed would explain, the request extended the penalty. #140's canary
-   is explicitly built to produce zero penalties (its stop rule aborts on
+   was explicitly built to produce zero penalties (its stop rule aborts on
    any flood-family error before a follow-up request could be sent), so it
-   cannot observe this by design; settling it needs a separately-approved
-   provocation experiment, not folded into this ADR or into #140.
+   could not observe this by design; **it ran on 2026-08-02, drew no
+   penalty, and duly produced no evidence here.** Settling it needs a
+   separately-approved provocation experiment, not folded into this ADR or
+   into #140. This assumption is as open now as when it was written.
 
 2. **Whether the multi-hour penalty keys on request rate or on
    distinct-peer breadth.** #132 found the two hypotheses perfectly
@@ -384,16 +405,20 @@ data. Both are stated here deliberately rather than left implicit.
    checked client implements or documents a breadth-keyed limiter distinct
    from the standard per-(method, params, account) bucket. **The 100
    peers/24h breadth budget in decision 3 is a hedge against this
-   hypothesis, not a measured limit.** **What would falsify it (partially)**:
-   #140's canary is designed to hold rate fixed and vary breadth (3 peers
-   in Phase A, 12 in Phase B, identical 3 s pacing) — a `FLOOD_WAIT`
-   appearing during or after Phase B but not Phase A would be the cheap
-   positive signal for breadth-sensitivity; a `FLOOD_WAIT` during Phase A
-   itself would instead mean the 3 s/20-RPC-per-minute default is already
-   marginal, independent of breadth, which is the more serious finding.
-   Absence of any `FLOOD_WAIT` in the canary is a negative result at that
-   small scale, not proof breadth is irrelevant — it can fail to falsify
-   the hypothesis, not confirm its absence. **If this assumption is
+   hypothesis, not a measured limit.** **What was tried, and what came
+   back**: #140's canary held rate fixed and varied breadth (3 peers in
+   Phase A, 12 in Phase B, identical pacing). A `FLOOD_WAIT` after Phase B
+   but not Phase A would have been the cheap positive signal for
+   breadth-sensitivity; one during Phase A would have meant the sustained
+   default is already marginal independent of breadth, the more serious
+   finding. **Neither happened: the two phases were indistinguishable on
+   every metric and no flood occurred at all.** As pre-registered, absence
+   of a `FLOOD_WAIT` at that scale is a negative result, not proof breadth
+   is irrelevant — it fails to falsify the hypothesis rather than
+   confirming its absence, and 15 peers is 15% of the budget against an
+   incident that spanned 791. The cheapest available signal has now been
+   spent and returned null; anything further costs a deliberate
+   provocation. **If this assumption is
    wrong** (breadth genuinely does not matter, or matters at a much higher
    threshold than 100/24h), the fix is a one-line config change: raise the
    budget. If it is wrong in the other direction (breadth matters at a
@@ -480,30 +505,58 @@ data. Both are stated here deliberately rather than left implicit.
   policy distinct from history reads. All carried on map #131's "Not yet
   specified" list.
 
-## Blocked on #140
+## Evidence from #140
 
-The following are decided as design and are **not** contingent on the
-canary; #140 tests execution, not the shape of these choices:
-decisions 1, 2, 4, 5, and 6 in full; decision 3's mechanism (persisted
-per-type interval, windowed breadth budget) and its qualitative reasoning.
+Decisions 1, 2, 4, 5 and 6 in full, and decision 3's mechanism, were never
+contingent on the canary; #140 tested execution, not the shape of these
+choices. What follows is what the canary did and did not establish about
+the parts that were.
 
-The following remain provisional pending #140's evidence, and must be
-revisited — numbers only, not mechanism — before this ADR can move from
-`proposed` to `accepted`:
+The canary ran on 2026-08-02 against the account that took the incident,
+17 h after its 21.5 h penalty expired and after the account had been used
+normally in between. 27 requests (24 history reads, 2 dialog enumerations,
+1 get-messages-by-id) across 15 distinct peers, 2130 messages, zero
+mutations, zero media transfers, 138 s wall clock. **All 27 exited 0. No
+`FLOOD_WAIT`, no flood-family error, no `retry_after`.** Full protocol,
+approval and evidence: issue #140.
 
-- **Decision 3's specific defaults** (3 s history-read interval, 10 s per
-  300 ids, 3 s media/dialog-enumeration interval, 100 peers/24h breadth
-  budget, 50% probe-fire fraction) are the sustained norm computed from
-  #123's research, not yet observed against a live account under this
-  governor. #140 is the first invocation ever paced by these numbers.
-- **Assumption 2** (rate vs. breadth) has no evidence beyond the
-  incident's own confounded data until #140's Phase A/B comparison runs.
-- **Assumption 1** (whether a request during a penalty extends it) is
-  explicitly untestable by #140's design (its stop rule forbids the
-  follow-up request that would observe this) and remains open regardless
-  of whether #140 runs. It does not block acceptance on its own, since
-  decision 1's probe is bounded either way, but the ADR should not claim
-  more confidence in it than #140 can supply.
+**What it supports.** A bounded, paced bulk read of this shape draws no
+penalty on a recently-penalized account. Nothing observed contradicts any
+decision here.
+
+**What it does not support, and what therefore stays provisional even at
+`accepted`:**
+
+- **The 3 s history-read interval, as this ADR defines it.** The canary
+  paced by sleeping *after* each request returned, so its realized
+  start-to-start interval was a median 4.84 s, not 3 s. Decision 3 mandates
+  start-to-start; the canary therefore exercised the *looser* of the two
+  readings. The 3 s default still has no live evidence behind it. This
+  gap is the direct reason decision 3 now states its measurement basis
+  explicitly.
+- **The 100 peers/24h breadth budget.** The canary touched 15 peers — 15%
+  of the budget. It shows the budget was not approached, not that it is
+  correctly placed.
+- **The 10 s per 300 ids, 3 s media, and 50% probe-fire numbers.** One
+  get-messages-by-id sample; no media transfers; no penalty and therefore
+  no probe. Untested.
+- **Assumption 2 (rate vs. breadth): null result.** Phase A (3 peers) and
+  Phase B (12 peers) at identical pacing were indistinguishable — median
+  gap 4.84 s in both, median duration 1822 vs 1824 ms, zero errors in
+  both. As pre-registered, this fails to falsify the hypothesis rather
+  than settling it; the incident spanned 791 peers, two orders of
+  magnitude beyond this test. The budget remains a hedge.
+- **Assumption 1 (does a request during a penalty extend it): unanswered,
+  as designed.** No penalty occurred, and #140's stop rule forbade the
+  follow-up request that would have observed one. Settling it still needs
+  a separately-approved provocation experiment. This does not block
+  acceptance — decision 1's probe is bounded either way — but this ADR
+  claims no confidence in it.
+
+Accepting this ADR therefore accepts the *mechanism and its reasoning*.
+The specific numbers in decision 3 remain the sustained norm computed from
+#123's research, carrying one live demonstration that they are not
+catastrophically wrong.
 
 ## Test coverage
 
