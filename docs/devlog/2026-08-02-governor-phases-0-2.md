@@ -1,10 +1,16 @@
-## 2026-08-02 — Governor implementation, phases 0–1 (Claude)
+## 2026-08-02 — Governor implementation, phases 0–2 (Claude)
 
 **Did:** opened the ADR-0072 implementation slice (#145) with a seven-phase
 plan (`docs/superpowers/plans/2026-08-02-account-request-governor.md`) and
-landed the first two phases: the request-type registry with its seam pins, and
-the persisted ledger. 38 new tests. No behaviour change yet — nothing consults
-the ledger, and no client is wrapped.
+landed the first three: the request-type registry with its seam pins, the
+persisted ledger, and the governed `_call` wrapper. 52 new tests.
+
+**This one changes behaviour.** Every client now carries
+`flood_sleep_threshold=0`, not just the mutation-safe ones, and every request
+passes the gate: a cooling request type refuses locally with exit 5 and zero
+RPCs, and a flood arms the cooldown for exactly the type that drew it. The
+ADR-0045/0052 mechanisms stay live beside the governor until phase 6 retires
+them, so the account is strictly better protected than before, never worse.
 
 **Decided — the cooldown key is derived, the paced class is looked up.** These
 are two different keys and conflating them would have built a hole into the
@@ -49,7 +55,29 @@ reservation clamp for a stepped-back clock (the failure `resolve_phone.py`
 already guards), and per-peer durable breadth rows so a killed process does not
 hand back budget it really spent.
 
-**Next:** phase 2 wraps `_call` and sets `flood_sleep_threshold=0` on all
-clients — the first phase that changes behaviour. The ADR-0045/0052 mechanisms
-stay live beside the governor until phase 6 retires them, so no phase leaves
-the account less protected than it found it.
+**Learned — instance-patching `_call` was not enough, and the docstring said
+otherwise.** ADR-0072 decision 2 rejects the public `__call__` as the seam
+precisely because media downloads and CDN redirects bypass it. Phase 2's first
+cut patched `_call` on the client instance and claimed that covered both.
+Review pushed on it and the claim was false for the branch that matters:
+Telethon's `_get_cdn_client` builds a **brand-new client** with
+`self.__class__(...)` (`telegrambaseclient.py`), which never passes through
+`session._make_client`. It would have fetched CDN file bytes with no wrapper
+*and* Telethon's default sleeper still absorbing floods — the exact failure the
+ADR chose this seam to avoid, reintroduced inside the fix for it.
+
+The factory is now wrapped too, and the child inherits the parent's ledger and
+account id. That second part is not incidental: a fresh client has no
+`_self_id`, so without inheritance it would land in the deliberately-ungated
+authorization window and skip the gate entirely. The plan had permitted this
+row (matrix S6) to ship as a documented gap; it did not need to.
+
+**Also learned — which flood families are ours.** `FloodPremiumWaitError` now
+arms alongside `FloodWaitError`. `SlowModeWaitError` deliberately does not:
+Telethon marks it chat-specific, and ADR-0072 decision 1 excludes the peer from
+the key on purpose, so arming from a per-chat limit would refuse every other
+chat for a restriction that never applied to them.
+
+**Next:** phase 3 adds the self-verifying probe, then phase 4 the pacing
+intervals and breadth budget — the first point at which the start-to-start
+reservation decision 3 now spells out actually gets exercised.

@@ -173,6 +173,86 @@ async def test_a_flood_without_a_usable_wait_arms_nothing(ledger):
     assert ledger.cooldown_deadline(ACCOUNT, HISTORY_KEY) is None
 
 
+async def test_the_cdn_client_telethon_builds_itself_is_governed(ledger):
+    """S6: `_get_cdn_client` constructs a fresh client via `self.__class__`.
+
+    That child never passes through `session._make_client`, so instance
+    patching the parent is not enough — it would fetch CDN file bytes
+    ungoverned, with Telethon's own sleeper still absorbing floods.
+    """
+    child = FakeClient(self_id=None)
+    child.flood_sleep_threshold = 60
+    parent = FakeClient()
+
+    async def make_cdn(cdn_redirect):
+        return child
+
+    parent._get_cdn_client = make_cdn
+    gate.install(parent, ledger)
+    arm(ledger, key="upload.GetCdnFileRequest")
+
+    produced = await parent._get_cdn_client(object())
+
+    assert produced.flood_sleep_threshold == 0
+    with pytest.raises(RateLimitError):
+        await produced._call(
+            "cdn-sender", upload.GetCdnFileRequest(file_token=b"t", offset=0, limit=1)
+        )
+    assert produced.sent == []
+
+
+async def test_the_cdn_child_inherits_the_parent_account(ledger):
+    """A fresh client has no `_self_id`; without inheritance it slips the gate."""
+    child = FakeClient(self_id=None)
+    child.flood_sleep_threshold = 60
+    parent = FakeClient()
+
+    async def make_cdn(cdn_redirect):
+        return child
+
+    parent._get_cdn_client = make_cdn
+    gate.install(parent, ledger)
+
+    produced = await parent._get_cdn_client(object())
+    error = telethon_errors.FloodWaitError(request=None)
+    error.seconds = 300
+    produced._raises = error
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        await produced._call(
+            "cdn-sender", upload.GetCdnFileRequest(file_token=b"t", offset=0, limit=1)
+        )
+
+    assert ledger.cooldown_deadline(ACCOUNT, "upload.GetCdnFileRequest") is not None
+
+
+async def test_a_premium_media_flood_also_arms(ledger):
+    error = telethon_errors.FloodPremiumWaitError(request=None)
+    error.seconds = 900
+    client = FakeClient(raises=error)
+    gate.install(client, ledger)
+
+    with pytest.raises(telethon_errors.FloodPremiumWaitError):
+        await client._call(
+            None, upload.GetFileRequest(location=None, offset=0, limit=1)
+        )
+
+    assert ledger.cooldown_deadline(ACCOUNT, "upload.GetFileRequest") is not None
+
+
+async def test_a_chat_specific_slow_mode_wait_arms_nothing(ledger):
+    """Peer is excluded from the key on purpose; a per-chat limit is not ours."""
+    error = telethon_errors.SlowModeWaitError(request=None)
+    error.seconds = 30
+    client = FakeClient(raises=error)
+    gate.install(client, ledger)
+
+    with pytest.raises(telethon_errors.SlowModeWaitError):
+        await client._call(None, messages.SendMessageRequest("p", "hi"))
+
+    assert ledger.cooldown_deadline(ACCOUNT, "messages.SendMessageRequest") is None
+
+
 async def test_the_wrapper_forwards_arguments_untouched(ledger):
     seen = {}
 
