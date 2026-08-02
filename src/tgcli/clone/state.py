@@ -13,9 +13,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from tgcli.clone import flood, statedb
+from tgcli.clone import statedb
 from tgcli.errors import PolicyError
 from tgcli.output import note
+
+# Telegram's longest realistic FloodWait is on the order of a day; kept
+# identical to the governor ledger's clamp while both were live.
+MAX_COOLDOWN_S = 86_400
 
 VERSION = 2
 
@@ -188,6 +192,12 @@ class CloneState:
         return max(self.discussion_id_map.values(), default=None)
 
     def set_cooldown(self, deadline: datetime) -> None:
+        """Persist the per-clone deadline (legacy ADR-0045 field).
+
+        Production no longer writes this field — floods arm the governor's
+        per-type cooldown instead (ADR-0072). Kept for old clones' state
+        and for tests that stage a cooling clone.
+        """
         aware = _require_aware(deadline)
         current = self.cooldown_deadline()
         if current is not None and current > aware:
@@ -201,7 +211,7 @@ class CloneState:
         deadline = datetime.fromisoformat(self.retry_not_before)
         if deadline.tzinfo is None or deadline.utcoffset() is None:
             return None
-        ceiling = datetime.now(UTC) + timedelta(seconds=flood.MAX_COOLDOWN_S)
+        ceiling = datetime.now(UTC) + timedelta(seconds=MAX_COOLDOWN_S)
         return min(deadline.astimezone(UTC), ceiling)
 
     def to_dict(self) -> dict:

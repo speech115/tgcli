@@ -47,6 +47,13 @@ def enforce_resolve_phone_cooldown(*, now: float | None = None) -> None:
             wait = RESOLVE_PHONE_COOLDOWN_S - (moment - last)
             if wait > 0:
                 retry_after = max(1, math.ceil(wait))
+                from tgcli.governor import pacing
+
+                pacing.note_stop(
+                    retry_after=retry_after,
+                    request_type="contacts.ResolvePhoneRequest",
+                    provenance="resolve_phone_cooldown",
+                )
                 raise RateLimitError(
                     f"contacts.resolvePhone cooldown: retry after {retry_after}s",
                     retry_after=retry_after,

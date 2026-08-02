@@ -1,13 +1,13 @@
 # ADR-0072: Account-wide Telegram request governor
 
 Date: 2026-08-01
-Status: **accepted** (2026-08-02). This ADR records the decisions reached
+Status: **accepted** (2026-08-02), **implemented** (2026-08-02, #145's
+phases 0–7). This ADR records the decisions reached
 across map #131 and tickets #132–#139. It was drafted `proposed` and held
 there until #140's owner-gated live canary ran on 2026-08-02; the evidence
 is folded in under "Evidence from #140" below, which also records what the
-canary did *not* establish. The governor described here is not implemented
-— this ADR authorizes an implementation slice, and `docs/CONTRACT.md`
-changes ship with that behaviour, not with this document.
+canary did *not* establish. The governor described here is implemented;
+`docs/CONTRACT.md` changes shipped with that behaviour.
 Supersedes: [ADR-0045](ADR-0045-clone-flood-containment.md) decision 1
 only (account-scoped cooldown storage and clone-only enforcement); ADR-0045
 decisions 2–3 (`--no-comments`, preview flood hints) stay in force, with
@@ -195,6 +195,19 @@ is not cosmetic — with a median request latency near 1.8 s, an end-to-start
 intended. Where a request's latency itself exceeds the interval, no
 additional sleep is owed; the interval is a floor on start-to-start
 spacing, not an added delay.
+
+*The reservation is claimed atomically against a fresher competitor.*
+Because tgcli runs are short-lived one-shots, two processes may race the
+same slot; the persisted row is claimed with a conditional upsert that
+refuses a stamp at or before the one on record (strictly *before* — an
+identical instant is refused, not overwritten), and the loser waits to the
+winner's slot plus the interval and retries until its claim lands. Known
+limit of the protocol: two processes that both read "nothing reserved"
+before either claims can each dispatch with sub-millisecond spacing (both
+stamps are fresh, so neither loses). It is bounded by the scheduler, below
+the interval, and self-healing — the next claim is ≥ one interval away —
+and fixing it would require row locks, which this ledger deliberately
+avoids.
 
 *Why not rely on Telethon's own `wait_time`.* It covers only
 `RequestIter`-based calls, not one-shot RPCs, and its state lives in the

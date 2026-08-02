@@ -3,8 +3,10 @@
 import fcntl
 import os
 import platform
+import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import quote
 
 from telethon import TelegramClient, errors as telethon_errors
 
@@ -125,6 +127,34 @@ def client_identity() -> tuple[str, str, str]:
     return "tgcli", platform.system(), __version__
 
 
+def session_user_id(session_file: Path) -> int | None:
+    """The logged-in user id recorded in a Telethon session file, or None.
+
+    Telethon persists the self-user as the entity with ``id=0`` whose
+    ``access_hash`` is the user id (its "hack to not need to change the
+    session files", `telegrambaseclient.py`). Reading it directly lets
+    `doctor` report the governor's cooldowns without connecting — the one
+    command that must work precisely when everything else refuses. Opened
+    read-only so a locked session file degrades to None, not a write error.
+    """
+    try:
+        connection = sqlite3.connect(
+            f"file:{quote(str(session_file))}?mode=ro", uri=True
+        )
+    except (sqlite3.Error, OSError):
+        return None
+    try:
+        row = connection.execute("SELECT hash FROM entities WHERE id = 0").fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        connection.close()
+    if row is None:
+        return None
+    value = row[0]
+    return value if isinstance(value, int) else None
+
+
 def _make_client(
     path: Path, account: Account, *, mutation_safe: bool = False
 ) -> TelegramClient:
@@ -163,7 +193,11 @@ def _make_client(
 
 @asynccontextmanager
 async def client(
-    account: Account, *, mutation_safe: bool = False, role: str | None = None
+    account: Account,
+    *,
+    mutation_safe: bool = False,
+    role: str | None = None,
+    govern: bool = True,
 ):
     path = session_path(account, role)
     label = session_label(account, role)
@@ -186,11 +220,17 @@ async def client(
     # Telethon creates the SQLite session during client construction; tighten it
     # before any network use.
     restrict_file(path)
-    from tgcli.governor.gate import install as install_governor
-    from tgcli.governor.ledger import Ledger
+    if govern:
+        from tgcli.governor.gate import install as install_governor
+        from tgcli.governor.ledger import Ledger
 
-    governor = Ledger.open()
-    install_governor(tg, governor)
+        governor = Ledger.open()
+        install_governor(tg, governor)
+    else:
+        # `doctor --connect` is the one command exempt from the governor
+        # (ADR-0072 decision 1): it must work precisely when every gated
+        # type is cooling. No seam, no pacing — the diagnosis is the point.
+        governor = None
     try:
         await tg.connect()
         if not await tg.is_user_authorized():
@@ -212,6 +252,7 @@ async def client(
         ) from exc
     finally:
         await tg.disconnect()  # type: ignore  # Telethon stub: Coroutine | None
-        governor.close()
+        if governor is not None:
+            governor.close()
         fcntl.flock(lock, fcntl.LOCK_UN)
         lock.close()

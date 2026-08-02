@@ -89,25 +89,32 @@ def _restore_diagnostics(configured) -> None:
 
 
 def _default_timeout(args) -> float | None:
-    """The deadline for an invocation that supplied no --timeout (CONTRACT §1)."""
-    if args.command == "export":
-        return None
-    if args.command == "changes" and getattr(args, "changes_wait", None) is not None:
-        # --wait owns the budget; an implicit 60s must not clip it.
-        return None
-    if args.command == "clone" and args.clone_command in ("init", "sync", "refresh"):
-        # ADR-0052 lets these wait out a short FloodWait (up to 61s in the
-        # foreground), which never fits inside a 60s default deadline.
-        return None
-    if args.command == "archive" and args.archive_command == "refresh":
-        # A scheduled archive pass includes bounded media and local
-        # transcription; only an explicit --timeout should clip it.
-        return None
+    """The default deadline (CONTRACT §1): 60 s, a hang detector.
+
+    Governed sleep never counts against it (ADR-0072 decision 6), and
+    long-running commands keep no implicit deadline — CONTRACT §1 lists
+    them; only explicit `--timeout`/`--max-runtime` bounds them.
+    """
     if args.command == "accounts" and args.subcommand == "login":
-        # CONTRACT §10: the QR wait defaults to 120s; --continue waits on the
-        # operator and takes no default deadline at all.
         return None if getattr(args, "continue_id", None) else 120.0
+    if args.command == "changes" and getattr(args, "changes_wait", None) is not None:
+        return None
+    if _long_running_command(args):
+        return None
     return 60.0
+
+
+def _long_running_command(args) -> bool:
+    """Commands CONTRACT §1 exempts from the implicit 60 s deadline."""
+    return (
+        args.command == "media"
+        or args.command == "export"
+        or (
+            args.command == "clone"
+            and args.clone_command in ("init", "sync", "refresh")
+        )
+        or (args.command == "archive" and args.archive_command == "refresh")
+    )
 
 
 def _apply_global_defaults(args) -> None:
@@ -125,27 +132,16 @@ def _apply_global_defaults(args) -> None:
             setattr(args, name, default)
 
 
-def _long_running(args) -> bool:
-    """Commands that pace themselves rather than honour a default deadline."""
-    return args.command == "media" or (
-        args.command == "clone" and args.clone_command == "sync"
-    )
-
-
-def _deadline(args, *, timeout_supplied: bool) -> float | None:
-    """The budget for preflight plus execute together, or None when exempt."""
-    if args.timeout is None or (not timeout_supplied and _long_running(args)):
-        return None
-    return args.timeout
-
-
 @contextlib.contextmanager
 def _armed(seconds: float | None):
     """Hold the invocation deadline over the whole body, preflight included.
 
-    asyncio.wait_for only covers the network coroutine; everything before it —
-    `tg batch` reading stdin, `accounts login --continue` reading a password —
+    asyncio.wait_for covers only the network coroutine; stdin reads etc.
     would otherwise run with no deadline at all.
+
+    The deadline is a hang detector (ADR-0072 decision 6): on SIGALRM the
+    handler asks pacing how much wall time was governed sleep and re-arms
+    the timer for the remainder instead of killing the run.
     """
     if (
         seconds is None
@@ -155,7 +151,18 @@ def _armed(seconds: float | None):
         yield
         return
 
+    from tgcli.governor import pacing
+
+    base_slept = pacing.total_governed_sleep()
+    started = time.monotonic()
+
     def fire(signum, frame):
+        elapsed = time.monotonic() - started
+        governed = pacing.total_governed_sleep() - base_slept
+        remaining = seconds - (elapsed - governed)
+        if remaining > 0:
+            signal.setitimer(signal.ITIMER_REAL, remaining + DEADLINE_GRACE)
+            return
         raise _DeadlineSignal
 
     previous = signal.signal(signal.SIGALRM, fire)
@@ -197,9 +204,32 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
 
 
 def _run_with_deadline(coro, timeout):
-    """Run one coroutine under `--timeout` as the documented TIMEOUT error."""
+    """Run one coroutine under `--timeout` as the documented TIMEOUT error.
+
+    Governed sleep is discounted (ADR-0072 decision 6): the loop re-reads
+    pacing's slept total on every wake and grants it back, so a run pacing
+    itself out of a flood is not killed for doing the right thing.
+    """
+    from tgcli.governor import pacing
+
+    async def run():
+        if timeout is None:
+            return await coro
+        task = asyncio.create_task(coro)
+        started = time.monotonic()
+        base_slept = pacing.total_governed_sleep()
+        while True:
+            governed = pacing.total_governed_sleep() - base_slept
+            remaining = timeout - (time.monotonic() - started - governed)
+            if remaining <= 0:
+                task.cancel()
+                raise TimeoutError
+            done, _ = await asyncio.wait({task}, timeout=remaining)
+            if done:
+                return task.result()
+
     try:
-        return asyncio.run(asyncio.wait_for(coro, timeout=timeout))
+        return asyncio.run(run())
     except TimeoutError:  # asyncio.TimeoutError is this alias since 3.11
         raise CommandTimeoutError(
             f"invocation exceeded the --timeout deadline of {timeout}s"
@@ -287,7 +317,7 @@ def _audit_after(args, account, data) -> None:
         safety.finish_commit(args.commit)
 
 
-def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
+def _execute(args) -> tuple[dict, list[tuple]]:
     """Run one prepared invocation, opening only the resources it needs."""
     if args.command == "accounts" and args.subcommand == "import":
         data = accounts_cmd.import_accounts(
@@ -433,10 +463,7 @@ def _execute(args, *, timeout_supplied: bool) -> tuple[dict, list[tuple]]:
     try:
         _audit_before(args, account)
         network = _run_network(args, account)
-        if _long_running(args) and not timeout_supplied:
-            data, rows = asyncio.run(network)
-        else:
-            data, rows = _run_with_deadline(network, args.timeout)
+        data, rows = _run_with_deadline(network, args.timeout)
         _audit_after(args, account, data)
         return data, rows
     finally:
@@ -495,17 +522,21 @@ def main(argv: list[str] | None = None) -> int:
     if isinstance(parsed, int):
         return parsed
     args = parsed
-    timeout_supplied = hasattr(args, "timeout")
     _apply_global_defaults(args)
+    from tgcli.governor import pacing
+
+    pacing.reset_runtime(cap=getattr(args, "max_runtime", None))
     verbose_diagnostics = _enable_verbose_diagnostics() if args.verbose else []
     started = time.monotonic()
     exit_code = 1
     error_code = None
+    result_data: dict | None = None
     try:
         with _honest_termination():
-            with _armed(_deadline(args, timeout_supplied=timeout_supplied)):
+            with _armed(args.timeout):
                 preflight.prepare(parser, args)
-                data, rows = _execute(args, timeout_supplied=timeout_supplied)
+                data, rows = _execute(args)
+            result_data = data
             # Emitting is part of the invocation: a failure here is journaled,
             # not reported as a success.
             if args.command == "batch":
@@ -587,6 +618,22 @@ def main(argv: list[str] | None = None) -> int:
                 exit_code,
                 duration_ms,
             )
+        stop_reason = None
+        if isinstance(result_data, dict):
+            stop_reason = result_data.get("stop_reason")
+        if stop_reason is not None:
+            stop_fields = {"stop_reason": stop_reason}
+        elif exit_code != 0:
+            # A flood-family stop (refusal or unhandled flood) only counts
+            # when the run actually ended on it; a flood that was slept out
+            # and survived is not a flood-related exit (plan phase 6).
+            stop_fields = pacing.last_stop() or {}
+        else:
+            stop_fields = {}
+        # Governor accounting only belongs on runs that actually governed
+        # requests (review fix m1): offline commands carry neither field.
+        slept_ms = int(pacing.total_governed_sleep() * 1000)
+        requests = pacing.request_count()
         invocations.log_invocation(
             command=args.command,
             account=args.account,
@@ -594,6 +641,9 @@ def main(argv: list[str] | None = None) -> int:
             exit_code=exit_code,
             error=error_code,
             duration_ms=duration_ms,
+            governed_sleep_ms=slept_ms if requests else None,
+            request_count=requests or None,
+            **stop_fields,
         )
         _restore_diagnostics(verbose_diagnostics)
     return exit_code

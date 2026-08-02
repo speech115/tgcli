@@ -13,7 +13,6 @@ from tgcli.archive import (
     sync as sync_mod,
     transcribe as transcribe_mod,
 )
-from tgcli.clone import cooldown as cooldown_mod, flood
 from tgcli.commands import archive_refresh as refresh_cmd
 from tgcli.config import Config, load_config, resolve_account
 from tgcli.errors import NotFoundError, PolicyError
@@ -271,7 +270,7 @@ async def backfill(
     limit = backfill_mod.validate_limit(
         limit, default=DEFAULT_BACKFILL_LIMIT, maximum=MAX_BACKFILL_LIMIT
     )
-    me = await cooldown_mod.cooled_account(tg)
+    me = await tg.get_me()
     conn = _open_existing(alias, config)
     try:
         store_mod.require_bound_user(conn, int(me.id), alias)
@@ -287,17 +286,15 @@ async def backfill(
                 limit=limit,
                 max_dialogs=max_dialogs,
                 account_user_id=int(me.id),
-                budget=flood.WaitBudget(),
             )
         else:
             chats = backfill_mod.validate_dialogs(chats, maximum=MAX_BACKFILL_DIALOGS)
-            dialogs = await backfill_mod.backfill_dialogs(
+            dialogs, stop_reason = await backfill_mod.backfill_dialogs(
                 tg,
                 conn,
                 chats,
                 limit=limit,
                 account_user_id=int(me.id),
-                budget=flood.WaitBudget(),
             )
             data = {
                 "mode": "chats",
@@ -305,6 +302,11 @@ async def backfill(
                 "dialogs": dialogs,
                 "stored": sum(item["stored"] for item in dialogs),
             }
+            if stop_reason is not None:
+                data["stop_reason"] = stop_reason
+                data["deferred"] = len(chats) - len(dialogs)
+                resume = chats[len(dialogs)] if len(dialogs) < len(chats) else None
+                data["resume"] = resume
         data["media"] = await sync_mod.fetch_media(
             tg,
             conn,
@@ -337,7 +339,7 @@ async def sync(
     max_media = sync_mod.validate_max_media(
         max_media, default=DEFAULT_SYNC_MEDIA, maximum=MAX_SYNC_MEDIA
     )
-    me = await cooldown_mod.cooled_account(tg)
+    me = await tg.get_me()
     conn = _open_existing(alias, config)
     try:
         store_mod.require_bound_user(conn, int(me.id), alias)
@@ -350,7 +352,6 @@ async def sync(
             max_media=max_media,
             account_alias=alias,
             account_dir=account_dir(alias, config),
-            budget=flood.WaitBudget(),
         )
     finally:
         conn.close()
@@ -362,7 +363,7 @@ async def sync(
 
 
 async def rebaseline(tg, alias: str, *, config: Config | None = None) -> dict:
-    me = await cooldown_mod.cooled_account(tg)
+    me = await tg.get_me()
     conn = _open_existing(alias, config)
     try:
         store_mod.require_bound_user(conn, int(me.id), alias)

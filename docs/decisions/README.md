@@ -51,14 +51,14 @@ row here in the same commit (AGENTS.md rule, extending
 | [0042](ADR-0042-accounts-login.md) | `tg accounts login` QR-first + phone fallback, native-dialog secret channel, staged session promoted only on confirmation; `show`/`remove` close the account lifecycle | accepted |
 | [0043](ADR-0043-process-hardening.md) | Shared atomic-write/lock-probe/TTL-classify seams with a fail-closed `write_text` ban; executable exit-code table; one-command gate; release runbook and reviewer subagent | accepted |
 | [0044](ADR-0044-clone-title-prefix.md) | Tool-created clone peers (destination + discussion group) titled `[Clone] {name}` via one `attribution.destination_title` seam; state `source_title` stays clean; retro via idempotent init re-run | accepted |
-| [0045](ADR-0045-clone-flood-containment.md) | Account-scoped clone FloodWait cooldown (restores the mirror-era guard); `clone init --no-comments` (posts-only clone, `comments: "disabled"`); preview flood hints (`peers_to_create`, `account_flood`) | accepted; decision 1 superseded by ADR-0072, in force until the governor slice lands |
+| [0045](ADR-0045-clone-flood-containment.md) | Account-scoped clone FloodWait cooldown (restores the mirror-era guard); `clone init --no-comments` (posts-only clone, `comments: "disabled"`); preview flood hints (`peers_to_create`, `account_flood`) | accepted; decision 1 superseded by ADR-0072 (implemented) |
 | [0046](ADR-0046-clone-destination-ergonomics.md) | Init mutes tool-created peers and files them into the "Clone" dialog folder; best-effort with honest markers, additive `ergonomics` JSON | accepted |
 | [0047](ADR-0047-clone-parallel-chunk-transfer.md) | Reupload transfers file chunks with constant parallelism 4 (striped download + parallel part upload); sends and batch order stay sequential; measured basis: transfer = 92–98% of sync wall time | accepted |
 | [0048](ADR-0048-clone-poll-breakdown-vote.md) | Poll snapshots cast-and-retract a transient vote on anonymous open non-quiz polls to capture the per-option breakdown (own vote subtracted); other polls get an honest "breakdown unavailable" line | accepted |
 | [0049](ADR-0049-clone-sync-progress.md) | `clone sync` emits plain single-line progress to stderr by default (batch counter, per-file transfer %, phase lines) via the shared media progress seam; non-contractual format, silenced by `2>/dev/null` | accepted |
 | [0050](ADR-0050-clone-forward-attribution.md) | Reposted (forwarded) source posts get a truthful `Переслано от <label>` prefix on the reupload/snapshot paths; `needs_author` gains a `fwd_from` case; native re-forward of the proven original gated behind sender+date+content match | accepted |
 | [0051](ADR-0051-clone-windowed-phase-interleaving.md) | `clone sync` interleaves the posts and comments legs in 50-batch windows, bounded by the anchor scan; an unmapped cross-leg parent defers instead of flattening; amends ADR-0023's ordering clause only | accepted |
-| [0052](ADR-0052-clone-short-flood-wait-and-media-reuse.md) | A `FloodWaitError` of ≤60 s is waited out in the foreground and retried once, under a 180 s per-run budget; reupload downloads persist in a per-clone media cache so a failed batch is not re-downloaded; amends ADR-0045's exit-on-flood clause only | accepted; decisions 1–5 superseded by ADR-0072, in force until the governor slice lands |
+| [0052](ADR-0052-clone-short-flood-wait-and-media-reuse.md) | A `FloodWaitError` of ≤60 s is waited out in the foreground and retried once, under a 180 s per-run budget; reupload downloads persist in a per-clone media cache so a failed batch is not re-downloaded; amends ADR-0045's exit-on-flood clause only | accepted; decisions 1–5 superseded by ADR-0072 (implemented) |
 | [0053](ADR-0053-json-error-envelope-on-stdout.md) | With `--json` the error envelope is written to stdout as the run's single JSON document and still mirrored to stderr; human/`--plain`/`batch`/exit codes unchanged | accepted |
 | [0054](ADR-0054-clone-prefix-backfill.md) | `clone refresh` backfills body prefixes into already-copied posts under preview→commit, eligible only when the destination body is byte identical to the unprefixed source; poll snapshots, native re-forwards, and the discussion leg excluded | accepted |
 | [0055](ADR-0055-clone-pinned-and-photo-fidelity.md) | `clone sync` pins the mapped source pin silently when the posts leg is exhausted (never unpins, never overrides an existing pin, reports status); photo downscaling is measured before it is fixed, and the striped path picks the largest `PhotoSize` explicitly | accepted |
@@ -78,7 +78,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0069](ADR-0069-archive-exploration-module.md) | Keep Phase 5 archive search/read/history queries in a read-only archive module | accepted |
 | [0070](ADR-0070-archive-refresh-scheduling.md) | Compose bounded archive refreshes and notify once after recurring failures | accepted |
 | [0071](ADR-0071-owner-gated-development.md) | Posture renamed to owner-gated development: same gate (owner request + ADR + scoped plan; fixes start from a reproducing test; agents never widen scope), without the retired "feature-complete / do not add features" claim | accepted |
-| [0072](ADR-0072-account-request-governor.md) | Account-wide request governor: cooldowns independent per Telegram request type (peer excluded on purpose), a self-verifying probe instead of a bypass flag, a persisted per-type pacing interval plus a windowed peer-breadth budget, the seam wrapping Telethon's `_call`, and the deadline demoted to a hang detector — supersedes ADR-0045 decision 1 and ADR-0052 decisions 1–5 | accepted; decision 3's defaults carry one live demonstration (#140) and both stated assumptions remain open; not yet implemented |
+| [0072](ADR-0072-account-request-governor.md) | Account-wide request governor: cooldowns independent per Telegram request type (peer excluded on purpose), a self-verifying probe instead of a bypass flag, a persisted per-type pacing interval plus a windowed peer-breadth budget, the seam wrapping Telethon's `_call`, and the deadline demoted to a hang detector — supersedes ADR-0045 decision 1 and ADR-0052 decisions 1–5 | accepted; decision 3's defaults carry one live demonstration (#140) and both stated assumptions remain open; implemented across #145's phases |
 
 Notes on supersessions:
 
@@ -93,12 +93,13 @@ Notes on supersessions:
 - ADR-0072 supersedes ADR-0045 decision 1 (account-scoped cooldown storage,
   clone-only enforcement) and ADR-0052 decisions 1–5 (the
   `SHORT_WAIT`/`WAIT_BUDGET` foreground-retry mechanism). Both supersessions
-  are **declared but not yet effective**: ADR-0072 is accepted as a design
-  and its governor is not implemented, so the ADR-0045/0052 mechanisms are
-  what actually runs today and stay authoritative for current behaviour
-  until the implementation slice lands. ADR-0045 decisions 2–3
-  (`--no-comments`, preview flood hints) and ADR-0052 decisions 6–7 (the
-  reupload media cache) are untouched and carry forward unchanged.
+  are effective: the account-scoped JSON record, the foreground retry,
+  `WaitBudget`/`FloodGate` and the pre-flight account gate are deleted, and
+  the governor's per-request-type ledger plus the governed `_call` seam are
+  what actually runs. ADR-0045 decisions 2–3 (decisions 2 in force;
+  decision 3's `account_flood` preview field removed) and ADR-0052
+  decisions 6–7 (the reupload media cache) carry forward as noted in the
+  ADRs themselves.
 - ADR-0071 supersedes only ADR-0026's rule 1 (the "maintenance mode /
   feature-complete" posture wording). ADR-0026 rules 2–4 — scope routing to
   docs/ISSUES.md, the clone chronicle in docs/CLONE.md, and this index —

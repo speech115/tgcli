@@ -12,7 +12,6 @@ from tgcli.archive import (
     sync as sync_mod,
     transcribe as transcribe_mod,
 )
-from tgcli.clone import flood
 from tgcli.errors import PartialFailure, RateLimitError, TgcliError
 
 FAILURE_NOTIFICATION_THRESHOLD = 3
@@ -98,35 +97,59 @@ async def run(
     max_media: int,
     transcribe_limit: int,
     max_attempts: int,
-    budget: flood.WaitBudget | None = None,
 ) -> dict[str, Any]:
-    """Run sync (including media) and local transcription as one bounded job."""
-    run_budget = budget if budget is not None else flood.WaitBudget()
-    try:
-        sync_data = await sync_mod.sync_archive(
-            tg,
-            conn,
-            account_user_id=account_user_id,
-            max_events=max_events,
-            max_dialogs=max_dialogs,
-            max_media=max_media,
-            account_alias=account_alias,
-            account_dir=account_dir,
-            budget=run_budget,
-        )
-        transcribe_data = transcribe_mod.run_queue(
-            conn,
-            account_dir,
-            limit=transcribe_limit,
-            max_attempts=max_attempts,
-        )
-    except RateLimitError:
-        raise
-    except Exception as exc:
-        _record_failure(conn, _error_text(exc))
-        raise
+    """Run sync (incl. media) and local transcription as one bounded job."""
+    from tgcli.governor import pacing
 
-    data: dict[str, Any] = {"sync": sync_data, "transcribe": transcribe_data}
+    deferred: list[str] = []
+    sync_data = None
+    remaining = pacing.wall_clock_remaining()
+    if remaining is not None and remaining <= 0:
+        # Cap already exhausted before dispatch: a normal stop (ADR-0072 d6).
+        deferred.append("sync")
+    elif sync_types_cooling(tg):
+        # Partial cooldown: do what is free, defer the rest, exit 0 —
+        # not the old exit 5 on every wake (ADR-0072 decision 4).
+        deferred.append("sync")
+    else:
+        try:
+            sync_data = await sync_mod.sync_archive(
+                tg,
+                conn,
+                account_user_id=account_user_id,
+                max_events=max_events,
+                max_dialogs=max_dialogs,
+                max_media=max_media,
+                account_alias=account_alias,
+                account_dir=account_dir,
+            )
+        except RateLimitError:
+            raise
+        except Exception as exc:
+            _record_failure(conn, _error_text(exc))
+            raise
+    transcribe_data = transcribe_mod.run_queue(
+        conn,
+        account_dir,
+        limit=transcribe_limit,
+        max_attempts=max_attempts,
+    )
+
+    data: dict[str, Any] = {
+        "sync": sync_data or {},  # empty (not null) when deferred
+        "transcribe": transcribe_data,
+    }
+    if deferred:
+        data["deferred"] = deferred
+        data["stop_reason"] = (
+            "wall_clock_cap"
+            if remaining is not None and remaining <= 0
+            else "cooldown_deferred"
+        )
+        state = store_mod.read_account_sync(conn)
+        data["refresh"] = _refresh_state(state)
+        return data
+    assert sync_data is not None
     media_failures = (sync_data.get("media") or {}).get("failed") or []
     transcript_failures = transcribe_data.get("errors") or []
     missing_media = int(transcribe_data.get("skipped_missing_media") or 0)
@@ -144,3 +167,30 @@ async def run(
     state = record_refresh_success(conn)
     data["refresh"] = _refresh_state(state)
     return data
+
+
+def sync_types_cooling(tg) -> bool:
+    """Whether the request types sync depends on are cooling (ADR-0072).
+
+    Covers the changes poll, channel catch-ups, entity resolution, and
+    media acquisition; a hot account defers rather than fails.
+    """
+    from tgcli.governor import pacing
+
+    governor = pacing.governor_of(tg)
+    if governor is None:
+        return False
+    ledger, account = governor
+    active = ledger.active_cooldowns(account)
+    sync_types = {
+        "updates.GetDifferenceRequest",
+        "updates.GetChannelDifferenceRequest",
+        "messages.GetHistoryRequest",
+        "messages.GetMessagesRequest",
+        "messages.GetDialogsRequest",
+        "users.GetUsersRequest",
+        "contacts.ResolveUsernameRequest",
+        "channels.GetFullChannelRequest",
+        "upload.GetFileRequest",
+    }
+    return bool(active.keys() & sync_types)

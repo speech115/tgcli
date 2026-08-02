@@ -8,7 +8,7 @@ a second process must see the first one's clock rather than keep its own.
 Three behaviours are load-bearing and each answers a specific past failure:
 
 * **Reads fail open.** A missing or corrupt ledger must never wedge the CLI.
-  ``clone/flood.py`` already works this way; the cost of failing closed on
+  the pre-governor clone record already worked this way; the cost of failing closed on
   corruption is an account that cannot be used at all with no way out but
   hand-editing state.
 * **Deadlines are clamped at read time, not at write time.** A host clock that
@@ -30,8 +30,8 @@ from tgcli.session import ensure_state_dir, restrict_file, state_dir
 SCHEMA_VERSION = 1
 
 # Telegram's longest realistic FloodWait is on the order of a day; anything
-# further ahead is skew or corruption (`clone/flood.py:35`, kept deliberately
-# identical so the two agree while both are live).
+# further ahead is skew or corruption — the same ceiling the pre-governor
+# clone record used.
 MAX_COOLDOWN_S = 86_400
 
 # ADR-0072 decision 3: 100 distinct peers touched by history reads per rolling
@@ -164,6 +164,34 @@ class Ledger:
         clamped = min(deadline, moment + timedelta(seconds=MAX_COOLDOWN_S))
         return clamped if clamped > moment else None
 
+    def cooldown_armed_at(
+        self, account_user_id: int, request_key: str
+    ) -> datetime | None:
+        """When the current cooldown record was armed, or ``None``.
+
+        Read for the probe's elapsed-fraction computation (plan phase 3);
+        the deadline alone cannot say how much of the wait is already over.
+        Fails open like every other read, and an unparseable value reads as
+        "not yet 50%" — the probe refuses rather than sends into a guess.
+        """
+        try:
+            row = self._db.execute(
+                "SELECT armed_at FROM cooldowns "
+                "WHERE account_user_id = ? AND request_key = ?",
+                (account_user_id, request_key),
+            ).fetchone()
+        except sqlite3.Error:
+            return None
+        if row is None:
+            return None
+        try:
+            armed_at = datetime.fromisoformat(row[0])
+        except (TypeError, ValueError):
+            return None
+        if armed_at.tzinfo is None:
+            return None
+        return armed_at.astimezone(UTC)
+
     def arm_cooldown(
         self,
         account_user_id: int,
@@ -224,19 +252,42 @@ class Ledger:
             return True
         return bool(row[0]) if row is not None else False
 
-    def spend_probe(self, account_user_id: int, request_key: str) -> bool:
+    def spend_probe(
+        self,
+        account_user_id: int,
+        request_key: str,
+        *,
+        expected_deadline: datetime | None = None,
+    ) -> bool:
         """Mark the probe spent *before* it is attempted (ADR-0072 decision 5).
 
         Write-ahead is the whole point: a crash between marking and sending
         must leave the record spent, so the next invocation waits the deadline
         out instead of probing again.
+
+        ``expected_deadline`` pins the record the probe was decided against:
+        a concurrent re-arm (fresh flood on the other process's own probe)
+        must not be claimed at 0% of its wait — the claim lands only on the
+        exact deadline the 50%-window was computed from (review fix M7).
         """
         try:
-            cursor = self._db.execute(
-                "UPDATE cooldowns SET probe_spent = 1 "
-                "WHERE account_user_id = ? AND request_key = ? AND probe_spent = 0",
-                (account_user_id, request_key),
-            )
+            if expected_deadline is None:
+                cursor = self._db.execute(
+                    "UPDATE cooldowns SET probe_spent = 1 "
+                    "WHERE account_user_id = ? AND request_key = ? AND probe_spent = 0",
+                    (account_user_id, request_key),
+                )
+            else:
+                cursor = self._db.execute(
+                    "UPDATE cooldowns SET probe_spent = 1 "
+                    "WHERE account_user_id = ? AND request_key = ? "
+                    "AND probe_spent = 0 AND deadline = ?",
+                    (
+                        account_user_id,
+                        request_key,
+                        expected_deadline.astimezone(UTC).isoformat(),
+                    ),
+                )
             self._db.commit()
         except sqlite3.Error:
             return False
@@ -280,29 +331,48 @@ class Ledger:
         Called *before* the request leaves (ADR-0072 decision 3): the interval
         is start-to-start, so a slow request must not add its own latency on
         top of the pace.
+
+        The claim is atomic against a fresher competitor (review fix m1):
+        a reservation stamped at or before one already on record loses —
+        strictly *before*, so an identical instant is refused rather than
+        overwriting (review blocker 3) — and two processes that both read
+        "nothing reserved" cannot both dispatch back-to-back. The loser
+        re-reads and waits to the winner's slot plus the interval.
         """
         try:
-            self._db.execute(
+            cursor = self._db.execute(
                 "INSERT INTO pacing (account_user_id, request_key, reserved_at) "
                 "VALUES (?, ?, ?) "
                 "ON CONFLICT(account_user_id, request_key) DO UPDATE SET "
-                "reserved_at = excluded.reserved_at",
+                "reserved_at = excluded.reserved_at "
+                "WHERE pacing.reserved_at < excluded.reserved_at",
                 (account_user_id, request_key, at),
             )
             self._db.commit()
         except sqlite3.Error:
             return False
-        return True
+        return cursor.rowcount == 1
 
     def clamp_reservation(self, account_user_id: int, request_key: str, now: float):
         """Repair a reservation stamped in the future by a stepped-back clock.
 
         Same failure `resolve_phone.py` already guards: without this, one NTP
         correction wedges a request type until the wall clock catches up.
+        Repairing is not a race — the future stamp is unambiguously wrong —
+        so it overwrites unconditionally rather than going through the
+        atomic `reserve`.
         """
         last = self.last_reserved(account_user_id, request_key)
         if last is not None and last > now:
-            self.reserve(account_user_id, request_key, now)
+            try:
+                self._db.execute(
+                    "UPDATE pacing SET reserved_at = ? "
+                    "WHERE account_user_id = ? AND request_key = ?",
+                    (now, account_user_id, request_key),
+                )
+                self._db.commit()
+            except sqlite3.Error:
+                pass
             return now
         return last
 

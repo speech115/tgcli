@@ -47,7 +47,7 @@ tg --json clone init SOURCE
 ```
 
 ```json
-{"preview_id":"p_...","expires_at":"...","clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":null,"status":"planned","commit_required":true},"approximate_message_count":321,"protected":false,"supersede":{"existing":false,"readable":null,"replace":false},"peers_to_create":1,"account_flood":{"cooldown_until":null,"last_peer_created_at":null}}
+{"preview_id":"p_...","expires_at":"...","clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":null,"status":"planned","commit_required":true},"approximate_message_count":321,"protected":false,"supersede":{"existing":false,"readable":null,"replace":false},"peers_to_create":1}
 ```
 
 Then commit to actually create the destination:
@@ -69,9 +69,12 @@ stderr and never fail init. Re-run init on an existing clone to retrofit.
 
 `peers_to_create` is 0 / 1 / 2 depending on whether a destination is already
 recorded and whether this commit would also create a discussion group.
-`account_flood` shows any account-scoped FloodWait cooldown. Exit 5 on
-`init --commit` / `sync` means wait out `retry_after` fully — never retry in a
-loop. Prefer at most ~one peer-creating init per account per day.
+Requests are paced and governed per Telegram request type (ADR-0072). Exit
+5 on `init --commit` / `sync` means the type is cooling: the run refused
+locally with `retry_after`, and `tg doctor` reports the cooldown directly.
+Never retry in a loop — the governor probes once at half the wait, and the
+schedule resumes the run when the type clears. Prefer at most ~one
+peer-creating init per account per day.
 
 ```json
 {"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"dialog"},"destination":{"id":999,"title":"Source"},"comments":"none","status":"ready","commit_required":false}}
@@ -89,7 +92,7 @@ tg --json clone sync SOURCE
 | --- | --- |
 | `--limit N` | copy at most N message batches this run; must be positive |
 
-`sync` requires an initialized clone and reads new source history from the saved cursor forward (`reverse=True`, `min_id=cursor`), so destination order matches source order. It first verifies the destination's tail is exactly what tgcli expects (only Telegram service rows past the last confirmed message); an unexpected tail message exits 2 for manual repair before any copying. `--limit` caps this run; if source rows remain, the JSON reports `"more":true` and the next invocation resumes at the saved cursor. Sync has no implicit overall timeout.
+`sync` requires an initialized clone and reads new source history from the saved cursor forward (`reverse=True`, `min_id=cursor`), so destination order matches source order. It first verifies the destination's tail is exactly what tgcli expects (only Telegram service rows past the last confirmed message); an unexpected tail message exits 2 for manual repair before any copying. `--limit` caps this run; if source rows remain, the JSON reports `"more":true` and the next invocation resumes at the saved cursor. Sync's requests are paced by the governor; `clone sync` keeps no implicit deadline (CONTRACT §1), and an explicit `--timeout` is a hang detector that ignores governed sleep, so a paced sync is not punished for pacing. Pass `--max-runtime` to bound the whole run — exhausting it is a normal stop (exit 0) with a resume pointer.
 
 ```json
 {"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"skipped_unsupported":[],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"pinned":{"source_id":12,"destination_id":9,"status":"set"},"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":null},"discussion":{"peer_id":null,"status":"none","count":0,"reason":null}}}}

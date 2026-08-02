@@ -55,13 +55,19 @@ def test_status_lists_all_clones_as_json(capsys):
     assert beta["source"]["kind"] == "megagroup"
 
 
-def test_status_ignores_account_flood_sidecar_and_survives_cooldown(capsys):
+def test_status_survives_an_armed_governor_cooldown(capsys):
+    """Status is read-only: an armed ledger cooldown must not block it."""
     from datetime import UTC, datetime, timedelta
 
-    from tgcli.clone import flood
+    from tgcli.governor.ledger import Ledger
 
     _seed(42, 111, "Alpha", dest=222)
-    flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
+    with Ledger.open() as ledger:
+        ledger.arm_cooldown(
+            42,
+            "messages.GetHistoryRequest",
+            datetime.now(UTC) + timedelta(minutes=10),
+        )
 
     code, out = _run(capsys, ["clone", "status", "--json"])
     assert code == 0

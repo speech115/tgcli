@@ -184,13 +184,26 @@ and authorized writes are audited.
 network work. A block is exit 2; do not retry it until the safety condition is
 intentionally changed.
 
+### Request governor (ADR-0072)
+
+Every Telegram request is paced and gated per request type by a persisted
+governor: history reads and dialog enumeration wait 3 s between requests,
+and a flood arms a per-type cooldown that refuses locally (exit 5,
+`retry_after`) with zero RPCs. `tg doctor` reports active cooldowns — it is
+the one command that works while everything else refuses. A scheduled
+`archive refresh` waking into a cooldown defers the blocked work and exits
+0 with `stop_reason: "cooldown_deferred"`. The default `--timeout` is a
+hang detector that ignores governed sleep; `--max-runtime` bounds a long
+run as a normal stop. Exit 5 means wait out `retry_after` — never retry
+FloodWait in a tight loop; the governor probes once at half the wait and
+clears early-lifted limits itself.
+
 ### Clone peer budget (ADR-0045)
 
 `clone init` creates 1–2 Telegram peers (channel, plus discussion group when
 comments are enabled). Prefer at most ~one peer-creating init per account per
-day. Check the preview's `peers_to_create` and `account_flood` before
-`--commit`. Exit 5 means wait out the full `retry_after` — never retry FloodWait
-in a tight loop. Use `--no-comments` when a posts-only clone is enough.
+day. Check the preview's `peers_to_create` before `--commit`. Use
+`--no-comments` when a posts-only clone is enough.
 
 `edit`, `delete`, and `forward` follow the same preview → commit rule as
 `send`. `mark-read`, `mark-unread`, and `dialog pin`/`unpin` are content-free

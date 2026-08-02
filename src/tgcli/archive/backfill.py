@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import sqlite3
 from typing import Any
 
@@ -10,9 +9,9 @@ from telethon import errors as telethon_errors
 
 from tgcli import chatref
 from tgcli.archive import scope as scope_mod, store as store_mod
-from tgcli.clone import cooldown as cooldown_mod, flood
 from tgcli.commands.read import _dialog_name, message_to_dict
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
+from tgcli.governor import pacing
 from tgcli.output import note
 
 
@@ -30,12 +29,23 @@ async def backfill_dialogs(
     *,
     limit: int,
     account_user_id: int,
-    budget: flood.WaitBudget | None = None,
-) -> list[dict[str, Any]]:
-    """Fetch up to ``limit`` recent messages per chat; resume older pages."""
-    run_budget = budget if budget is not None else flood.WaitBudget()
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Fetch up to ``limit`` recent messages per chat; resume older pages.
+
+    Returns ``(results, stop_reason)``: ``stop_reason`` is set when the
+    rolling peer-breadth budget or the explicit ``--max-runtime`` wall-clock
+    cap ran out mid-sweep and the run stopped normally — the caller turns
+    that into exit 0 with a deferred report, never an error (plan phases
+    4-5).
+    """
     results: list[dict[str, Any]] = []
+    governor = pacing.governor_of(tg)
     for chat in chats:
+        if governor is not None and not pacing.budget_ok(*governor):
+            return results, "breadth_budget_exhausted"
+        remaining = pacing.wall_clock_remaining()
+        if remaining is not None and remaining <= 0:
+            return results, "wall_clock_cap"
         results.append(
             await backfill_one(
                 tg,
@@ -43,10 +53,9 @@ async def backfill_dialogs(
                 chat,
                 limit=limit,
                 account_user_id=account_user_id,
-                budget=run_budget,
             )
         )
-    return results
+    return results, None
 
 
 def _checkpoint_flood(
@@ -76,7 +85,6 @@ async def backfill_one(
     *,
     limit: int,
     account_user_id: int,
-    budget: flood.WaitBudget,
     _flood_slept: bool = False,
 ) -> dict[str, Any]:
     entity = None
@@ -112,23 +120,18 @@ async def backfill_one(
     except telethon_errors.FloodWaitError as exc:
         seconds = int(exc.seconds)
         _checkpoint_flood(conn, peer, ids, state, seconds)
-        cooldown_mod.arm_account(account_user_id, seconds)
-        # iter_messages is an async generator, so clone with_cooldown cannot
-        # wrap each page RPC; short waits reuse WaitBudget + resume instead.
-        if (
-            seconds <= flood.SHORT_WAIT
-            and not _flood_slept
-            and budget.try_spend(seconds + 1)
-        ):
+        # iter_messages is an async generator, so the governor's per-type
+        # reservation cannot wrap each page RPC. A wait that fits the
+        # explicit wall-clock cap is slept out once and resumed; one that
+        # does not exits 5 immediately without sleeping (ADR-0072 decision 6).
+        if not _flood_slept and await pacing.sleep_flood(seconds):
             note(f"flood wait: retrying in {seconds}s")
-            await asyncio.sleep(seconds + 1)
             return await backfill_one(
                 tg,
                 conn,
                 chat,
                 limit=limit,
                 account_user_id=account_user_id,
-                budget=budget,
                 _flood_slept=True,
             )
         raise RateLimitError(
@@ -282,7 +285,6 @@ async def backfill_private(
     limit: int,
     max_dialogs: int,
     account_user_id: int,
-    budget: flood.WaitBudget | None = None,
 ) -> dict[str, Any]:
     refs, skipped = await enumerate_private_dialogs(
         tg, conn, max_dialogs=max_dialogs, skip_complete=True
@@ -296,15 +298,14 @@ async def backfill_private(
             "stored": 0,
             "skipped_complete": skipped,
         }
-    dialogs = await backfill_dialogs(
+    dialogs, stop_reason = await backfill_dialogs(
         tg,
         conn,
         refs,
         limit=limit,
         account_user_id=account_user_id,
-        budget=budget,
     )
-    return {
+    data: dict[str, Any] = {
         "mode": "private",
         "limit": limit,
         "max_dialogs": max_dialogs,
@@ -312,3 +313,8 @@ async def backfill_private(
         "stored": sum(item["stored"] for item in dialogs),
         "skipped_complete": skipped,
     }
+    if stop_reason is not None:
+        data["stop_reason"] = stop_reason
+        data["deferred"] = len(refs) - len(dialogs)
+        data["resume"] = refs[len(dialogs)] if len(dialogs) < len(refs) else None
+    return data

@@ -62,9 +62,21 @@ than raising.
 | `session_perms_ok` | this account's `.session` file (and `.session.bak`, when present) are not readable by the group or other users; missing files pass | `chmod 0600 ~/.local/state/tgcli/sessions/NAME.session*` |
 | `state_size` | total bytes under the state root (informational, not pass/fail) | inspect with `tg store stats` if unexpectedly large |
 | `authorized` | (only under `--connect`) the session is live and accepted by Telegram | re-authenticate the account |
+| `governor_cooldowns` | active per-request-type Telegram cooldowns from the request governor's ledger, with deadlines (informational; a cooldown is reportable state, not a failure) | see below |
+| `governor_degraded` | the governor's ledger could not be opened (reads fail open) | check permissions/ownership of `~/.local/state/tgcli/governor.db` |
 
 Per-account `ok` reflects only the local checks when `--connect` is absent;
 with `--connect`, `ok` additionally requires `authorized: true`.
+
+## Cooldowns
+
+When a command refuses with exit 5 and `retry_after`, `tg doctor` is the one
+command that still works: cooldowns are per request type, so a cooling
+account is not one state. `checks.governor_cooldowns` lists each cooling
+request type with its deadline; `governor_degraded: true` means the governor
+cannot persist (protection degrades, reads still answer "nothing is
+cooling"). The governor probes each cooldown once at half the wait, so an
+early-lifted limit clears itself without operator action.
 
 ## JSON
 
@@ -73,8 +85,17 @@ with `--connect`, `ok` additionally requires `authorized: true`.
 "accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
 "checks":{"session_file":true,"lock_free":true,"state_writable":true,
 "preview_perms_ok":true,"audit_perms_ok":true,"session_perms_ok":true,
-"state_size":4096,"authorized":null},
-"user":null,"ok":true}],"ok":true}
+"state_size":4096,"authorized":null,"governor_degraded":false,"governor_cooldowns":{}},
+"user":null,"roles":[],"ok":true}],"ok":true}
+```
+
+`governor_cooldowns` maps each cooling request type to its deadline (an
+empty object means nothing is cooling); `governor_degraded: true` means the
+governor's ledger could not be opened. When cooldowns are active,
+`governor_cooldowns` looks like:
+
+```json
+{"messages.GetHistoryRequest":"2026-08-03T00:00:00+00:00"}
 ```
 
 The top-level `runtime` object identifies the Python interpreter and Telethon

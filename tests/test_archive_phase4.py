@@ -270,7 +270,6 @@ async def test_media_flood_wait_does_not_consume_media_attempt(tmp_path, monkeyp
             raise flood_wait
 
         monkeypatch.setattr(sync_module.media_cmd, "download_media", raise_flood)
-        monkeypatch.setattr(sync_module.cooldown_mod, "arm_account", lambda *_a: None)
         with pytest.raises(RateLimitError):
             await sync_module.fetch_media(
                 object(),

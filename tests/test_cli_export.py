@@ -552,22 +552,12 @@ def test_takeout_delay_is_a_retryable_exit_5(config_env, monkeypatch, tmp_path, 
     }
 
 
-def test_export_has_no_default_overall_timeout(config_env, monkeypatch, tmp_path):
-    from tgcli import cli
-
+def test_export_takes_the_uniform_default_deadline(config_env, monkeypatch, tmp_path):
+    """D2: export no longer keeps a deadline exemption; governed sleep exempts it."""
     fake = make_export_fake()
     make_session_fake(monkeypatch, fake)
-    observed = []
-    original_wait_for = cli.asyncio.wait_for
-
-    async def record_timeout(awaitable, timeout):
-        observed.append(timeout)
-        return await original_wait_for(awaitable, timeout)
-
-    monkeypatch.setattr(cli.asyncio, "wait_for", record_timeout)
 
     assert (
         main(["export", "messages", "@chan", "--output", str(tmp_path / "out.jsonl")])
         == 0
     )
-    assert observed == [None]

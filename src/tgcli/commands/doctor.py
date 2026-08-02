@@ -88,6 +88,10 @@ def _local_ok(checks: dict) -> bool:
     for key, value in checks.items():
         if key in ("error", "authorized", "state_size"):
             continue
+        if key in ("governor_cooldowns", "governor_degraded"):
+            # A cooldown is reportable state, not a failure; a degraded
+            # ledger is a warning the governor already fails open on.
+            continue
         if value is False:
             return False
     return True
@@ -107,7 +111,7 @@ async def _check_role(account, role: str, *, connect: bool) -> dict:
         checks["authorized"] = False
         if checks["session_file"] and checks["lock_free"]:
             try:
-                async with session.client(account, role=role) as tg:
+                async with session.client(account, role=role, govern=False) as tg:
                     me = await tg.get_me()
                     checks["authorized"] = me is not None
                     if me is not None:
@@ -130,6 +134,31 @@ async def _check_role(account, role: str, *, connect: bool) -> dict:
     }
 
 
+def _governor_check(session_file: Path) -> dict:
+    """Active governor cooldowns for this session's account, or None.
+
+    Reads the ledger directly, no RPC: `doctor` is the one command that
+    must work precisely when everything else is refusing (ADR-0072
+    decision 1). An unreadable ledger reports ``governor_degraded`` rather
+    than failing the check — the governor failing open is the design.
+    """
+    from tgcli.governor.ledger import Ledger
+
+    user_id = session.session_user_id(session_file)
+    result: dict = {"governor_degraded": False, "governor_cooldowns": {}}
+    if user_id is None:
+        return result
+    with Ledger.open() as ledger:
+        result["governor_degraded"] = ledger.degraded
+        result["governor_cooldowns"] = {
+            request_type: deadline.isoformat()
+            for request_type, deadline in sorted(
+                ledger.active_cooldowns(user_id).items()
+            )
+        }
+    return result
+
+
 async def check_account(account, *, connect: bool = False) -> dict:
     session_file = session.session_path(account)
     has_session_file = session_file.is_file()
@@ -143,12 +172,15 @@ async def check_account(account, *, connect: bool = False) -> dict:
         "state_size": _state_size(),
         "authorized": None,
     }
+    # Governor keys are always present (empty when there is no session or
+    # no cached user id) so the JSON schema is stable (review fix m4).
+    checks.update(_governor_check(session_file))
     user = None
     if connect:
         checks["authorized"] = False
         if checks["session_file"] and checks["lock_free"]:
             try:
-                async with session.client(account) as tg:
+                async with session.client(account, govern=False) as tg:
                     me = await tg.get_me()
                     checks["authorized"] = me is not None
                     if me is not None:

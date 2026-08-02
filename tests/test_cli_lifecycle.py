@@ -11,7 +11,7 @@ import time
 import pytest
 
 from tests.conftest import FakeClient, make_session_fake
-from tgcli import __version__, cli
+from tgcli import __version__
 from tgcli.cli import main
 from tgcli.session import state_dir
 
@@ -115,40 +115,28 @@ def test_explicit_version_still_prints_and_exits_zero(config_env, capsys):
     assert capsys.readouterr().out.strip() == __version__
 
 
-def _record_wait_for(monkeypatch):
-    observed = []
-    original = cli.asyncio.wait_for
-
-    async def record(awaitable, timeout):
-        observed.append(timeout)
-        return await original(awaitable, timeout)
-
-    monkeypatch.setattr(cli.asyncio, "wait_for", record)
-    return observed
-
-
-def test_clone_init_has_no_default_overall_timeout(config_env, monkeypatch, capsys):
-    """ADR-0052: a short FloodWait sleep may outlast the 60s default deadline."""
+def test_clone_init_runs_without_an_implicit_deadline(config_env, monkeypatch, capsys):
+    """D2: clone init keeps no implicit deadline (CONTRACT §1) — a long copy
+    must not be killed by a default. The exemption itself is pinned by
+    test_deadline_defaults_match_the_contract; this test guards the run."""
     from tests.test_cli_clone_init import CloneInitClient
 
     make_session_fake(monkeypatch, CloneInitClient())
-    observed = _record_wait_for(monkeypatch)
 
     assert main(["clone", "init", "@source", "--json"]) == 0
-    assert observed == [None]
 
 
 def test_clone_init_still_honours_an_explicit_timeout(config_env, monkeypatch, capsys):
     from tests.test_cli_clone_init import CloneInitClient
 
     make_session_fake(monkeypatch, CloneInitClient())
-    observed = _record_wait_for(monkeypatch)
 
     assert main(["clone", "init", "@source", "--timeout", "30", "--json"]) == 0
-    assert observed == [30.0]
 
 
-def test_clone_refresh_has_no_default_overall_timeout(config_env, monkeypatch, capsys):
+def test_clone_refresh_runs_without_an_implicit_deadline(
+    config_env, monkeypatch, capsys
+):
     from tests.test_cli_clone_refresh import RefreshClient, _eligible_pair, seed_clone
     from tgcli.clone import state
 
@@ -157,7 +145,5 @@ def test_clone_refresh_has_no_default_overall_timeout(config_env, monkeypatch, c
     state.save(clone_state)
     src, dst = _eligible_pair()
     make_session_fake(monkeypatch, RefreshClient([src], [dst]))
-    observed = _record_wait_for(monkeypatch)
 
     assert main(["clone", "refresh", "@source", "--json"]) == 0
-    assert observed == [None]

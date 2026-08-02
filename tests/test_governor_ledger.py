@@ -223,3 +223,55 @@ def test_two_connections_share_one_account_clock(tmp_path):
         first.reserve(ACCOUNT, HISTORY, 1234.0)
 
         assert second.last_reserved(ACCOUNT, HISTORY) == 1234.0
+
+
+def test_reserve_is_atomic_against_a_fresher_competitor(tmp_path):
+    """m1 review fix: two processes racing to reserve must not both win.
+
+    The reservation is start-to-start (ADR-0072 decision 3); a conditional
+    upsert means the later claim loses instead of overwriting the earlier
+    one, so a pair of simultaneous processes cannot dispatch back-to-back.
+    """
+    path = tmp_path / "governor.db"
+    with Ledger.open(path) as first, Ledger.open(path) as second:
+        # First process reads "nothing reserved" and reserves t=10.
+        assert first.reserve(ACCOUNT, HISTORY, 10.0) is True
+        # Second process read "nothing reserved" too, but its claim at t=5
+        # is older than what landed — it must lose the race.
+        assert second.reserve(ACCOUNT, HISTORY, 5.0) is False
+        assert first.last_reserved(ACCOUNT, HISTORY) == 10.0
+        # A genuinely later claim still wins.
+        assert second.reserve(ACCOUNT, HISTORY, 20.0) is True
+        assert first.last_reserved(ACCOUNT, HISTORY) == 20.0
+
+
+def test_cooldown_armed_at_round_trips(ledger):
+    now = datetime.now(UTC)
+    ledger.arm_cooldown(ACCOUNT, HISTORY, now + timedelta(hours=1), now=now)
+
+    assert ledger.cooldown_armed_at(ACCOUNT, HISTORY) == now
+
+
+def test_cooldown_armed_at_missing_row_reads_none(ledger):
+    assert ledger.cooldown_armed_at(ACCOUNT, HISTORY) is None
+
+
+def test_cooldown_armed_at_rejects_naive_timestamps(ledger):
+    ledger.arm_cooldown(ACCOUNT, HISTORY, datetime.now(UTC) + timedelta(hours=1))
+    ledger._db.execute("UPDATE cooldowns SET armed_at = '2026-07-15T12:00:00'")
+    ledger._db.commit()
+
+    assert ledger.cooldown_armed_at(ACCOUNT, HISTORY) is None
+
+
+def test_reserve_at_the_same_moment_loses_not_overwrites(tmp_path):
+    """Review blocker 3: two processes dispatching at the same instant must
+    not both claim it — the loser's equal-timestamp claim is refused, and
+    the winner's reservation survives untouched."""
+    path = tmp_path / "governor.db"
+    with Ledger.open(path) as first, Ledger.open(path) as second:
+        assert first.reserve(ACCOUNT, HISTORY, 10.0) is True
+        # Identical moment: strict comparison refuses the second claim
+        # instead of overwriting the first (the old <= let it through).
+        assert second.reserve(ACCOUNT, HISTORY, 10.0) is False
+        assert first.last_reserved(ACCOUNT, HISTORY) == 10.0

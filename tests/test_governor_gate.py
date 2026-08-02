@@ -44,6 +44,11 @@ class FakeClient:
             raise self._raises
         return "result"
 
+    async def __call__(self, request, *args, **kwargs):
+        # What Telethon's `client(request)` resolves to; the `tg api` path
+        # dispatches through here (api.py), so the seam must sit on `_call`.
+        return await self._call(self, request, *args, **kwargs)
+
 
 @pytest.fixture
 def ledger(tmp_path):
@@ -269,3 +274,129 @@ async def test_the_wrapper_forwards_arguments_untouched(ledger):
     assert await client._call("snd", history(), ordered=True) == "ok"
     assert seen["sender"] == "snd"
     assert seen["kwargs"] == {"ordered": True}
+
+
+async def test_siblings_do_not_issue_rpcs_while_a_flood_is_armed(ledger):
+    """FloodGate behaviour, re-proved on the governor (plan phase 5).
+
+    ADR-0052 parked sibling upload workers while one slept a shared
+    FloodWait out. The governor replaces that: the flood arms a per-type
+    cooldown, and every sibling request of that type refuses locally with
+    zero RPCs instead of sleeping the same wait again.
+    """
+    error = telethon_errors.FloodWaitError(request=None)
+    error.seconds = 600
+    client = FakeClient(raises=error)
+    gate.install(client, ledger)
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        await client._call(None, history())
+
+    siblings = [FakeClient() for _ in range(3)]
+    for sibling in siblings:
+        gate.install(sibling, ledger)
+    for sibling in siblings:
+        with pytest.raises(RateLimitError):
+            await sibling._call(None, history())
+        assert sibling.sent == []
+
+
+async def test_a_flood_alert_fires_once_at_arming(ledger, capsys):
+    """m6 review fix: the stderr alert is written exactly when the flood
+    arms — the scheduled wakes under the cooldown stay silent."""
+    error = telethon_errors.FloodWaitError(request=None)
+    error.seconds = 600
+    client = FakeClient(raises=error)
+    gate.install(client, ledger)
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        await client._call(None, history())
+
+    alert = capsys.readouterr().err
+    assert "telegram flood on messages.GetHistoryRequest" in alert
+    assert "cooling for 600s" in alert
+
+    # A later wake that refuses on the armed cooldown (before 50% elapsed)
+    # is not an arming event — no new alert.
+    fresh = FakeClient()
+    gate.install(fresh, ledger)
+    with pytest.raises(RateLimitError):
+        await fresh._call(None, history())
+    assert "cooling for 600s" not in capsys.readouterr().err
+
+
+async def test_the_raw_api_path_refuses_locally_on_a_gated_type(ledger):
+    """G5: `tg api` goes through the governed seam — a cooling type refuses
+    with zero RPCs, not a raw send into the penalty."""
+    from telethon.tl.functions.users import GetFullUserRequest
+
+    from tgcli.commands import api as api_cmd
+
+    error = telethon_errors.FloodWaitError(request=None)
+    error.seconds = 600
+    source = FakeClient(raises=error)
+    gate.install(source, ledger)
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        await source._call(None, GetFullUserRequest(id=42))
+
+    api = FakeClient()
+    gate.install(api, ledger)
+    # The whole `tg api` path: canonical request built from JSON, dispatched
+    # through the client — not a synthetic _call that could drift from it.
+    with pytest.raises(RateLimitError):
+        await api_cmd.call(api, "users.getFullUser", '{"id": 42}')
+    assert api.sent == []
+
+
+@pytest.mark.parametrize(
+    ("rpc_request", "expected_key"),
+    [
+        (
+            messages.GetHistoryRequest(
+                peer="p",
+                offset_id=0,
+                offset_date=None,
+                add_offset=0,
+                limit=100,
+                max_id=0,
+                min_id=0,
+                hash=0,
+            ),
+            "messages.GetHistoryRequest",
+        ),
+        (
+            messages.GetDialogsRequest(
+                offset_date=None, offset_id=0, offset_peer="p", limit=100, hash=0
+            ),
+            "messages.GetDialogsRequest",
+        ),
+        (messages.SendMessageRequest("p", "hi"), "messages.SendMessageRequest"),
+        (
+            upload.GetFileRequest(location=None, offset=0, limit=1),
+            "upload.GetFileRequest",
+        ),
+        (messages.GetMessagesRequest(id=[1]), "messages.GetMessagesRequest"),
+    ],
+)
+async def test_every_command_family_refuses_locally_on_its_type(
+    ledger, rpc_request, expected_key
+):
+    """G3: each command family issues a known request type, and a cooldown
+    on that exact type refuses locally with zero RPCs — a command can never
+    send into a live penalty for the type it is about to issue."""
+    error = telethon_errors.FloodWaitError(request=None)
+    error.seconds = 600
+    source = FakeClient(raises=error)
+    gate.install(source, ledger)
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        await source._call(None, rpc_request)
+
+    target = FakeClient()
+    gate.install(target, ledger)
+    with pytest.raises(RateLimitError) as caught:
+        await target._call(None, rpc_request)
+    assert caught.value.details["retry_after"] > 0
+    assert target.sent == []
+    assert set(ledger.active_cooldowns(ACCOUNT)) == {expected_key}

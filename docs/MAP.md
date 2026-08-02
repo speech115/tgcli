@@ -70,16 +70,17 @@ tgcli/
 │   │   ├── backfill.py        [done]    selected + --private history walk + caps/checkpoint
 │   │   ├── sync.py            [done]    changes.once apply, gap/rebaseline, light reconcile, bounded media fetch
 │   │   └── transcribe.py      [done]    foreground local FluidAudio/Parakeet queue
-│   ├── governor/              [wip]     account-wide request governor, phases 0-2 of 7 (ADR-0072)
+│   ├── governor/              [done]    account-wide request governor (ADR-0072, all phases)
 │   │   ├── registry.py        [done]    request-type cooldown keys + paced-class table and intervals
 │   │   ├── ledger.py          [done]    SQLite per-type cooldowns, pacing reservations, peer-breadth window
 │   │   ├── seam.py            [done]    fail-fast pin on Telethon's private `_call` signature
-│   │   └── gate.py            [done]    the `_call` wrapper: refuse locally before dispatch, arm from the server
+│   │   ├── gate.py            [done]    the `_call` wrapper: refuse locally before dispatch, arm from the server
+│   │   ├── probe.py           [done]    self-verifying probe: 50%-elapsed window, write-ahead spend, settle on success
+│   │   └── pacing.py          [done]    start-to-start interval sleep before dispatch; rolling 100-peer breadth budget; wall-clock cap and journal accounting
 │   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045/0046/0047/0049/0054/0055)
 │   │   ├── state.py           [done]    CloneState seam + dirty-tracked save/load (SQLite via statedb; ADR-0017/0060)
 │   │   ├── statedb.py         [done]    per-clone SQLite/WAL backend, import/export helpers (ADR-0060)
-│   │   ├── flood.py           [done]    account-scoped FloodWait cooldown + peer-created stamp + per-run wait budget (ADR-0045/0052)
-│   │   ├── cooldown.py        [done]    cooldown enforcement + the `with_cooldown` RPC seam shared by init/sync/refresh (ADR-0045/0052)
+│   │   ├── cooldown.py        [done]    per-clone retry_not_before gate; requests go through the governed seam (ADR-0072)
 │   │   ├── reupload.py        [done]    reupload transfer: still-thumb picker, upload, persistent download cache (ADR-0049/0052/0055)
 │   │   ├── init_peers.py      [done]    destination shape, marker adoption, profile/avatar copy, discussion init (ADR-0020/0023/0044)
 │   │   ├── ergonomics.py      [done]    mute forever + "Clone" dialog filter for tool-created peers (ADR-0046)
