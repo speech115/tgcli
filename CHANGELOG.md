@@ -11,6 +11,66 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [2.0.0] — 2026-08-02
+
+Major because exit code 5 changes meaning for an identical trigger; see
+"Changed" below. ADR-0072.
+
+### Added
+
+- An account-wide request governor (ADR-0072) that paces and gates every
+  Telegram request the tool makes, replacing the clone-only flood
+  containment of ADR-0045/0052. Cooldowns are per request type and shared
+  across processes through a SQLite ledger, so a penalty drawn by one
+  command refuses the commands that would draw it again — and only those.
+  A flood arms the type from the server's own `retry_after`; a refusal is
+  local, costs zero RPCs, and exits 5. Each cooldown is probed once at half
+  its wait, so a limit lifted early clears itself without operator action.
+  CONTRACT §1, §4, §5.1, §9, §11, §13.
+- `--max-runtime <sec>`, an explicit wall-clock cap for long runs.
+  Exhausting it is a normal stop: exit 0, `stop_reason: "wall_clock_cap"`,
+  checkpoint intact, and a resume pointer where the command keeps a cursor.
+  A rolling 100-distinct-peers/24 h breadth budget stops the same way with
+  `stop_reason: "breadth_budget_exhausted"`.
+- `tg doctor` reports the governor directly: `checks.governor_cooldowns`
+  maps each cooling request type to its deadline, and
+  `checks.governor_degraded` says when the ledger could not be opened
+  (reads fail open, so protection degrades without blocking). A cooldown is
+  reportable state, not a failure — it does not set `ok: false`. `doctor`
+  is the one command exempt from the governor, so it works precisely when
+  everything else refuses.
+- The invocation journal gains `governed_sleep_ms` and `request_count` on
+  runs that issued governed requests, `retry_after` / `request_type` /
+  `provenance` on a flood-related exit, and `stop_reason` on a normal stop.
+  CONTRACT §9.
+
+### Changed
+
+- **Breaking.** A scheduled `archive refresh` that wakes into a partial
+  cooldown now exits **0** with `stop_reason: "cooldown_deferred"` and a
+  `deferred` list, where it previously exited 5. It does what the free
+  request types allow and reports the rest as deferred — a success that
+  deferred work, not a failure to alert on. A consumer polling exit 5 as
+  "the account needs to wait" must read the journal or JSON fields instead.
+  CONTRACT §4.
+- `--timeout` is a hang detector, not a job bound: deliberate governed
+  sleep no longer counts against it. Long-running commands (`media`,
+  `export`, `clone init|sync|refresh`, `archive refresh`) keep no implicit
+  deadline and are bounded only by an explicit `--timeout` or
+  `--max-runtime`. CONTRACT §1.
+- `clone init`'s preview no longer echoes `account_flood`. Active cooldowns
+  are per request type in the governor's ledger and are surfaced by
+  `tg doctor`. CONTRACT §12.
+
+### Removed
+
+- The ADR-0045 account-scoped cooldown record and the ADR-0052 short-wait
+  machinery (`SHORT_WAIT`, `WAIT_BUDGET`, `WaitBudget`, `FloodGate`,
+  `with_cooldown`). A clone-sync flood no longer waits 60 s in the
+  foreground under a 180 s per-process budget; it arms the governor's
+  per-type cooldown and exits 5, or sleeps the wait out when it fits the
+  remaining `--max-runtime`. Both ADRs are now plainly superseded.
+
 ## [1.2.25] — 2026-07-31
 
 ### Added
@@ -625,6 +685,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[2.0.0]: https://github.com/speech115/tgcli/compare/v1.2.25...v2.0.0
 [1.2.25]: https://github.com/speech115/tgcli/compare/v1.2.24...v1.2.25
 [1.2.24]: https://github.com/speech115/tgcli/compare/v1.2.23...v1.2.24
 [1.2.23]: https://github.com/speech115/tgcli/compare/v1.2.22...v1.2.23

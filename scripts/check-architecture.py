@@ -33,7 +33,13 @@ CEILINGS = {
     # +9 for ADR-0068 Phase 4: offline transcribe routing.
     # +24 for ADR-0068 Phase 5: offline read/history routing.
     # +4 for ADR-0070 Phase 6: refresh routing.
-    "src/tgcli/cli.py": 613,
+    # +50 for ADR-0072: the SIGALRM hang-detector re-arm that reads governed
+    # sleep off pacing and extends the deadline instead of killing the run,
+    # the governed-sleep-aware _run_with_deadline poll loop, the
+    # _long_running_command exemption list (media/export/clone
+    # init,sync,refresh/archive refresh), and the journal's
+    # governed_sleep_ms/request_count/stop_reason fields.
+    "src/tgcli/cli.py": 663,
     # +2 for ADR-0057: isort section blanks, E501 split in the --format help.
     # +47 for ADR-0062 --session-role / accounts --role flags and the
     # ADR-0063 tg changes subcommand surface.
@@ -45,7 +51,8 @@ CEILINGS = {
     # +39 for ADR-0068 Phase 5: search filter/sort/paging flags plus the
     # read and history subcommands.
     # +30 for ADR-0070 Phase 6: the refresh subcommand and its caps.
-    "src/tgcli/parser.py": 732,
+    # +8 for ADR-0072: the --max-runtime wall-clock cap flag.
+    "src/tgcli/parser.py": 740,
     # +40 for ADR-0062 role validation and ADR-0063 changes preflight.
     # +37 for ADR-0068: archive preflight (readonly gates, backfill/search
     # caps).
@@ -54,7 +61,8 @@ CEILINGS = {
     # +43 for ADR-0068 Phase 5: filter/date/sort/paging validation for
     # search, read, and history.
     # +10 for ADR-0070 Phase 6: refresh cap validation.
-    "src/tgcli/preflight.py": 427,
+    # +13 for ADR-0072: --max-runtime and --timeout positivity validation.
+    "src/tgcli/preflight.py": 440,
     # +2 for ADR-0057: isort section blanks.
     # +17 for ADR-0062: role lookup threaded into session.client.
     # +23 for ADR-0068: archive network dispatch (init/add/remove/backfill).
@@ -98,7 +106,10 @@ CEILINGS = {
     # +8 for id_map / retry_not_before validation on load (fail closed).
     # +48 for ADR-0060: the CloneState seam delegating to clone/statedb.py
     # (SQLite load/save/supersede, one-time JSON import, path_for .db).
-    "src/tgcli/clone/state.py": 381,
+    # +10 for ADR-0072: MAX_COOLDOWN_S migrated in-module off clone/flood.py,
+    # plus the set_cooldown docstring noting the field is legacy now that
+    # floods arm the governor's per-type cooldown instead.
+    "src/tgcli/clone/state.py": 391,
     # +22 for ADR-0051: posts_cursor / posts_exhausted kwargs + deferred
     # short-circuit in resolve (mirror of transport.decide's deferred plan).
     # +1 for ADR-0061: the ResolveContext destination_group field.
@@ -112,7 +123,11 @@ CEILINGS = {
     # first split candidate if it grows again.
     "src/tgcli/archive/store.py": 1021,
     "src/tgcli/archive/sync.py": 596,
-    "src/tgcli/archive/backfill.py": 314,
+    # +6 for ADR-0072: backfill_dialogs/backfill_one/backfill_private thread
+    # through pacing's rolling breadth budget, wall-clock cap, and
+    # sleep_flood instead of clone.flood.WaitBudget, plus the
+    # stop_reason/deferred/resume fields when a sweep stops early.
+    "src/tgcli/archive/backfill.py": 320,
     "src/tgcli/archive/transcribe.py": 251,
     # ADR-0069: read-only query composition split out of store/commands so
     # Phase 5 SQL does not land in the persistence hotspot.
@@ -122,10 +137,45 @@ CEILINGS = {
     "src/tgcli/archive/search.py": 78,
     # ADR-0070: the one-shot refresh composition and its media attempt
     # taxonomy, kept out of sync.py/store.py.
-    "src/tgcli/archive/refresh.py": 146,
+    # +50 for ADR-0072: sync_types_cooling's partial-cooldown defer path
+    # (skip dispatch when a sync-relevant RPC type is cooling rather than
+    # waking into the same refusal), the wall-clock-cap pre-check, and the
+    # deferred/stop_reason/refresh reporting either path returns.
+    "src/tgcli/archive/refresh.py": 196,
     "src/tgcli/archive/media.py": 72,
-    "src/tgcli/commands/archive_refresh.py": 111,
-    "src/tgcli/commands/archive.py": 545,
+    # +7 for ADR-0072: skip get_me entirely on a scheduled wake into a known
+    # cooldown (sync_types_cooling), reusing store_mod.read_meta's
+    # account_user_id instead of an RPC (review fix M2).
+    "src/tgcli/commands/archive_refresh.py": 118,
+    # +1 for ADR-0072: cooldown_mod.cooled_account calls swapped for plain
+    # tg.get_me(), plus stop_reason/deferred/resume reporting on
+    # backfill_dialogs's chats-mode result.
+    "src/tgcli/commands/archive.py": 546,
+    # ADR-0072: the governor package (account-wide request pacing and
+    # cooldowns around Telethon's private ``_call``) landed across phases
+    # 0-2 with no ceilings at all; seed all seven modules at their current
+    # size now so further growth here is deliberate.
+    # __init__.py: package docstring plus the public re-export surface.
+    "src/tgcli/governor/__init__.py": 14,
+    # gate.py: the governed _call wrapper — refuse locally while cooling,
+    # arm the cooldown from the server's own retry_after after a flood.
+    "src/tgcli/governor/gate.py": 186,
+    # ledger.py: persisted governor state (cooldowns, pacing reservations,
+    # peer breadth) in SQLite under the state dir, ADR-0060's statedb.py
+    # pattern, keyed by account_user_id.
+    "src/tgcli/governor/ledger.py": 416,
+    # pacing.py: sleep-before-dispatch pacing and the rolling breadth
+    # budget — the start-to-start minimum interval per request type.
+    "src/tgcli/governor/pacing.py": 231,
+    # probe.py: the self-verifying probe that asks the server whether a
+    # recorded cooldown deadline still holds, once per confirmed deadline.
+    "src/tgcli/governor/probe.py": 86,
+    # registry.py: which Telegram request type belongs to which paced
+    # class, and the cooldown key every request type resolves to.
+    "src/tgcli/governor/registry.py": 133,
+    # seam.py: the governed seam itself, Telethon's private _call, plus
+    # verify_seam's fail-fast check that it still has the expected shape.
+    "src/tgcli/governor/seam.py": 66,
 }
 
 # Modules that must reach read commands only through the read_ops seam
