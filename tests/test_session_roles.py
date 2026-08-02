@@ -67,6 +67,10 @@ class FakeTelethonClient:
     async def disconnect(self):
         self.connected = False
 
+    async def _call(self, sender, request, *args, **kwargs):
+        """Present because the real client has it — the governor wraps it."""
+        return None
+
 
 async def test_client_role_missing_is_config_error_with_remediation(state, monkeypatch):
     monkeypatch.setattr(

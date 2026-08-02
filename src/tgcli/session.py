@@ -129,6 +129,16 @@ def _make_client(
     path: Path, account: Account, *, mutation_safe: bool = False
 ) -> TelegramClient:
     device_model, system_version, app_version = client_identity()
+    # ADR-0072 decision 2: `flood_sleep_threshold=0` on *every* client, not
+    # just the mutation-safe ones. Telethon's own sleeping is what made the
+    # incident invisible — it engages only above `limit > 3000` and silently
+    # absorbs shorter waits, so the governor could never see the flood it is
+    # supposed to record. Retries stay at Telethon's default for reads.
+    # Imported here, not at module scope: the governor's ledger needs this
+    # module's state-dir helpers, so a top-level import would be circular.
+    from tgcli.governor.seam import verify_seam
+
+    verify_seam()
     if mutation_safe:
         return TelegramClient(
             str(path),
@@ -144,6 +154,7 @@ def _make_client(
         str(path),
         account.api_id,
         account.api_hash,
+        flood_sleep_threshold=0,
         device_model=device_model,
         system_version=system_version,
         app_version=app_version,
@@ -175,6 +186,11 @@ async def client(
     # Telethon creates the SQLite session during client construction; tighten it
     # before any network use.
     restrict_file(path)
+    from tgcli.governor.gate import install as install_governor
+    from tgcli.governor.ledger import Ledger
+
+    governor = Ledger.open()
+    install_governor(tg, governor)
     try:
         await tg.connect()
         if not await tg.is_user_authorized():
@@ -196,5 +212,6 @@ async def client(
         ) from exc
     finally:
         await tg.disconnect()  # type: ignore  # Telethon stub: Coroutine | None
+        governor.close()
         fcntl.flock(lock, fcntl.LOCK_UN)
         lock.close()

@@ -35,7 +35,7 @@ tgcli/
 │   ├── guide/                 [done]    user-facing task pages, 25 + index (ADR-0041/0065)
 │   ├── assets/                [done]    README banner, dark + light SVG, launchd template (no external assets)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
-│   ├── decisions/             [done]    ADR-0001…0072 + README.md index (ADR-0072 account request governor, proposed)
+│   ├── decisions/             [done]    ADR-0001…0072 + README.md index (ADR-0072 account request governor, accepted; implementing in #145)
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
@@ -70,6 +70,11 @@ tgcli/
 │   │   ├── backfill.py        [done]    selected + --private history walk + caps/checkpoint
 │   │   ├── sync.py            [done]    changes.once apply, gap/rebaseline, light reconcile, bounded media fetch
 │   │   └── transcribe.py      [done]    foreground local FluidAudio/Parakeet queue
+│   ├── governor/              [wip]     account-wide request governor, phases 0-2 of 7 (ADR-0072)
+│   │   ├── registry.py        [done]    request-type cooldown keys + paced-class table and intervals
+│   │   ├── ledger.py          [done]    SQLite per-type cooldowns, pacing reservations, peer-breadth window
+│   │   ├── seam.py            [done]    fail-fast pin on Telethon's private `_call` signature
+│   │   └── gate.py            [done]    the `_call` wrapper: refuse locally before dispatch, arm from the server
 │   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045/0046/0047/0049/0054/0055)
 │   │   ├── state.py           [done]    CloneState seam + dirty-tracked save/load (SQLite via statedb; ADR-0017/0060)
 │   │   ├── statedb.py         [done]    per-clone SQLite/WAL backend, import/export helpers (ADR-0060)
