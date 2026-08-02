@@ -17,7 +17,6 @@ from tgcli.clone import (
     discussion,
     ergonomics,
     fidelity,
-    flood,
     init_peers,
     legs,
     pin,
@@ -216,7 +215,6 @@ async def preview_init(
         no_comments=no_comments,
         replace=replace,
     )
-    account_flood = flood.load(me.id)
     preview = safety.create_preview(
         {
             "kind": "clone-init",
@@ -245,7 +243,6 @@ async def preview_init(
         "protected": preview["protected"],
         "supersede": _supersede_status(clone_id, replace),
         "peers_to_create": peers_to_create,
-        "account_flood": account_flood,
     }
 
 
@@ -270,12 +267,7 @@ async def _peers_to_create(
 
 # The cooldown gate and the RPC seam now live in clone/cooldown.py; these
 # names stay as the command surface's local vocabulary.
-_raise_if_cooling = cooldown_mod.raise_if_cooling
-_enforce_account_cooldown = cooldown_mod.enforce_account
-_session_account_id = cooldown_mod.session_account_id
-_cooled_account = cooldown_mod.cooled_account
 _enforce_cooldown = cooldown_mod.enforce
-_arm_flood_cooldown = cooldown_mod.arm
 _mutate = cooldown_mod.mutate
 
 
@@ -300,8 +292,6 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
         early_state = None
     if early_state is not None:
         _enforce_cooldown(early_state)
-    else:
-        _enforce_account_cooldown(account_user_id)
 
     entity, source_kind, _ = await _resolve_source(tg, source)
     me = await tg.get_me()
@@ -741,7 +731,7 @@ async def sync_text(
     # before the get_me RPC and the username/entity resolve so a hot account
     # never hits Telegram at all (ADR-0045). Per-clone deadline is checked
     # after state load below.
-    me = await _cooled_account(tg)
+    me = await tg.get_me()
     source_entity, source_kind, _ = await _resolve_source(tg, source)
     clone_state = state.load(state.clone_id(me.id, source_entity.id))
     if clone_state is None or clone_state.destination_peer_id is None:
@@ -1032,7 +1022,7 @@ def sync_rows(data: dict) -> list[tuple]:
 
 
 async def _load_refresh_context(tg, source: str):
-    me = await _cooled_account(tg)
+    me = await tg.get_me()
     source_entity, source_kind, _ = await _resolve_source(tg, source)
     clone_state = state.load(state.clone_id(me.id, source_entity.id))
     if clone_state is None or clone_state.destination_peer_id is None:

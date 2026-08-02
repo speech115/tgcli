@@ -16,7 +16,6 @@ from tgcli.archive import (
     store as store_mod,
 )
 from tgcli.changes_cursor import ChangesCursor
-from tgcli.clone import cooldown as cooldown_mod
 from tgcli.commands import changes as changes_cmd, media as media_cmd
 from tgcli.commands.read import message_to_dict
 from tgcli.errors import PolicyError, RateLimitError
@@ -205,9 +204,6 @@ async def _catch_up_peer(
                 last_error=f"FLOOD_WAIT:{seconds}",
                 touch_sync=True,
             )
-        from tgcli.clone import cooldown as cooldown_mod
-
-        cooldown_mod.arm_account(account_user_id, seconds)
         raise RateLimitError(
             f"rate limited during archive sync catch-up of {chat!r}",
             retry_after=seconds,
@@ -346,7 +342,6 @@ async def fetch_media(
             downloaded += 1
         except telethon_errors.FloodWaitError as exc:
             seconds = int(exc.seconds)
-            cooldown_mod.arm_account(account_user_id, seconds)
             raise RateLimitError(
                 f"rate limited during archive media fetch of {message_id}",
                 retry_after=seconds,

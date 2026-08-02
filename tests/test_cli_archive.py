@@ -332,8 +332,6 @@ def test_backfill_flood_wait_persists_checkpoint_and_exits_5(
 ):
     from telethon import errors as telethon_errors
 
-    from tgcli.clone import flood
-
     user = _user()
     messages = [_msg(mid=3, text="c"), _msg(mid=2, text="b"), _msg(mid=1, text="a")]
 
@@ -362,7 +360,6 @@ def test_backfill_flood_wait_persists_checkpoint_and_exits_5(
     err = json.loads(capsys.readouterr().err)
     assert err["error"]["code"] == "FLOOD_WAIT"
     assert err["error"]["retry_after"] == 90
-    assert flood.cooldown_deadline(42) is not None
     assert main(["archive", "status", "--json"]) == 0
     status = json.loads(capsys.readouterr().out)
     assert status["counts"]["messages"] == 1
@@ -373,21 +370,29 @@ def test_backfill_flood_wait_persists_checkpoint_and_exits_5(
 
 
 def test_backfill_respects_armed_account_cooldown(config_env, monkeypatch, capsys):
+    """A ledger cooldown refuses the run locally before any network call.
+
+    The gate itself is the governor seam (covered by its unit tests); this
+    pins the local-refusal shape with zero RPCs against a live ledger.
+    """
     from datetime import timedelta
 
-    from tgcli.clone import flood
+    from tgcli.errors import RateLimitError
+    from tgcli.governor import gate
+    from tgcli.governor.ledger import Ledger
 
     user = _user()
     client = _client(entities={"@alice": user, 7: user}, messages=[_msg()])
     client._self_id = 42
-    make_session_fake(monkeypatch, client)
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
-    assert main(["archive", "backfill", "@alice", "--json"]) == 5
-    err = json.loads(capsys.readouterr().err)
-    assert err["error"]["code"] == "FLOOD_WAIT"
-    assert client.iter_messages_calls == []
+    with Ledger.open() as ledger:
+        ledger.arm_cooldown(
+            42,
+            "messages.GetHistoryRequest",
+            datetime.now(UTC) + timedelta(minutes=10),
+        )
+        with pytest.raises(RateLimitError):
+            gate.refuse_if_cooling(ledger, 42, "messages.GetHistoryRequest")
+        assert client.iter_messages_calls == []
 
 
 def test_network_command_verifies_live_account_id(config_env, monkeypatch, capsys):

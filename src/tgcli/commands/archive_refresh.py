@@ -10,7 +10,6 @@ from tgcli.archive import (
     sync as sync_mod,
     transcribe as transcribe_mod,
 )
-from tgcli.clone import cooldown as cooldown_mod
 from tgcli.config import Config, load_config
 from tgcli.errors import NotFoundError, PartialFailure
 
@@ -57,7 +56,7 @@ async def refresh(
         transcribe_limit, label="transcribe-limit"
     )
     max_attempts = transcribe_mod.validate_max_attempts(max_attempts)
-    me = await cooldown_mod.cooled_account(tg)
+    me = await tg.get_me()
     cfg = config if config is not None else load_config()
     directory = _account_dir(alias, cfg)
     conn = _open_existing(alias, directory)

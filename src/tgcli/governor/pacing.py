@@ -31,13 +31,22 @@ _slept_seconds = 0.0
 _wall_clock_cap: float | None = None
 _wall_clock_started = 0.0
 
+# Per-invocation accounting for the journal (plan phase 6): how many requests
+# were governed, how long the run deliberately slept, and the provenance of
+# the last flood-family stop.
+_request_count = 0
+_last_stop: dict | None = None
+
 
 def reset_runtime(*, cap: float | None = None) -> None:
-    """Start a fresh invocation: zero the sleep counter, set the cap."""
+    """Start a fresh invocation: zero the counters, set the cap."""
     global _slept_seconds, _wall_clock_cap, _wall_clock_started
+    global _request_count, _last_stop
     _slept_seconds = 0.0
     _wall_clock_cap = cap
     _wall_clock_started = time.monotonic()
+    _request_count = 0
+    _last_stop = None
 
 
 def total_governed_sleep() -> float:
@@ -48,6 +57,32 @@ def total_governed_sleep() -> float:
 def _note_sleep(seconds: float) -> None:
     global _slept_seconds
     _slept_seconds += seconds
+
+
+def note_request() -> None:
+    """Count one governed request (called from the seam before dispatch)."""
+    global _request_count
+    _request_count += 1
+
+
+def request_count() -> int:
+    return _request_count
+
+
+def note_stop(**fields) -> None:
+    """Record why this invocation stopped in the flood family, if it did.
+
+    Journal fields (plan phase 6): ``retry_after``, ``request_type`` and
+    ``provenance`` when a flood or refusal ended the run; ``stop_reason``
+    when a normal stop did. Last one wins — the run ends with its final
+    cause.
+    """
+    global _last_stop
+    _last_stop = fields
+
+
+def last_stop() -> dict | None:
+    return _last_stop
 
 
 def wall_clock_remaining() -> float | None:

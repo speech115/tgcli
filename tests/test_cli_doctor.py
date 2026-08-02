@@ -32,12 +32,27 @@ class DoctorClient:
         return ns(id=1, username="me", first_name="Me")
 
 
-def _touch_session(name):
+def _touch_session(name, *, user_id: int | None = None):
     from tgcli import session
 
     path = session.state_dir() / "sessions" / f"{name}.session"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(b"")
+    if user_id is None:
+        path.write_bytes(b"")
+    else:
+        import sqlite3
+
+        connection = sqlite3.connect(str(path))
+        try:
+            connection.execute(
+                "CREATE TABLE entities (id integer primary key, hash integer not null)"
+            )
+            connection.execute(
+                "INSERT INTO entities (id, hash) VALUES (0, ?)", (user_id,)
+            )
+            connection.commit()
+        finally:
+            connection.close()
     path.chmod(0o600)
 
 
@@ -134,3 +149,52 @@ def test_doctor_missing_session_does_not_create_lock(config_env, capsys):
     assert report["checks"]["lock_free"] is False
     assert report["checks"]["authorized"] is None
     assert not (sessions / "spare.lock").exists()
+
+
+def test_doctor_reports_active_governor_cooldowns(config_env, monkeypatch, capsys):
+    """G4/L5: doctor exits 0 and reports the cooldown with every type armed."""
+    from datetime import UTC, datetime, timedelta
+
+    from tgcli.governor.ledger import Ledger
+
+    _touch_session("main", user_id=1)
+    _fake_client(monkeypatch)
+
+    with Ledger.open() as ledger:
+        ledger.arm_cooldown(
+            1, "messages.GetHistoryRequest", datetime.now(UTC) + timedelta(hours=2)
+        )
+
+    assert main(["doctor", "--connect", "--account", "main", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    report = data["accounts"][0]
+    assert report["ok"] is True
+    cooldowns = report["checks"]["governor_cooldowns"]
+    assert "messages.GetHistoryRequest" in cooldowns
+    assert report["checks"]["governor_degraded"] is False
+
+
+def test_doctor_works_while_every_gated_type_is_cooling(
+    config_env, monkeypatch, capsys
+):
+    """G4: doctor stays the one command usable precisely when all refuse."""
+    from datetime import UTC, datetime, timedelta
+
+    from tgcli.governor.ledger import Ledger
+
+    _touch_session("main", user_id=1)
+    _fake_client(monkeypatch)
+
+    with Ledger.open() as ledger:
+        for seconds, key in (
+            (7200, "messages.GetHistoryRequest"),
+            (3600, "messages.GetDialogsRequest"),
+            (1800, "messages.SendMessageRequest"),
+        ):
+            ledger.arm_cooldown(1, key, datetime.now(UTC) + timedelta(seconds=seconds))
+
+    assert main(["doctor", "--connect", "--account", "main", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    report = data["accounts"][0]
+    assert report["ok"] is True
+    assert len(report["checks"]["governor_cooldowns"]) == 3

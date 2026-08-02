@@ -2,14 +2,13 @@
 
 Date: 2026-07-24
 Status: accepted; decision 1 (account-scoped cooldown storage, clone-only
-enforcement) superseded by
-[ADR-0072](ADR-0072-account-request-governor.md). That supersession is
-declared but **not yet effective**: ADR-0072 is accepted as a design and
-its governor is unimplemented, so decision 1 is still what actually runs
-and stays authoritative for current behaviour until the implementation
-slice lands. Decisions 2–3 (`clone init --no-comments`, preview flood
-hints) remain in force unchanged, with decision 3's `account_flood` preview
-field renarrowed — see ADR-0072's Consequences.
+enforcement) **superseded by**
+[ADR-0072](ADR-0072-account-request-governor.md), which is implemented.
+The account-scoped JSON record and its enforcement are retired; the
+governor's per-request-type ledger covers the account. Decisions 2–3
+(`clone init --no-comments`, preview flood hints) remain in force
+unchanged, with decision 3's `account_flood` preview field removed by the
+same slice — see ADR-0072's Consequences.
 
 ## Context
 

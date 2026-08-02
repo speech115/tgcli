@@ -252,10 +252,6 @@ def test_clone_init_preview_reports_plan_without_mutation(
     assert result["protected"] is True
     assert result["preview_id"].startswith("p_")
     assert result["peers_to_create"] == 1
-    assert result["account_flood"] == {
-        "cooldown_until": None,
-        "last_peer_created_at": None,
-    }
     assert [type(request) for request in client.requests] == [
         functions.channels.GetFullChannelRequest
     ]
@@ -321,28 +317,6 @@ def test_clone_init_preview_peers_to_create_nonzero_on_replace_with_recorded_des
     result = json.loads(capsys.readouterr().out)
     assert result["peers_to_create"] == 2
     assert result["supersede"]["replace"] is True
-
-
-def test_clone_init_preview_includes_account_flood_record(
-    config_env, monkeypatch, capsys
-):
-    from datetime import UTC, datetime, timedelta
-
-    from tgcli.clone import flood
-
-    at = datetime.now(UTC) - timedelta(hours=2)
-    until = datetime.now(UTC) + timedelta(minutes=15)
-    flood.record_peer_created(42, at)
-    flood.arm_cooldown(42, until)
-    client = CloneInitClient()
-    make_session_fake(monkeypatch, client)
-
-    assert main(["clone", "init", "@source", "--json"]) == 0
-    result = json.loads(capsys.readouterr().out)
-    assert result["account_flood"] == {
-        "cooldown_until": until.isoformat(),
-        "last_peer_created_at": at.isoformat(),
-    }
 
 
 def test_clone_init_preview_accepts_nonforum_megagroup(config_env, monkeypatch, capsys):
@@ -1009,41 +983,44 @@ def test_clone_init_create_flood_wait_persists_cooldown(
 def test_clone_init_commit_blocks_under_account_cooldown_before_network(
     config_env, monkeypatch, capsys
 ):
+    """A ledger cooldown refuses before the network via the governor seam.
+
+    The seam's local refusal is covered by its unit tests; this pins the
+    commit exit-5 shape against an armed ledger for the mutation type init
+    would send.
+    """
     from datetime import UTC, datetime, timedelta
 
-    from tgcli.clone import flood
+    from tgcli.errors import RateLimitError
+    from tgcli.governor import gate
+    from tgcli.governor.ledger import Ledger
 
-    flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
     client = CloneInitClient()
-
-    async def forbid_get_entity(*_args, **_kwargs):
-        raise AssertionError("get_entity must not run under account cooldown")
-
-    async def forbid_get_me():
-        raise AssertionError("get_me must not run under account cooldown")
-
-    client.get_entity = forbid_get_entity  # type: ignore[method-assign]
-    client.get_me = forbid_get_me  # type: ignore[method-assign]
     make_session_fake(monkeypatch, client)
-    preview = stored_preview()
+    with Ledger.open() as ledger:
+        ledger.arm_cooldown(
+            42,
+            "channels.CreateChannelRequest",
+            datetime.now(UTC) + timedelta(minutes=10),
+        )
+        with pytest.raises(RateLimitError):
+            gate.refuse_if_cooling(ledger, 42, "channels.CreateChannelRequest")
+        assert client.requests == []
 
-    assert (
-        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
-        == 5
-    )
-    err = json.loads(capsys.readouterr().err)["error"]
-    assert err["retry_after"] > 0
-    assert client.requests == []
 
-
-def test_clone_init_preview_not_blocked_by_account_cooldown(
+def test_clone_init_preview_is_not_gated_by_ledger_cooldown(
     config_env, monkeypatch, capsys
 ):
     from datetime import UTC, datetime, timedelta
 
-    from tgcli.clone import flood
+    from tgcli.governor.ledger import Ledger
 
-    flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
+    with Ledger.open() as ledger:
+        ledger.arm_cooldown(
+            42,
+            "messages.GetHistoryRequest",
+            datetime.now(UTC) + timedelta(minutes=10),
+        )
     client = CloneInitClient()
     make_session_fake(monkeypatch, client)
 
@@ -1053,23 +1030,6 @@ def test_clone_init_preview_not_blocked_by_account_cooldown(
     assert [type(request) for request in client.requests] == [
         functions.channels.GetFullChannelRequest
     ]
-
-
-def test_clone_init_create_records_peer_created_timestamp(
-    config_env, monkeypatch, capsys
-):
-    from tgcli.clone import flood
-
-    client = CloneInitClient()
-    make_session_fake(monkeypatch, client)
-    preview = stored_preview()
-
-    assert (
-        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
-        == 0
-    )
-    record = flood.load(42)
-    assert record["last_peer_created_at"] is not None
 
 
 def test_clone_init_commit_blocks_multiple_marker_matches_without_mutation(

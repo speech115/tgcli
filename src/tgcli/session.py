@@ -3,6 +3,7 @@
 import fcntl
 import os
 import platform
+import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -123,6 +124,31 @@ def lock_held(session_file: Path) -> bool | None:
 def client_identity() -> tuple[str, str, str]:
     """Stable Telegram Devices identity for every tgcli connection."""
     return "tgcli", platform.system(), __version__
+
+
+def session_user_id(session_file: Path) -> int | None:
+    """The logged-in user id recorded in a Telethon session file, or None.
+
+    Telethon persists the self-user as the entity with ``id=0`` whose
+    ``access_hash`` is the user id (its "hack to not need to change the
+    session files", `telegrambaseclient.py`). Reading it directly lets
+    `doctor` report the governor's cooldowns without connecting — the one
+    command that must work precisely when everything else refuses.
+    """
+    try:
+        connection = sqlite3.connect(str(session_file))
+    except (sqlite3.Error, OSError):
+        return None
+    try:
+        row = connection.execute("SELECT hash FROM entities WHERE id = 0").fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        connection.close()
+    if row is None:
+        return None
+    value = row[0]
+    return value if isinstance(value, int) else None
 
 
 def _make_client(

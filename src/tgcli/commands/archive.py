@@ -13,7 +13,6 @@ from tgcli.archive import (
     sync as sync_mod,
     transcribe as transcribe_mod,
 )
-from tgcli.clone import cooldown as cooldown_mod
 from tgcli.commands import archive_refresh as refresh_cmd
 from tgcli.config import Config, load_config, resolve_account
 from tgcli.errors import NotFoundError, PolicyError
@@ -271,7 +270,7 @@ async def backfill(
     limit = backfill_mod.validate_limit(
         limit, default=DEFAULT_BACKFILL_LIMIT, maximum=MAX_BACKFILL_LIMIT
     )
-    me = await cooldown_mod.cooled_account(tg)
+    me = await tg.get_me()
     conn = _open_existing(alias, config)
     try:
         store_mod.require_bound_user(conn, int(me.id), alias)
@@ -340,7 +339,7 @@ async def sync(
     max_media = sync_mod.validate_max_media(
         max_media, default=DEFAULT_SYNC_MEDIA, maximum=MAX_SYNC_MEDIA
     )
-    me = await cooldown_mod.cooled_account(tg)
+    me = await tg.get_me()
     conn = _open_existing(alias, config)
     try:
         store_mod.require_bound_user(conn, int(me.id), alias)
@@ -364,7 +363,7 @@ async def sync(
 
 
 async def rebaseline(tg, alias: str, *, config: Config | None = None) -> dict:
-    me = await cooldown_mod.cooled_account(tg)
+    me = await tg.get_me()
     conn = _open_existing(alias, config)
     try:
         store_mod.require_bound_user(conn, int(me.id), alias)

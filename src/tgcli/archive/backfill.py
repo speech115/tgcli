@@ -10,7 +10,6 @@ from telethon import errors as telethon_errors
 
 from tgcli import chatref
 from tgcli.archive import scope as scope_mod, store as store_mod
-from tgcli.clone import cooldown as cooldown_mod
 from tgcli.commands.read import _dialog_name, message_to_dict
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
 from tgcli.governor import pacing
@@ -122,7 +121,6 @@ async def backfill_one(
     except telethon_errors.FloodWaitError as exc:
         seconds = int(exc.seconds)
         _checkpoint_flood(conn, peer, ids, state, seconds)
-        cooldown_mod.arm_account(account_user_id, seconds)
         # iter_messages is an async generator, so the governor's per-type
         # reservation cannot wrap each page RPC. A wait that fits the
         # explicit wall-clock cap is slept out once and resumed; one that

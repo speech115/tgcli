@@ -307,3 +307,92 @@ def test_desktop_notify_is_darwin_only_and_keeps_message_in_osascript(
     assert desktop.notify("tgcli", "archive refresh failed; run status") is True
     assert calls[0][:2] == ["osascript", "-e"]
     assert "archive refresh failed" in calls[0][2]
+
+
+def test_refresh_waking_into_a_partial_cooldown_exits_zero_with_deferred(
+    config_env, monkeypatch, capsys
+):
+    """L12: a scheduled pass under a partial cooldown exits 0 and defers.
+
+    The contract break: the identical trigger used to exit 5 every wake.
+    The run does what the free request types allow (transcription is
+    local) and reports sync as deferred.
+    """
+    import json
+    from datetime import UTC, datetime, timedelta
+
+    from tgcli.governor.ledger import Ledger
+
+    client = _client()
+    make_session_fake(monkeypatch, client)
+
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        store_mod.ensure_meta(conn, account_user_id=42, account_alias="main")
+    finally:
+        conn.close()
+
+    ledger = Ledger.open()
+    ledger.arm_cooldown(
+        42,
+        "updates.GetDifferenceRequest",
+        datetime.now(UTC) + timedelta(hours=6),
+    )
+
+    assert main(["archive", "init", "--json"]) == 0
+    client._tgcli_governor = ledger
+    client._self_id = 42
+    capsys.readouterr()
+    assert main(["archive", "refresh", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["stop_reason"] == "cooldown_deferred"
+    assert data["deferred"] == ["sync"]
+    assert "transcribe" in data
+
+
+def test_two_wakes_into_the_same_cooldown_alert_only_at_arming(
+    config_env, monkeypatch, capsys
+):
+    """L13: the alert fires at arming, not on every scheduled wake.
+
+    The first wake into an armed cooldown defers silently (exit 0); a
+    second wake into the same cooldown does the same with no new alert.
+    The single alert was the stderr line written when the flood armed it.
+    """
+    import json
+    from datetime import UTC, datetime, timedelta
+
+    from tgcli.governor.ledger import Ledger
+
+    client = _client()
+    make_session_fake(monkeypatch, client)
+
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        store_mod.ensure_meta(conn, account_user_id=42, account_alias="main")
+    finally:
+        conn.close()
+
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+
+    ledger = Ledger.open()
+    ledger.arm_cooldown(
+        42,
+        "updates.GetDifferenceRequest",
+        datetime.now(UTC) + timedelta(hours=6),
+    )
+    client._tgcli_governor = ledger
+    client._self_id = 42
+
+    assert main(["archive", "refresh", "--json"]) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert first["stop_reason"] == "cooldown_deferred"
+
+    # Same cooldown, second wake: still exit 0, still deferred, and the
+    # stderr carries no new alert (the arm-time line is the only one).
+    assert main(["archive", "refresh", "--json"]) == 0
+    second = json.loads(capsys.readouterr().out)
+    assert second["stop_reason"] == "cooldown_deferred"
+    err = capsys.readouterr().err
+    assert "cooling for" not in err

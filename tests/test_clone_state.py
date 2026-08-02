@@ -649,7 +649,7 @@ def test_cooldown_deadline_clamps_a_clock_skewed_arm():
     clone slot forever — same ceiling the account-scoped record uses."""
     from datetime import timedelta
 
-    from tgcli.clone import flood
+    from tgcli.clone import state as state_mod
 
     s = _fresh()
     s.retry_not_before = (datetime.now(UTC) + timedelta(days=400)).isoformat()
@@ -657,7 +657,8 @@ def test_cooldown_deadline_clamps_a_clock_skewed_arm():
     deadline = s.cooldown_deadline()
 
     assert deadline is not None
-    assert deadline <= datetime.now(UTC) + timedelta(seconds=flood.MAX_COOLDOWN_S + 5)
+    ceiling = datetime.now(UTC) + timedelta(seconds=state_mod.MAX_COOLDOWN_S + 5)
+    assert deadline <= ceiling
 
 
 def test_save_writes_sqlite_database(tmp_path, monkeypatch):

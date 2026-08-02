@@ -93,11 +93,17 @@ def install(
                     ledger, account, request, now=clock(), sleep=sleep
                 )
             pacing.touch_history_peer(ledger, account, request, now=clock())
+            pacing.note_request()
         try:
             result = await original(sender, request, *args, **kwargs)
         except ARMING_ERRORS as exc:
             if account is not None:
                 arm_from_flood(ledger, account, key, exc)
+                pacing.note_stop(
+                    retry_after=exc.seconds,
+                    request_type=key,
+                    provenance="server",
+                )
             raise
         if is_probe and account is not None:
             probe.settle(ledger, account, key)
@@ -142,6 +148,11 @@ def refuse_if_cooling(ledger: Ledger, account: int, request_key: str) -> bool:
         return False
     if probe.claim_if_due(ledger, account, request_key):
         return True
+    pacing.note_stop(
+        retry_after=retry_after,
+        request_type=request_key,
+        provenance="account_cooldown",
+    )
     raise RateLimitError(
         f"{request_key} is rate limited for {retry_after}s",
         retry_after=retry_after,
@@ -154,9 +165,18 @@ def arm_from_flood(
     request_key: str,
     exc: BaseException,
 ) -> None:
-    """Record the server's own deadline for the type that drew the flood."""
+    """Record the server's own deadline for the type that drew the flood.
+
+    The stderr line is the one alert for this cooldown: it fires at
+    arming, not on every scheduled wake that finds the type still cooling
+    (plan phase 6, L13). Wakes under a cooldown are silent-but-successful
+    — the journal carries the refusal's provenance instead.
+    """
     seconds = getattr(exc, "seconds", None)
     if not isinstance(seconds, int | float) or seconds <= 0:
         return
     deadline = datetime.now(UTC) + timedelta(seconds=float(seconds))
     ledger.arm_cooldown(account, request_key, deadline)
+    from tgcli.output import note
+
+    note(f"telegram flood on {request_key}: cooling for {seconds}s")

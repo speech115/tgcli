@@ -1167,12 +1167,10 @@ def test_sync_defers_cross_leg_comment_beyond_posts_cursor(
     assert mid.cursor == 3
     assert mid.dest_for(5) is None
 
-    # Clear FloodWait cooldowns so the resume run can proceed.
-    from tgcli.clone import flood
-
+    # Clear the per-clone cooldown so the resume run can proceed. The
+    # governor's ledger cooldowns expire on their own; no sidecar to delete.
     mid.retry_not_before = None
     state.save(mid)
-    flood.path_for(42).unlink(missing_ok=True)
 
     # Resume: parent post maps, then comments leg copies the deferred reply.
     client2 = CloneCommentsClient(
@@ -3740,87 +3738,6 @@ def test_clone_sync_flood_wait_exits_5_without_advancing(
     assert len(client.requests) == 1
     err = json.loads(capsys.readouterr().err.splitlines()[-1])["error"]
     assert err["retry_after"] == 600
-
-
-def test_clone_sync_account_cooldown_blocks_before_network(
-    config_env, monkeypatch, capsys
-):
-    from datetime import UTC, datetime, timedelta
-
-    from tgcli.clone import flood
-
-    seed_clone()
-    flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
-
-    client = CloneSyncClient([message(2)])
-    entity_calls = []
-
-    original_get_entity = client.get_entity
-
-    async def tracking_get_entity(ref):
-        entity_calls.append(ref)
-        return await original_get_entity(ref)
-
-    client.get_entity = tracking_get_entity  # type: ignore[method-assign]
-    make_session_fake(monkeypatch, client)
-
-    assert main(["clone", "sync", "@source", "--json"]) == 5
-    err = json.loads(capsys.readouterr().err)["error"]
-    assert err["retry_after"] > 0
-    assert client.requests == []
-    assert entity_calls == []
-
-
-def test_clone_sync_account_cooldown_exits_5_without_any_rpc(
-    config_env, monkeypatch, capsys
-):
-    """CONTRACT §11: exit 5 locally, no network. The account that selects the
-    cooldown record comes from the connected session, never from a get_me RPC.
-    """
-    from datetime import UTC, datetime, timedelta
-
-    from tgcli.clone import flood
-
-    seed_clone()
-    flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
-
-    class NoRpcClient(CloneSyncClient):
-        async def get_me(self):
-            raise AssertionError("get_me RPC issued while a cooldown is active")
-
-    client = NoRpcClient([message(2)])
-    make_session_fake(monkeypatch, client)
-
-    assert main(["clone", "sync", "@source", "--json"]) == 5
-    err = json.loads(capsys.readouterr().err)["error"]
-    assert err["retry_after"] > 0
-    assert client.requests == []
-
-
-def test_clone_sync_cooldown_holds_for_a_session_without_a_cached_account_id(
-    config_env, monkeypatch, capsys
-):
-    """An old session that never cached the account id falls back to get_me;
-    the cooldown still exits 5 before the source is resolved."""
-    from datetime import UTC, datetime, timedelta
-
-    from tgcli.clone import flood
-
-    seed_clone()
-    flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
-
-    class UncachedClient(CloneSyncClient):
-        _self_id = None
-
-        async def get_entity(self, ref):
-            raise AssertionError("source resolved while a cooldown is active")
-
-    client = UncachedClient([message(2)])
-    make_session_fake(monkeypatch, client)
-
-    assert main(["clone", "sync", "@source", "--json"]) == 5
-    err = json.loads(capsys.readouterr().err)["error"]
-    assert err["retry_after"] > 0
 
 
 @pytest.mark.parametrize(

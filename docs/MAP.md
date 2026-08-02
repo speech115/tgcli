@@ -70,7 +70,7 @@ tgcli/
 │   │   ├── backfill.py        [done]    selected + --private history walk + caps/checkpoint
 │   │   ├── sync.py            [done]    changes.once apply, gap/rebaseline, light reconcile, bounded media fetch
 │   │   └── transcribe.py      [done]    foreground local FluidAudio/Parakeet queue
-│   ├── governor/              [wip]     account-wide request governor, phases 0-5 of 8 (ADR-0072)
+│   ├── governor/              [wip]     account-wide request governor, phases 0-6 of 8 (ADR-0072)
 │   │   ├── registry.py        [done]    request-type cooldown keys + paced-class table and intervals
 │   │   ├── ledger.py          [done]    SQLite per-type cooldowns, pacing reservations, peer-breadth window
 │   │   ├── seam.py            [done]    fail-fast pin on Telethon's private `_call` signature

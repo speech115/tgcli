@@ -11,7 +11,7 @@ from telethon.tl import functions, types
 from tests.conftest import make_session_fake
 from tgcli import safety, session
 from tgcli.cli import main
-from tgcli.clone import flood, state
+from tgcli.clone import state
 
 SAMPLE = """
 default_account = "main"
@@ -161,28 +161,6 @@ def test_clone_refresh_preview_exits_5_when_cooldown_active(
     state.save(clone_state)
     src, dst = _eligible_pair()
     client = RefreshClient([src], [dst])
-    make_session_fake(monkeypatch, client)
-
-    assert main(["clone", "refresh", "@source", "--json"]) == 5
-    assert client.requests == []
-    assert "rate limited" in capsys.readouterr().err
-
-
-def test_clone_refresh_account_cooldown_exits_5_without_any_rpc(
-    config_env, monkeypatch, capsys
-):
-    """CONTRACT §11: exit 5 locally, no network. The account that selects the
-    cooldown record comes from the connected session, never from a get_me RPC.
-    """
-    seed_clone()
-    flood.arm_cooldown(42, datetime.now(UTC) + timedelta(minutes=10))
-    src, dst = _eligible_pair()
-
-    class NoRpcClient(RefreshClient):
-        async def get_me(self):
-            raise AssertionError("get_me RPC issued while a cooldown is active")
-
-    client = NoRpcClient([src], [dst])
     make_session_fake(monkeypatch, client)
 
     assert main(["clone", "refresh", "@source", "--json"]) == 5

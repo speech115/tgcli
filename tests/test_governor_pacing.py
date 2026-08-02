@@ -474,3 +474,116 @@ def test_no_command_keeps_a_deadline_exemption(monkeypatch):
     # No `_long_running`/`_deadline` machinery survives.
     assert not hasattr(cli, "_long_running")
     assert not hasattr(cli, "_deadline")
+
+
+def _journal_lines():
+    import json
+
+    from tgcli.session import state_dir
+
+    path = state_dir() / "invocations.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def test_journal_carries_governor_fields_on_a_flood_stop(
+    config_env, monkeypatch, capsys
+):
+    """L6-L8: retry_after, request_type and provenance land in the journal.
+
+    The seam records the stop via pacing.note_stop when a flood arms (its
+    unit tests pin that); this pins that cli.main forwards the governor's
+    per-invocation accounting into the journal row.
+    """
+    from tgcli import dispatch
+    from tgcli.cli import main
+    from tgcli.errors import RateLimitError
+    from tgcli.governor import pacing
+
+    async def flood_run_network(args, account):
+        pacing.note_stop(
+            retry_after=123,
+            request_type="updates.GetStateRequest",
+            provenance="server",
+        )
+        raise RateLimitError("rate limited for 123s", retry_after=123)
+
+    monkeypatch.setattr(dispatch, "run_network", flood_run_network)
+
+    assert main(["dialogs", "--json"]) == 5
+    capsys.readouterr()
+
+    [entry] = _journal_lines()
+    assert entry["retry_after"] == 123
+    assert entry["request_type"] == "updates.GetStateRequest"
+    assert entry["provenance"] == "server"
+    assert entry["request_count"] == 0
+
+
+def test_journal_carries_stop_reason_on_a_normal_stop(config_env, monkeypatch, capsys):
+    """L9: breadth and wall-clock stops are distinguishable in the journal."""
+
+    from telethon.tl.types import PeerUser
+
+    from tests.conftest import FakeClient, make_session_fake
+    from tests.test_cli_archive_phase3 import _dialog, _init, _me, _msg, _user
+    from tgcli.cli import main
+    from tgcli.governor import pacing
+
+    pacing.reset_runtime(cap=0.0)
+    me = _me(user_id=42)
+    alice = _user(user_id=7, username="alice")
+    client = FakeClient(
+        me=me,
+        entities={7: alice, "@alice": alice},
+        messages=[_msg(mid=1, text="hi", peer=PeerUser(7))],
+        dialogs=[_dialog(alice, name="Alice")],
+    )
+    make_session_fake(monkeypatch, client)
+    _init(monkeypatch, client)
+    capsys.readouterr()
+
+    assert (
+        main(
+            [
+                "archive",
+                "backfill",
+                "--private",
+                "--max-dialogs",
+                "5",
+                "--max-runtime",
+                "0.001",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    entry = _journal_lines()[-1]
+    assert entry["stop_reason"] == "wall_clock_cap"
+    assert entry["exit_code"] == 0
+
+
+def test_journal_counts_governed_sleep_and_requests(config_env, monkeypatch, capsys):
+    """L11: governed_sleep_ms and request_count match what the run did."""
+    from tgcli import dispatch
+    from tgcli.cli import main
+    from tgcli.governor import pacing
+
+    async def paced_run_network(args, account):
+        # The seam counts each governed request and its deliberate sleep.
+        pacing.note_request()
+        pacing._note_sleep(3.0)
+        pacing.note_request()
+        return {"dialogs": []}, []
+
+    monkeypatch.setattr(dispatch, "run_network", paced_run_network)
+
+    assert main(["dialogs", "--json"]) == 0
+    capsys.readouterr()
+
+    entry = _journal_lines()[-1]
+    assert entry["governed_sleep_ms"] == 3000
+    assert entry["request_count"] == 2

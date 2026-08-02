@@ -99,30 +99,46 @@ async def run(
     max_attempts: int,
 ) -> dict[str, Any]:
     """Run sync (including media) and local transcription as one bounded job."""
-    try:
-        sync_data = await sync_mod.sync_archive(
-            tg,
-            conn,
-            account_user_id=account_user_id,
-            max_events=max_events,
-            max_dialogs=max_dialogs,
-            max_media=max_media,
-            account_alias=account_alias,
-            account_dir=account_dir,
-        )
-        transcribe_data = transcribe_mod.run_queue(
-            conn,
-            account_dir,
-            limit=transcribe_limit,
-            max_attempts=max_attempts,
-        )
-    except RateLimitError:
-        raise
-    except Exception as exc:
-        _record_failure(conn, _error_text(exc))
-        raise
+    deferred: list[str] = []
+    sync_data = None
+    if _sync_types_cooling(tg, account_user_id):
+        # ADR-0072 decision 4 / plan phase 6: a scheduled pass waking into a
+        # partial cooldown does what the free request types allow, reports
+        # the rest as deferred, and exits 0 — not the old exit 5 on every
+        # wake. Transcription is local and always free.
+        deferred.append("sync")
+    else:
+        try:
+            sync_data = await sync_mod.sync_archive(
+                tg,
+                conn,
+                account_user_id=account_user_id,
+                max_events=max_events,
+                max_dialogs=max_dialogs,
+                max_media=max_media,
+                account_alias=account_alias,
+                account_dir=account_dir,
+            )
+        except RateLimitError:
+            raise
+        except Exception as exc:
+            _record_failure(conn, _error_text(exc))
+            raise
+    transcribe_data = transcribe_mod.run_queue(
+        conn,
+        account_dir,
+        limit=transcribe_limit,
+        max_attempts=max_attempts,
+    )
 
     data: dict[str, Any] = {"sync": sync_data, "transcribe": transcribe_data}
+    if deferred:
+        data["deferred"] = deferred
+        data["stop_reason"] = "cooldown_deferred"
+        state = store_mod.read_account_sync(conn)
+        data["refresh"] = _refresh_state(state)
+        return data
+    assert sync_data is not None
     media_failures = (sync_data.get("media") or {}).get("failed") or []
     transcript_failures = transcribe_data.get("errors") or []
     missing_media = int(transcribe_data.get("skipped_missing_media") or 0)
@@ -140,3 +156,26 @@ async def run(
     state = record_refresh_success(conn)
     data["refresh"] = _refresh_state(state)
     return data
+
+
+def _sync_types_cooling(tg, account_user_id: int) -> bool:
+    """Whether the request types sync depends on are cooling right now.
+
+    The governor keys cooldowns per Telegram request type (ADR-0072
+    decision 1); a scheduled refresh checks the ledger before dispatching
+    so a hot account is reported as deferred rather than failing.
+    """
+    from tgcli.governor import pacing
+
+    governor = pacing.governor_of(tg)
+    if governor is None:
+        return False
+    ledger, account = governor
+    active = ledger.active_cooldowns(account)
+    sync_types = {
+        "updates.GetDifferenceRequest",
+        "updates.GetChannelDifferenceRequest",
+        "messages.GetHistoryRequest",
+        "upload.GetFileRequest",
+    }
+    return bool(active.keys() & sync_types)

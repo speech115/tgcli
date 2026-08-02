@@ -120,7 +120,7 @@ def test_collect_marks_channel_unavailable_when_not_admin():
 
 
 def test_collect_defers_on_floodwait_and_discards_partial():
-    from tgcli.clone import flood as account_flood
+    from tgcli.governor.ledger import Ledger
 
     clone_state = seed()
     flood = telethon_errors.FloodWaitError(request=None)
@@ -130,10 +130,12 @@ def test_collect_defers_on_floodwait_and_discards_partial():
     assert result["source"]["status"] == "deferred"
     assert result["source"]["count"] == 0
     assert read_lines(clone_state) == []
-    # a roster flood must not arm the main clone cooldown
+    # a roster flood must not arm the per-clone cooldown
     assert clone_state.cooldown_deadline() is None
-    # nor the account-scoped cooldown (ADR-0045 / ADR-0024)
-    assert account_flood.cooldown_deadline(clone_state.account_user_id) is None
+    # nor anything in the governor's ledger: roster RPCs do not run under
+    # the governed seam, so no type is armed (ADR-0072)
+    with Ledger.open() as ledger:
+        assert ledger.active_cooldowns(clone_state.account_user_id) == {}
 
 
 def test_collect_gathers_discussion_group_when_comments_enabled():
@@ -178,7 +180,7 @@ def test_collect_marks_discussion_unavailable_when_group_turned_private():
 
 
 def test_collect_defers_discussion_when_entity_resolve_floods():
-    from tgcli.clone import flood as account_flood
+    from tgcli.governor.ledger import Ledger
 
     clone_state = seed(comments="enabled")
     flood = telethon_errors.FloodWaitError(request=None)
@@ -187,9 +189,11 @@ def test_collect_defers_discussion_when_entity_resolve_floods():
     result = run(tg, clone_state)
     assert result["discussion"]["status"] == "deferred"
     assert result["discussion"]["reason"] == "flood_wait"
-    # a roster flood must not arm either cooldown (ADR-0024)
+    # a roster flood must not arm the per-clone cooldown (ADR-0024)
     assert clone_state.cooldown_deadline() is None
-    assert account_flood.cooldown_deadline(clone_state.account_user_id) is None
+    # nor the governor's ledger (roster RPCs are not governed)
+    with Ledger.open() as ledger:
+        assert ledger.active_cooldowns(clone_state.account_user_id) == {}
 
 
 def test_collect_overwrites_previous_snapshot():

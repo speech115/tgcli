@@ -518,11 +518,13 @@ def main(argv: list[str] | None = None) -> int:
     started = time.monotonic()
     exit_code = 1
     error_code = None
+    result_data: dict | None = None
     try:
         with _honest_termination():
             with _armed(args.timeout):
                 preflight.prepare(parser, args)
                 data, rows = _execute(args, timeout_supplied=timeout_supplied)
+            result_data = data
             # Emitting is part of the invocation: a failure here is journaled,
             # not reported as a success.
             if args.command == "batch":
@@ -604,6 +606,12 @@ def main(argv: list[str] | None = None) -> int:
                 exit_code,
                 duration_ms,
             )
+        stop_fields = pacing.last_stop() or {}
+        stop_reason = None
+        if isinstance(result_data, dict):
+            stop_reason = result_data.get("stop_reason")
+        if stop_reason is not None:
+            stop_fields["stop_reason"] = stop_reason
         invocations.log_invocation(
             command=args.command,
             account=args.account,
@@ -611,6 +619,9 @@ def main(argv: list[str] | None = None) -> int:
             exit_code=exit_code,
             error=error_code,
             duration_ms=duration_ms,
+            governed_sleep_ms=int(pacing.total_governed_sleep() * 1000),
+            request_count=pacing.request_count(),
+            **stop_fields,
         )
         _restore_diagnostics(verbose_diagnostics)
     return exit_code
