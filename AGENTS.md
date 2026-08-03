@@ -182,6 +182,11 @@ needs no superseding ADR.
 - Adversarial review is mandatory for CLI boundaries: invalid and combined
   flags, empty input, caps, ISO date coercion, partial failures, readonly
   gates, audit timing, and exact external-library types where applicable.
+- **Complexity reset (ADR-0074).** A second related review finding that would
+  add another condition, parameter, or compatibility mode to the same
+  abstraction is a checkpoint, not another item to patch: stop, and reconsider
+  where the boundary belongs. Unreleased code and its tests are not a sunk
+  cost — ADR-0073 already says compatibility begins at a release tag.
 - Every confirmed review defect starts with a permanent reproducing test,
   then the minimal fix. Rerun the full gate after all review fixes; do not
   present focused checks as final proof.

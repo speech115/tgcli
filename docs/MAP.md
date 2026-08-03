@@ -35,7 +35,7 @@ tgcli/
 │   ├── guide/                 [done]    user-facing task pages, 25 + index (ADR-0041/0065)
 │   ├── assets/                [done]    README banner, dark + light SVG, launchd template (no external assets)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
-│   ├── decisions/             [done]    ADR-0001…0073 + README.md index (ADR-0073 risk-tiered change process: full lane vs small-fix lane)
+│   ├── decisions/             [done]    ADR-0001…0074 + README.md index (ADR-0074 complexity reset + release preparation script)
 │   ├── research/              [done]    read-only investigation notes backing a wayfinder map's closed children
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
@@ -132,6 +132,7 @@ tgcli/
     ├── install-link.sh        [done]    symlink tg → PATH (phase 6 cutover)
     ├── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
     ├── check-docs.py          [done]    guide + active-doc drift gate; CHANGELOG release links (ADR-0038/0041/0065)
+    ├── prepare-release.py     [done]    integrator-only: version bump, CHANGELOG section, compare link (ADR-0074)
     ├── bench.py               [done]    representative 13-step live smoke benchmark
     ├── bench-clone-state.py   [done]    offline bf-19 benchmark: JSON rewrite vs SQLite/WAL (ADR-0060)
     ├── seed_demo_channel.py   [done]    manual demo-channel seeding for clone visual acceptance
