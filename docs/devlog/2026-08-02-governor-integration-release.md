@@ -75,6 +75,33 @@ in prose, the phase must quote that sentence and say what replaces it —
 before writing the code, not in the phase that reconciles the docs
 afterwards.
 
+## Repository cleanup, same session
+
+Closed the wayfinder map #131 — its destination (an accepted ADR) was reached
+in #147 and the code has now shipped too — and filed #152: the launchd template
+still passes no wall-clock bound, and after this release `archive refresh` has
+no implicit deadline at all, so nothing but its own caps keeps an hourly pass
+inside its hour.
+
+**Three research notes were living only on unpushed local branches.** The
+closing comments of #101, #102 and #103 each point at a branch by name as the
+place the detail lives, so those pointers were one `git branch -D` away from
+dangling. `docs/research/` now exists on `main` and holds all three
+(telecrawl capabilities, prior telecrawl integration artifacts, the
+tgcli-native archive coverage gap) — 1003 lines that backed wayfinder map #100
+and, through it, ADR-0068. `docs/MAP.md` gains the directory and drops the
+stale "implementing in #145" note on `decisions/`.
+
+Also deleted three local branches that were squash-merge leftovers
+(`archive-adr-0068` → #110, `pr-130` → #130, `pr-148` → #148): their content is
+on `main` under a different sha, which is why `git branch --merged` never
+listed them.
+
+**Rule this suggests:** a research child that resolves to "findings are on a
+local branch" has not resolved. Either the note lands in the repo or the
+finding goes in the comment; a branch name in a closed ticket is a pointer to
+something only one machine has.
+
 **Carried forward, deliberately unclosed:** `archive refresh` defers its
 whole sync stage when any of its request types is cooling, rather than
 doing "the free part" per ADR-0072 decision 4's literal wording;
