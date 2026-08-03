@@ -16,8 +16,8 @@ measurements agree. Every change carries a fixed toll regardless of size: an
 8-line `src/` fix (PR #89) landed 59 test lines, 47 docs lines and touched
 10 files; a 27-line change (PR #99) touched 28 files with 182 docs lines.
 Ceremony also travels in its own PRs — 11 of 33 squash-merged PRs contain no
-`src/` line at all, and the ADR-0072 campaign spent 4 of its 8 PRs on paper
-alone (#146 draft ADR 741 lines, #149 plans 458, #145 acceptance 306, #144
+`src/` line at all, and the ADR-0072 campaign spent 4 of its 7 PRs on paper
+alone (#143 draft ADR 741 lines, #149 plans 458, #147 acceptance 306, #144
 devlog 60). A large feature amortizes that toll; a one-line bug fix pays it
 in full.
 
@@ -34,7 +34,8 @@ The real defect in the process is that it does not distinguish risk. This
 tool mutates a live Telegram account: it deletes and edits real messages,
 clones channels, and holds session material. The discipline exists for
 those paths, and its hit rate is documented (ADR-0058: 4 of 5 hardening
-slices returned needs-work; 13 of 133 commits were review fixes). But the
+slices returned needs-work; the same campaign measurement, recorded in
+`docs/PROPOSALS.md`, counted 13 of 133 commits as review fixes). But the
 same ceremony currently applies to a stderr wording fix. Rules written for
 the dangerous half are being paid for by the safe half.
 
@@ -49,7 +50,13 @@ the **full lane** when it touches any of:
 - session, config, or persistent state files, including their schemas;
 - request pacing and FloodWait handling (ADR-0072);
 - a new dependency, a new module, or a new abstraction (the YAGNI rule);
-- what a **released** command does, as reachable from a release tag.
+- what a **released** command does, as reachable from a release tag;
+- the enforcement mechanisms themselves — the logic of `scripts/gate.sh`,
+  `check-architecture.py`, `check-docs.py`, `check-coverage.py`, or the CI
+  workflows. These make every other rule bite, so loosening one is a safety
+  change even when no product behavior moves. (Line-ceiling *numbers* stay
+  integrator-owned under ADR-0058 and are not a full-lane trigger by
+  themselves.)
 
 Everything else takes the **small-fix lane**: no ADR, no scoped plan, no ADR
 index row, no PROPOSALS/ISSUES status edit, no release bookkeeping. What the

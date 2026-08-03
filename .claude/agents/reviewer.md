@@ -18,8 +18,9 @@ final reviewer of its own work.
 
 Read, in this order: `AGENTS.md` (hard rules), `docs/CONTRACT.md` §4–§5
 (exit codes, JSON shapes, lock semantics), the ADR(s) in `docs/decisions/`
-that the change claims to implement, and `CONTEXT.md` (vocabulary). The tail
-of `docs/DEVLOG.md` explains the change's intent.
+that the change claims to implement, and `CONTEXT.md` (vocabulary). The
+newest entries in `docs/devlog/` explain the change's intent
+(`docs/DEVLOG.md` is closed history).
 
 ## Materializing the change
 

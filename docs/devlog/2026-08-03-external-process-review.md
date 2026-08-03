@@ -1,69 +1,49 @@
-## 2026-08-03 — External process reviews, checked against measurements (Claude)
+## 2026-08-03 — Two external process reviews, checked and half-adopted (Claude)
 
-**Did:** reviewed two external assessments of the tgcli development process
-(one comparing it to `openai/codex` and `openclaw`, one assessing that review
-plus seven more repositories), verified their claims — about the external
-repositories and about this one — and landed the surviving items as a new
-section in `docs/PROPOSALS.md`. No code, no contract change, no owner gate
-crossed: the section is a backlog draft under ADR-0071.
+**Did:** verified two external assessments of this repo's process (one against
+`openai/codex` and `openclaw`, one against seven more repositories), then
+landed the surviving half as ADR-0073 plus the record in `docs/PROPOSALS.md`.
 
-**What did not survive.** The first review's central figure, "73 ADRs for 4365
-lines of code", counts only `src/tgcli/*.py`; `src/**` is 19 975 lines, so the
-ratio it argues from is off by 4.6×. Its headline recommendation — move the
-gate from commit to push — and the second review's `check-changed` lane router
-both assume the gate is expensive. It is not: `./scripts/gate.sh` measured
-13.3 s wall clock, pytest 7.6 s for 1726 tests under `-n auto`. The second
-review states in its own critique that the gate was never timed and that no
-speed-up claim is honest without that number; it then built its P0 on the
-untimed assumption anyway. Five further items (ADR-lite, per-file devlog,
-integrator-owned CHANGELOG/version, ceiling grace band, `pytest -n auto`) are
-re-proposals of what ADR-0058 already shipped on 2026-07-26.
+**What did not survive.** The first review's central figure — "73 ADRs for
+4365 lines" — counts only `src/tgcli/*.py`; `src/**` is 19 975 lines. Both
+reviews put a fast/full gate split and a `check-changed` router first, on an
+untimed assumption; `./scripts/gate.sh` measures 13.3 s (pytest 7.6 s, 1726
+tests). Five further items were re-proposals of what ADR-0058 shipped on
+2026-07-26.
 
-**What the measurements do show.** 11 of 33 squash-merged PRs carry no `src/`
-line; the ADR-0072 campaign spent 4 of its 8 PRs on paper alone (`#146` 741
-lines, `#149` 458, `#145` 306, `#144` 60). The cost is serialization — one
-branch/gate/review/merge cycle per document — rather than the documents. A
-concrete instruction drift also turned up: `CLAUDE.md:4` points a starting
-session at "the tail of `docs/DEVLOG.md`", which `AGENTS.md:57` declares
-closed at `1.2.16`, 35 releases back.
+**What the measurements show.** 11 of the 33 squash-merged PRs in history
+carry no `src/` line; the ADR-0072 campaign spent 4 of its 7 PRs on paper
+(`#143` 741 lines, `#149` 458, `#147` 306, `#144` 60). Across `#143`–`#151`:
+1601 src / 2412 tests / 2459 docs — 1.51 and 1.54 per `src/` line, against the
+July baseline of 2.8 and 2.0. Test volume nearly halved after ADR-0058; prose
+volume did not move. `CLAUDE.md:4` also pointed every starting session at
+`docs/DEVLOG.md`, closed at 1.2.16.
 
-**ADR-0058 is working.** The 2026-07-26 baseline was ≈2.8 test lines and ≈2.0
-docs lines per `src/` line. Across `#144`–`#151`: 1601 src / 2326 tests / 1561
-docs — 1.45 and 0.98. Overhead halved with no new rule, which is itself an
-argument against adding rules to chase it further.
+**Landed (ADR-0073).** Two lanes chosen by a seven-trigger list — contract,
+safety, state, pacing, new dependency/module/abstraction, released behavior,
+and the enforcement scripts themselves. Full lane unchanged; small-fix lane
+drops the ADR, plan, index row, status edits, and release bookkeeping, and
+keeps the reproducing test, gate, independent review, mirror-fix rule, and
+atomic writes. Four subtractions: documents ride with their code; plans only
+for campaigns of 3+ PRs; ADR only for behavior reachable from a release tag;
+devlog per landed slice at ~15 lines.
 
-**Landed.** `docs/PROPOSALS.md` gains "Process-speed rule revisions, round 2
-(2026-08-03)": seven rows, ordered by value — fix the `CLAUDE.md` entry point;
-documents ride with their code; the complexity-reset rule from
-`openai-agents-python`; `scripts/prepare-release.py`; generating the CLI
-reference and contract tables from `build_parser()` (ruff's `generate-all`,
-cli/cli's generated man pages); a deprecation registry with version deadlines
-(mise's `deprecated_at!`), to adopt at the first real deprecation; and codex's
-`always()` CI aggregator. Every external claim in the section was verified
-against the source repository rather than taken from the reviews.
+**Review (PR #154) returned needs-work and was right on three counts.** The
+draft cited `#146`/`#145` for the ADR PRs — those are issues; the PRs are
+`#143`/`#147`, and the campaign totals were computed over a set that silently
+dropped both, giving 1.45/0.98 instead of 1.51/1.54. The stale-DEVLOG fix
+missed its own mirror-fix rule: `.cursor/rules/tgcli-agent-contract.mdc` and
+`.claude/agents/reviewer.md` carried the same pointer. And the seven-trigger
+list was six — changes to `scripts/check-*.py` logic fell outside every
+trigger, so loosening the safety net itself would have taken the small lane.
+All corrected here, together with the index back-annotations, `README.md`'s
+blanket scoped-plan claim, and two `docs/PROPOSALS.md` restatements of it.
 
-**Not adopted, recorded so it is not re-proposed:** the fast/full gate split,
-a `check-changed` lane router, fixed PR line limits, and the openclaw
-lane/bot/Testbox infrastructure — the last being heavier than what we run, not
-lighter.
+**Evidence:** `./scripts/gate.sh` green — 1726 passed, 9 skipped; coverage OK
+23 namespaces; docs gate 26 guide pages, 32 releases, 0 problems. No `src/`
+change, no contract change, no release.
 
-**Then the owner approved the cheap half, and it landed as ADR-0073.** Two
-lanes selected by a fixed six-trigger list (contract, safety, state, pacing,
-new dependency/module/abstraction, released behavior): the full lane is
-unchanged, the small-fix lane drops the ADR, the plan, the index row, the
-status edits, and the release bookkeeping while keeping the reproducing test,
-the gate, the independent review, the mirror-fix rule, and atomic writes.
-Plus four subtractions: documents ride with their code (no paper-only PRs),
-plans only for campaigns of 3+ PRs, ADR only for behavior reachable from a
-release tag, devlog per landed slice at ~15 lines. `CLAUDE.md:4` now points at
-`docs/devlog/` instead of the closed log. The lane list is deliberately a list
-and not a judgment call — an ambiguous change takes the full lane.
-
-**Evidence:** `./scripts/gate.sh` green — 1726 passed, 9 skipped in 7.97 s;
-coverage OK 23 namespaces; docs gate 26 guide pages, 32 releases, 0 problems.
-The MAP ADR-range counter and its `tests/test_check_docs.py` mirror moved to
-0073. No `src/` change, no contract change, no release.
-
-**Next:** the automation rows in `docs/PROPOSALS.md` stay unapproved —
-revisit only if the process still feels heavy after a few slices on the new
-lanes.
+**Next:** the automation rows in `docs/PROPOSALS.md` (release script,
+generated CLI reference, complexity reset, deprecation registry, CI
+aggregator) stay unapproved — revisit only if the process still feels heavy
+after a few slices on the new lanes.

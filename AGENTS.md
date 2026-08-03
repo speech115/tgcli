@@ -64,7 +64,11 @@ when it touches any of:
 3. session, config, or persistent state files, including their schemas;
 4. request pacing and FloodWait handling (ADR-0072);
 5. a new dependency, a new module, or a new abstraction;
-6. what a **released** command does, as reachable from a release tag.
+6. what a **released** command does, as reachable from a release tag;
+7. the enforcement mechanisms themselves — the logic of `scripts/gate.sh`,
+   `check-architecture.py`, `check-docs.py`, `check-coverage.py`, or the CI
+   workflows (the ceiling *numbers* stay integrator-owned under ADR-0058 and
+   are not a trigger by themselves).
 
 Anything else takes the **small-fix lane**: no ADR, no scoped plan, no ADR
 index row, no `docs/PROPOSALS.md` / `docs/ISSUES.md` status edit, no release
@@ -94,9 +98,8 @@ needs no superseding ADR.
   Live-acceptance notes may name test-account aliases, but keep incident
   detail about real accounts impersonal (what broke and the fix — not which
   live account it happened to); never phone numbers or session material.
-- **Every full-lane decision** (the six triggers above) gets an ADR in
-  `docs/decisions/`
-  using the next number: `ADR-NNNN-slug.md`, plus its row in the index
+- **Every full-lane decision** (the seven triggers above) gets an ADR in
+  `docs/decisions/` using the next number: `ADR-NNNN-slug.md`, plus its row in the index
   [docs/decisions/README.md](docs/decisions/README.md) in the same commit.
   XS/S changes may use the one-page ADR-lite form (ADR-0058): Context in
   one paragraph, Decision, Rejected alternatives, Contract impact. The

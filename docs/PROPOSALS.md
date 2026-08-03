@@ -6,7 +6,8 @@ This is a backlog of **not-yet-vetted** ideas, not a plan.
 
 **Owner gate (ADR-0071):** no current backlog row here is
 approved. Shipped rows are retained only as provenance; every remaining item
-needs an explicit owner request + an ADR + a scoped plan before code.
+needs an explicit owner request + an ADR before code — plus a scoped plan
+when it is a campaign of three or more PRs or a new subsystem (ADR-0073).
 
 ## Already handled — do not re-propose
 
@@ -379,7 +380,8 @@ Original re-entry gates (historical):
 
 Engineering (non-feature) proposals from the Fable 5 hardening campaign's
 whole-project review. Same owner gate as everything else here:
-each item needs an explicit owner request + ADR + scoped plan before code.
+each item needs an explicit owner request + ADR before code (scoped plan
+only for a campaign of 3+ PRs, ADR-0073).
 Evidence pointers reference the campaign audit; in-campaign work (error
 boundary in `cli.py`, defensive state loading, the `commands/clone.py`
 split, peer-id consistency fixes) is tracked in
@@ -517,11 +519,12 @@ heavier than ours, not lighter; it is a source of mechanisms, not a template.
 
 **Where the cost actually is.**
 
-- *Ceremony as separate PRs.* 11 of 33 squash-merged PRs contain no `src/`
-  line at all. The ADR-0072 campaign shipped 8 PRs, 4 of them pure paper:
-  `#146` draft ADR (741 lines), `#149` plans (458), `#144` devlog (60),
-  `#145` acceptance (306). The cost is serialization — each paper PR is a
-  full branch → gate → review → merge cycle — not the documents themselves.
+- *Ceremony as separate PRs.* 11 of the 33 squash-merged PRs in the
+  repository's history contain no `src/` line at all. The ADR-0072 campaign
+  shipped 7 PRs, 4 of them pure paper: `#143` draft ADR (741 lines), `#149`
+  plans (458), `#147` acceptance (306), `#144` devlog (60). The cost is
+  serialization — each paper PR is a full branch → gate → review → merge
+  cycle — not the documents themselves.
 - *One fact maintained by hand in 3–5 files.* A flag lands in `parser.py`,
   `docs/CONTRACT.md`, `docs/guide/*`, `README.md`, `CHANGELOG.md`, plus its
   compare link. `check-docs.py` already verifies these mechanically, which is
@@ -530,10 +533,12 @@ heavier than ours, not lighter; it is a source of mechanisms, not a template.
   `docs/DEVLOG.md`", which `AGENTS.md:57` declares closed at `1.2.16` — a
   session entry point 35 releases stale.
 
-**Trend note (ADR-0058 worked).** The 2026-07-26 measurement found ≈2.8 test
-lines and ≈2.0 docs lines per `src/` line. Across the ADR-0072 campaign
-(`#144`–`#151`): 1601 src / 2326 tests / 1561 docs — **1.45 and 0.98**.
-Overhead halved without a new rule.
+**Trend note — half the overhead moved, half did not.** The 2026-07-26
+measurement found ≈2.8 test lines and ≈2.0 docs lines per `src/` line. Across
+the whole ADR-0072 campaign (`#143`–`#151`): 1601 src / 2412 tests / 2459
+docs — **1.51 tests and 1.54 docs** per `src/` line. Test volume nearly
+halved after ADR-0058; prose volume did not move. That is an argument for the
+subtractions below, not for more test policy.
 
 | Item | Value | Effort | Note |
 |---|---|---|---|
@@ -546,7 +551,9 @@ Overhead halved without a new rule.
 | `always()` aggregator job in CI | low | XS | From `openai/codex` (`blocking-ci.yml`: single `required` job, `if: ${{ always() }}` over `needs`). Two jobs today, so the value is protection against a skipped job reading as success, not consolidation. |
 
 **Adopted the same day (ADR-0073).** Rows 1–2 landed, together with three
-subtractions this table only implied: a scoped plan is now required only for a
+subtractions this table only implied, and a seventh full-lane trigger the
+pre-merge review added — the enforcement scripts' own logic, which fell
+outside the original six: a scoped plan is now required only for a
 campaign of 3+ PRs, the ADR trigger narrowed to released behavior, and the
 devlog moved from per-session to per-landed-slice with a ~15-line target. The
 remaining rows (complexity reset, `prepare-release.py`, generated CLI

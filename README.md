@@ -185,7 +185,7 @@ tg --json send --commit p_9f3a
 
 ## Status
 
-v1.2, in production use and owner-gated (ADR-0071): the project still ships features, but new behavior needs an explicit owner request plus an ADR and a scoped plan, and a bug fix starts from a reproducing test.
+v1.2, in production use and owner-gated (ADR-0071): the project still ships features, but new behavior needs an explicit owner request plus an ADR (a scoped plan only for a campaign of three or more PRs, ADR-0073), and a bug fix starts from a reproducing test.
 
 CI runs `pytest`, `ruff`, `pyright`, and a fail-closed TL coverage gate on every push and PR ([.github/workflows/ci.yml](.github/workflows/ci.yml)). `scripts/bench.py` is a representative 13-step live smoke benchmark of core read, write, media, and export paths.
 

@@ -6,7 +6,7 @@ alwaysApply: true
 # tgcli — Cursor agent rules
 
 `AGENTS.md` is the canonical contract and overrides this adapter. Read it,
-`docs/MAP.md`, the newest `docs/DEVLOG.md` entries, `docs/ISSUES.md`, and
+`docs/MAP.md`, the newest `docs/devlog/` entries, `docs/ISSUES.md`, and
 the governing ADR before changing code. Do not copy or reinterpret their
 rules here.
 
