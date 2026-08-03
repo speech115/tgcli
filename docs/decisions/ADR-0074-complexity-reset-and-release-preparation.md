@@ -3,10 +3,11 @@
 Date: 2026-08-03
 Status: accepted
 Form: ADR-lite (ADR-0058)
-Amends: [ADR-0038](ADR-0038-versioned-releases-changelog.md) mechanics only —
-who writes the bookkeeping, not what a release is or when one ships. The
-integrator still owns the version, `CHANGELOG.md`, and the tag
-([ADR-0058](ADR-0058-process-speed-revisions.md)).
+Extends: [ADR-0058](ADR-0058-process-speed-revisions.md) rule 1, which already
+holds ADR-0038's mechanics. Nothing about ownership moves — the integrator
+still writes the version, `CHANGELOG.md`, and the tag; this ADR only gives
+that job a tool. [ADR-0038](ADR-0038-versioned-releases-changelog.md) itself is
+untouched.
 
 ## Context
 
@@ -52,6 +53,12 @@ abstraction leave a worse abstraction with three tests pinning it in place.
 4. **Integrator-only.** The script moves the version files, so running it on a
    feature branch would break ADR-0058's shared-file ownership. It belongs to
    the merge, like everything else it touches.
+5. **It refuses a split state rather than compounding it.** The two version
+   files are compared before anything is written; if they disagree — the exact
+   state an interrupted run leaves — the script names both values and exits 1.
+   Each file is replaced atomically through `tgcli.atomic.replace_text`. Cross
+   file atomicity is not available, so the recovery path is a loud refusal, and
+   it has its own test.
 
 ## Rejected alternatives
 

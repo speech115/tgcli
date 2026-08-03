@@ -16,11 +16,19 @@ import sys
 from datetime import date as date_type
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from tgcli.atomic import replace_text  # noqa: E402
+
 REPO_URL = "https://github.com/speech115/tgcli"
 VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 PR_SUBJECT_RE = re.compile(r"^(?P<title>.+?) \(#(?P<number>\d+)\)$")
 ADR_PATH_RE = re.compile(r"^docs/decisions/(ADR-\d{4})-[a-z0-9-]+\.md$")
 SECTION_RE = re.compile(r"^## \[(\d+\.\d+\.\d+)\]", re.MULTILINE)
+PROJECT_VERSION_RE = re.compile(
+    r"^\[project\]$.*?^version = \"(.+?)\"$", re.MULTILINE | re.DOTALL
+)
+MODULE_VERSION_RE = re.compile(r'^__version__ = "(.+?)"$', re.MULTILINE)
 LINK_RE = re.compile(r"^\[(\d+\.\d+\.\d+)\]: ", re.MULTILINE)
 PLACEHOLDER = (
     "<!-- prepare-release: replace this line with what the release means to an "
@@ -75,6 +83,13 @@ def collect_slice(
     then a skeleton the integrator fills, which is still better than nothing.
     """
     span = f"v{previous}..HEAD"
+    if not git(repo_root, "rev-parse", "--verify", f"v{previous}^{{commit}}"):
+        print(
+            f"prepare-release: no tag v{previous} here — the PR/ADR list will be "
+            "empty and the compare link will not resolve until it exists",
+            file=sys.stderr,
+        )
+        return [], []
     subjects = git(repo_root, "log", "--pretty=%s", span)
     paths = git(repo_root, "diff", "--name-only", "--diff-filter=A", span)
     return merged_prs(subjects), added_adrs(paths)
@@ -103,9 +118,17 @@ def render_link(version: str, previous: str) -> str:
 
 
 def read_version(pyproject: Path) -> str:
-    match = re.search(r'^version = "(.+?)"$', pyproject.read_text(), re.MULTILINE)
+    """The `[project]` table's version — never another table's identical line."""
+    match = PROJECT_VERSION_RE.search(pyproject.read_text())
     if not match:
-        raise ValueError(f"no version in {pyproject}")
+        raise ValueError(f"no [project] version in {pyproject}")
+    return match.group(1)
+
+
+def read_module_version(init: Path) -> str:
+    match = MODULE_VERSION_RE.search(init.read_text())
+    if not match:
+        raise ValueError(f"no __version__ in {init}")
     return match.group(1)
 
 
@@ -123,18 +146,13 @@ def insert_section(changelog: str, section: str, link: str) -> str:
     return changelog[:at] + link + "\n" + changelog[at:]
 
 
-def bump(path: Path, pattern: str, version: str) -> None:
+def bump(path: Path, pattern: re.Pattern[str], version: str) -> None:
     text = path.read_text()
-    replaced, count = re.subn(
-        pattern,
-        lambda m: m.group(0).replace(m.group(1), version),
-        text,
-        count=1,
-        flags=re.MULTILINE,
-    )
-    if count != 1:
+    match = pattern.search(text)
+    if not match:
         raise ValueError(f"no version line in {path}")
-    path.write_text(replaced)
+    replaced = text[: match.start(1)] + version + text[match.end(1) :]
+    replace_text(path, replaced)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -155,6 +173,15 @@ def main(argv: list[str] | None = None) -> int:
     changelog_path = root / "CHANGELOG.md"
 
     previous = read_version(pyproject)
+    module_version = read_module_version(init)
+    if module_version != previous:
+        print(
+            f"prepare-release: {pyproject.name} says {previous} but "
+            f"{init.name} says {module_version} — reconcile them by hand first; "
+            "an interrupted earlier run leaves exactly this state",
+            file=sys.stderr,
+        )
+        return 1
     try:
         version = args.version or next_patch(previous)
         parse_version(version)
@@ -188,9 +215,9 @@ def main(argv: list[str] | None = None) -> int:
         print(link)
         return 0
 
-    changelog_path.write_text(insert_section(changelog, section, link))
-    bump(pyproject, r'^version = "(.+?)"$', version)
-    bump(init, r'^__version__ = "(.+?)"$', version)
+    bump(pyproject, PROJECT_VERSION_RE, version)
+    bump(init, MODULE_VERSION_RE, version)
+    replace_text(changelog_path, insert_section(changelog, section, link))
 
     print(f"prepare-release: {previous} → {version}; {len(prs)} PRs, {len(adrs)} ADRs")
     print("prepare-release: replace the marker line in CHANGELOG.md before merging")

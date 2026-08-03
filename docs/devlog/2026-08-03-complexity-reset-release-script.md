@@ -24,6 +24,19 @@ them asserting the produced changelog satisfies `check_docs.release_problems`
 1738 passed, 9 skipped. Dry run on this repo emits the 2.0.1 section naming
 ADR-0073, #154, and #153, with the correct compare link.
 
+**Review found three real defects.** The two version files were written in
+sequence with no cross-check, so an interrupted run left `pyproject.toml`
+ahead of `__init__.py` and a rerun would silently skip a version — the exact
+incident class (#51 drift, the 1.2.10/1.2.11 race) the script exists to
+prevent. The version regex matched any `version = "..."` line, not the
+`[project]` one. And the "already has a section" test never reached that
+branch: the backwards check fired first, leaving the recovery path untested.
+Fixed with tests first: the files are compared before anything is written and
+a split state is refused by name, each file is replaced through
+`tgcli.atomic.replace_text`, the regex is anchored to `[project]`, and a
+missing previous tag now says so on stderr instead of passing as an empty
+slice. 16 tests, gate green.
+
 **Next:** the CI aggregator is only worth adding together with enabling
 required status checks on the repository — neither is done. Generating the CLI
 reference from `build_parser()` still needs its own scope decision about which

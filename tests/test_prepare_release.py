@@ -156,10 +156,63 @@ def test_a_dry_run_writes_nothing_and_prints_the_section(repo):
 
 
 def test_releasing_a_version_that_already_has_a_section_is_refused(repo):
+    """The recovery path after an interrupted run, not the backwards check."""
+    changelog = repo / "CHANGELOG.md"
+    changelog.write_text(
+        CHANGELOG_HEAD.replace(
+            "## [1.2.3]",
+            "## [1.2.4] — 2026-08-02\n\n### Added\n\n- Half-written.\n\n## [1.2.3]",
+            1,
+        )
+    )
+    before = changelog.read_text()
+
+    result = run(repo, "--version", "1.2.4")
+
+    assert result.returncode == 1
+    assert "already has a section" in result.stderr
+    assert changelog.read_text() == before
+
+
+def test_a_version_split_across_the_two_files_is_refused_not_compounded(repo):
+    """An interrupted run leaves pyproject ahead of __init__; a rerun must stop."""
+    (repo / "src" / "tgcli" / "__init__.py").write_text('__version__ = "1.2.2"\n')
+    before = (repo / "CHANGELOG.md").read_text()
+
+    result = run(repo, "--version", "1.2.4")
+
+    assert result.returncode == 1
+    assert "1.2.3" in result.stderr and "1.2.2" in result.stderr
+    assert (repo / "CHANGELOG.md").read_text() == before
+    assert 'version = "1.2.3"' in (repo / "pyproject.toml").read_text()
+
+
+def test_the_version_comes_from_the_project_table_not_another_one(repo):
+    (repo / "pyproject.toml").write_text(
+        '[tool.something]\nversion = "9.9.9"\n\n'
+        '[project]\nname = "tgcli"\nversion = "1.2.3"\n'
+    )
+
+    result = run(repo, "--version", "1.2.4")
+
+    assert result.returncode == 0, result.stderr
+    pyproject = (repo / "pyproject.toml").read_text()
+    assert 'version = "9.9.9"' in pyproject
+    assert 'version = "1.2.4"' in pyproject
+
+
+def test_a_missing_previous_tag_is_reported_instead_of_passing_as_an_empty_slice(repo):
+    result = run(repo, "--version", "1.2.4")
+
+    assert result.returncode == 0, result.stderr
+    assert "v1.2.3" in result.stderr
+
+
+def test_a_version_that_equals_the_current_one_is_refused(repo):
     result = run(repo, "--version", "1.2.3")
 
     assert result.returncode == 1
-    assert "1.2.3" in result.stderr
+    assert "does not move past" in result.stderr
     assert (repo / "CHANGELOG.md").read_text() == CHANGELOG_HEAD
 
 
