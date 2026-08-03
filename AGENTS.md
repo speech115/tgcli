@@ -44,24 +44,58 @@ The project is in production use and still evolving; what gates it is the
 owner, not a freeze. Default posture:
 
 - **A new feature or behavior change needs an explicit owner request plus
-  an ADR and a scoped plan** — never a new phase in PLAN.md. An unvetted
+  an ADR** — never a new phase in PLAN.md. A separate scoped plan is
+  required only for a campaign: three or more PRs, or a new subsystem
+  (ADR-0073); below that the ADR's decision section is the plan. An unvetted
   idea waits in docs/PROPOSALS.md; it does not become code.
 - **A bug fix starts from a reproducing test**, then the minimal fix.
 - **Never widen the scope you were given.** Adjacent improvements you spot
   are reported, not implemented. When in doubt whether something is a fix
   or a feature, ask the owner.
 
+## Change Lanes (ADR-0073)
+
+Ceremony follows risk, not size of ambition. A change takes the **full lane**
+when it touches any of:
+
+1. `docs/CONTRACT.md` semantics — CLI flags, JSON shapes, exit codes;
+2. safety behavior — preview→commit, readonly gates, audit records, or any
+   mutation path (send, edit, delete, forward, mark-read, clone writes);
+3. session, config, or persistent state files, including their schemas;
+4. request pacing and FloodWait handling (ADR-0072);
+5. a new dependency, a new module, or a new abstraction;
+6. what a **released** command does, as reachable from a release tag.
+
+Anything else takes the **small-fix lane**: no ADR, no scoped plan, no ADR
+index row, no `docs/PROPOSALS.md` / `docs/ISSUES.md` status edit, no release
+bookkeeping. Ambiguous change — full lane.
+
+The small lane keeps, without exception: the reproducing test first, the full
+gate, the independent whole-diff review, the mirror-fix rule, and atomic
+state writes. Those are what protect a live account; they are not ceremony.
+
+**Documents ride with their code.** An ADR, plan, or devlog entry lands in the
+PR that carries its implementation. A document-only PR is for a decision
+deliberately taken before the work is scoped — an ADR proposed for owner
+review, or a campaign plan spanning several PRs — never the default shape.
+
+**Compatibility begins at a release tag.** Unreleased implementations are
+replaceable and are not a sunk cost: reworking code that has not shipped
+needs no superseding ADR.
+
 ## Documentation Discipline (mandatory)
 
-- **Every working session** adds one devlog entry as its own file under
+- **Every landed slice** adds one devlog entry as its own file under
   `docs/devlog/` named `YYYY-MM-DD-slug.md` (template in `docs/DEVLOG.md`;
-  ADR-0058). No entry — the session did not happen. `docs/DEVLOG.md` and
-  `docs/DEVLOG-v1.md` are closed: never append to them.
+  ADR-0058, cadence amended by ADR-0073). Also write one for a session that
+  produced a decision, an incident, or a handoff worth carrying; a session
+  that landed nothing adds none. Target 15 lines — facts, not narrative.
+  `docs/DEVLOG.md` and `docs/DEVLOG-v1.md` are closed: never append to them.
   Live-acceptance notes may name test-account aliases, but keep incident
   detail about real accounts impersonal (what broke and the fix — not which
   live account it happened to); never phone numbers or session material.
-- **Every architectural decision** (new dependency, new module, changed
-  contract, changed safety behavior) gets an ADR in `docs/decisions/`
+- **Every full-lane decision** (the six triggers above) gets an ADR in
+  `docs/decisions/`
   using the next number: `ADR-NNNN-slug.md`, plus its row in the index
   [docs/decisions/README.md](docs/decisions/README.md) in the same commit.
   XS/S changes may use the one-page ADR-lite form (ADR-0058): Context in

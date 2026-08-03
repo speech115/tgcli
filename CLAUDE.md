@@ -1,7 +1,8 @@
 # Claude Code Notes — tgcli
 
 Canonical contract: [AGENTS.md](AGENTS.md). Read it first, then
-[docs/MAP.md](docs/MAP.md) and the tail of [docs/DEVLOG.md](docs/DEVLOG.md).
+[docs/MAP.md](docs/MAP.md) and the newest entries in
+[docs/devlog/](docs/devlog/). `docs/DEVLOG.md` is closed history (ADR-0058).
 
 ## Agent skills
 
