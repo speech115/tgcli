@@ -52,10 +52,15 @@ the **full lane** when it touches any of:
 - a new dependency, a new module, or a new abstraction (the YAGNI rule);
 - what a **released** command does, as reachable from a release tag;
 - the enforcement mechanisms themselves — the logic of `scripts/gate.sh`,
-  `check-architecture.py`, `check-docs.py`, `check-coverage.py`, or the CI
-  workflows. These make every other rule bite, so loosening one is a safety
-  change even when no product behavior moves. (Line-ceiling *numbers* stay
-  integrator-owned under ADR-0058 and are not a full-lane trigger by
+  `check-architecture.py`, `check-docs.py`, `check-coverage.py`, the CI
+  workflows, or this contract and its adapters (`AGENTS.md`, `CLAUDE.md`,
+  `.cursor/rules/`, `.claude/agents/`, `CONTRIBUTING.md`, `SKILL.md`). These
+  make every other rule bite, so loosening one is a safety change even when no
+  product behavior moves. The prose contract needs the trigger for the same
+  reason the scripts do, and for one of its own: the independent reviewer
+  draws its checklist from `AGENTS.md`, so a PR that weakens `AGENTS.md`
+  weakens the reviewer that would have caught it. (Line-ceiling *numbers*
+  stay integrator-owned under ADR-0058 and are not a full-lane trigger by
   themselves.)
 
 Everything else takes the **small-fix lane**: no ADR, no scoped plan, no ADR

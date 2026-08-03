@@ -66,9 +66,12 @@ when it touches any of:
 5. a new dependency, a new module, or a new abstraction;
 6. what a **released** command does, as reachable from a release tag;
 7. the enforcement mechanisms themselves — the logic of `scripts/gate.sh`,
-   `check-architecture.py`, `check-docs.py`, `check-coverage.py`, or the CI
-   workflows (the ceiling *numbers* stay integrator-owned under ADR-0058 and
-   are not a trigger by themselves).
+   `check-architecture.py`, `check-docs.py`, `check-coverage.py`, the CI
+   workflows, or this contract and its adapters (`AGENTS.md`, `CLAUDE.md`,
+   `.cursor/rules/`, `.claude/agents/`, `CONTRIBUTING.md`, `SKILL.md`). These
+   are what make every other rule bite; a reviewer whose checklist comes from
+   the file being weakened cannot catch its weakening. The ceiling *numbers*
+   stay integrator-owned under ADR-0058 and are not a trigger by themselves.
 
 Anything else takes the **small-fix lane**: no ADR, no scoped plan, no ADR
 index row, no `docs/PROPOSALS.md` / `docs/ISSUES.md` status edit, no release

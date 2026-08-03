@@ -21,7 +21,8 @@ volume did not move. `CLAUDE.md:4` also pointed every starting session at
 
 **Landed (ADR-0073).** Two lanes chosen by a seven-trigger list — contract,
 safety, state, pacing, new dependency/module/abstraction, released behavior,
-and the enforcement scripts themselves. Full lane unchanged; small-fix lane
+and the enforcement mechanisms: the check scripts, CI, and this contract with
+its adapters. Full lane unchanged; small-fix lane
 drops the ADR, plan, index row, status edits, and release bookkeeping, and
 keeps the reproducing test, gate, independent review, mirror-fix rule, and
 atomic writes. Four subtractions: documents ride with their code; plans only
@@ -38,6 +39,15 @@ list was six — changes to `scripts/check-*.py` logic fell outside every
 trigger, so loosening the safety net itself would have taken the small lane.
 All corrected here, together with the index back-annotations, `README.md`'s
 blanket scoped-plan claim, and two `docs/PROPOSALS.md` restatements of it.
+
+**A second pass found two more.** The ADR-0073 index row still said
+"six-trigger" while every other surface said seven — invisible to the docs
+gate, which counts ranges but does not read prose. And trigger 7 covered the
+check scripts but not the prose contract they enforce: a PR could have deleted
+the mirror-fix or audit-ordering rule from `AGENTS.md` on the small lane, and
+the independent reviewer draws its checklist from that same file. Trigger 7
+now names `AGENTS.md` and its adapters explicitly. The pass reproduced all
+campaign figures independently from git.
 
 **Evidence:** `./scripts/gate.sh` green — 1726 passed, 9 skipped; coverage OK
 23 namespaces; docs gate 26 guide pages, 32 releases, 0 problems. No `src/`
