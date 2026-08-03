@@ -35,7 +35,7 @@ tgcli/
 │   ├── guide/                 [done]    user-facing task pages, 25 + index (ADR-0041/0065)
 │   ├── assets/                [done]    README banner, dark + light SVG, launchd template (no external assets)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
-│   ├── decisions/             [done]    ADR-0001…0072 + README.md index (ADR-0072 account request governor, accepted and shipped in 2.0.0)
+│   ├── decisions/             [done]    ADR-0001…0073 + README.md index (ADR-0073 risk-tiered change process: full lane vs small-fix lane)
 │   ├── research/              [done]    read-only investigation notes backing a wayfinder map's closed children
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/

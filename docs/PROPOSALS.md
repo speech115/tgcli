@@ -6,7 +6,8 @@ This is a backlog of **not-yet-vetted** ideas, not a plan.
 
 **Owner gate (ADR-0071):** no current backlog row here is
 approved. Shipped rows are retained only as provenance; every remaining item
-needs an explicit owner request + an ADR + a scoped plan before code.
+needs an explicit owner request + an ADR before code — plus a scoped plan
+when it is a campaign of three or more PRs or a new subsystem (ADR-0073).
 
 ## Already handled — do not re-propose
 
@@ -379,7 +380,8 @@ Original re-entry gates (historical):
 
 Engineering (non-feature) proposals from the Fable 5 hardening campaign's
 whole-project review. Same owner gate as everything else here:
-each item needs an explicit owner request + ADR + scoped plan before code.
+each item needs an explicit owner request + ADR before code (scoped plan
+only for a campaign of 3+ PRs, ADR-0073).
 Evidence pointers reference the campaign audit; in-campaign work (error
 boundary in `cli.py`, defensive state loading, the `commands/clone.py`
 split, peer-id consistency fixes) is tracked in
@@ -486,6 +488,86 @@ bf-01-class defects.
 | Parallel waves branch from the integration head | med | XS | All six wave-2 worktrees branched from `main` instead of the campaign head: every cherry-pick needed ceiling reconciliation, and one slice re-invented `DeadlineExceeded` that wave 1 had already landed. One AGENTS.md line: a wave's worktrees start at the integrator's current head. |
 | ADR-lite template for XS/S changes | med | XS | 11 full ADRs shipped in ~10 days (0045–0055). A one-page form (decision / rejected alternatives / contract impact) for XS/S slices; the full template stays mandatory for CONTRACT.md changes, safety behavior, and new dependencies. |
 | `pytest-xdist -n auto` in the gate | low | XS | 29.5 s → ≈8–10 s on the suite; marginal next to the 52 s total, but free. Dev-only dependency — still gets its ADR row per the AGENTS new-dependency rule if adopted. |
+
+---
+
+## Process-speed rule revisions, round 2 (2026-08-03, external-process review)
+
+Owner input: two external reviews of the tgcli process — one comparing it to
+`openai/codex` and `openclaw`, one assessing that review and seven more
+repositories (`jdx/mise`, `openai/openai-agents-python`, `cli/cli`,
+`astral-sh/ruff`, `sst/sst`, `anthropics/claude-code`). Same owner gate as
+everything else (ADR-0071): each adopted row lands as an AGENTS.md edit in its
+own slice, plus an ADR where the row amends an existing decision. Measurements
+below were taken on `main` at `00ab8ca`.
+
+**What the data rules out — the gate, again.** Both reviews put a fast/full
+gate split and a `check-changed` lane router at the top of their
+recommendations. `./scripts/gate.sh` runs in **13.3 s** wall clock (pytest
+7.6 s for 1726 tests under `-n auto`); the second review states in its own
+critique that the gate had never been timed and that no speed-up claim is
+honest without that number. A lane router would cost more than 13 s of
+maintenance per change and introduces a defect class the current shape does
+not have: a check that failed to be selected. Not a candidate.
+
+**Also not candidates.** ADR-lite, per-file devlog, integrator-owned
+`CHANGELOG`/version, the ceiling grace band, and `pytest -n auto` were all
+adopted in ADR-0058 and are re-proposed by the first review unaware of that.
+Fixed PR line limits (codex uses 800/500) address diff size, which is not the
+measured failure mode here. The `openclaw` lane/bot/Testbox infrastructure is
+heavier than ours, not lighter; it is a source of mechanisms, not a template.
+
+**Where the cost actually is.**
+
+- *Ceremony as separate PRs.* 11 of the 33 squash-merged PRs in the
+  repository's history contain no `src/` line at all. The ADR-0072 campaign
+  shipped 7 PRs, 4 of them pure paper: `#143` draft ADR (741 lines), `#149`
+  plans (458), `#147` acceptance (306), `#144` devlog (60). The cost is
+  serialization — each paper PR is a full branch → gate → review → merge
+  cycle — not the documents themselves.
+- *One fact maintained by hand in 3–5 files.* A flag lands in `parser.py`,
+  `docs/CONTRACT.md`, `docs/guide/*`, `README.md`, `CHANGELOG.md`, plus its
+  compare link. `check-docs.py` already verifies these mechanically, which is
+  evidence the format is regular enough to generate instead of reconcile.
+- *Instruction drift.* `CLAUDE.md:4` sends an agent to "the tail of
+  `docs/DEVLOG.md`", which `AGENTS.md:57` declares closed at `1.2.16` — a
+  session entry point 35 releases stale.
+
+**Trend note — half the overhead moved, half did not.** The 2026-07-26
+measurement found ≈2.8 test lines and ≈2.0 docs lines per `src/` line. Across
+the whole ADR-0072 campaign (`#143`–`#151`): 1601 src / 2412 tests / 2459
+docs — **1.51 tests and 1.54 docs** per `src/` line. Test volume nearly
+halved after ADR-0058; prose volume did not move. That is an argument for the
+subtractions below, not for more test policy.
+
+| Item | Value | Effort | Note |
+|---|---|---|---|
+| Fix the `CLAUDE.md` session entry point | high | XS | One line. `CLAUDE.md:4` points at closed history; point it at `docs/devlog/` (newest files) instead. Proven drift, not a hypothesis. |
+| Documents ride with their code | high | XS | AGENTS.md line: an ADR, plan, or devlog entry lands in the PR that carries its code; a document-only PR is for a decision deliberately separated from implementation (an ADR proposed before the work is scoped), not the default. Targets the 11/33 paper-PR serialization directly. |
+| Complexity reset | high | XS | From `openai/openai-agents-python`: "Treat a second related review finding that would add another condition … as a mandatory complexity-reset checkpoint, not another item to patch," with unreleased code explicitly not a sunk cost. The only row here that raises quality rather than speed; fits the existing independent-review step. |
+| `scripts/prepare-release.py` | med | S | Version bump in both files + `CHANGELOG.md` section skeleton + `[x.y.z]:` compare link + the ADR/PR list. `check-docs.py` already enforces this format, so it is generable. Keeps ADR-0038 intent and integrator ownership; removes the bookkeeping, not the decision. |
+| Generate the CLI reference and contract tables from `build_parser()` | med | M | From `astral-sh/ruff` (`generate-all`, "regenerate, don't hand-edit") and `cli/cli` (man pages generated per release; "You do not need to submit pull requests for documentation specifically"). Drift caught by `git diff --exit-code` in the gate. `parser.py` is already isolated enough to be the source. Needs an ADR — it changes what `docs/CONTRACT.md` is. |
+| Deprecation registry with version deadlines | med | S | From `jdx/mise`: `deprecated_at!("2026.10.0", "2027.10.0", …)` → docs badge → CLI warning → `debug_assert!`. Became relevant with `2.0.0`; a typed registry replaces "remove later" comments with a machine-checked date. Adopt at the first real deprecation, not before. |
+| `always()` aggregator job in CI | low | XS | From `openai/codex` (`blocking-ci.yml`: single `required` job, `if: ${{ always() }}` over `needs`). Two jobs today, so the value is protection against a skipped job reading as success, not consolidation. |
+
+**Adopted the same day (ADR-0073).** Rows 1–2 landed, together with three
+subtractions this table only implied, and a seventh full-lane trigger the
+pre-merge review added — the enforcement scripts' own logic, which fell
+outside the original six: a scoped plan is now required only for a
+campaign of 3+ PRs, the ADR trigger narrowed to released behavior, and the
+devlog moved from per-session to per-landed-slice with a ~15-line target. The
+remaining rows (complexity reset, `prepare-release.py`, generated CLI
+reference, deprecation registry, CI aggregator) stay unapproved backlog.
+
+**Sources verified against the repositories themselves** (2026-08-03): codex's
+`just test -p <crate>`, size limits, and absent ADRs; openclaw's scoped
+`AGENTS.md` + `CLAUDE.md` symlinks, `check:changed`, release-owned changelog,
+and calendar versioning; mise's conventional PR titles, `git-cliff` +
+`communique.toml`, and `deprecated_at!`; ruff's `ruff.schema.json`,
+`generate-all`, two-stage changelog, and `BREAKING_CHANGES.md`; cli/cli's
+`SilentError`/`FlagError`/`NoResultsError` and `cmdutil.AddJSONFlags`;
+openai-agents-python's implementation-scope contract and complexity reset;
+sst's `AGENTS.md` → `CLAUDE.md` symlink and Verification checklist.
 
 ---
 
