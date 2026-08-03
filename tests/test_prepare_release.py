@@ -144,6 +144,21 @@ def test_the_result_satisfies_the_docs_gate_release_rule(repo):
     assert checked == 2
 
 
+def test_repository_sources_keep_their_permissions(repo):
+    """`replace_text` defaults to 0o600 for session material; these are sources."""
+    touched = [
+        repo / "CHANGELOG.md",
+        repo / "pyproject.toml",
+        repo / "src" / "tgcli" / "__init__.py",
+    ]
+    for path in touched:
+        path.chmod(0o644)
+
+    assert run(repo, "--version", "1.2.4").returncode == 0
+
+    assert [path.stat().st_mode & 0o777 for path in touched] == [0o644] * 3
+
+
 def test_a_dry_run_writes_nothing_and_prints_the_section(repo):
     before = (repo / "CHANGELOG.md").read_text()
 

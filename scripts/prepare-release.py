@@ -20,6 +20,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from tgcli.atomic import replace_text  # noqa: E402
 
+# `replace_text` defaults to 0o600 for session material; these are tracked
+# sources and must keep the permissions the checkout gave them.
+SOURCE_MODE = 0o644
+
 REPO_URL = "https://github.com/speech115/tgcli"
 VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 PR_SUBJECT_RE = re.compile(r"^(?P<title>.+?) \(#(?P<number>\d+)\)$")
@@ -152,7 +156,7 @@ def bump(path: Path, pattern: re.Pattern[str], version: str) -> None:
     if not match:
         raise ValueError(f"no version line in {path}")
     replaced = text[: match.start(1)] + version + text[match.end(1) :]
-    replace_text(path, replaced)
+    replace_text(path, replaced, mode=SOURCE_MODE)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -217,7 +221,9 @@ def main(argv: list[str] | None = None) -> int:
 
     bump(pyproject, PROJECT_VERSION_RE, version)
     bump(init, MODULE_VERSION_RE, version)
-    replace_text(changelog_path, insert_section(changelog, section, link))
+    replace_text(
+        changelog_path, insert_section(changelog, section, link), mode=SOURCE_MODE
+    )
 
     print(f"prepare-release: {previous} → {version}; {len(prs)} PRs, {len(adrs)} ADRs")
     print("prepare-release: replace the marker line in CHANGELOG.md before merging")

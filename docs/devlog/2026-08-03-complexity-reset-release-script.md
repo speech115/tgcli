@@ -35,7 +35,7 @@ Fixed with tests first: the files are compared before anything is written and
 a split state is refused by name, each file is replaced through
 `tgcli.atomic.replace_text`, the regex is anchored to `[project]`, and a
 missing previous tag now says so on stderr instead of passing as an empty
-slice. 16 tests, gate green.
+slice. A second pass then caught the one thing the fix introduced: `replace_text` defaults to `0o600` for session material, so every run narrowed `CHANGELOG.md`, `pyproject.toml`, and `__init__.py` from `0644` on disk. Pinned to `0644` with a test. 17 tests, gate green.
 
 **Next:** the CI aggregator is only worth adding together with enabling
 required status checks on the repository — neither is done. Generating the CLI
