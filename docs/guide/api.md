@@ -5,6 +5,23 @@ command covers the task — prefer `read`, `send`, `dialog mute`, and friends
 whenever one exists; they carry the JSON contract and safety review this
 escape hatch does not.
 
+
+### Pulling story media: the `access_hash` boundary
+
+`upload.getFile` is allowlisted so story-media bytes are reachable through
+the raw surface. The result sanitizer strips `access_hash` and `secret` from
+every printed result, so a follow-up `upload.getFile` call cannot be built
+from a previous `tg api` output: video-story documents need
+`InputDocumentFileLocation(id, access_hash, file_reference, thumb_size)`, and
+the `access_hash` is not present anywhere in allowlisted read output. Photo
+stories can still be pulled via `InputPeerPhotoFileLocation` (peer + photo id,
+no `access_hash`). For document media, use
+[`tg media download`](media.md) on the story link, or a Telethon script on
+the tgcli venv — `tg api` is a read surface, not a download client. Note also
+that `upload.File.bytes` prints as a `b'...'` string (JSON has no bytes
+type), so raw pulls are not a byte-exact pipeline.
+
+
 ## Call an allowlisted read
 
 Read calls are **default-deny**: only the reviewed ADR-0010 allowlist runs,
