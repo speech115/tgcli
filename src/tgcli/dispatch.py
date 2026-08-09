@@ -281,6 +281,10 @@ async def _download_media(tg, args, account) -> tuple[dict, list[tuple]]:
     )
     if bulk and args.message_id is not None:
         raise PolicyError("do not pass a single message_id with bulk media flags")
+    if getattr(args, "codec", None) is not None and not media_cmd.is_story_link(
+        args.source
+    ):
+        raise PolicyError("--codec applies to story sources only")
 
     def progress(current: int, total: int | None) -> None:
         output.note(f"downloaded {current}/{total if total is not None else '?'} bytes")

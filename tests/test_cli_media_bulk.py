@@ -355,6 +355,29 @@ def test_media_download_rejects_over_100_ids(config_env, monkeypatch):
     assert main(["media", "download", "@chan", "--message-ids", ids]) == 2
 
 
+
+def test_media_download_rejects_codec_in_bulk_mode(config_env, monkeypatch, capsys):
+    """ADR-0079: --codec is story-only; bulk mode must not silently ignore it."""
+    make_session_fake(monkeypatch, FakeClient())
+
+    assert (
+        main(
+            [
+                "--json",
+                "media",
+                "download",
+                "@chan",
+                "--message-ids",
+                "1,2",
+                "--codec",
+                "h264",
+            ]
+        )
+        == 2
+    )
+    assert "story sources only" in capsys.readouterr().err
+
+
 def test_media_download_rejects_message_id_with_bulk_flags(config_env, monkeypatch):
     make_session_fake(monkeypatch, FakeClient())
     assert main(["media", "download", "@chan", "42", "--message-ids", "1,2"]) == 2
