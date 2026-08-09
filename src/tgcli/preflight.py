@@ -263,6 +263,10 @@ def _prepare_mutations(args) -> None:
             raise PolicyError("clone sync --limit must be positive")
     if args.command in ("mark-read", "mark-unread"):
         safety.enforce_mutation_allowed(args.readonly)
+    if args.command == "transcribe":
+        # transcribeAudio is a server-side mutation (Premium quota, visible
+        # to other clients): the --readonly gate applies (ADR-0079).
+        safety.enforce_mutation_allowed(args.readonly)
     if args.command == "dialog":
         safety.enforce_mutation_allowed(args.readonly)
         if args.dialog_command == "mute":

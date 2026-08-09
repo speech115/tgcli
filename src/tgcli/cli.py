@@ -302,6 +302,12 @@ def _audit_before(args, account) -> None:
         )
     if args.command in ("mark-read", "mark-unread"):
         safety.append_audit(args.command, account.alias, {"chat": args.chat})
+    if args.command == "transcribe":
+        safety.append_audit(
+            args.command,
+            account.alias,
+            {"chat": args.chat, "message_id": args.message_id},
+        )
     if args.command == "dialog":
         safety.append_audit(
             f"dialog-{args.dialog_command}", account.alias, {"chat": args.chat}

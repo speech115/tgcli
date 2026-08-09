@@ -441,6 +441,11 @@ JSON:
  "transcription":{"text":"...","transcription_id":987,"pending":false}}
 ```
 
+`transcribeAudio` is a server-side mutation (Premium quota; the transcript
+is visible to other clients of the chat): `--readonly` blocks the command
+(exit 2, `BLOCKED`), and every call writes an audit record with the target
+identifiers (`chat`, `message_id`) — never the text.
+
 Plain row: `message_id`, `text`.
 
 ### TSV Shapes
