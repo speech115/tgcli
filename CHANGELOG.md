@@ -11,6 +11,31 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [2.0.1] — 2026-08-09
+
+<!-- prepare-release: replace this line with what the release means to an operator, then delete the marker. -->
+
+This release adds server-side voice transcription (`tg transcribe`, Premium)
+and the read-only allowlist / docs groundwork behind it (story media downloads
+land in 2.0.2). `tg transcribe <chat> <id>` waits up to `--timeout` for the
+async transcription result; a non-voice message is exit 4 and a missing
+Premium subscription exit 2. `upload.getFile` is now reachable through `tg api`
+for raw story-media pulls, and the launchd archive-refresh template bounds its
+wall time (`--max-runtime 3000`). Process: the risk-tiered lanes and the
+release-preparation script landed (ADR-0073/0074).
+
+Rationale: ADR-0073, ADR-0074, ADR-0075, ADR-0076.
+
+### Changed
+
+- Add tg transcribe for server-side voice transcription (ADR-0075) (#160)
+- Track the #96 runtime-schema check as a deferred proposal (#159)
+- Allowlist upload.getFile as a read-only API method (#158)
+- Bound wall time for scheduled archive refresh in the launchd template (#157)
+- Add the complexity-reset rule and the release preparation script (ADR-0074) (#155)
+- Split the change process into risk lanes (ADR-0073) (#154)
+- Land the wayfinder research notes and tidy the repository (#153)
+
 ## [2.0.0] — 2026-08-02
 
 Major because exit code 5 changes meaning for an identical trigger; see
@@ -685,6 +710,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[2.0.1]: https://github.com/speech115/tgcli/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/speech115/tgcli/compare/v1.2.25...v2.0.0
 [1.2.25]: https://github.com/speech115/tgcli/compare/v1.2.24...v1.2.25
 [1.2.24]: https://github.com/speech115/tgcli/compare/v1.2.23...v1.2.24
