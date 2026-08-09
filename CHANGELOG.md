@@ -11,6 +11,20 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [2.0.2] — 2026-08-09
+
+`tg media download` now accepts story links — public `t.me/<user>/s/<id>` and
+private `t.me/c/<id>/s/<id>` — resolving them via `stories.getStoriesByID`.
+Video stories download the main document by default; `--codec
+{h264,h265,hevc,av1}` selects an encoding from the document's `alt_documents`
+by its `video_codec` attribute (missing encoding is exit 4). Story sources are
+single download only (bulk flags are exit 2); the result keeps the media
+shape with a `story:` source label and an additive `codec` field.
+
+### Changed
+
+- Download story media in tg media download (ADR-0076) (#161)
+
 ## [2.0.1] — 2026-08-09
 
 <!-- prepare-release: replace this line with what the release means to an operator, then delete the marker. -->
@@ -710,6 +724,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[2.0.2]: https://github.com/speech115/tgcli/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/speech115/tgcli/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/speech115/tgcli/compare/v1.2.25...v2.0.0
 [1.2.25]: https://github.com/speech115/tgcli/compare/v1.2.24...v1.2.25
