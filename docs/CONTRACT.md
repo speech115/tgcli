@@ -381,6 +381,15 @@ to stderr. Single-stream transfer resumes a matching interrupted partial file
 from `~/.local/state/tgcli/downloads/`; `--parallel N` is opt-in, requires a
 positive `N`, and starts a fresh offset-based transfer.
 
+Story links `t.me/<user>/s/<id>` and `t.me/c/<channel_id>/s/<id>` download
+story media via `stories.getStoriesByID` (ADR-0076). A story source is single
+download only: combining it with bulk flags is exit 2. Video stories download
+the main document by default; `--codec {h264,h265,hevc,av1}` selects a
+matching encoding from the document's `alt_documents` by its
+`video_codec` attribute (`hevc` aliases `h265`), and exit 4 reports a missing
+encoding. The result keeps the media-download shape with the `story:` source
+label and an additive `codec` field when one was selected.
+
 Bulk mode (ADR-0032) activates with `--message-ids id,id` and/or filter flags
 `--type` / `--since` / `--limit` on a chat reference (no single `message_id`).
 When explicit IDs and filters are combined, the filters apply to those

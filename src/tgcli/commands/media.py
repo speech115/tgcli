@@ -27,6 +27,8 @@ from tgcli.transfer import CHUNK_SIZE, PROGRESS_EVERY_CHUNKS, download_striped
 
 PRIVATE_LINK = re.compile(r"(?:https?://)?t\.me/c/(\d+)/(\d+)/?$")
 PUBLIC_LINK = re.compile(r"(?:https?://)?t\.me/([A-Za-z0-9_]+)/([1-9]\d*)/?$")
+STORY_LINK = re.compile(r"(?:https?://)?t\.me/([A-Za-z0-9_]+)/s/([1-9]\d*)/?$")
+PRIVATE_STORY_LINK = re.compile(r"(?:https?://)?t\.me/c/(\d+)/s/([1-9]\d*)/?$")
 
 CHECKPOINT_EVERY_CHUNKS = 16
 MAX_FILENAME_BYTES = 200
@@ -35,11 +37,48 @@ MAX_FILENAME_BYTES = 200
 @dataclass(frozen=True)
 class MediaSource:
     chat: str | None
-    message_id: int
+    message_id: int | None
     private_channel_id: int | None
+    story_id: int | None = None
+
+
+@dataclass(frozen=True)
+class _DownloadTarget:
+    """Uniform transfer input for message media and story media (ADR-0076)."""
+
+    media: object
+    filename: str | None
+    size: int | None
+    codec: str | None = None
+
+
+def is_story_link(source: str) -> bool:
+    return bool(STORY_LINK.fullmatch(source) or PRIVATE_STORY_LINK.fullmatch(source))
 
 
 def parse_source(source: str, message_id: int | None) -> MediaSource:
+    private_story = PRIVATE_STORY_LINK.fullmatch(source)
+    if private_story:
+        if message_id is not None:
+            raise NotFoundError(f"invalid media source: {source!r}")
+        return MediaSource(
+            chat=None,
+            message_id=None,
+            private_channel_id=int(private_story.group(1)),
+            story_id=int(private_story.group(2)),
+        )
+
+    story = STORY_LINK.fullmatch(source)
+    if story:
+        if message_id is not None:
+            raise NotFoundError(f"invalid media source: {source!r}")
+        return MediaSource(
+            chat=f"@{story.group(1)}",
+            message_id=None,
+            private_channel_id=None,
+            story_id=int(story.group(2)),
+        )
+
     private_match = PRIVATE_LINK.fullmatch(source)
     if private_match:
         if message_id is not None:
@@ -107,7 +146,58 @@ async def _resolve_private_entity(tg, channel_id: int, account_alias: str):
     )
 
 
-async def resolve_message(tg, source: MediaSource, account_alias: str):
+def _video_codec(document) -> str | None:
+    """Return the `documentAttributeVideo.video_codec` (h264/h265/av1)."""
+    for attribute in getattr(document, "attributes", ()) or ():
+        if isinstance(attribute, types.DocumentAttributeVideo):
+            return attribute.video_codec
+    return None
+
+
+def _document_filename(document, story_id: int) -> str:
+    for attribute in getattr(document, "attributes", ()) or ():
+        if isinstance(attribute, types.DocumentAttributeFilename):
+            return attribute.file_name
+    return f"story-{story_id}.mp4"
+
+
+def _story_target(story, codec: str | None) -> _DownloadTarget:
+    """Pick the download target for a story (ADR-0076).
+
+    Without a codec the main document downloads as-is. With one, the matching
+    document is chosen from `document` + `alt_documents` by its
+    `video_codec` attribute; `hevc` aliases Telegram's `h265`.
+    """
+    media = story.media
+    if isinstance(media, types.MessageMediaDocument) and media.document:
+        documents = [media.document] + list(media.alt_documents or [])
+        wanted = "h265" if codec == "hevc" else codec
+        if wanted is not None:
+            for document in documents:
+                if _video_codec(document) == wanted:
+                    return _DownloadTarget(
+                        media=document,
+                        filename=_document_filename(document, story.id),
+                        size=getattr(document, "size", None),
+                        codec=codec,
+                    )
+            raise NotFoundError(f"story has no {codec} encoding")
+        document = media.document
+        return _DownloadTarget(
+            media=media,
+            filename=_document_filename(document, story.id),
+            size=getattr(document, "size", None),
+        )
+    return _DownloadTarget(
+        media=media,
+        filename=f"story-{story.id}.jpg",
+        size=getattr(getattr(media, "photo", None), "size", None),
+    )
+
+
+async def resolve_message(
+    tg, source: MediaSource, account_alias: str, *, codec: str | None = None
+) -> tuple[object, _DownloadTarget]:
     try:
         entity = (
             await _resolve_private_entity(tg, source.private_channel_id, account_alias)
@@ -117,10 +207,26 @@ async def resolve_message(tg, source: MediaSource, account_alias: str):
     except ValueError:
         raise NotFoundError(f"dialog not found: {source.chat!r}") from None
 
+    if source.story_id is not None:
+        stories = await tg(
+            functions.stories.GetStoriesByIDRequest(
+                peer=await tg.get_input_entity(entity), id=[source.story_id]
+            )
+        )
+        if not stories.stories:
+            raise NotFoundError(f"story not found: {source.story_id}")
+        return entity, _story_target(stories.stories[0], codec)
+
+    if source.message_id is None:
+        raise NotFoundError(f"invalid media source: {_source_label(source)}")
     message = await tg.get_messages(entity, ids=source.message_id)
     if message is None or not getattr(message, "media", None):
         raise NotFoundError(f"downloadable media not found: {source.message_id}")
-    return entity, message
+    return entity, _DownloadTarget(
+        media=message.media,
+        filename=_message_filename(message, source.message_id),
+        size=_message_size(message),
+    )
 
 
 def _source_label(source: MediaSource) -> str:
@@ -129,6 +235,8 @@ def _source_label(source: MediaSource) -> str:
         if source.private_channel_id
         else source.chat
     )
+    if source.story_id is not None:
+        return f"story:{chat}:{source.story_id}"
     return f"{chat}:{source.message_id}"
 
 
@@ -251,12 +359,19 @@ async def download_media(
     output: str | None = None,
     parallel: int = 1,
     progress=None,
+    codec: str | None = None,
 ) -> dict:
     if parallel < 1:
         raise PolicyError("parallel media download count must be positive")
 
-    _, message = await resolve_message(tg, source, account_alias)
-    destination = destination_for(_message_filename(message, source.message_id), output)
+    _, target = await resolve_message(tg, source, account_alias, codec=codec)
+    if source.story_id is not None:
+        fallback_id = source.story_id
+    elif source.message_id is not None:
+        fallback_id = source.message_id
+    else:
+        raise NotFoundError(f"invalid media source: {_source_label(source)}")
+    destination = destination_for(safe_filename(target.filename, fallback_id), output)
     state_path, part_path = _state_paths(source)
     offset = _resume_offset(state_path, part_path, source, destination)
     resumed = offset > 0
@@ -271,7 +386,7 @@ async def download_media(
         _write_state(state_path, source, destination, 0, resumable=False)
         return await _download_parallel(
             tg,
-            message,
+            target,
             source,
             destination,
             state_path,
@@ -289,7 +404,7 @@ async def download_media(
         chunks_since_progress = 0
         try:
             async for chunk in tg.iter_download(
-                message.media, offset=offset, request_size=CHUNK_SIZE
+                target.media, offset=offset, request_size=CHUNK_SIZE
             ):
                 handle.write(bytes(chunk))
                 current = handle.tell()
@@ -300,7 +415,7 @@ async def download_media(
                     _write_state(state_path, source, destination, current)
                     chunks_since_checkpoint = 0
                 if progress and chunks_since_progress >= PROGRESS_EVERY_CHUNKS:
-                    progress(current, _message_size(message))
+                    progress(current, target.size)
                     chunks_since_progress = 0
         except BaseException:
             if chunks_since_checkpoint:
@@ -311,22 +426,25 @@ async def download_media(
             handle.flush()
             _write_state(state_path, source, destination, current)
         if progress and chunks_since_progress:
-            progress(current, _message_size(message))
+            progress(current, target.size)
 
     _publish(part_path, destination)
     state_path.unlink(missing_ok=True)
-    return {
+    data = {
         "source": _source_label(source),
         "path": str(destination),
         "bytes": destination.stat().st_size,
         "resumed": resumed,
         "parallel": 1,
     }
+    if target.codec is not None:
+        data["codec"] = target.codec
+    return data
 
 
 async def _download_parallel(
     tg,
-    message,
+    target: _DownloadTarget,
     source: MediaSource,
     destination: Path,
     state_path: Path,
@@ -334,15 +452,15 @@ async def _download_parallel(
     parallel: int,
     progress,
 ) -> dict:
-    total = _message_size(message)
+    total = target.size
     if not isinstance(total, int) or total <= 0:
         raise NotFoundError(
-            f"media size is unavailable for parallel download: {source.message_id}"
+            f"media size is unavailable for parallel download: {_source_label(source)}"
         )
 
     await download_striped(
         tg,
-        message.media,
+        target.media,
         part_path,
         size=total,
         parallel=parallel,
@@ -350,13 +468,16 @@ async def _download_parallel(
     )
     _publish(part_path, destination)
     state_path.unlink(missing_ok=True)
-    return {
+    data = {
         "source": _source_label(source),
         "path": str(destination),
         "bytes": destination.stat().st_size,
         "resumed": False,
         "parallel": parallel,
     }
+    if target.codec is not None:
+        data["codec"] = target.codec
+    return data
 
 
 def to_rows(data: dict) -> list[tuple]:
@@ -424,7 +545,7 @@ async def download_media_bulk(
     failed = []
     skipped = []
     hard_error = None
-    async for source, message, resolve_error in _iter_bulk_candidates(
+    async for source, target, resolve_error in _iter_bulk_candidates(
         tg,
         entity,
         chat,
@@ -440,19 +561,19 @@ async def download_media_bulk(
                 {"message_id": source.message_id, "error": str(resolve_error)}
             )
             continue
+        if target is None:
+            continue
+        fallback_id = (
+            source.story_id if source.story_id is not None else source.message_id
+        )
+        if fallback_id is None:
+            continue
         try:
             result = await download_media(
                 tg,
                 source,
                 account_alias,
-                output=str(
-                    output_dir
-                    / _message_filename(
-                        # download_media resolves again for transfer metadata
-                        message,
-                        source.message_id,
-                    )
-                ),
+                output=str(output_dir / safe_filename(target.filename, fallback_id)),
                 progress=progress,
             )
             items.append(
@@ -521,7 +642,7 @@ async def _iter_bulk_candidates(
     kind: str | None,
     since,
 ):
-    """Yield ``(source, message, resolve_error)`` rows for bulk download.
+    """Yield ``(source, target, resolve_error)`` rows for bulk download.
 
     Candidate-resolution ``NotFoundError`` is yielded as ``resolve_error`` so
     the caller can record an additive ``failed`` row and continue the batch.
@@ -544,12 +665,17 @@ async def _iter_bulk_candidates(
                         and message.date < since
                     ):
                         continue
+                    target = _DownloadTarget(
+                        media=message.media,
+                        filename=_message_filename(message, message_id),
+                        size=_message_size(message),
+                    )
                 else:
-                    _, message = await resolve_message(tg, source, account_alias)
+                    _, target = await resolve_message(tg, source, account_alias)
             except NotFoundError as exc:
                 yield source, None, exc
                 continue
-            yield source, message, None
+            yield source, target, None
         return
 
     async for message in tg.iter_messages(entity, limit=None):
@@ -561,7 +687,11 @@ async def _iter_bulk_candidates(
             continue
         yield (
             MediaSource(chat=chat, message_id=message.id, private_channel_id=None),
-            message,
+            _DownloadTarget(
+                media=message.media,
+                filename=_message_filename(message, message.id),
+                size=_message_size(message),
+            ),
             None,
         )
 

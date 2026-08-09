@@ -648,9 +648,11 @@ async def test_resolve_message_uses_public_chat_reference():
             assert ids == 42
             return message
 
-    assert await resolve_message(
+    resolved_entity, target = await resolve_message(
         FakeTelegram(), MediaSource("@channel", 42, None), "main"
-    ) == (entity, message)
+    )
+    assert resolved_entity is entity
+    assert target.media is message.media
 
 
 async def test_private_link_scans_dialogs_and_validates_channel():
@@ -673,9 +675,11 @@ async def test_private_link_scans_dialogs_and_validates_channel():
             assert ids == 878
             return message
 
-    assert await resolve_message(
+    resolved_entity, target = await resolve_message(
         FakeTelegram(), MediaSource(None, 878, 3817664407), "main"
-    ) == (entity, message)
+    )
+    assert resolved_entity is entity
+    assert target.media is message.media
 
 
 async def test_private_link_without_dialog_names_account():

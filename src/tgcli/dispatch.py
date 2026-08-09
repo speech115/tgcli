@@ -285,6 +285,21 @@ async def _download_media(tg, args, account) -> tuple[dict, list[tuple]]:
     def progress(current: int, total: int | None) -> None:
         output.note(f"downloaded {current}/{total if total is not None else '?'} bytes")
 
+    if media_cmd.is_story_link(args.source):
+        if bulk:
+            raise PolicyError("story links support single download only")
+        source = media_cmd.parse_source(args.source, args.message_id)
+        data = await media_cmd.download_media(
+            tg,
+            source,
+            account.alias,
+            output=args.output,
+            parallel=args.parallel,
+            codec=args.codec,
+            progress=progress,
+        )
+        return data, media_cmd.to_rows(data)
+
     if bulk:
         ids = media_cmd.parse_message_ids(message_ids_raw) if message_ids_raw else None
         data = await media_cmd.download_media_bulk(
@@ -307,6 +322,7 @@ async def _download_media(tg, args, account) -> tuple[dict, list[tuple]]:
         account.alias,
         output=args.output,
         parallel=args.parallel,
+        codec=args.codec,
         progress=progress,
     )
     return data, media_cmd.to_rows(data)
