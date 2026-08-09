@@ -54,6 +54,7 @@ READ_METHOD_ALLOWLIST = frozenset(
         "stories.getStoriesByID",
         "stories.getPeerStories",
         "stories.getStoryViewsList",
+        "upload.getFile",
         "users.getFullUser",
         "users.getUsers",
     }

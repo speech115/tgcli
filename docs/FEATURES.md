@@ -35,7 +35,7 @@ Status values:
 | stickers | api | No dedicated workflow; use raw TL only after task-specific review. |
 | stories | api | Read allowlist: `getPeerStories`, `getStoriesArchive`, `getStoriesByID`, `getStoryViewsList` (ADR-0010). No dedicated workflow; story publish/delete stay out. |
 | updates | wrapped | `tg changes` (ADR-0063) plus `archive sync` reuse of the same cursor/GetDifference seam (ADR-0068 Phase 4). |
-| upload | excluded | Raw part-upload remains impractical over JSON; wrapped media/send paths own it, including protected clone reupload. |
+| upload | api | `getFile` is an allowlisted read (ADR-0010); raw part-upload remains impractical over JSON, wrapped media/send paths own it, including protected clone reupload. |
 | users | wrapped | `info` covers daily identity inspection; raw TL covers the long tail. |
 
 ## Non-TL exclusions
