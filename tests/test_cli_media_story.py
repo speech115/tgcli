@@ -137,7 +137,6 @@ def make_text_story(story_id):
     return types.StoryItem(id=story_id, date=None, expire_date=None, media=media)
 
 
-
 async def test_resolve_text_story_raises_no_downloadable_media():
     """A text/emoji story has no downloadable media: clean NOT_FOUND, not a
     runtime failure later in the download path."""
@@ -254,7 +253,6 @@ async def test_resolve_story_without_codec_uses_main_document():
     assert target.codec is None
     assert target.filename == "story.mp4"
     assert target.size == 13
-
 
 
 def make_photo_story_with_sizes(story_id):

@@ -30,9 +30,10 @@ def config_env(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_CONFIG", str(path))
 
 
-
-def test_media_download_rejects_codec_on_message_source(config_env, monkeypatch, capsys):
-    """ADR-0079: --codec is story-only; a message source must not silently ignore it."""
+def test_media_download_rejects_codec_on_message_source(
+    config_env, monkeypatch, capsys
+):
+    """ADR-0078: --codec is story-only; a message source must not silently ignore it."""
     make_session_fake(monkeypatch, FakeClient())
 
     assert (

@@ -199,8 +199,9 @@ def test_transcribe_reports_premium_refusal(config_env, monkeypatch, capsys):
     assert "Premium" in capsys.readouterr().err
 
 
-
-def test_transcribe_plain_timeout_reports_transcription_id(config_env, monkeypatch, capsys):
+def test_transcribe_plain_timeout_reports_transcription_id(
+    config_env, monkeypatch, capsys
+):
     """CONTRACT §5: expiry reports the transcription_id — also in plain mode."""
     client = FakeClient(
         entities={"@socrates": CHANNEL},
