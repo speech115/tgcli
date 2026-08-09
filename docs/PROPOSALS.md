@@ -262,6 +262,7 @@ ISSUES.md, not here.)
 | `tg store stats` / `store cleanup` | med-high | S | **adopted — [ADR-0040](decisions/ADR-0040-wacli-review-adoption-scope.md)** |
 | `--events` NDJSON lifecycle stream | med-high | M | **deferred → FEED-001 (ADR-0040)** |
 | `tg doctor` offline by default + `--connect` | med | S | **adopted — [ADR-0040](decisions/ADR-0040-wacli-review-adoption-scope.md)** |
+| `tg doctor` runtime Telethon-schema check | med | S | **deferred — #96 option 4 (full lane: changes a released command)** |
 | `tg spec --json` | med | S | **deferred — needs overturning ADR-0028 (ADR-0040)** |
 
 Owner decision 2026-07-23 (grilling + domain-modeling session): adopt the two
@@ -302,7 +303,14 @@ validity, file permissions, session presence, lock state, and state size
 without claiming server authorization. Natural companion to ACCOUNTS-001,
 which needs a diagnosis path that works on a broken session.
 
-**`tg spec`.** *Not a wacli import* — wacli's `spec` is a documentation page,
+**`tg doctor` runtime-schema check (#96, option 4).** The recurring incident
+class behind #96 — agents opening tgcli sessions with a system/user-site
+Telethon older than the pinned 1.44 (`expected 5, got 6`) — was addressed
+2026-08-09 by the home-level runtime-boundary rule plus aligning the machine's
+user-site Telethon to 1.44. The remaining code-level rail: `tg doctor` warns
+when another Telethon on `PATH`/`python3` is older than the pinned version.
+Deferred because it changes a released command (ADR + release, full lane);
+revisit only if incidents recur despite the rule and the version alignment.
 not a command; the review only prompted the re-examination. Listed here for
 provenance. Rejected by ADR-0028 as "a second source of truth that drifts".
 That objection was right at the time and is weaker now: ADR-0034 made
