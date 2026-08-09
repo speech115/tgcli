@@ -34,11 +34,32 @@ def _mode_ok(path: Path) -> bool:
     return not bool(mode & (stat.S_IRWXG | stat.S_IRWXO))
 
 
-def _preview_perms_ok() -> bool:
+def _loose_previews() -> list[Path]:
     directory = safety.previews_dir()
     if not directory.is_dir():
-        return True
-    return all(_mode_ok(path) for path in directory.iterdir() if path.is_file())
+        return []
+    return [
+        path for path in directory.iterdir() if path.is_file() and not _mode_ok(path)
+    ]
+
+
+def _repair_preview_perms() -> int:
+    """Force every loose preview back to 0600; return how many were tightened.
+
+    Previews have been written 0600 since 1.1.2, but a file created before
+    that stayed world-readable forever and kept `preview_perms_ok` false
+    until the operator ran a *reaping* command — so the one command whose job
+    is to report health was permanently red and its own remedy deleted state
+    (#172). Repair is the honest reading of a check doctor already has to
+    stat, and `session.restrict_file` fails open: an unfixable file is
+    reported by the check that follows, never a doctor crash.
+    """
+    repaired = 0
+    for path in _loose_previews():
+        session.restrict_file(path)
+        if _mode_ok(path):
+            repaired += 1
+    return repaired
 
 
 def _audit_perms_ok() -> bool:
@@ -159,14 +180,17 @@ def _governor_check(session_file: Path) -> dict:
     return result
 
 
-async def check_account(account, *, connect: bool = False) -> dict:
+async def check_account(
+    account, *, connect: bool = False, preview_perms_repaired: int = 0
+) -> dict:
     session_file = session.session_path(account)
     has_session_file = session_file.is_file()
     checks: dict = {
         "session_file": has_session_file,
         "lock_free": has_session_file and session.lock_held(session_file) is False,
         "state_writable": _state_writable(),
-        "preview_perms_ok": _preview_perms_ok(),
+        "preview_perms_ok": not _loose_previews(),
+        "preview_perms_repaired": preview_perms_repaired,
         "audit_perms_ok": _audit_perms_ok(),
         "session_perms_ok": _session_perms_ok(session_file),
         "state_size": _state_size(),
@@ -209,17 +233,33 @@ async def check_account(account, *, connect: bool = False) -> dict:
 
 
 async def run(
-    config: Config, alias: str | None = None, *, connect: bool = False
+    config: Config,
+    alias: str | None = None,
+    *,
+    connect: bool = False,
+    readonly: bool = False,
 ) -> dict:
     if alias:
         accounts = [resolve_account(config, alias)]
     else:
         accounts = list(config.accounts.values())
-    reports = [await check_account(account, connect=connect) for account in accounts]
+    # Previews are account-agnostic, so the repair runs once for the whole
+    # invocation and every account report quotes the same number.
+    repaired = 0 if readonly else _repair_preview_perms()
+    if repaired:
+        note(f"tightened {repaired} preview file(s) to 0600")
+    reports = [
+        await check_account(account, connect=connect, preview_perms_repaired=repaired)
+        for account in accounts
+    ]
     if any(report["checks"]["preview_perms_ok"] is False for report in reports):
         note(
             "preview files are readable by other users; tighten them with: "
-            "tg store cleanup --confirm"
+            + (
+                "tg doctor without --readonly"
+                if readonly
+                else "chmod 600 on the files under the previews directory"
+            )
         )
     return {
         "runtime": _runtime_fingerprint(),

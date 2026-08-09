@@ -19,16 +19,22 @@ Basic groups that migrated to a supergroup, deactivated groups, and any other pe
 ## Check clone status
 
 ```bash
-tg --json clone status [SOURCE]
+tg --json clone status [SOURCE] [--all]
 ```
 
-`status` is local and read-only: it never loads config or opens a Telegram session. Without `SOURCE` it lists every clone state database (and any legacy JSON awaiting one-time import); with `SOURCE` it filters by exact numeric source id or a case-insensitive title substring. Each readable entry includes `schema_version` and `integrity` (ADR-0060).
+`status` is local and read-only: it never loads config or opens a Telegram session. Without `SOURCE` it lists every clone state database; with `SOURCE` it filters by exact numeric source id or a case-insensitive title substring. Each readable entry includes `schema_version` and `integrity` (ADR-0060).
 
 ```json
-{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination_id":999,"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled","schema_version":1,"integrity":"ok"}]}
+{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source","username":null},"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled","schema_version":2,"integrity":"ok"}],"pending_import":0}
 ```
 
-`--plain` columns: `source_peer_id`, `source_title`, `source_kind`, `destination_peer_id`, `cursor`, `copied`, `last_synced_at`, `comments`.
+A clone destination is private, so `destination.title` is the only readable
+name it has; `clone init` and `clone sync` record it as they resolve the peer,
+and it stays `null` on a clone neither has touched since. `pending_import`
+counts state slots this version cannot import — they carry no information at
+all, so they are counted rather than listed, and `--all` shows them.
+
+`--plain` columns: `source_peer_id`, `source_title`, `source_kind`, `destination` (title, or the peer id when no title is recorded), `cursor`, `copied`, `last_synced_at`, `comments`.
 
 ## Export clone state (rollback / diagnostics)
 

@@ -82,6 +82,12 @@ class CloneState:
     topic_map: dict[str, int] = field(default_factory=dict)
     version: int = VERSION
     destination_peer_id: int | None = None
+    # Last name the destination was seen under, recorded by init/sync/refresh
+    # so the offline `clone status` can say which channel a clone writes to
+    # (a private destination has no username to look up). Null until the
+    # clone is next touched by a command that resolves the peer.
+    destination_title: str | None = None
+    destination_username: str | None = None
     creation_marker: str | None = None
     cursor: int = 0
     id_map: dict[str, int] = field(default_factory=dict)
@@ -224,6 +230,8 @@ class CloneState:
             "destination_kind": self.destination_kind,
             "topic_map": self.topic_map,
             "destination_peer_id": self.destination_peer_id,
+            "destination_title": self.destination_title,
+            "destination_username": self.destination_username,
             "creation_marker": self.creation_marker,
             "cursor": self.cursor,
             "id_map": self.id_map,
@@ -297,6 +305,13 @@ class CloneState:
             or (pin_occupied and pinned_dest_id is not None)
         ):
             raise ValueError("inconsistent pin state")
+        destination_title = data.get("destination_title")
+        destination_username = data.get("destination_username")
+        if any(
+            value is not None and type(value) is not str
+            for value in (destination_title, destination_username)
+        ):
+            raise ValueError("invalid destination name")
         id_map = data.get("id_map", {})
         if not _valid_id_map(id_map, 1):
             raise ValueError("invalid id map")
@@ -315,6 +330,8 @@ class CloneState:
             destination_kind=destination_kind,
             topic_map=dict(topic_map),
             destination_peer_id=data.get("destination_peer_id"),
+            destination_title=destination_title,
+            destination_username=destination_username,
             creation_marker=data.get("creation_marker"),
             cursor=data.get("cursor", 0),
             id_map=dict(id_map),

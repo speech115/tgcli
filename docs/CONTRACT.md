@@ -802,16 +802,28 @@ may create and acquire its `.lock` file, and they create then remove a
 `.doctor-probe` file in the preview-state directory. A missing session is not
 locked and creates no lock file. These probes do not mutate Telegram.
 
+`doctor` also **repairs** the one thing it can: any preview file whose mode is
+not `0600` is chmod'd back before the checks read it, and
+`checks.preview_perms_repaired` counts the files tightened this run (ADR-0081).
+The repair is a local-state mutation, so `--readonly` / `TGCLI_READONLY=1`
+skips it — the check then reports `preview_perms_ok: false` as before.
+`TGCLI_NO_SEND=1` does not apply (no Telegram traffic).
+
 `--json` emits:
 
 ```json
 {"runtime":{"python":"/home/me/tgcli/.venv/bin/python","python_version":"3.12.9","telethon":"1.44.0"},
 "accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
 "checks":{"session_file":true,"lock_free":true,"state_writable":true,
-"preview_perms_ok":true,"audit_perms_ok":true,"session_perms_ok":true,
+"preview_perms_ok":true,"preview_perms_repaired":0,"audit_perms_ok":true,
+"session_perms_ok":true,
 "state_size":4096,"authorized":null,"governor_degraded":false,"governor_cooldowns":{}},
 "user":null,"roles":[],"ok":true}],"ok":true}
 ```
+
+`preview_perms_repaired` is an invocation-wide count (previews are not
+per-account), repeated identically in every account report. Role reports
+carry only the session/lock/permission probes and never this key.
 
 The top-level `runtime` object identifies the interpreter and Telethon build
 that produced the report. It is diagnostic only and does not change health
@@ -827,9 +839,10 @@ represented as `checks.error`, with `authorized: false`, `user: null`, and
 `ok` requires every role report to be healthy too. `--plain` uses frozen
 columns: `alias`, `status` (`ok|fail|unknown`), `username`, `failures`.
 Role rows use `alias@role` in the `alias` column. `unknown` means local
-checks passed and authorization was not probed. When `preview_perms_ok` is
-false, `doctor` prints a one-line remedy hint to **stderr** (`tg store
-cleanup --confirm`); stdout stays the JSON/rows document only.
+checks passed and authorization was not probed. A repair prints a one-line
+count to **stderr**; when `preview_perms_ok` is still false afterwards (an
+unfixable file, or `--readonly`), `doctor` prints a one-line remedy hint
+there too. stdout stays the JSON/rows document only.
 
 When `doctor` itself runs, it always exits 0; consult the top-level `ok` and
 per-account `ok` values for health failures. An invalid or unreadable config,
@@ -1123,7 +1136,7 @@ clones from before this feature have `comments: "none"` and are never
 retroactively upgraded in place.
 
 ```text
-tg clone status [SOURCE]
+tg clone status [SOURCE] [--all]
 tg clone init SOURCE
 tg clone init SOURCE --replace
 tg clone init SOURCE --no-comments
@@ -1135,27 +1148,41 @@ tg clone export-state SOURCE
 ```
 
 `status` is local and read-only: it never loads config or opens a Telegram
-session. Without `SOURCE` it lists every clone state database (and any
-legacy `.json` awaiting one-time import); with `SOURCE` it
+session. Without `SOURCE` it lists every clone state database; with `SOURCE` it
 filters by exact numeric source id — either the raw peer id or its
 `-100`-marked form — or by case-insensitive title substring. JSON:
 
 ```json
-{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination_id":999,"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled","schema_version":1,"integrity":"ok"}]}
+{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source","username":null},"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled","schema_version":2,"integrity":"ok"}],"pending_import":0}
 ```
+
+`destination` mirrors the `source` shape (ADR-0081). `title` and `username`
+are the last names the destination was seen under, recorded by `clone init`
+and `clone sync`; both are `null` for a clone neither has touched since the
+names were introduced, and `username` is `null` for the private destinations
+init creates. `status` never resolves them over the network.
 
 Each readable entry carries `schema_version` (SQLite `PRAGMA user_version`)
 and `integrity` (`"ok"` or the integrity-check error string). Plain status
-columns are `source_peer_id`, `source_title`, `source_kind`,
-`destination_peer_id`, `cursor`, `copied`, `last_synced_at`, `comments`.
+columns are `source_peer_id`, `source_title`, `source_kind`, `destination`
+(its title, or the numeric peer id when no title is recorded), `cursor`,
+`copied`, `last_synced_at`, `comments`.
 
-A corrupt or legacy (unsupported-version) state file never aborts the listing:
-without `SOURCE` it appears as a marked entry `{"clone_id":"hex","unreadable":
+A corrupt or legacy state file never aborts the listing: without `SOURCE` it
+appears as a marked entry `{"clone_id":"hex","unreadable":
 true,...,"schema_version":null,"integrity":"<error>"}` with every other field
 null, and in plain output its `source_title`
 column carries the `clone_id` and its `comments` column reads `unreadable`.
 Because an unreadable file's identity cannot be matched, it is omitted from
 `SOURCE`-filtered listings. Readable entries never carry the `unreadable` key.
+
+`pending_import` counts the slots holding a `.json` document with no `.db`
+beside it that this version cannot import — a pre-v2 document, or one too
+broken to parse. Such an entry has no field but `clone_id`, so it is **not
+listed** by default; `--all` includes it in `clones` alongside the other
+unreadable entries, and `status` prints a one-line pointer to `--all` on
+**stderr** whenever it hid any. The count is reported whether or not `SOURCE`
+or `--all` is given, because the slots exist on disk either way.
 
 `export-state SOURCE` is local and read-only (ADR-0060). It prints exactly one
 clone's state as the v2 JSON document (`CloneState.to_dict()` shape) on

@@ -87,6 +87,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0078](ADR-0078-codec-story-sources-only.md) | `tg media download` rejects `--codec` on non-story sources (message or bulk) with the existing `BLOCKED` exit 2 instead of silently ignoring the flag; the ADR-0076 encoding scope becomes enforced at the dispatch level | accepted |
 | [0079](ADR-0079-transcribe-readonly-gate.md) | `messages.transcribeAudio` is classified as a mutation: `tg transcribe` is blocked by `--readonly` (exit 2) in preflight and writes an audit record with chat + message_id; the raw `tg api` write classification is unchanged | accepted |
 | [0080](ADR-0080-release-notes-trim-blank-lines.md) | The release-tag workflow trims leading blank lines and whitespace-only sections from the published notes: a marker-only CHANGELOG section now fails the run red instead of publishing empty notes | accepted |
+| [0081](ADR-0081-diagnostics-report-what-they-can-act-on.md) | `doctor` repairs the loose preview modes it checks, `clone status` counts unimportable state slots instead of listing empty rows and names the clone destination, and the clone state schema migrates forward in place | accepted |
 
 Notes on supersessions:
 
