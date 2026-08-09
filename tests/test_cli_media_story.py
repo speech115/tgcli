@@ -94,6 +94,31 @@ class StoryTelegram:
             yield chunk
 
 
+class EmptyStoryTelegram(StoryTelegram):
+    """A story link whose target no longer exists: empty stories response."""
+
+    async def __call__(self, request):
+        self.requests.append(request)
+        return types.stories.Stories(count=0, stories=[], chats=[], users=[])
+
+
+class UserStoryTelegram(StoryTelegram):
+    """A user-story link: resolution must build an InputPeerUser."""
+
+    def __init__(self, story):
+        super().__init__(story)
+        self.user = types.User(id=555, first_name="Kazbek", access_hash=9)
+
+    async def get_entity(self, chat):
+        assert chat == "@kazbeksocrates"
+        return self.user
+
+    async def get_input_entity(self, entity):
+        return types.InputPeerUser(
+            user_id=self.user.id, access_hash=self.user.access_hash
+        )
+
+
 @pytest.fixture
 def config_env(tmp_path, monkeypatch):
     path = tmp_path / "config.toml"
@@ -157,6 +182,29 @@ async def test_resolve_text_story_with_codec_raises_missing_encoding():
             parse_source("https://t.me/kazbeksocrates/s/937", None),
             "main",
             codec="h264",
+        )
+
+
+async def test_resolve_user_story_issues_input_peer_user():
+    fake = UserStoryTelegram(make_story(937))
+
+    entity, target = await resolve_message(
+        fake, parse_source("https://t.me/kazbeksocrates/s/937", None), "main"
+    )
+
+    request = fake.requests[0]
+    assert isinstance(request, functions.stories.GetStoriesByIDRequest)
+    assert isinstance(request.peer, types.InputPeerUser)
+    assert request.peer.user_id == 555
+    assert request.peer.access_hash == 9
+
+
+async def test_resolve_deleted_story_raises_not_found():
+    fake = EmptyStoryTelegram(make_story(937))
+
+    with pytest.raises(NotFoundError, match="story not found"):
+        await resolve_message(
+            fake, parse_source("https://t.me/kazbeksocrates/s/937", None), "main"
         )
 
 
