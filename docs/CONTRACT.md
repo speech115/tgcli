@@ -1324,6 +1324,15 @@ bounded with `--max-runtime` (exhausting it is a normal stop, exit 0, with
 a resume pointer) — `clone refresh`'s passes are short and bounded by their
 own caps, and read no wall clock.
 
+`sync SOURCE` and `refresh SOURCE` accept the same references as every other
+command plus, for an already-initialized clone, a **title** (ADR-0082): a
+`SOURCE` that is neither an id nor a username/invite link is matched against
+the recorded clone titles of the active account with the `status` matcher, and
+the single match's recorded source peer id is used. Two matching clones exit 2;
+no match falls through to Telegram resolution. A source this account cannot
+open — unresolvable, private, invalid, or forbidden — exits 4 with
+`clone source not found: '<SOURCE>'`, never a raw RPC message.
+
 `sync SOURCE` requires initialized state and a private creator-owned destination
 of the source-dependent kind. It verifies the destination tail before reading
 new source history. Rows after the largest persisted message or topic mapping

@@ -445,6 +445,9 @@ class CloneCommentsClient(CloneReuploadClient):
             assert entity is self.source_group
             found = [item for item in self.comments if item.id == ids]
             return found[0] if found else None
+        if entity is self.source_group and limit == 0:
+            # The comments leg asks its own source for its ~total (#174).
+            return SimpleNamespace(total=len(self.comments))
         if entity is self.destination_group:
             # Telegram fills a live discussion group with its own anchors for
             # our posts; anything else must be planted explicitly.
@@ -4319,7 +4322,9 @@ def test_sync_reports_batch_progress_on_stderr(config_env, monkeypatch, capsys):
 
     lines = progress_lines(capsys.readouterr().err)
     assert lines[-2] == "[sync 123] 2/~2 · forwarded"
-    assert lines[-1] == "[sync 123] 2/~2 · roster"
+    # The roster leg copies participants, not messages: its own counters
+    # start empty rather than echoing the posts leg's (#174).
+    assert lines[-1] == "[sync 123] 0/~? · roster"
 
 
 def test_sync_progress_counts_continue_from_earlier_runs(
@@ -4389,17 +4394,19 @@ def test_sync_announces_the_comments_and_roster_phases(config_env, monkeypatch, 
     assert main(["clone", "sync", "@source"]) == 0
 
     lines = progress_lines(capsys.readouterr().err)
-    comments_idx = lines.index("[sync 123] 1/~1 · comments")
-    # The batch immediately after the comments phase line must show a resolved
-    # denominator (posts-leg source total), not the stuck `~?` from a stale
-    # `_total_resolved` flag. Two comment messages → two batches after the phase.
-    assert lines[comments_idx + 1] == "[sync 123] 2/~1 · reuploaded"
-    assert lines[comments_idx + 2] == "[sync 123] 3/~1 · reuploaded"
-    # Roster announces with the prior leg's resolved total, then clears it;
-    # it never calls resolve_total itself.
-    assert lines[-1] == "[sync 123] 3/~1 · roster"
-    # Posts + comments each resolve once (limit=0); never once per comment batch.
-    assert client.total_requests == 2
+    # Each leg counts its own work against its own source (#174): the posts
+    # leg against the channel (1 post), the comments leg against the
+    # discussion group (3 items). The batch after the phase line must show a
+    # resolved denominator, not the stuck `~?` of a stale `_total_resolved`.
+    assert lines[0] == "[sync 123] 0/~? · posts"
+    comments_idx = lines.index("[sync 123] 0/~? · comments")
+    assert lines[comments_idx - 1] == "[sync 123] 1/~1 · forwarded"
+    assert lines[comments_idx + 1] == "[sync 123] 1/~3 · reuploaded"
+    assert lines[comments_idx + 2] == "[sync 123] 2/~3 · reuploaded"
+    assert lines[-1] == "[sync 123] 0/~? · roster"
+    # The posts leg resolves once per window (limit=0); the comments leg asks
+    # the discussion group, never the channel.
+    assert client.total_requests == 1
 
 
 def test_sync_reports_transfer_bytes_while_reuploading(config_env, monkeypatch, capsys):
@@ -4663,3 +4670,64 @@ def test_clone_sync_max_runtime_stops_normally_with_resume(
     data = json.loads(capsys.readouterr().out)
     assert data["stop_reason"] == "wall_clock_cap"
     assert "resume" in data
+
+
+def test_sync_resolves_a_bare_title_through_clone_state(
+    config_env, monkeypatch, capsys
+):
+    """#171: a title is not something Telegram resolves.
+
+    Telethon falls back to its session entity cache and can answer with a
+    stale access hash, which the server rejects as CHANNEL_PRIVATE. The
+    clone's own state already records the peer id under that title.
+    """
+    seed_clone()
+
+    class TitleClient(CloneSyncClient):
+        async def get_entity(self, ref):
+            if isinstance(ref, types.PeerChannel) and ref.channel_id == 123:
+                return self.source
+            if isinstance(ref, str):
+                raise AssertionError(f"title must not reach Telegram: {ref!r}")
+            return await super().get_entity(ref)
+
+    client = TitleClient([message(2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "Source channel", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 1
+
+
+def test_sync_title_matching_two_clones_is_blocked(config_env, monkeypatch, capsys):
+    seed_clone(title="Source channel")
+    other = state.CloneState.new(
+        account_user_id=42,
+        source_peer_id=124,
+        source_title="Source channel copy",
+    )
+    other.destination_peer_id = 998
+    state.save(other)
+    make_session_fake(monkeypatch, CloneSyncClient([message(2)]))
+
+    assert main(["clone", "sync", "Source channel", "--json"]) == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "BLOCKED"
+    assert "matched 2 clones" in payload["error"]["message"]
+
+
+def test_sync_unreachable_source_is_not_found_not_a_raw_rpc_error(
+    config_env, monkeypatch, capsys
+):
+    """#171: `ChannelPrivate` blamed the operator's access for a resolve bug."""
+    seed_clone()
+
+    class PrivateClient(CloneSyncClient):
+        async def get_entity(self, ref):
+            raise telethon_errors.ChannelPrivateError(request=None)
+
+    make_session_fake(monkeypatch, PrivateClient([message(2)]))
+
+    assert main(["clone", "sync", "@source", "--json"]) == 4
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "NOT_FOUND"
+    assert "clone source" in payload["error"]["message"]

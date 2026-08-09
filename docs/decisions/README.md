@@ -88,6 +88,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0079](ADR-0079-transcribe-readonly-gate.md) | `messages.transcribeAudio` is classified as a mutation: `tg transcribe` is blocked by `--readonly` (exit 2) in preflight and writes an audit record with chat + message_id; the raw `tg api` write classification is unchanged | accepted |
 | [0080](ADR-0080-release-notes-trim-blank-lines.md) | The release-tag workflow trims leading blank lines and whitespace-only sections from the published notes: a marker-only CHANGELOG section now fails the run red instead of publishing empty notes | accepted |
 | [0081](ADR-0081-diagnostics-report-what-they-can-act-on.md) | `doctor` repairs the loose preview modes it checks, `clone status` counts unimportable state slots instead of listing empty rows and names the clone destination, and the clone state schema migrates forward in place | accepted |
+| [0082](ADR-0082-clone-sync-answers-for-its-own-legs.md) | `clone sync`/`refresh` resolve a bare title from clone state instead of Telethon's entity cache, report an unopenable source as exit 4, and count progress per leg against that leg's own source | accepted |
 
 Notes on supersessions:
 

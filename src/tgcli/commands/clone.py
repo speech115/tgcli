@@ -19,6 +19,7 @@ from tgcli.clone import (
     fidelity,
     init_peers,
     legs,
+    lookup,
     pin,
     progress as clone_progress,
     quote_fallback,
@@ -62,27 +63,6 @@ def _entry(s: state.CloneState) -> dict:
     }
 
 
-def _matches(s: state.CloneState, source: str | None) -> bool:
-    """SOURCE is a raw or -100-marked peer id, else a title substring.
-
-    The digit test stays `isdigit()`, not `int()`: int() also accepts `+1`,
-    `1_000`, and padded forms, which would steal titles from the substring
-    path. Digit-shaped strings int() still rejects (superscripts) fall
-    through to that path rather than crashing the listing."""
-    if source is None:
-        return True
-    if not source.lstrip("-").isdigit():
-        return source.casefold() in s.source_title.casefold()
-    try:
-        wanted = int(source)
-    except ValueError:
-        return source.casefold() in s.source_title.casefold()
-    return wanted in (
-        s.source_peer_id,
-        telethon_utils.get_peer_id(types.PeerChannel(s.source_peer_id)),
-    )
-
-
 def _unreadable_entry(clone_id: str) -> dict:
     probe = state.probe(clone_id)
     return {
@@ -112,12 +92,7 @@ def list_clones(source: str | None = None, *, include_all: bool = False) -> dict
     directory = state.clones_dir()
     if not directory.exists():
         return {"clones": [], "pending_import": 0}
-    clone_ids: set[str] = set()
-    for path in directory.glob("*.db"):
-        clone_ids.add(path.stem)
-    for path in directory.glob("*.json"):
-        if not path.name.startswith("account-"):
-            clone_ids.add(path.stem)
+    clone_ids = lookup.slot_ids()
     entries = []
     pending_import = 0
     for clone_id in clone_ids:
@@ -134,7 +109,7 @@ def list_clones(source: str | None = None, *, include_all: bool = False) -> dict
             if source is None:
                 entries.append(entry)
             continue
-        if loaded is None or not _matches(loaded, source):
+        if loaded is None or not lookup.matches(loaded, source):
             continue
         entries.append(_entry(loaded))
     # An unreadable entry has no created_at at all (CONTRACT §11: every field
@@ -145,22 +120,9 @@ def list_clones(source: str | None = None, *, include_all: bool = False) -> dict
 
 def export_state(source: str) -> dict:
     """Readonly rollback/diagnostic path: the v2 JSON document for one clone."""
-    matches: list[state.CloneState] = []
-    directory = state.clones_dir()
-    if directory.exists():
-        clone_ids: set[str] = set()
-        for path in directory.glob("*.db"):
-            clone_ids.add(path.stem)
-        for path in directory.glob("*.json"):
-            if not path.name.startswith("account-"):
-                clone_ids.add(path.stem)
-        for clone_id in clone_ids:
-            try:
-                loaded = state.load(clone_id)
-            except PolicyError:
-                continue
-            if loaded is not None and _matches(loaded, source):
-                matches.append(loaded)
+    matches = [
+        loaded for loaded in lookup.loaded_states() if lookup.matches(loaded, source)
+    ]
     if not matches:
         raise PolicyError(f"clone not found: {source!r}")
     if len(matches) > 1:
@@ -211,10 +173,17 @@ def _record_destination_name(clone_state, destination) -> None:
     clone_state.destination_username = getattr(destination, "username", None)
 
 
-async def _resolve_source(tg, source: str):
+async def _resolve_source(tg, source: str, *, account_user_id: int | None = None):
+    """Resolve SOURCE to an entity. Pass ``account_user_id`` where a clone must
+    already exist, so a title can be answered from state instead of Telegram."""
+    ref = chatref.parse(source)
+    if account_user_id is not None and isinstance(ref, str):
+        ref = lookup.recorded_source_ref(account_user_id, source) or ref
     try:
-        entity = await tg.get_entity(chatref.parse(source))
-    except ValueError:
+        entity = await tg.get_entity(ref)
+    except DESTINATION_UNAVAILABLE:
+        # ValueError plus the peer-refusal family: from here they all mean the
+        # same operable thing — this account cannot open that source.
         raise NotFoundError(f"clone source not found: {source!r}") from None
     kind = attribution.source_kind(entity)
     return entity, kind, attribution.display_name(entity)
@@ -754,7 +723,9 @@ async def sync_text(
     # never hits Telegram at all (ADR-0045). Per-clone deadline is checked
     # after state load below.
     me = await tg.get_me()
-    source_entity, source_kind, _ = await _resolve_source(tg, source)
+    source_entity, source_kind, _ = await _resolve_source(
+        tg, source, account_user_id=me.id
+    )
     clone_state = state.load(state.clone_id(me.id, source_entity.id))
     if clone_state is None or clone_state.destination_peer_id is None:
         raise PolicyError("clone is not initialized; run clone init first")
@@ -835,9 +806,12 @@ async def sync_text(
             leg.cursor = messages[-1].id
             state.save(clone_state)
             return
+        # `source` is this leg's own entity — the channel for posts, the
+        # discussion group for comments — so the ~total describes the work
+        # the leg's counter is counting (#174).
         await progress.resolve_total(
             tg,
-            source_entity,
+            source,
             lambda make_awaitable: make_awaitable(),
         )
         plan = transport.decide(
@@ -949,11 +923,14 @@ async def sync_text(
         # Enter comments only while --limit budget remains; a limit hit during
         # posts ends the run (same as today for limit < WINDOW).
         while not more and not cap_exhausted():
+            # Each interleaved window re-announces its leg so the counters
+            # belong to the leg that is running (ADR-0051 interleave, #174).
+            progress.phase("posts", copied=len(clone_state.id_map))
             ran = await run_posts_window(legs.WINDOW)
             if more or cap_exhausted():
                 break
             posts_exhausted = ran < legs.WINDOW
-            progress.phase("comments")
+            progress.phase("comments", copied=len(clone_state.discussion_id_map))
             more = await comments.sync_phase(
                 tg,
                 clone_state,
@@ -1059,7 +1036,9 @@ def sync_rows(data: dict) -> list[tuple]:
 
 async def _load_refresh_context(tg, source: str):
     me = await tg.get_me()
-    source_entity, source_kind, _ = await _resolve_source(tg, source)
+    source_entity, source_kind, _ = await _resolve_source(
+        tg, source, account_user_id=me.id
+    )
     clone_state = state.load(state.clone_id(me.id, source_entity.id))
     if clone_state is None or clone_state.destination_peer_id is None:
         raise PolicyError("clone is not initialized; run clone init first")
