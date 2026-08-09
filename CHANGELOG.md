@@ -11,6 +11,33 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [2.0.3] — 2026-08-09
+
+`tg transcribe` is now classified as a mutation: `--readonly` (and
+`TGCLI_READONLY`) blocks it with exit 2 (`BLOCKED`) before any network call,
+and every attempt writes an audit record naming the chat and message id —
+never the transcribed text. Read-only automation that called `tg transcribe`
+must drop the flag to keep working. Transcription waits are also correct now:
+an update carrying a different `transcription_id` no longer satisfies the
+wait, an update that arrives before the RPC response is replayed rather than
+lost, and a timeout reports the `transcription_id` in every output mode.
+`tg media download --codec` is exit 2 (`BLOCKED`) on non-story sources instead
+of being silently ignored. Releases publish themselves: the `Release tag`
+workflow now writes the GitHub Releases page from the CHANGELOG section and
+fails red rather than publishing empty notes.
+
+Rationale: ADR-0077, ADR-0078, ADR-0079, ADR-0080.
+
+### Changed
+
+- Pin the release publish step and trim empty notes (ADR-0080) (#166)
+- Gate tg transcribe behind --readonly and audit it (ADR-0079) (#163)
+- Fix transcribe update matching and story-media edge cases (ADR-0078) (#167)
+- State the real pre-dispatch semantics of archive refresh (docs) (#164)
+- Document the upload.getFile allowlist addition (ADR-0010, CONTRACT) (#168)
+- Restore the tg spec proposal heading in PROPOSALS.md (#165)
+- Publish GitHub Releases from the tag workflow (ADR-0077) (#162)
+
 ## [2.0.2] — 2026-08-09
 
 `tg media download` now accepts story links — public `t.me/<user>/s/<id>` and
@@ -722,6 +749,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[2.0.3]: https://github.com/speech115/tgcli/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/speech115/tgcli/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/speech115/tgcli/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/speech115/tgcli/compare/v1.2.25...v2.0.0
