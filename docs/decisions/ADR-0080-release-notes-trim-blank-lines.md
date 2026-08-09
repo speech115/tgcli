@@ -23,6 +23,14 @@ The extraction pipeline strips the marker and any leading blank line
 tests the whitespace-free form (`tr -d '[:space:]'`). A marker-only section
 now turns the run red exactly like a missing section.
 
+## Rejected alternatives
+
+- Leaving the backfilled entries as-is: the leading newline would keep
+  shipping on every future release page entry.
+- Refusing marked sections at prepare-time (scripts/prepare-release.py):
+  the strip is already the ADR-0077 mechanism; making prepare refuse the
+  marker would break the documented revisit workflow.
+
 ## Contract impact
 
 None: workflow behavior only; no CLI, JSON, or exit-code change. The red

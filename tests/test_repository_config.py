@@ -62,7 +62,10 @@ def test_the_release_workflow_publishes_the_github_release_page() -> None:
     # Idempotent publish: an existing Release is the only skip; the step
     # must not exit before the publish check on a re-run.
     assert 'if gh release view "$tag" >/dev/null 2>&1; then' in workflow
-    assert "already exists; nothing to do" in workflow
+    assert (
+        'echo "GitHub Release $tag already exists; nothing to do"\n'
+        "            exit 0" in workflow
+    )
     # Notes come from the bumped version's CHANGELOG section, marker stripped.
     assert 'notes=$(awk -v want="$version" \'' in workflow
     assert "sed -e '/prepare-release:/d'" in workflow
