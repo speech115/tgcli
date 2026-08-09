@@ -190,6 +190,31 @@ async def test_resolve_story_missing_codec_raises():
         )
 
 
+async def test_resolve_photo_story_with_codec_raises():
+    """ADR-0076: `--codec` on a non-video story reports the missing encoding
+    instead of silently downloading the photo."""
+    fake = StoryTelegram(make_photo_story(937))
+
+    with pytest.raises(NotFoundError, match="no h264 encoding"):
+        await resolve_message(
+            fake,
+            parse_source("https://t.me/kazbeksocrates/s/937", None),
+            "main",
+            codec="h264",
+        )
+
+
+async def test_resolve_photo_story_without_codec_uses_photo():
+    fake = StoryTelegram(make_photo_story(937))
+
+    _, target = await resolve_message(
+        fake, parse_source("https://t.me/kazbeksocrates/s/937", None), "main"
+    )
+
+    assert target.codec is None
+    assert target.filename == "story-937.jpg"
+
+
 async def test_resolve_story_without_codec_uses_main_document():
     fake = StoryTelegram(make_story(937, alts=[("h264", 3, "story_h264.mp4")]))
 

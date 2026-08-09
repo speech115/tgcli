@@ -41,18 +41,30 @@ async def transcribe_message(tg, chat: str, message_id: int, timeout: float) -> 
 
     # The result handler is registered before the request (race-free): the
     # RPC returns the first update (usually pending=True), and the text
-    # arrives later through the normal update pipeline. Filtering on
-    # peer+message keeps a concurrent transcription from satisfying the wait.
+    # arrives later through the normal update pipeline. The server assigns
+    # the transcription_id in the RPC response, so an update that arrives
+    # before the response is parked in `early` and replayed once the id is
+    # known. After that, updates are matched on transcription_id (not just
+    # msg_id): a concurrent transcription of the same message — another
+    # dialog, or a re-run of this one — must not satisfy the wait
+    # (ADR-0075).
     arrived = asyncio.Event()
-    state: dict[str, str] = {}
+    state: dict[str, object] = {}
+    early: list[types.UpdateTranscribedAudio] = []
 
-    async def _on_update(event) -> None:
-        if event.msg_id != message_id:
+    def _settle(event: types.UpdateTranscribedAudio) -> None:
+        if state.get("transcription_id") != event.transcription_id:
             return
         if event.pending:
             return
         state["text"] = event.text
         arrived.set()
+
+    async def _on_update(event: types.UpdateTranscribedAudio) -> None:
+        if state.get("transcription_id") is None:
+            early.append(event)
+            return
+        _settle(event)
 
     handler = tg.add_event_handler(_on_update, events.Raw(types.UpdateTranscribedAudio))
     try:
@@ -68,6 +80,9 @@ async def transcribe_message(tg, chat: str, message_id: int, timeout: float) -> 
             ) from exc
 
         if result.pending:
+            state["transcription_id"] = result.transcription_id
+            for early_event in early:
+                _settle(early_event)
             try:
                 await asyncio.wait_for(arrived.wait(), timeout=timeout)
             except TimeoutError:

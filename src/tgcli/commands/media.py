@@ -188,6 +188,8 @@ def _story_target(story, codec: str | None) -> _DownloadTarget:
             filename=_document_filename(document, story.id),
             size=getattr(document, "size", None),
         )
+    if codec is not None:
+        raise NotFoundError(f"story has no {codec} encoding")
     return _DownloadTarget(
         media=media,
         filename=f"story-{story.id}.jpg",

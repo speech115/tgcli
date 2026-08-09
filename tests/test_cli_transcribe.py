@@ -8,6 +8,7 @@ from telethon.tl import functions, types
 
 from tests.conftest import FakeClient, make_session_fake
 from tgcli.cli import main
+from tgcli.errors import CommandTimeoutError
 
 SAMPLE = """
 default_account = "main"
@@ -132,6 +133,38 @@ def test_transcribe_waits_for_async_update_when_pending(config_env, monkeypatch)
     }
     # The raw handler is unregistered after the wait completes.
     assert client.event_handlers == []
+
+
+def test_transcribe_ignores_update_with_foreign_transcription_id(
+    config_env, monkeypatch
+):
+    """ADR-0075: the wait matches on transcription_id — an update for the same
+    msg_id from a concurrent transcription must not satisfy it."""
+    import asyncio
+
+    from tgcli.commands import transcribe as transcribe_cmd
+
+    client = FakeClient(
+        entities={"@socrates": CHANNEL},
+        messages=[make_voice_message(42)],
+        transcribe_result=transcribe_update(transcription_id=7, text="", pending=True),
+    )
+    make_session_fake(monkeypatch, client)
+
+    async def scenario():
+        task = asyncio.create_task(
+            transcribe_cmd.transcribe_message(client, "@socrates", 42, timeout=0.05)
+        )
+        await asyncio.sleep(0.01)
+        # Same msg_id, different transcription_id: a concurrent transcription
+        # of the same message (another dialog, or a re-run of this one).
+        client.fire_update(
+            transcribe_update(transcription_id=99, text="Чужой", pending=False)
+        )
+        with pytest.raises(CommandTimeoutError):
+            await task
+
+    asyncio.run(scenario())
 
 
 def test_transcribe_rejects_non_voice_message(config_env, monkeypatch, capsys):
