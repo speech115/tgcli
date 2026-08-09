@@ -132,6 +132,35 @@ def test_is_story_link_distinguishes_story_and_message_urls():
     assert not media_cmd.is_story_link("https://t.me/c/123/937")
 
 
+def make_text_story(story_id):
+    media = types.MessageMediaEmpty()
+    return types.StoryItem(id=story_id, date=None, expire_date=None, media=media)
+
+
+
+async def test_resolve_text_story_raises_no_downloadable_media():
+    """A text/emoji story has no downloadable media: clean NOT_FOUND, not a
+    runtime failure later in the download path."""
+    fake = StoryTelegram(make_text_story(937))
+
+    with pytest.raises(NotFoundError, match="no downloadable media"):
+        await resolve_message(
+            fake, parse_source("https://t.me/kazbeksocrates/s/937", None), "main"
+        )
+
+
+async def test_resolve_text_story_with_codec_raises_missing_encoding():
+    fake = StoryTelegram(make_text_story(937))
+
+    with pytest.raises(NotFoundError, match="no h264 encoding"):
+        await resolve_message(
+            fake,
+            parse_source("https://t.me/kazbeksocrates/s/937", None),
+            "main",
+            codec="h264",
+        )
+
+
 async def test_resolve_story_issues_exact_telethon_request():
     fake = StoryTelegram(make_story(937))
 
