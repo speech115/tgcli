@@ -1,7 +1,7 @@
 # ADR-0077: Publish the GitHub Releases page entry from the release-tag workflow
 
 Date: 2026-08-09
-Status: accepted
+Status: accepted (owner request: ADR-in-PR route — accepted at merge of #162; no separate issue)
 Form: ADR-lite (ADR-0058)
 Extends: [ADR-0038](ADR-0038-versioned-releases-changelog.md) rule 3's
 executor, the `Release tag` workflow. Ownership does not move — the workflow

@@ -94,7 +94,8 @@ jobs:
           # A missing section or a failed publish must turn the run red: a
           # release without notes is the same silent-skip bug as a missing tag.
           # The prepare-release marker is stripped if a section ever ships
-          # with it (ADR-0074's "revisit" case — 2.0.1/2.0.2 shipped marked).
+          # with it (ADR-0074's "revisit" case — 2.0.1 shipped marked; the
+          # 2.0.2 section never carried it).
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "GitHub Release $tag already exists; nothing to do"
             exit 0
@@ -106,8 +107,8 @@ jobs:
               if (inside) exit
             }
             inside { print }
-          ' CHANGELOG.md | sed '/prepare-release:/d')
-          if [ -z "$notes" ]; then
+          ' CHANGELOG.md | sed -e '/prepare-release:/d' -e '/./,$!d')
+          if [ -z "$(printf '%s' "$notes" | tr -d '[:space:]')" ]; then
             echo "no CHANGELOG section for $version; refusing a silent release"
             exit 1
           fi

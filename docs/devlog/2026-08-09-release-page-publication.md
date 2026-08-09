@@ -14,10 +14,10 @@ never part of the automated flow — tags kept shipping (v2.0.0–v2.0.2), the p
 did not. A tag-triggered companion workflow was rejected: GitHub does not fire
 runs for tags pushed by `GITHUB_TOKEN`. Backfilled the three missing page
 entries (v2.0.0–v2.0.2) by hand from their CHANGELOG sections. Found that
-2.0.1/2.0.2 shipped with the `prepare-release` marker surviving in CHANGELOG
-(the ADR-0074 "revisit" case) — the workflow strips the marker from the notes
-so a marked section can never leak into the page, and the two sections were
-cleaned in place.
+2.0.1 shipped with the `prepare-release` marker surviving in CHANGELOG
+(the ADR-0074 "revisit" case; the 2.0.2 section never carried it) — the
+workflow strips the marker from the notes so a marked section can never leak
+into the page, and the 2.0.1 section was cleaned in place.
 
 **Learned:** `gh release create` is session-safe (no tag push involved), so
 the fix-forward path needs no tag access.

@@ -48,6 +48,44 @@ def test_release_commits_are_tagged_by_ci() -> None:
     assert 'git push origin "$tag"' in workflow
 
 
+def test_the_release_workflow_publishes_the_github_release_page() -> None:
+    """ADR-0077: the run that tags the release also publishes its GitHub
+    Releases page entry from the CHANGELOG section.
+
+    The publish step is fail-closed: a missing section or a failed `gh
+    release create` turns the run red, and a re-run repairs a run that died
+    between tagging and publishing. If any of these lines disappear, the
+    page silently stalls again — the exact regression ADR-0077 fixes.
+    """
+    workflow = (ROOT / ".github/workflows/release-tag.yml").read_text()
+
+    # Idempotent publish: an existing Release is the only skip; the step
+    # must not exit before the publish check on a re-run.
+    assert 'if gh release view "$tag" >/dev/null 2>&1; then' in workflow
+    assert (
+        'echo "GitHub Release $tag already exists; nothing to do"\n'
+        "            exit 0" in workflow
+    )
+    # Notes come from the bumped version's CHANGELOG section, marker stripped.
+    assert 'notes=$(awk -v want="$version" \'' in workflow
+    assert "sed -e '/prepare-release:/d'" in workflow
+    # Fail-closed: a missing section turns the run red.
+    assert "refusing a silent release" in workflow
+    assert (
+        'gh release create "$tag" --title "tgcli $version" --notes "$notes"' in workflow
+    )
+
+
+def test_release_notes_trim_blank_lines_before_the_empty_check() -> None:
+    """A marker-only section must not publish whitespace-only notes: `-z`
+    on `"\n\n"` is false. The extraction strips the marker and any leading
+    blank line, and the empty check ignores remaining whitespace."""
+    workflow = (ROOT / ".github/workflows/release-tag.yml").read_text()
+
+    assert "sed -e '/prepare-release:/d' -e '/./,$!d'" in workflow
+    assert "tr -d '[:space:]'" in workflow
+
+
 def test_the_tag_job_only_fires_when_the_push_bumped_the_version() -> None:
     """Tagging HEAD unconditionally would mistag an already-shipped release.
 
