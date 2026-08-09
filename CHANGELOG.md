@@ -27,8 +27,6 @@ shape with a `story:` source label and an additive `codec` field.
 
 ## [2.0.1] — 2026-08-09
 
-<!-- prepare-release: replace this line with what the release means to an operator, then delete the marker. -->
-
 This release adds server-side voice transcription (`tg transcribe`, Premium)
 and the read-only allowlist / docs groundwork behind it (story media downloads
 land in 2.0.2). `tg transcribe <chat> <id>` waits up to `--timeout` for the

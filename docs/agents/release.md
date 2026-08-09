@@ -32,10 +32,14 @@ A stack `main ← A ← B ← C` merges bottom-up, one PR at a time:
 - **Do not tag by hand.** Sessions cannot push `refs/tags/*` — the git proxy
   answers `403`, which is how `v1.2.10`–`v1.2.16` all shipped untagged. The
   `Release tag` workflow tags the merge commit on push to `main` whenever the
-  push moved `__version__`. Confirm it did: the run appears under Actions and
-  `git fetch --tags && git tag -l vX.Y.Z` shows the tag afterwards. If it is
-  missing, the ruleset is blocking `GITHUB_TOKEN` — report it, do not retry
-  locally.
+  push moved `__version__`, and the same run publishes the GitHub Releases
+  page entry from the CHANGELOG section (ADR-0077). Confirm it did: the run
+  appears under Actions, `git fetch --tags && git tag -l vX.Y.Z` shows the
+  tag, and `gh release view vX.Y.Z` shows the notes. If the tag is missing,
+  the ruleset is blocking `GITHUB_TOKEN` — report it, do not retry locally.
+  If the run failed after tagging but before publishing, **re-run the
+  workflow**: the tag branch is idempotent and the publish step fills in the
+  missing Release.
 - The CHANGELOG compare link must already be in the release commit; the docs
   gate refuses a release section without it, so it cannot be forgotten and
   then fixed after the tag.

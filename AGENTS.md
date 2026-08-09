@@ -127,7 +127,8 @@ needs no superseding ADR.
   change. Feature branches never touch the version files, `CHANGELOG.md`,
   or tags. The docs gate refuses a release section without its link; the
   `Release tag` workflow tags the merge commit `vX.Y.Z` on push to `main`
-  whenever the push moved `__version__`. Never let unreleased contract
+  whenever the push moved `__version__`, and publishes the GitHub Releases
+  page entry from the same CHANGELOG section (ADR-0077). Never let unreleased contract
   changes accumulate. The minor digit is raised only when the owner
   declares a milestone.
 - **`docs/CONTRACT.md` is versioned law.** Any change to CLI flags, JSON

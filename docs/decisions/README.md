@@ -83,6 +83,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0074](ADR-0074-complexity-reset-and-release-preparation.md) | Complexity reset: a second related review finding on the same abstraction is a design checkpoint, not another patch, and unreleased code is not a sunk cost; `scripts/prepare-release.py` does the mechanical half of a release (version in both files, dated section, PR/ADR list, compare link) while the integrator writes the prose, refusing a version split across the two files rather than compounding it — extends ADR-0058 rule 1 | accepted (ADR-lite) |
 | [0075](ADR-0075-transcribe-command.md) | `tg transcribe`: server-side voice transcription over `messages.transcribeAudio` with a race-free wait for the async `updateTranscribedAudio` result bounded by `--timeout`, Premium refusal mapped to the existing blocked class, and `voice_played`/auto-transcribe-in-`read` explicitly out of scope | accepted |
 | [0076](ADR-0076-story-media-download.md) | `tg media download` accepts story links (`/s/<id>`, public and private), resolves via `stories.getStoriesByID`, selects an encoding from `document`/`alt_documents` by the `video_codec` attribute on opt-in `--codec`, and reuses the striped download machinery | accepted |
+| [0077](ADR-0077-release-workflow-publishes-github-releases.md) | The `Release tag` workflow publishes the GitHub Releases page entry from the CHANGELOG section in the same run as the tag, idempotently (re-run repairs a publish failure) — the page stops being a manual follow-up | accepted |
 
 Notes on supersessions:
 
