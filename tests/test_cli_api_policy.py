@@ -1,4 +1,7 @@
+import json
+
 import pytest
+from telethon.tl import functions, types
 from telethon.tl.tlobject import TLRequest
 
 from tgcli import session
@@ -316,9 +319,6 @@ async def test_build_request_constructs_upload_getfile_with_document_location():
     """ADR-0010: the story-media pull shape builds through the converter —
     GetFileRequest with an InputDocumentFileLocation (base64 file_reference,
     thumb_size positional in the pinned Telethon layer)."""
-    import json
-
-    from telethon.tl import functions, types
 
     class Client:
         pass

@@ -22,5 +22,5 @@ cannot catch (it checks counts of ADRs, not their body claims); a method
 addition without the body update silently desynchronizes the safety record
 from the code.
 
-**Next:** 2.0.3 release rides this CONTRACT correction along with
-ADR-0078/0079.
+**Next:** 2.0.3 release rides this CONTRACT correction along with the
+post-review campaign's ADR-0078/0079 slices.
