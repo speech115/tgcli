@@ -6,12 +6,20 @@
   <!-- Replace every /ABSOLUTE/PATH placeholder before installing manually. -->
   <key>Label</key>
   <string>com.tgcli.archive-refresh</string>
+  <!-- The pass carries --max-runtime 3000, comfortably under StartInterval
+       (3600). If a cap ever reached the interval, launchd would fire the next
+       run into a held session lock and the failure streak would alert on a
+       scheduler that is merely slow. Exhausting the cap is a normal stop
+       (exit 0, stop_reason: "wall_clock_cap"), not a failure to alert on;
+       keep the two numbers in step when you change either. -->
   <key>ProgramArguments</key>
   <array>
     <string>/ABSOLUTE/PATH/TO/tg</string>
     <string>--json</string>
     <string>archive</string>
     <string>refresh</string>
+    <string>--max-runtime</string>
+    <string>3000</string>
   </array>
   <key>StartInterval</key>
   <integer>3600</integer>

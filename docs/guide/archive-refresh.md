@@ -73,8 +73,14 @@ launchctl bootstrap "gui/$(id -u)" \
 launchctl kickstart "gui/$(id -u)/com.tgcli.archive-refresh"
 ```
 
-`StartInterval` is 3600 seconds. To stop the job without deleting the
-template, unload the copied file:
+`StartInterval` is 3600 seconds, and the template's pass also carries
+`--max-runtime 3000` — comfortably below the interval. A scheduled pass's
+cap must stay shorter than its interval: a cap at or above it lets a slow
+pass still hold the session lock when the next run fires, and the failure
+streak would alert on a scheduler that is merely slow. Exhausting the cap is
+a normal stop (exit 0, `stop_reason: "wall_clock_cap"`), not a failure to
+alert on; the schedule resumes the next pass. To stop the job without
+deleting the template, unload the copied file:
 
 ```bash
 launchctl bootout "gui/$(id -u)" \
