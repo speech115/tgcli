@@ -135,11 +135,13 @@ def test_transcribe_waits_for_async_update_when_pending(config_env, monkeypatch)
     assert client.event_handlers == []
 
 
-def test_transcribe_replays_an_update_that_arrives_before_the_rpc_response(
+def test_transcribe_replays_an_early_update_only_when_transcription_id_matches(
     config_env, monkeypatch
 ):
-    """ADR-0075: an update delivered while transcribeAudio is in flight is
-    parked and replayed once the response reveals the transcription_id."""
+    """ADR-0075: an update parked before the RPC response must not settle the
+    wait unless its transcription_id matches the response — the same msg_id
+    from a concurrent transcription stays foreign (fails on the msg_id-only
+    filter, where the early update settles the wait immediately)."""
     import asyncio
 
     from tgcli.commands import transcribe as transcribe_cmd
@@ -151,22 +153,31 @@ def test_transcribe_replays_an_update_that_arrives_before_the_rpc_response(
     )
     make_session_fake(monkeypatch, client)
 
-    async def call_with_early_update(self, request):
-        # The update lands before the RPC response: the handler can only park
-        # it (no transcription_id yet); the replay must deliver the text.
+    async def call_with_early_foreign_update(self, request):
+        # The concurrent transcription's update lands before the response:
+        # the handler can only park it; the replay must skip it (foreign id).
         self.fire_update(
-            transcribe_update(transcription_id=7, text="Ранний", pending=False)
+            transcribe_update(transcription_id=99, text="Чужой", pending=False)
         )
         await asyncio.sleep(0)
         return self._transcribe_result
 
-    monkeypatch.setattr(FakeClient, "__call__", call_with_early_update)
+    monkeypatch.setattr(FakeClient, "__call__", call_with_early_foreign_update)
 
-    data = asyncio.run(
-        transcribe_cmd.transcribe_message(client, "@socrates", 42, timeout=5)
-    )
+    async def scenario():
+        task = asyncio.create_task(
+            transcribe_cmd.transcribe_message(client, "@socrates", 42, timeout=5)
+        )
+        await asyncio.sleep(0.01)
+        # The correct transcription lands after the response.
+        client.fire_update(
+            transcribe_update(transcription_id=7, text="Готово", pending=False)
+        )
+        return await task
+
+    data = asyncio.run(scenario())
     assert data["transcription"] == {
-        "text": "Ранний",
+        "text": "Готово",
         "transcription_id": 7,
         "pending": False,
     }
