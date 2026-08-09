@@ -587,8 +587,8 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 output.emit_error(err, as_json=False)
     except _DeadlineSignal:
-        # The whole-body alarm fired; asyncio.wait_for's own TimeoutError is
-        # already translated by _run_with_deadline.
+        # The whole-body alarm fired; the asyncio deadline is already
+        # translated by _run_with_deadline (with its grace window).
         timed_out = CommandTimeoutError("invocation deadline exceeded")
         error_code = timed_out.code
         exit_code = timed_out.exit_code

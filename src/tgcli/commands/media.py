@@ -262,9 +262,9 @@ def _message_size(message) -> int | None:
 
 def _photo_size(photo) -> int | None:
     """Byte count of the largest photo size, mirroring Telethon's own
-    computation (downloads.py `_download_photo`): progressive sizes report
-    the max of their steps, cached/stripped sizes are inline and have no
-    countable size."""
+    computation (utils `_get_file_info`): progressive sizes report the max
+    of their steps, cached/stripped sizes are inline and have no countable
+    size."""
     sizes = getattr(photo, "sizes", None)
     if not sizes:
         return None

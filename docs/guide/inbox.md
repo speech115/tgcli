@@ -85,23 +85,23 @@ Telegram acknowledgement, with the submitted chat reference: `mark-read`,
 ## JSON
 
 ```json
-{"dialog": {"id": -1001234}, "marked_read": true}
+{"dialog": {"id": 3817664407}, "marked_read": true}
 ```
 
 ```json
-{"dialog": {"id": -1001234}, "marked_unread": true}
+{"dialog": {"id": 3817664407}, "marked_unread": true}
 ```
 
 ```json
-{"dialog": {"id": -1001234}, "pinned": true}
+{"dialog": {"id": 3817664407}, "pinned": true}
 ```
 
 ```json
-{"dialog": {"id": -1001234}, "archived": true}
+{"dialog": {"id": 3817664407}, "archived": true}
 ```
 
 ```json
-{"dialog": {"id": -1001234}, "muted": true, "until": null}
+{"dialog": {"id": 3817664407}, "muted": true, "until": null}
 ```
 
 `until` is the parsed timestamp for a `--until` mute, and `null` for a

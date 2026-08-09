@@ -135,6 +135,44 @@ def test_transcribe_waits_for_async_update_when_pending(config_env, monkeypatch)
     assert client.event_handlers == []
 
 
+def test_transcribe_replays_an_update_that_arrives_before_the_rpc_response(
+    config_env, monkeypatch
+):
+    """ADR-0075: an update delivered while transcribeAudio is in flight is
+    parked and replayed once the response reveals the transcription_id."""
+    import asyncio
+
+    from tgcli.commands import transcribe as transcribe_cmd
+
+    client = FakeClient(
+        entities={"@socrates": CHANNEL},
+        messages=[make_voice_message(42)],
+        transcribe_result=transcribe_update(transcription_id=7, text="", pending=True),
+    )
+    make_session_fake(monkeypatch, client)
+
+    async def call_with_early_update(self, request):
+        # The update lands before the RPC response: the handler can only park
+        # it (no transcription_id yet); the replay must deliver the text.
+        self.fire_update(
+            transcribe_update(transcription_id=7, text="Ранний", pending=False)
+        )
+        await asyncio.sleep(0)
+        return self._transcribe_result
+
+    monkeypatch.setattr(FakeClient, "__call__", call_with_early_update)
+
+    data = asyncio.run(
+        transcribe_cmd.transcribe_message(client, "@socrates", 42, timeout=5)
+    )
+    assert data["transcription"] == {
+        "text": "Ранний",
+        "transcription_id": 7,
+        "pending": False,
+    }
+    assert client.event_handlers == []
+
+
 def test_transcribe_ignores_update_with_foreign_transcription_id(
     config_env, monkeypatch
 ):

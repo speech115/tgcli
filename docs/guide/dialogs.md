@@ -52,7 +52,7 @@ tg --json info CHAT --full
 ### JSON
 
 ```json
-{"id": -1001234, "name": "Channel", "kind": "channel", "username": "chan"}
+{"id": 3817664407, "name": "Channel", "kind": "channel", "username": "chan"}
 ```
 
 `--full` adds:
@@ -84,7 +84,7 @@ tg --json count CHAT
 ### JSON
 
 ```json
-{"dialog": {"id": -1001234, "name": "Channel"}, "count": 73}
+{"dialog": {"id": 3817664407, "name": "Channel"}, "count": 73}
 ```
 
 `--plain` emits one row with a single `count` value.
