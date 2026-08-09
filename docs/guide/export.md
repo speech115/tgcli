@@ -42,7 +42,7 @@ tg --json export messages CHAT --output messages.jsonl --resume
 
 ```json
 {"export":{"kind":"messages","format":"jsonl","path":"messages.jsonl","count":42,
- "dialog":{"id":-1001234,"name":"Channel"},"after_id":100,"appended":true}}
+ "dialog":{"id":3817664407,"name":"Channel"},"after_id":100,"appended":true}}
 ```
 
 `after_id` and `appended` only appear when `--after-id`, `--append`, or

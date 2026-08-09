@@ -23,7 +23,7 @@ contiguous newest-first run, not an arbitrary date range. Each item is
 `{"message_id", "type", "size", "mime", "filename"}`.
 
 ```json
-{"dialog":{"id":-1001234,"name":"Channel"},"items":[{"message_id":42,"type":"photo","size":1234,"mime":"image/jpeg","filename":"a.jpg"}],"count":1}
+{"dialog":{"id":3817664407,"name":"Channel"},"items":[{"message_id":42,"type":"photo","size":1234,"mime":"image/jpeg","filename":"a.jpg"}],"count":1}
 ```
 
 `--plain` rows: `message_id`, `type`, `size`, `mime`, `filename`.
@@ -83,7 +83,7 @@ The hard cap is **100 downloads per invocation** — the length of
 than 100 items is issued again with a later `--since` or explicit ids.
 
 ```json
-{"dialog":{"id":-1001234,"name":"Channel"},
+{"dialog":{"id":3817664407,"name":"Channel"},
  "items":[{"message_id":10,"path":"/Users/me/Downloads/a.jpg","bytes":2048,"resumed":false}],
  "count":1,"failed":[{"message_id":11,"error":"not found"}]}
 ```

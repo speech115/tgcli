@@ -26,7 +26,7 @@ than `--limit` even when older messages exist beyond the boundary.
 ### JSON
 
 ```json
-{"dialog": {"id": -1001234, "name": "Channel"},
+{"dialog": {"id": 3817664407, "name": "Channel"},
  "messages": [{"id": 42, "date": "2026-07-06T10:00:00+00:00",
                "from": {"id": 111, "name": "Alice", "username": null},
                "text": "hello", "media": null, "media_info": null,

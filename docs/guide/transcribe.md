@@ -9,7 +9,7 @@ tg --json transcribe @socrates 42
 ```
 
 ```json
-{"dialog": {"id": -1001234, "name": "Socrates"},
+{"dialog": {"id": 3817664407, "name": "Socrates"},
  "message_id": 42,
  "transcription": {"text": "Привет, как дела?", "transcription_id": 987,
                    "pending": false}}

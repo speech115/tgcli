@@ -120,9 +120,14 @@ a signal death. SIGKILL cannot be caught and journals nothing.
 Megagroup dialogs are classified as `group` even though Telethon also marks
 them as channels; broadcast channels remain `channel`.
 
+For the entity-scoped shapes below (`read`, `search`, `transcribe`,
+`info`, `count`, manifest, `mark-read`, export), `dialog.id` is the Telethon
+`entity.id` — positive; the negative bot-API form appears only in
+`tg dialogs` output.
+
 `tg read <chat> --json`:
 ```json
-{"dialog": {"id": -1001234, "name": "Channel"},
+{"dialog": {"id": 3817664407, "name": "Channel"},
  "messages": [{"id": 42, "date": "2026-07-06T10:00:00+00:00",
                "from": {"id": 111, "name": "Alice", "username": null},
                "text": "hello", "media": null, "media_info": null,
@@ -164,7 +169,7 @@ newest-first output and stops when it reaches the lower date boundary.
 `tg search <chat> <query> --json` uses the same `dialog` and message shapes as
 `read`, adding the submitted query:
 ```json
-{"dialog": {"id": -1001234, "name": "Channel"}, "query": "hello",
+{"dialog": {"id": 3817664407, "name": "Channel"}, "query": "hello",
  "messages": [{"id": 42, "date": "2026-07-06T10:00:00+00:00",
                "from": {"id": 111, "name": "Alice", "username": null},
                "text": "hello", "media": null, "media_info": null,
@@ -188,7 +193,7 @@ message shape and adds a per-hit `dialog` object with the source dialog `id`
 and `name`:
 ```json
 {"query": "hello", "messages": [{"id": 42,
- "dialog": {"id": -1001234, "name": "Channel"}}]}
+ "dialog": {"id": 3817664407, "name": "Channel"}}]}
 ```
 
 `search --all` takes exactly one query positional and may use `--limit`.
@@ -198,7 +203,7 @@ and `name`:
 `tg latest <chat> --json` and `tg message <chat> <message_id> --json` return
 one message in that same shape:
 ```json
-{"dialog": {"id": -1001234, "name": "Channel"},
+{"dialog": {"id": 3817664407, "name": "Channel"},
  "message": {"id": 42, "date": "2026-07-06T10:00:00+00:00",
              "from": {"id": 111, "name": "Alice", "username": null},
              "text": "hello", "media": null, "media_info": null,
@@ -218,7 +223,7 @@ neighbors are ordered by ascending id.
 
 `tg info <chat> --json`:
 ```json
-{"id": -1001234, "name": "Channel", "kind": "channel", "username": "chan"}
+{"id": 3817664407, "name": "Channel", "kind": "channel", "username": "chan"}
 ```
 
 `tg info <chat> --full --json` adds `role`, `can`, `slowmode_seconds`,
@@ -236,7 +241,7 @@ Telegram admin-right flags; tgcli does not infer ungranted admin capabilities.
 
 `tg count <chat> --json`:
 ```json
-{"dialog": {"id": -1001234, "name": "Channel"}, "count": 73}
+{"dialog": {"id": 3817664407, "name": "Channel"}, "count": 73}
 ```
 
 `tg resolve <ref> --json`:
@@ -387,8 +392,10 @@ download only: combining it with bulk flags is exit 2. Video stories download
 the main document by default; `--codec {h264,h265,hevc,av1}` selects a
 matching encoding from the document's `alt_documents` by its
 `video_codec` attribute (`hevc` aliases `h265`), and exit 4 reports a missing
-encoding. The result keeps the media-download shape with the `story:` source
-label and an additive `codec` field when one was selected.
+encoding. `--codec` applies to story sources only: using it with a message or
+bulk source is exit 2 (`BLOCKED`, `--codec applies to story sources only`).
+The result keeps the media-download shape with the `story:` source label and
+an additive `codec` field when one was selected.
 
 Bulk mode (ADR-0032) activates with `--message-ids id,id` and/or filter flags
 `--type` / `--since` / `--limit` on a chat reference (no single `message_id`).
@@ -417,7 +424,7 @@ never downloads. Each item is
 `{"message_id":42,"type":"photo","size":1234,"mime":"image/jpeg","filename":"a.jpg"}`.
 `--type` filters to one kind; `--since` drops older messages (newest-first walk
 stops at the first message older than the bound). Success JSON:
-`{"dialog":{"id":-1001234,"name":"Channel"},"items":[...],"count":N}`. Plain
+`{"dialog":{"id":3817664407,"name":"Channel"},"items":[...],"count":N}`. Plain
 rows are `message_id`, `type`, `size`, `mime`, `filename`.
 
 ### Transcribe (`tg transcribe`; ADR-0075)
@@ -430,7 +437,7 @@ subscription is exit 2 (`BLOCKED`) with a plain-language message. Success
 JSON:
 
 ```json
-{"dialog":{"id":-1001234,"name":"Channel"},"message_id":42,
+{"dialog":{"id":3817664407,"name":"Channel"},"message_id":42,
  "transcription":{"text":"...","transcription_id":987,"pending":false}}
 ```
 
@@ -582,7 +589,7 @@ take reply or topic flags and therefore creates no reply header.
 `mark-read` is a content-free, idempotent direct mutation: it has no preview,
 but `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block it before
 configuration, session, audit, or Telegram work. On success it returns
-`{"dialog":{"id":-1001234},"marked_read":true}` and writes a fail-closed
+`{"dialog":{"id":3817664407},"marked_read":true}` and writes a fail-closed
 `mark-read` audit record containing the submitted chat reference before the
 Telegram acknowledgement.
 
@@ -592,7 +599,7 @@ tg mark-unread CHAT
 
 `mark-unread` mirrors `mark-read`: same direct gating and audit timing, no
 preview. On success it returns
-`{"dialog":{"id":-1001234},"marked_unread":true}` and writes a fail-closed
+`{"dialog":{"id":3817664407},"marked_unread":true}` and writes a fail-closed
 `mark-unread` audit record. Plain rows are `dialog_id`, `unread`.
 
 ```
@@ -603,7 +610,7 @@ tg dialog unpin CHAT
 `dialog pin` / `dialog unpin` are content-free, idempotent direct mutations
 (ADR-0029): same `--readonly` / `TGCLI_READONLY` / `TGCLI_NO_SEND` gating as
 `mark-read`, no preview. On success they return
-`{"dialog":{"id":-1001234},"pinned":true|false}` and write a fail-closed
+`{"dialog":{"id":3817664407},"pinned":true|false}` and write a fail-closed
 `dialog-pin` or `dialog-unpin` audit record with the submitted chat reference.
 Plain rows are `dialog_id`, `pinned|unpinned`.
 
@@ -903,7 +910,7 @@ tg export subscribers <channel> --output <path> [--limit <n>]
   character may leave a member unreachable.
 - Success on `--json` is one completion document:
   `{"export":{"kind":"messages|subscribers","format":"jsonl|csv",
-  "path":"<path>","count":42,"dialog":{"id":-1001234,"name":"Channel"}}}`.
+  "path":"<path>","count":42,"dialog":{"id":3817664407,"name":"Channel"}}}`.
   When `--after-id`, `--append`, or `--resume` is used on messages, the
   document also includes additive `"after_id"` (int or null) and
   `"appended"` (bool). `count` is this run's written rows only.

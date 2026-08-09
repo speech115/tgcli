@@ -35,7 +35,7 @@ tgcli/
 │   ├── guide/                 [done]    user-facing task pages, 26 + index (ADR-0041/0065)
 │   ├── assets/                [done]    README banner, dark + light SVG, launchd template (no external assets)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
-│   ├── decisions/             [done]    ADR-0001…0077 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication)
+│   ├── decisions/             [done]    ADR-0001…0078 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope)
 │   ├── research/              [done]    read-only investigation notes backing a wayfinder map's closed children
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
@@ -113,11 +113,12 @@ tgcli/
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
 │   │   ├── read.py            [done]    tg read <chat>                (phase 1)
 │   │   ├── search.py          [done]    tg search / latest / message (phase 2)
+│   │   ├── transcribe.py     [done]    tg transcribe <chat> <message_id> server-side voice transcription (ADR-0075)
 │   │   ├── info.py            [done]    tg info / count (phase 2)
 │   │   ├── identity.py        [done]    tg resolve / contacts / mutual-chats (ADR-0029/0032)
 │   │   ├── dialog.py          [done]    tg dialog pin/unpin/archive/mute (ADR-0029/0032)
 │   │   ├── thread.py          [done]    tg thread reply-chain read (ADR-0029)
-│   │   ├── media.py           [done]    tg media download|manifest (+ bulk download ADR-0032)
+│   │   ├── media.py           [done]    tg media download|manifest (+ bulk ADR-0032; story links + --codec ADR-0076)
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── draft.py           [done]    tg draft set|show|clear|list (ADR-0039)
 │   │   ├── mutate.py          [done]    tg edit|delete|forward preview / commit; tg mark-read|mark-unread (ADR-0028/0029)

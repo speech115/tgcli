@@ -29,7 +29,7 @@ can come back shorter than `--limit`.
 Same `dialog` and message shape as `read`, plus the submitted `query`:
 
 ```json
-{"dialog": {"id": -1001234, "name": "Channel"}, "query": "hello",
+{"dialog": {"id": 3817664407, "name": "Channel"}, "query": "hello",
  "messages": [{"id": 42, "date": "2026-07-06T10:00:00+00:00",
                "from": {"id": 111, "name": "Alice", "username": null},
                "text": "hello", "media": null, "media_info": null,
@@ -56,7 +56,7 @@ level — each hit carries its own source dialog instead:
 
 ```json
 {"query": "hello", "messages": [{"id": 42,
- "dialog": {"id": -1001234, "name": "Channel"}}]}
+ "dialog": {"id": 3817664407, "name": "Channel"}}]}
 ```
 
 Each message retains the full standard message shape shown above; only the

@@ -94,6 +94,31 @@ class StoryTelegram:
             yield chunk
 
 
+class EmptyStoryTelegram(StoryTelegram):
+    """A story link whose target no longer exists: empty stories response."""
+
+    async def __call__(self, request):
+        self.requests.append(request)
+        return types.stories.Stories(count=0, stories=[], chats=[], users=[])
+
+
+class UserStoryTelegram(StoryTelegram):
+    """A user-story link: resolution must build an InputPeerUser."""
+
+    def __init__(self, story):
+        super().__init__(story)
+        self.user = types.User(id=555, first_name="Kazbek", access_hash=9)
+
+    async def get_entity(self, chat):
+        assert chat == "@kazbeksocrates"
+        return self.user
+
+    async def get_input_entity(self, entity):
+        return types.InputPeerUser(
+            user_id=self.user.id, access_hash=self.user.access_hash
+        )
+
+
 @pytest.fixture
 def config_env(tmp_path, monkeypatch):
     path = tmp_path / "config.toml"
@@ -130,6 +155,57 @@ def test_is_story_link_distinguishes_story_and_message_urls():
     assert media_cmd.is_story_link("https://t.me/c/123/s/937")
     assert not media_cmd.is_story_link("https://t.me/chan/937")
     assert not media_cmd.is_story_link("https://t.me/c/123/937")
+
+
+def make_text_story(story_id):
+    media = types.MessageMediaEmpty()
+    return types.StoryItem(id=story_id, date=None, expire_date=None, media=media)
+
+
+async def test_resolve_text_story_raises_no_downloadable_media():
+    """A text/emoji story has no downloadable media: clean NOT_FOUND, not a
+    runtime failure later in the download path."""
+    fake = StoryTelegram(make_text_story(937))
+
+    with pytest.raises(NotFoundError, match="no downloadable media"):
+        await resolve_message(
+            fake, parse_source("https://t.me/kazbeksocrates/s/937", None), "main"
+        )
+
+
+async def test_resolve_text_story_with_codec_raises_missing_encoding():
+    fake = StoryTelegram(make_text_story(937))
+
+    with pytest.raises(NotFoundError, match="no h264 encoding"):
+        await resolve_message(
+            fake,
+            parse_source("https://t.me/kazbeksocrates/s/937", None),
+            "main",
+            codec="h264",
+        )
+
+
+async def test_resolve_user_story_issues_input_peer_user():
+    fake = UserStoryTelegram(make_story(937))
+
+    entity, target = await resolve_message(
+        fake, parse_source("https://t.me/kazbeksocrates/s/937", None), "main"
+    )
+
+    request = fake.requests[0]
+    assert isinstance(request, functions.stories.GetStoriesByIDRequest)
+    assert isinstance(request.peer, types.InputPeerUser)
+    assert request.peer.user_id == 555
+    assert request.peer.access_hash == 9
+
+
+async def test_resolve_deleted_story_raises_not_found():
+    fake = EmptyStoryTelegram(make_story(937))
+
+    with pytest.raises(NotFoundError, match="story not found"):
+        await resolve_message(
+            fake, parse_source("https://t.me/kazbeksocrates/s/937", None), "main"
+        )
 
 
 async def test_resolve_story_issues_exact_telethon_request():
@@ -190,6 +266,31 @@ async def test_resolve_story_missing_codec_raises():
         )
 
 
+async def test_resolve_photo_story_with_codec_raises():
+    """ADR-0076: `--codec` on a non-video story reports the missing encoding
+    instead of silently downloading the photo."""
+    fake = StoryTelegram(make_photo_story(937))
+
+    with pytest.raises(NotFoundError, match="no h264 encoding"):
+        await resolve_message(
+            fake,
+            parse_source("https://t.me/kazbeksocrates/s/937", None),
+            "main",
+            codec="h264",
+        )
+
+
+async def test_resolve_photo_story_without_codec_uses_photo():
+    fake = StoryTelegram(make_photo_story(937))
+
+    _, target = await resolve_message(
+        fake, parse_source("https://t.me/kazbeksocrates/s/937", None), "main"
+    )
+
+    assert target.codec is None
+    assert target.filename == "story-937.jpg"
+
+
 async def test_resolve_story_without_codec_uses_main_document():
     fake = StoryTelegram(make_story(937, alts=[("h264", 3, "story_h264.mp4")]))
 
@@ -200,6 +301,49 @@ async def test_resolve_story_without_codec_uses_main_document():
     assert target.codec is None
     assert target.filename == "story.mp4"
     assert target.size == 13
+
+
+def make_photo_story_with_sizes(story_id):
+    media = types.MessageMediaPhoto(
+        photo=types.Photo(
+            id=1,
+            access_hash=2,
+            file_reference=b"r",
+            date=None,
+            dc_id=1,
+            sizes=[
+                types.PhotoSize(type="m", w=320, h=480, size=1024),
+                types.PhotoSizeProgressive(
+                    type="p", w=1080, h=1920, sizes=[4096, 8192]
+                ),
+            ],
+        )
+    )
+    return types.StoryItem(id=story_id, date=None, expire_date=None, media=media)
+
+
+async def test_parallel_photo_story_download_uses_progressive_size(
+    tmp_path, monkeypatch
+):
+    """A photo story must report a countable size so --parallel works
+    (mirrors Telethon's own byte-count computation)."""
+    fake = StoryTelegram(make_photo_story_with_sizes(937))
+    calls = []
+
+    async def fake_striped(tg, media, path, *, size, parallel, progress):
+        calls.append((size, parallel))
+        path.write_bytes(b"data")
+
+    monkeypatch.setattr(media_cmd, "download_striped", fake_striped)
+    source = parse_source("https://t.me/kazbeksocrates/s/937", None)
+
+    result = await media_cmd.download_media(
+        fake, source, "main", parallel=2, output=str(tmp_path / "s.jpg")
+    )
+
+    assert result["parallel"] == 2
+    assert result["bytes"] == 4
+    assert calls == [(8192, 2)]
 
 
 async def test_story_download_writes_file_and_reports_codec(tmp_path):

@@ -188,11 +188,15 @@ def _story_target(story, codec: str | None) -> _DownloadTarget:
             filename=_document_filename(document, story.id),
             size=getattr(document, "size", None),
         )
-    return _DownloadTarget(
-        media=media,
-        filename=f"story-{story.id}.jpg",
-        size=getattr(getattr(media, "photo", None), "size", None),
-    )
+    if codec is not None:
+        raise NotFoundError(f"story has no {codec} encoding")
+    if isinstance(media, types.MessageMediaPhoto):
+        return _DownloadTarget(
+            media=media,
+            filename=f"story-{story.id}.jpg",
+            size=_photo_size(media.photo),
+        )
+    raise NotFoundError("story has no downloadable media")
 
 
 async def resolve_message(
@@ -254,6 +258,22 @@ def _message_filename(message, message_id: int) -> str:
 def _message_size(message) -> int | None:
     file = getattr(message, "file", None)
     return getattr(file, "size", None)
+
+
+def _photo_size(photo) -> int | None:
+    """Byte count of the largest photo size, mirroring Telethon's own
+    computation (utils `_get_file_info`): progressive sizes report the max
+    of their steps, cached/stripped sizes are inline and have no countable
+    size."""
+    sizes = getattr(photo, "sizes", None)
+    if not sizes:
+        return None
+    last = sizes[-1]
+    if isinstance(last, types.PhotoSizeProgressive):
+        return max(last.sizes)
+    if isinstance(last, (types.PhotoCachedSize, types.PhotoStrippedSize)):
+        return None
+    return getattr(last, "size", None)
 
 
 def _write_state(

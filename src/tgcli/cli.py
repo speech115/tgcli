@@ -224,6 +224,18 @@ def _run_with_deadline(coro, timeout):
             governed = pacing.total_governed_sleep() - base_slept
             remaining = timeout - (time.monotonic() - started - governed)
             if remaining <= 0:
+                # The command's own deadline (transcribe's wait_for) may still
+                # win inside the grace window and raise its detailed
+                # CommandTimeoutError; fall back to the generic TIMEOUT only
+                # once that window is over. The SIGALRM backstop is disarmed
+                # first so its `seconds + grace` firing cannot race this wait.
+                signal.setitimer(signal.ITIMER_REAL, 0)
+                done, _ = await asyncio.wait({task}, timeout=DEADLINE_GRACE)
+                if done:
+                    try:
+                        return task.result()
+                    except asyncio.CancelledError:
+                        raise TimeoutError from None
                 task.cancel()
                 raise TimeoutError
             done, _ = await asyncio.wait({task}, timeout=remaining)
@@ -575,8 +587,8 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 output.emit_error(err, as_json=False)
     except _DeadlineSignal:
-        # The whole-body alarm fired; asyncio.wait_for's own TimeoutError is
-        # already translated by _run_with_deadline.
+        # The whole-body alarm fired; the asyncio deadline is already
+        # translated by _run_with_deadline (with its grace window).
         timed_out = CommandTimeoutError("invocation deadline exceeded")
         error_code = timed_out.code
         exit_code = timed_out.exit_code

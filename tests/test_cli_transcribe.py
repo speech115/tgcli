@@ -8,6 +8,7 @@ from telethon.tl import functions, types
 
 from tests.conftest import FakeClient, make_session_fake
 from tgcli.cli import main
+from tgcli.errors import CommandTimeoutError
 
 SAMPLE = """
 default_account = "main"
@@ -134,6 +135,87 @@ def test_transcribe_waits_for_async_update_when_pending(config_env, monkeypatch)
     assert client.event_handlers == []
 
 
+def test_transcribe_replays_an_early_update_only_when_transcription_id_matches(
+    config_env, monkeypatch
+):
+    """ADR-0075: an update parked before the RPC response must not settle the
+    wait unless its transcription_id matches the response — the same msg_id
+    from a concurrent transcription stays foreign (fails on the msg_id-only
+    filter, where the early update settles the wait immediately)."""
+    import asyncio
+
+    from tgcli.commands import transcribe as transcribe_cmd
+
+    client = FakeClient(
+        entities={"@socrates": CHANNEL},
+        messages=[make_voice_message(42)],
+        transcribe_result=transcribe_update(transcription_id=7, text="", pending=True),
+    )
+    make_session_fake(monkeypatch, client)
+
+    async def call_with_early_foreign_update(self, request):
+        # The concurrent transcription's update lands before the response:
+        # the handler can only park it; the replay must skip it (foreign id).
+        self.fire_update(
+            transcribe_update(transcription_id=99, text="Чужой", pending=False)
+        )
+        await asyncio.sleep(0)
+        return self._transcribe_result
+
+    monkeypatch.setattr(FakeClient, "__call__", call_with_early_foreign_update)
+
+    async def scenario():
+        task = asyncio.create_task(
+            transcribe_cmd.transcribe_message(client, "@socrates", 42, timeout=5)
+        )
+        await asyncio.sleep(0.01)
+        # The correct transcription lands after the response.
+        client.fire_update(
+            transcribe_update(transcription_id=7, text="Готово", pending=False)
+        )
+        return await task
+
+    data = asyncio.run(scenario())
+    assert data["transcription"] == {
+        "text": "Готово",
+        "transcription_id": 7,
+        "pending": False,
+    }
+    assert client.event_handlers == []
+
+
+def test_transcribe_ignores_update_with_foreign_transcription_id(
+    config_env, monkeypatch
+):
+    """ADR-0075: the wait matches on transcription_id — an update for the same
+    msg_id from a concurrent transcription must not satisfy it."""
+    import asyncio
+
+    from tgcli.commands import transcribe as transcribe_cmd
+
+    client = FakeClient(
+        entities={"@socrates": CHANNEL},
+        messages=[make_voice_message(42)],
+        transcribe_result=transcribe_update(transcription_id=7, text="", pending=True),
+    )
+    make_session_fake(monkeypatch, client)
+
+    async def scenario():
+        task = asyncio.create_task(
+            transcribe_cmd.transcribe_message(client, "@socrates", 42, timeout=0.05)
+        )
+        await asyncio.sleep(0.01)
+        # Same msg_id, different transcription_id: a concurrent transcription
+        # of the same message (another dialog, or a re-run of this one).
+        client.fire_update(
+            transcribe_update(transcription_id=99, text="Чужой", pending=False)
+        )
+        with pytest.raises(CommandTimeoutError):
+            await task
+
+    asyncio.run(scenario())
+
+
 def test_transcribe_rejects_non_voice_message(config_env, monkeypatch, capsys):
     client = FakeClient(
         entities={"@socrates": CHANNEL},
@@ -166,6 +248,22 @@ def test_transcribe_reports_premium_refusal(config_env, monkeypatch, capsys):
     assert "Premium" in capsys.readouterr().err
 
 
+def test_transcribe_plain_timeout_reports_transcription_id(
+    config_env, monkeypatch, capsys
+):
+    """CONTRACT §5: expiry reports the transcription_id — also in plain mode."""
+    client = FakeClient(
+        entities={"@socrates": CHANNEL},
+        messages=[make_voice_message(42)],
+        transcribe_result=transcribe_update(transcription_id=7, text="", pending=True),
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["transcribe", "@socrates", "42", "--timeout", "0.05"]) == 1
+    captured = capsys.readouterr()
+    assert "transcription_id 7" in captured.err
+
+
 def test_transcribe_times_out_when_update_never_arrives(
     config_env, monkeypatch, capsys
 ):
@@ -178,5 +276,10 @@ def test_transcribe_times_out_when_update_never_arrives(
 
     assert main(["--json", "transcribe", "@socrates", "42", "--timeout", "0.05"]) == 1
     captured = capsys.readouterr()
-    assert "TIMEOUT" in captured.out or "transcription did not complete" in captured.err
+    # CONTRACT §5: expiry reports the transcription_id — in the JSON envelope
+    # and on the plain stderr line.
+    envelope = json.loads(captured.out)
+    assert envelope["error"]["code"] == "TIMEOUT"
+    assert envelope["error"]["transcription_id"] == 7
+    assert "transcription_id 7" in captured.err
     assert client.event_handlers == []
