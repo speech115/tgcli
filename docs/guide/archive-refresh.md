@@ -83,12 +83,13 @@ or transcription is never interrupted, and every launchd fire is a fresh
 process with a fresh budget — so a pass that outruns the interval still
 holds the session lock when the next run fires. The hard bounds on a
 scheduled pass are the per-command caps (`--max-events`, `--max-dialogs`,
-`--max-media`, `--transcribe-limit`); a true mid-run wall-clock bound is
-tracked as a proposal in PROPOSALS.md. The one mid-run effect of
-`--max-runtime` is flood-wait gating: a `FLOOD_WAIT` longer than the
-remaining budget exits 5 immediately (a normal rate-limit result, no failure
-streak) instead of sleeping it out. To stop the job without deleting the
-template, unload the copied file:
+`--max-media`, `--transcribe-limit`, `--max-attempts`); a true mid-run
+wall-clock bound is tracked as a proposal in PROPOSALS.md. `--max-runtime`
+has no mid-run effect on a refresh pass: refresh never sleeps flood waits
+(that is `archive backfill` and `clone sync`), so a `FLOOD_WAIT` during the
+pass surfaces as the normal exit 5 (`FLOOD_WAIT`, no failure streak)
+regardless of the budget. To stop the job without deleting the template,
+unload the copied file:
 
 ```bash
 launchctl bootout "gui/$(id -u)" \

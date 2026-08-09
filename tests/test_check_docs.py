@@ -64,7 +64,7 @@ def copy_with_replacement(tmp_path: Path, source: Path, old: str, new: str) -> P
     return path
 
 
-def test_archive_refresh_plist_argv_stays_parseable(tmp_path):
+def test_archive_refresh_plist_argv_stays_parseable():
     """The launchd template's ProgramArguments must keep parsing: a flag
     rename that silently breaks the scheduled job is a docs-asset regression
     the gate should catch."""
