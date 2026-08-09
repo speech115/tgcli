@@ -32,10 +32,10 @@ tgcli/
 │   ├── DEVLOG-v1.md           [done]    closed log of the phases 0–7 build
 │   ├── devlog/                [done]    per-session entry files YYYY-MM-DD-slug.md (ADR-0058)
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── guide/                 [done]    user-facing task pages, 25 + index (ADR-0041/0065)
+│   ├── guide/                 [done]    user-facing task pages, 26 + index (ADR-0041/0065)
 │   ├── assets/                [done]    README banner, dark + light SVG, launchd template (no external assets)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
-│   ├── decisions/             [done]    ADR-0001…0074 + README.md index (ADR-0074 complexity reset + release preparation script)
+│   ├── decisions/             [done]    ADR-0001…0076 + README.md index (ADR-0074 complexity reset + release preparation script)
 │   ├── research/              [done]    read-only investigation notes backing a wayfinder map's closed children
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/

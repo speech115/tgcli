@@ -25,7 +25,7 @@ Status values:
 | fragment | api | No dedicated workflow; use raw TL only after task-specific review. |
 | help | api | No dedicated workflow; use raw TL only after task-specific review. |
 | langpack | api | No dedicated workflow; use raw TL only after task-specific review. |
-| messages | wrapped | `read`, `search`, `latest`, `message`, `send`, export, `clone sync` (native forward + protected reupload), `archive` backfill/sync/refresh/transcribe/search/read/history (ADR-0068 Phase 6), and `changes` cover daily work; raw TL covers the long tail. |
+| messages | wrapped | `read`, `search`, `latest`, `message`, `send`, export, `clone sync` (native forward + protected reupload), `archive` backfill/sync/refresh/transcribe/search/read/history (ADR-0068 Phase 6), `transcribe` voice notes (ADR-0075), and `changes` cover daily work; raw TL covers the long tail. |
 | payments | api | No dedicated workflow; mutations remain behind raw write safety gates. |
 | phone | excluded | Voice and video calls need a WebRTC media stack and are out of scope. |
 | photos | api | `getUserPhotos` is an allowlisted read; other calls use raw safety gates. |
