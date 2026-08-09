@@ -45,7 +45,9 @@ def test_media_download_message_ids_bulk(config_env, monkeypatch, tmp_path, caps
         }
 
     async def fake_resolve(tg, source, account_alias):
-        return ns(id=5), ns(file=ns(name=f"{source.message_id}.bin"))
+        return ns(id=5), media_cmd._DownloadTarget(
+            media=None, filename=f"{source.message_id}.bin", size=None
+        )
 
     monkeypatch.setattr(media_cmd, "download_media", fake_download)
     monkeypatch.setattr(media_cmd, "resolve_message", fake_resolve)
@@ -82,7 +84,9 @@ def test_media_download_bulk_skip_only_keeps_exit_zero_and_emits_skipped_json(
         )
 
     async def fake_resolve(tg, source, account_alias):
-        return ns(id=5), ns(file=ns(name=f"{source.message_id}.bin"))
+        return ns(id=5), media_cmd._DownloadTarget(
+            media=None, filename=f"{source.message_id}.bin", size=None
+        )
 
     monkeypatch.setattr(media_cmd, "download_media", fake_download)
     monkeypatch.setattr(media_cmd, "resolve_message", fake_resolve)
@@ -137,7 +141,9 @@ def test_media_download_bulk_failed_nonzero_exit(
         }
 
     async def fake_resolve(tg, source, account_alias):
-        return ns(id=5), ns(file=ns(name=f"{source.message_id}.bin"))
+        return ns(id=5), media_cmd._DownloadTarget(
+            media=None, filename=f"{source.message_id}.bin", size=None
+        )
 
     monkeypatch.setattr(media_cmd, "download_media", fake_download)
     monkeypatch.setattr(media_cmd, "resolve_message", fake_resolve)
@@ -280,7 +286,9 @@ def _bulk_download_fake(tmp_path, missing=()):
 
 
 async def _fake_resolve(tg, source, account_alias):
-    return ns(id=5), ns(file=ns(name=f"{source.message_id}.bin"))
+    return ns(id=5), media_cmd._DownloadTarget(
+        media=None, filename=f"{source.message_id}.bin", size=None
+    )
 
 
 def test_media_download_bulk_plain_rows_match_the_frozen_columns(
@@ -526,7 +534,11 @@ def test_media_download_session_revoked_keeps_auth_exit_code(
             raise ConfigError("session needs reauthentication") from exc
 
     async def fake_resolve(tg, source, account_alias):
-        return ns(id=5), _media_message(source.message_id, "video")
+        return ns(id=5), media_cmd._DownloadTarget(
+            media=_media_message(source.message_id, "video"),
+            filename=f"{source.message_id}.bin",
+            size=10,
+        )
 
     async def revoked_download(tg, source, account_alias, **kwargs):
         raise telethon_errors.SessionRevokedError(request=None)

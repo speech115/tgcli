@@ -93,6 +93,33 @@ FloodWait, auth, or policy error stops the whole loop. Any non-empty
 `failed` produces a nonzero exit (typically 4) while the JSON document is
 still emitted on `--json`; files already written stay on disk.
 
+## Story media
+
+Story links `t.me/<user>/s/<id>` and `t.me/c/<channel_id>/s/<id>` download
+story media — stories are not messages, so the same URL cannot be used with
+`message` or the bulk flags.
+
+```bash
+tg --json media download https://t.me/kazbeksocrates/s/937
+```
+
+```json
+{"source":"story:@kazbeksocrates:937","path":"/Users/me/Downloads/story.mp4",
+ "bytes":14260634,"resumed":false,"parallel":1}
+```
+
+Video stories ship several encodings: the main document (typically HEVC) and
+`alt_documents` alternatives (typically a smaller H.264 copy). `--codec`
+picks one by its `video_codec` attribute — `hevc` is an alias of `h265`:
+
+```bash
+tg --json media download https://t.me/kazbeksocrates/s/937 --codec h264
+```
+
+A missing encoding is exit 4. Without `--codec` the main document downloads
+as-is, and the result carries the additive `codec` field only when one was
+selected.
+
 ## No default deadline
 
 `media manifest` and `media download` (both forms) have no implicit overall

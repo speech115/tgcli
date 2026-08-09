@@ -496,6 +496,11 @@ def build_parser() -> argparse.ArgumentParser:
         dest="download_limit",
         help="bulk filter mode max items (default 100, max 100)",
     )
+    p_download.add_argument(
+        "--codec",
+        choices=("h264", "h265", "hevc", "av1"),
+        help="story video: pick this encoding from document/alt_documents",
+    )
     p_manifest = media_sub.add_parser(
         "manifest",
         help="List media in a chat without downloading",
