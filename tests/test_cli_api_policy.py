@@ -50,6 +50,8 @@ REVIEWED_READ_METHODS = [
     "stories.getStoriesByID",
     "stories.getPeerStories",
     "stories.getStoryViewsList",
+    # upload (1)
+    "upload.getFile",
     # users (2)
     "users.getFullUser",
     "users.getUsers",
