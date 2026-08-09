@@ -64,6 +64,24 @@ def copy_with_replacement(tmp_path: Path, source: Path, old: str, new: str) -> P
     return path
 
 
+def test_archive_refresh_plist_argv_stays_parseable(tmp_path):
+    """The launchd template's ProgramArguments must keep parsing: a flag
+    rename that silently breaks the scheduled job is a docs-asset regression
+    the gate should catch."""
+    import plistlib
+
+    from tgcli.parser import build_parser
+
+    plist_path = ROOT / "docs" / "assets" / "tgcli-archive-refresh.plist"
+    with plist_path.open("rb") as handle:
+        plist = plistlib.load(handle)
+    argv = plist["ProgramArguments"][1:]  # drop the absolute tg path
+    args = build_parser().parse_args(argv)
+    assert args.command == "archive"
+    assert args.archive_command == "refresh"
+    assert args.max_runtime == 3000
+
+
 def test_the_repository_changelog_is_consistent():
     result = run(ROOT / "CHANGELOG.md")
 
