@@ -74,13 +74,22 @@ launchctl kickstart "gui/$(id -u)/com.tgcli.archive-refresh"
 ```
 
 `StartInterval` is 3600 seconds, and the template's pass also carries
-`--max-runtime 3000` — comfortably below the interval. A scheduled pass's
-cap must stay shorter than its interval: a cap at or above it lets a slow
-pass still hold the session lock when the next run fires, and the failure
-streak would alert on a scheduler that is merely slow. Exhausting the cap is
-a normal stop (exit 0, `stop_reason: "wall_clock_cap"`), not a failure to
-alert on; the schedule resumes the next pass. To stop the job without
-deleting the template, unload the copied file:
+`--max-runtime 3000` — below the interval, so a wake that finds the cap
+already exhausted defers sync and stops (exit 0, `stop_reason:
+"wall_clock_cap"`) instead of starting a pass that cannot finish.
+
+The cap is checked **once, before dispatch** (CONTRACT §13): a running sync
+or transcription is never interrupted, and every launchd fire is a fresh
+process with a fresh budget — so a pass that outruns the interval still
+holds the session lock when the next run fires. The hard bounds on a
+scheduled pass are the per-command caps (`--max-events`, `--max-dialogs`,
+`--max-media`, `--transcribe-limit`, `--max-attempts`); a true mid-run
+wall-clock bound is tracked as a proposal in PROPOSALS.md. `--max-runtime`
+has no mid-run effect on a refresh pass: refresh never sleeps flood waits
+(that is `archive backfill` and `clone sync`), so a `FLOOD_WAIT` during the
+pass surfaces as the normal exit 5 (`FLOOD_WAIT`, no failure streak)
+regardless of the budget. To stop the job without deleting the template,
+unload the copied file:
 
 ```bash
 launchctl bootout "gui/$(id -u)" \
