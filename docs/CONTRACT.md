@@ -832,9 +832,9 @@ tg api <Namespace.method> --params '<json>' [--write] [--confirm <method>]
 
 - `--params` is required and must be a JSON object. In phase 2, only the
   reviewed explicit allowlist in ADR-0010 may run through the configured
-  session (40 methods as of 2026-07-22; e.g. `users.getFullUser`,
+  session (41 methods as of 2026-08-09; e.g. `users.getFullUser`,
   `messages.getHistory`, `channels.getParticipants`,
-  `contacts.resolvePhone`, `stories.getPeerStories`).
+  `contacts.resolvePhone`, `stories.getPeerStories`, `upload.getFile`).
 - Without `--write`, every method outside the ADR-0010 read allowlist is
   blocked before config loading or session acquisition with exit 2.
 - With `--write`, the same `--readonly`, `TGCLI_READONLY=1`, and

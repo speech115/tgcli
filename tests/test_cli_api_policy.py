@@ -1,4 +1,7 @@
+import json
+
 import pytest
+from telethon.tl import functions, types
 from telethon.tl.tlobject import TLRequest
 
 from tgcli import session
@@ -310,6 +313,41 @@ def test_reviewed_read_method_is_allowlisted_and_resolves(method):
     assert api_cmd.is_read_method(method)
     request_type = api_cmd._resolve_method(method)
     assert issubclass(request_type, TLRequest)
+
+
+async def test_build_request_constructs_upload_getfile_with_document_location():
+    """ADR-0010: the story-media pull shape builds through the converter —
+    GetFileRequest with an InputDocumentFileLocation (base64 file_reference,
+    thumb_size positional in the pinned Telethon layer)."""
+
+    class Client:
+        pass
+
+    request = await api_cmd.build_request(
+        Client(),
+        "upload.getFile",
+        json.dumps(
+            {
+                "location": {
+                    "_": "InputDocumentFileLocation",
+                    "id": 42,
+                    "access_hash": 7,
+                    "file_reference": {"_": "bytes", "base64": "cmVm"},
+                    "thumb_size": "",
+                },
+                "offset": 0,
+                "limit": 1024 * 1024,
+            }
+        ),
+    )
+    assert isinstance(request, functions.upload.GetFileRequest)
+    assert isinstance(request.location, types.InputDocumentFileLocation)
+    assert request.location.id == 42
+    assert request.location.access_hash == 7
+    assert request.location.file_reference == b"ref"
+    assert request.location.thumb_size == ""
+    assert request.offset == 0
+    assert request.limit == 1024 * 1024
 
 
 def test_allowlist_contains_exactly_the_reviewed_methods():
