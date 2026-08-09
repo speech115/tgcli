@@ -362,7 +362,8 @@ def test_clone_refresh_commit_rejects_wrong_kind(config_env, monkeypatch, capsys
     )
     make_session_fake(monkeypatch, RefreshClient([], []))
     assert main(["clone", "refresh", "@source", "--commit", preview["preview_id"]]) == 2
-    assert "clone refresh preview" in capsys.readouterr().err
+    # The shared begin_commit kind check answers first now (#170).
+    assert "preview does not match clone-refresh" in capsys.readouterr().err
 
 
 def test_clone_refresh_commit_rejects_source_mismatch(config_env, monkeypatch, capsys):

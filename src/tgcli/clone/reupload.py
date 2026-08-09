@@ -8,19 +8,21 @@ so the sync path reads as decisions rather than transfer mechanics
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
 from telethon import errors as telethon_errors
 from telethon.tl import types
 
+from tgcli import atomic
 from tgcli.clone import progress as clone_progress, state
 from tgcli.errors import PolicyError
 from tgcli.output import note
 from tgcli.transfer import (
     CHUNK_SIZE,
     CLONE_TRANSFER_PARALLEL,
-    download_striped,
+    download_resumable,
     media_byte_size,
     upload_parts,
 )
@@ -119,6 +121,50 @@ def complete_marker(target: Path) -> Path:
     return target.with_name(f"{target.name}.done")
 
 
+def download_checkpoint(part: Path) -> Path:
+    """Sidecar recording how much of ``part`` is proven media bytes."""
+    return part.with_name(f"{part.name}.offset")
+
+
+def _write_checkpoint(part: Path, size: int, offset: int) -> None:
+    atomic.replace_text(
+        download_checkpoint(part), json.dumps({"size": size, "offset": offset})
+    )
+
+
+def resume_offset(part: Path, size: int) -> int:
+    """Bytes of ``part`` that may be kept, truncating it to that point.
+
+    Without a checkpoint no byte is proven — a killed pre-resume run left a
+    full-size *sparse* `.part` behind, and reusing it would upload zeroes as
+    media. A checkpoint from a different `size` belongs to another revision
+    of the media, not to this one. Either way the partial file is dropped and
+    the download starts over.
+    """
+    record_path = download_checkpoint(part)
+    try:
+        record = json.loads(record_path.read_text())
+        offset = record["offset"]
+        recorded_size = record["size"]
+    except (OSError, ValueError, KeyError, TypeError):
+        offset, recorded_size = None, None
+    on_disk = part.stat().st_size if part.is_file() else None
+    if (
+        type(offset) is not int
+        or offset < 0
+        or recorded_size != size
+        or on_disk is None
+        or offset > on_disk
+    ):
+        part.unlink(missing_ok=True)
+        record_path.unlink(missing_ok=True)
+        return 0
+    if offset < on_disk:
+        with part.open("r+b") as handle:
+            handle.truncate(offset)
+    return offset
+
+
 async def download_for_reupload(
     tg, message, workdir: Path, clone_state, progress=None
 ) -> Path:
@@ -132,27 +178,39 @@ async def download_for_reupload(
         and target.stat().st_size == size
     ):
         return target
-    # Stale name/size (or unpredictable size): drop before re-download so
-    # download_striped's exclusive create and download_media see a free path.
+    # Stale name/size (or unpredictable size): drop before re-download so the
+    # partial file and download_media see a free path.
     target.unlink(missing_ok=True)
     marker.unlink(missing_ok=True)
     if size is not None and size > CHUNK_SIZE:
-        # Only the striped path reports bytes: a sub-chunk file is over before
-        # it could reach a progress mark (ADR-0049).
-        # Stripe into a sibling .part and rename, as `media download` does: the
-        # final name must mean "complete", or a killed run leaves a full-size
-        # sparse file the reuse check would upload as real media (ADR-0052).
+        # Stream into a sibling .part and rename, as `media download` does:
+        # the final name must mean "complete", or a killed run leaves a
+        # full-size sparse file the reuse check would upload as real media
+        # (ADR-0052). The stream is serial and checkpointed rather than
+        # striped, so a FloodWait costs the current chunk instead of the
+        # whole file (ADR-0083 superseding ADR-0047's download leg).
+        # Only this path reports bytes: a sub-chunk file is over before it
+        # could reach a progress mark (ADR-0049).
         part = target.with_name(f"{target.name}.part")
-        part.unlink(missing_ok=True)
-        await download_striped(
+        offset = resume_offset(part, size)
+        written = await download_resumable(
             tg,
             message.media,
             part,
+            offset=offset,
             size=size,
-            parallel=CLONE_TRANSFER_PARALLEL,
+            checkpoint=lambda current: _write_checkpoint(part, size, current),
             progress=clone_progress.transfer_of(progress, message, "download"),
         )
+        if written != size:
+            # A stream that ended early is not a complete file, and the final
+            # name means complete. Keep the partial for the next run's resume.
+            raise PolicyError(
+                f"clone media download stopped at {written}/{size} bytes "
+                f"for source message {message.id}"
+            )
         os.replace(part, target)
+        download_checkpoint(part).unlink(missing_ok=True)
         marker.touch()
         return target
     downloaded = await tg.download_media(message, file=target)

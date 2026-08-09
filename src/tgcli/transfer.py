@@ -139,6 +139,68 @@ async def download_striped(
     return destination
 
 
+# One checkpoint per this many chunks. Frequent enough that a killed run
+# loses seconds of transfer, rare enough that the sidecar write is noise
+# against the bytes (the same cadence `media download` has always used).
+CHECKPOINT_EVERY_CHUNKS = 8
+
+
+async def download_resumable(
+    tg,
+    media,
+    part: Path,
+    *,
+    offset: int,
+    size: int | None,
+    checkpoint: Callable[[int], None],
+    progress: Callable[[int, int | None], None] | None = None,
+) -> int:
+    """Append ``media`` into ``part`` from ``offset``; return the bytes on disk.
+
+    Serial and resumable, the opposite trade from :func:`download_striped`:
+    one request at a time, but every checkpointed byte survives the run. A
+    parallel transfer writes its stripes at scattered offsets, so no byte
+    count describes what it already has — which is why a transfer that must
+    make progress *across* runs cannot be striped.
+
+    ``checkpoint`` is called with the absolute byte count every
+    ``CHECKPOINT_EVERY_CHUNKS`` chunks and once more on the way out, whether
+    the transfer finished or raised. The caller owns what that record looks
+    like and what makes it valid to resume from; this owns only the loop.
+    """
+    part.parent.mkdir(parents=True, exist_ok=True)
+    with part.open("ab" if offset else "wb") as handle:
+        current = offset
+        chunks_since_checkpoint = 0
+        chunks_since_progress = 0
+        try:
+            async for chunk in tg.iter_download(
+                media, offset=offset, request_size=CHUNK_SIZE
+            ):
+                handle.write(bytes(chunk))
+                current = handle.tell()
+                chunks_since_checkpoint += 1
+                chunks_since_progress += 1
+                if chunks_since_checkpoint >= CHECKPOINT_EVERY_CHUNKS:
+                    handle.flush()
+                    checkpoint(current)
+                    chunks_since_checkpoint = 0
+                if progress is not None and chunks_since_progress >= (
+                    PROGRESS_EVERY_CHUNKS
+                ):
+                    progress(current, size)
+                    chunks_since_progress = 0
+        except BaseException:
+            handle.flush()
+            checkpoint(current)
+            raise
+        handle.flush()
+        checkpoint(current)
+        if progress is not None and chunks_since_progress:
+            progress(current, size)
+    return current
+
+
 async def upload_parts(
     tg,
     path: Path | str,

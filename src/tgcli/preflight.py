@@ -361,22 +361,25 @@ def _prepare_previews(parser: argparse.ArgumentParser, args) -> None:
                 f"{' '.join(name.upper() for name in names)} --preview "
                 "or --commit PREVIEW_ID"
             )
-    if args.command == "clone" and args.clone_command == "init" and args.commit:
-        safety.enforce_mutation_allowed(args.readonly)
-        args.preview_payload = safety.consume_preview(args.commit)
+    # A clone commit is many Telegram calls, and a flood partway through used
+    # to spend the preview while leaving real peers behind — the retry was
+    # refused and the operator had to find the half-built clone in
+    # `clone status` (#170). The begin/finish handshake `send` already uses
+    # keeps the preview retryable until the commit actually finishes; every
+    # clone commit step is idempotent (it adopts what it already created).
+    for clone_command in ("init", "refresh"):
         if (
-            args.preview_payload.get("kind") != "clone-init"
-            or args.preview_payload.get("source") != args.source
+            args.command == "clone"
+            and args.clone_command == clone_command
+            and args.commit
         ):
-            raise PolicyError("clone init preview does not match this source")
-    if args.command == "clone" and args.clone_command == "refresh" and args.commit:
-        safety.enforce_mutation_allowed(args.readonly)
-        args.preview_payload = safety.consume_preview(args.commit)
-        if (
-            args.preview_payload.get("kind") != "clone-refresh"
-            or args.preview_payload.get("source") != args.source
-        ):
-            raise PolicyError("clone refresh preview does not match this source")
+            kind = f"clone-{clone_command}"
+            safety.enforce_mutation_allowed(args.readonly)
+            args.preview_payload = safety.begin_commit(args.commit, expected_kind=kind)
+            if args.preview_payload.get("source") != args.source:
+                raise PolicyError(
+                    f"clone {clone_command} preview does not match this source"
+                )
     if args.command == "draft" and args.draft_command in ("set", "clear"):
         _prepare_draft_preview(parser, args)
 
