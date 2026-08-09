@@ -54,6 +54,7 @@ Every page in this group is preview → commit unless it says otherwise.
 | Page | Covers |
 | --- | --- |
 | [media](media.md) | `media manifest`, `media download` |
+| [transcribe](transcribe.md) | `transcribe` — server-side voice transcription (Premium) |
 | [export](export.md) | `export messages`, `export subscribers` |
 | [clone](clone.md) | `clone status\|init\|sync\|export-state` |
 

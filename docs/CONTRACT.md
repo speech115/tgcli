@@ -23,7 +23,7 @@ Global flags (available on every command):
 | `--json` | machine output: one JSON document to stdout |
 | `--plain` | stable TSV to stdout (no colors, no alignment) |
 | `--readonly` | hard-block any mutating call in this invocation |
-| `--timeout <sec>` | overall invocation **hang detector** covering preflight and execution (default 60; governed sleep does not count against it; no default deadline for media, exports, `clone init|sync|refresh`, or `archive refresh`, which may wait out bounded work; `accounts login` defaults to 120 and `--continue` takes none) |
+| `--timeout <sec>` | overall invocation **hang detector** covering preflight and execution (default 60; governed sleep does not count against it; no default deadline for media, exports, `clone init|sync|refresh`, or `archive refresh`, which may wait out bounded work; `accounts login` defaults to 120 and `--continue` takes none; `tg transcribe` defaults to 120, the transcription wait) |
 | `--max-runtime <sec>` | explicit wall-clock cap for long runs: governed sleep counts against it; exhausting it is a normal stop (exit 0), with `stop_reason` and a resume pointer where the command keeps a cursor (clone sync, archive backfill; archive refresh defers sync and stops with `stop_reason: "wall_clock_cap"` and no cursor) |
 | `-v/--verbose` | Python and Telethon debug diagnostics on stderr for this invocation |
 
@@ -410,6 +410,22 @@ never downloads. Each item is
 stops at the first message older than the bound). Success JSON:
 `{"dialog":{"id":-1001234,"name":"Channel"},"items":[...],"count":N}`. Plain
 rows are `message_id`, `type`, `size`, `mime`, `filename`.
+
+### Transcribe (`tg transcribe`; ADR-0075)
+
+`tg transcribe <chat> <message_id>` resolves the peer, refuses a message that
+is not a voice note (exit 4), calls `messages.transcribeAudio`, and waits for
+the asynchronous result, bounded by `--timeout` (default 120 s; expiry is the
+normal `TIMEOUT` exit and reports the `transcription_id`). A missing Premium
+subscription is exit 2 (`BLOCKED`) with a plain-language message. Success
+JSON:
+
+```json
+{"dialog":{"id":-1001234,"name":"Channel"},"message_id":42,
+ "transcription":{"text":"...","transcription_id":987,"pending":false}}
+```
+
+Plain row: `message_id`, `text`.
 
 ### TSV Shapes
 

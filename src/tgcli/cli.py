@@ -97,6 +97,8 @@ def _default_timeout(args) -> float | None:
     """
     if args.command == "accounts" and args.subcommand == "login":
         return None if getattr(args, "continue_id", None) else 120.0
+    if args.command == "transcribe":
+        return 120.0
     if args.command == "changes" and getattr(args, "changes_wait", None) is not None:
         return None
     if _long_running_command(args):

@@ -100,6 +100,7 @@ tg --json send --commit p_9f3a             # nothing leaves without this
 
 # 4. Media and export
 tg --json media download https://t.me/channel/42 --parallel 4
+tg --json transcribe @user 42          # voice message text (Premium)
 tg --json export messages @channel --output messages.jsonl --resume
 
 # 5. Observe changes — save next_cursor from the first result
@@ -120,7 +121,7 @@ Full guide: **[docs/guide/](docs/guide/README.md)**
 | Area | Pages |
 | --- | --- |
 | **Start** | [overview](docs/guide/overview.md) · [install](docs/guide/install.md) · [quickstart](docs/guide/quickstart.md) · [accounts](docs/guide/accounts.md) |
-| **Reading** | [dialogs](docs/guide/dialogs.md) · [read](docs/guide/read.md) · [search](docs/guide/search.md) · [contacts](docs/guide/contacts.md) · [batch](docs/guide/batch.md) · [changes](docs/guide/changes.md) · [archive](docs/guide/archive.md) · [archive refresh](docs/guide/archive-refresh.md) |
+| **Reading** | [dialogs](docs/guide/dialogs.md) · [read](docs/guide/read.md) · [search](docs/guide/search.md) · [contacts](docs/guide/contacts.md) · [batch](docs/guide/batch.md) · [changes](docs/guide/changes.md) · [archive](docs/guide/archive.md) · [archive refresh](docs/guide/archive-refresh.md) · [transcribe](docs/guide/transcribe.md) |
 | **Writing** | [send](docs/guide/send.md) · [editing](docs/guide/editing.md) · [forward](docs/guide/forward.md) · [drafts](docs/guide/drafts.md) · [formatting](docs/guide/formatting.md) · [inbox](docs/guide/inbox.md) |
 | **Data** | [media](docs/guide/media.md) · [export](docs/guide/export.md) · [clone](docs/guide/clone.md) |
 | **Operations** | [doctor](docs/guide/doctor.md) · [store](docs/guide/store.md) · [safety](docs/guide/safety.md) · [api](docs/guide/api.md) |

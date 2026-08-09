@@ -643,6 +643,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--wait", type=float, dest="changes_wait", metavar="N", help="long-poll seconds"
     )
 
+    p_transcribe = sub.add_parser(
+        "transcribe",
+        help="Transcribe a voice message (Premium; ADR-0075)",
+        parents=[global_flags],
+    )
+    p_transcribe.add_argument("chat", help="@username, t.me link, or dialog id")
+    p_transcribe.add_argument("message_id", type=int)
+
     p_export = sub.add_parser(
         "export", help="Export Telegram data", parents=[global_flags]
     )

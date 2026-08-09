@@ -22,6 +22,7 @@ from tgcli.commands import (
     media as media_cmd,
     mutate as mutate_cmd,
     send as send_cmd,
+    transcribe as transcribe_cmd,
 )
 from tgcli.errors import PolicyError, RateLimitError
 
@@ -52,6 +53,11 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
                 return {"_batch_results": results, "_batch_exit": first_exit}, []
             if args.command == "media" and args.media_command == "download":
                 return await _download_media(tg, args, account)
+            if args.command == "transcribe":
+                data = await transcribe_cmd.transcribe_message(
+                    tg, args.chat, args.message_id, timeout=args.timeout
+                )
+                return data, transcribe_cmd.to_rows(data)
             if args.command == "send":
                 if args.preview:
                     data = await send_cmd.prepare(

@@ -26,6 +26,7 @@ class FakeClient:
         common_chats_result=None,
         peer_dialogs_result=None,
         all_drafts_result=None,
+        transcribe_result=None,
     ):
         self._dialogs = list(dialogs)
         self._messages = list(messages)
@@ -43,10 +44,12 @@ class FakeClient:
         self._common_chats_result = common_chats_result
         self._peer_dialogs_result = peer_dialogs_result
         self._all_drafts_result = all_drafts_result
+        self._transcribe_result = transcribe_result
         self.session = ns(takeout_id=None)
         self.iter_messages_calls = []
         self.iter_messages_reverse_calls = []
         self.get_messages_calls = []
+        self.event_handlers = []
         self.iter_participants_calls = []
         self.takeout_calls = []
         self.takeout_error = None
@@ -126,7 +129,33 @@ class FakeClient:
         return self._entities[key]
 
     async def get_input_entity(self, key):
+        from telethon.tl import types
+
+        if isinstance(key, types.Channel):
+            return types.InputPeerChannel(
+                channel_id=key.id, access_hash=key.access_hash
+            )
+        if isinstance(key, types.User):
+            return types.InputPeerUser(user_id=key.id, access_hash=key.access_hash)
+        if isinstance(key, types.Chat):
+            return types.InputPeerChat(chat_id=key.id)
         return key
+
+    def add_event_handler(self, callback, event):
+        self.event_handlers.append((callback, event))
+        return callback
+
+    def remove_event_handler(self, handler, event=None):
+        self.event_handlers = [
+            (cb, ev) for (cb, ev) in self.event_handlers if cb is not handler
+        ]
+
+    def fire_update(self, update):
+        """Deliver an update to every registered raw handler, awaited."""
+        import asyncio
+
+        for callback, _ in self.event_handlers:
+            asyncio.get_event_loop().create_task(callback(update))
 
     async def get_me(self):
         return self._me
@@ -153,6 +182,13 @@ class FakeClient:
         from telethon.tl import functions, types
 
         self.call_requests.append(request)
+        if isinstance(request, functions.messages.TranscribeAudioRequest):
+            if self._transcribe_result is None:
+                raise AssertionError(
+                    "FakeClient received TranscribeAudioRequest but no "
+                    "transcribe_result was configured"
+                )
+            return self._transcribe_result
         if isinstance(request, functions.contacts.ResolvePhoneRequest):
             if self._resolve_phone_result is None:
                 raise AssertionError(

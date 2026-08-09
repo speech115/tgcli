@@ -78,6 +78,7 @@ selected account session, does one operation, and exits.
 | Reply chain | `tg --json thread CHAT MESSAGE_ID [--replies] [--depth 20]` |
 | Download media | `tg --json media download https://t.me/channel/42 --parallel 4` |
 | Bulk download media | `tg --json media download @chan --message-ids 1,2 --type video --since ISO --limit 50 --output DIR` (filters combine; max 100) |
+| Transcribe a voice message | `tg --json transcribe @user 12345 [--timeout 120]` (Premium; waits for the server result) |
 | Preview a send | `tg --json send @channel "Hello" --preview` |
 | Preview a reply/topic/silent send | `tg --json send CHAT "TEXT" --preview --reply-to ID --topic ID --silent` |
 | Preview a file send | `tg --json send CHAT --file PATH --caption "TEXT" --preview` |
