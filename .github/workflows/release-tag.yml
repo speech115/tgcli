@@ -4,7 +4,11 @@ name: Release tag
 # unchanged; only its executor is. A session that merges a release cannot push
 # `refs/tags/*` — the git proxy answers 403 — so the step was always somebody's
 # manual follow-up, and seven consecutive releases shipped untagged. CI owns it
-# now, at the one moment the release commit is known to exist.
+# now, at the one moment the release commit is known to exist. The same run
+# publishes the GitHub Releases page entry from the CHANGELOG section
+# (ADR-0077): a release whose notes live only in CHANGELOG.md is invisible
+# from the GitHub UI, which is how the page stalled at 1.2.18 while tags kept
+# shipping.
 on:
   push:
     branches: [main]
@@ -22,11 +26,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Tag the release commit when this push bumped the version
+      - name: Tag the release and publish its GitHub Release when the push bumped the version
         env:
           # The previous tip of `main`, so the job can tell a release push from
           # any other push. All-zeros when the ref was just created.
           BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           # A tag that fails to push must turn the run red, never be reported
           # as created: a silently skipped tag is the bug this job exists for.
@@ -71,13 +76,40 @@ jobs:
 
           tag="v$version"
           if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-            echo "$tag already exists; nothing to do"
-            exit 0
+            echo "$tag already exists; nothing to tag"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email \
+              "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$tag" -m "$tag"
+            git push origin "$tag"
+            echo "created $tag at $(git rev-parse --short HEAD) (was $previous)"
           fi
 
-          git config user.name "github-actions[bot]"
-          git config user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$tag" -m "$tag"
-          git push origin "$tag"
-          echo "created $tag at $(git rev-parse --short HEAD) (was $previous)"
+          # Publish the GitHub Releases page entry (ADR-0077). The CHANGELOG
+          # section for the bumped version is the release notes: prose first,
+          # then the PR/ADR list. Re-running the workflow repairs a run that
+          # died after tagging but before publishing — the tag branch is
+          # idempotent, so a missing Release is the only failure left to fix.
+          # A missing section or a failed publish must turn the run red: a
+          # release without notes is the same silent-skip bug as a missing tag.
+          # The prepare-release marker is stripped if a section ever ships
+          # with it (ADR-0074's "revisit" case — 2.0.1/2.0.2 shipped marked).
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "GitHub Release $tag already exists; nothing to do"
+            exit 0
+          fi
+          notes=$(awk -v want="$version" '
+            /^## \[/ {
+              line=$0; sub(/^## \[/, "", line); sub(/\].*/, "", line)
+              if (line == want) { inside=1; next }
+              if (inside) exit
+            }
+            inside { print }
+          ' CHANGELOG.md | sed '/prepare-release:/d')
+          if [ -z "$notes" ]; then
+            echo "no CHANGELOG section for $version; refusing a silent release"
+            exit 1
+          fi
+          gh release create "$tag" --title "tgcli $version" --notes "$notes"
+          echo "published GitHub Release $tag"
