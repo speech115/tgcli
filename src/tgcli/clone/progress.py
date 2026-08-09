@@ -116,11 +116,20 @@ class SyncProgress:
         self._copied += count
         self._write(f"{self._prefix()} · {transport}")
 
-    def phase(self, name: str) -> None:
-        """Announce a leg whose size the posts-leg total no longer describes."""
-        self._write(f"{self._prefix()} · {name}")
+    def phase(self, name: str, *, copied: int = 0) -> None:
+        """Start a new leg: announce it, and restart both counters for it.
+
+        The counters are per leg, not per run (#174). Carrying the posts
+        count into the comments phase printed `998/~997` — more copied than
+        there is work — because the copied side counted every mapped message
+        while the total came from the channel the posts leg reads. Each leg
+        now counts what *it* has copied against what *its* source holds, and
+        the total re-resolves against that leg's own entity.
+        """
+        self._copied = copied
         self._total = None
         self._total_resolved = False
+        self._write(f"{self._prefix()} · {name}")
 
     def transfer(self, filename: str, direction: str) -> Callable[..., None]:
         """Return a byte-progress callback throttled to one line per ~5 MB."""

@@ -46,7 +46,8 @@ def test_unknown_total_renders_as_a_question_mark():
     assert lines == ["[sync 123] 1/~? · snapshots"]
 
 
-def test_phase_line_names_the_leg_and_resets_the_total():
+def test_phase_line_names_the_leg_and_restarts_the_counters():
+    """#174: each leg counts its own work against its own source."""
     lines, write = collector()
     reporter = progress.SyncProgress(123, total=120, copied=120, write=write)
 
@@ -55,9 +56,36 @@ def test_phase_line_names_the_leg_and_resets_the_total():
     reporter.phase("roster")
 
     assert lines == [
-        "[sync 123] 120/~120 · comments",
-        "[sync 123] 121/~? · forwarded",
-        "[sync 123] 121/~? · roster",
+        "[sync 123] 0/~? · comments",
+        "[sync 123] 1/~? · forwarded",
+        "[sync 123] 0/~? · roster",
+    ]
+
+
+def test_phase_carries_the_count_the_leg_already_has():
+    lines, write = collector()
+    reporter = progress.SyncProgress(123, total=997, copied=997, write=write)
+
+    reporter.phase("comments", copied=40)
+    reporter.batch(2, "forwarded")
+
+    assert lines == [
+        "[sync 123] 40/~? · comments",
+        "[sync 123] 42/~? · forwarded",
+    ]
+
+
+def test_copied_never_exceeds_the_total_across_a_phase_switch():
+    """The posts total described the channel, not the discussion group."""
+    lines, write = collector()
+    reporter = progress.SyncProgress(123, total=997, copied=998, write=write)
+
+    reporter.phase("comments", copied=0)
+    reporter.batch(1, "forwarded")
+
+    assert lines == [
+        "[sync 123] 0/~? · comments",
+        "[sync 123] 1/~? · forwarded",
     ]
 
 
@@ -77,18 +105,20 @@ async def test_resolve_total_requeries_after_phase_reset():
         return await make()
 
     tg = FakeTg()
-    source = object()
-    await reporter.resolve_total(tg, source, invoke)
+    posts = object()
+    comments = object()
+    await reporter.resolve_total(tg, posts, invoke)
     reporter.batch(1, "forwarded")
     reporter.phase("comments")
-    await reporter.resolve_total(tg, source, invoke)
+    await reporter.resolve_total(tg, comments, invoke)
     reporter.batch(1, "forwarded")
 
-    assert calls == [(source, 0), (source, 0)]
+    # Each leg asks its own source for its own total (#174).
+    assert calls == [(posts, 0), (comments, 0)]
     assert lines == [
         "[sync 123] 11/~50 · forwarded",
-        "[sync 123] 11/~50 · comments",
-        "[sync 123] 12/~7 · forwarded",
+        "[sync 123] 0/~? · comments",
+        "[sync 123] 1/~7 · forwarded",
     ]
 
 
