@@ -256,6 +256,50 @@ async def test_resolve_story_without_codec_uses_main_document():
     assert target.size == 13
 
 
+
+def make_photo_story_with_sizes(story_id):
+    media = types.MessageMediaPhoto(
+        photo=types.Photo(
+            id=1,
+            access_hash=2,
+            file_reference=b"r",
+            date=None,
+            dc_id=1,
+            sizes=[
+                types.PhotoSize(type="m", w=320, h=480, size=1024),
+                types.PhotoSizeProgressive(
+                    type="p", w=1080, h=1920, sizes=[4096, 8192]
+                ),
+            ],
+        )
+    )
+    return types.StoryItem(id=story_id, date=None, expire_date=None, media=media)
+
+
+async def test_parallel_photo_story_download_uses_progressive_size(
+    tmp_path, monkeypatch
+):
+    """A photo story must report a countable size so --parallel works
+    (mirrors Telethon's own byte-count computation)."""
+    fake = StoryTelegram(make_photo_story_with_sizes(937))
+    calls = []
+
+    async def fake_striped(tg, media, path, *, size, parallel, progress):
+        calls.append((size, parallel))
+        path.write_bytes(b"data")
+
+    monkeypatch.setattr(media_cmd, "download_striped", fake_striped)
+    source = parse_source("https://t.me/kazbeksocrates/s/937", None)
+
+    result = await media_cmd.download_media(
+        fake, source, "main", parallel=2, output=str(tmp_path / "s.jpg")
+    )
+
+    assert result["parallel"] == 2
+    assert result["bytes"] == 4
+    assert calls == [(8192, 2)]
+
+
 async def test_story_download_writes_file_and_reports_codec(tmp_path):
     fake = StoryTelegram(make_story(937, alts=[("h264", 3, "story_h264.mp4")]))
     source = parse_source("https://t.me/kazbeksocrates/s/937", None)
