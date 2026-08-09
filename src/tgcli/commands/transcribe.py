@@ -87,7 +87,8 @@ async def transcribe_message(tg, chat: str, message_id: int, timeout: float) -> 
                 await asyncio.wait_for(arrived.wait(), timeout=timeout)
             except TimeoutError:
                 raise CommandTimeoutError(
-                    f"transcription did not complete within {timeout:.0f}s",
+                    f"transcription did not complete within {timeout:.0f}s "
+                    f"(transcription_id {result.transcription_id})",
                     transcription_id=result.transcription_id,
                 ) from None
             text = state["text"]

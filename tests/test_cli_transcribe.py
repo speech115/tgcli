@@ -199,6 +199,21 @@ def test_transcribe_reports_premium_refusal(config_env, monkeypatch, capsys):
     assert "Premium" in capsys.readouterr().err
 
 
+
+def test_transcribe_plain_timeout_reports_transcription_id(config_env, monkeypatch, capsys):
+    """CONTRACT §5: expiry reports the transcription_id — also in plain mode."""
+    client = FakeClient(
+        entities={"@socrates": CHANNEL},
+        messages=[make_voice_message(42)],
+        transcribe_result=transcribe_update(transcription_id=7, text="", pending=True),
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["transcribe", "@socrates", "42", "--timeout", "0.05"]) == 1
+    captured = capsys.readouterr()
+    assert "transcription_id 7" in captured.err
+
+
 def test_transcribe_times_out_when_update_never_arrives(
     config_env, monkeypatch, capsys
 ):
@@ -211,5 +226,10 @@ def test_transcribe_times_out_when_update_never_arrives(
 
     assert main(["--json", "transcribe", "@socrates", "42", "--timeout", "0.05"]) == 1
     captured = capsys.readouterr()
-    assert "TIMEOUT" in captured.out or "transcription did not complete" in captured.err
+    # CONTRACT §5: expiry reports the transcription_id — in the JSON envelope
+    # and on the plain stderr line.
+    envelope = json.loads(captured.out)
+    assert envelope["error"]["code"] == "TIMEOUT"
+    assert envelope["error"]["transcription_id"] == 7
+    assert "transcription_id 7" in captured.err
     assert client.event_handlers == []
