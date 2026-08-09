@@ -85,6 +85,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0076](ADR-0076-story-media-download.md) | `tg media download` accepts story links (`/s/<id>`, public and private), resolves via `stories.getStoriesByID`, selects an encoding from `document`/`alt_documents` by the `video_codec` attribute on opt-in `--codec`, and reuses the striped download machinery | accepted |
 | [0077](ADR-0077-release-workflow-publishes-github-releases.md) | The `Release tag` workflow publishes the GitHub Releases page entry from the CHANGELOG section in the same run as the tag, idempotently (re-run repairs a publish failure) — the page stops being a manual follow-up | accepted |
 | [0078](ADR-0078-codec-story-sources-only.md) | `tg media download` rejects `--codec` on non-story sources (message or bulk) with the existing `BLOCKED` exit 2 instead of silently ignoring the flag; the ADR-0076 encoding scope becomes enforced at the dispatch level | accepted |
+| [0079](ADR-0079-transcribe-readonly-gate.md) | `messages.transcribeAudio` is classified as a mutation: `tg transcribe` is blocked by `--readonly` (exit 2) in preflight and writes an audit record with chat + message_id; the raw `tg api` write classification is unchanged | accepted |
 
 Notes on supersessions:
 

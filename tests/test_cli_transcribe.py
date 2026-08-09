@@ -216,6 +216,47 @@ def test_transcribe_ignores_update_with_foreign_transcription_id(
     asyncio.run(scenario())
 
 
+def test_transcribe_readonly_is_blocked_before_network(config_env, monkeypatch, capsys):
+    """ADR-0079: transcribeAudio is a server-side mutation; --readonly blocks
+    it in preflight, before any request reaches Telegram."""
+    client = FakeClient(
+        entities={"@socrates": CHANNEL},
+        messages=[make_voice_message(42)],
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["--json", "--readonly", "transcribe", "@socrates", "42"]) == 2
+    assert "readonly" in capsys.readouterr().err
+    assert client.call_requests == []
+
+
+def test_transcribe_writes_an_audit_record(config_env, monkeypatch, tmp_path, capsys):
+    """ADR-0079: the mutation is audited like mark-read: target identifiers
+    only (chat + message_id), never content."""
+    from tgcli import safety
+
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    client = FakeClient(
+        entities={"@socrates": CHANNEL},
+        messages=[make_voice_message(42)],
+        transcribe_result=transcribe_update(
+            transcription_id=7, text="Привет из голосового"
+        ),
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["--json", "transcribe", "@socrates", "42"]) == 0
+    audits = [json.loads(line) for line in safety.audit_path().read_text().splitlines()]
+    assert len(audits) == 1
+    row = audits[0]
+    assert row["action"] == "transcribe"
+    assert row["account"] == "main"
+    assert row["chat"] == "@socrates"
+    assert row["message_id"] == 42
+    assert "text" not in row  # metadata-only audit: never the transcription
+    assert "timestamp" in row
+
+
 def test_transcribe_rejects_non_voice_message(config_env, monkeypatch, capsys):
     client = FakeClient(
         entities={"@socrates": CHANNEL},

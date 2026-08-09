@@ -24,6 +24,12 @@ the call can be retried. Re-running the command on the same message is safe.
 The message must be a voice note — a non-voice message is exit 4
 (`NOT_FOUND`). Plain output is one row: `message_id`, `text`.
 
+`transcribeAudio` is a server-side **mutation**: it consumes the Premium
+transcription quota, and the transcript becomes visible to other clients of
+the chat. `--readonly` therefore blocks the command (exit 2, `BLOCKED`), and
+every call is recorded in the audit log with the target identifiers
+(`chat`, `message_id`).
+
 The raw method stays reachable through [`tg api`](api.md)
 (`messages.transcribeAudio`, `--write --confirm`), but the raw passthrough
 cannot express the async wait; prefer this command.
