@@ -311,6 +311,8 @@ user-site Telethon to 1.44. The remaining code-level rail: `tg doctor` warns
 when another Telethon on `PATH`/`python3` is older than the pinned version.
 Deferred because it changes a released command (ADR + release, full lane);
 revisit only if incidents recur despite the rule and the version alignment.
+
+**`tg spec`.** *Not a wacli import* — wacli's `spec` is a documentation page,
 not a command; the review only prompted the re-examination. Listed here for
 provenance. Rejected by ADR-0028 as "a second source of truth that drifts".
 That objection was right at the time and is weaker now: ADR-0034 made
