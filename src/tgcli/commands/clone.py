@@ -820,6 +820,11 @@ async def sync_text(
             skipped_unsupported.extend(unsupported)
             leg.cursor = messages[-1].id
             state.save(clone_state)
+            for item in unsupported:
+                note(
+                    f"warning: source message {item['id']} skipped unsupported "
+                    f"{item['kind']}"
+                )
             return
         # `source` is this leg's own entity — the channel for posts, the
         # discussion group for comments — so the ~total describes the work
@@ -903,6 +908,10 @@ async def sync_text(
         reply_flattened += int(flattened)
         if flattened_quote is not None:
             quote_flattened.append(flattened_quote)
+            note(
+                f"warning: source message {flattened_quote['id']} planted quote "
+                f"fallback ({flattened_quote['reason']})"
+            )
         copied_batches += 1
         progress.batch(batch_copied, mode)
 

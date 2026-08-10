@@ -1398,7 +1398,10 @@ resolved author name/title is a clickable `t.me` link when possible; Story IDs
 are not shown. Both use the audited `clone-sync-snapshot` path, receive
 source-to-destination mappings, and count as copied. Truly unsupported kinds
 such as dice advance the cursor and appear in `skipped_unsupported`; nothing is
-skipped silently (ADR-0019).
+skipped silently (ADR-0019). Each unsupported source message prints a stderr
+warning naming its id and TL kind immediately after the advanced leg cursor is
+saved. A later non-zero exit therefore cannot erase the only report of a skip
+that future runs will not revisit (ADR-0086).
 
 For forum clones, a topic-create service message creates the matching
 destination topic (counted in `topics_created`, not `skipped_service`); messages
@@ -1594,9 +1597,14 @@ the reply link kept, reported as `reason: "quote-rejected"`. `reply_from` /
 `reply_media` are server-rendered decorations and are ignored. Malformed quote
 metadata, an invalid reply parent, and inconsistent album reply shapes still
 exit 2 before audit or mutation.
-When a run plants at least one quote fallback it finishes copying, writes the
-full result document (including advanced cursors), and exits 2 (`PartialFailure`
-with `PolicyError` cause); a run that plants none exits 0.
+Each planted quote fallback prints a stderr warning naming its source message
+id and reason as soon as the copied message and cursor are durable. When a run
+plants at least one quote fallback it finishes copying, writes the full result
+document (including advanced cursors), and exits 2 (`PartialFailure` with
+`PolicyError` cause); a run that plants none exits 0. If a later flood ends the
+run first, the flood still exits 5 without the result document, while the
+already-emitted warning remains the report of the permanent fallback
+(ADR-0086).
 
 Reupload sends text and webpage messages with `sendMessage`, photos/documents
 with `sendMedia`, and albums with per-item `uploadMedia` followed by one
