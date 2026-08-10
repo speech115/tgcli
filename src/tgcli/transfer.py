@@ -295,6 +295,38 @@ async def upload_parts(
     )
 
 
+def media_identity(media) -> int | None:
+    """Telegram's own id for a media object, or None when it has none.
+
+    Byte length does not identify media: a source can replace the file behind
+    a message, and resuming a partial download onto the replacement splices
+    two files into one that passes every length check and is neither
+    (#169 for clone, #180 for `media download`). The document/photo id
+    changes whenever the file does, so it is the identity a resume must hold.
+
+    Accepts every shape the two callers hold: a ``MessageMedia*`` wrapper, or
+    a bare ``Document`` picked out of a story's alternative encodings.
+
+    The final fallback reads ``media.id`` off the wrapper itself, which is
+    right for a bare document and wrong for any wrapper carrying an unrelated
+    top-level id — ``MessageMediaStory.id`` is the *story* id, not a file's.
+    That is harmless only because Telethon cannot resolve such media to a
+    download location at all: ``iter_download`` raises before a byte is
+    written, so no partial file exists to mis-identify. A future media type
+    that is both downloadable and carries its own id would break that, and
+    the fallback would need to name the types it accepts (review finding).
+    """
+    for candidate in (
+        getattr(media, "document", None),
+        getattr(media, "photo", None),
+        media,
+    ):
+        value = getattr(candidate, "id", None)
+        if type(value) is int:
+            return value
+    return None
+
+
 def media_byte_size(message) -> int | None:
     """Best-effort media size for choosing striped download."""
     file = getattr(message, "file", None)

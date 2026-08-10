@@ -49,6 +49,12 @@ file from `~/.local/state/tgcli/downloads/`; asking for `--parallel N`
 greater than 1 always starts fresh and cannot resume. Progress goes to
 stderr only.
 
+"Matching" is the media, not the file name: the resume record holds the
+document/photo id and the byte size, so if the source replaced the file behind
+that message while your download was interrupted, the partial bytes are
+dropped and the new file downloads whole. You get a one-line note on stderr
+and `resumed: false` — never a silent mix of the two files.
+
 ```json
 {"source": "@channel:42", "path": "/Users/me/Downloads/clip.mp4",
  "bytes": 104857600, "resumed": false, "parallel": 1}

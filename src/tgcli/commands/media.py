@@ -22,8 +22,14 @@ from tgcli.errors import (
     RateLimitError,
     TgcliError,
 )
+from tgcli.output import note
 from tgcli.session import state_dir
-from tgcli.transfer import CHUNK_SIZE, PROGRESS_EVERY_CHUNKS, download_striped
+from tgcli.transfer import (
+    CHUNK_SIZE,
+    PROGRESS_EVERY_CHUNKS,
+    download_striped,
+    media_identity,
+)
 
 PRIVATE_LINK = re.compile(r"(?:https?://)?t\.me/c/(\d+)/(\d+)/?$")
 PUBLIC_LINK = re.compile(r"(?:https?://)?t\.me/([A-Za-z0-9_]+)/([1-9]\d*)/?$")
@@ -276,10 +282,16 @@ def _photo_size(photo) -> int | None:
     return getattr(last, "size", None)
 
 
+def _media_fingerprint(target: _DownloadTarget) -> dict:
+    """What must still be true of the media for a partial file to be reused."""
+    return {"media_id": media_identity(target.media), "size": target.size}
+
+
 def _write_state(
     path: Path,
     source: MediaSource,
     destination: Path,
+    target: _DownloadTarget,
     offset: int,
     *,
     resumable: bool = True,
@@ -290,6 +302,7 @@ def _write_state(
             {
                 "source": _source_label(source),
                 "destination": str(destination),
+                **_media_fingerprint(target),
                 "offset": offset,
                 "resumable": resumable,
             }
@@ -330,7 +343,11 @@ def _publish(part_path: Path, destination: Path) -> None:
 
 
 def _resume_offset(
-    state_path: Path, part_path: Path, source: MediaSource, destination: Path
+    state_path: Path,
+    part_path: Path,
+    source: MediaSource,
+    destination: Path,
+    target: _DownloadTarget,
 ) -> int:
     if not state_path.exists():
         # No state means no proven byte: discard the partial and start over
@@ -351,17 +368,36 @@ def _resume_offset(
         part_path.unlink(missing_ok=True)
         state_path.unlink(missing_ok=True)
         return 0
+    # Ordering matters and is the point of this block. The state file is keyed
+    # by source alone, so a re-run with a different `--output` lands on this
+    # same record: that is a confused invocation and has always been exit 2.
+    # The media-identity restart below is *quieter* than that error, so it is
+    # asked second — otherwise a source that also replaced its media would
+    # silently swallow the wrong-output diagnostic (review finding).
+    if state.get("source") != _source_label(source) or state.get("destination") != str(
+        destination
+    ):
+        raise PolicyError(
+            f"media download state does not match requested output: {state_path}"
+        )
+    fingerprint = _media_fingerprint(target)
+    if {key: state.get(key) for key in fingerprint} != fingerprint:
+        # The source replaced the file behind this message. The partial bytes
+        # belong to the old one, and appending the new file's tail to them
+        # would publish a splice that passes every length check and is
+        # neither file (#180). Not operator error — say so and start over.
+        note(
+            f"source media changed since the interrupted download of "
+            f"{_source_label(source)}; restarting it from the beginning"
+        )
+        part_path.unlink(missing_ok=True)
+        state_path.unlink(missing_ok=True)
+        return 0
     if not part_path.exists():
         raise PolicyError(f"media download state has no partial file: {part_path}")
     offset = state.get("offset")
     part_size = part_path.stat().st_size
-    if (
-        state.get("source") != _source_label(source)
-        or state.get("destination") != str(destination)
-        or not isinstance(offset, int)
-        or offset < 0
-        or offset > part_size
-    ):
+    if not isinstance(offset, int) or offset < 0 or offset > part_size:
         raise PolicyError(
             f"media download state does not match requested output: {state_path}"
         )
@@ -393,7 +429,7 @@ async def download_media(
         raise NotFoundError(f"invalid media source: {_source_label(source)}")
     destination = destination_for(safe_filename(target.filename, fallback_id), output)
     state_path, part_path = _state_paths(source)
-    offset = _resume_offset(state_path, part_path, source, destination)
+    offset = _resume_offset(state_path, part_path, source, destination, target)
     resumed = offset > 0
 
     part_path.parent.mkdir(parents=True, exist_ok=True)
@@ -403,7 +439,7 @@ async def download_media(
             raise PolicyError(
                 "parallel media download cannot resume an interrupted transfer"
             )
-        _write_state(state_path, source, destination, 0, resumable=False)
+        _write_state(state_path, source, destination, target, 0, resumable=False)
         return await _download_parallel(
             tg,
             target,
@@ -416,7 +452,7 @@ async def download_media(
         )
 
     if not resumed:
-        _write_state(state_path, source, destination, offset)
+        _write_state(state_path, source, destination, target, offset)
 
     with part_path.open("ab" if resumed else "xb") as handle:
         current = offset
@@ -432,7 +468,7 @@ async def download_media(
                 chunks_since_progress += 1
                 if chunks_since_checkpoint >= CHECKPOINT_EVERY_CHUNKS:
                     handle.flush()
-                    _write_state(state_path, source, destination, current)
+                    _write_state(state_path, source, destination, target, current)
                     chunks_since_checkpoint = 0
                 if progress and chunks_since_progress >= PROGRESS_EVERY_CHUNKS:
                     progress(current, target.size)
@@ -440,11 +476,11 @@ async def download_media(
         except BaseException:
             if chunks_since_checkpoint:
                 handle.flush()
-                _write_state(state_path, source, destination, current)
+                _write_state(state_path, source, destination, target, current)
             raise
         if chunks_since_checkpoint:
             handle.flush()
-            _write_state(state_path, source, destination, current)
+            _write_state(state_path, source, destination, target, current)
         if progress and chunks_since_progress:
             progress(current, target.size)
 

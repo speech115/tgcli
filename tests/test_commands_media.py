@@ -40,6 +40,13 @@ def make_user(user_id: int) -> types.User:
     return types.User(id=user_id, first_name="Same Id", access_hash=0)
 
 
+def _target(media_obj=None, size=None):
+    """Minimal `_DownloadTarget` for the `_resume_offset` unit tests."""
+    from tgcli.commands.media import _DownloadTarget
+
+    return _DownloadTarget(media=media_obj or object(), filename="out.bin", size=size)
+
+
 def test_parse_source_accepts_public_link():
     assert parse_source("https://t.me/example_channel/42", None) == MediaSource(
         chat="@example_channel", message_id=42, private_channel_id=None
@@ -221,6 +228,9 @@ async def test_parallel_download_refuses_resuming_partial_transfer(tmp_path):
     source = MediaSource("@channel", 42, None)
     target = tmp_path / "out.bin"
     interrupted = FakeDownloadTelegram([b"old"], fail_after_first=True)
+    # Same media as the parallel client below, so the guard under test is the
+    # parallel-resume refusal and not the #180 changed-media restart.
+    interrupted.message.file.size = 2 * 512 * 1024
     with pytest.raises(RuntimeError):
         await download_media(interrupted, source, "main", output=str(target))
 
@@ -331,6 +341,8 @@ async def test_parallel_download_records_a_non_resumable_transfer(
         {
             "source": "@channel:42",
             "destination": str(target),
+            "media_id": None,
+            "size": 1048576,
             "offset": 0,
             "resumable": False,
         }
@@ -399,7 +411,7 @@ def test_resume_offset_raises_policy_error_when_part_file_missing(tmp_path):
     )
 
     with pytest.raises(PolicyError, match="no partial file"):
-        _resume_offset(state_path, part_path, source, destination)
+        _resume_offset(state_path, part_path, source, destination, _target())
 
 
 @pytest.mark.parametrize("payload", ["[]", '"x"', "42", "null", "true"])
@@ -413,7 +425,7 @@ def test_resume_offset_rejects_non_dict_state(tmp_path, payload):
     state_path.write_text(payload)
 
     with pytest.raises(PolicyError, match="state is invalid"):
-        _resume_offset(state_path, part_path, source, destination)
+        _resume_offset(state_path, part_path, source, destination, _target())
 
 
 def test_resume_offset_rejects_truncated_utf8_state(tmp_path):
@@ -425,7 +437,7 @@ def test_resume_offset_rejects_truncated_utf8_state(tmp_path):
     state_path.write_bytes(b'{"offset": 1, "source": "\xd0')
 
     with pytest.raises(PolicyError, match="state is invalid"):
-        _resume_offset(state_path, part_path, source, destination)
+        _resume_offset(state_path, part_path, source, destination, _target())
 
 
 def test_resume_offset_discards_uncheckpointed_bytes(tmp_path):
@@ -444,7 +456,7 @@ def test_resume_offset_discards_uncheckpointed_bytes(tmp_path):
         )
     )
 
-    assert _resume_offset(state_path, part_path, source, destination) == len(
+    assert _resume_offset(state_path, part_path, source, destination, _target()) == len(
         b"checkpointed"
     )
     assert part_path.read_bytes() == b"checkpointed"
@@ -474,7 +486,12 @@ def test_resume_offset_restarts_when_state_is_missing(tmp_path):
     part_path = tmp_path / "out.part"
     part_path.write_bytes(b"unproven")
 
-    assert _resume_offset(tmp_path / "state.json", part_path, source, destination) == 0
+    assert (
+        _resume_offset(
+            tmp_path / "state.json", part_path, source, destination, _target()
+        )
+        == 0
+    )
     assert not part_path.exists()
 
 
@@ -739,3 +756,136 @@ async def test_resolve_message_rejects_missing_media():
 
     with pytest.raises(NotFoundError, match="downloadable media"):
         await resolve_message(FakeTelegram(), MediaSource("@channel", 42, None), "main")
+
+
+class FakeIdentifiedTelegram(FakeDownloadTelegram):
+    """A client whose message media carries a Telegram document id."""
+
+    def __init__(self, chunks, *, document_id, **kwargs):
+        super().__init__(chunks, **kwargs)
+        self.message.media = ns(document=ns(id=document_id), photo=None)
+
+
+async def test_resume_refuses_a_partial_file_from_replaced_media(tmp_path):
+    """#180: the source swapped the file behind the same message.
+
+    The resume record identified its partial file by path alone, so the new
+    file's tail was appended to the old file's head and published as
+    complete — no error, correct-looking output, wrong bytes.
+    """
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "out.bin"
+    interrupted = FakeIdentifiedTelegram(
+        [b"old"], document_id=111, fail_after_first=True
+    )
+
+    with pytest.raises(RuntimeError, match="network dropped"):
+        await download_media(interrupted, source, "main", output=str(target))
+
+    [state_path] = (tmp_path / "state" / "downloads").glob("*.json")
+    assert json.loads(state_path.read_text())["offset"] == 3
+
+    replaced = FakeIdentifiedTelegram([b"new"], document_id=222)
+    result = await download_media(replaced, source, "main", output=str(target))
+
+    assert replaced.iter_download_calls == [
+        {"media": replaced.message.media, "offset": 0, "request_size": 512 * 1024}
+    ]
+    assert target.read_bytes() == b"new"
+    assert result["resumed"] is False
+
+
+async def test_resume_refuses_a_partial_file_whose_size_changed(tmp_path):
+    """A same-id document re-encoded to a different length is not the same file."""
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "out.bin"
+    interrupted = FakeIdentifiedTelegram(
+        [b"old"], document_id=111, fail_after_first=True
+    )
+    with pytest.raises(RuntimeError, match="network dropped"):
+        await download_media(interrupted, source, "main", output=str(target))
+
+    resized = FakeIdentifiedTelegram([b"new"], document_id=111)
+    resized.message.file.size = 99
+
+    result = await download_media(resized, source, "main", output=str(target))
+
+    assert resized.iter_download_calls[0]["offset"] == 0
+    assert target.read_bytes() == b"new"
+    assert result["resumed"] is False
+
+
+async def test_resume_still_continues_the_very_same_media(tmp_path):
+    """The fix must not turn every resume into a restart."""
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "out.bin"
+    interrupted = FakeIdentifiedTelegram(
+        [b"old"], document_id=111, fail_after_first=True
+    )
+    with pytest.raises(RuntimeError, match="network dropped"):
+        await download_media(interrupted, source, "main", output=str(target))
+
+    resumed = FakeIdentifiedTelegram([b"new"], document_id=111)
+    result = await download_media(resumed, source, "main", output=str(target))
+
+    assert resumed.iter_download_calls[0]["offset"] == 3
+    assert target.read_bytes() == b"oldnew"
+    assert result["resumed"] is True
+
+
+def _state(destination, *, media_id, size, offset=3):
+    return json.dumps(
+        {
+            "source": "@channel:42",
+            "destination": str(destination),
+            "media_id": media_id,
+            "size": size,
+            "offset": offset,
+        }
+    )
+
+
+def test_resume_offset_rejects_a_different_output_path(tmp_path):
+    """A wrong --output for the same message is a confused invocation."""
+    source = MediaSource("@channel", 42, None)
+    state_path = tmp_path / "state.json"
+    part_path = tmp_path / "out.part"
+    part_path.write_bytes(b"old")
+    state_path.write_text(_state(tmp_path / "first.bin", media_id=111, size=6))
+
+    with pytest.raises(PolicyError, match="does not match requested output"):
+        _resume_offset(
+            state_path,
+            part_path,
+            source,
+            tmp_path / "second.bin",
+            _target(ns(document=ns(id=111), photo=None), size=6),
+        )
+
+
+def test_a_changed_media_never_masks_a_wrong_output_path(tmp_path):
+    """Review finding: the identity check must not swallow the louder error.
+
+    The state file is keyed by source alone, so a re-run with a different
+    `--output` lands on the same record. That has always been exit 2; a
+    source that also replaced its media in the meantime must not turn it
+    into a silent restart.
+    """
+    source = MediaSource("@channel", 42, None)
+    state_path = tmp_path / "state.json"
+    part_path = tmp_path / "out.part"
+    part_path.write_bytes(b"old")
+    state_path.write_text(_state(tmp_path / "first.bin", media_id=111, size=6))
+
+    with pytest.raises(PolicyError, match="does not match requested output"):
+        _resume_offset(
+            state_path,
+            part_path,
+            source,
+            tmp_path / "second.bin",
+            _target(ns(document=ns(id=222), photo=None), size=99),
+        )
+
+    # The louder error must not have destroyed the record on its way out.
+    assert part_path.exists()
+    assert state_path.exists()
