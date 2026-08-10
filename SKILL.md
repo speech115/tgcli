@@ -46,6 +46,9 @@ selected account session, does one operation, and exits.
 | Sync archive from changes cursor | `tg --json archive sync [--max-events N] [--max-dialogs N] [--max-media N]` (applies full difference; caps catch-up RPCs and media downloads) |
 | Run one bounded archive refresh | `tg --json archive refresh [--max-events N] [--max-dialogs N] [--max-media N] [--transcribe-limit N] [--max-attempts N]` (sync → media → offline transcription; run-level streak/notification state in `archive status`) |
 | Transcribe archived voice/video notes | `tg --json archive transcribe [--limit N] [--max-attempts N]` (offline local FluidAudio/Parakeet queue) |
+| Add a durable local transcription job | `tg --json jobs add archive-transcribe --key KEY [--max-attempts N] [--priority low\|normal\|high]` |
+| Inspect or cancel a job | `tg --json jobs list` / `tg --json jobs show KEY` / `tg --json jobs cancel KEY` |
+| Run the local jobs lane | `tg --max-runtime N --json jobs run --lane local` (foreground, offline, one-item quanta) |
 | Rebaseline archive changes cursor | `tg --json archive rebaseline` |
 | Offline archive status | `tg --json archive status` |
 | Offline archive search | `tg --json archive search QUERY [--chat CHAT] [--from SENDER] [--since ISO] [--until ISO] [--kind KIND] [--transcripts-only] [--sort {relevance,date}] [--limit N] [--page N]` |

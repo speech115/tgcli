@@ -32,7 +32,7 @@ tgcli/
 │   ├── DEVLOG-v1.md           [done]    closed log of the phases 0–7 build
 │   ├── devlog/                [done]    per-session entry files YYYY-MM-DD-slug.md (ADR-0058)
 │   ├── FEATURES.md            [done]    TL-namespace coverage matrix (ADR-0010; trued up in phase 7)
-│   ├── guide/                 [done]    user-facing task pages, 26 + index (ADR-0041/0065)
+│   ├── guide/                 [done]    user-facing task pages, 27 + index (ADR-0041/0065)
 │   ├── assets/                [done]    README banner, dark + light SVG, launchd template (no external assets)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
 │   ├── decisions/             [done]    ADR-0001…0087 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope; ADR-0079 transcribe readonly gate; ADR-0080 notes trimming; ADR-0081 diagnostics honesty; ADR-0082 per-leg clone sync; ADR-0083 floods keep finished work; ADR-0084 resume identifies its media; ADR-0085 clone reports the bot keyboard it cannot carry; ADR-0086 clone reports durable degradation before a later exit; ADR-0087 foreground persisted jobs)
@@ -78,7 +78,10 @@ tgcli/
 │   │   ├── gate.py            [done]    the `_call` wrapper: refuse locally before dispatch, arm from the server
 │   │   ├── probe.py           [done]    self-verifying probe: 50%-elapsed window, write-ahead spend, settle on success
 │   │   └── pacing.py          [done]    start-to-start interval sleep before dispatch; rolling 100-peer breadth budget; wall-clock cap and journal accounting
-│   ├── jobs/                  [planned] account-scoped SQLite registry + foreground Telegram/local lane runners (ADR-0087 / #146)
+│   ├── jobs/                  [wip]     account-scoped SQLite registry + foreground Telegram/local lane runners (ADR-0087 / #146)
+│   │   ├── model.py           [done]    typed keys/specs, lanes/states, priority and cap constants
+│   │   ├── store.py           [done]    immutable generations, bounded events, WAL persistence, lane flocks and recovery
+│   │   └── runner.py          [wip]     working local transcription lane; Telegram adapters follow in #188
 │   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045/0046/0047/0049/0054/0055)
 │   │   ├── state.py           [done]    CloneState seam + dirty-tracked save/load (SQLite via statedb; ADR-0017/0060)
 │   │   ├── lookup.py          [done]    finding a clone from a SOURCE argument: id/title match, slot scan, recorded-source peer ref (ADR-0082)
@@ -111,7 +114,7 @@ tgcli/
 │   │   ├── doctor.py          [done]    offline/online health for primary + role sessions (ADR-0028/0040/0062)
 │   │   ├── changes.py         [done]    tg changes daemonless feed (ADR-0063 / FEED-001)
 │   │   ├── archive.py         [done]    tg archive init|add|remove|list|status|search|read|history|backfill|sync|refresh|transcribe|rebaseline (ADR-0068/0069/0070)
-│   │   ├── jobs.py            [planned] tg jobs add|list|show|cancel|run typed workload surface (ADR-0087 / #146)
+│   │   ├── jobs.py            [wip]     tg jobs local archive-transcribe add|list|show|cancel|run slice (ADR-0087 / #187)
 │   │   ├── archive_refresh.py [done]    network command wrapper and plain rows for scheduled archive refresh (ADR-0070)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
 │   │   ├── read.py            [done]    tg read <chat>                (phase 1)

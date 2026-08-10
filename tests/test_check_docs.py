@@ -290,7 +290,7 @@ def test_map_inventory_counts_must_match_the_tree(tmp_path):
     project_map.write_text(
         (ROOT / "docs" / "MAP.md")
         .read_text()
-        .replace("task pages, 26 + index", "task pages, 22 + index", 1)
+        .replace("task pages, 27 + index", "task pages, 23 + index", 1)
         .replace("ADR-0001…0087", "ADR-0001…0057", 1)
     )
     result = run(
@@ -299,7 +299,7 @@ def test_map_inventory_counts_must_match_the_tree(tmp_path):
     )
 
     assert result.returncode == 1
-    assert "MAP.md: guide count is 22; tree has 26 task pages" in result.stdout
+    assert "MAP.md: guide count is 23; tree has 27 task pages" in result.stdout
     assert "MAP.md: ADR range ends at 0057; tree ends at 0087" in result.stdout
 
 

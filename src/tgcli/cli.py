@@ -25,6 +25,7 @@ from tgcli.commands import (
     archive as archive_cmd,
     clone as clone_cmd,
     doctor as doctor_cmd,
+    jobs as jobs_cmd,
     login as login_cmd,
     store as store_cmd,
 )
@@ -116,6 +117,7 @@ def _long_running_command(args) -> bool:
             and args.clone_command in ("init", "sync", "refresh")
         )
         or (args.command == "archive" and args.archive_command == "refresh")
+        or (args.command == "jobs" and args.jobs_command == "run")
     )
 
 
@@ -385,6 +387,34 @@ def _execute(args) -> tuple[dict, list[tuple]]:
         return data, store_cmd.cleanup_rows(data)
 
     config = load_config()
+    if args.command == "jobs":
+        alias = jobs_cmd.resolve_alias(args.account, config)
+        args.account = alias
+        if args.jobs_command == "add":
+            data = jobs_cmd.add_transcribe(
+                alias,
+                key=args.key,
+                max_attempts=args.max_attempts,
+                priority=args.priority,
+                replace=bool(args.replace),
+            )
+            return data, jobs_cmd.job_rows(data)
+        if args.jobs_command == "list":
+            data = jobs_cmd.list_jobs(alias)
+            return data, jobs_cmd.list_rows(data)
+        if args.jobs_command == "show":
+            data = jobs_cmd.show(alias, args.key)
+            return data, jobs_cmd.job_rows(data)
+        if args.jobs_command == "cancel":
+            data = jobs_cmd.cancel(alias, args.key)
+            return data, jobs_cmd.job_rows(data)
+        data = jobs_cmd.run(
+            alias,
+            lane=args.lane,
+            max_runtime=args.max_runtime,
+            config=config,
+        )
+        return data, jobs_cmd.run_rows(data)
     if args.command == "archive" and args.archive_command in (
         "list",
         "status",
