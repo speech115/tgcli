@@ -80,6 +80,11 @@ attribution is worse than a visibly absent one.
    - exactly one group message matches `fwd_from.from_id` **and**
      `fwd_from.date`;
    - that message's text and media match the channel post exactly.
+     (Amended by [ADR-0085](ADR-0085-a-clone-does-not-invent-a-bots-keyboard.md):
+     the content check also compares formatting entities and the message's
+     keyboard, each as the whole TL object. Same rationale as below — an edit
+     that moves only formatting, or a keyboard Telegram did not carry into the
+     group, is the same silent republication as an edited body.)
 
    The content check is load-bearing, not belt-and-braces: a repost is
    routinely edited afterwards (source 69 was edited at 16:18 UTC, having

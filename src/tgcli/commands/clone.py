@@ -885,21 +885,20 @@ async def sync_text(
         transport_counts[mode] += batch_copied
         # Only a native forward carries a keyboard; every other transport
         # rebuilds the message and Telegram will not let a user account
-        # reattach one, so the rows are recorded as lost (ADR-0085). The
-        # first loss is announced here, not in the tail: the copy is already
-        # permanent and never revisited, so a run that later dies on a flood
-        # must not take the only word of it with the result document.
+        # reattach one, so the rows are recorded as lost (ADR-0085). Every
+        # loss is announced as it happens, not in the tail: the copy is
+        # already permanent and never revisited, and the run that dies on a
+        # flood mid-way leaves no result document to carry the rest.
         if mode != "forwarded":
             for message in messages:
                 buttons = fidelity.dropped_buttons(message)
                 if buttons is None:
                     continue
-                if not markup_dropped:
-                    note(
-                        f"warning: source message {message.id} lost its bot "
-                        "buttons; a keyboard belongs to the bot that attached "
-                        "it and no copy can recreate one"
-                    )
+                note(
+                    f"warning: source message {message.id} lost {len(buttons)} "
+                    "bot button(s); a keyboard belongs to the bot that "
+                    "attached it and no copy can recreate one"
+                )
                 markup_dropped.append({"id": message.id, "buttons": buttons})
         reply_flattened += int(flattened)
         if flattened_quote is not None:

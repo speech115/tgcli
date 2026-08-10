@@ -1635,13 +1635,13 @@ reported, not silent: each such copied message contributes a
 `{"id":…,"buttons":[{"type":"KeyboardButtonUrl","text":"Open"},…]}` row to
 `sync.markup_dropped` (source ids, in copy order, buttons row-major with their
 TL class names), and the exit code stays 0 — a Telegram-side limit is not a
-failed run. The **first** such message also prints one
-`warning: source message N lost its bot buttons …` line to stderr, at the
+failed run. Each such message also prints one
+`warning: source message N lost K bot button(s) …` line to stderr, at the
 moment it is copied rather than in the run's tail: the copy is permanent and
 never revisited, so a run that later stops on a flood (exit 5, no result
-document) must still have said it. Native forwards contribute nothing to the
-list. Already-synced messages are never revisited; `clone refresh` does not
-backfill buttons.
+document) still leaves a complete account of what it lost. Native forwards
+contribute nothing to the list. Already-synced messages are never revisited;
+`clone refresh` does not backfill buttons.
 
 `--limit N` must be positive and copies at most N message batches. If another
 source row remains, JSON reports `"more":true`; the next run resumes at the

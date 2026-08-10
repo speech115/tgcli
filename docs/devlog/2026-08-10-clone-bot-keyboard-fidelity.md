@@ -4,8 +4,8 @@
 message's `reply_markup` rows by TL class and label; `clone sync` records one
 row per copied message that lost a keyboard on any transport but a native
 forward, reports them in `sync.markup_dropped`, adds `markup_dropped_count` to
-the plain row, and prints a single stderr warning naming the count and the
-reason. Exit code unchanged. CONTRACT §11 now states the rule instead of the
+the plain row, and prints one stderr warning per affected message as it is
+copied. Exit code unchanged. CONTRACT §11 now states the rule instead of the
 clone dropping the field in silence.
 
 **Decided:** buttons are outside clone fidelity, and nothing is rebuilt. The
@@ -44,6 +44,21 @@ autoforward anchor cannot double-count its post's keyboard.
 **Next:** if Telegram ever opens `reply_markup` to user accounts, ADR-0085 is
 the decision to revisit — the reporting shape is already there to degrade
 from. Repair of already-cloned posts stays out of band until the owner asks.
+**Review fix, round two:** the round-one fix was itself half-right. "Announce
+the first loss" still reported 1 of N on the exit it was written for — a run
+that floods after 250 losses printed one line naming one id, and the bound
+that was supposed to keep stderr calm ("the complete list stays in the result
+document") does not hold on the path where there is no result document. The
+ADR said both things two paragraphs apart and neither of us noticed. Now every
+loss prints as it happens. Second: `_markup_key` had shipped as a five-field
+allowlist, and review produced the counterexample in one pass — a
+`KeyboardButtonCopy` row with a different `copy_text` (a different wallet
+address) compares equal. Rather than add a sixth field, both that key and
+`_entities_key` became `to_dict()` comparisons; `_media_key` deliberately did
+not, because media carries chat-scoped handles that differ between copies of
+the same file. Worth carrying forward: a field allowlist over a growing TL
+layer is a bug with a schedule.
+
 The sibling gap the review found is closed too, on the owner's call (#183):
 `_same_content` in the ADR-0050 re-forward path now compares the keyboard —
 classes, labels, and payloads — so a mismatch declines the proven original and

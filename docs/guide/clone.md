@@ -141,7 +141,7 @@ Each message batch picks one of two transports:
 
 Unsupported message kinds (dice, etc.) advance the cursor and are reported in `skipped_unsupported`, never silently dropped. TTL/view-once media is also reported there rather than forwarded or downloaded.
 
-Bot buttons do not survive a reupload or a snapshot. A keyboard belongs to the bot that attached it: a user account cannot send one, and an album could not carry one even if it could, so only a native forward keeps the rows — and a protected source never takes that path. The clone does not rebuild the buttons in any form, not even URL rows as text. Each affected copy is listed in `sync.markup_dropped` with its button classes, the first one prints a warning to stderr as it is copied, and the run still exits 0 ([ADR-0085](../decisions/ADR-0085-a-clone-does-not-invent-a-bots-keyboard.md)).
+Bot buttons do not survive a reupload or a snapshot. A keyboard belongs to the bot that attached it: a user account cannot send one, and an album could not carry one even if it could, so only a native forward keeps the rows — and a protected source never takes that path. The clone does not rebuild the buttons in any form, not even URL rows as text. Each affected copy is listed in `sync.markup_dropped` with its button classes and prints a warning to stderr as it is copied — a run cut short by a flood leaves no result document, so the stderr lines are the record — and the run still exits 0 ([ADR-0085](../decisions/ADR-0085-a-clone-does-not-invent-a-bots-keyboard.md)).
 
 ## What clone does not do
 

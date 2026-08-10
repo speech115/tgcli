@@ -4798,7 +4798,7 @@ def test_clone_sync_reports_the_buttons_a_reupload_cannot_carry(
             ],
         }
     ]
-    assert "lost its bot buttons" in captured.err
+    assert "lost 2 bot button(s)" in captured.err
     # No send request claims a keyboard the account may not attach.
     sends = [
         item
@@ -4823,7 +4823,7 @@ def test_clone_sync_does_not_report_buttons_a_native_forward_keeps(
     sync = json.loads(captured.out)["sync"]
     assert sync["forwarded"] == 1
     assert sync["markup_dropped"] == []
-    assert "lost its bot buttons" not in captured.err
+    assert "bot button(s)" not in captured.err
 
 
 def test_clone_sync_reports_a_lost_keyboard_before_a_flood_ends_the_run(
@@ -4858,7 +4858,7 @@ def test_clone_sync_reports_a_lost_keyboard_before_a_flood_ends_the_run(
     # No result document: the flood envelope is all the run gets to say.
     assert "sync" not in json.loads(captured.out)
     assert "source message 2" in captured.err
-    assert "lost its bot buttons" in captured.err
+    assert "lost 2 bot button(s)" in captured.err
     # The copy that lost the keyboard is on the destination for good.
     assert state.load(clone_state.clone_id).dest_for(2) == 2
 
@@ -4942,3 +4942,34 @@ def test_clone_sync_declines_a_proven_original_whose_keyboard_differs(
     assert sync["reuploaded"] == 1
     assert [row["id"] for row in sync["markup_dropped"]] == [2]
     assert "source message 2" in captured.err
+
+
+def test_clone_sync_announces_every_lost_keyboard_not_only_the_first(
+    config_env, monkeypatch, capsys
+):
+    """A run that dies before its result document leaves stderr as the whole
+    record, so one line for the first loss would report 1 of N (review round
+    two): every copy that loses a keyboard says so as it is made."""
+    seed_clone()
+    client = CloneReuploadClient(
+        [
+            message(2, message="first", reply_markup=_inline_keyboard()),
+            message(3, message="second", reply_markup=_inline_keyboard()),
+        ],
+        protected=True,
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    captured = capsys.readouterr()
+    warnings = [line for line in captured.err.splitlines() if "bot button(s)" in line]
+    assert len(warnings) == 2
+    assert "source message 2" in warnings[0]
+    assert "source message 3" in warnings[1]
+    assert [
+        row["id"] for row in json.loads(captured.out)["sync"]["markup_dropped"]
+    ] == [
+        2,
+        3,
+    ]

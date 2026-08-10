@@ -34,15 +34,22 @@ carried a keyboard, on any transport other than a native forward, contributes
 `{"id":…,"buttons":[{"type":…,"text":…},…]}` to `sync.markup_dropped`, and the
 plain row gains `markup_dropped_count`.
 
-The stderr warning is emitted at the moment of the first loss, not in the
-run's tail. A tail-only report is worth nothing in the case this ADR exists
-for: a large protected channel floods mid-run (ADR-0083 exists because that is
-routine), the run exits 5 with no result document, and the messages already
-copied — keyboards gone, mappings saved, cursor advanced — are never revisited.
-That is the silent drop the ticket opened on, reappearing in the most common
-non-zero outcome. Reporting on discovery makes the record survive any exit;
-one line per run rather than one per message keeps a button-heavy channel from
-drowning stderr, and the complete list stays in the result document.
+Each loss is announced on stderr as it happens, not in the run's tail. A
+tail-only report is worth nothing in the case this ADR exists for: a large
+protected channel floods mid-run (ADR-0083 exists because that is routine),
+the run exits 5 with no result document, and the messages already copied —
+keyboards gone, mappings saved, cursor advanced — are never revisited. That is
+the silent drop the ticket opened on, reappearing in the most common non-zero
+outcome.
+
+One line per run was the first attempt at this and was wrong for the same
+reason, one step down: a run that floods after 250 losses would print a single
+line naming one source id, and an operator reading it plus exit 5 would
+conclude one post was affected. A bound that only holds when the result
+document survives is no bound at all on the path that has no result document.
+So the line count follows the losses; stderr is the diagnostic channel, the
+volume is proportional to what was actually lost, and the same file already
+reports skipped thumbs per message.
 
 The exit code stays 0. A limit Telegram imposes on every user account is a
 property of the protocol, not a failed run — this follows the `reply_flattened`
@@ -57,6 +64,44 @@ the distinction.
 
 Already-synced posts are not revisited. `clone refresh` backfills the ADR-0054
 body prefix, and nothing here changes that.
+
+## The re-forward proof includes the keyboard
+
+Found by this change's own review and closed here (#183), because the report
+above has a blind spot without it.
+
+ADR-0050's re-forward proves a repost's original in the linked discussion group
+by comparing text, entities, and media. A keyboard was not compared, and
+Telegram does not carry every button class into a linked group, so the two
+could legitimately differ. Forwarding the proven original then publishes
+someone else's buttons under a genuine header — and this ADR could not say so,
+since the send degrades to a native forward and the collection reads the
+transport that actually ran. The one transport documented as contributing
+nothing to `markup_dropped` was also the only one where a keyboard *mismatch*,
+as opposed to a total loss, could happen.
+
+So `_same_content` compares the keyboard too. A mismatch declines the proof
+exactly as an edited body does: the batch falls back to the Part A text prefix
+on the reupload path, where the keyboard loss is reported normally. This costs
+a native forward only in the case where forwarding would have published the
+wrong buttons.
+
+The key is the whole TL object, not a list of interesting fields. The first
+attempt named five (`text`, `url`, `data`, `query`, class) and review found the
+hole immediately: a `KeyboardButtonCopy` row whose `copy_text` is a different
+wallet address reads identical, and the forward publishes the wrong address
+under a genuine header. Rather than lengthen that list, the boundary moved —
+these are pure value objects, so `to_dict()` is both simpler and incapable of
+going stale as the layer grows (ADR-0074: a second leaky allowlist is a
+checkpoint, not another field to add). `_entities_key` had the same weakness
+(`MessageEntityPre.language` was never keyed) and moved with it. `_media_key`
+stays hand-written on purpose: media carries chat-scoped handles — a file
+reference, an access hash — that differ between two copies of the same file, so
+the whole object is exactly the wrong key there.
+
+The comparison key is its own function rather than `fidelity.dropped_buttons`:
+one shapes a report for an operator, the other an identity for a comparison,
+and button payloads belong only in the second.
 
 ## Rejected alternatives
 
@@ -80,32 +125,6 @@ body prefix, and nothing here changes that.
 - **Drop silently and only document it.** The acceptance criteria in #82 ask
   for no silent drop, and a fidelity loss the operator can only find by
   eyeballing two chats is the failure mode that opened the ticket.
-
-## The re-forward proof includes the keyboard
-
-Found by this change's own review and closed here (#183), because the report
-above has a blind spot without it.
-
-ADR-0050's re-forward proves a repost's original in the linked discussion group
-by comparing text, entities, and media. A keyboard was not compared, and
-Telegram does not carry every button class into a linked group, so the two
-could legitimately differ. Forwarding the proven original then publishes
-someone else's buttons under a genuine header — and this ADR could not say so,
-since the send degrades to a native forward and the collection reads the
-transport that actually ran. The one transport documented as contributing
-nothing to `markup_dropped` was also the only one where a keyboard *mismatch*,
-as opposed to a total loss, could happen.
-
-So `_same_content` compares the keyboard too — button classes, labels, and
-payloads, since two `Open` rows pointing at different URLs are different
-content. A mismatch declines the proof exactly as an edited body does: the
-batch falls back to the Part A text prefix on the reupload path, where the
-keyboard loss is reported normally. This costs a native forward only in the
-case where forwarding would have published the wrong buttons.
-
-The comparison key is its own function rather than `fidelity.dropped_buttons`:
-one shapes a report for an operator, the other an identity for a comparison,
-and the payload fields belong only in the second.
 
 ## Contract impact
 

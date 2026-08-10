@@ -486,3 +486,90 @@ def test_locate_matches_when_the_keyboards_are_identical():
     assert asyncio.run(
         reforward.locate(tg, _clone_state(), post, {}, invoke=_invoke)
     ) == (group, 1)
+
+
+def test_locate_none_when_a_button_payload_differs_under_the_same_label():
+    """A field allowlist keyed labels and URLs and missed the rest: two
+    `Copy address` rows carrying different wallets read identical, and the
+    forward would publish the wrong address under a genuine header."""
+    fwd = _fwd(from_id=types.PeerUser(user_id=9))
+    post = _post(fwd_from=fwd, message="body")
+    post.reply_markup = types.ReplyInlineMarkup(
+        rows=[
+            types.KeyboardButtonRow(
+                buttons=[types.KeyboardButtonCopy(text="Copy address", copy_text="A")]
+            )
+        ]
+    )
+    group = SimpleNamespace(id=55, noforwards=False)
+    candidate = _candidate(1, message="body")
+    candidate.reply_markup = types.ReplyInlineMarkup(
+        rows=[
+            types.KeyboardButtonRow(
+                buttons=[types.KeyboardButtonCopy(text="Copy address", copy_text="B")]
+            )
+        ]
+    )
+    tg = FakeTg(group=group, search_results=[candidate])
+
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}, invoke=_invoke))
+
+    assert result is None
+
+
+def test_locate_none_when_the_markup_class_differs_with_equal_rows():
+    """An inline keyboard under the message and a reply keyboard in the input
+    field are not the same message, however identical their rows."""
+    fwd = _fwd(from_id=types.PeerUser(user_id=9))
+    row = types.KeyboardButtonRow(buttons=[types.KeyboardButton(text="Go")])
+    post = _post(fwd_from=fwd, message="body")
+    post.reply_markup = types.ReplyInlineMarkup(rows=[row])
+    group = SimpleNamespace(id=55, noforwards=False)
+    candidate = _candidate(1, message="body")
+    candidate.reply_markup = types.ReplyKeyboardMarkup(rows=[row])
+    tg = FakeTg(group=group, search_results=[candidate])
+
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}, invoke=_invoke))
+
+    assert result is None
+
+
+def test_locate_none_when_only_the_candidate_hides_a_keyboard():
+    """`ReplyKeyboardHide` is a keyboard instruction, not the absence of one;
+    collapsing it into "no markup" would prove an original that differs."""
+    fwd = _fwd(from_id=types.PeerUser(user_id=9))
+    post = _post(fwd_from=fwd, message="body")
+    group = SimpleNamespace(id=55, noforwards=False)
+    candidate = _candidate(1, message="body")
+    candidate.reply_markup = types.ReplyKeyboardHide()
+    tg = FakeTg(group=group, search_results=[candidate])
+
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}, invoke=_invoke))
+
+    assert result is None
+
+
+def test_locate_none_when_only_an_entity_detail_differs():
+    """The same allowlist gap on the entities side: a `pre` block whose
+    language changed is an edit, and `language` was never keyed."""
+    fwd = _fwd(from_id=types.PeerUser(user_id=9))
+    post = _post(
+        fwd_from=fwd,
+        message="body",
+        entities=[types.MessageEntityPre(offset=0, length=4, language="python")],
+    )
+    group = SimpleNamespace(id=55, noforwards=False)
+    tg = FakeTg(
+        group=group,
+        search_results=[
+            _candidate(
+                1,
+                message="body",
+                entities=[types.MessageEntityPre(offset=0, length=4, language="rust")],
+            )
+        ],
+    )
+
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}, invoke=_invoke))
+
+    assert result is None
