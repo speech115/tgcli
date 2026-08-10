@@ -12,6 +12,8 @@ def _seed(
     *,
     kind="broadcast",
     dest=None,
+    dest_title=None,
+    dest_username=None,
     cursor=0,
     mapped=(),
 ):
@@ -22,6 +24,8 @@ def _seed(
     )
     s.source_kind = kind
     s.destination_peer_id = dest
+    s.destination_title = dest_title
+    s.destination_username = dest_username
     s.cursor = cursor
     for src_id, dst_id in mapped:
         s.record_mapping(src_id, dst_id)
@@ -47,12 +51,50 @@ def test_status_lists_all_clones_as_json(capsys):
     titles = {c["source"]["title"] for c in payload["clones"]}
     assert titles == {"Alpha", "Beta"}
     alpha = next(c for c in payload["clones"] if c["source"]["title"] == "Alpha")
-    assert alpha["destination_id"] == 222
+    assert alpha["destination"] == {"id": 222, "title": None, "username": None}
     assert alpha["cursor"] == 5
     assert alpha["copied"] == 2
     beta = next(c for c in payload["clones"] if c["source"]["title"] == "Beta")
     assert alpha["source"]["kind"] == "broadcast"
     assert beta["source"]["kind"] == "megagroup"
+
+
+def test_status_names_the_destination_it_recorded(capsys):
+    """#175: a private clone destination is unrecognisable as a bare id."""
+    _seed(
+        100000001,
+        111,
+        "Alpha",
+        dest=222,
+        dest_title="[Clone] Alpha",
+        dest_username="alpha_clone",
+    )
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+    assert code == 0
+    entry = json.loads(out)["clones"][0]
+    assert entry["destination"] == {
+        "id": 222,
+        "title": "[Clone] Alpha",
+        "username": "alpha_clone",
+    }
+
+
+def test_status_plain_shows_the_destination_title(capsys):
+    _seed(100000001, 111, "Alpha", dest=222, dest_title="[Clone] Alpha")
+
+    code, out = _run(capsys, ["clone", "status", "--plain"])
+    assert code == 0
+    assert "[Clone] Alpha" in out
+
+
+def test_status_plain_falls_back_to_the_destination_id(capsys):
+    """A clone initialised before the title was recorded stays legible."""
+    _seed(100000001, 111, "Alpha", dest=222)
+
+    code, out = _run(capsys, ["clone", "status", "--plain"])
+    assert code == 0
+    assert "222" in out
 
 
 def test_status_survives_an_armed_governor_cooldown(capsys):
@@ -79,7 +121,7 @@ def test_status_survives_an_armed_governor_cooldown(capsys):
 def test_status_empty_when_no_clones(capsys):
     code, out = _run(capsys, ["clone", "status", "--json"])
     assert code == 0
-    assert json.loads(out) == {"clones": []}
+    assert json.loads(out) == {"clones": [], "pending_import": 0}
 
 
 def test_status_filters_by_source_id(capsys):
@@ -119,8 +161,8 @@ def test_status_filter_survives_digit_shaped_non_integers():
 
     _seed(100000001, 111, "Alpha")
 
-    assert clone_cmd.list_clones("--123") == {"clones": []}
-    assert clone_cmd.list_clones("²³") == {"clones": []}
+    assert clone_cmd.list_clones("--123")["clones"] == []
+    assert clone_cmd.list_clones("²³")["clones"] == []
 
 
 def test_status_filter_keeps_int_shaped_titles_on_the_substring_path():
@@ -186,12 +228,72 @@ def _write_raw(clone_id, payload):
     (directory / f"{clone_id}.json").write_text(json.dumps(payload))
 
 
+def test_status_hides_unimportable_json_slots_behind_a_count(capsys):
+    """#173: a slot v2 cannot import carries no field worth a row."""
+    _seed(100000001, 111, "Alpha", dest=222)
+    _write_raw("a" * 64, {"version": 1})
+    _write_raw("b" * 64, {"version": 1})
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    assert [c["source"]["title"] for c in payload["clones"]] == ["Alpha"]
+    assert payload["pending_import"] == 2
+
+
+def test_status_points_at_all_when_slots_are_hidden(capsys):
+    _write_raw("a" * 64, {"version": 1})
+
+    from tgcli.cli import main
+
+    assert main(["clone", "status", "--json"]) == 0
+    assert "clone status --all" in capsys.readouterr().err
+
+
+def test_status_all_lists_the_hidden_slots_and_still_counts_them(capsys):
+    _seed(100000001, 111, "Alpha", dest=222)
+    _write_raw("a" * 64, {"version": 1})
+
+    code, out = _run(capsys, ["clone", "status", "--all", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    assert {c["clone_id"] for c in payload["clones"]} == {
+        "a" * 64,
+        state.clone_id(100000001, 111),
+    }
+    assert payload["pending_import"] == 1
+
+
+def test_status_counts_hidden_slots_even_under_a_source_filter(capsys):
+    """The slots exist whether or not the filter could ever match them."""
+    _seed(100000001, 111, "Alpha", dest=222)
+    _write_raw("a" * 64, {"version": 1})
+
+    code, out = _run(capsys, ["clone", "status", "111", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    assert [c["source"]["title"] for c in payload["clones"]] == ["Alpha"]
+    assert payload["pending_import"] == 1
+
+
+def test_status_keeps_an_ambiguous_slot_visible_by_default(capsys):
+    """A .db+.json collision is actionable, unlike an unimportable .json."""
+    seeded = _seed(100000001, 111, "Alpha", dest=222)
+    _write_raw(seeded.clone_id, {"version": 2})
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+    assert code == 0
+    payload = json.loads(out)
+    assert payload["clones"][0]["unreadable"] is True
+    assert payload["pending_import"] == 0
+
+
 def test_status_marks_unreadable_state_instead_of_crashing(capsys):
     _seed(100000001, 111, "Alpha", dest=222)
     legacy = "a" * 64
     _write_raw(legacy, {"version": 1, "account_user_id": 1, "source_peer_id": 9})
 
-    code, out = _run(capsys, ["clone", "status", "--json"])
+    code, out = _run(capsys, ["clone", "status", "--all", "--json"])
     assert code == 0
     payload = json.loads(out)
     by_id = {c["clone_id"]: c for c in payload["clones"]}
@@ -205,7 +307,7 @@ def test_status_marks_corrupt_state_instead_of_crashing(capsys):
     directory.mkdir(parents=True, exist_ok=True)
     (directory / f"{'b' * 64}.json").write_text("{not json")
 
-    code, out = _run(capsys, ["clone", "status", "--json"])
+    code, out = _run(capsys, ["clone", "status", "--all", "--json"])
     assert code == 0
     payload = json.loads(out)
     assert payload["clones"][0]["unreadable"] is True
@@ -217,7 +319,7 @@ def test_status_marks_non_dict_state_instead_of_crashing(capsys, payload):
     broken = "e" * 64
     _write_raw(broken, payload)
 
-    code, out = _run(capsys, ["clone", "status", "--json"])
+    code, out = _run(capsys, ["clone", "status", "--all", "--json"])
     assert code == 0
     listed = json.loads(out)["clones"]
     by_id = {c["clone_id"]: c for c in listed}
@@ -229,7 +331,7 @@ def test_status_plain_output_flags_unreadable(capsys):
     legacy = "c" * 64
     _write_raw(legacy, {"version": 1})
 
-    code, out = _run(capsys, ["clone", "status", "--plain"])
+    code, out = _run(capsys, ["clone", "status", "--all", "--plain"])
     assert code == 0
     assert "unreadable" in out
     assert legacy[:12] in out
@@ -251,7 +353,7 @@ def test_status_unreadable_entry_reports_null_created_at(capsys):
     _seed(100000001, 111, "Alpha", dest=222)
     _write_raw("e" * 64, {"version": 1})
 
-    code, out = _run(capsys, ["clone", "status", "--json"])
+    code, out = _run(capsys, ["clone", "status", "--all", "--json"])
     assert code == 0
     payload = json.loads(out)
     unreadable = next(c for c in payload["clones"] if c.get("unreadable"))

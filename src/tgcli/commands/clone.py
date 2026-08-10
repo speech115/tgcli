@@ -46,7 +46,11 @@ def _entry(s: state.CloneState) -> dict:
             "title": s.source_title,
             "kind": s.source_kind,
         },
-        "destination_id": s.destination_peer_id,
+        "destination": {
+            "id": s.destination_peer_id,
+            "title": s.destination_title,
+            "username": s.destination_username,
+        },
         "cursor": s.cursor,
         "copied": len(s.id_map),
         "cooldown_until": s.retry_not_before,
@@ -84,7 +88,7 @@ def _unreadable_entry(clone_id: str) -> dict:
     return {
         "clone_id": clone_id,
         "source": {"id": None, "title": None, "kind": None},
-        "destination_id": None,
+        "destination": {"id": None, "title": None, "username": None},
         "cursor": None,
         "copied": None,
         "cooldown_until": None,
@@ -97,10 +101,17 @@ def _unreadable_entry(clone_id: str) -> dict:
     }
 
 
-def list_clones(source: str | None = None) -> dict:
+# A `.json` slot with no `.db` beside it that `state.load` still refused: a
+# pre-v2 document, or one too broken to parse. Nothing in it can be read, so
+# its entry is `clone_id` plus nulls — ten of those bury the real clones
+# (#173). They are counted, not listed, unless `--all` asks for them.
+PENDING_IMPORT = "json-pending-import"
+
+
+def list_clones(source: str | None = None, *, include_all: bool = False) -> dict:
     directory = state.clones_dir()
     if not directory.exists():
-        return {"clones": []}
+        return {"clones": [], "pending_import": 0}
     clone_ids: set[str] = set()
     for path in directory.glob("*.db"):
         clone_ids.add(path.stem)
@@ -108,12 +119,20 @@ def list_clones(source: str | None = None) -> dict:
         if not path.name.startswith("account-"):
             clone_ids.add(path.stem)
     entries = []
+    pending_import = 0
     for clone_id in clone_ids:
         try:
             loaded = state.load(clone_id)
         except PolicyError:
+            entry = _unreadable_entry(clone_id)
+            if entry["integrity"] == PENDING_IMPORT:
+                # Counted whatever the filter is: the slot exists on disk
+                # either way, and its identity can never match a filter.
+                pending_import += 1
+                if not include_all:
+                    continue
             if source is None:
-                entries.append(_unreadable_entry(clone_id))
+                entries.append(entry)
             continue
         if loaded is None or not _matches(loaded, source):
             continue
@@ -121,7 +140,7 @@ def list_clones(source: str | None = None) -> dict:
     # An unreadable entry has no created_at at all (CONTRACT §11: every field
     # but clone_id is null), so it sorts ahead of every dated one.
     entries.sort(key=lambda entry: entry["created_at"] or "")
-    return {"clones": entries}
+    return {"clones": entries, "pending_import": pending_import}
 
 
 def export_state(source: str) -> dict:
@@ -158,7 +177,7 @@ def status_rows(data: dict) -> list[tuple]:
             c["source"]["id"],
             c["clone_id"] if c.get("unreadable") else c["source"]["title"],
             c["source"]["kind"],
-            c["destination_id"],
+            c["destination"]["title"] or c["destination"]["id"],
             c["cursor"],
             c["copied"],
             c["last_synced_at"],
@@ -179,6 +198,17 @@ async def _resolve_destination(tg, destination_peer_id: int):
         return await tg.get_entity(types.PeerChannel(destination_peer_id))
     except DESTINATION_UNAVAILABLE:
         raise PolicyError("clone destination is unavailable") from None
+
+
+def _record_destination_name(clone_state, destination) -> None:
+    """Remember what the destination is called, for the offline status listing.
+
+    A clone destination is private and unnamed to everyone but its creator, so
+    `clone status` could only ever print a bare peer id (#175). Every command
+    that resolves the peer refreshes the recorded name; the caller saves.
+    """
+    clone_state.destination_title = getattr(destination, "title", None)
+    clone_state.destination_username = getattr(destination, "username", None)
 
 
 async def _resolve_source(tg, source: str):
@@ -389,6 +419,8 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
             functions.channels.EditTitleRequest(channel=destination, title=titled),
         )
         destination.title = titled
+    _record_destination_name(clone_state, destination)
+    state.save(clone_state)
     full_chat = await _copy_profile(
         tg,
         entity,
@@ -737,6 +769,8 @@ async def sync_text(
     # reaches the tail, so the resume is where the operator sees this.
     warned_unstarted = clone_progress.comments_unstarted(clone_state)
     destination = await _resolve_destination(tg, clone_state.destination_peer_id)
+    _record_destination_name(clone_state, destination)
+    state.save(clone_state)
     forum = clone_state.destination_kind == "forum"
     valid_destination = (
         (

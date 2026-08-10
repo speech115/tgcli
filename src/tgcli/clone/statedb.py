@@ -17,7 +17,7 @@ from typing import Any
 from tgcli.errors import PolicyError
 from tgcli.session import restrict_file
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _META_FIELDS = (
     "version",
@@ -27,6 +27,8 @@ _META_FIELDS = (
     "source_kind",
     "destination_kind",
     "destination_peer_id",
+    "destination_title",
+    "destination_username",
     "creation_marker",
     "cursor",
     "retry_not_before",
@@ -58,6 +60,8 @@ CREATE TABLE IF NOT EXISTS meta (
     source_kind TEXT NOT NULL,
     destination_kind TEXT NOT NULL,
     destination_peer_id INTEGER,
+    destination_title TEXT,
+    destination_username TEXT,
     creation_marker TEXT,
     cursor INTEGER NOT NULL,
     retry_not_before TEXT,
@@ -89,6 +93,17 @@ CREATE TABLE IF NOT EXISTS avatar_photo_ids (
 );
 """
 
+# Forward-only, one entry per schema version above 1. A clone database holds
+# work that cost real Telegram traffic to produce, so a schema addition
+# migrates the file in place; only a *newer* file than this build understands
+# is refused, because reading it would silently drop whatever it added.
+_MIGRATIONS: dict[int, tuple[str, ...]] = {
+    2: (
+        "ALTER TABLE meta ADD COLUMN destination_title TEXT",
+        "ALTER TABLE meta ADD COLUMN destination_username TEXT",
+    ),
+}
+
 
 def connect(path: Path) -> sqlite3.Connection:
     """Open (or create) a clone DB with the ADR-0060 pragmas and schema."""
@@ -106,11 +121,7 @@ def connect(path: Path) -> sqlite3.Connection:
             conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             conn.commit()
         elif version != SCHEMA_VERSION:
-            conn.close()
-            raise PolicyError(
-                f"clone state {path.name} has unsupported schema version "
-                f"{version}; expected {SCHEMA_VERSION}"
-            )
+            _migrate(conn, version, path)
         _require_integrity(conn, path)
     except PolicyError:
         raise
@@ -123,6 +134,27 @@ def connect(path: Path) -> sqlite3.Connection:
         restrict_file(path)
     _restrict_sidecars(path)
     return conn
+
+
+def _migrate(conn: sqlite3.Connection, version: int, path: Path) -> None:
+    """Step ``version`` up to ``SCHEMA_VERSION`` in one transaction, or refuse.
+
+    The caller still holds the connection on the way out: a migration that
+    raises closes it, a migration that lands leaves it open for the read.
+    """
+    if version > SCHEMA_VERSION or any(
+        target not in _MIGRATIONS for target in range(version + 1, SCHEMA_VERSION + 1)
+    ):
+        conn.close()
+        raise PolicyError(
+            f"clone state {path.name} has unsupported schema version "
+            f"{version}; expected {SCHEMA_VERSION}"
+        )
+    with conn:
+        for target in range(version + 1, SCHEMA_VERSION + 1):
+            for statement in _MIGRATIONS[target]:
+                conn.execute(statement)
+            conn.execute(f"PRAGMA user_version={target}")
 
 
 def integrity_report(conn: sqlite3.Connection) -> str:

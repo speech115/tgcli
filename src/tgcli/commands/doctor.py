@@ -8,6 +8,7 @@ import telethon
 
 from tgcli import safety, session
 from tgcli.config import Config, resolve_account
+from tgcli.errors import PolicyError
 from tgcli.output import note
 
 
@@ -34,11 +35,58 @@ def _mode_ok(path: Path) -> bool:
     return not bool(mode & (stat.S_IRWXG | stat.S_IRWXO))
 
 
-def _preview_perms_ok() -> bool:
+def _loose_previews() -> list[Path]:
+    """Preview files whose mode is not 0600 — empty when the scan cannot run.
+
+    A concurrent `store cleanup --confirm` can remove the directory between
+    the probe and the walk, and a health report must not die of the housekeeping
+    it exists to describe (review finding).
+    """
     directory = safety.previews_dir()
-    if not directory.is_dir():
-        return True
-    return all(_mode_ok(path) for path in directory.iterdir() if path.is_file())
+    try:
+        return [
+            path
+            for path in directory.iterdir()
+            if path.is_file() and not _mode_ok(path)
+        ]
+    except OSError:
+        return []
+
+
+def _repair_allowed(readonly: bool) -> bool:
+    """The ADR-0040 local-mutation gate, asked rather than enforced.
+
+    `doctor` reports health, so a blocked repair is a check result and not a
+    failed command — but the *rule* must stay the single one every other
+    mutation site obeys. Asking `safety` is what keeps `--readonly` and
+    `TGCLI_READONLY=1` one gate; a hand-rolled `if readonly` honoured only
+    the flag and repaired previews under the environment variable (review
+    finding).
+    """
+    try:
+        safety.enforce_local_mutation_allowed(readonly)
+    except PolicyError:
+        return False
+    return True
+
+
+def _repair_preview_perms() -> int:
+    """Force every loose preview back to 0600; return how many were tightened.
+
+    Previews have been written 0600 since 1.1.2, but a file created before
+    that stayed world-readable forever and kept `preview_perms_ok` false
+    until the operator ran a *reaping* command — so the one command whose job
+    is to report health was permanently red and its own remedy deleted state
+    (#172). Repair is the honest reading of a check doctor already has to
+    stat, and `session.restrict_file` fails open: an unfixable file is
+    reported by the check that follows, never a doctor crash.
+    """
+    repaired = 0
+    for path in _loose_previews():
+        session.restrict_file(path)
+        if _mode_ok(path):
+            repaired += 1
+    return repaired
 
 
 def _audit_perms_ok() -> bool:
@@ -159,14 +207,17 @@ def _governor_check(session_file: Path) -> dict:
     return result
 
 
-async def check_account(account, *, connect: bool = False) -> dict:
+async def check_account(
+    account, *, connect: bool = False, preview_perms_repaired: int = 0
+) -> dict:
     session_file = session.session_path(account)
     has_session_file = session_file.is_file()
     checks: dict = {
         "session_file": has_session_file,
         "lock_free": has_session_file and session.lock_held(session_file) is False,
         "state_writable": _state_writable(),
-        "preview_perms_ok": _preview_perms_ok(),
+        "preview_perms_ok": not _loose_previews(),
+        "preview_perms_repaired": preview_perms_repaired,
         "audit_perms_ok": _audit_perms_ok(),
         "session_perms_ok": _session_perms_ok(session_file),
         "state_size": _state_size(),
@@ -209,17 +260,35 @@ async def check_account(account, *, connect: bool = False) -> dict:
 
 
 async def run(
-    config: Config, alias: str | None = None, *, connect: bool = False
+    config: Config,
+    alias: str | None = None,
+    *,
+    connect: bool = False,
+    readonly: bool = False,
 ) -> dict:
     if alias:
         accounts = [resolve_account(config, alias)]
     else:
         accounts = list(config.accounts.values())
-    reports = [await check_account(account, connect=connect) for account in accounts]
+    # Previews are account-agnostic, so the repair runs once for the whole
+    # invocation and every account report quotes the same number.
+    allowed = _repair_allowed(readonly)
+    repaired = _repair_preview_perms() if allowed else 0
+    if repaired:
+        note(f"tightened {repaired} preview file(s) to 0600")
+    reports = [
+        await check_account(account, connect=connect, preview_perms_repaired=repaired)
+        for account in accounts
+    ]
     if any(report["checks"]["preview_perms_ok"] is False for report in reports):
         note(
             "preview files are readable by other users; tighten them with: "
-            "tg store cleanup --confirm"
+            + (
+                "chmod 600 on the files under the previews directory"
+                if allowed
+                else "tg doctor with local state writes allowed "
+                "(no --readonly, no TGCLI_READONLY=1)"
+            )
         )
     return {
         "runtime": _runtime_fingerprint(),

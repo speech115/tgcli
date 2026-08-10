@@ -7,7 +7,7 @@ import sqlite3
 
 import pytest
 
-from tgcli.clone import state
+from tgcli.clone import state, statedb
 from tgcli.errors import PolicyError
 
 
@@ -73,6 +73,68 @@ def test_corrupted_json_keeps_today_message(tmp_path, monkeypatch):
         state.load("f" * 64)
 
 
+def _downgrade_to_schema_1(db_path) -> None:
+    """Rebuild a live db as the pre-destination-name schema (#175)."""
+    conn = sqlite3.connect(db_path)
+    conn.execute("ALTER TABLE meta DROP COLUMN destination_title")
+    conn.execute("ALTER TABLE meta DROP COLUMN destination_username")
+    conn.execute("PRAGMA user_version=1")
+    conn.commit()
+    conn.close()
+
+
+def test_schema_1_database_migrates_in_place(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    s = _fresh()
+    s.destination_peer_id = 99
+    s.cursor = 4
+    s.record_mapping(2, 20)
+    state.save(s)
+    _downgrade_to_schema_1(state.path_for(s.clone_id))
+
+    loaded = state.load(s.clone_id)
+
+    assert loaded is not None
+    assert loaded.cursor == 4
+    assert loaded.dest_for(2) == 20
+    assert loaded.destination_title is None
+    assert loaded.destination_username is None
+    assert state.probe(s.clone_id)["schema_version"] == statedb.SCHEMA_VERSION
+
+
+def test_migrated_database_records_a_destination_name(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    s = _fresh()
+    s.destination_peer_id = 99
+    state.save(s)
+    _downgrade_to_schema_1(state.path_for(s.clone_id))
+
+    migrated = state.load(s.clone_id)
+    assert migrated is not None
+    migrated.destination_title = "[Clone] Example Channel"
+    migrated.destination_username = "example_clone"
+    state.save(migrated)
+
+    reloaded = state.load(s.clone_id)
+    assert reloaded is not None
+    assert reloaded.destination_title == "[Clone] Example Channel"
+    assert reloaded.destination_username == "example_clone"
+
+
+def test_newer_schema_version_is_refused(tmp_path, monkeypatch):
+    """Downgrade is not a migration: a future db must not be silently read."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    s = _fresh()
+    state.save(s)
+    conn = sqlite3.connect(state.path_for(s.clone_id))
+    conn.execute(f"PRAGMA user_version={statedb.SCHEMA_VERSION + 1}")
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(PolicyError, match="unsupported schema version"):
+        state.load(s.clone_id)
+
+
 def test_export_state_prints_v2_json(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     s = _fresh()
@@ -110,7 +172,7 @@ def test_status_reports_schema_version_and_integrity(tmp_path, monkeypatch, caps
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
     entry = payload["clones"][0]
-    assert entry["schema_version"] == 1
+    assert entry["schema_version"] == statedb.SCHEMA_VERSION
     assert entry["integrity"] == "ok"
 
 

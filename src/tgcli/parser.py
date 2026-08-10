@@ -695,6 +695,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_clone_status.add_argument(
         "source", nargs="?", help="filter to one source (id or title substring)"
     )
+    p_clone_status.add_argument(
+        "--all",
+        action="store_true",
+        dest="all_slots",
+        help="also list state slots that cannot be imported (counted otherwise)",
+    )
     p_clone_init = clone_sub.add_parser("init", parents=[global_flags])
     p_clone_init.add_argument("source", help="source channel, supergroup, or dialog")
     p_clone_init.add_argument("--commit", metavar="PREVIEW_ID")

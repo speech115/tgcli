@@ -57,7 +57,8 @@ than raising.
 | `session_file` | session file exists for this account | run `tg accounts import` or sign in |
 | `lock_free` | no other `tg` process holds this session's lock | wait for the other process to exit, or check for a stale lock |
 | `state_writable` | the preview-state directory accepts writes | check permissions/ownership of `~/.local/state/tgcli/` |
-| `preview_perms_ok` | no preview file is readable by the group or other users | `tg store cleanup --confirm` (doctor also prints this hint to stderr) |
+| `preview_perms_ok` | no preview file is readable by the group or other users | doctor tightens loose files itself; only an unfixable file (or `--readonly`) leaves this false |
+| `preview_perms_repaired` | how many preview files this run chmod'd back to `0600` (informational, not pass/fail) | — |
 | `audit_perms_ok` | `audit.jsonl` is not readable by the group or other users | `chmod 0600 ~/.local/state/tgcli/audit.jsonl` |
 | `session_perms_ok` | this account's `.session` file (and `.session.bak`, when present) are not readable by the group or other users; missing files pass | `chmod 0600 ~/.local/state/tgcli/sessions/NAME.session*` |
 | `state_size` | total bytes under the state root (informational, not pass/fail) | inspect with `tg store stats` if unexpectedly large |
@@ -84,7 +85,8 @@ early-lifted limit clears itself without operator action.
 {"runtime":{"python":"/home/me/tgcli/.venv/bin/python","python_version":"3.12.9","telethon":"1.44.0"},
 "accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
 "checks":{"session_file":true,"lock_free":true,"state_writable":true,
-"preview_perms_ok":true,"audit_perms_ok":true,"session_perms_ok":true,
+"preview_perms_ok":true,"preview_perms_repaired":0,"audit_perms_ok":true,
+"session_perms_ok":true,
 "state_size":4096,"authorized":null,"governor_degraded":false,"governor_cooldowns":{}},
 "user":null,"roles":[],"ok":true}],"ok":true}
 ```

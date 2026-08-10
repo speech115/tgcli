@@ -139,23 +139,123 @@ def test_doctor_reports_runtime_fingerprint(config_env, capsys):
     assert data["runtime"]["telethon"] == telethon.__version__
 
 
-def test_doctor_hints_the_remedy_for_loose_preview_modes(config_env, capsys):
-    """A legacy 0644 preview fails doctor; the fix must not be a guessing game."""
+def _loose_preview():
     from tgcli import safety
 
-    _touch_session("main")
     previews = safety.previews_dir()
     previews.mkdir(parents=True, exist_ok=True)
     legacy = previews / "old.json"
     legacy.write_text("{}")
     legacy.chmod(0o644)
+    return legacy
+
+
+def test_doctor_repairs_loose_preview_modes(config_env, capsys):
+    """#172: a pre-1.1.2 0644 preview kept doctor red until a reaping command
+    was run. Tightening a file doctor already had to stat is the repair."""
+    _touch_session("main")
+    legacy = _loose_preview()
 
     assert main(["doctor", "--json"]) == 0
     captured = capsys.readouterr()
     report = json.loads(captured.out)
-    assert report["accounts"][0]["checks"]["preview_perms_ok"] is False
+    checks = report["accounts"][0]["checks"]
+    assert checks["preview_perms_ok"] is True
+    assert checks["preview_perms_repaired"] == 1
+    assert legacy.stat().st_mode & 0o777 == 0o600
+    assert report["ok"] is True
+    assert "tightened 1 preview file" in captured.err
+
+
+def test_doctor_reports_no_repair_when_previews_are_already_tight(config_env, capsys):
+    from tgcli import safety
+
+    _touch_session("main")
+    safety.create_preview({"kind": "send"})
+
+    assert main(["doctor", "--json"]) == 0
+    captured = capsys.readouterr()
+    checks = json.loads(captured.out)["accounts"][0]["checks"]
+    assert checks["preview_perms_ok"] is True
+    assert checks["preview_perms_repaired"] == 0
+    assert "preview file" not in captured.err
+
+
+def test_doctor_readonly_reports_loose_previews_without_touching_them(
+    config_env, capsys
+):
+    """--readonly forbids local state mutation (ADR-0040), repair included."""
+    _touch_session("main")
+    legacy = _loose_preview()
+
+    assert main(["doctor", "--readonly", "--json"]) == 0
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    checks = report["accounts"][0]["checks"]
+    assert checks["preview_perms_ok"] is False
+    assert checks["preview_perms_repaired"] == 0
+    assert legacy.stat().st_mode & 0o777 == 0o644
     assert report["ok"] is False
-    assert "tg store cleanup --confirm" in captured.err
+    assert "--readonly" in captured.err
+
+
+def test_doctor_env_readonly_reports_loose_previews_without_touching_them(
+    config_env, capsys, monkeypatch
+):
+    """TGCLI_READONLY=1 is the same gate as --readonly (ADR-0040).
+
+    Every other local mutation asks `safety.enforce_local_mutation_allowed`,
+    which reads both; a hand-rolled `if readonly` here honoured only the flag.
+    """
+    monkeypatch.setenv("TGCLI_READONLY", "1")
+    _touch_session("main")
+    legacy = _loose_preview()
+
+    assert main(["doctor", "--json"]) == 0
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    checks = report["accounts"][0]["checks"]
+    assert checks["preview_perms_ok"] is False
+    assert checks["preview_perms_repaired"] == 0
+    assert legacy.stat().st_mode & 0o777 == 0o644
+    assert report["ok"] is False
+    assert "TGCLI_READONLY" in captured.err
+
+
+def test_doctor_survives_a_previews_directory_that_vanishes(config_env, monkeypatch):
+    """`store cleanup` may remove the directory between the probe and the scan."""
+    from tgcli import safety
+
+    _touch_session("main")
+    previews = safety.previews_dir()
+    previews.mkdir(parents=True, exist_ok=True)
+
+    def vanish():
+        raise FileNotFoundError(previews)
+
+    monkeypatch.setattr(type(previews), "iterdir", lambda self: vanish())
+
+    assert main(["doctor", "--json"]) == 0
+
+
+def test_repaired_count_is_never_read_as_a_failed_check():
+    """An int in a dict of booleans must not reach `ok` or the failures column."""
+    checks = {
+        "session_file": True,
+        "lock_free": True,
+        "state_writable": True,
+        "preview_perms_ok": True,
+        "preview_perms_repaired": 0,
+        "audit_perms_ok": True,
+        "session_perms_ok": True,
+        "state_size": 12,
+        "authorized": None,
+    }
+    assert doctor_cmd._local_ok(checks) is True
+    rows = doctor_cmd.to_rows(
+        {"accounts": [{"alias": "main", "ok": True, "user": None, "checks": checks}]}
+    )
+    assert rows[0][3] is None
 
 
 def test_doctor_flags_loose_session_file_modes(config_env, capsys):
