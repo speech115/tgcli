@@ -26,6 +26,25 @@ the rule for all rebuilding transports rather than probing per message shape.
 No live probe was run: under a report-only contract the outcome is identical
 for every button class, so classification was not on the critical path.
 
+**Review fix:** the independent review caught the report living only in the
+tail of `sync_text`. A flood mid-run — the routine outcome on a large
+protected channel, and the reason ADR-0083 exists — exits 5 with no result
+document, while the messages already copied keep their saved mappings and are
+never revisited. The warning would have vanished for exactly the copies that
+lost their keyboards: the silent drop #82 opened on, rebuilt in a different
+place. Now the first loss is announced when it is discovered, with a
+reproducing test that floods after the first send and asserts stderr. Same
+round: `docs/guide/clone.md` still documented 16 plain columns and a
+`markup_dropped`-free JSON example (the docs gate does not check guide bodies,
+so it stayed green), the MAP line for `fidelity.py` still said "media
+capability classification", and the new behaviour had no test on the snapshot
+transport or the comments leg — the comments case now also pins that an
+autoforward anchor cannot double-count its post's keyboard.
+
 **Next:** if Telegram ever opens `reply_markup` to user accounts, ADR-0085 is
 the decision to revisit — the reporting shape is already there to degrade
 from. Repair of already-cloned posts stays out of band until the owner asks.
+One sibling gap is recorded in the ADR rather than fixed: `_same_content` in
+the ADR-0050 re-forward path does not compare `reply_markup`, so a keyboard
+mismatch between a channel post and its discussion-group original rides
+through a native forward unreported.

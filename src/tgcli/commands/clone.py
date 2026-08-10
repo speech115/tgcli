@@ -885,13 +885,22 @@ async def sync_text(
         transport_counts[mode] += batch_copied
         # Only a native forward carries a keyboard; every other transport
         # rebuilds the message and Telegram will not let a user account
-        # reattach one, so the rows are recorded as lost (ADR-0085).
+        # reattach one, so the rows are recorded as lost (ADR-0085). The
+        # first loss is announced here, not in the tail: the copy is already
+        # permanent and never revisited, so a run that later dies on a flood
+        # must not take the only word of it with the result document.
         if mode != "forwarded":
-            markup_dropped.extend(
-                {"id": message.id, "buttons": buttons}
-                for message in messages
-                if (buttons := fidelity.dropped_buttons(message)) is not None
-            )
+            for message in messages:
+                buttons = fidelity.dropped_buttons(message)
+                if buttons is None:
+                    continue
+                if not markup_dropped:
+                    note(
+                        f"warning: source message {message.id} lost its bot "
+                        "buttons; a keyboard belongs to the bot that attached "
+                        "it and no copy can recreate one"
+                    )
+                markup_dropped.append({"id": message.id, "buttons": buttons})
         reply_flattened += int(flattened)
         if flattened_quote is not None:
             quote_flattened.append(flattened_quote)
@@ -1019,15 +1028,6 @@ async def sync_text(
             **({"pinned": pinned_result} if pinned_result is not None else {}),
         },
     }
-    if markup_dropped:
-        # A Telegram-side limit, not a failed run: the copy is complete for
-        # everything a user account may send, so the run still exits 0. Said
-        # once per run, before the quote-fallback exit, so a run that ends in
-        # PartialFailure reports this loss too (ADR-0085).
-        note(
-            f"warning: {len(markup_dropped)} copied message(s) lost bot buttons; "
-            "a keyboard belongs to the bot that attached it and cannot be recreated"
-        )
     if quote_flattened:
         raise PartialFailure(
             f"clone sync finished with {len(quote_flattened)} quote fallback(s)",

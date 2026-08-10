@@ -31,9 +31,18 @@ without buttons, and the clone does not reconstruct them in any form.
 
 The loss is reported rather than silent. Every copied message whose source
 carried a keyboard, on any transport other than a native forward, contributes
-`{"id":…,"buttons":[{"type":…,"text":…},…]}` to `sync.markup_dropped`; the
-plain row gains `markup_dropped_count`; a run that dropped at least one
-keyboard prints one stderr warning naming the count and the reason.
+`{"id":…,"buttons":[{"type":…,"text":…},…]}` to `sync.markup_dropped`, and the
+plain row gains `markup_dropped_count`.
+
+The stderr warning is emitted at the moment of the first loss, not in the
+run's tail. A tail-only report is worth nothing in the case this ADR exists
+for: a large protected channel floods mid-run (ADR-0083 exists because that is
+routine), the run exits 5 with no result document, and the messages already
+copied — keyboards gone, mappings saved, cursor advanced — are never revisited.
+That is the silent drop the ticket opened on, reappearing in the most common
+non-zero outcome. Reporting on discovery makes the record survive any exit;
+one line per run rather than one per message keeps a button-heavy channel from
+drowning stderr, and the complete list stays in the result document.
 
 The exit code stays 0. A limit Telegram imposes on every user account is a
 property of the protocol, not a failed run — this follows the `reply_flattened`
@@ -71,6 +80,19 @@ body prefix, and nothing here changes that.
 - **Drop silently and only document it.** The acceptance criteria in #82 ask
   for no silent drop, and a fidelity loss the operator can only find by
   eyeballing two chats is the failure mode that opened the ticket.
+
+## Known gap, not closed here
+
+ADR-0050's re-forward proves a repost's original in the linked discussion group
+by comparing text, entities, and media — `reforward._same_content` does not
+compare `reply_markup`. When the group copy carries a different keyboard than
+the channel post, the destination gets the group's rows, and this ADR cannot
+report it: the send degrades to a native forward and the collection reads the
+transport that actually ran. So the one transport documented as contributing
+nothing to `markup_dropped` is also the one where a keyboard mismatch is
+possible and invisible. Narrow, and it belongs to ADR-0050's proven-original
+invariant rather than to this decision; recorded so the next change to
+`_same_content` knows about it.
 
 ## Contract impact
 

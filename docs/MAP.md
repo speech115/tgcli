@@ -86,7 +86,7 @@ tgcli/
 │   │   ├── reupload.py        [done]    reupload transfer: still-thumb picker, parallel upload, resumable checkpointed download cache (ADR-0049/0052/0055/0083)
 │   │   ├── init_peers.py      [done]    destination shape, marker adoption, profile/avatar copy, discussion init (ADR-0020/0023/0044)
 │   │   ├── ergonomics.py      [done]    mute forever + "Clone" dialog filter for tool-created peers (ADR-0046)
-│   │   ├── fidelity.py        [done]    media capability classification
+│   │   ├── fidelity.py        [done]    media + keyboard capability classification
 │   │   ├── batching.py        [done]    pure batch planner: albums, service skips
 │   │   ├── transport.py       [done]    pure forward/reupload/snapshot decision
 │   │   ├── pin.py             [done]    pure pin-decision + live pin-carry phase (ADR-0055)
