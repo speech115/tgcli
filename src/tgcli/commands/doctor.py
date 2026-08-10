@@ -8,6 +8,7 @@ import telethon
 
 from tgcli import safety, session
 from tgcli.config import Config, resolve_account
+from tgcli.errors import PolicyError
 from tgcli.output import note
 
 
@@ -35,12 +36,38 @@ def _mode_ok(path: Path) -> bool:
 
 
 def _loose_previews() -> list[Path]:
+    """Preview files whose mode is not 0600 — empty when the scan cannot run.
+
+    A concurrent `store cleanup --confirm` can remove the directory between
+    the probe and the walk, and a health report must not die of the housekeeping
+    it exists to describe (review finding).
+    """
     directory = safety.previews_dir()
-    if not directory.is_dir():
+    try:
+        return [
+            path
+            for path in directory.iterdir()
+            if path.is_file() and not _mode_ok(path)
+        ]
+    except OSError:
         return []
-    return [
-        path for path in directory.iterdir() if path.is_file() and not _mode_ok(path)
-    ]
+
+
+def _repair_allowed(readonly: bool) -> bool:
+    """The ADR-0040 local-mutation gate, asked rather than enforced.
+
+    `doctor` reports health, so a blocked repair is a check result and not a
+    failed command — but the *rule* must stay the single one every other
+    mutation site obeys. Asking `safety` is what keeps `--readonly` and
+    `TGCLI_READONLY=1` one gate; a hand-rolled `if readonly` honoured only
+    the flag and repaired previews under the environment variable (review
+    finding).
+    """
+    try:
+        safety.enforce_local_mutation_allowed(readonly)
+    except PolicyError:
+        return False
+    return True
 
 
 def _repair_preview_perms() -> int:
@@ -245,7 +272,8 @@ async def run(
         accounts = list(config.accounts.values())
     # Previews are account-agnostic, so the repair runs once for the whole
     # invocation and every account report quotes the same number.
-    repaired = 0 if readonly else _repair_preview_perms()
+    allowed = _repair_allowed(readonly)
+    repaired = _repair_preview_perms() if allowed else 0
     if repaired:
         note(f"tightened {repaired} preview file(s) to 0600")
     reports = [
@@ -256,9 +284,10 @@ async def run(
         note(
             "preview files are readable by other users; tighten them with: "
             + (
-                "tg doctor without --readonly"
-                if readonly
-                else "chmod 600 on the files under the previews directory"
+                "chmod 600 on the files under the previews directory"
+                if allowed
+                else "tg doctor with local state writes allowed "
+                "(no --readonly, no TGCLI_READONLY=1)"
             )
         )
     return {

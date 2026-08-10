@@ -82,8 +82,9 @@ class CloneState:
     topic_map: dict[str, int] = field(default_factory=dict)
     version: int = VERSION
     destination_peer_id: int | None = None
-    # Last name the destination was seen under, recorded by init/sync/refresh
-    # so the offline `clone status` can say which channel a clone writes to
+    # Last name the destination was seen under, recorded by clone init and
+    # clone sync (never by refresh, whose preview must not write state) so
+    # the offline `clone status` can say which channel a clone writes to
     # (a private destination has no username to look up). Null until the
     # clone is next touched by a command that resolves the peer.
     destination_title: str | None = None

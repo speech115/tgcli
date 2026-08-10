@@ -38,9 +38,11 @@ writes where without resolving the id through a second command.
    them, every preview file whose mode is not `0600` is chmod'd back
    (`session.restrict_file`, fail-open). `checks.preview_perms_repaired`
    counts what was tightened this run, and a one-line count goes to stderr.
-   The repair is a local-state mutation, so `--readonly` /
-   `TGCLI_READONLY=1` skips it and the check reports `false` exactly as
-   before; `TGCLI_NO_SEND=1` does not apply because no Telegram traffic is
+   The repair is a local-state mutation, so it asks
+   `safety.enforce_local_mutation_allowed` rather than testing a flag —
+   `--readonly` and `TGCLI_READONLY=1` are one gate, and a hand-rolled
+   `if readonly` honoured only the first (review finding). When it is
+   blocked the check reports `false` exactly as before; `TGCLI_NO_SEND=1` does not apply because no Telegram traffic is
    involved. The remedy hint no longer names `store cleanup`.
 
 2. **Unimportable state slots are counted, not listed.** A `.json` document
