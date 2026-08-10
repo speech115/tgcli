@@ -213,3 +213,33 @@ def test_transfer_line_strips_control_characters_from_the_filename():
     assert lines == ["[sync 123] 0/~? · reupload · clip.mp4x · download 5.0 MB"]
     assert not ANSI.search(lines[0])
     assert not any(ch in lines[0] for ch in "\x1b\r\n\x08\t")
+
+
+async def test_a_leg_resolves_its_total_once_per_run_not_once_per_window():
+    """ADR-0051 interleaves posts and comments; re-entering a leg must not
+    re-ask GetHistory for a number it already has (review finding)."""
+    lines, write = collector()
+    reporter = progress.SyncProgress(123, write=write)
+    calls: list[object] = []
+
+    class FakeTg:
+        async def get_messages(self, entity, limit=None):
+            calls.append(entity)
+            return SimpleNamespace(total=50 if entity is posts else 7)
+
+    async def invoke(make):
+        return await make()
+
+    tg = FakeTg()
+    posts = SimpleNamespace(id=1)
+    comments = SimpleNamespace(id=2)
+    for _ in range(3):
+        reporter.phase("posts")
+        await reporter.resolve_total(tg, posts, invoke)
+        reporter.batch(1, "forwarded")
+        reporter.phase("comments")
+        await reporter.resolve_total(tg, comments, invoke)
+        reporter.batch(1, "forwarded")
+
+    assert calls == [posts, comments]
+    assert lines[-1] == "[sync 123] 1/~7 · forwarded"

@@ -724,3 +724,36 @@ def test_clone_refresh_after_flood_fresh_preview_lists_remaining(
     assert main(["clone", "refresh", "@source", "--json"]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["refresh"]["eligible"] == [{"source_id": 69, "destination_id": 169}]
+
+
+def test_clone_refresh_resolves_a_bare_title_through_clone_state(
+    config_env, monkeypatch, capsys
+):
+    """ADR-0082 documents the title reference for refresh as well as sync."""
+    seed_clone()
+
+    class TitleClient(RefreshClient):
+        async def get_entity(self, ref):
+            if isinstance(ref, types.PeerChannel) and ref.channel_id == 123:
+                return self.source
+            if isinstance(ref, str):
+                raise AssertionError(f"title must not reach Telegram: {ref!r}")
+            return await super().get_entity(ref)
+
+    make_session_fake(monkeypatch, TitleClient([], []))
+
+    assert main(["clone", "refresh", "Source channel", "--json"]) == 0
+    capsys.readouterr()
+
+
+def test_clone_refresh_unreachable_source_is_not_found(config_env, monkeypatch, capsys):
+    seed_clone()
+
+    class PrivateClient(RefreshClient):
+        async def get_entity(self, ref):
+            raise telethon_errors.ChannelPrivateError(request=None)
+
+    make_session_fake(monkeypatch, PrivateClient([], []))
+
+    assert main(["clone", "refresh", "@source", "--json"]) == 4
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "NOT_FOUND"
