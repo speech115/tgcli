@@ -39,7 +39,10 @@ CEILINGS = {
     # _long_running_command exemption list (media/export/clone
     # init,sync,refresh/archive refresh), and the journal's
     # governed_sleep_ms/request_count/stop_reason fields.
-    "src/tgcli/cli.py": 663,
+    # +42 trued up at the 2.0.4 merge (ADR-0081/0083): the clone-status
+    # pending-import and half-initialized stderr pointers, doctor's
+    # readonly argument, and finish_commit for the clone commits.
+    "src/tgcli/cli.py": 705,
     # +2 for ADR-0057: isort section blanks, E501 split in the --format help.
     # +47 for ADR-0062 --session-role / accounts --role flags and the
     # ADR-0063 tg changes subcommand surface.
@@ -52,7 +55,9 @@ CEILINGS = {
     # read and history subcommands.
     # +30 for ADR-0070 Phase 6: the refresh subcommand and its caps.
     # +8 for ADR-0072: the --max-runtime wall-clock cap flag.
-    "src/tgcli/parser.py": 740,
+    # +19 trued up at the 2.0.4 merge: `clone status --all` (ADR-0081)
+    # on top of growth the grace band had been absorbing.
+    "src/tgcli/parser.py": 759,
     # +40 for ADR-0062 role validation and ADR-0063 changes preflight.
     # +37 for ADR-0068: archive preflight (readonly gates, backfill/search
     # caps).
@@ -62,14 +67,19 @@ CEILINGS = {
     # search, read, and history.
     # +10 for ADR-0070 Phase 6: refresh cap validation.
     # +13 for ADR-0072: --max-runtime and --timeout positivity validation.
-    "src/tgcli/preflight.py": 440,
+    # +7 trued up at the 2.0.4 merge (ADR-0083): clone init/refresh moved
+    # to the begin/finish preview handshake, folded into one loop.
+    "src/tgcli/preflight.py": 447,
     # +2 for ADR-0057: isort section blanks.
     # +17 for ADR-0062: role lookup threaded into session.client.
     # +23 for ADR-0068: archive network dispatch (init/add/remove/backfill).
     # +16 for ADR-0068 Phase 3: sync/rebaseline dispatch.
     # +1 for ADR-0068 Phase 4: media budget threading.
     # +11 for ADR-0070 Phase 6: refresh dispatch.
-    "src/tgcli/dispatch.py": 327,
+    # +26 trued up at the 2.0.4 merge. Not caused by that release — the
+    # grace band had been carrying it since earlier work; the ratchet is
+    # the integrator's job and nobody had done it.
+    "src/tgcli/dispatch.py": 353,
     "src/tgcli/commands/batch.py": 96,
     # +3 for ADR-0057: isort section blanks.
     "src/tgcli/read_ops.py": 437,
@@ -109,7 +119,9 @@ CEILINGS = {
     # +10 for ADR-0072: MAX_COOLDOWN_S migrated in-module off clone/flood.py,
     # plus the set_cooldown docstring noting the field is legacy now that
     # floods arm the governor's per-type cooldown instead.
-    "src/tgcli/clone/state.py": 391,
+    # +18 trued up at the 2.0.4 merge (ADR-0081): destination_title /
+    # destination_username fields, their validation, and to_dict/from_dict.
+    "src/tgcli/clone/state.py": 409,
     # +22 for ADR-0051: posts_cursor / posts_exhausted kwargs + deferred
     # short-circuit in resolve (mirror of transport.decide's deferred plan).
     # +1 for ADR-0061: the ResolveContext destination_group field.

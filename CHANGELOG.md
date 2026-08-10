@@ -11,6 +11,46 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [2.0.4] — 2026-08-10
+
+A `clone sync` interrupted by a FloodWait no longer throws away what it
+already downloaded: the reupload leg streams into a checkpointed partial file
+and resumes from it, and it streams serially instead of in four parallel
+stripes — which in practice keeps it under the media limit entirely. A
+protected file too large to finish inside one run's flood budget used to
+restart from byte zero on every invocation and could never complete.
+`clone init --commit` and `clone refresh --commit` now spend their preview on
+success rather than on acceptance, so a commit that stops partway can be
+retried with the same `PREVIEW_ID` instead of dead-ending on
+`preview is already used`.
+
+`clone status` replaces the scalar `destination_id` with a `destination`
+object carrying the title and username `clone init`/`clone sync` recorded —
+a private clone destination has no other readable name. It also reports
+`discussion_linked`, counts state slots it cannot import as `pending_import`
+instead of listing them as rows of nulls, and takes `--all` to show them.
+Clone state databases migrate to schema 2 in place on first open; an older
+tgcli cannot read them afterwards (`clone export-state` is the way back).
+
+`clone sync` and `clone refresh` accept a title that names exactly one clone,
+resolving it from recorded state instead of Telethon's entity cache — passing
+one used to fail with a `CHANNEL_PRIVATE` error blaming the operator's access
+for a channel they can read. A source no clone command can open is now exit 4
+(`NOT_FOUND`) everywhere, including `clone init`, which previously exited 1
+with the raw Telegram text. Sync progress counts each leg against its own
+source, so the comments phase no longer prints more copied than there is work.
+
+`tg doctor` repairs the preview file modes it checks instead of reporting them
+red forever and pointing at a command that deletes state; the repair is a
+local mutation, so `--readonly` and `TGCLI_READONLY=1` skip it.
+
+Rationale: ADR-0081, ADR-0082, ADR-0083.
+
+### Changed
+
+- Resolve per clone leg and keep finished work through a flood (ADR-0082, ADR-0083) (#177)
+- Report what an operator can act on in doctor and clone status (ADR-0081) (#176)
+
 ## [2.0.3] — 2026-08-09
 
 `tg transcribe` is now classified as a mutation: `--readonly` (and
@@ -749,6 +789,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[2.0.4]: https://github.com/speech115/tgcli/compare/v2.0.3...v2.0.4
 [2.0.3]: https://github.com/speech115/tgcli/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/speech115/tgcli/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/speech115/tgcli/compare/v2.0.0...v2.0.1
