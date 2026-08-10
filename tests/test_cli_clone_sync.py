@@ -2675,6 +2675,46 @@ def test_clone_sync_quote_fallback_exits_partial_with_result_document(
     assert state.load(clone_state.clone_id).cursor == 2
 
 
+def test_clone_sync_reports_quote_fallback_before_a_later_flood_ends_the_run(
+    config_env, monkeypatch, capsys
+):
+    """The durable copy is behind the cursor after the flood, so stderr is
+    the only report that can survive when the tail result document does not."""
+    clone_state = seed_clone()
+    clone_state.record_mapping(1, 1)
+    clone_state.cursor = 1
+    state.save(clone_state)
+    reply = types.MessageReplyHeader(
+        reply_to_msg_id=9,
+        reply_to_peer_id=types.PeerChannel(456),
+        quote_text="quoted",
+    )
+
+    class FloodAfterQuoteCopy(CloneReuploadClient):
+        async def __call__(self, request):
+            if isinstance(request, functions.messages.SendMessageRequest) and any(
+                isinstance(item, functions.messages.SendMessageRequest)
+                for item in self.requests
+            ):
+                raise telethon_errors.FloodWaitError(request=request, capture=600)
+            return await super().__call__(request)
+
+    client = FloodAfterQuoteCopy(
+        [message(2, reply_to=reply), message(3)], protected=True
+    )
+    client.destination_last_id = 1
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+
+    captured = capsys.readouterr()
+    assert "sync" not in json.loads(captured.out)
+    assert "source message 2 planted quote fallback (unreachable)" in captured.err
+    saved = state.load(clone_state.clone_id)
+    assert saved.cursor == 2
+    assert saved.dest_for(2) == 2
+
+
 def test_clone_sync_quote_fallback_plain_reports_count_and_exits_nonzero(
     config_env, monkeypatch, capsys
 ):
@@ -2932,6 +2972,46 @@ def test_clone_sync_skips_service_and_reports_unsupported_messages(
     saved = state.load(clone_state.clone_id)
     assert saved.cursor == 4
     assert saved.dest_for(4) == 2
+
+
+def test_clone_sync_reports_every_unsupported_skip_before_a_later_flood(
+    config_env, monkeypatch, capsys
+):
+    """Skipped rows are behind the durable cursor after the flood, so every
+    affected source message must already have its own surviving stderr row."""
+    clone_state = seed_clone()
+    dice_media = type("MessageMediaDice", (), {})()
+    game_media = type("MessageMediaGame", (), {})()
+
+    class FloodAfterUnsupportedSkips(CloneSyncClient):
+        async def __call__(self, request):
+            if isinstance(request, functions.messages.ForwardMessagesRequest):
+                raise telethon_errors.FloodWaitError(request=request, capture=600)
+            return await super().__call__(request)
+
+    client = FloodAfterUnsupportedSkips(
+        [
+            message(2, media=dice_media),
+            message(3, media=game_media),
+            message(4),
+        ]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+
+    captured = capsys.readouterr()
+    assert "sync" not in json.loads(captured.out)
+    warnings = [
+        line for line in captured.err.splitlines() if "skipped unsupported" in line
+    ]
+    assert warnings == [
+        "warning: source message 2 skipped unsupported MessageMediaDice",
+        "warning: source message 3 skipped unsupported MessageMediaGame",
+    ]
+    saved = state.load(clone_state.clone_id)
+    assert saved.cursor == 3
+    assert saved.dest_for(4) is None
 
 
 @pytest.mark.parametrize(
