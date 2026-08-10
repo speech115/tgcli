@@ -11,6 +11,22 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [2.0.7] — 2026-08-10
+
+`tg clone sync` now reports every unsupported-message skip and planted
+cross-chat quote fallback on stderr as soon as its durable checkpoint is
+written. Previously those degradations lived only in the final result: if a
+later FloodWait ended the run, the affected messages stayed behind the saved
+cursor while their report disappeared. JSON arrays, plain counts, and exit
+semantics are unchanged — a completed quote-fallback run still exits 2, and a
+later flood still exits 5 after preserving the earlier warnings.
+
+Rationale: ADR-0086.
+
+### Changed
+
+- Report clone degradations before a later flood (ADR-0086) (#186)
+
 ## [2.0.6] — 2026-08-10
 
 `tg clone sync` no longer drops a message's bot keyboard in silence. A keyboard
@@ -832,6 +848,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[2.0.7]: https://github.com/speech115/tgcli/compare/v2.0.6...v2.0.7
 [2.0.6]: https://github.com/speech115/tgcli/compare/v2.0.5...v2.0.6
 [2.0.5]: https://github.com/speech115/tgcli/compare/v2.0.4...v2.0.5
 [2.0.4]: https://github.com/speech115/tgcli/compare/v2.0.3...v2.0.4

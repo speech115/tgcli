@@ -111,7 +111,9 @@ CEILINGS = {
     # clone/init_peers.py: the ratchet tightens instead of loosening.
     # +29 for ADR-0060: export-state command, status schema_version/integrity,
     # store stats .db/WAL/SHM breakdown on the clone surface.
-    "src/tgcli/commands/clone.py": 1230,
+    # +18 for ADR-0085: immediate bot-keyboard loss reporting.
+    # +9 for ADR-0086: immediate unsupported/quote degradation reporting.
+    "src/tgcli/commands/clone.py": 1257,
     # +21 for ADR-0055 pinned_dest_id / pin_occupied fields + validation.
     # +8 for id_map / retry_not_before validation on load (fail closed).
     # +48 for ADR-0060: the CloneState seam delegating to clone/statedb.py
