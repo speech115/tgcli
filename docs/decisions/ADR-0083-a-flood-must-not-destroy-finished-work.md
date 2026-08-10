@@ -44,9 +44,17 @@ something later in the same run hit a limit.
    `.part` from a given offset and calls a caller-supplied `checkpoint` every
    8 chunks *and* on the way out, whether it finished or raised.
    `clone/reupload.py` owns the policy — a `<part>.offset` sidecar recording
-   `{size, offset}` — and resumes only when the recorded size matches the
-   media's current size and the offset is within the file on disk. Anything
-   else drops both and starts at zero.
+   `{size, media_id, offset}` — and resumes only when the recorded size *and*
+   Telegram's own document/photo id both still match, with the offset inside
+   the file on disk. Anything else drops both and starts at zero. Size alone
+   was not enough: re-exporting a video with the same settings yields the same
+   byte length, and the resume would have spliced a new tail onto an old head
+   into a file that passes every length check and is neither revision (review
+   finding). The part file is `fsync`ed before each checkpoint, because the
+   sidecar is written through `atomic.replace_text`, which fsyncs itself — a
+   record must never outlive the bytes it claims. A checkpoint that fails
+   while an exception is unwinding is swallowed: bookkeeping must not replace
+   a `FloodWait` and take its `retry_after` with it.
 
 2. **The reupload download is serial, not striped.** A parallel transfer
    writes its stripes at scattered offsets, so no byte count describes what it
@@ -88,6 +96,10 @@ something later in the same run hit a limit.
   file; charging it per 512 KB chunk would put a 55.9 MB file at over five
   hours. Choosing a smaller per-chunk interval would be a guess with no
   measurement behind it.
+- **Verifying resumed bytes by content hash.** Telegram serves no whole-file
+  hash to compare against, so this would mean re-reading the prefix over the
+  network — the cost the resume exists to avoid. The media id changes whenever
+  the file does, which is the property actually needed.
 - **Resumable striping via a completed-stripe bitmap.** A second on-disk
   format and a new failure mode, to keep a parallelism that is what draws the
   flood.
@@ -99,6 +111,12 @@ something later in the same run hit a limit.
   reused and nothing said the clone was half-built.
 
 ## Contract impact
+
+`commands/media.py`'s own resume record identifies its partial file by
+`chat:message_id` and destination path only — weaker than what this ADR now
+requires of clone, and the same splice is possible there. It is reported as a
+follow-up rather than changed here: adding media identity to `media download`
+alters the on-disk state format of a released command and is its own decision.
 
 `docs/CONTRACT.md` §11: `clone init --commit` and `clone refresh --commit`
 spend the preview on success rather than on acceptance, so a failed commit may

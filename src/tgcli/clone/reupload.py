@@ -126,33 +126,53 @@ def download_checkpoint(part: Path) -> Path:
     return part.with_name(f"{part.name}.offset")
 
 
-def _write_checkpoint(part: Path, size: int, offset: int) -> None:
+def media_identity(message) -> int | None:
+    """Telegram's own id for the file behind ``message``, when it has one.
+
+    Byte length does not identify media: re-exporting a video with the same
+    settings yields the same size, and resuming onto that prefix would splice
+    two revisions into one file that passes every length check and is not
+    either of them (review finding). The document/photo id changes whenever
+    the file does.
+    """
+    media = getattr(message, "media", None)
+    for holder in (
+        getattr(media, "document", None),
+        getattr(media, "photo", None),
+    ):
+        value = getattr(holder, "id", None)
+        if type(value) is int:
+            return value
+    return None
+
+
+def _write_checkpoint(part: Path, size: int, media_id: int | None, offset: int) -> None:
     atomic.replace_text(
-        download_checkpoint(part), json.dumps({"size": size, "offset": offset})
+        download_checkpoint(part),
+        json.dumps({"size": size, "media_id": media_id, "offset": offset}),
     )
 
 
-def resume_offset(part: Path, size: int) -> int:
+def resume_offset(part: Path, size: int, media_id: int | None) -> int:
     """Bytes of ``part`` that may be kept, truncating it to that point.
 
     Without a checkpoint no byte is proven — a killed pre-resume run left a
     full-size *sparse* `.part` behind, and reusing it would upload zeroes as
-    media. A checkpoint from a different `size` belongs to another revision
-    of the media, not to this one. Either way the partial file is dropped and
-    the download starts over.
+    media. A checkpoint whose recorded size or media id differs describes
+    another file. Either way the partial is dropped and the download restarts.
     """
     record_path = download_checkpoint(part)
     try:
         record = json.loads(record_path.read_text())
         offset = record["offset"]
-        recorded_size = record["size"]
+        recorded = (record["size"], record["media_id"])
     except (OSError, ValueError, KeyError, TypeError):
-        offset, recorded_size = None, None
+        offset, recorded = None, None
     on_disk = part.stat().st_size if part.is_file() else None
     if (
         type(offset) is not int
         or offset < 0
-        or recorded_size != size
+        or recorded != (size, media_id)
         or on_disk is None
         or offset > on_disk
     ):
@@ -192,14 +212,15 @@ async def download_for_reupload(
         # Only this path reports bytes: a sub-chunk file is over before it
         # could reach a progress mark (ADR-0049).
         part = target.with_name(f"{target.name}.part")
-        offset = resume_offset(part, size)
+        media_id = media_identity(message)
+        offset = resume_offset(part, size, media_id)
         written = await download_resumable(
             tg,
             message.media,
             part,
             offset=offset,
             size=size,
-            checkpoint=lambda current: _write_checkpoint(part, size, current),
+            checkpoint=lambda current: _write_checkpoint(part, size, media_id, current),
             progress=clone_progress.transfer_of(progress, message, "download"),
         )
         if written != size:

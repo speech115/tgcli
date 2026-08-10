@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import os
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
@@ -145,6 +146,20 @@ async def download_striped(
 CHECKPOINT_EVERY_CHUNKS = 8
 
 
+def _record(handle, checkpoint: Callable[[int], None], current: int) -> None:
+    """Make ``current`` durable in the part file, then record it.
+
+    The fsync comes *before* the checkpoint and is not optional: the sidecar
+    is written through ``atomic.replace_text``, which fsyncs itself, so a
+    flushed-but-unsynced tail would let a power loss leave a record claiming
+    bytes the file does not have — and the next run would resume onto a hole
+    (review finding).
+    """
+    handle.flush()
+    os.fsync(handle.fileno())
+    checkpoint(current)
+
+
 async def download_resumable(
     tg,
     media,
@@ -182,8 +197,7 @@ async def download_resumable(
                 chunks_since_checkpoint += 1
                 chunks_since_progress += 1
                 if chunks_since_checkpoint >= CHECKPOINT_EVERY_CHUNKS:
-                    handle.flush()
-                    checkpoint(current)
+                    _record(handle, checkpoint, current)
                     chunks_since_checkpoint = 0
                 if progress is not None and chunks_since_progress >= (
                     PROGRESS_EVERY_CHUNKS
@@ -191,11 +205,15 @@ async def download_resumable(
                     progress(current, size)
                     chunks_since_progress = 0
         except BaseException:
-            handle.flush()
-            checkpoint(current)
+            # Bookkeeping must never replace the exception being unwound: a
+            # FloodWait that leaves as an OSError loses its `retry_after`,
+            # and with it the exit-5 contract ADR-0072 exists to keep
+            # (review finding). Losing the last few chunks is the cheaper
+            # failure — the next run re-fetches them.
+            with contextlib.suppress(Exception):
+                _record(handle, checkpoint, current)
             raise
-        handle.flush()
-        checkpoint(current)
+        _record(handle, checkpoint, current)
         if progress is not None and chunks_since_progress:
             progress(current, size)
     return current

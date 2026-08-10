@@ -563,3 +563,86 @@ async def test_short_stream_never_publishes_the_final_name(state_dir_env):
     assert not (cache / "src-2").exists()
     # The bytes that did arrive are kept for the next run.
     assert (cache / "src-2.part").stat().st_size == CHUNK_SIZE
+
+
+def _sized_video(message_id, *, size, document_id):
+    document = SimpleNamespace(
+        id=document_id, mime_type="video/mp4", attributes=[], size=size
+    )
+    msg = message(
+        message_id, message="clip", media=types.MessageMediaDocument(document=document)
+    )
+    msg.file = SimpleNamespace(size=size)
+    return msg
+
+
+@pytest.mark.asyncio
+async def test_partial_download_of_a_replaced_media_is_discarded(state_dir_env):
+    """A same-size replacement must not be spliced onto the old prefix.
+
+    Size was the only identity check, so re-exporting a video with identical
+    settings produced a byte-identical length — the resume would have written
+    the new tail onto the old head and reuploaded the hybrid as a faithful
+    copy (review finding).
+    """
+    clone_state = _striped_clone_state()
+    cache = clone_cmd._media_cache_dir(clone_state)
+    cache.mkdir(parents=True)
+    size = 4 * CHUNK_SIZE
+    part = cache / "src-2.part"
+    part.write_bytes(b"O" * (2 * CHUNK_SIZE))
+    clone_cmd._download_checkpoint(part).write_text(
+        json.dumps({"size": size, "media_id": 111, "offset": 2 * CHUNK_SIZE})
+    )
+    offsets: list[int] = []
+
+    class Tg:
+        async def download_media(self, message, file=None):
+            raise AssertionError("large media must stream")
+
+        async def iter_download(self, media, *, offset=0, request_size=None, **kw):
+            offsets.append(offset)
+            position = offset
+            while position < size:
+                chunk = b"N" * min(request_size or CHUNK_SIZE, size - position)
+                position += len(chunk)
+                yield chunk
+
+    path = await clone_cmd._download_for_reupload(
+        Tg(), _sized_video(2, size=size, document_id=222), cache, clone_state
+    )
+
+    assert offsets == [0]
+    assert path.read_bytes() == b"N" * size
+
+
+@pytest.mark.asyncio
+async def test_partial_download_of_the_same_media_still_resumes(state_dir_env):
+    clone_state = _striped_clone_state()
+    cache = clone_cmd._media_cache_dir(clone_state)
+    cache.mkdir(parents=True)
+    size = 4 * CHUNK_SIZE
+    part = cache / "src-2.part"
+    part.write_bytes(b"O" * (2 * CHUNK_SIZE))
+    clone_cmd._download_checkpoint(part).write_text(
+        json.dumps({"size": size, "media_id": 222, "offset": 2 * CHUNK_SIZE})
+    )
+    offsets: list[int] = []
+
+    class Tg:
+        async def download_media(self, message, file=None):
+            raise AssertionError("large media must stream")
+
+        async def iter_download(self, media, *, offset=0, request_size=None, **kw):
+            offsets.append(offset)
+            position = offset
+            while position < size:
+                chunk = b"N" * min(request_size or CHUNK_SIZE, size - position)
+                position += len(chunk)
+                yield chunk
+
+    await clone_cmd._download_for_reupload(
+        Tg(), _sized_video(2, size=size, document_id=222), cache, clone_state
+    )
+
+    assert offsets == [2 * CHUNK_SIZE]
