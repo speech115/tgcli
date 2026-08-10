@@ -8,6 +8,25 @@ Unvetted owner wishlist ideas that have **not** passed the owner gate
 (ADR-0071) live in [PROPOSALS.md](PROPOSALS.md); an item graduates to this file
 once it has an owner request + ADR (as MSG-001 and FEED-001 already did).
 
+## JOBS-001 — Governed multi-day work scheduler
+
+**Status:** accepted by ADR-0087; implementation campaign tracked by GitHub
+map #146.
+
+`tg jobs` will persist four typed checkpointed workloads — archive backfill,
+archive sync, clone sync, and local archive transcription — and run them as
+foreground launchd-driven one-shots. Telegram and local work use independent
+per-account lane locks; priority ages by at most two skipped quanta;
+cancellation and runtime caps are cooperative at durable boundaries. A named
+Telegram session role is explicit and the ADR-0072 governor remains shared
+across roles. The campaign removes the superseded `archive refresh`
+composition and its plist rather than retaining a compatibility path.
+
+Re-entry gate is satisfied: the owner completed the #146 grilling and asked
+for implementation on 2026-08-10. Live acceptance is deliberately
+non-publishing: archive sync, a caught-up clone no-op, and one bounded local
+transcription quantum.
+
 ## CLONE-001 — Poll cloning
 
 **Status:** partially completed by ADR-0019 after clone v1 live acceptance.

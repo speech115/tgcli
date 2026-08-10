@@ -93,6 +93,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0084](ADR-0084-a-resume-must-identify-its-media.md) | A `media download` resume trusts a partial file only when the media's own id and byte size still match; a replaced file restarts the transfer instead of splicing two files together | accepted |
 | [0085](ADR-0085-a-clone-does-not-invent-a-bots-keyboard.md) | Message `reply_markup` is outside clone fidelity: no transport but a native forward can carry a bot keyboard, so the clone reports the loss in `sync.markup_dropped` (exit 0) and never rebuilds the buttons; the ADR-0050 re-forward proof gains the keyboard as a content key | accepted |
 | [0086](ADR-0086-clone-reports-permanent-degradation-before-run-exit.md) | `clone sync` reports each durable quote fallback and unsupported-message skip on stderr immediately, so a later flood cannot erase the only operator-visible evidence; existing JSON and exit semantics stay unchanged | accepted |
+| [0087](ADR-0087-foreground-persisted-jobs.md) | `tg jobs` persists four typed checkpointed workloads in an account-scoped SQLite registry and runs them through independent foreground Telegram/local lanes with bounded-aging priority, cooperative cancellation, retry state, explicit role/safety gates, and launchd-owned recurrence; replaces `archive refresh` without a daemon | accepted; implementation campaign #146 |
 
 Notes on supersessions:
 
