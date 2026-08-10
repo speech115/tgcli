@@ -42,12 +42,27 @@ denominator described one of them.
    catches the whole peer-refusal family (`ValueError`,
    `ChannelPrivateError`, `ChannelInvalidError`, `ChatForbiddenError`), not
    just `ValueError`, and raises `clone source not found` — exit 4 instead of
-   a raw exit-1 RPC message.
+   a raw exit-1 RPC message. `_resolve_source` is shared, so this covers
+   `clone init` too, which the first draft changed without saying so (review
+   finding): the rule is one rule across all three clone commands, and the
+   CONTRACT and a test now pin it for `init` and `refresh` as well as `sync`.
+
+   The same `chatref.parse` + `get_entity` + `except ValueError` shape exists
+   in `dialog`, `info`, `search`, `send`, `thread`, `mutate`, and `media`.
+   The error classification is portable there; the title-from-state half is
+   not, since those commands have no recorded peer to fall back on. Porting
+   it would change exit codes on seven released commands, so it is **reported,
+   not implemented** here (AGENTS.md mirror-fix rule, flag branch) — issue
+   #179.
 
 3. **Progress counters are per leg.** `phase(name, copied=…)` restarts both
    the copied count and the total, `copy_batch` resolves the total against the
    leg's own source entity, and each interleaved window announces `posts`
-   before it runs. Copied can no longer exceed the total, and the comments
+   before it runs. The resolved total is memoized per entity, not per phase:
+   ADR-0051 re-enters each leg once per 50-message window, and re-resolving
+   would add a GetHistory-family request per window for a number already
+   known — the request family the ADR-0072 incident was made of (review
+   finding). Copied can no longer exceed the total, and the comments
    phase counts comments against the discussion group's size.
 
 4. **Clone lookup is its own module.** `clone/lookup.py` owns the id/title

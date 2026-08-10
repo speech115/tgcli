@@ -21,3 +21,11 @@ came from two independent bugs stacked: `copy_batch` always re-resolved the
 total against `source_entity`, and `phase()` reset only the total.
 
 **Next:** #169/#170 — a flood must not destroy finished work.
+
+**Review fixes (2026-08-10):** the widened peer-refusal catch also changed
+`clone init`'s exit code from 1 to 4 without being documented or tested —
+CONTRACT now states the rule for all three clone commands and `init`/`refresh`
+have their own regression tests. `resolve_total` memoizes per entity instead
+of per phase, so the ADR-0051 interleave no longer spends a GetHistory-family
+request per window on a number it already has. The same `except ValueError`
+shape in seven non-clone commands is flagged as issue #179, not ported here.

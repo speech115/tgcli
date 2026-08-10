@@ -1845,3 +1845,18 @@ def test_clone_init_replace_without_existing_state_is_plain_init(
     assert saved.creation_marker.startswith(
         f"tgcli-clone-{state.clone_id(42, 123)[:12]}-"
     )
+
+
+def test_clone_init_unreachable_source_is_not_found(config_env, monkeypatch, capsys):
+    """The peer-refusal family is exit 4 on every clone command, not just sync."""
+
+    class PrivateClient(CloneInitClient):
+        async def get_entity(self, ref):
+            raise telethon_errors.ChannelPrivateError(request=None)
+
+    make_session_fake(monkeypatch, PrivateClient())
+
+    assert main(["clone", "init", "@source", "--json"]) == 4
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "NOT_FOUND"
+    assert "clone source not found" in payload["error"]["message"]

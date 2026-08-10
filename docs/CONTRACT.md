@@ -1329,9 +1329,13 @@ command plus, for an already-initialized clone, a **title** (ADR-0082): a
 `SOURCE` that is neither an id nor a username/invite link is matched against
 the recorded clone titles of the active account with the `status` matcher, and
 the single match's recorded source peer id is used. Two matching clones exit 2;
-no match falls through to Telegram resolution. A source this account cannot
-open — unresolvable, private, invalid, or forbidden — exits 4 with
-`clone source not found: '<SOURCE>'`, never a raw RPC message.
+no match falls through to Telegram resolution. `init SOURCE` has no state to
+match and keeps Telegram resolution only.
+
+For **every** clone command, a source this account cannot open —
+unresolvable, private, invalid, or forbidden — exits 4 with
+`clone source not found: '<SOURCE>'`, never a raw RPC message. This replaced
+`init`'s previous exit 1 with the underlying Telegram text.
 
 `sync SOURCE` requires initialized state and a private creator-owned destination
 of the source-dependent kind. It verifies the destination tail before reading
