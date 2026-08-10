@@ -11,6 +11,28 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [2.0.5] — 2026-08-10
+
+`tg media download` no longer resumes an interrupted transfer onto media that
+has since changed. The resume record now carries Telegram's document/photo id
+and the byte size, and a partial file is reused only when both still match;
+otherwise the partial is dropped, one line goes to stderr, and the file
+downloads whole with `resumed: false`. Previously a source that replaced the
+file behind a message while a download was interrupted got the new file's tail
+appended to the old file's head and published under the final name, reported
+as a completed resume — a splice of two files with a plausible size and no
+error anywhere.
+
+Partial downloads left by earlier versions restart once, since their records
+carry neither key. A re-run with a different `--output` for the same message
+is still exit 2 (`BLOCKED`), including when the media changed too.
+
+Rationale: ADR-0084.
+
+### Changed
+
+- Identify a media download resume by its media, not its path (ADR-0084) (#181)
+
 ## [2.0.4] — 2026-08-10
 
 A `clone sync` interrupted by a FloodWait no longer throws away what it
@@ -789,6 +811,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[2.0.5]: https://github.com/speech115/tgcli/compare/v2.0.4...v2.0.5
 [2.0.4]: https://github.com/speech115/tgcli/compare/v2.0.3...v2.0.4
 [2.0.3]: https://github.com/speech115/tgcli/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/speech115/tgcli/compare/v2.0.1...v2.0.2
