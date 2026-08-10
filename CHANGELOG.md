@@ -11,6 +11,27 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [2.0.6] — 2026-08-10
+
+`tg clone sync` no longer drops a message's bot keyboard in silence. A keyboard
+belongs to the bot that attached it: a user account cannot send `reply_markup`,
+an album could not carry one even in principle, and only a native forward keeps
+the rows — the path a protected source never takes. The clone does not rebuild
+the buttons in any form, not even URL rows as text, and instead reports what it
+could not carry: each affected copy is listed in `sync.markup_dropped` with its
+button classes, the plain row gains a `markup_dropped_count` column, and one
+stderr line names each message as it is copied, so a run cut short by a flood
+still leaves a complete account of the loss. The exit code stays 0 — this is a
+Telegram-side limit, not a failed run.
+
+The ADR-0050 native re-forward now proves a repost's original by its keyboard
+as well as its text, entities and media, so a keyboard Telegram did not carry
+into the linked discussion group declines the proof instead of publishing
+someone else's buttons under a genuine header. That key and the formatting-
+entity key compare the whole TL object rather than a chosen list of fields.
+
+Rationale: ADR-0085.
+
 ## [2.0.5] — 2026-08-10
 
 `tg media download` no longer resumes an interrupted transfer onto media that
@@ -811,6 +832,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[2.0.6]: https://github.com/speech115/tgcli/compare/v2.0.5...v2.0.6
 [2.0.5]: https://github.com/speech115/tgcli/compare/v2.0.4...v2.0.5
 [2.0.4]: https://github.com/speech115/tgcli/compare/v2.0.3...v2.0.4
 [2.0.3]: https://github.com/speech115/tgcli/compare/v2.0.2...v2.0.3
