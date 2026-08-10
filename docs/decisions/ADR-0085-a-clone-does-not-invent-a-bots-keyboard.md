@@ -2,7 +2,7 @@
 
 Date: 2026-08-10
 Status: accepted
-Closes: #82
+Closes: #82, #183
 
 ## Context
 
@@ -81,22 +81,36 @@ body prefix, and nothing here changes that.
   for no silent drop, and a fidelity loss the operator can only find by
   eyeballing two chats is the failure mode that opened the ticket.
 
-## Known gap, not closed here
+## The re-forward proof includes the keyboard
+
+Found by this change's own review and closed here (#183), because the report
+above has a blind spot without it.
 
 ADR-0050's re-forward proves a repost's original in the linked discussion group
-by comparing text, entities, and media — `reforward._same_content` does not
-compare `reply_markup`. When the group copy carries a different keyboard than
-the channel post, the destination gets the group's rows, and this ADR cannot
-report it: the send degrades to a native forward and the collection reads the
-transport that actually ran. So the one transport documented as contributing
-nothing to `markup_dropped` is also the one where a keyboard mismatch is
-possible and invisible. Narrow, and it belongs to ADR-0050's proven-original
-invariant rather than to this decision; recorded so the next change to
-`_same_content` knows about it.
+by comparing text, entities, and media. A keyboard was not compared, and
+Telegram does not carry every button class into a linked group, so the two
+could legitimately differ. Forwarding the proven original then publishes
+someone else's buttons under a genuine header — and this ADR could not say so,
+since the send degrades to a native forward and the collection reads the
+transport that actually ran. The one transport documented as contributing
+nothing to `markup_dropped` was also the only one where a keyboard *mismatch*,
+as opposed to a total loss, could happen.
+
+So `_same_content` compares the keyboard too — button classes, labels, and
+payloads, since two `Open` rows pointing at different URLs are different
+content. A mismatch declines the proof exactly as an edited body does: the
+batch falls back to the Part A text prefix on the reupload path, where the
+keyboard loss is reported normally. This costs a native forward only in the
+case where forwarding would have published the wrong buttons.
+
+The comparison key is its own function rather than `fidelity.dropped_buttons`:
+one shapes a report for an operator, the other an identity for a comparison,
+and the payload fields belong only in the second.
 
 ## Contract impact
 
 `docs/CONTRACT.md` §11 (`clone sync`) states the rule, names the transports it
 applies to, and documents `sync.markup_dropped`, the new plain column, the
-stderr warning, and the unchanged exit code. No flag or command surface
-changes.
+stderr warning and its timing, and the unchanged exit code. The same section's
+re-forward paragraph gains the keyboard in the list of keys a proven original
+must match. No flag or command surface changes.

@@ -109,7 +109,7 @@ def _searchable(fwd):
 
 
 def _same_content(post, candidate) -> bool:
-    """Text, formatting and media identical.
+    """Text, formatting, keyboard and media identical.
 
     Load-bearing: a repost is routinely edited afterwards, and forwarding the
     untouched original would republish different content under a genuine
@@ -122,6 +122,8 @@ def _same_content(post, candidate) -> bool:
     ):
         return False
     if _entities_key(post) != _entities_key(candidate):
+        return False
+    if _markup_key(post) != _markup_key(candidate):
         return False
     return _media_key(post) == _media_key(candidate)
 
@@ -137,6 +139,34 @@ def _entities_key(message):
             getattr(item, "document_id", None),
         )
         for item in (getattr(message, "entities", None) or ())
+    )
+
+
+def _markup_key(message):
+    """The keyboard as content, row by row (#183).
+
+    A keyboard is what the reader can *do* with the message, and Telegram does
+    not carry every button class into the linked group, so a proven original
+    may legitimately differ here. Forwarding it anyway would publish someone
+    else's buttons under a genuine header — silently, because a native forward
+    is the one transport ADR-0085 reports nothing for. Button payloads belong
+    in the key, not only the labels: two `Open` rows pointing at different URLs
+    are different content. Deliberately not `fidelity.dropped_buttons`, which
+    shapes a report for an operator rather than an identity for a comparison.
+    """
+    rows = getattr(getattr(message, "reply_markup", None), "rows", None) or ()
+    return tuple(
+        tuple(
+            (
+                type(button).__name__,
+                getattr(button, "text", None),
+                getattr(button, "url", None),
+                getattr(button, "data", None),
+                getattr(button, "query", None),
+            )
+            for button in getattr(row, "buttons", None) or ()
+        )
+        for row in rows
     )
 
 

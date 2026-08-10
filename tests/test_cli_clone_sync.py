@@ -4912,3 +4912,33 @@ def test_clone_sync_reports_a_lost_keyboard_on_a_comment(
     # The anchor is skipped before any transport decides; only the comment
     # itself can contribute a row.
     assert [row["id"] for row in sync["markup_dropped"]] == [12]
+
+
+def test_clone_sync_declines_a_proven_original_whose_keyboard_differs(
+    config_env, monkeypatch, capsys
+):
+    """#183: the group copy is the same post, but Telegram did not carry the
+    channel's buttons into the group. Forwarding it would publish the wrong
+    keyboard under a genuine header, and the native-forward path is the one
+    ADR-0085 stays silent about — so the proof is declined, the batch falls
+    back to the reupload prefix, and the loss is reported like any other."""
+    seed_clone_with_discussion_source()
+    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+    post = _reposted_message(reply_markup=_inline_keyboard())
+    group_original = message(501, message="repost body", media=photo, date=REPOST_DATE)
+    client = CloneReforwardClient([post], group_messages=[group_original])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    captured = capsys.readouterr()
+    sync = json.loads(captured.out)["sync"]
+    assert [
+        item
+        for item in client.requests
+        if isinstance(item, functions.messages.ForwardMessagesRequest)
+    ] == []
+    assert sync["forwarded"] == 0
+    assert sync["reuploaded"] == 1
+    assert [row["id"] for row in sync["markup_dropped"]] == [2]
+    assert "source message 2" in captured.err

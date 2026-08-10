@@ -44,7 +44,12 @@ autoforward anchor cannot double-count its post's keyboard.
 **Next:** if Telegram ever opens `reply_markup` to user accounts, ADR-0085 is
 the decision to revisit — the reporting shape is already there to degrade
 from. Repair of already-cloned posts stays out of band until the owner asks.
-One sibling gap is recorded in the ADR rather than fixed: `_same_content` in
-the ADR-0050 re-forward path does not compare `reply_markup`, so a keyboard
-mismatch between a channel post and its discussion-group original rides
-through a native forward unreported.
+The sibling gap the review found is closed too, on the owner's call (#183):
+`_same_content` in the ADR-0050 re-forward path now compares the keyboard —
+classes, labels, and payloads — so a mismatch declines the proven original and
+the batch falls back to the Part A prefix, where the loss reports normally.
+Worth noting the shape: the fix costs a native forward *only* in the case
+where forwarding would have published someone else's buttons. The comparison
+key stayed separate from `fidelity.dropped_buttons` on purpose — a report for
+an operator and an identity for a comparison want different fields, and
+merging them would have put button payloads into operator-facing output.
