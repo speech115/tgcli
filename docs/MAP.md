@@ -35,7 +35,7 @@ tgcli/
 │   ├── guide/                 [done]    user-facing task pages, 26 + index (ADR-0041/0065)
 │   ├── assets/                [done]    README banner, dark + light SVG, launchd template (no external assets)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
-│   ├── decisions/             [done]    ADR-0001…0084 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope; ADR-0079 transcribe readonly gate; ADR-0080 notes trimming; ADR-0081 diagnostics honesty; ADR-0082 per-leg clone sync; ADR-0083 floods keep finished work; ADR-0084 resume identifies its media)
+│   ├── decisions/             [done]    ADR-0001…0085 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope; ADR-0079 transcribe readonly gate; ADR-0080 notes trimming; ADR-0081 diagnostics honesty; ADR-0082 per-leg clone sync; ADR-0083 floods keep finished work; ADR-0084 resume identifies its media; ADR-0085 clone reports the bot keyboard it cannot carry)
 │   ├── research/              [done]    read-only investigation notes backing a wayfinder map's closed children
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
@@ -86,7 +86,7 @@ tgcli/
 │   │   ├── reupload.py        [done]    reupload transfer: still-thumb picker, parallel upload, resumable checkpointed download cache (ADR-0049/0052/0055/0083)
 │   │   ├── init_peers.py      [done]    destination shape, marker adoption, profile/avatar copy, discussion init (ADR-0020/0023/0044)
 │   │   ├── ergonomics.py      [done]    mute forever + "Clone" dialog filter for tool-created peers (ADR-0046)
-│   │   ├── fidelity.py        [done]    media capability classification
+│   │   ├── fidelity.py        [done]    media + keyboard capability classification
 │   │   ├── batching.py        [done]    pure batch planner: albums, service skips
 │   │   ├── transport.py       [done]    pure forward/reupload/snapshot decision
 │   │   ├── pin.py             [done]    pure pin-decision + live pin-carry phase (ADR-0055)

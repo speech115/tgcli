@@ -1651,6 +1651,7 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
         "snapshots": 0,
         "reply_flattened": 0,
         "quote_flattened": [],
+        "markup_dropped": [],
         "poll_votes": [],
         "skipped_service": 0,
         "skipped_unsupported": [],
@@ -2914,6 +2915,7 @@ def test_clone_sync_skips_service_and_reports_unsupported_messages(
         "snapshots": 0,
         "reply_flattened": 0,
         "quote_flattened": [],
+        "markup_dropped": [],
         "poll_votes": [],
         "skipped_service": 1,
         "skipped_unsupported": [
@@ -3159,6 +3161,7 @@ def test_clone_sync_keeps_grouped_id_zero_album_atomic_and_in_position(
         "snapshots": 0,
         "reply_flattened": 0,
         "quote_flattened": [],
+        "markup_dropped": [],
         "poll_votes": [],
         "skipped_service": 0,
         "skipped_unsupported": [],
@@ -3829,6 +3832,7 @@ def test_clone_sync_plain_output_has_contract_columns(config_env, monkeypatch, c
         "123",
         "999",
         "False",
+        "0",
         "0",
         "0",
     ]
@@ -4748,3 +4752,224 @@ def test_sync_names_the_recovery_command_for_an_unlinked_discussion(
     assert main(["clone", "sync", "@source", "--json"]) == 2
     message_text = json.loads(capsys.readouterr().out)["error"]["message"]
     assert "tg clone init @source" in message_text
+
+
+def _inline_keyboard():
+    """A bot keyboard mixing a URL row with a callback row, as a channel post
+    carries it: the URL row is the only class Telegram ever re-renders on a
+    forward, and neither class survives a reupload (ADR-0085)."""
+    return types.ReplyInlineMarkup(
+        rows=[
+            types.KeyboardButtonRow(
+                buttons=[
+                    types.KeyboardButtonUrl(text="Open", url="https://example.com")
+                ]
+            ),
+            types.KeyboardButtonRow(
+                buttons=[types.KeyboardButtonCallback(text="Vote", data=b"v")]
+            ),
+        ]
+    )
+
+
+def test_clone_sync_reports_the_buttons_a_reupload_cannot_carry(
+    config_env, monkeypatch, capsys
+):
+    """#82: a protected source travels by reupload, and a user account cannot
+    reattach the bot keyboard, so the loss is named instead of dropped."""
+    seed_clone()
+    client = CloneReuploadClient(
+        [message(2, message="with buttons", reply_markup=_inline_keyboard())],
+        protected=True,
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    captured = capsys.readouterr()
+    sync = json.loads(captured.out)["sync"]
+    assert sync["reuploaded"] == 1
+    assert sync["markup_dropped"] == [
+        {
+            "id": 2,
+            "buttons": [
+                {"type": "KeyboardButtonUrl", "text": "Open"},
+                {"type": "KeyboardButtonCallback", "text": "Vote"},
+            ],
+        }
+    ]
+    assert "lost 2 bot button(s)" in captured.err
+    # No send request claims a keyboard the account may not attach.
+    sends = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.messages.SendMessageRequest)
+    ]
+    assert [getattr(item, "reply_markup", None) for item in sends] == [None]
+
+
+def test_clone_sync_does_not_report_buttons_a_native_forward_keeps(
+    config_env, monkeypatch, capsys
+):
+    """Only the rebuilding transports lose the keyboard; a forward is Telegram's
+    own copy, so it is not counted as a loss."""
+    seed_clone()
+    client = CloneSyncClient([message(2, reply_markup=_inline_keyboard())])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    captured = capsys.readouterr()
+    sync = json.loads(captured.out)["sync"]
+    assert sync["forwarded"] == 1
+    assert sync["markup_dropped"] == []
+    assert "bot button(s)" not in captured.err
+
+
+def test_clone_sync_reports_a_lost_keyboard_before_a_flood_ends_the_run(
+    config_env, monkeypatch, capsys
+):
+    """A flood mid-run skips the result document, but the copy it already made
+    is permanent and is never revisited — so the loss has to be on stderr by
+    the time the run dies, not only in the tail (ADR-0085 review finding)."""
+    clone_state = seed_clone()
+
+    class FloodAfterFirstSend(CloneReuploadClient):
+        async def __call__(self, request):
+            if isinstance(request, functions.messages.SendMessageRequest) and any(
+                isinstance(item, functions.messages.SendMessageRequest)
+                for item in self.requests
+            ):
+                raise telethon_errors.FloodWaitError(request=request, capture=600)
+            return await super().__call__(request)
+
+    client = FloodAfterFirstSend(
+        [
+            message(2, message="with buttons", reply_markup=_inline_keyboard()),
+            message(3, message="next"),
+        ],
+        protected=True,
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+
+    captured = capsys.readouterr()
+    # No result document: the flood envelope is all the run gets to say.
+    assert "sync" not in json.loads(captured.out)
+    assert "source message 2" in captured.err
+    assert "lost 2 bot button(s)" in captured.err
+    # The copy that lost the keyboard is on the destination for good.
+    assert state.load(clone_state.clone_id).dest_for(2) == 2
+
+
+def test_clone_sync_reports_a_lost_keyboard_on_the_snapshot_transport(
+    config_env, monkeypatch, capsys
+):
+    """CONTRACT names reupload *and* snapshot: a poll is rendered as text, so
+    whatever keyboard rode on it is gone the same way."""
+    seed_clone()
+    client = CloneReuploadClient(
+        [message(2, media=poll_media(), reply_markup=_inline_keyboard())]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["snapshots"] == 1
+    assert [row["id"] for row in sync["markup_dropped"]] == [2]
+
+
+def test_clone_sync_reports_a_lost_keyboard_on_a_comment(
+    config_env, monkeypatch, capsys
+):
+    """The comments leg copies through the same batch path; a bot keyboard on a
+    discussion-group message is lost and counted exactly like a post's."""
+    seed_comments_clone()
+    anchored = anchor(10, 2)
+    # Telegram mirrors a post's own keyboard onto the anchor; counting the
+    # anchor would report one post's loss twice, once per leg.
+    anchored.reply_markup = _inline_keyboard()
+    client = CloneCommentsClient(
+        [message(2)],
+        [
+            anchored,
+            message(
+                12,
+                message="commented",
+                reply_to=types.MessageReplyHeader(reply_to_msg_id=10),
+                reply_markup=_inline_keyboard(),
+            ),
+        ],
+    )
+    client.anchor_ids = {2: 500}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    # The anchor is skipped before any transport decides; only the comment
+    # itself can contribute a row.
+    assert [row["id"] for row in sync["markup_dropped"]] == [12]
+
+
+def test_clone_sync_declines_a_proven_original_whose_keyboard_differs(
+    config_env, monkeypatch, capsys
+):
+    """#183: the group copy is the same post, but Telegram did not carry the
+    channel's buttons into the group. Forwarding it would publish the wrong
+    keyboard under a genuine header, and the native-forward path is the one
+    ADR-0085 stays silent about — so the proof is declined, the batch falls
+    back to the reupload prefix, and the loss is reported like any other."""
+    seed_clone_with_discussion_source()
+    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+    post = _reposted_message(reply_markup=_inline_keyboard())
+    group_original = message(501, message="repost body", media=photo, date=REPOST_DATE)
+    client = CloneReforwardClient([post], group_messages=[group_original])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    captured = capsys.readouterr()
+    sync = json.loads(captured.out)["sync"]
+    assert [
+        item
+        for item in client.requests
+        if isinstance(item, functions.messages.ForwardMessagesRequest)
+    ] == []
+    assert sync["forwarded"] == 0
+    assert sync["reuploaded"] == 1
+    assert [row["id"] for row in sync["markup_dropped"]] == [2]
+    assert "source message 2" in captured.err
+
+
+def test_clone_sync_announces_every_lost_keyboard_not_only_the_first(
+    config_env, monkeypatch, capsys
+):
+    """A run that dies before its result document leaves stderr as the whole
+    record, so one line for the first loss would report 1 of N (review round
+    two): every copy that loses a keyboard says so as it is made."""
+    seed_clone()
+    client = CloneReuploadClient(
+        [
+            message(2, message="first", reply_markup=_inline_keyboard()),
+            message(3, message="second", reply_markup=_inline_keyboard()),
+        ],
+        protected=True,
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    captured = capsys.readouterr()
+    warnings = [line for line in captured.err.splitlines() if "bot button(s)" in line]
+    assert len(warnings) == 2
+    assert "source message 2" in warnings[0]
+    assert "source message 3" in warnings[1]
+    assert [
+        row["id"] for row in json.loads(captured.out)["sync"]["markup_dropped"]
+    ] == [
+        2,
+        3,
+    ]

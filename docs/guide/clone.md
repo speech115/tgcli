@@ -101,7 +101,7 @@ tg --json clone sync SOURCE
 `sync` requires an initialized clone and reads new source history from the saved cursor forward (`reverse=True`, `min_id=cursor`), so destination order matches source order. It first verifies the destination's tail is exactly what tgcli expects (only Telegram service rows past the last confirmed message); an unexpected tail message exits 2 for manual repair before any copying. `--limit` caps this run; if source rows remain, the JSON reports `"more":true` and the next invocation resumes at the saved cursor. Sync's requests are paced by the governor; `clone sync` keeps no implicit deadline (CONTRACT §1), and an explicit `--timeout` is a hang detector that ignores governed sleep, so a paced sync is not punished for pacing. Pass `--max-runtime` to bound the whole run — exhausting it is a normal stop (exit 0) with a resume pointer.
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"skipped_unsupported":[],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"pinned":{"source_id":12,"destination_id":9,"status":"set"},"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":null},"discussion":{"peer_id":null,"status":"none","count":0,"reason":null}}}}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"Source"}},"sync":{"copied":2,"skipped_unsupported":[],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"markup_dropped":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"pinned":{"source_id":12,"destination_id":9,"status":"set"},"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":null},"discussion":{"peer_id":null,"status":"none","count":0,"reason":null}}}}
 ```
 
 On a broadcast destination, a run that copies everything it planned also carries
@@ -113,7 +113,7 @@ source has no pin or its pinned message is not in the clone's id map yet, and
 `occupied` when the destination already carried a pin, which the clone leaves
 alone. Unpinning is never mirrored, and forum destinations omit the key.
 
-`--plain` columns: `copied`, `forwarded`, `reuploaded`, `snapshots`, `reply_flattened`, `quote_flattened_count`, `skipped_service`, `skipped_unsupported_count`, `topics_created`, `cursor`, `clone_id`, `source_peer_id`, `destination_peer_id`, `more`, `skipped_autoforward`, `discussion_cursor`.
+`--plain` columns: `copied`, `forwarded`, `reuploaded`, `snapshots`, `reply_flattened`, `quote_flattened_count`, `skipped_service`, `skipped_unsupported_count`, `topics_created`, `cursor`, `clone_id`, `source_peer_id`, `destination_peer_id`, `more`, `skipped_autoforward`, `discussion_cursor`, `markup_dropped_count`.
 
 ## Refresh: backfill missing forward prefixes
 
@@ -141,12 +141,15 @@ Each message batch picks one of two transports:
 
 Unsupported message kinds (dice, etc.) advance the cursor and are reported in `skipped_unsupported`, never silently dropped. TTL/view-once media is also reported there rather than forwarded or downloaded.
 
+Bot buttons do not survive a reupload or a snapshot. A keyboard belongs to the bot that attached it: a user account cannot send one, and an album could not carry one even if it could, so only a native forward keeps the rows — and a protected source never takes that path. The clone does not rebuild the buttons in any form, not even URL rows as text. Each affected copy is listed in `sync.markup_dropped` with its button classes and prints a warning to stderr as it is copied — a run cut short by a flood leaves no result document, so the stderr lines are the record — and the run still exits 0 ([ADR-0085](../decisions/ADR-0085-a-clone-does-not-invent-a-bots-keyboard.md)).
+
 ## What clone does not do
 
 - No watcher and no background process: a clone destination does not stay live in sync with its source. `sync` is an explicit, foreground invocation you run again whenever you want to catch up.
 - No choice of destination kind: it always follows the source kind.
 - No cloning into a pre-existing or shared chat — destinations are always freshly created (or recovered) by `init`.
 - No automatic retry loop across FloodWait: a rate-limited sync exits 5 and you re-run `sync` after the reported cooldown.
+- No bot chrome: inline keyboards and reply keyboards are not recreated on any copy path, and already-cloned posts are never revisited to add them.
 
 ## See also
 

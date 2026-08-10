@@ -109,7 +109,7 @@ def _searchable(fwd):
 
 
 def _same_content(post, candidate) -> bool:
-    """Text, formatting and media identical.
+    """Text, formatting, keyboard and media identical.
 
     Load-bearing: a repost is routinely edited afterwards, and forwarding the
     untouched original would republish different content under a genuine
@@ -123,21 +123,50 @@ def _same_content(post, candidate) -> bool:
         return False
     if _entities_key(post) != _entities_key(candidate):
         return False
+    if _markup_key(post) != _markup_key(candidate):
+        return False
     return _media_key(post) == _media_key(candidate)
 
 
+def _tl_key(item):
+    """Everything Telegram sent for ``item``, not a chosen list of fields.
+
+    A field allowlist has to be right about which fields carry meaning, and it
+    keeps being wrong as the layer grows: `MessageEntityPre.language` and
+    `KeyboardButtonCopy.copy_text` are content by any reading, and neither was
+    named. Since these objects are pure values — no chat-scoped handles, unlike
+    media, which is why `_media_key` stays hand-written — the whole TL dict is
+    both the simplest key and the only one that cannot go stale (ADR-0074:
+    the second leaky allowlist is a boundary question, not another field).
+
+    Anything without `to_dict` is not a TL object this code understands, and a
+    fresh object never equals another, so doubt declines the proof — the
+    fallback-first posture the module is built on.
+    """
+    to_dict = getattr(item, "to_dict", None)
+    return to_dict() if callable(to_dict) else object()
+
+
 def _entities_key(message):
-    return tuple(
-        (
-            type(item).__name__,
-            getattr(item, "offset", None),
-            getattr(item, "length", None),
-            getattr(item, "url", None),
-            getattr(item, "user_id", None),
-            getattr(item, "document_id", None),
-        )
-        for item in (getattr(message, "entities", None) or ())
-    )
+    return tuple(_tl_key(item) for item in (getattr(message, "entities", None) or ()))
+
+
+def _markup_key(message):
+    """The keyboard as content (#183).
+
+    A keyboard is what the reader can *do* with the message, and Telegram does
+    not carry every button class into the linked group, so a proven original
+    may legitimately differ here. Forwarding it anyway would publish someone
+    else's buttons under a genuine header — silently, because a native forward
+    is the one transport ADR-0085 reports nothing for. The markup object itself
+    is the key, so button payloads (`copy_text`, `button_id`, `peer_types`, …)
+    and the markup class both count: an inline keyboard and a reply keyboard
+    with the same rows are not the same message. Deliberately not
+    `fidelity.dropped_buttons`, which shapes a report for an operator rather
+    than an identity for a comparison.
+    """
+    markup = getattr(message, "reply_markup", None)
+    return None if markup is None else _tl_key(markup)
 
 
 def _media_key(message):

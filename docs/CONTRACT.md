@@ -1471,7 +1471,8 @@ uses a Channel/User Telegram already shipped with that message
 reposted, single-message reupload batch can prove its original in the
 clone's linked source discussion group — the group is reachable and not
 `noforwards`, exactly one of its messages matches `fwd_from.from_id` and
-`fwd_from.date`, and that message's text, formatting entities, and media —
+`fwd_from.date`, and that message's text, formatting entities, keyboard
+(button classes, labels, and payloads), and media —
 including whether that media is hidden behind a spoiler — are
 identical to the post — the clone forwards the original out of the source
 group into the
@@ -1622,6 +1623,26 @@ Both `UpdateMessageID` batches and the single-message
 `UpdateShortSentMessage` envelope require exact positive confirmation before
 state advances.
 
+Message `reply_markup` — a bot's inline keyboard or reply keyboard — is
+outside clone fidelity (ADR-0085). Telegram binds a keyboard to the bot that
+attached it: a user account cannot send one, and `InputSingleMedia` has no
+markup field at all, so an album could not carry one even if it could. Only a
+native forward keeps the rows, and it is Telegram that re-renders them, not
+this tool; a protected source never reaches that path. Every copy made by
+reupload or snapshot therefore arrives without buttons, and the clone neither
+rebuilds them as text nor fabricates a keyboard of its own. The loss is
+reported, not silent: each such copied message contributes a
+`{"id":…,"buttons":[{"type":"KeyboardButtonUrl","text":"Open"},…]}` row to
+`sync.markup_dropped` (source ids, in copy order, buttons row-major with their
+TL class names), and the exit code stays 0 — a Telegram-side limit is not a
+failed run. Each such message also prints one
+`warning: source message N lost K bot button(s) …` line to stderr, at the
+moment it is copied rather than in the run's tail: the copy is permanent and
+never revisited, so a run that later stops on a flood (exit 5, no result
+document) still leaves a complete account of what it lost. Native forwards
+contribute nothing to the list. Already-synced messages are never revisited;
+`clone refresh` does not backfill buttons.
+
 `--limit N` must be positive and copies at most N message batches. If another
 source row remains, JSON reports `"more":true`; the next run resumes at the
 saved cursor. Sync has no implicit overall timeout (CONTRACT §1), uses a
@@ -1631,7 +1652,7 @@ a normal stop (exit 0) with `stop_reason: "wall_clock_cap"` and a resume
 pointer. A flood exits 5 without advancing the current message. JSON:
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"pinned":{"source_id":12,"destination_id":9,"status":"set"},"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}}}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"markup_dropped":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"pinned":{"source_id":12,"destination_id":9,"status":"set"},"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}}}
 ```
 
 On a broadcast destination, `sync.pinned` reports the pin carry-over
@@ -1684,8 +1705,8 @@ Plain sync columns are `copied`, `forwarded`, `reuploaded`, `snapshots`,
 `reply_flattened`, `quote_flattened_count`, `skipped_service`,
 `skipped_unsupported_count`, `topics_created`, `cursor`, `clone_id`,
 `source_peer_id`, `destination_peer_id`, `more`, `skipped_autoforward`,
-`discussion_cursor`. The `participants` roster is JSON-only; the plain row does
-not carry it.
+`discussion_cursor`, `markup_dropped_count`. The `participants` roster is
+JSON-only; the plain row does not carry it.
 
 ## 12. Change Feed (`tg changes`; ADR-0063 / FEED-001)
 
