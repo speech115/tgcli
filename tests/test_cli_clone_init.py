@@ -1845,3 +1845,90 @@ def test_clone_init_replace_without_existing_state_is_plain_init(
     assert saved.creation_marker.startswith(
         f"tgcli-clone-{state.clone_id(42, 123)[:12]}-"
     )
+
+
+def test_clone_init_unreachable_source_is_not_found(config_env, monkeypatch, capsys):
+    """The peer-refusal family is exit 4 on every clone command, not just sync."""
+
+    class PrivateClient(CloneInitClient):
+        async def get_entity(self, ref):
+            raise telethon_errors.ChannelPrivateError(request=None)
+
+    make_session_fake(monkeypatch, PrivateClient())
+
+    assert main(["clone", "init", "@source", "--json"]) == 4
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "NOT_FOUND"
+    assert "clone source not found" in payload["error"]["message"]
+
+
+def test_init_commit_keeps_the_preview_after_a_mid_commit_flood(
+    config_env, monkeypatch, capsys
+):
+    """#170: a flood on the discussion link burned the preview.
+
+    The destination channel was created, the link was not, and the preview
+    was spent — so the same commit could not be retried and the operator had
+    to discover from `clone status` that half the work had landed.
+    """
+
+    class FloodOnLinkClient(CloneInitClient):
+        flooding = True
+
+        async def __call__(self, request):
+            if self.flooding and isinstance(
+                request, functions.channels.SetDiscussionGroupRequest
+            ):
+                raise telethon_errors.FloodWaitError(request=request, capture=5)
+            return await super().__call__(request)
+
+    client = FloodOnLinkClient()
+    client.linked = linked_group()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 5
+    )
+    capsys.readouterr()
+
+    # The channel exists; the retry must be the same commit, not a new preview.
+    client.flooding = False
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    saved = state.load(result["clone"]["id"])
+    assert saved.discussion_linked is True
+    assert (
+        len(
+            [
+                item
+                for item in client.requests
+                if isinstance(item, functions.channels.CreateChannelRequest)
+            ]
+        )
+        == 2
+    )
+
+
+def test_init_commit_spends_the_preview_once_it_succeeds(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    capsys.readouterr()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 2
+    )
+    assert "already used" in capsys.readouterr().err

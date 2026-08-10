@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import os
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
@@ -137,6 +138,85 @@ async def download_striped(
     if progress is not None and chunks_since_progress:
         progress(downloaded, size)
     return destination
+
+
+# One checkpoint per this many chunks. Frequent enough that a killed run
+# loses seconds of transfer, rare enough that the sidecar write is noise
+# against the bytes (the same cadence `media download` has always used).
+CHECKPOINT_EVERY_CHUNKS = 8
+
+
+def _record(handle, checkpoint: Callable[[int], None], current: int) -> None:
+    """Make ``current`` durable in the part file, then record it.
+
+    The fsync comes *before* the checkpoint and is not optional: the sidecar
+    is written through ``atomic.replace_text``, which fsyncs itself, so a
+    flushed-but-unsynced tail would let a power loss leave a record claiming
+    bytes the file does not have — and the next run would resume onto a hole
+    (review finding).
+    """
+    handle.flush()
+    os.fsync(handle.fileno())
+    checkpoint(current)
+
+
+async def download_resumable(
+    tg,
+    media,
+    part: Path,
+    *,
+    offset: int,
+    size: int | None,
+    checkpoint: Callable[[int], None],
+    progress: Callable[[int, int | None], None] | None = None,
+) -> int:
+    """Append ``media`` into ``part`` from ``offset``; return the bytes on disk.
+
+    Serial and resumable, the opposite trade from :func:`download_striped`:
+    one request at a time, but every checkpointed byte survives the run. A
+    parallel transfer writes its stripes at scattered offsets, so no byte
+    count describes what it already has — which is why a transfer that must
+    make progress *across* runs cannot be striped.
+
+    ``checkpoint`` is called with the absolute byte count every
+    ``CHECKPOINT_EVERY_CHUNKS`` chunks and once more on the way out, whether
+    the transfer finished or raised. The caller owns what that record looks
+    like and what makes it valid to resume from; this owns only the loop.
+    """
+    part.parent.mkdir(parents=True, exist_ok=True)
+    with part.open("ab" if offset else "wb") as handle:
+        current = offset
+        chunks_since_checkpoint = 0
+        chunks_since_progress = 0
+        try:
+            async for chunk in tg.iter_download(
+                media, offset=offset, request_size=CHUNK_SIZE
+            ):
+                handle.write(bytes(chunk))
+                current = handle.tell()
+                chunks_since_checkpoint += 1
+                chunks_since_progress += 1
+                if chunks_since_checkpoint >= CHECKPOINT_EVERY_CHUNKS:
+                    _record(handle, checkpoint, current)
+                    chunks_since_checkpoint = 0
+                if progress is not None and chunks_since_progress >= (
+                    PROGRESS_EVERY_CHUNKS
+                ):
+                    progress(current, size)
+                    chunks_since_progress = 0
+        except BaseException:
+            # Bookkeeping must never replace the exception being unwound: a
+            # FloodWait that leaves as an OSError loses its `retry_after`,
+            # and with it the exit-5 contract ADR-0072 exists to keep
+            # (review finding). Losing the last few chunks is the cheaper
+            # failure — the next run re-fetches them.
+            with contextlib.suppress(Exception):
+                _record(handle, checkpoint, current)
+            raise
+        _record(handle, checkpoint, current)
+        if progress is not None and chunks_since_progress:
+            progress(current, size)
+    return current
 
 
 async def upload_parts(

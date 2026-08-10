@@ -508,3 +508,95 @@ async def test_download_striped_document_path_unaffected(tmp_path):
     )
 
     assert tg.calls[0]["media"] is media
+
+
+class FakeSerialTelegram:
+    """Streams `size` bytes from the requested offset, optionally flooding."""
+
+    def __init__(self, size: int, *, flood_after: int | None = None):
+        self.size = size
+        self.flood_after = flood_after
+
+    async def iter_download(self, media, *, offset=0, request_size=None, **kwargs):
+        position = offset
+        while position < self.size:
+            if self.flood_after is not None and position >= self.flood_after:
+                raise telethon_errors.FloodWaitError(request=None, capture=7)
+            step = min(request_size or transfer.CHUNK_SIZE, self.size - position)
+            position += step
+            yield b"N" * step
+
+
+@pytest.mark.asyncio
+async def test_a_failing_checkpoint_never_replaces_the_flood_it_was_recording(
+    tmp_path,
+):
+    """A FloodWait that unwinds into an OSError loses its retry_after.
+
+    ADR-0072's whole contract is exit 5 plus a server-issued wait; bookkeeping
+    on the failure path must never be able to take that away (review finding).
+    """
+    part = tmp_path / "src-1.part"
+
+    def exploding_checkpoint(current: int) -> None:
+        raise OSError("no space left on device")
+
+    with pytest.raises(telethon_errors.FloodWaitError) as caught:
+        await transfer.download_resumable(
+            FakeSerialTelegram(
+                8 * transfer.CHUNK_SIZE, flood_after=transfer.CHUNK_SIZE
+            ),
+            object(),
+            part,
+            offset=0,
+            size=8 * transfer.CHUNK_SIZE,
+            checkpoint=exploding_checkpoint,
+        )
+
+    assert caught.value.seconds == 7
+
+
+@pytest.mark.asyncio
+async def test_a_failing_checkpoint_on_the_success_path_is_reported(tmp_path):
+    """Silently stopping to record progress would be the #169 loop again."""
+    part = tmp_path / "src-2.part"
+
+    def exploding_checkpoint(current: int) -> None:
+        raise OSError("no space left on device")
+
+    with pytest.raises(OSError):
+        await transfer.download_resumable(
+            FakeSerialTelegram(transfer.CHUNK_SIZE),
+            object(),
+            part,
+            offset=0,
+            size=transfer.CHUNK_SIZE,
+            checkpoint=exploding_checkpoint,
+        )
+
+
+@pytest.mark.asyncio
+async def test_the_part_file_is_synced_before_the_checkpoint_claims_it(
+    tmp_path, monkeypatch
+):
+    """The sidecar fsyncs itself; an unsynced tail would outlive its record."""
+    import os
+
+    order: list[str] = []
+    real_fsync = os.fsync
+    monkeypatch.setattr(
+        os, "fsync", lambda fd: (order.append("fsync"), real_fsync(fd))[1]
+    )
+    part = tmp_path / "src-3.part"
+
+    await transfer.download_resumable(
+        FakeSerialTelegram(transfer.CHUNK_SIZE),
+        object(),
+        part,
+        offset=0,
+        size=transfer.CHUNK_SIZE,
+        checkpoint=lambda current: order.append(f"checkpoint:{current}"),
+    )
+
+    assert order[0] == "fsync"
+    assert order[1] == f"checkpoint:{transfer.CHUNK_SIZE}"

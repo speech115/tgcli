@@ -95,17 +95,26 @@ class SyncProgress:
         self._copied = copied
         self._write = write
         self._total_resolved = total is not None
+        self._known: dict[int, int | None] = {}
 
     async def resolve_total(self, tg, entity, invoke: Invoke) -> None:
-        """Fetch `~total` once, lazily, on the first batch that reports.
+        """Fetch `~total` once per entity, lazily, on the first batch reported.
 
         A sync with nothing to copy spends no RPC on a cosmetic number — the
-        idle keep-up-to-date call stays as cheap as it was (ADR-0045).
+        idle keep-up-to-date call stays as cheap as it was (ADR-0045). Per
+        *entity*, not per phase: ADR-0051 re-enters each leg once per window,
+        and re-asking would put one extra GetHistory-family request per
+        window on the wire for a number already known — the request family
+        the ADR-0072 incident was made of (review finding).
         """
         if self._total_resolved:
             return
         self._total_resolved = True
-        self._total = await approximate_total(tg, entity, invoke)
+        marker = getattr(entity, "id", None)
+        key = marker if type(marker) is int else id(entity)
+        if key not in self._known:
+            self._known[key] = await approximate_total(tg, entity, invoke)
+        self._total = self._known[key]
 
     def _prefix(self) -> str:
         total = "?" if self._total is None else self._total
@@ -116,11 +125,20 @@ class SyncProgress:
         self._copied += count
         self._write(f"{self._prefix()} · {transport}")
 
-    def phase(self, name: str) -> None:
-        """Announce a leg whose size the posts-leg total no longer describes."""
-        self._write(f"{self._prefix()} · {name}")
+    def phase(self, name: str, *, copied: int = 0) -> None:
+        """Start a new leg: announce it, and restart both counters for it.
+
+        The counters are per leg, not per run (#174). Carrying the posts
+        count into the comments phase printed `998/~997` — more copied than
+        there is work — because the copied side counted every mapped message
+        while the total came from the channel the posts leg reads. Each leg
+        now counts what *it* has copied against what *its* source holds, and
+        the total re-resolves against that leg's own entity.
+        """
+        self._copied = copied
         self._total = None
         self._total_resolved = False
+        self._write(f"{self._prefix()} · {name}")
 
     def transfer(self, filename: str, direction: str) -> Callable[..., None]:
         """Return a byte-progress callback throttled to one line per ~5 MB."""

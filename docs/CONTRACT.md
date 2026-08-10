@@ -1153,8 +1153,14 @@ filters by exact numeric source id — either the raw peer id or its
 `-100`-marked form — or by case-insensitive title substring. JSON:
 
 ```json
-{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source","username":null},"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled","schema_version":2,"integrity":"ok"}],"pending_import":0}
+{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source","username":null},"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled","discussion_linked":true,"schema_version":2,"integrity":"ok"}],"pending_import":0}
 ```
+
+`discussion_linked` is whether the clone's discussion group was actually
+linked. `comments: "enabled"` with `discussion_linked: false` is a
+half-initialized clone — a commit that stopped after creating the destination
+— and `status` prints the recovery command for it on **stderr** (ADR-0083);
+`clone sync` refuses such a clone and names the same command.
 
 `destination` mirrors the `source` shape (ADR-0081). `title` and `username`
 are the last names the destination was seen under, recorded by `clone init`
@@ -1220,7 +1226,11 @@ init with `--no-comments` against a slot whose state already has
 existing linked group (use `--replace` for a fresh posts-only clone).
 
 `init SOURCE --commit PREVIEW_ID` requires a matching unexpired clone-init
-preview. `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block before
+preview. The preview is spent when the commit **succeeds**, not when it is
+accepted (ADR-0083): a commit that stops partway — a flood on the discussion
+link, say — leaves it retryable, and re-running the same `--commit
+PREVIEW_ID` while it is unexpired resumes rather than demanding a fresh
+preview. `refresh --commit` behaves the same way. `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block before
 preview consumption, config, session, audit, or Telegram work. The commit uses
 a mutation-safe session, verifies that the resolved account id, source id, and
 source kind still match the preview, then creates or recovers one private
@@ -1323,6 +1333,19 @@ because the scan is real network work. A roster FloodWait
 bounded with `--max-runtime` (exhausting it is a normal stop, exit 0, with
 a resume pointer) — `clone refresh`'s passes are short and bounded by their
 own caps, and read no wall clock.
+
+`sync SOURCE` and `refresh SOURCE` accept the same references as every other
+command plus, for an already-initialized clone, a **title** (ADR-0082): a
+`SOURCE` that is neither an id nor a username/invite link is matched against
+the recorded clone titles of the active account with the `status` matcher, and
+the single match's recorded source peer id is used. Two matching clones exit 2;
+no match falls through to Telegram resolution. `init SOURCE` has no state to
+match and keeps Telegram resolution only.
+
+For **every** clone command, a source this account cannot open —
+unresolvable, private, invalid, or forbidden — exits 4 with
+`clone source not found: '<SOURCE>'`, never a raw RPC message. This replaced
+`init`'s previous exit 1 with the underlying Telegram text.
 
 `sync SOURCE` requires initialized state and a private creator-owned destination
 of the source-dependent kind. It verifies the destination tail before reading

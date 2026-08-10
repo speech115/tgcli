@@ -325,6 +325,14 @@ def _audit_after(args, account, data) -> None:
         )
         safety.finish_commit(args.commit)
     if (
+        args.command == "clone"
+        and args.clone_command in ("init", "refresh")
+        and getattr(args, "commit", None)
+    ):
+        # Only a finished commit spends the preview; a flood partway through
+        # leaves it .pending so the same commit can be retried (#170).
+        safety.finish_commit(args.commit)
+    if (
         args.command == "draft"
         and args.draft_command in ("set", "clear")
         and getattr(args, "commit", None)
@@ -351,6 +359,13 @@ def _execute(args) -> tuple[dict, list[tuple]]:
                 f"{data['pending_import']} state slot(s) cannot be imported and "
                 "are not listed; see them with: tg clone status --all"
             )
+        for entry in data["clones"]:
+            if clone_cmd.half_initialized(entry):
+                output.note(
+                    f"clone {entry['source']['id']} has comments enabled but no "
+                    "linked discussion group; finish it with: tg clone init "
+                    f"{entry['source']['id']}"
+                )
         return data, clone_cmd.status_rows(data)
     if args.command == "clone" and args.clone_command == "export-state":
         data = clone_cmd.export_state(args.source)
