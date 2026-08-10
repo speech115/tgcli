@@ -91,6 +91,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0082](ADR-0082-clone-sync-answers-for-its-own-legs.md) | `clone sync`/`refresh` resolve a bare title from clone state instead of Telethon's entity cache, report an unopenable source as exit 4, and count progress per leg against that leg's own source | accepted |
 | [0083](ADR-0083-a-flood-must-not-destroy-finished-work.md) | A flood must not throw away work that succeeded: the reupload download resumes across runs (serial + checkpointed), and clone commits use the retryable begin/finish preview handshake | accepted |
 | [0084](ADR-0084-a-resume-must-identify-its-media.md) | A `media download` resume trusts a partial file only when the media's own id and byte size still match; a replaced file restarts the transfer instead of splicing two files together | accepted |
+| [0085](ADR-0085-a-clone-does-not-invent-a-bots-keyboard.md) | Message `reply_markup` is outside clone fidelity: no transport but a native forward can carry a bot keyboard, so the clone reports the loss in `sync.markup_dropped` (exit 0) and never rebuilds the buttons | accepted |
 
 Notes on supersessions:
 

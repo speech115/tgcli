@@ -797,6 +797,7 @@ async def sync_text(
 
     reply_flattened = 0
     quote_flattened: list[dict] = []
+    markup_dropped: list[dict] = []
     poll_votes: list[dict] = []
     author_cache = {}
     reforward_cache: dict = {}
@@ -882,6 +883,15 @@ async def sync_text(
         )
         copied += batch_copied
         transport_counts[mode] += batch_copied
+        # Only a native forward carries a keyboard; every other transport
+        # rebuilds the message and Telegram will not let a user account
+        # reattach one, so the rows are recorded as lost (ADR-0085).
+        if mode != "forwarded":
+            markup_dropped.extend(
+                {"id": message.id, "buttons": buttons}
+                for message in messages
+                if (buttons := fidelity.dropped_buttons(message)) is not None
+            )
         reply_flattened += int(flattened)
         if flattened_quote is not None:
             quote_flattened.append(flattened_quote)
@@ -1000,6 +1010,7 @@ async def sync_text(
             **counters,
             "reply_flattened": reply_flattened,
             "quote_flattened": quote_flattened,
+            "markup_dropped": markup_dropped,
             "poll_votes": poll_votes,
             "cursor": clone_state.cursor,
             "discussion_cursor": clone_state.discussion_cursor,
@@ -1008,6 +1019,15 @@ async def sync_text(
             **({"pinned": pinned_result} if pinned_result is not None else {}),
         },
     }
+    if markup_dropped:
+        # A Telegram-side limit, not a failed run: the copy is complete for
+        # everything a user account may send, so the run still exits 0. Said
+        # once per run, before the quote-fallback exit, so a run that ends in
+        # PartialFailure reports this loss too (ADR-0085).
+        note(
+            f"warning: {len(markup_dropped)} copied message(s) lost bot buttons; "
+            "a keyboard belongs to the bot that attached it and cannot be recreated"
+        )
     if quote_flattened:
         raise PartialFailure(
             f"clone sync finished with {len(quote_flattened)} quote fallback(s)",
@@ -1044,6 +1064,7 @@ def sync_rows(data: dict) -> list[tuple]:
             sync["more"],
             sync["skipped_autoforward"],
             sync["discussion_cursor"],
+            len(sync["markup_dropped"]),
         )
     ]
 
