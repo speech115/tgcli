@@ -24,6 +24,7 @@ from tgcli.transfer import (
     CLONE_TRANSFER_PARALLEL,
     download_resumable,
     media_byte_size,
+    media_identity,
     upload_parts,
 )
 
@@ -126,26 +127,6 @@ def download_checkpoint(part: Path) -> Path:
     return part.with_name(f"{part.name}.offset")
 
 
-def media_identity(message) -> int | None:
-    """Telegram's own id for the file behind ``message``, when it has one.
-
-    Byte length does not identify media: re-exporting a video with the same
-    settings yields the same size, and resuming onto that prefix would splice
-    two revisions into one file that passes every length check and is not
-    either of them (review finding). The document/photo id changes whenever
-    the file does.
-    """
-    media = getattr(message, "media", None)
-    for holder in (
-        getattr(media, "document", None),
-        getattr(media, "photo", None),
-    ):
-        value = getattr(holder, "id", None)
-        if type(value) is int:
-            return value
-    return None
-
-
 def _write_checkpoint(part: Path, size: int, media_id: int | None, offset: int) -> None:
     atomic.replace_text(
         download_checkpoint(part),
@@ -212,7 +193,7 @@ async def download_for_reupload(
         # Only this path reports bytes: a sub-chunk file is over before it
         # could reach a progress mark (ADR-0049).
         part = target.with_name(f"{target.name}.part")
-        media_id = media_identity(message)
+        media_id = media_identity(message.media)
         offset = resume_offset(part, size, media_id)
         written = await download_resumable(
             tg,

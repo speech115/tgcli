@@ -295,6 +295,29 @@ async def upload_parts(
     )
 
 
+def media_identity(media) -> int | None:
+    """Telegram's own id for a media object, or None when it has none.
+
+    Byte length does not identify media: a source can replace the file behind
+    a message, and resuming a partial download onto the replacement splices
+    two files into one that passes every length check and is neither
+    (#169 for clone, #180 for `media download`). The document/photo id
+    changes whenever the file does, so it is the identity a resume must hold.
+
+    Accepts every shape the two callers hold: a ``MessageMedia*`` wrapper, or
+    a bare ``Document`` picked out of a story's alternative encodings.
+    """
+    for candidate in (
+        getattr(media, "document", None),
+        getattr(media, "photo", None),
+        media,
+    ):
+        value = getattr(candidate, "id", None)
+        if type(value) is int:
+            return value
+    return None
+
+
 def media_byte_size(message) -> int | None:
     """Best-effort media size for choosing striped download."""
     file = getattr(message, "file", None)

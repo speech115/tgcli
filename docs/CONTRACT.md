@@ -386,6 +386,13 @@ to stderr. Single-stream transfer resumes a matching interrupted partial file
 from `~/.local/state/tgcli/downloads/`; `--parallel N` is opt-in, requires a
 positive `N`, and starts a fresh offset-based transfer.
 
+"Matching" means the media itself, not the path (ADR-0084): the resume record
+carries Telegram's document/photo id and the byte size, and a partial file
+whose media no longer matches is discarded and re-downloaded from zero with a
+one-line note on **stderr**. `resumed` is then `false`. A source that replaces
+the file behind a message used to have the new file's tail appended to the old
+file's head and published as complete.
+
 Story links `t.me/<user>/s/<id>` and `t.me/c/<channel_id>/s/<id>` download
 story media via `stories.getStoriesByID` (ADR-0076). A story source is single
 download only: combining it with bulk flags is exit 2. Video stories download
