@@ -92,6 +92,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0083](ADR-0083-a-flood-must-not-destroy-finished-work.md) | A flood must not throw away work that succeeded: the reupload download resumes across runs (serial + checkpointed), and clone commits use the retryable begin/finish preview handshake | accepted |
 | [0084](ADR-0084-a-resume-must-identify-its-media.md) | A `media download` resume trusts a partial file only when the media's own id and byte size still match; a replaced file restarts the transfer instead of splicing two files together | accepted |
 | [0085](ADR-0085-a-clone-does-not-invent-a-bots-keyboard.md) | Message `reply_markup` is outside clone fidelity: no transport but a native forward can carry a bot keyboard, so the clone reports the loss in `sync.markup_dropped` (exit 0) and never rebuilds the buttons; the ADR-0050 re-forward proof gains the keyboard as a content key | accepted |
+| [0086](ADR-0086-clone-reports-permanent-degradation-before-run-exit.md) | `clone sync` reports each durable quote fallback and unsupported-message skip on stderr immediately, so a later flood cannot erase the only operator-visible evidence; existing JSON and exit semantics stay unchanged | accepted |
 
 Notes on supersessions:
 
