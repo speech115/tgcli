@@ -1153,8 +1153,14 @@ filters by exact numeric source id — either the raw peer id or its
 `-100`-marked form — or by case-insensitive title substring. JSON:
 
 ```json
-{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source","username":null},"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled","schema_version":2,"integrity":"ok"}],"pending_import":0}
+{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source","username":null},"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled","discussion_linked":true,"schema_version":2,"integrity":"ok"}],"pending_import":0}
 ```
+
+`discussion_linked` is whether the clone's discussion group was actually
+linked. `comments: "enabled"` with `discussion_linked: false` is a
+half-initialized clone — a commit that stopped after creating the destination
+— and `status` prints the recovery command for it on **stderr** (ADR-0083);
+`clone sync` refuses such a clone and names the same command.
 
 `destination` mirrors the `source` shape (ADR-0081). `title` and `username`
 are the last names the destination was seen under, recorded by `clone init`
@@ -1220,7 +1226,11 @@ init with `--no-comments` against a slot whose state already has
 existing linked group (use `--replace` for a fresh posts-only clone).
 
 `init SOURCE --commit PREVIEW_ID` requires a matching unexpired clone-init
-preview. `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block before
+preview. The preview is spent when the commit **succeeds**, not when it is
+accepted (ADR-0083): a commit that stops partway — a flood on the discussion
+link, say — leaves it retryable, and re-running the same `--commit
+PREVIEW_ID` while it is unexpired resumes rather than demanding a fresh
+preview. `refresh --commit` behaves the same way. `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block before
 preview consumption, config, session, audit, or Telegram work. The commit uses
 a mutation-safe session, verifies that the resolved account id, source id, and
 source kind still match the preview, then creates or recovers one private

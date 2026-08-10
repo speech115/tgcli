@@ -58,9 +58,20 @@ def _entry(s: state.CloneState) -> dict:
         "created_at": s.created_at,
         "last_synced_at": s.last_synced_at,
         "comments": s.comments,
+        "discussion_linked": s.discussion_linked,
         "schema_version": probe["schema_version"],
         "integrity": probe["integrity"],
     }
+
+
+def half_initialized(entry: dict) -> bool:
+    """Comments were planned for this clone but its group was never linked.
+
+    A `clone init --commit` that floods on `SetDiscussionGroup` creates the
+    destination and stops there; `clone sync` then refuses and nothing in the
+    listing said why (#170).
+    """
+    return entry["comments"] == "enabled" and entry["discussion_linked"] is False
 
 
 def _unreadable_entry(clone_id: str) -> dict:
@@ -75,6 +86,7 @@ def _unreadable_entry(clone_id: str) -> dict:
         "created_at": None,
         "last_synced_at": None,
         "comments": None,
+        "discussion_linked": None,
         "schema_version": probe["schema_version"],
         "integrity": probe["integrity"],
         "unreadable": True,
@@ -467,6 +479,7 @@ _uploaded_thumb = reupload.uploaded_thumb
 _uploaded_media = reupload.uploaded_media
 _media_cache_dir = reupload.cache_dir
 _complete_marker = reupload.complete_marker
+_download_checkpoint = reupload.download_checkpoint
 _download_for_reupload = reupload.download_for_reupload
 
 
@@ -733,7 +746,8 @@ async def sync_text(
         raise PolicyError("clone source kind no longer matches initialized state")
     if clone_state.comments == "enabled" and not clone_state.discussion_linked:
         raise PolicyError(
-            "clone discussion group is not linked yet; re-run clone init before syncing"
+            "clone discussion group is not linked yet; finish the clone with: "
+            f"tg clone init {source} (then --commit the preview it prints)"
         )
     _enforce_cooldown(clone_state)
     # Warn before the work, not only after it: a run killed by FloodWait never

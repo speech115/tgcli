@@ -1,7 +1,7 @@
 # ADR-0047: Clone reupload parallel chunk transfer
 
 Date: 2026-07-24
-Status: accepted
+Status: accepted; the reupload **download** leg is superseded by [ADR-0083](ADR-0083-a-flood-must-not-destroy-finished-work.md) (serial and resumable, so a FloodWait costs a chunk rather than the whole file). The parallel part **upload** and the striped download used by `media download --parallel` remain in force.
 
 ## Context
 

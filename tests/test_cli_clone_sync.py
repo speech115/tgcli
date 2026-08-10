@@ -3871,9 +3871,15 @@ def test_clone_sync_reupload_upload_issues_save_file_part_requests(
     assert send.media.file.parts == 2
 
 
-def test_clone_sync_reupload_striped_download_for_large_media(
+def test_clone_sync_reupload_streams_large_media_in_one_pass(
     config_env, monkeypatch, capsys
 ):
+    """ADR-0083: the download leg is serial and checkpointed, not striped.
+
+    One `iter_download` from the resume offset, no stride: a parallel
+    transfer scatters its stripes and no byte count describes what it has,
+    which is what made a flood cost the whole file (#169).
+    """
     from tgcli.transfer import CHUNK_SIZE
 
     seed_clone()
@@ -3887,38 +3893,36 @@ def test_clone_sync_reupload_striped_download_for_large_media(
     msg = message(2, message="big", media=document)
     msg.file = SimpleNamespace(size=2 * CHUNK_SIZE)
 
-    class StripedClient(CloneReuploadClient):
+    class StreamingClient(CloneReuploadClient):
         def __init__(self, messages, *, protected=False):
             super().__init__(messages, protected=protected)
             self.iter_download_calls = []
 
-        async def iter_download(
-            self, media, *, offset=0, request_size=None, stride=None
-        ):
+        async def iter_download(self, media, *, offset=0, request_size=None, **kw):
             self.iter_download_calls.append(
-                {
-                    "offset": offset,
-                    "request_size": request_size,
-                    "stride": stride,
-                }
+                {"offset": offset, "request_size": request_size, "extra": kw}
             )
-            yield bytes([65 + offset // CHUNK_SIZE]) * CHUNK_SIZE
+            position = offset
+            while position < 2 * CHUNK_SIZE:
+                yield b"N" * CHUNK_SIZE
+                position += CHUNK_SIZE
 
         async def download_media(self, message, file=None):
             raise AssertionError("large media must not use sequential download_media")
 
-    client = StripedClient([msg], protected=True)
+    client = StreamingClient([msg], protected=True)
     make_session_fake(monkeypatch, client)
 
     assert main(["clone", "sync", "@source", "--json"]) == 0
     capsys.readouterr()
 
-    assert {call["offset"] for call in client.iter_download_calls} == {0, CHUNK_SIZE}
-    assert {call["stride"] for call in client.iter_download_calls} == {2 * CHUNK_SIZE}
+    assert [call["offset"] for call in client.iter_download_calls] == [0]
+    assert client.iter_download_calls[0]["request_size"] == CHUNK_SIZE
+    assert client.iter_download_calls[0]["extra"] == {}
     assert client.part_requests
 
 
-def test_clone_sync_reupload_striped_download_flood_wait_exits_5(
+def test_clone_sync_reupload_download_flood_wait_exits_5(
     config_env, monkeypatch, capsys
 ):
     from tgcli.transfer import CHUNK_SIZE
@@ -3935,9 +3939,7 @@ def test_clone_sync_reupload_striped_download_flood_wait_exits_5(
     msg.file = SimpleNamespace(size=2 * CHUNK_SIZE)
 
     class FloodDownloadClient(CloneReuploadClient):
-        async def iter_download(
-            self, media, *, offset=0, request_size=None, stride=None
-        ):
+        async def iter_download(self, media, *, offset=0, request_size=None, **kw):
             raise telethon_errors.FloodWaitError(request=None, capture=61)
             yield  # pragma: no cover
 
@@ -4731,3 +4733,18 @@ def test_sync_unreachable_source_is_not_found_not_a_raw_rpc_error(
     payload = json.loads(capsys.readouterr().out)
     assert payload["error"]["code"] == "NOT_FOUND"
     assert "clone source" in payload["error"]["message"]
+
+
+def test_sync_names_the_recovery_command_for_an_unlinked_discussion(
+    config_env, monkeypatch, capsys
+):
+    """#170: 're-run clone init' left the operator to guess the invocation."""
+    clone_state = seed_clone()
+    clone_state.comments = "enabled"
+    clone_state.discussion_source_peer_id = 777
+    state.save(clone_state)
+    make_session_fake(monkeypatch, CloneSyncClient([message(2)]))
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+    message_text = json.loads(capsys.readouterr().out)["error"]["message"]
+    assert "tg clone init @source" in message_text

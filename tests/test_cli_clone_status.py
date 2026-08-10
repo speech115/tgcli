@@ -418,3 +418,35 @@ def test_status_json_passes_control_characters_through(capsys):
 
     assert code == 0
     assert json.loads(out)["clones"][0]["source"]["title"] == HOSTILE_TITLE
+
+
+def test_status_flags_a_clone_whose_discussion_never_linked(capsys):
+    """#170: a commit that flooded on the link leaves the clone half-built."""
+    half = _seed(100000001, 111, "Alpha", dest=222)
+    half.comments = "enabled"
+    half.discussion_source_peer_id = 777
+    state.save(half)
+
+    from tgcli.cli import main
+
+    assert main(["clone", "status", "--json"]) == 0
+    captured = capsys.readouterr()
+    entry = json.loads(captured.out)["clones"][0]
+    assert entry["discussion_linked"] is False
+    assert "tg clone init 111" in captured.err
+
+
+def test_status_says_nothing_about_a_fully_linked_clone(capsys):
+    linked = _seed(100000001, 111, "Alpha", dest=222)
+    linked.comments = "enabled"
+    linked.discussion_source_peer_id = 777
+    linked.discussion_destination_peer_id = 888
+    linked.discussion_linked = True
+    state.save(linked)
+
+    from tgcli.cli import main
+
+    assert main(["clone", "status", "--json"]) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["clones"][0]["discussion_linked"] is True
+    assert "clone init" not in captured.err
