@@ -37,6 +37,13 @@ mismatch the partial file and its record are deleted and the transfer restarts
 from zero — with a one-line stderr note, because a 2 GB download silently
 starting over is worse than one that says why.
 
+The consistency check on `source`/`destination` is asked **first**. That state
+file is keyed by source alone, so re-running the same message with a different
+`--output` lands on the same record — a confused invocation, exit 2 since 1.0.
+The media-identity restart is quieter than that error, so asking it first let a
+source that had also replaced its media swallow the wrong-output diagnostic
+(review finding).
+
 A mismatch is **not** an error. The operator asked for the media that is there
 now; the source changing it is not operator error, so it is neither exit 2 nor
 a prompt. This is the `resumable: false` precedent (a parallel transfer's

@@ -831,3 +831,61 @@ async def test_resume_still_continues_the_very_same_media(tmp_path):
     assert resumed.iter_download_calls[0]["offset"] == 3
     assert target.read_bytes() == b"oldnew"
     assert result["resumed"] is True
+
+
+def _state(destination, *, media_id, size, offset=3):
+    return json.dumps(
+        {
+            "source": "@channel:42",
+            "destination": str(destination),
+            "media_id": media_id,
+            "size": size,
+            "offset": offset,
+        }
+    )
+
+
+def test_resume_offset_rejects_a_different_output_path(tmp_path):
+    """A wrong --output for the same message is a confused invocation."""
+    source = MediaSource("@channel", 42, None)
+    state_path = tmp_path / "state.json"
+    part_path = tmp_path / "out.part"
+    part_path.write_bytes(b"old")
+    state_path.write_text(_state(tmp_path / "first.bin", media_id=111, size=6))
+
+    with pytest.raises(PolicyError, match="does not match requested output"):
+        _resume_offset(
+            state_path,
+            part_path,
+            source,
+            tmp_path / "second.bin",
+            _target(ns(document=ns(id=111), photo=None), size=6),
+        )
+
+
+def test_a_changed_media_never_masks_a_wrong_output_path(tmp_path):
+    """Review finding: the identity check must not swallow the louder error.
+
+    The state file is keyed by source alone, so a re-run with a different
+    `--output` lands on the same record. That has always been exit 2; a
+    source that also replaced its media in the meantime must not turn it
+    into a silent restart.
+    """
+    source = MediaSource("@channel", 42, None)
+    state_path = tmp_path / "state.json"
+    part_path = tmp_path / "out.part"
+    part_path.write_bytes(b"old")
+    state_path.write_text(_state(tmp_path / "first.bin", media_id=111, size=6))
+
+    with pytest.raises(PolicyError, match="does not match requested output"):
+        _resume_offset(
+            state_path,
+            part_path,
+            source,
+            tmp_path / "second.bin",
+            _target(ns(document=ns(id=222), photo=None), size=99),
+        )
+
+    # The louder error must not have destroyed the record on its way out.
+    assert part_path.exists()
+    assert state_path.exists()

@@ -306,6 +306,15 @@ def media_identity(media) -> int | None:
 
     Accepts every shape the two callers hold: a ``MessageMedia*`` wrapper, or
     a bare ``Document`` picked out of a story's alternative encodings.
+
+    The final fallback reads ``media.id`` off the wrapper itself, which is
+    right for a bare document and wrong for any wrapper carrying an unrelated
+    top-level id — ``MessageMediaStory.id`` is the *story* id, not a file's.
+    That is harmless only because Telethon cannot resolve such media to a
+    download location at all: ``iter_download`` raises before a byte is
+    written, so no partial file exists to mis-identify. A future media type
+    that is both downloadable and carries its own id would break that, and
+    the fallback would need to name the types it accepts (review finding).
     """
     for candidate in (
         getattr(media, "document", None),

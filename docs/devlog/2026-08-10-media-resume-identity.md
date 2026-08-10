@@ -22,3 +22,10 @@ mask which guard is actually under test.
 **Next:** nothing open from the #169–#175 wave. #179 was closed not-planned by
 the owner: outside clone the same peer-refusal shape only mis-words an error
 and mis-codes an exit, with no data at risk.
+
+**Review fix:** the identity check was asked before the `source`/`destination`
+consistency check, so a re-run with a different `--output` *plus* a replaced
+media restarted quietly instead of raising the exit-2 "does not match
+requested output" the wrong-output case has always had. Reordered, with two
+regression tests — that branch had no direct coverage at all before, which is
+why the ordering could regress unnoticed.

@@ -368,6 +368,18 @@ def _resume_offset(
         part_path.unlink(missing_ok=True)
         state_path.unlink(missing_ok=True)
         return 0
+    # Ordering matters and is the point of this block. The state file is keyed
+    # by source alone, so a re-run with a different `--output` lands on this
+    # same record: that is a confused invocation and has always been exit 2.
+    # The media-identity restart below is *quieter* than that error, so it is
+    # asked second — otherwise a source that also replaced its media would
+    # silently swallow the wrong-output diagnostic (review finding).
+    if state.get("source") != _source_label(source) or state.get("destination") != str(
+        destination
+    ):
+        raise PolicyError(
+            f"media download state does not match requested output: {state_path}"
+        )
     fingerprint = _media_fingerprint(target)
     if {key: state.get(key) for key in fingerprint} != fingerprint:
         # The source replaced the file behind this message. The partial bytes
@@ -385,13 +397,7 @@ def _resume_offset(
         raise PolicyError(f"media download state has no partial file: {part_path}")
     offset = state.get("offset")
     part_size = part_path.stat().st_size
-    if (
-        state.get("source") != _source_label(source)
-        or state.get("destination") != str(destination)
-        or not isinstance(offset, int)
-        or offset < 0
-        or offset > part_size
-    ):
+    if not isinstance(offset, int) or offset < 0 or offset > part_size:
         raise PolicyError(
             f"media download state does not match requested output: {state_path}"
         )
