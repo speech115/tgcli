@@ -1666,7 +1666,7 @@ a normal stop (exit 0) with `stop_reason: "wall_clock_cap"` and a resume
 pointer. A flood exits 5 without advancing the current message. JSON:
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"markup_dropped":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"pinned":{"source_id":12,"destination_id":9,"status":"set"},"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}}}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"markup_dropped":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"pinned":{"source_id":12,"destination_id":9,"status":"set"},"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}},"remaining":false}
 ```
 
 On a broadcast destination, `sync.pinned` reports the pin carry-over
@@ -2059,12 +2059,13 @@ under readonly; `read` and `history` are also offline read-only commands.
  "dialogs":[{"chat":"@alice","peer_id":7,"kind":"user",
              "dialog":{"id":7,"name":"Alice"},"stored":2,"inserted":2,
              "updated":0,"more":true,"oldest_id":2,"newest_id":3}],
- "stored":2}
+ "stored":2,"remaining":true}
 ```
 
 ```json
 {"account":{"alias":"main","user_id":42},"mode":"private","limit":100,
- "max_dialogs":20,"dialogs":[…],"stored":5,"skipped_complete":2}
+ "max_dialogs":20,"dialogs":[…],"stored":5,"skipped_complete":2,
+ "remaining":false}
 ```
 
 ```json
@@ -2075,7 +2076,7 @@ under readonly; `read` and `history` are also offline read-only commands.
  "catchups":[],"gap":null,"skipped":{},"next_cursor":"v1:…",
  "media":{"limit":50,"queued":0,"downloaded":0,"skipped":0,"failed":[],"remaining":false},
  "reconcile":{"sampled":1,"mismatched":0,"next_offset":1,
-              "comparisons":[…]},"requests":1}
+              "comparisons":[…]},"requests":1,"remaining":false}
 ```
 
 ```json
@@ -2117,38 +2118,56 @@ applied and media counters; `transcribe` → queue counters;
 `rebaseline` → `rebaselined,peers,gap`; `refresh` → sync event/media
 counters, transcription counters, and `failure_streak,notification_sent`.
 
-## 14. Foreground Jobs (`tg jobs`; ADR-0087 slice 1)
+## 14. Foreground Jobs (`tg jobs`; ADR-0087 slices 1–2)
 
-The first working layer schedules the offline archive transcription workload:
+The typed workload surface is:
 
 ```text
+tg jobs add archive-backfill --key KEY (CHAT ... | --private) [--limit N]
+  [--priority {low,normal,high}] [--replace]
+tg jobs add archive-sync --key KEY [--max-events N] [--max-dialogs N]
+  [--max-media N] [--priority {low,normal,high}] [--replace]
+tg jobs add clone-sync --key KEY SOURCE
+  [--priority {low,normal,high}] [--replace]
 tg jobs add archive-transcribe --key KEY [--max-attempts N]
   [--priority {low,normal,high}] [--replace]
 tg jobs list
 tg jobs show KEY
 tg jobs cancel KEY
-tg jobs run --lane local
+tg jobs run --lane {telegram,local}
 ```
 
 Every `jobs run` requires global `--max-runtime N`, positive and at most
-**3000** seconds. The cap is cooperative: the current one-item transcription
-quantum may finish after it. The local lane rejects `--session-role` and never
-opens Telegram. `jobs add`, `cancel`, and `run` mutate local state, so
-`--readonly` / `TGCLI_READONLY=1` block them before config or state work;
-`TGCLI_NO_SEND=1` does not. `list` and `show` are offline reads.
+**3000** seconds. The cap is cooperative: the current workload quantum may
+finish after it. The local lane rejects `--session-role` and never opens
+Telegram. The Telegram lane requires an explicit named role and never falls
+back to primary; all of `--readonly`, `TGCLI_READONLY=1`, and
+`TGCLI_NO_SEND=1` block it before config, registry, session, or network work.
+`jobs add`, `cancel`, and the local runner are local mutations blocked by the
+readonly gates, while `TGCLI_NO_SEND=1` still permits the local lane. `list`
+and `show` are offline reads.
 
 The account alias owns `TGCLI_STATE_DIR/jobs/<alias>/jobs.db`, SQLite/WAL in a
 `0700` directory with DB/WAL/SHM files restricted to `0600`. The registry
 stores immutable generations and retains only the newest 200 detailed events
 per key. `store stats` reports jobs DB/WAL/SHM bytes plus latest-generation
-state counts; `store cleanup` never removes the registry.
+state counts; `store cleanup` never removes the registry. The first Telegram
+run binds nullable registry metadata to `get_me().id`; every later Telegram
+run verifies it before recovering or selecting work. A mismatch is exit 2.
 
-`archive-transcribe` stores `max_attempts` (default 3, cap 5) and always invokes
-the existing archive queue with `limit=1`. Priority defaults to `normal` and is
-ordered `high=2`, `normal=1`, `low=0`; an eligible job gains at most two aging
-points while other quanta run. Ties prefer never-run/oldest-run work, then key.
-One process holds the account/local-lane `flock` for the run. A second local
-runner is exit 2; the future Telegram lane has an independent lock.
+Fixed quanta are one incomplete archive backfill dialog, one complete changes
+difference/replay plus bounded catch-up/media work, one existing 50-batch clone
+window, and one local transcription item. The ordinary `archive backfill`,
+`archive sync`, and `clone sync` results now expose the same top-level
+`remaining` completion signal as transcription. Archive sync checks the
+scheduler deadline/cancellation callback between its durable catch-up and
+media boundaries; clone and backfill retain their own cursor checkpoints.
+
+Priority defaults to `normal` and is ordered `high=2`, `normal=1`, `low=0`;
+an eligible job gains at most two aging points while other quanta run. Ties
+prefer never-run/oldest-run work, then key. One process holds the account/lane
+`flock` for the run. A second runner for that lane is exit 2; Telegram and
+local lanes use independent locks and may overlap.
 
 Adding an exact queued/running spec is an idempotent no-op. A terminal exact
 spec creates the next generation. Any spec/priority change requires
@@ -2159,12 +2178,15 @@ subprocess is never killed. A runner holding the lane lock recovers stale
 `running` rows to `queued`, or to `cancelled` when a request was already set.
 
 A successful quantum with `remaining: false` completes the generation;
-`remaining: true` queues another quantum. A no-progress runtime failure queues
-retries after 5 then 30 minutes; the third enters `failed` and records a
-two-hour recommendation/inherited earliest time for an explicit next
-generation. Policy/config/not-found failures enter `failed` immediately. A job
-failure is data, not failure of the scheduler invocation: `jobs run` itself
-exits 0 after persisting the state.
+`remaining: true` queues another quantum. Normal governor stops remain queued;
+a rate limit records `not_before` from `retry_after` and ends the invocation as
+`cooldown_deferred`, without increasing the failure streak. Durable command
+progress before a later runtime error resets the streak and defers the next
+attempt. A no-progress runtime failure queues retries after 5 then 30 minutes;
+the third enters `failed` and records a two-hour recommendation/inherited
+earliest time for an explicit next generation. Policy/config/auth/not-found
+failures enter `failed` immediately. A job failure is data, not failure of the
+scheduler invocation: `jobs run` itself exits 0 after persisting the state.
 
 The global invocation journal records only `command: "jobs"`, the runner
 `lane`, and aggregate `selected,completed,deferred,failed,cancelled` counts.
@@ -2174,9 +2196,10 @@ Representative JSON:
 
 ```json
 {"created":true,"noop":false,
- "job":{"key":"nightly","generation":1,
-        "kind":"archive-transcribe","lane":"local",
-        "spec":{"max_attempts":3},"priority":"normal","state":"queued"}}
+ "job":{"key":"archive-hourly","generation":1,
+        "kind":"archive-sync","lane":"telegram",
+        "spec":{"max_events":500,"max_dialogs":20,"max_media":50},
+        "priority":"normal","state":"queued"}}
 ```
 
 ```json

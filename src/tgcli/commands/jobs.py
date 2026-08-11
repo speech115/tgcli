@@ -11,11 +11,13 @@ def resolve_alias(requested: str | None, config: Config) -> str:
     return resolve_account(config, requested).alias
 
 
-def add_transcribe(
+def add(
     alias: str,
     *,
     key: str,
-    max_attempts: int | None,
+    kind: str,
+    lane: str,
+    spec: dict,
     priority: str | None,
     replace: bool,
 ) -> dict:
@@ -24,9 +26,9 @@ def add_transcribe(
         return store.add_job(
             conn,
             key=key,
-            kind="archive-transcribe",
-            lane="local",
-            spec=model.transcribe_spec(max_attempts),
+            kind=kind,
+            lane=lane,
+            spec=spec,
             priority=model.validate_priority(priority),
             replace=replace,
         )
@@ -68,10 +70,14 @@ def cancel(alias: str, key: str) -> dict:
     return data
 
 
-def run(alias: str, *, lane: str, max_runtime: float, config: Config) -> dict:
-    if lane != "local":
-        raise AssertionError(f"unhandled jobs lane: {lane}")
+def run_local(alias: str, *, max_runtime: float, config: Config) -> dict:
     return runner.run_local(alias, max_runtime=max_runtime, config=config)
+
+
+async def run_telegram(
+    tg, alias: str, *, max_runtime: float, config: Config | None
+) -> dict:
+    return await runner.run_telegram(tg, alias, max_runtime=max_runtime, config=config)
 
 
 def job_rows(data: dict) -> list[tuple]:
@@ -115,3 +121,33 @@ def run_rows(data: dict) -> list[tuple]:
             data["stop_reason"],
         )
     ]
+
+
+def execute_offline(args, config: Config) -> tuple[dict, list[tuple]] | None:
+    """Run control-plane/local commands; Telegram lane returns to dispatch."""
+    alias = resolve_alias(args.account, config)
+    args.account = alias
+    if args.jobs_command == "add":
+        data = add(
+            alias,
+            key=args.key,
+            kind=args.job_kind,
+            lane=args.job_lane,
+            spec=args.job_spec,
+            priority=args.priority,
+            replace=bool(args.replace),
+        )
+        return data, job_rows(data)
+    if args.jobs_command == "list":
+        data = list_jobs(alias)
+        return data, list_rows(data)
+    if args.jobs_command == "show":
+        data = show(alias, args.key)
+        return data, job_rows(data)
+    if args.jobs_command == "cancel":
+        data = cancel(alias, args.key)
+        return data, job_rows(data)
+    if args.lane == "local":
+        data = run_local(alias, max_runtime=args.max_runtime, config=config)
+        return data, run_rows(data)
+    return None

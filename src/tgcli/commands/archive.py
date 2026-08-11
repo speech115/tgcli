@@ -315,6 +315,11 @@ async def backfill(
             account_dir=account_dir(alias, config),
             limit=DEFAULT_SYNC_MEDIA,
         )
+        data["remaining"] = bool(
+            any(item["more"] for item in data["dialogs"])
+            or data.get("deferred", 0)
+            or data["media"]["remaining"]
+        )
         data["account"] = {"alias": alias, "user_id": int(me.id)}
         return data
     finally:
@@ -329,6 +334,7 @@ async def sync(
     max_dialogs: int | None = None,
     max_media: int | None = None,
     config: Config | None = None,
+    should_stop=None,
 ) -> dict:
     max_events = sync_mod.validate_max_events(
         max_events, default=DEFAULT_SYNC_EVENTS, maximum=MAX_SYNC_EVENTS
@@ -352,6 +358,7 @@ async def sync(
             max_media=max_media,
             account_alias=alias,
             account_dir=account_dir(alias, config),
+            should_stop=should_stop,
         )
     finally:
         conn.close()

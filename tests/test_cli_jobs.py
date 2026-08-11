@@ -278,3 +278,162 @@ def test_store_stats_reports_jobs_registry(jobs_env, capsys):
     assert data["jobs"]["bytes"] > 0
     assert data["jobs"]["db"]["count"] == 1
     assert data["jobs"]["states"] == {"queued": 1}
+
+
+@pytest.mark.parametrize(
+    ("argv", "kind", "lane", "spec"),
+    [
+        (
+            [
+                "archive-backfill",
+                "--key",
+                "backfill",
+                "@one",
+                "@two",
+                "--limit",
+                "25",
+            ],
+            "archive-backfill",
+            "telegram",
+            {"chats": ["@one", "@two"], "limit": 25, "private": False},
+        ),
+        (
+            ["archive-backfill", "--key", "private", "--private"],
+            "archive-backfill",
+            "telegram",
+            {"chats": [], "limit": 100, "private": True},
+        ),
+        (
+            [
+                "archive-sync",
+                "--key",
+                "sync",
+                "--max-events",
+                "40",
+                "--max-dialogs",
+                "3",
+                "--max-media",
+                "2",
+            ],
+            "archive-sync",
+            "telegram",
+            {"max_dialogs": 3, "max_events": 40, "max_media": 2},
+        ),
+        (
+            ["clone-sync", "--key", "clone", "-100123"],
+            "clone-sync",
+            "telegram",
+            {"source": "-100123"},
+        ),
+    ],
+)
+def test_add_typed_telegram_jobs(jobs_env, capsys, argv, kind, lane, spec):
+    assert main(["jobs", "add", *argv, "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["job"]["kind"] == kind
+    assert data["job"]["lane"] == lane
+    assert data["job"]["spec"] == spec
+
+
+def test_archive_backfill_job_validates_target_mode(jobs_env, capsys):
+    assert main(["jobs", "add", "archive-backfill", "--key", "x", "--json"]) == 2
+    assert "chat" in capsys.readouterr().err.lower()
+    assert (
+        main(
+            [
+                "jobs",
+                "add",
+                "archive-backfill",
+                "--key",
+                "x",
+                "@one",
+                "--private",
+                "--json",
+            ]
+        )
+        == 2
+    )
+    assert "private" in capsys.readouterr().err.lower()
+
+
+def test_telegram_runner_requires_role_and_all_mutation_gates(
+    tmp_path, monkeypatch, capsys
+):
+    missing = tmp_path / "missing.toml"
+    monkeypatch.setenv("TGCLI_CONFIG", str(missing))
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
+    base = ["jobs", "run", "--lane", "telegram", "--max-runtime", "1", "--json"]
+
+    assert main(base) == 2
+    assert "session role" in capsys.readouterr().err.lower()
+    assert main(["--readonly", "--session-role", "job", *base]) == 2
+    assert "readonly" in capsys.readouterr().err.lower()
+    monkeypatch.setenv("TGCLI_NO_SEND", "1")
+    assert main(["--session-role", "job", *base]) == 2
+    assert "no_send" in capsys.readouterr().err.lower()
+    assert not (tmp_path / "state" / "jobs").exists()
+
+
+def test_telegram_runner_opens_exact_named_mutation_safe_session(
+    jobs_env, monkeypatch, capsys
+):
+    from tgcli import session
+    from tgcli.commands import jobs as jobs_cmd
+
+    assert main(["jobs", "add", "archive-sync", "--key", "sync", "--json"]) == 0
+    capsys.readouterr()
+    opened = {}
+    client = object()
+
+    @asynccontextmanager
+    async def fake_session(account, *, mutation_safe=False, role=None, govern=True):
+        opened.update(
+            alias=account.alias,
+            mutation_safe=mutation_safe,
+            role=role,
+            govern=govern,
+        )
+        yield client
+
+    async def fake_run(tg, alias, *, max_runtime, config):
+        assert tg is client
+        assert alias == "main"
+        assert max_runtime == 1
+        return {
+            "account": {"alias": alias, "user_id": 42},
+            "lane": "telegram",
+            "selected": 0,
+            "completed": 0,
+            "queued": 0,
+            "failed": 0,
+            "cancelled": 0,
+            "recovered": {"queued": 0, "cancelled": 0},
+            "outcomes": [],
+            "stop_reason": "idle",
+        }
+
+    monkeypatch.setattr(session, "client", fake_session)
+    monkeypatch.setattr(jobs_cmd, "run_telegram", fake_run)
+    assert (
+        main(
+            [
+                "jobs",
+                "run",
+                "--lane",
+                "telegram",
+                "--session-role",
+                "job",
+                "--max-runtime",
+                "1",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["lane"] == "telegram"
+    assert opened == {
+        "alias": "main",
+        "mutation_safe": True,
+        "role": "job",
+        "govern": True,
+    }

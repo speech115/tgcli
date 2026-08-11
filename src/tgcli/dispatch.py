@@ -19,6 +19,7 @@ from tgcli.commands import (
     dialog as dialog_cmd,
     draft as draft_cmd,
     export as export_cmd,
+    jobs as jobs_cmd,
     media as media_cmd,
     mutate as mutate_cmd,
     send as send_cmd,
@@ -28,10 +29,17 @@ from tgcli.errors import PolicyError, RateLimitError
 
 
 async def run_network(args, account) -> tuple[dict, list[tuple]]:
-    mutation_safe = args.command == "clone" and (
-        args.clone_command == "sync"
-        or (args.clone_command == "init" and args.commit is not None)
-        or (args.clone_command == "refresh" and args.commit is not None)
+    mutation_safe = (
+        args.command == "jobs"
+        and args.jobs_command == "run"
+        and args.lane == "telegram"
+    ) or (
+        args.command == "clone"
+        and (
+            args.clone_command == "sync"
+            or (args.clone_command == "init" and args.commit is not None)
+            or (args.clone_command == "refresh" and args.commit is not None)
+        )
     )
     # cli._execute already holds the audit-role context var for the whole
     # invocation (including this coroutine); only the network session itself
@@ -136,6 +144,14 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
                 return data, changes_cmd.to_rows(data)
             if args.command == "archive":
                 return await _run_archive(tg, args, account)
+            if args.command == "jobs" and args.jobs_command == "run":
+                data = await jobs_cmd.run_telegram(
+                    tg,
+                    account.alias,
+                    max_runtime=args.max_runtime,
+                    config=None,
+                )
+                return data, jobs_cmd.run_rows(data)
             if args.command == "export":
                 if args.export_kind == "messages":
                     data = await export_cmd.export_messages(

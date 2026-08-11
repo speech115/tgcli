@@ -17,6 +17,7 @@ from datetime import datetime
 from tgcli import read_ops, safety
 from tgcli.commands import api as api_cmd, batch as batch_cmd, dialog as dialog_cmd
 from tgcli.errors import ConfigError, PolicyError
+from tgcli.jobs import preflight as jobs_preflight
 
 MUTATION_POSITIONALS = {
     "edit": ("chat", "message_id", "text"),
@@ -36,7 +37,7 @@ def prepare(parser: argparse.ArgumentParser, args) -> None:
     _prepare_api(parser, args)
     _prepare_changes(args)
     _prepare_archive(args)
-    _prepare_jobs(args)
+    jobs_preflight.prepare(args)
 
 
 def _prepare_max_runtime(args) -> None:
@@ -49,35 +50,6 @@ def _prepare_max_runtime(args) -> None:
     timeout = getattr(args, "timeout", None)
     if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
         raise PolicyError("--timeout must be a positive finite number of seconds")
-
-
-def _prepare_jobs(args) -> None:
-    if args.command != "jobs":
-        return
-    from tgcli.jobs import model
-
-    cmd = args.jobs_command
-    if cmd in ("add", "cancel", "run"):
-        safety.enforce_local_mutation_allowed(args.readonly)
-    if cmd == "add":
-        args.key = model.validate_key(args.key)
-        args.priority = model.validate_priority(args.priority)
-        if args.job_kind == "archive-transcribe":
-            args.max_attempts = model.transcribe_spec(args.max_attempts)["max_attempts"]
-        return
-    if cmd in ("show", "cancel"):
-        args.key = model.validate_key(args.key)
-        return
-    if cmd == "run":
-        cap = getattr(args, "max_runtime", None)
-        if cap is None:
-            raise PolicyError("jobs run requires --max-runtime")
-        if cap > model.MAX_RUNTIME_SECONDS:
-            raise PolicyError(
-                f"jobs run --max-runtime accepts at most {model.MAX_RUNTIME_SECONDS:g}"
-            )
-        if getattr(args, "session_role", None) is not None:
-            raise PolicyError("jobs local lane does not accept a session role")
 
 
 def _prepare_archive(args) -> None:

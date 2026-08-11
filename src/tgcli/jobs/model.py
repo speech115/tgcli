@@ -35,6 +35,12 @@ def transcribe_spec(max_attempts: int | None) -> dict[str, int]:
     return {"max_attempts": transcribe_mod.validate_max_attempts(max_attempts)}
 
 
+def clone_spec(source: str) -> dict[str, str]:
+    if not source or source != source.strip() or any(ord(char) < 32 for char in source):
+        raise PolicyError("clone-sync SOURCE must be a non-empty value")
+    return {"source": source}
+
+
 def canonical_json(value: dict) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 

@@ -145,6 +145,30 @@ def export_state(source: str) -> dict:
     return matches[0].to_dict()
 
 
+def progress_token(account_user_id: int) -> dict:
+    """Durable cursors for every clone owned by one Telegram account."""
+    clones = sorted(
+        (
+            loaded
+            for loaded in lookup.loaded_states()
+            if loaded.account_user_id == account_user_id
+        ),
+        key=lambda loaded: loaded.source_peer_id,
+    )
+    return {
+        "clones": [
+            {
+                "source_peer_id": found.source_peer_id,
+                "cursor": found.cursor,
+                "discussion_cursor": found.discussion_cursor,
+                "copied": len(found.id_map),
+                "discussion_copied": len(found.discussion_id_map),
+            }
+            for found in clones
+        ]
+    }
+
+
 def status_rows(data: dict) -> list[tuple]:
     return [
         (
@@ -1010,7 +1034,7 @@ async def sync_text(
     participants = await roster.collect(tg, clone_state, source_entity)
     clone_state.last_synced_at = datetime.now(UTC).isoformat()
     state.save(clone_state)
-    data = {
+    data: dict = {
         "clone": {
             "id": clone_state.clone_id,
             "source": {
@@ -1036,6 +1060,7 @@ async def sync_text(
             **({"pinned": pinned_result} if pinned_result is not None else {}),
         },
     }
+    data["remaining"] = bool(more or cap_exhausted())
     if quote_flattened:
         raise PartialFailure(
             f"clone sync finished with {len(quote_flattened)} quote fallback(s)",

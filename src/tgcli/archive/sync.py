@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -277,6 +278,7 @@ async def fetch_media(
     account_user_id: int,
     account_dir: Path,
     limit: int,
+    should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Download queued voice/video-note media into the account archive.
 
@@ -290,6 +292,8 @@ async def fetch_media(
     failed: list[dict[str, Any]] = []
     rows = _media_candidates(conn, account_dir, limit)
     for row in rows:
+        if should_stop is not None and should_stop():
+            break
         peer_id = int(row["peer_id"])
         message_id = int(row["message_id"])
         try:
@@ -446,6 +450,7 @@ async def sync_archive(
     account_alias: str,
     account_dir: Path,
     reconcile: bool = True,
+    should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Apply a full difference pass, then budgeted channel catch-ups.
 
@@ -472,7 +477,11 @@ async def sync_archive(
     await _enrich_private_identity(tg, conn, events)
     catchups: list[dict[str, Any]] = []
     remaining = max_events
+    stopped = False
     for peer in (applied.get("activity_peers") or [])[:max_dialogs]:
+        if should_stop is not None and should_stop():
+            stopped = True
+            break
         result = await _catch_up_peer(
             tg,
             conn,
@@ -483,6 +492,8 @@ async def sync_archive(
         catchups.append(result)
         remaining = max(0, remaining - int(result.get("stored") or 0))
 
+    if should_stop is not None and should_stop():
+        stopped = True
     media = await fetch_media(
         tg,
         conn,
@@ -490,7 +501,10 @@ async def sync_archive(
         account_user_id=account_user_id,
         account_dir=account_dir,
         limit=max_media,
+        should_stop=should_stop,
     )
+    if should_stop is not None and should_stop():
+        stopped = True
 
     gap = doc.get("gap")
     encoded = changes_cursor.encode(cursor)
@@ -502,9 +516,12 @@ async def sync_archive(
         clear_gap=gap is None,
     )
     reconcile_data = None
-    if reconcile:
+    if reconcile and not stopped:
         reconcile_data = await light_reconcile(tg, conn)
 
+    pending_catchups = len(applied.get("activity_peers") or []) > len(catchups) or any(
+        item.get("skipped_budget") for item in catchups
+    )
     return {
         "initialized": initialized,
         "applied": {
@@ -524,6 +541,7 @@ async def sync_archive(
         "next_cursor": encoded,
         "reconcile": reconcile_data,
         "requests": len(requests),
+        "remaining": bool(stopped or pending_catchups or media["remaining"]),
     }
 
 
