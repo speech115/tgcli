@@ -10,8 +10,8 @@ once it has an owner request + ADR (as MSG-001 and FEED-001 already did).
 
 ## JOBS-001 — Governed multi-day work scheduler
 
-**Status:** accepted by ADR-0087; implementation campaign tracked by GitHub
-map #146.
+**Status:** implemented by ADR-0087 slices #187–#189; pending campaign
+integration, live acceptance, and the 3.0.0 release tracked by GitHub map #146.
 
 `tg jobs` will persist four typed checkpointed workloads — archive backfill,
 archive sync, clone sync, and local archive transcription — and run them as

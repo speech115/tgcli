@@ -505,7 +505,7 @@ def test_deadline_defaults_match_the_contract(monkeypatch):
     assert default_timeout_for(["clone", "init", "@s"]) is None
     assert default_timeout_for(["clone", "sync", "@s"]) is None
     assert default_timeout_for(["clone", "refresh", "@s"]) is None
-    assert default_timeout_for(["archive", "refresh"]) is None
+    assert default_timeout_for(["jobs", "run", "--lane", "local"]) is None
     assert default_timeout_for(["export", "messages", "@c", "--output", "x"]) is None
     assert default_timeout_for(["media", "download", "@c", "1"]) is None
     # CONTRACT §10/§12 remain per-command defaults: QR and long-poll

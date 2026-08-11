@@ -93,7 +93,7 @@ def test_transcript_queue_is_newest_first_and_bounded(tmp_path):
         conn.close()
 
 
-def test_schema_v6_adds_refresh_and_media_failure_state(tmp_path):
+def test_schema_v6_keeps_media_failure_state_without_refresh_state(tmp_path):
     conn = _connection(tmp_path)
     try:
         columns = {
@@ -106,13 +106,17 @@ def test_schema_v6_adds_refresh_and_media_failure_state(tmp_path):
             "media_attempts",
             "media_status",
         } <= columns
-        assert {
+        refresh_columns = {
             "refresh_failure_streak",
             "refresh_last_error",
             "refresh_notification_sent",
-        } <= {
-            row[1] for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
         }
+        assert refresh_columns.isdisjoint(
+            {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
+            }
+        )
         assert store.schema_version(conn) == 6
     finally:
         conn.close()

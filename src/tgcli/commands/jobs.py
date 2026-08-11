@@ -70,6 +70,16 @@ def cancel(alias: str, key: str) -> dict:
     return data
 
 
+def rearm(alias: str, key: str, *, expected_lane: str) -> dict:
+    conn = store.connect_existing(alias)
+    try:
+        data = store.rearm_job(conn, key, expected_lane=expected_lane)
+    finally:
+        conn.close()
+    data["account"] = {"alias": alias}
+    return data
+
+
 def run_local(alias: str, *, max_runtime: float, config: Config) -> dict:
     return runner.run_local(alias, max_runtime=max_runtime, config=config)
 

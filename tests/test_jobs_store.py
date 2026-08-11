@@ -114,6 +114,78 @@ def test_cancel_request_wins_at_the_quantum_checkpoint(registry):
     assert final["last_result"] == {"remaining": False}
 
 
+def test_rearm_completed_only_and_reuses_an_existing_queue(registry):
+    _add(registry, "recurring", priority="high", max_attempts=4)
+    running = jobs_store.claim_next(registry, "local", now=NOW)
+    jobs_store.complete(
+        registry,
+        running,
+        {"remaining": False},
+        now=NOW + timedelta(seconds=1),
+    )
+
+    created = jobs_store.rearm_job(
+        registry,
+        "recurring",
+        expected_lane="local",
+        now=NOW + timedelta(seconds=2),
+    )
+    assert created["created"] is True
+    assert created["noop"] is False
+    assert created["job"]["generation"] == 2
+    assert created["job"]["state"] == "queued"
+    assert created["job"]["spec"] == {"max_attempts": 4}
+    assert created["job"]["priority"] == "high"
+    assert jobs_store.show_job(registry, "recurring")["events"][-1] == {
+        "generation": 2,
+        "timestamp": (NOW + timedelta(seconds=2)).isoformat(),
+        "type": "rearmed",
+        "detail": {"previous_generation": 1},
+    }
+
+    queued = jobs_store.rearm_job(
+        registry,
+        "recurring",
+        expected_lane="local",
+        now=NOW + timedelta(seconds=3),
+    )
+    assert queued["created"] is False
+    assert queued["noop"] is True
+    assert queued["job"]["generation"] == 2
+
+
+@pytest.mark.parametrize("terminal", ["failed", "cancelled"])
+def test_rearm_refuses_failed_and_cancelled_generations(registry, terminal):
+    _add(registry, "stopped")
+    if terminal == "cancelled":
+        jobs_store.cancel_job(registry, "stopped", now=NOW)
+    else:
+        running = jobs_store.claim_next(registry, "local", now=NOW)
+        jobs_store.fail_terminal(
+            registry,
+            running,
+            {"code": "BLOCKED"},
+            now=NOW + timedelta(seconds=1),
+        )
+
+    with pytest.raises(PolicyError, match=terminal):
+        jobs_store.rearm_job(
+            registry,
+            "stopped",
+            expected_lane="local",
+            now=NOW + timedelta(seconds=2),
+        )
+
+
+def test_rearm_refuses_running_or_changed_lane(registry):
+    _add(registry, "active")
+    jobs_store.claim_next(registry, "local", now=NOW)
+    with pytest.raises(PolicyError, match="running"):
+        jobs_store.rearm_job(registry, "active", expected_lane="local", now=NOW)
+    with pytest.raises(PolicyError, match="lane"):
+        jobs_store.rearm_job(registry, "active", expected_lane="telegram", now=NOW)
+
+
 def test_runtime_failures_back_off_then_fail_and_delay_the_next_generation(
     registry,
 ):

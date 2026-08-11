@@ -74,10 +74,6 @@ def _prepare_add(args) -> None:
 
 
 def _prepare_run(args) -> None:
-    if args.lane == "telegram":
-        safety.enforce_mutation_allowed(args.readonly)
-    else:
-        safety.enforce_local_mutation_allowed(args.readonly)
     cap = getattr(args, "max_runtime", None)
     if cap is None:
         raise PolicyError("jobs run requires --max-runtime")
@@ -85,8 +81,28 @@ def _prepare_run(args) -> None:
         raise PolicyError(
             f"jobs run --max-runtime accepts at most {model.MAX_RUNTIME_SECONDS:g}"
         )
+    rearm = getattr(args, "rearm", None)
+    if rearm is not None:
+        if getattr(args, "session_role", None) is None:
+            safety.enforce_local_mutation_allowed(args.readonly)
+        else:
+            safety.enforce_mutation_allowed(args.readonly)
+        args.rearm = model.validate_key(rearm)
+        return
+    prepare_resolved_run(args, args.lane)
+
+
+def prepare_resolved_run(args, lane: str) -> None:
+    """Apply lane-specific gates after a rearm key resolves from local state."""
+    if lane == "telegram":
+        safety.enforce_mutation_allowed(args.readonly)
+    elif lane == "local":
+        safety.enforce_local_mutation_allowed(args.readonly)
+    else:
+        raise PolicyError(f"unknown jobs lane: {lane}")
+    args.lane = lane
     role = getattr(args, "session_role", None)
-    if args.lane == "telegram" and role is None:
+    if lane == "telegram" and role is None:
         raise PolicyError("jobs telegram lane requires an explicit session role")
-    if args.lane == "local" and role is not None:
+    if lane == "local" and role is not None:
         raise PolicyError("jobs local lane does not accept a session role")

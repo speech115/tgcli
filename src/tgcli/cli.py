@@ -32,6 +32,7 @@ from tgcli.commands import (
 )
 from tgcli.config import load_config, resolve_account
 from tgcli.errors import CommandTimeoutError, PartialFailure, TgcliError
+from tgcli.jobs import preflight as jobs_preflight
 from tgcli.parser import build_parser
 
 LOGGER = logging.getLogger(__name__)
@@ -117,7 +118,6 @@ def _long_running_command(args) -> bool:
             args.command == "clone"
             and args.clone_command in ("init", "sync", "refresh")
         )
-        or (args.command == "archive" and args.archive_command == "refresh")
         or (args.command == "jobs" and args.jobs_command == "run")
     )
 
@@ -390,6 +390,11 @@ def _execute(args) -> tuple[dict, list[tuple]]:
 
     config = load_config()
     if args.command == "jobs":
+        if args.jobs_command == "run" and getattr(args, "rearm", None) is not None:
+            alias = jobs_cmd.resolve_alias(args.account, config)
+            current = jobs_cmd.show(alias, args.rearm)["job"]
+            jobs_preflight.prepare_resolved_run(args, current["lane"])
+            jobs_cmd.rearm(alias, args.rearm, expected_lane=current["lane"])
         offline = jobs_cmd.execute_offline(args, config)
         if offline is not None:
             return offline
