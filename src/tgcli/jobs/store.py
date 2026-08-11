@@ -125,6 +125,24 @@ def _existing_meta(conn: sqlite3.Connection) -> tuple[int, str] | None:
     return int(row["schema_version"]), str(row["account_alias"])
 
 
+def _validate_existing(
+    conn: sqlite3.Connection, alias: str, meta: tuple[int, str]
+) -> None:
+    version, bound_alias = meta
+    if version != SCHEMA_VERSION:
+        raise PolicyError(
+            f"jobs registry schema {version} is unsupported; expected {SCHEMA_VERSION}"
+        )
+    if bound_alias != alias:
+        raise PolicyError(
+            f"jobs registry is bound to alias {bound_alias!r}; "
+            f"selected alias is {alias!r} — refusing to merge"
+        )
+    required = {"meta", "jobs", "events"}
+    if not required.issubset(_table_names(conn)):
+        raise PolicyError("jobs registry schema is incomplete")
+
+
 def connect(alias: str, *, path: Path | None = None) -> sqlite3.Connection:
     target = path or path_for(alias, create_parent=True)
     if path is not None:
@@ -149,20 +167,7 @@ def connect(alias: str, *, path: Path | None = None) -> sqlite3.Connection:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             conn.commit()
         else:
-            version, bound_alias = meta
-            if version != SCHEMA_VERSION:
-                raise PolicyError(
-                    f"jobs registry schema {version} is unsupported; "
-                    f"expected {SCHEMA_VERSION}"
-                )
-            if bound_alias != alias:
-                raise PolicyError(
-                    f"jobs registry is bound to alias {bound_alias!r}; "
-                    f"selected alias is {alias!r} — refusing to merge"
-                )
-            required = {"meta", "jobs", "events"}
-            if not required.issubset(_table_names(conn)):
-                raise PolicyError("jobs registry schema is incomplete")
+            _validate_existing(conn, alias, meta)
         _restrict_sidecars(target)
         return conn
     except Exception:
@@ -171,6 +176,31 @@ def connect(alias: str, *, path: Path | None = None) -> sqlite3.Connection:
 
 
 def connect_existing(alias: str) -> sqlite3.Connection:
+    path = path_for(alias)
+    if not path.is_file():
+        raise NotFoundError("jobs registry is not initialized; run: tg jobs add …")
+    conn = sqlite3.connect(
+        f"{path.resolve().as_uri()}?mode=ro",
+        uri=True,
+        timeout=BUSY_TIMEOUT_MS / 1000,
+    )
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA query_only = ON")
+        meta = _existing_meta(conn)
+        if meta is None:
+            raise PolicyError("jobs registry schema is unsupported")
+        _validate_existing(conn, alias, meta)
+        return conn
+    except Exception:
+        conn.close()
+        raise
+
+
+def connect_mutating(alias: str) -> sqlite3.Connection:
+    """Open an existing registry and restore its mutation-time permissions."""
     path = path_for(alias)
     if not path.is_file():
         raise NotFoundError("jobs registry is not initialized; run: tg jobs add …")

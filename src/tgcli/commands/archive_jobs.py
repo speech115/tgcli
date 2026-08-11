@@ -24,7 +24,7 @@ def _open_existing(alias: str, config: Config | None):
 
 
 def progress_token(alias: str, config: Config | None = None) -> dict:
-    """Compact durable archive progress, for scheduler error classification."""
+    """Compact durable archive checkpoints for scheduler error classification."""
     conn = _open_existing(alias, config)
     try:
         store_mod.require_bound_alias(conn, alias)
@@ -40,7 +40,8 @@ def progress_token(alias: str, config: Config | None = None) -> dict:
             [
                 tuple(row)
                 for row in conn.execute(
-                    "SELECT peer_id, oldest_id, newest_id, more "
+                    "SELECT peer_id, oldest_id, newest_id, more, "
+                    "last_backfill_at, last_sync_at "
                     "FROM sync_state ORDER BY peer_id"
                 )
             ],

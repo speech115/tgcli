@@ -12,6 +12,7 @@ from tgcli.archive import store as archive_store
 from tgcli.cli import main
 from tgcli.commands import archive as archive_cmd
 from tgcli.errors import PolicyError
+from tgcli.jobs import store as jobs_store
 
 SAMPLE = """
 default_account = "main"
@@ -271,6 +272,49 @@ def test_rearm_completed_local_job_and_allow_no_send(jobs_env, monkeypatch, caps
     assert data["lane"] == "local"
     assert data["completed"] == 1
     assert data["outcomes"][0]["generation"] == 2
+
+
+def test_rearm_does_not_mutate_when_the_lane_is_already_running(jobs_env, capsys):
+    _init_archive()
+    assert main(_add_args()) == 0
+    capsys.readouterr()
+    assert main(["--max-runtime", "1", "jobs", "run", "--lane", "local"]) == 0
+    capsys.readouterr()
+
+    with jobs_store.lane_lock("main", "local"):
+        assert (
+            main(
+                [
+                    "--max-runtime",
+                    "1",
+                    "jobs",
+                    "run",
+                    "--rearm",
+                    "nightly",
+                    "--json",
+                ]
+            )
+            == 2
+        )
+    assert "already running" in capsys.readouterr().err
+
+    assert main(["jobs", "show", "nightly", "--json"]) == 0
+    job = json.loads(capsys.readouterr().out)["job"]
+    assert (job["generation"], job["state"]) == (1, "completed")
+
+
+def test_readonly_jobs_list_does_not_repair_registry_permissions(jobs_env, capsys):
+    assert main(_add_args()) == 0
+    capsys.readouterr()
+    directory = jobs_store.path_for("main").parent
+    database = jobs_store.path_for("main")
+    directory.chmod(0o755)
+    database.chmod(0o644)
+
+    assert main(["--readonly", "jobs", "list", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["jobs"][0]["key"] == "nightly"
+    assert directory.stat().st_mode & 0o777 == 0o755
+    assert database.stat().st_mode & 0o777 == 0o644
 
 
 def test_rearm_cancelled_job_is_not_resurrected(jobs_env, capsys):

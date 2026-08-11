@@ -1,7 +1,7 @@
 # ADR-0068: Local archive store with FTS5 search and transcription
 
 Date: 2026-07-31
-Status: accepted (2026-07-31; wayfinder map #100, decisions #101–#108)
+Status: accepted (2026-07-31; refresh scheduling amended by ADR-0087)
 
 ## Context
 

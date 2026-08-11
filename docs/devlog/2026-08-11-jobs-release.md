@@ -6,12 +6,13 @@ completed one transcription item without error. A bounded Telegram
 archive-sync quantum applied 1846 updates, preserved its next cursor, recorded
 one pre-existing channel gap, and stayed queued for remaining media work with
 `failure_streak=0` and `stop_reason=wall_clock_cap`.
-Whole-campaign review found four defects and each gained a reproducing test:
-the Telegram lane now locks before opening its role session; archive progress
-hashes per-dialog cursors; existing jobs directories are repaired to `0700`;
-and schema/supersession docs match the cutover. Release gate: 1881 passed, 9
-skipped; coverage, docs, pyright, ruff, and
-architecture checks passed.
+Whole-campaign review found eight defects and each gained a reproducing test.
+The final complexity reset gives CLI one lane lock around rearm, local work,
+and Telegram session acquisition. Archive progress hashes complete dialog
+checkpoints. Read-only registry queries use SQLite `mode=ro`; mutating opens
+repair account directories to `0700`. Active schema/supersession docs match
+the cutover. Release gate: 1884 passed, 9 skipped; coverage, docs, pyright,
+ruff, and architecture checks passed.
 **Decided:** did not run clone acceptance. The two accessible candidates were
 behind their source or discussion cursor, while the other recorded sources
 were no longer accessible to the role; none was a provable no-op. Creating a

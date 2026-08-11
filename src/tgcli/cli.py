@@ -32,7 +32,7 @@ from tgcli.commands import (
 )
 from tgcli.config import load_config, resolve_account
 from tgcli.errors import CommandTimeoutError, PartialFailure, TgcliError
-from tgcli.jobs import preflight as jobs_preflight
+from tgcli.jobs import preflight as jobs_preflight, store as jobs_store
 from tgcli.parser import build_parser
 
 LOGGER = logging.getLogger(__name__)
@@ -394,11 +394,20 @@ def _execute(args) -> tuple[dict, list[tuple]]:
 
     config = load_config()
     if args.command == "jobs":
-        if args.jobs_command == "run" and getattr(args, "rearm", None) is not None:
+        if args.jobs_command == "run":
             alias = jobs_cmd.resolve_alias(args.account, config)
-            current = jobs_cmd.show(alias, args.rearm)["job"]
-            jobs_preflight.prepare_resolved_run(args, current["lane"])
-            jobs_cmd.rearm(alias, args.rearm, expected_lane=current["lane"])
+            args.account = alias
+            rearm = getattr(args, "rearm", None)
+            if rearm is not None:
+                current = jobs_cmd.show(alias, rearm)["job"]
+                jobs_preflight.prepare_resolved_run(args, current["lane"])
+            with jobs_store.lane_lock(alias, args.lane):
+                if rearm is not None:
+                    jobs_cmd.rearm(alias, rearm, expected_lane=args.lane)
+                offline = jobs_cmd.execute_offline(args, config)
+                if offline is not None:
+                    return offline
+                return _execute_network(args, config)
         offline = jobs_cmd.execute_offline(args, config)
         if offline is not None:
             return offline
@@ -505,6 +514,11 @@ def _execute(args) -> tuple[dict, list[tuple]]:
             data = asyncio.run(coro)
         return data, doctor_cmd.to_rows(data)
 
+    return _execute_network(args, config)
+
+
+def _execute_network(args, config) -> tuple[dict, list[tuple]]:
+    """Own account resolution, audit context, and one network invocation."""
     account = resolve_account(config, args.account)
     args.account = account.alias
     if args.verbose:

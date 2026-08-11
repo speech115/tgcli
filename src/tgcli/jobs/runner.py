@@ -136,47 +136,42 @@ def run_local(
     outcomes: list[dict[str, Any]] = []
     recovered = {"queued": 0, "cancelled": 0}
     stop_reason = "idle"
-    with store.lane_lock(alias, "local"):
-        conn = store.connect_existing(alias)
-        try:
-            recovered = store.recover_running(conn, "local", now=wall_clock())
-            while monotonic() - started < max_runtime:
-                job = store.claim_next(conn, "local", now=wall_clock())
-                if job is None:
-                    break
-                counts["selected"] += 1
-                result: dict | None = None
-                try:
-                    if job["kind"] != "archive-transcribe":
-                        raise PolicyError(f"unsupported local job kind: {job['kind']}")
-                    result = _run_transcription(job, alias, config)
-                    if store.cancel_requested(conn, job):
-                        final = store.finish_cancelled(
-                            conn, job, result, now=wall_clock()
-                        )
-                    elif bool(result["remaining"]):
-                        final = store.requeue(
-                            conn,
-                            job,
-                            result=result,
-                            reason="remaining",
-                            now=wall_clock(),
-                        )
-                    else:
-                        final = store.complete(conn, job, result, now=wall_clock())
-                except (PolicyError, ConfigError, NotFoundError) as exc:
-                    final = store.fail_terminal(
-                        conn, job, _error(exc), now=wall_clock()
+    conn = store.connect_mutating(alias)
+    try:
+        recovered = store.recover_running(conn, "local", now=wall_clock())
+        while monotonic() - started < max_runtime:
+            job = store.claim_next(conn, "local", now=wall_clock())
+            if job is None:
+                break
+            counts["selected"] += 1
+            result: dict | None = None
+            try:
+                if job["kind"] != "archive-transcribe":
+                    raise PolicyError(f"unsupported local job kind: {job['kind']}")
+                result = _run_transcription(job, alias, config)
+                if store.cancel_requested(conn, job):
+                    final = store.finish_cancelled(conn, job, result, now=wall_clock())
+                elif bool(result["remaining"]):
+                    final = store.requeue(
+                        conn,
+                        job,
+                        result=result,
+                        reason="remaining",
+                        now=wall_clock(),
                     )
-                except Exception as exc:
-                    final = store.fail_runtime(conn, job, _error(exc), now=wall_clock())
-                counts[final["state"]] += 1
-                outcomes.append(_outcome(final))
-                _notify_failed(final)
-            else:
-                stop_reason = "wall_clock_cap"
-        finally:
-            conn.close()
+                else:
+                    final = store.complete(conn, job, result, now=wall_clock())
+            except (PolicyError, ConfigError, NotFoundError) as exc:
+                final = store.fail_terminal(conn, job, _error(exc), now=wall_clock())
+            except Exception as exc:
+                final = store.fail_runtime(conn, job, _error(exc), now=wall_clock())
+            counts[final["state"]] += 1
+            outcomes.append(_outcome(final))
+            _notify_failed(final)
+        else:
+            stop_reason = "wall_clock_cap"
+    finally:
+        conn.close()
     return {
         "account": {"alias": alias},
         "lane": "local",
@@ -207,7 +202,7 @@ async def run_telegram(
     outcomes: list[dict[str, Any]] = []
     recovered = {"queued": 0, "cancelled": 0}
     stop_reason = "idle"
-    conn = store.connect_existing(alias)
+    conn = store.connect_mutating(alias)
     try:
         me = await tg.get_me()
         user_id = int(me.id)

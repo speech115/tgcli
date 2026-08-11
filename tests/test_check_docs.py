@@ -310,6 +310,8 @@ def test_active_contract_and_adr_index_match_the_jobs_cutover():
     assert "Schema v7 tables" in contract
     assert "`tg accounts login` requires explicit phone authorization" in index
     assert "| superseded by ADR-0087 |" in index
+    assert "hourly one-shot refresh" not in index
+    assert "refresh scheduling amended by ADR-0087" in index
     assert "Status: superseded by ADR-0087" in refresh
 
 

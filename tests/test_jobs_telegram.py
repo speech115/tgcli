@@ -9,7 +9,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from tgcli import dispatch, session
+from tgcli import session
+from tgcli.cli import main
 from tgcli.clone import state as clone_state
 from tgcli.commands import (
     archive as archive_cmd,
@@ -74,18 +75,10 @@ class Telegram:
 
 
 def test_telegram_lane_lock_is_taken_before_the_session_lock(
-    telegram_registry, monkeypatch
+    telegram_registry, monkeypatch, capsys
 ):
-    _conn, config = telegram_registry
+    _conn, _config = telegram_registry
     session_entries = 0
-    first_runner_started = asyncio.Event()
-    release_first = asyncio.Event()
-
-    class BlockingTelegram(Telegram):
-        async def get_me(self):
-            first_runner_started.set()
-            await release_first.wait()
-            return await super().get_me()
 
     @asynccontextmanager
     async def fake_client(_account, *, mutation_safe, role):
@@ -93,27 +86,24 @@ def test_telegram_lane_lock_is_taken_before_the_session_lock(
         assert mutation_safe is True
         assert role == "job"
         session_entries += 1
-        yield BlockingTelegram()
+        yield Telegram()
 
     monkeypatch.setattr(session, "client", fake_client)
-    args = SimpleNamespace(
-        command="jobs",
-        jobs_command="run",
-        lane="telegram",
-        session_role="job",
-        max_runtime=1,
-    )
-
-    async def scenario():
-        first = asyncio.create_task(dispatch.run_network(args, config.accounts["main"]))
-        await first_runner_started.wait()
-        with pytest.raises(PolicyError, match="lane is already running"):
-            await dispatch.run_network(args, config.accounts["main"])
-        assert session_entries == 1
-        release_first.set()
-        await first
-
-    asyncio.run(scenario())
+    argv = [
+        "--session-role",
+        "job",
+        "--max-runtime",
+        "1",
+        "jobs",
+        "run",
+        "--lane",
+        "telegram",
+        "--json",
+    ]
+    with store.lane_lock("main", "telegram"):
+        assert main(argv) == 2
+    assert "already running" in capsys.readouterr().err
+    assert session_entries == 0
 
 
 def test_telegram_lane_binds_identity_before_work_and_refuses_mismatch(

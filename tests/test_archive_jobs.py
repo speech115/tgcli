@@ -105,3 +105,37 @@ def test_progress_token_changes_when_a_dialog_cursor_advances(tmp_path, monkeypa
     after = archive_jobs_cmd.progress_token("main", config)
 
     assert after != before
+
+
+def test_progress_token_changes_when_backfill_marks_a_dialog_complete(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
+    archive_root = tmp_path / "archive"
+    config = Config(default_account=None, accounts={}, archive_root=archive_root)
+    directory = archive_store.ensure_account_dir(archive_root, "main")
+    conn = archive_store.connect(archive_store.db_path_for(directory))
+    archive_store.ensure_meta(conn, account_user_id=42, account_alias="main")
+    archive_store.upsert_sync_state(
+        conn,
+        7,
+        oldest_id=1,
+        newest_id=120,
+        more=False,
+        touch_sync=True,
+    )
+    conn.commit()
+    before = archive_jobs_cmd.progress_token("main", config)
+
+    archive_store.upsert_sync_state(
+        conn,
+        7,
+        oldest_id=1,
+        newest_id=120,
+        more=False,
+    )
+    conn.commit()
+    conn.close()
+    after = archive_jobs_cmd.progress_token("main", config)
+
+    assert after != before

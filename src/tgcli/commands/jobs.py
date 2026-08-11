@@ -61,7 +61,7 @@ def show(alias: str, key: str) -> dict:
 
 
 def cancel(alias: str, key: str) -> dict:
-    conn = store.connect_existing(alias)
+    conn = store.connect_mutating(alias)
     try:
         data = store.cancel_job(conn, key)
     finally:
@@ -71,7 +71,7 @@ def cancel(alias: str, key: str) -> dict:
 
 
 def rearm(alias: str, key: str, *, expected_lane: str) -> dict:
-    conn = store.connect_existing(alias)
+    conn = store.connect_mutating(alias)
     try:
         data = store.rearm_job(conn, key, expected_lane=expected_lane)
     finally:

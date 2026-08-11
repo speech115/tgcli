@@ -41,7 +41,9 @@ CEILINGS = {
     # pending-import and half-initialized stderr pointers, doctor's
     # readonly argument, and finish_commit for the clone commits.
     # ADR-0087: offline jobs routing plus resolved-lane recurring rearm.
-    "src/tgcli/cli.py": 733,
+    # +14 final review reset: one CLI-owned lane lock now encloses rearm,
+    # local execution, and Telegram session acquisition.
+    "src/tgcli/cli.py": 747,
     # +2 for ADR-0057: isort section blanks, E501 split in the --format help.
     # +47 for ADR-0062 --session-role / accounts --role flags and the
     # ADR-0063 tg changes subcommand surface.
@@ -82,8 +84,8 @@ CEILINGS = {
     # grace band had been carrying it since earlier work; the ratchet is
     # the integrator's job and nobody had done it.
     # ADR-0087 routes the Telegram jobs lane through the existing session seam.
-    # +6 review fix: acquire the jobs lane before the named session lock.
-    "src/tgcli/dispatch.py": 364,
+    # The final review moved lane ownership to cli.py; ratchet the shrink.
+    "src/tgcli/dispatch.py": 358,
     "src/tgcli/commands/batch.py": 96,
     # +3 for ADR-0057: isort section blanks.
     "src/tgcli/read_ops.py": 437,
@@ -162,9 +164,9 @@ CEILINGS = {
     # tg.get_me(), plus stop_reason/deferred/resume reporting on
     # backfill_dialogs's chats-mode result.
     "src/tgcli/commands/archive.py": 541,
-    # ADR-0087: fixed typed quantum over one archive backfill dialog; +14 review
-    # fix hashes per-dialog durable cursors into the runtime progress token.
-    "src/tgcli/commands/archive_jobs.py": 132,
+    # ADR-0087: fixed typed quantum over one archive backfill dialog; +15 review
+    # fix hashes complete per-dialog checkpoints into the runtime progress token.
+    "src/tgcli/commands/archive_jobs.py": 133,
     # ADR-0087: jobs public command seam and typed control-plane routing.
     "src/tgcli/commands/jobs.py": 163,
     # ADR-0087: grammar/model/preflight, persistent WAL registry, and two
@@ -172,11 +174,10 @@ CEILINGS = {
     "src/tgcli/jobs/arguments.py": 79,
     "src/tgcli/jobs/model.py": 50,
     "src/tgcli/jobs/preflight.py": 108,
-    # Review moved the Telegram lane lock outside session acquisition; the
-    # runner shrank while dispatch became the full-invocation owner.
-    "src/tgcli/jobs/runner.py": 355,
-    # +1 review fix repairs an existing account directory back to 0700.
-    "src/tgcli/jobs/store.py": 889,
+    # Final review moved both lane locks to the CLI full-invocation owner.
+    "src/tgcli/jobs/runner.py": 350,
+    # Final review splits query-only opens from mutation-time permission repair.
+    "src/tgcli/jobs/store.py": 919,
     # ADR-0072: the governor package (account-wide request pacing and
     # cooldowns around Telethon's private ``_call``) landed across phases
     # 0-2 with no ceilings at all; seed all seven modules at their current
