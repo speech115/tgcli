@@ -693,6 +693,14 @@ def test_max_runtime_must_be_positive(config_env, capsys):
     assert main(["--max-runtime", "-5", "dialogs", "--json"]) == 2
 
 
+@pytest.mark.parametrize("flag", ["--max-runtime", "--timeout"])
+def test_runtime_bounds_must_be_finite(config_env, capsys, flag):
+    from tgcli.cli import main
+
+    assert main([flag, "nan", "dialogs", "--json"]) == 2
+    assert "finite" in capsys.readouterr().err.lower()
+
+
 async def test_resolve_twice_within_three_seconds_paces_like_today(client, sleeper):
     """P6: ResolvePhoneRequest keeps its 3 s pace via the general mechanism.
 

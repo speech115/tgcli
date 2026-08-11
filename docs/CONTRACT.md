@@ -705,6 +705,8 @@ No config and no Telegram session. `--json` emits:
  "clone_media_cache":{"count":0,"bytes":0},
  "archive":{"bytes":0,"db":{"count":0,"bytes":0},"wal":{"count":0,"bytes":0},
             "shm":{"count":0,"bytes":0}},
+ "jobs":{"bytes":0,"db":{"count":0,"bytes":0},"wal":{"count":0,"bytes":0},
+         "shm":{"count":0,"bytes":0},"states":{},"unreadable":0},
  "downloads":{"bytes":0},
  "relics":[{"name":"labs","bytes":11}]}
 ```
@@ -726,7 +728,10 @@ reports abandoned `clones/<clone_id>-media/` directories left by a failed
 aggregate `clones` figure. `archive` reports
 `archive/<account>/` under the state root (ADR-0068): aggregate bytes plus
 `archive.db` / WAL / SHM counts; never auto-deleted. A custom
-`[archive] root` outside the state root is not inventoried here. Relic directories
+`[archive] root` outside the state root is not inventoried here. `jobs`
+reports account registries under `jobs/<alias>/`: DB/WAL/SHM bytes, the latest
+generation count by state, and unreadable DB count; cleanup never removes it.
+Relic directories
 (`mirrors`, `mirror-lab`, `labs`, `probes`) are reported when present and never
 auto-deleted. New previews are written mode `0600`; `store cleanup` also
 tightens surviving preview modes to `0600`.
@@ -747,6 +752,7 @@ deleted. Never touches `audit.jsonl`, `sessions/` (including `.bak`), live
 login attempts, live `.json` within TTL, clone state JSON, a media cache
 younger than one hour (`MEDIA_CACHE_MIN_AGE`, the running-sync guard), the
 archive store under `archive/` (ADR-0068), or relic directories.
+The jobs registry under `jobs/` (ADR-0087) is also never removed.
 `.pending` files are
 protected (ADR-0028 `random_id`) and are eligible only with `--include-pending`
 and only when far past TTL (`expires_at + PREVIEW_TTL`). Staged sessions are
@@ -769,7 +775,7 @@ guard is for Telegram sends, and cleanup reaches no network.
 ```json
 {"removed":[],"would_remove":["p_spent0.used","p_expired.json"],"bytes":130,
  "confirmed":false,"kept":{"audit_log":true,"sessions":true,
- "session_backups":true,"archive":true,"relics":["labs"]}}
+ "session_backups":true,"archive":true,"jobs":true,"relics":["labs"]}}
 ```
 
 With `--confirm`, `removed` is populated and `would_remove` is empty.
@@ -969,7 +975,7 @@ exit (exit 5) additionally carries `retry_after`, `request_type` (the
 governed key, e.g. `messages.GetHistoryRequest`) and `provenance`
 (`server` | `account_cooldown` | `resolve_phone_cooldown`). A normal stop
 carries `stop_reason` (`breadth_budget_exhausted` | `wall_clock_cap` |
-`cooldown_deferred`). The journal never contains message/search text, chat
+`cooldown_deferred` | `idle`). The journal never contains message/search text, chat
 references, raw API parameters, or command output. A journal-write failure
 emits a warning to stderr but does not change the command result.
 
@@ -2110,3 +2116,82 @@ per-dialog `chat,stored,inserted,updated,more` plus media counters; `sync` →
 applied and media counters; `transcribe` → queue counters;
 `rebaseline` → `rebaselined,peers,gap`; `refresh` → sync event/media
 counters, transcription counters, and `failure_streak,notification_sent`.
+
+## 14. Foreground Jobs (`tg jobs`; ADR-0087 slice 1)
+
+The first working layer schedules the offline archive transcription workload:
+
+```text
+tg jobs add archive-transcribe --key KEY [--max-attempts N]
+  [--priority {low,normal,high}] [--replace]
+tg jobs list
+tg jobs show KEY
+tg jobs cancel KEY
+tg jobs run --lane local
+```
+
+Every `jobs run` requires global `--max-runtime N`, positive and at most
+**3000** seconds. The cap is cooperative: the current one-item transcription
+quantum may finish after it. The local lane rejects `--session-role` and never
+opens Telegram. `jobs add`, `cancel`, and `run` mutate local state, so
+`--readonly` / `TGCLI_READONLY=1` block them before config or state work;
+`TGCLI_NO_SEND=1` does not. `list` and `show` are offline reads.
+
+The account alias owns `TGCLI_STATE_DIR/jobs/<alias>/jobs.db`, SQLite/WAL in a
+`0700` directory with DB/WAL/SHM files restricted to `0600`. The registry
+stores immutable generations and retains only the newest 200 detailed events
+per key. `store stats` reports jobs DB/WAL/SHM bytes plus latest-generation
+state counts; `store cleanup` never removes the registry.
+
+`archive-transcribe` stores `max_attempts` (default 3, cap 5) and always invokes
+the existing archive queue with `limit=1`. Priority defaults to `normal` and is
+ordered `high=2`, `normal=1`, `low=0`; an eligible job gains at most two aging
+points while other quanta run. Ties prefer never-run/oldest-run work, then key.
+One process holds the account/local-lane `flock` for the run. A second local
+runner is exit 2; the future Telegram lane has an independent lock.
+
+Adding an exact queued/running spec is an idempotent no-op. A terminal exact
+spec creates the next generation. Any spec/priority change requires
+`--replace`; replacement cancels queued work and refuses running work.
+`cancel` immediately cancels queued work or durably requests cancellation of a
+running quantum. At its next checkpoint cancellation wins atomically; the
+subprocess is never killed. A runner holding the lane lock recovers stale
+`running` rows to `queued`, or to `cancelled` when a request was already set.
+
+A successful quantum with `remaining: false` completes the generation;
+`remaining: true` queues another quantum. A no-progress runtime failure queues
+retries after 5 then 30 minutes; the third enters `failed` and records a
+two-hour recommendation/inherited earliest time for an explicit next
+generation. Policy/config/not-found failures enter `failed` immediately. A job
+failure is data, not failure of the scheduler invocation: `jobs run` itself
+exits 0 after persisting the state.
+
+The global invocation journal records only `command: "jobs"`, the runner
+`lane`, and aggregate `selected,completed,deferred,failed,cancelled` counts.
+It never stores a key, target, spec, per-job result, or per-job error.
+
+Representative JSON:
+
+```json
+{"created":true,"noop":false,
+ "job":{"key":"nightly","generation":1,
+        "kind":"archive-transcribe","lane":"local",
+        "spec":{"max_attempts":3},"priority":"normal","state":"queued"}}
+```
+
+```json
+{"account":{"alias":"main"},"jobs":[{"key":"nightly","generation":1,
+ "kind":"archive-transcribe","lane":"local","state":"queued",…}]}
+```
+
+```json
+{"account":{"alias":"main"},"lane":"local","selected":1,
+ "completed":1,"queued":0,"failed":0,"cancelled":0,
+ "recovered":{"queued":0,"cancelled":0},"stop_reason":"idle",
+ "outcomes":[{"key":"nightly","generation":1,"state":"completed",
+              "result":{"remaining":false},"error":null,"not_before":null}]}
+```
+
+`--plain` columns: add/show/cancel →
+`key,generation,kind,lane,priority,state`; list appends `not_before`; run →
+`lane,selected,completed,queued,failed,cancelled,stop_reason`.

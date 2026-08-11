@@ -36,6 +36,7 @@ Design lineage: [openclaw/gogcli](https://github.com/openclaw/gogcli) (architect
 - **Chat clone** — copy broadcast channels, megagroup supergroups (forum and non-forum), legacy basic groups, and private dialogs into tool-created destinations, with native forwards plus protected-content reupload. See [docs/guide/clone.md](docs/guide/clone.md).
 - **Daemonless change feed** — `tg changes` returns Telegram updates plus an opaque caller-held cursor, with explicit channel subscriptions, deletion tombstones, and loud gap reporting. See [docs/guide/changes.md](docs/guide/changes.md).
 - **Local archive store (Phase 6)** — `tg archive` binds a per-account SQLite store, backfills selected/private dialogs, syncs the changes cursor, acquires bounded voice/video-note media with terminal retry state, transcribes locally with Parakeet, provides filtered/ranked offline search plus timeline/history views, and exposes a bounded one-shot refresh for hourly launchd scheduling. See [docs/guide/archive.md](docs/guide/archive.md) and [docs/guide/archive-refresh.md](docs/guide/archive-refresh.md).
+- **Foreground persisted jobs** — `tg jobs` starts with a durable offline transcription lane: typed specs, immutable generations, priority with bounded aging, cooperative cancellation, crash recovery, and a required wall-clock cap, while launchd remains the only scheduler. See [docs/guide/jobs.md](docs/guide/jobs.md).
 - **Raw TL escape hatch** — `tg api` reaches the long tail of the pinned Telethon layer behind a default-deny read allowlist, an explicit `--write` gate, typed confirmations for destructive verbs, and a permanent denylist.
 - **Diagnostics and hygiene** — `tg doctor` reports locally by default (`--connect` for live checks); `tg store stats` / `tg store cleanup` inspect and reclaim local state without ever touching sessions or the audit log.
 
@@ -124,7 +125,7 @@ Full guide: **[docs/guide/](docs/guide/README.md)**
 | **Reading** | [dialogs](docs/guide/dialogs.md) · [read](docs/guide/read.md) · [search](docs/guide/search.md) · [contacts](docs/guide/contacts.md) · [batch](docs/guide/batch.md) · [changes](docs/guide/changes.md) · [archive](docs/guide/archive.md) · [archive refresh](docs/guide/archive-refresh.md) · [transcribe](docs/guide/transcribe.md) |
 | **Writing** | [send](docs/guide/send.md) · [editing](docs/guide/editing.md) · [forward](docs/guide/forward.md) · [drafts](docs/guide/drafts.md) · [formatting](docs/guide/formatting.md) · [inbox](docs/guide/inbox.md) |
 | **Data** | [media](docs/guide/media.md) · [export](docs/guide/export.md) · [clone](docs/guide/clone.md) |
-| **Operations** | [doctor](docs/guide/doctor.md) · [store](docs/guide/store.md) · [safety](docs/guide/safety.md) · [api](docs/guide/api.md) |
+| **Operations** | [jobs](docs/guide/jobs.md) · [doctor](docs/guide/doctor.md) · [store](docs/guide/store.md) · [safety](docs/guide/safety.md) · [api](docs/guide/api.md) |
 | **Reference** | [CLI contract](docs/CONTRACT.md) · [feature matrix](docs/FEATURES.md) · [ADR index](docs/decisions/README.md) · [changelog](CHANGELOG.md) |
 | **Agents** | [SKILL.md](SKILL.md) — routing table and recipes · [AGENTS.md](AGENTS.md) — the contract every agent follows here |
 

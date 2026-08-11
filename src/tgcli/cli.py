@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import io
 import logging
+import math
 import os
 import signal
 import sys
@@ -25,6 +26,7 @@ from tgcli.commands import (
     archive as archive_cmd,
     clone as clone_cmd,
     doctor as doctor_cmd,
+    jobs as jobs_cmd,
     login as login_cmd,
     store as store_cmd,
 )
@@ -116,6 +118,7 @@ def _long_running_command(args) -> bool:
             and args.clone_command in ("init", "sync", "refresh")
         )
         or (args.command == "archive" and args.archive_command == "refresh")
+        or (args.command == "jobs" and args.jobs_command == "run")
     )
 
 
@@ -147,6 +150,7 @@ def _armed(seconds: float | None):
     """
     if (
         seconds is None
+        or not math.isfinite(seconds)
         or seconds <= 0
         or threading.current_thread() is not threading.main_thread()
     ):
@@ -385,6 +389,34 @@ def _execute(args) -> tuple[dict, list[tuple]]:
         return data, store_cmd.cleanup_rows(data)
 
     config = load_config()
+    if args.command == "jobs":
+        alias = jobs_cmd.resolve_alias(args.account, config)
+        args.account = alias
+        if args.jobs_command == "add":
+            data = jobs_cmd.add_transcribe(
+                alias,
+                key=args.key,
+                max_attempts=args.max_attempts,
+                priority=args.priority,
+                replace=bool(args.replace),
+            )
+            return data, jobs_cmd.job_rows(data)
+        if args.jobs_command == "list":
+            data = jobs_cmd.list_jobs(alias)
+            return data, jobs_cmd.list_rows(data)
+        if args.jobs_command == "show":
+            data = jobs_cmd.show(alias, args.key)
+            return data, jobs_cmd.job_rows(data)
+        if args.jobs_command == "cancel":
+            data = jobs_cmd.cancel(alias, args.key)
+            return data, jobs_cmd.job_rows(data)
+        data = jobs_cmd.run(
+            alias,
+            lane=args.lane,
+            max_runtime=args.max_runtime,
+            config=config,
+        )
+        return data, jobs_cmd.run_rows(data)
     if args.command == "archive" and args.archive_command in (
         "list",
         "status",
@@ -676,6 +708,20 @@ def main(argv: list[str] | None = None) -> int:
         # requests (review fix m1): offline commands carry neither field.
         slept_ms = int(pacing.total_governed_sleep() * 1000)
         requests = pacing.request_count()
+        jobs_fields = {}
+        if (
+            args.command == "jobs"
+            and args.jobs_command == "run"
+            and isinstance(result_data, dict)
+        ):
+            jobs_fields = {
+                "lane": result_data["lane"],
+                "selected": result_data["selected"],
+                "completed": result_data["completed"],
+                "deferred": result_data["queued"],
+                "failed": result_data["failed"],
+                "cancelled": result_data["cancelled"],
+            }
         invocations.log_invocation(
             command=args.command,
             account=args.account,
@@ -686,6 +732,7 @@ def main(argv: list[str] | None = None) -> int:
             governed_sleep_ms=slept_ms if requests else None,
             request_count=requests or None,
             **stop_fields,
+            **jobs_fields,
         )
         _restore_diagnostics(verbose_diagnostics)
     return exit_code

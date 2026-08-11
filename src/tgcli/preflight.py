@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from datetime import datetime
 
@@ -35,18 +36,48 @@ def prepare(parser: argparse.ArgumentParser, args) -> None:
     _prepare_api(parser, args)
     _prepare_changes(args)
     _prepare_archive(args)
+    _prepare_jobs(args)
 
 
 def _prepare_max_runtime(args) -> None:
     """--max-runtime is a wall-clock cap: non-positive values are misuse."""
     cap = getattr(args, "max_runtime", None)
-    if cap is not None and cap <= 0:
-        raise PolicyError("--max-runtime must be a positive number of seconds")
+    if cap is not None and (not math.isfinite(cap) or cap <= 0):
+        raise PolicyError("--max-runtime must be a positive finite number of seconds")
     # --timeout is a hang detector; a non-positive deadline is meaningless
     # and behaves differently for local vs network commands (review D2).
     timeout = getattr(args, "timeout", None)
-    if timeout is not None and timeout <= 0:
-        raise PolicyError("--timeout must be a positive number of seconds")
+    if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
+        raise PolicyError("--timeout must be a positive finite number of seconds")
+
+
+def _prepare_jobs(args) -> None:
+    if args.command != "jobs":
+        return
+    from tgcli.jobs import model
+
+    cmd = args.jobs_command
+    if cmd in ("add", "cancel", "run"):
+        safety.enforce_local_mutation_allowed(args.readonly)
+    if cmd == "add":
+        args.key = model.validate_key(args.key)
+        args.priority = model.validate_priority(args.priority)
+        if args.job_kind == "archive-transcribe":
+            args.max_attempts = model.transcribe_spec(args.max_attempts)["max_attempts"]
+        return
+    if cmd in ("show", "cancel"):
+        args.key = model.validate_key(args.key)
+        return
+    if cmd == "run":
+        cap = getattr(args, "max_runtime", None)
+        if cap is None:
+            raise PolicyError("jobs run requires --max-runtime")
+        if cap > model.MAX_RUNTIME_SECONDS:
+            raise PolicyError(
+                f"jobs run --max-runtime accepts at most {model.MAX_RUNTIME_SECONDS:g}"
+            )
+        if getattr(args, "session_role", None) is not None:
+            raise PolicyError("jobs local lane does not accept a session role")
 
 
 def _prepare_archive(args) -> None:

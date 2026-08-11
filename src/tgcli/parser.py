@@ -188,6 +188,45 @@ def build_parser() -> argparse.ArgumentParser:
         help="actually delete; without this, dry-run only",
     )
 
+    p_jobs = sub.add_parser(
+        "jobs", help="Persist and run typed foreground jobs", parents=[global_flags]
+    )
+    jobs_sub = p_jobs.add_subparsers(dest="jobs_command", required=True)
+    p_jobs_add = jobs_sub.add_parser(
+        "add", help="Add one typed job", parents=[global_flags]
+    )
+    jobs_add_kind = p_jobs_add.add_subparsers(dest="job_kind", required=True)
+    p_jobs_transcribe = jobs_add_kind.add_parser(
+        "archive-transcribe",
+        help="Drain the local archive transcription queue",
+        parents=[global_flags],
+    )
+    p_jobs_transcribe.add_argument("--key", required=True, help="stable job key")
+    p_jobs_transcribe.add_argument(
+        "--max-attempts",
+        type=int,
+        help="retryable attempts before no transcript (default 3, hard cap 5)",
+    )
+    p_jobs_transcribe.add_argument(
+        "--priority", choices=("low", "normal", "high"), default="normal"
+    )
+    p_jobs_transcribe.add_argument("--replace", action="store_true")
+    jobs_sub.add_parser(
+        "list", help="List latest job generations", parents=[global_flags]
+    )
+    p_jobs_show = jobs_sub.add_parser(
+        "show", help="Show one job and its recent events", parents=[global_flags]
+    )
+    p_jobs_show.add_argument("key")
+    p_jobs_cancel = jobs_sub.add_parser(
+        "cancel", help="Request cooperative cancellation", parents=[global_flags]
+    )
+    p_jobs_cancel.add_argument("key")
+    p_jobs_run = jobs_sub.add_parser(
+        "run", help="Run one foreground lane", parents=[global_flags]
+    )
+    p_jobs_run.add_argument("--lane", choices=("local",), required=True)
+
     p_archive = sub.add_parser(
         "archive",
         help="Local archive store (ADR-0068)",

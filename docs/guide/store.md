@@ -21,7 +21,9 @@ Read-only inventory of the state root by category:
  "audit_log":{"bytes":20},"invocations":{"bytes":0},
  "sessions":{"count":1,"bytes":4096},
  "session_backups":{"count":1,"bytes":4096},
- "clones":{"bytes":0},"downloads":{"bytes":0},
+ "clones":{"bytes":0},"jobs":{"bytes":0,"db":{"count":0,"bytes":0},
+ "wal":{"count":0,"bytes":0},"shm":{"count":0,"bytes":0},
+ "states":{},"unreadable":0},"downloads":{"bytes":0},
  "relics":[{"name":"labs","bytes":11}]}
 ```
 
@@ -47,6 +49,10 @@ flags them "remove by hand" — `store cleanup` never touches them.
 **Archive** (`archive/<account>/`, ADR-0068) is inventoried by `stats`
 (bytes + `archive.db` / WAL / SHM) and is never deleted by cleanup. A custom
 `[archive] root` outside the state directory is not counted here.
+
+**Jobs** (`jobs/<alias>/`, ADR-0087) reports registry DB/WAL/SHM bytes, latest
+generation counts by state, and unreadable registry count. Cleanup never
+deletes a jobs registry.
 
 ## Clean up: `store cleanup`
 
@@ -87,6 +93,7 @@ Cleanup's scope is narrow and non-negotiable:
   an agent a way to cover its tracks.
 - **Never deletes sessions.**
 - **Never deletes the archive store** under `archive/` (ADR-0068).
+- **Never deletes a jobs registry** under `jobs/` (ADR-0087).
 - **Never deletes a live preview within its TTL** — only expired or spent
   ones are eligible, regardless of `--older-than`.
 - **`.pending` previews are protected**: they hold the idempotency
