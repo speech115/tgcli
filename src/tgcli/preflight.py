@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from datetime import datetime
 
@@ -41,13 +42,13 @@ def prepare(parser: argparse.ArgumentParser, args) -> None:
 def _prepare_max_runtime(args) -> None:
     """--max-runtime is a wall-clock cap: non-positive values are misuse."""
     cap = getattr(args, "max_runtime", None)
-    if cap is not None and cap <= 0:
-        raise PolicyError("--max-runtime must be a positive number of seconds")
+    if cap is not None and (not math.isfinite(cap) or cap <= 0):
+        raise PolicyError("--max-runtime must be a positive finite number of seconds")
     # --timeout is a hang detector; a non-positive deadline is meaningless
     # and behaves differently for local vs network commands (review D2).
     timeout = getattr(args, "timeout", None)
-    if timeout is not None and timeout <= 0:
-        raise PolicyError("--timeout must be a positive number of seconds")
+    if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
+        raise PolicyError("--timeout must be a positive finite number of seconds")
 
 
 def _prepare_jobs(args) -> None:

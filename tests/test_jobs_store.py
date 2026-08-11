@@ -201,4 +201,7 @@ def test_registry_alias_cannot_escape_the_state_directory(tmp_path, monkeypatch)
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
     with pytest.raises(PolicyError, match="alias"):
         jobs_store.path_for("../escape", create_parent=True)
+    with pytest.raises(PolicyError, match="alias"):
+        with jobs_store.lane_lock("../escape", "local"):
+            pass
     assert not (tmp_path / "escape").exists()

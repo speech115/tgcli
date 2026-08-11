@@ -162,6 +162,24 @@ def test_local_runner_requires_bounded_runtime_and_rejects_session_role(
     assert "session role" in capsys.readouterr().err.lower()
 
 
+def test_local_runner_rejects_non_finite_runtime(jobs_env, capsys):
+    assert (
+        main(
+            [
+                "jobs",
+                "run",
+                "--lane",
+                "local",
+                "--max-runtime",
+                "nan",
+                "--json",
+            ]
+        )
+        == 2
+    )
+    assert "finite" in capsys.readouterr().err.lower()
+
+
 def test_local_transcription_job_runs_offline_to_completion(
     jobs_env, monkeypatch, capsys
 ):

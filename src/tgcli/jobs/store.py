@@ -733,7 +733,7 @@ def recover_running(
 def lane_lock(alias: str, lane: str):
     if lane not in model.LANES:
         raise PolicyError(f"unknown jobs lane: {lane}")
-    directory = ensure_state_dir("jobs", alias)
+    directory = path_for(alias, create_parent=True).parent
     path = directory / f"{lane}.lock"
     handle = path.open("a+")
     restrict_file(path)

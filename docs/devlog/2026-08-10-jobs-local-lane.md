@@ -12,7 +12,8 @@ a terminal no-op.
 
 **Learned:** alias validation belongs before composing the registry path, even
 though account resolution already came from config. The regression test now
-proves `../` cannot escape `TGCLI_STATE_DIR`.
+proves `../` cannot escape `TGCLI_STATE_DIR`; finite-number checks also reject
+`NaN` before it can reach the process deadline or scheduler loop.
 
 **Next:** independent review and squash #187 into the #146 integration branch;
 then add the explicit-role Telegram lane in #188.

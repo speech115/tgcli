@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import io
 import logging
+import math
 import os
 import signal
 import sys
@@ -149,6 +150,7 @@ def _armed(seconds: float | None):
     """
     if (
         seconds is None
+        or not math.isfinite(seconds)
         or seconds <= 0
         or threading.current_thread() is not threading.main_thread()
     ):
