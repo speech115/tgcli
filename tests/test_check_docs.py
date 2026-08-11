@@ -300,6 +300,19 @@ def test_active_glossary_does_not_define_removed_qr_login():
     assert "tg://login" not in glossary
 
 
+def test_active_contract_and_adr_index_match_the_jobs_cutover():
+    contract = (ROOT / "docs" / "CONTRACT.md").read_text()
+    index = (ROOT / "docs" / "decisions" / "README.md").read_text()
+    refresh = (
+        ROOT / "docs" / "decisions" / "ADR-0070-archive-refresh-scheduling.md"
+    ).read_text()
+
+    assert "Schema v7 tables" in contract
+    assert "`tg accounts login` requires explicit phone authorization" in index
+    assert "| superseded by ADR-0087 |" in index
+    assert "Status: superseded by ADR-0087" in refresh
+
+
 def test_map_inventory_counts_must_match_the_tree(tmp_path):
     project_map = tmp_path / "MAP.md"
     project_map.write_text(

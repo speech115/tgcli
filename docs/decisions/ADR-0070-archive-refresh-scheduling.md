@@ -1,7 +1,7 @@
 # ADR-0070: One-shot archive refresh and failure notification
 
 Date: 2026-07-31
-Status: accepted (2026-07-31; owner continuation of ADR-0068 Phase 6)
+Status: superseded by ADR-0087
 
 ## Context
 

@@ -86,3 +86,22 @@ def test_backfill_quantum_advances_one_incomplete_dialog_at_a_time(
     )
     assert [item["chat"] for item in second["dialogs"]] == ["@bob"]
     assert second["remaining"] is False
+
+
+def test_progress_token_changes_when_a_dialog_cursor_advances(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
+    archive_root = tmp_path / "archive"
+    config = Config(default_account=None, accounts={}, archive_root=archive_root)
+    directory = archive_store.ensure_account_dir(archive_root, "main")
+    conn = archive_store.connect(archive_store.db_path_for(directory))
+    archive_store.ensure_meta(conn, account_user_id=42, account_alias="main")
+    archive_store.upsert_sync_state(conn, 7, oldest_id=100, newest_id=120, more=True)
+    conn.commit()
+    before = archive_jobs_cmd.progress_token("main", config)
+
+    archive_store.upsert_sync_state(conn, 7, oldest_id=50, newest_id=120, more=True)
+    conn.commit()
+    conn.close()
+    after = archive_jobs_cmd.progress_token("main", config)
+
+    assert after != before

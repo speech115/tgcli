@@ -57,6 +57,16 @@ def test_registry_permissions_wal_and_alias_binding(registry):
         jobs_store.connect("other", path=path)
 
 
+def test_connect_existing_repairs_the_account_directory_mode(registry):
+    path = jobs_store.path_for("main")
+    path.parent.chmod(0o755)
+
+    reopened = jobs_store.connect_existing("main")
+    reopened.close()
+
+    assert path.parent.stat().st_mode & 0o777 == 0o700
+
+
 def test_priority_ages_after_two_skipped_quanta(registry):
     _add(registry, "high", priority="high")
     _add(registry, "low", priority="low")

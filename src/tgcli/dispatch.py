@@ -26,6 +26,7 @@ from tgcli.commands import (
     transcribe as transcribe_cmd,
 )
 from tgcli.errors import PolicyError, RateLimitError
+from tgcli.jobs import store as jobs_store
 
 
 async def run_network(args, account) -> tuple[dict, list[tuple]]:
@@ -46,6 +47,19 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
     # needs the role here.
     role = getattr(args, "session_role", None)
     try:
+        if args.command == "jobs" and args.jobs_command == "run":
+            # The lane owns the whole invocation, including session-lock
+            # acquisition. A competing wake therefore fails with the jobs
+            # BLOCKED contract before touching the named session.
+            with jobs_store.lane_lock(account.alias, "telegram"):
+                async with session.client(account, mutation_safe=True, role=role) as tg:
+                    data = await jobs_cmd.run_telegram(
+                        tg,
+                        account.alias,
+                        max_runtime=args.max_runtime,
+                        config=None,
+                    )
+                    return data, jobs_cmd.run_rows(data)
         async with session.client(
             account, mutation_safe=mutation_safe, role=role
         ) as tg:
@@ -144,14 +158,6 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
                 return data, changes_cmd.to_rows(data)
             if args.command == "archive":
                 return await _run_archive(tg, args, account)
-            if args.command == "jobs" and args.jobs_command == "run":
-                data = await jobs_cmd.run_telegram(
-                    tg,
-                    account.alias,
-                    max_runtime=args.max_runtime,
-                    config=None,
-                )
-                return data, jobs_cmd.run_rows(data)
             if args.command == "export":
                 if args.export_kind == "messages":
                     data = await export_cmd.export_messages(

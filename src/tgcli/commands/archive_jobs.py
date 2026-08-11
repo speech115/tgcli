@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+
 from tgcli.archive import (
     backfill as backfill_mod,
     scope as scope_mod,
@@ -33,8 +36,19 @@ def progress_token(alias: str, config: Config | None = None) -> dict:
                 "WHERE media_path IS NOT NULL AND media_path <> ''"
             ).fetchone()[0]
         )
+        cursor_payload = json.dumps(
+            [
+                tuple(row)
+                for row in conn.execute(
+                    "SELECT peer_id, oldest_id, newest_id, more "
+                    "FROM sync_state ORDER BY peer_id"
+                )
+            ],
+            separators=(",", ":"),
+        )
         return {
             "changes_cursor": account["changes_cursor"],
+            "dialog_cursors": hashlib.sha256(cursor_payload.encode()).hexdigest(),
             "media_ready": media_ready,
             "messages": counts["messages"],
             "revisions": counts["revisions"],

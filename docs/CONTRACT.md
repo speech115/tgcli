@@ -1817,7 +1817,7 @@ tg archive rebaseline
 
 Per-account SQLite/WAL store under `~/.local/state/tgcli/archive/<alias>/`
 (override with `[archive] root = "…"` in `config.toml`). Directory mode
-`0700`; `archive.db` mode `0600`. Schema v6 tables: `messages`, `revisions`,
+`0700`; `archive.db` mode `0600`. Schema v7 tables: `messages`, `revisions`,
 `tombstones`, `transcripts`, `scope`, `sync_state` (with peer identity
 columns), `account_sync` (account-level `tg changes` cursor + gap), plus an
 FTS5 index over message text and transcript text with

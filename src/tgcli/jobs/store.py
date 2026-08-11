@@ -174,6 +174,7 @@ def connect_existing(alias: str) -> sqlite3.Connection:
     path = path_for(alias)
     if not path.is_file():
         raise NotFoundError("jobs registry is not initialized; run: tg jobs add …")
+    path_for(alias, create_parent=True)
     return connect(alias, path=path)
 
 
