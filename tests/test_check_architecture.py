@@ -7,26 +7,31 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "check-architecture.py"
 CEILINGS = {
-    "src/tgcli/cli.py": 705,
-    "src/tgcli/parser.py": 759,
-    "src/tgcli/preflight.py": 447,
-    "src/tgcli/dispatch.py": 353,
+    "src/tgcli/cli.py": 733,
+    "src/tgcli/parser.py": 732,
+    "src/tgcli/preflight.py": 440,
+    "src/tgcli/dispatch.py": 358,
     "src/tgcli/commands/batch.py": 96,
     "src/tgcli/read_ops.py": 437,
-    "src/tgcli/commands/clone.py": 1257,
+    "src/tgcli/commands/clone.py": 1286,
     "src/tgcli/clone/state.py": 409,
     "src/tgcli/clone/quotes.py": 392,
     "src/tgcli/clone/quote_fallback.py": 127,
-    "src/tgcli/archive/store.py": 1021,
-    "src/tgcli/archive/sync.py": 596,
+    "src/tgcli/archive/store.py": 1017,
+    "src/tgcli/archive/sync.py": 605,
     "src/tgcli/archive/backfill.py": 320,
     "src/tgcli/archive/transcribe.py": 251,
     "src/tgcli/archive/explore.py": 578,
     "src/tgcli/archive/search.py": 78,
-    "src/tgcli/archive/refresh.py": 196,
     "src/tgcli/archive/media.py": 72,
-    "src/tgcli/commands/archive_refresh.py": 118,
-    "src/tgcli/commands/archive.py": 546,
+    "src/tgcli/commands/archive.py": 541,
+    "src/tgcli/commands/archive_jobs.py": 118,
+    "src/tgcli/commands/jobs.py": 163,
+    "src/tgcli/jobs/arguments.py": 79,
+    "src/tgcli/jobs/model.py": 50,
+    "src/tgcli/jobs/preflight.py": 108,
+    "src/tgcli/jobs/runner.py": 362,
+    "src/tgcli/jobs/store.py": 888,
     "src/tgcli/governor/__init__.py": 14,
     "src/tgcli/governor/gate.py": 186,
     "src/tgcli/governor/ledger.py": 416,
@@ -199,7 +204,7 @@ def test_growth_within_grace_passes_with_warning(tmp_path):
 
     assert result.returncode == 0, result.stdout
     assert "architecture check passed" in result.stdout
-    assert "src/tgcli/cli.py has 706 lines; over ceiling 705" in result.stderr
+    assert "src/tgcli/cli.py has 734 lines; over ceiling 733" in result.stderr
     assert "grace" in result.stderr
 
 
@@ -221,7 +226,7 @@ def test_architecture_check_rejects_growth_past_the_grace_band(tmp_path):
     result = _run(tmp_path)
 
     assert result.returncode == 1
-    assert "src/tgcli/cli.py has 756 lines; reviewed ceiling is 705" in result.stdout
+    assert "src/tgcli/cli.py has 784 lines; reviewed ceiling is 733" in result.stdout
 
 
 def test_strict_mode_rejects_any_growth_past_the_ceiling(tmp_path):
@@ -233,7 +238,7 @@ def test_strict_mode_rejects_any_growth_past_the_ceiling(tmp_path):
     result = _run(tmp_path, "--strict")
 
     assert result.returncode == 1
-    assert "src/tgcli/cli.py has 706 lines; reviewed ceiling is 705" in result.stdout
+    assert "src/tgcli/cli.py has 734 lines; reviewed ceiling is 733" in result.stdout
 
 
 def test_repository_passes_architecture_check():

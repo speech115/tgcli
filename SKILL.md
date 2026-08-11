@@ -44,7 +44,7 @@ selected account session, does one operation, and exits.
 | Backfill selected dialogs into archive | `tg --json archive backfill CHAT [CHAT …] [--limit N]` |
 | Backfill standing private dialogs | `tg --json archive backfill --private [--max-dialogs N] [--limit N]` |
 | Sync archive from changes cursor | `tg --json archive sync [--max-events N] [--max-dialogs N] [--max-media N]` (applies full difference; caps catch-up RPCs and media downloads) |
-| Run one bounded archive refresh | `tg --json archive refresh [--max-events N] [--max-dialogs N] [--max-media N] [--transcribe-limit N] [--max-attempts N]` (sync → media → offline transcription; run-level streak/notification state in `archive status`) |
+| Run or safely rearm one jobs lane | `tg --max-runtime N --json jobs run --lane telegram`, `tg --max-runtime N --json jobs run --lane local`, or `tg --max-runtime N --json jobs run --rearm KEY` |
 | Transcribe archived voice/video notes | `tg --json archive transcribe [--limit N] [--max-attempts N]` (offline local FluidAudio/Parakeet queue) |
 | Add a durable local transcription job | `tg --json jobs add archive-transcribe --key KEY [--max-attempts N] [--priority low\|normal\|high]` |
 | Add durable Telegram jobs | `tg --json jobs add archive-backfill --key KEY (CHAT ... \| --private) [--limit N]`; `archive-sync --key KEY [--max-events N] [--max-dialogs N] [--max-media N]`; `clone-sync --key KEY SOURCE` |
@@ -197,9 +197,9 @@ Every Telegram request is paced and gated per request type by a persisted
 governor: history reads and dialog enumeration wait 3 s between requests,
 and a flood arms a per-type cooldown that refuses locally (exit 5,
 `retry_after`) with zero RPCs. `tg doctor` reports active cooldowns — it is
-the one command that works while everything else refuses. A scheduled
-`archive refresh` waking into a cooldown defers the blocked work and exits
-0 with `stop_reason: "cooldown_deferred"`. The default `--timeout` is a
+the one command that works while everything else refuses. A Telegram jobs
+lane reaching a cooldown leaves the job queued and exits 0 with
+`stop_reason: "cooldown_deferred"`. The default `--timeout` is a
 hang detector that ignores governed sleep; `--max-runtime` bounds a long
 run as a normal stop. Exit 5 means wait out `retry_after` — never retry
 FloodWait in a tight loop; the governor probes once at half the wait and

@@ -8,6 +8,7 @@ from typing import Any
 
 from telethon import errors as telethon_errors
 
+from tgcli import desktop
 from tgcli.clone import legs
 from tgcli.commands import (
     archive as archive_cmd,
@@ -41,6 +42,16 @@ def _outcome(job: dict[str, Any]) -> dict[str, Any]:
         "error": job["last_error"],
         "not_before": job["not_before"],
     }
+
+
+def _notify_failed(job: dict[str, Any]) -> None:
+    if job["state"] != "failed":
+        return
+    key = str(job["key"])
+    try:
+        desktop.notify("tgcli job failed", f"{key}; run: tg jobs show {key}")
+    except Exception:
+        pass
 
 
 def _run_transcription(job: dict[str, Any], alias: str, config: Config) -> dict:
@@ -161,6 +172,7 @@ def run_local(
                     final = store.fail_runtime(conn, job, _error(exc), now=wall_clock())
                 counts[final["state"]] += 1
                 outcomes.append(_outcome(final))
+                _notify_failed(final)
             else:
                 stop_reason = "wall_clock_cap"
         finally:
@@ -331,6 +343,7 @@ async def run_telegram(
                         final = store.fail_runtime(conn, job, error, now=wall_clock())
                 counts[final["state"]] += 1
                 outcomes.append(_outcome(final))
+                _notify_failed(final)
                 result_stop = (final.get("last_result") or {}).get("stop_reason")
                 if result_stop is not None or stop_reason != "idle" or halt_after:
                     stop_reason = str(result_stop or stop_reason)

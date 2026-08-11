@@ -62,7 +62,6 @@ def _prepare_archive(args) -> None:
         "remove",
         "backfill",
         "sync",
-        "refresh",
         "rebaseline",
         "transcribe",
     ):
@@ -113,7 +112,7 @@ def _prepare_archive(args) -> None:
             raise PolicyError("archive history CHAT must be non-empty")
         args.message_id = explore_mod.validate_message_id(args.message_id)
         return
-    if cmd in ("sync", "refresh"):
+    if cmd == "sync":
         from tgcli.archive import sync as sync_mod
         from tgcli.commands import archive as archive_cmd
 
@@ -132,15 +131,6 @@ def _prepare_archive(args) -> None:
             default=archive_cmd.DEFAULT_SYNC_MEDIA,
             maximum=archive_cmd.MAX_SYNC_MEDIA,
         )
-        if cmd == "refresh":
-            from tgcli.archive import transcribe as transcribe_mod
-
-            args.transcribe_limit = transcribe_mod.validate_limit(
-                getattr(args, "transcribe_limit", None), label="transcribe-limit"
-            )
-            args.max_attempts = transcribe_mod.validate_max_attempts(
-                getattr(args, "max_attempts", None)
-            )
         return
     if cmd == "transcribe":
         from tgcli.archive import transcribe as transcribe_mod

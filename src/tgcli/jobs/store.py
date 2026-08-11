@@ -412,6 +412,66 @@ def show_job(conn: sqlite3.Connection, key: str) -> dict[str, Any]:
     return {"job": _job(row), "events": list_events(conn, key)}
 
 
+def rearm_job(
+    conn: sqlite3.Connection,
+    key: str,
+    *,
+    expected_lane: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Create the next generation only from completed recurring work."""
+    model.validate_key(key)
+    timestamp = _stamp(now)
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        latest = _latest_row(conn, key)
+        if latest is None:
+            raise NotFoundError(f"unknown job key: {key!r}")
+        lane = str(latest["lane"])
+        if lane != expected_lane:
+            raise PolicyError(
+                f"job {key!r} lane changed from {expected_lane!r} to {lane!r}; retry"
+            )
+        state = str(latest["state"])
+        if state == "queued":
+            conn.commit()
+            return {"job": _job(latest), "created": False, "noop": True}
+        if state != "completed":
+            raise PolicyError(f"job {key!r} is {state}; refusing to rearm")
+        generation = int(latest["generation"]) + 1
+        conn.execute(
+            "INSERT INTO jobs(key, generation, kind, lane, spec_json, spec_hash, "
+            "priority, state, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)",
+            (
+                key,
+                generation,
+                str(latest["kind"]),
+                lane,
+                str(latest["spec_json"]),
+                str(latest["spec_hash"]),
+                int(latest["priority"]),
+                timestamp,
+                timestamp,
+            ),
+        )
+        _event(
+            conn,
+            key=key,
+            generation=generation,
+            event_type="rearmed",
+            detail={"previous_generation": int(latest["generation"])},
+            timestamp=timestamp,
+        )
+        row = _latest_row(conn, key)
+        conn.commit()
+        assert row is not None
+        return {"job": _job(row), "created": True, "noop": False}
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def cancel_job(
     conn: sqlite3.Connection, key: str, *, now: datetime | None = None
 ) -> dict[str, Any]:

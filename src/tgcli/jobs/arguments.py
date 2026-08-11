@@ -67,7 +67,9 @@ def add_to(sub, global_flags) -> None:
     run = commands.add_parser(
         "run", help="Run one foreground lane", parents=[global_flags]
     )
-    run.add_argument("--lane", choices=("telegram", "local"), required=True)
+    selection = run.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--lane", choices=("telegram", "local"))
+    selection.add_argument("--rearm", metavar="KEY")
 
 
 def _add_generation_flags(parser) -> None:

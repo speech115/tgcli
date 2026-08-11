@@ -7,9 +7,11 @@ from contextlib import asynccontextmanager
 
 import pytest
 
+from tgcli import desktop
 from tgcli.archive import store as archive_store
 from tgcli.cli import main
 from tgcli.commands import archive as archive_cmd
+from tgcli.errors import PolicyError
 
 SAMPLE = """
 default_account = "main"
@@ -241,6 +243,124 @@ def test_local_transcription_job_runs_offline_to_completion(
     }
     assert "key" not in journal[-2]
     assert "outcomes" not in journal[-2]
+
+
+def test_rearm_completed_local_job_and_allow_no_send(jobs_env, monkeypatch, capsys):
+    _init_archive()
+    assert main(_add_args()) == 0
+    capsys.readouterr()
+    assert main(["--max-runtime", "1", "jobs", "run", "--lane", "local"]) == 0
+    capsys.readouterr()
+
+    monkeypatch.setenv("TGCLI_NO_SEND", "1")
+    assert (
+        main(
+            [
+                "--max-runtime",
+                "1",
+                "jobs",
+                "run",
+                "--rearm",
+                "nightly",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    data = json.loads(capsys.readouterr().out)
+    assert data["lane"] == "local"
+    assert data["completed"] == 1
+    assert data["outcomes"][0]["generation"] == 2
+
+
+def test_rearm_cancelled_job_is_not_resurrected(jobs_env, capsys):
+    assert main(_add_args()) == 0
+    capsys.readouterr()
+    assert main(["jobs", "cancel", "nightly"]) == 0
+    capsys.readouterr()
+    assert (
+        main(
+            [
+                "--max-runtime",
+                "1",
+                "jobs",
+                "run",
+                "--rearm",
+                "nightly",
+                "--json",
+            ]
+        )
+        == 2
+    )
+    assert "cancelled" in capsys.readouterr().err.lower()
+
+
+def test_telegram_rearm_obeys_no_send_before_session(jobs_env, monkeypatch, capsys):
+    from tgcli import session
+
+    assert main(["jobs", "add", "archive-sync", "--key", "sync"]) == 0
+    capsys.readouterr()
+    monkeypatch.setenv("TGCLI_CONFIG", str(jobs_env / "missing.toml"))
+    monkeypatch.setenv("TGCLI_NO_SEND", "1")
+
+    @asynccontextmanager
+    async def boom(*_args, **_kwargs):
+        raise AssertionError("rearm gate must run before session open")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(session, "client", boom)
+    assert (
+        main(
+            [
+                "--session-role",
+                "job",
+                "--max-runtime",
+                "1",
+                "jobs",
+                "run",
+                "--rearm",
+                "sync",
+                "--json",
+            ]
+        )
+        == 2
+    )
+    assert "no_send" in capsys.readouterr().err.lower()
+
+
+def test_failed_job_notifies_once_and_notification_failure_is_best_effort(
+    jobs_env, monkeypatch, capsys
+):
+    _init_archive()
+    assert main(_add_args()) == 0
+    capsys.readouterr()
+    notifications = []
+
+    def blocked(*_args, **_kwargs):
+        raise PolicyError("sensitive target detail")
+
+    def notify(title, message):
+        notifications.append((title, message))
+        raise RuntimeError("notification unavailable")
+
+    monkeypatch.setattr(archive_cmd, "transcribe", blocked)
+    monkeypatch.setattr(desktop, "notify", notify)
+    argv = ["--max-runtime", "1", "jobs", "run", "--lane", "local", "--json"]
+    assert main(argv) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["failed"] == 1
+    assert notifications == [("tgcli job failed", "nightly; run: tg jobs show nightly")]
+    assert "sensitive" not in notifications[0][1]
+
+    assert main(argv) == 0
+    second = json.loads(capsys.readouterr().out)
+    assert second["selected"] == 0
+    assert len(notifications) == 1
+
+
+def test_archive_refresh_command_is_removed(jobs_env, capsys):
+    assert main(["archive", "refresh", "--json"]) == 1
+    assert "invalid choice" in capsys.readouterr().err.lower()
 
 
 def test_local_runner_uses_one_item_quanta_until_remaining_is_false(
