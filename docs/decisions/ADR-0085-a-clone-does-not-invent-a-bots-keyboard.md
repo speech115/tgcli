@@ -103,6 +103,24 @@ The comparison key is its own function rather than `fidelity.dropped_buttons`:
 one shapes a report for an operator, the other an identity for a comparison,
 and button payloads belong only in the second.
 
+## Verification of the premise
+
+The whole reporting rule rests on "only a native forward keeps the rows", and
+that is a claim about Telegram, which no mocked test can prove. Review flagged
+it as unverified; the owner then ran a live check (2026-08-10) on their own
+account: a post carrying eight URL buttons, forwarded natively into a clone
+destination, arrived with `reply_markup` equal to the source's, text intact and
+`fwd_from` pointing at the original.
+
+So the premise holds for URL rows, and the exemption of native forwards from
+`markup_dropped` is correct for that class. It is **not** settled for callback
+rows — the sample carried none, and a callback is bound to the message the bot
+attached it to, which is precisely the kind of button a forward could plausibly
+drop. If it does, this ADR under-reports that one case: a copy that lost
+callback buttons on the forward path contributes nothing to the list. Settling
+it needs a live post with a callback row, which is why it is written down here
+rather than assumed either way.
+
 ## Rejected alternatives
 
 - **Rebuild URL rows as a link footer in the body.** The only class a user
