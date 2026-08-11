@@ -10,11 +10,11 @@ once it has an owner request + ADR (as MSG-001 and FEED-001 already did).
 
 ## JOBS-001 — Governed multi-day work scheduler
 
-**Status:** implemented by ADR-0087 slices #187–#189; pending campaign
-integration, live acceptance, and the 3.0.0 release tracked by GitHub map #146.
+**Status:** closed by ADR-0087 slices #187–#189 and released in `3.0.0` via
+GitHub map #146.
 
-`tg jobs` will persist four typed checkpointed workloads — archive backfill,
-archive sync, clone sync, and local archive transcription — and run them as
+`tg jobs` persists four typed checkpointed workloads — archive backfill,
+archive sync, clone sync, and local archive transcription — and runs them as
 foreground launchd-driven one-shots. Telegram and local work use independent
 per-account lane locks; priority ages by at most two skipped quanta;
 cancellation and runtime caps are cooperative at durable boundaries. A named
@@ -23,9 +23,12 @@ across roles. The campaign removes the superseded `archive refresh`
 composition and its plist rather than retaining a compatibility path.
 
 Re-entry gate is satisfied: the owner completed the #146 grilling and asked
-for implementation on 2026-08-10. Live acceptance is deliberately
-non-publishing: archive sync, a caught-up clone no-op, and one bounded local
-transcription quantum.
+for implementation on 2026-08-10. Non-publishing live acceptance recorded one
+successful local transcription quantum and one bounded archive-sync quantum
+through the dedicated role. Archive sync durably applied its difference,
+reported an existing channel gap, and stayed queued with remaining media work.
+No clone was run: the accessible candidates were demonstrably behind their
+source or discussion cursor, so a supposed no-op would have published.
 
 ## CLONE-001 — Poll cloning
 
@@ -76,10 +79,12 @@ was never met, and not from the PR's own say-so.
 
 ## ACCOUNTS-001 — `tg accounts login`: session (re)authorization
 
-**Status:** closed by ADR-0042 (2026-07-24). Shipped as `1.2.0`:
-`accounts login` (QR default, phone+code fallback, native-dialog /
-`--password-stdin` cloud password), plus `accounts show` and
-`accounts remove` so the account lifecycle closes.
+**Status:** closed by ADR-0042 (2026-07-24), amended by ADR-0088 and released
+phone-only in `3.0.0`. `accounts login` requires an explicit phone number,
+then continues with the confirmation code and optional native-dialog /
+`--password-stdin` cloud password. The QR flag, token, deep-link handoff, wait,
+and pending-attempt compatibility are removed. `accounts show` and
+`accounts remove` still close the account lifecycle.
 
 **Still unmet (operational, not code):** keep `~/.config/tgcli/` and
 `~/.local/state/tgcli/` inside the machine backup. Verified unmet on the

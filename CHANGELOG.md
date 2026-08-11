@@ -11,6 +11,35 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [3.0.0] — 2026-08-11
+
+`tg jobs` now persists four typed workloads — archive backfill, archive sync,
+clone sync, and local archive transcription — and advances them through
+bounded foreground invocations. Telegram and local work have independent
+per-account lanes; scheduling uses priority with bounded aging, cooperative
+cancellation, durable retry/recovery state, and explicit `--max-runtime` caps.
+Recurring launchd wakes rearm completed stable keys without reviving failures
+or cancellations. Telegram jobs require a separately authorized named session
+role and keep ADR-0072 pacing shared with the primary account.
+
+This is a major release because two released surfaces are removed without
+compatibility aliases. `tg archive refresh` and its combined launchd template
+are replaced by independent `archive-sync` and `archive-transcribe` jobs.
+Session authorization is phone-only: every `tg accounts login ALIAS` start now
+requires a non-empty `--phone PHONE`; `--qr-format`, QR tokens, `tg://login`
+handoff, and pending-QR continuation are gone. Phone confirmation-code and
+optional cloud-password continuation remain staged and secrets stay out of
+audit and command results.
+
+Rationale: ADR-0087, ADR-0088.
+
+### Changed
+
+- Remove QR session authorization (#194)
+- Complete foreground jobs cutover (#192)
+- Add Telegram jobs lane (ADR-0087) (#191)
+- Add persisted local jobs lane (ADR-0087) (#190)
+
 ## [2.0.7] — 2026-08-10
 
 `tg clone sync` now reports every unsupported-message skip and planted
@@ -848,6 +877,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[3.0.0]: https://github.com/speech115/tgcli/compare/v2.0.7...v3.0.0
 [2.0.7]: https://github.com/speech115/tgcli/compare/v2.0.6...v2.0.7
 [2.0.6]: https://github.com/speech115/tgcli/compare/v2.0.5...v2.0.6
 [2.0.5]: https://github.com/speech115/tgcli/compare/v2.0.4...v2.0.5

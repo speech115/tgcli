@@ -1,6 +1,6 @@
 # CLI Automation Contract
 
-Version: 2.0.0 (tracks the package release; see `CHANGELOG.md` and
+Version: 3.0.0 (tracks the package release; see `CHANGELOG.md` and
 `pyproject.toml`). Any change here lands in the same commit as the code
 change (AGENTS.md / ADR-0038).
 
