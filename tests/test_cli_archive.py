@@ -260,6 +260,7 @@ def test_backfill_private_without_add_and_group_requires_add(
     data = json.loads(capsys.readouterr().out)
     assert data["dialogs"][0]["stored"] == 2
     assert data["dialogs"][0]["chat"] == "@alice"
+    assert data["remaining"] is True
     assert main(["archive", "status", "--json"]) == 0
     status = json.loads(capsys.readouterr().out)
     assert status["counts"]["messages"] == 2
@@ -282,6 +283,7 @@ def test_backfill_channel_after_add_stores_universal_shape(
     assert main(["archive", "backfill", "@news", "--limit", "10", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["dialogs"][0]["stored"] == 2
+    assert data["remaining"] is False
     # Resume stores nothing new when already complete for this window.
     assert main(["archive", "backfill", "@news", "--limit", "10", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)

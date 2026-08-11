@@ -386,6 +386,7 @@ def test_sync_applies_edit_revision_and_private_delete_tombstone(
     data = json.loads(capsys.readouterr().out)
     assert data["applied"]["edits"] >= 1
     assert data["applied"]["tombstones"] >= 1
+    assert data["remaining"] is False
     conn = store_mod.connect(path)
     try:
         assert store_mod.counts(conn)["revisions"] >= 1

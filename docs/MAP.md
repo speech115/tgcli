@@ -79,9 +79,11 @@ tgcli/
 │   │   ├── probe.py           [done]    self-verifying probe: 50%-elapsed window, write-ahead spend, settle on success
 │   │   └── pacing.py          [done]    start-to-start interval sleep before dispatch; rolling 100-peer breadth budget; wall-clock cap and journal accounting
 │   ├── jobs/                  [wip]     account-scoped SQLite registry + foreground Telegram/local lane runners (ADR-0087 / #146)
+│   │   ├── arguments.py       [done]    jobs-owned add/list/show/cancel/run grammar for four typed workloads
 │   │   ├── model.py           [done]    typed keys/specs, lanes/states, priority and cap constants
+│   │   ├── preflight.py       [done]    typed spec normalization, local/Telegram safety and role/runtime gates
 │   │   ├── store.py           [done]    immutable generations, bounded events, WAL persistence, lane flocks and recovery
-│   │   └── runner.py          [wip]     working local transcription lane; Telegram adapters follow in #188
+│   │   └── runner.py          [done]    independent local/Telegram loops, fixed adapters, identity bind, retry/progress classification
 │   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045/0046/0047/0049/0054/0055)
 │   │   ├── state.py           [done]    CloneState seam + dirty-tracked save/load (SQLite via statedb; ADR-0017/0060)
 │   │   ├── lookup.py          [done]    finding a clone from a SOURCE argument: id/title match, slot scan, recorded-source peer ref (ADR-0082)
@@ -114,7 +116,8 @@ tgcli/
 │   │   ├── doctor.py          [done]    offline/online health for primary + role sessions (ADR-0028/0040/0062)
 │   │   ├── changes.py         [done]    tg changes daemonless feed (ADR-0063 / FEED-001)
 │   │   ├── archive.py         [done]    tg archive init|add|remove|list|status|search|read|history|backfill|sync|refresh|transcribe|rebaseline (ADR-0068/0069/0070)
-│   │   ├── jobs.py            [wip]     tg jobs local archive-transcribe add|list|show|cancel|run slice (ADR-0087 / #187)
+│   │   ├── archive_jobs.py    [done]    one-dialog archive backfill quantum + durable archive progress token (ADR-0087 / #188)
+│   │   ├── jobs.py            [wip]     four typed workloads and independent Telegram/local foreground lanes (ADR-0087 / #187/#188)
 │   │   ├── archive_refresh.py [done]    network command wrapper and plain rows for scheduled archive refresh (ADR-0070)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
 │   │   ├── read.py            [done]    tg read <chat>                (phase 1)

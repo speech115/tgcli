@@ -190,6 +190,33 @@ def read_meta(conn: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
+def bind_user(conn: sqlite3.Connection, user_id: int) -> dict[str, Any]:
+    """Bind the registry once, then refuse a different live Telegram user."""
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        row = conn.execute(
+            "SELECT account_user_id FROM meta WHERE singleton = 1"
+        ).fetchone()
+        if row is None:
+            raise PolicyError("jobs registry metadata is missing")
+        existing = row["account_user_id"]
+        if existing is None:
+            conn.execute(
+                "UPDATE meta SET account_user_id = ? WHERE singleton = 1",
+                (user_id,),
+            )
+        elif int(existing) != user_id:
+            raise PolicyError(
+                f"jobs registry is bound to Telegram user {int(existing)}; "
+                f"live session is user {user_id} — refusing to merge"
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return read_meta(conn)
+
+
 def _decode(raw: str | None) -> Any:
     return None if raw is None else json.loads(raw)
 

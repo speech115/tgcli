@@ -337,6 +337,36 @@ async def test_media_fetch_reaches_backlog_older_than_candidate_window(
         conn.close()
 
 
+@pytest.mark.asyncio
+async def test_media_fetch_cooperatively_stops_before_the_next_item(
+    tmp_path, monkeypatch
+):
+    conn = _connection(tmp_path)
+    account_dir = tmp_path / "account"
+    account_dir.mkdir()
+    try:
+        store.upsert_message(conn, 7, _payload(1, "caption"))
+        conn.commit()
+
+        async def unexpected(*_args, **_kwargs):
+            raise AssertionError("stop boundary must win before download")
+
+        monkeypatch.setattr(sync_module.media_cmd, "download_media", unexpected)
+        result = await sync_module.fetch_media(
+            object(),
+            conn,
+            account_alias="main",
+            account_user_id=42,
+            account_dir=account_dir,
+            limit=10,
+            should_stop=lambda: True,
+        )
+        assert result["downloaded"] == 0
+        assert result["remaining"] is True
+    finally:
+        conn.close()
+
+
 def test_transcribe_queue_stores_parakeet_text_and_metadata(tmp_path, monkeypatch):
     conn = _connection(tmp_path)
     media_dir = tmp_path / "account" / "media" / "7"

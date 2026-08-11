@@ -47,8 +47,10 @@ selected account session, does one operation, and exits.
 | Run one bounded archive refresh | `tg --json archive refresh [--max-events N] [--max-dialogs N] [--max-media N] [--transcribe-limit N] [--max-attempts N]` (sync → media → offline transcription; run-level streak/notification state in `archive status`) |
 | Transcribe archived voice/video notes | `tg --json archive transcribe [--limit N] [--max-attempts N]` (offline local FluidAudio/Parakeet queue) |
 | Add a durable local transcription job | `tg --json jobs add archive-transcribe --key KEY [--max-attempts N] [--priority low\|normal\|high]` |
+| Add durable Telegram jobs | `tg --json jobs add archive-backfill --key KEY (CHAT ... \| --private) [--limit N]`; `archive-sync --key KEY [--max-events N] [--max-dialogs N] [--max-media N]`; `clone-sync --key KEY SOURCE` |
 | Inspect or cancel a job | `tg --json jobs list` / `tg --json jobs show KEY` / `tg --json jobs cancel KEY` |
 | Run the local jobs lane | `tg --max-runtime N --json jobs run --lane local` (foreground, offline, one-item quanta) |
+| Run the Telegram jobs lane | `tg --session-role job --max-runtime N --json jobs run --lane telegram` (foreground; explicit non-primary role; readonly and no-send gates apply) |
 | Rebaseline archive changes cursor | `tg --json archive rebaseline` |
 | Offline archive status | `tg --json archive status` |
 | Offline archive search | `tg --json archive search QUERY [--chat CHAT] [--from SENDER] [--since ISO] [--until ISO] [--kind KIND] [--transcripts-only] [--sort {relevance,date}] [--limit N] [--page N]` |

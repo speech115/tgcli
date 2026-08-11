@@ -772,7 +772,9 @@ def test_sync_late_comment_on_older_post_picked_up_in_later_window(
     make_session_fake(monkeypatch, client)
 
     assert main(["clone", "sync", "@source", "--json"]) == 0
-    sync = json.loads(capsys.readouterr().out)["sync"]
+    result = json.loads(capsys.readouterr().out)
+    assert result["remaining"] is False
+    sync = result["sync"]
     assert sync["copied"] == 4  # 3 posts + 1 late comment
     assert group_sends(client)
     done = state.load(state.clone_id(42, 123))
@@ -1291,7 +1293,9 @@ def test_sync_limit_spends_phase_one_first(config_env, monkeypatch, capsys):
 
     assert main(["clone", "sync", "@source", "--limit", "1", "--json"]) == 0
 
-    sync = json.loads(capsys.readouterr().out)["sync"]
+    result = json.loads(capsys.readouterr().out)
+    assert result["remaining"] is True
+    sync = result["sync"]
     assert sync["copied"] == 1
     assert sync["more"] is True
     assert sync["discussion_cursor"] == 0
@@ -1638,6 +1642,7 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
     assert main(["clone", "sync", "@source", "--json"]) == 0
 
     result = json.loads(capsys.readouterr().out)
+    assert result.pop("remaining") is False
     participants = result["sync"].pop("participants")
     assert result["sync"].pop("pinned") == {
         "source_id": None,
