@@ -53,12 +53,18 @@ def _run_transcription(job: dict[str, Any], alias: str, config: Config) -> dict:
 
 
 def _progress_token(
-    job: dict[str, Any], alias: str, config: Config | None, user_id: int
+    job: dict[str, Any],
+    alias: str,
+    config: Config | None,
+    user_id: int,
+    source_peer_id: int | None,
 ) -> dict:
     if job["kind"] in ("archive-backfill", "archive-sync"):
         return archive_jobs_cmd.progress_token(alias, config)
     if job["kind"] == "clone-sync":
-        return clone_cmd.progress_token(user_id, str(job["spec"]["source"]))
+        if source_peer_id is None:
+            raise PolicyError("clone progress requires a resolved source identity")
+        return clone_cmd.progress_token(user_id, source_peer_id)
     raise PolicyError(f"unsupported telegram job kind: {job['kind']}")
 
 
@@ -203,9 +209,22 @@ async def run_telegram(
                 job: dict[str, Any] = claimed
                 counts["selected"] += 1
                 before: dict | None = None
+                source_peer_id: int | None = None
                 halt_after = False
                 try:
-                    before = _progress_token(job, alias, config, user_id)
+                    if job["kind"] == "clone-sync":
+                        source_peer_id = await clone_cmd.resolve_source_peer_id(
+                            tg,
+                            str(job["spec"]["source"]),
+                            user_id,
+                        )
+                    before = _progress_token(
+                        job,
+                        alias,
+                        config,
+                        user_id,
+                        source_peer_id,
+                    )
                     result = await _run_telegram_job(
                         tg,
                         job,
@@ -286,7 +305,13 @@ async def run_telegram(
                 except Exception as exc:
                     error = _error(exc)
                     try:
-                        after = _progress_token(job, alias, config, user_id)
+                        after = _progress_token(
+                            job,
+                            alias,
+                            config,
+                            user_id,
+                            source_peer_id,
+                        )
                     except Exception:
                         after = before
                     if before is not None and after != before:

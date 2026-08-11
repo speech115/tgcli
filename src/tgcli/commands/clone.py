@@ -145,28 +145,21 @@ def export_state(source: str) -> dict:
     return matches[0].to_dict()
 
 
-def progress_token(account_user_id: int, source: str) -> dict:
-    """Durable cursors for the account-owned clone selected by SOURCE."""
-    clones = sorted(
-        (
-            loaded
-            for loaded in lookup.loaded_states()
-            if loaded.account_user_id == account_user_id
-            and lookup.matches(loaded, source)
-        ),
-        key=lambda loaded: loaded.source_peer_id,
-    )
+def progress_token(account_user_id: int, source_peer_id: int) -> dict:
+    """Durable cursors for one resolved account/source identity."""
+    found = state.load(state.clone_id(account_user_id, source_peer_id))
     return {
-        "clones": [
-            {
+        "clone": (
+            None
+            if found is None
+            else {
                 "source_peer_id": found.source_peer_id,
                 "cursor": found.cursor,
                 "discussion_cursor": found.discussion_cursor,
                 "copied": len(found.id_map),
                 "discussion_copied": len(found.discussion_id_map),
             }
-            for found in clones
-        ]
+        )
     }
 
 
@@ -224,6 +217,16 @@ async def _resolve_source(tg, source: str, *, account_user_id: int | None = None
         raise NotFoundError(f"clone source not found: {source!r}") from None
     kind = attribution.source_kind(entity)
     return entity, kind, attribution.display_name(entity)
+
+
+async def resolve_source_peer_id(tg, source: str, account_user_id: int) -> int:
+    """Resolve a job's SOURCE to the identity used by durable clone state."""
+    entity, _, _ = await _resolve_source(
+        tg,
+        source,
+        account_user_id=account_user_id,
+    )
+    return int(entity.id)
 
 
 def _supersede_status(clone_id: str, replace: bool) -> dict:

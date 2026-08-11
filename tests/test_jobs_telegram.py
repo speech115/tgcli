@@ -62,6 +62,14 @@ class Telegram:
     async def get_me(self):
         return SimpleNamespace(id=self.user_id)
 
+    async def get_entity(self, _ref):
+        return SimpleNamespace(
+            id=111,
+            title="Resolved source",
+            broadcast=True,
+            megagroup=False,
+        )
+
 
 def test_telegram_lane_binds_identity_before_work_and_refuses_mismatch(
     telegram_registry, monkeypatch
@@ -386,6 +394,39 @@ def test_unrelated_clone_progress_does_not_reset_failure_streak(
     job = store.show_job(conn, "clone")["job"]
     assert job["state"] == "queued"
     assert job["failure_streak"] == 1
+
+
+def test_username_clone_progress_uses_resolved_identity(telegram_registry, monkeypatch):
+    conn, config = telegram_registry
+    selected = clone_state.CloneState.new(
+        account_user_id=42,
+        source_peer_id=111,
+        source_title="Title unrelated to username",
+    )
+    clone_state.save(selected)
+    _add(conn, "clone", "clone-sync", {"source": "@selected"})
+
+    async def broken(*_args, **_kwargs):
+        changed = clone_state.load(selected.clone_id)
+        assert changed is not None
+        changed.cursor = 1
+        clone_state.save(changed)
+        raise RuntimeError("after selected checkpoint")
+
+    monkeypatch.setattr(clone_cmd, "sync_text", broken)
+    asyncio.run(
+        runner.run_telegram(
+            Telegram(),
+            "main",
+            max_runtime=1,
+            config=config,
+            wall_clock=lambda: NOW,
+        )
+    )
+
+    job = store.show_job(conn, "clone")["job"]
+    assert job["state"] == "queued"
+    assert job["failure_streak"] == 0
 
 
 def test_policy_partial_failure_is_terminal_even_after_progress(
