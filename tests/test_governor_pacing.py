@@ -508,10 +508,10 @@ def test_deadline_defaults_match_the_contract(monkeypatch):
     assert default_timeout_for(["jobs", "run", "--lane", "local"]) is None
     assert default_timeout_for(["export", "messages", "@c", "--output", "x"]) is None
     assert default_timeout_for(["media", "download", "@c", "1"]) is None
-    # CONTRACT §10/§12 remain per-command defaults: QR and long-poll
-    # operator time are their own deadlines, not work to bound.
+    # CONTRACT §10/§12: phone start uses the ordinary detector; long-poll and
+    # interactive continuation own their operator-time boundary.
     assert default_timeout_for(["changes", "--wait", "300"]) is None
-    assert default_timeout_for(["accounts", "login", "main"]) == 120.0
+    assert default_timeout_for(["accounts", "login", "main", "--phone", "+1"]) == 60.0
     assert default_timeout_for(["accounts", "login", "main", "--continue", "c"]) is None
     # The exemption list is data, not deadline logic: the detector itself
     # has no command branches.

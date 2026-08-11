@@ -23,7 +23,7 @@ Global flags (available on every command):
 | `--json` | machine output: one JSON document to stdout |
 | `--plain` | stable TSV to stdout (no colors, no alignment) |
 | `--readonly` | hard-block any mutating call in this invocation |
-| `--timeout <sec>` | overall invocation **hang detector** covering preflight and execution (default 60; governed sleep does not count against it; no default deadline for media, exports, `clone init\|sync\|refresh`, or `jobs run`, which own bounded work; `accounts login` defaults to 120 and `--continue` takes none; `tg transcribe` defaults to 120, the transcription wait) |
+| `--timeout <sec>` | overall invocation **hang detector** covering preflight and execution (default 60; governed sleep does not count against it; no default deadline for media, exports, `clone init\|sync\|refresh`, or `jobs run`, which own bounded work; `accounts login --continue` takes none; `tg transcribe` defaults to 120, the transcription wait) |
 | `--max-runtime <sec>` | explicit wall-clock cap for long runs: governed sleep counts against it; exhausting it is a normal stop (exit 0), with `stop_reason` and a resume pointer where the command keeps a cursor; every `jobs run` requires it and caps it at 3000 seconds |
 | `-v/--verbose` | Python and Telethon debug diagnostics on stderr for this invocation |
 
@@ -34,7 +34,7 @@ Flag beats env, env beats config.
 the client opens. Role names use the same charset/length rules as account
 aliases; `primary` is reserved (omit the flag to use the default session).
 There is **no implicit fallback**: a missing or unauthorized role is exit 3
-(`CONFIG`) with remediation `run: tg accounts login <alias> --role NAME`,
+(`CONFIG`) with remediation `run: tg accounts login <alias> --role NAME --phone PHONE`,
 never a silent switch to the primary. Symmetrically, omitting the flag always
 uses the primary even when roles exist. A role appears only through an
 explicit interactive `accounts login --role` — never created by using the
@@ -989,9 +989,8 @@ tg accounts import [ALIAS ...] [--source-root PATH] [--force]
 tg accounts show ALIAS
 tg accounts remove ALIAS [--confirm] [--keep-session]
 tg accounts remove ALIAS --role NAME [--confirm]
-tg accounts login ALIAS [--phone PHONE] [--api-id N] [--api-hash H]
-                        [--force] [--timeout SECONDS] [--qr-format link|text]
-                        [--password-stdin] [--role NAME]
+tg accounts login ALIAS --phone PHONE [--api-id N] [--api-hash H]
+                        [--force] [--timeout SECONDS] [--role NAME]
 tg accounts login --continue LOGIN_ID [--code VALUE|-] [--password-stdin]
 ```
 
@@ -1071,15 +1070,18 @@ keeps `"config": "unchanged"`.
 `--plain` emits: `alias`, `config`, `session`, `backup`, `role` (empty when
 removing the whole account).
 
-`accounts login` authorizes a session (ADR-0042). No `--phone` ⇒ QR path;
-`--phone` ⇒ phone + confirmation code. `--api-id` / `--api-hash` are required
+`accounts login` authorizes a session by phone number (ADR-0042/0088).
+`--phone PHONE` is required and non-empty on the start invocation; omission
+or an empty value is exit **2**
+before audit, attempt creation, or network work. `--api-id` / `--api-hash` are required
 together and only for an alias absent from config. `--continue` takes no
 `ALIAS` and rejects `--phone` / `--api-id` / `--api-hash` / `--force` /
 `--role`. `--role NAME` authorizes a named session role beside an **already
 configured** alias (ADR-0062); it never appends config and refuses an
-unknown alias (exit 3). `--timeout` defaults to **120** seconds on the QR
-path when unset. The cloud password is never accepted as an argv value; use
-a native dialog or `--password-stdin`. `--code` is accepted only with
+unknown alias (exit 3). The ordinary **60**-second hang detector applies to
+the phone start; `--continue` has no implicit deadline. The cloud password is
+never accepted as an argv value; use a native dialog or `--password-stdin` on
+`--continue`. `--code` is accepted only with
 `--continue`; headless environments without a dialog must pass
 `--code VALUE` or `--code -` rather than blocking on stdin. `--readonly` /
 `TGCLI_READONLY=1` block login; `TGCLI_NO_SEND` does not. A still-authorized
@@ -1089,10 +1091,14 @@ rename is the only writer of `sessions/<alias>.session` (or
 `sessions/<alias>@<role>.session`); attempt state lives under `logins/` and
 records the role when set.
 
+There is no QR path, login token output, `tg://login` handoff, or QR-attempt
+compatibility. A pending attempt created by a removed method is exit **4** and
+must be restarted with `--phone`.
+
 Terminal success:
 
 ```json
-{"alias": "main", "method": "qr", "status": "authorized", "next": null,
+{"alias": "main", "method": "phone", "status": "authorized", "next": null,
  "user": {"id": 123, "username": "x", "phone": "+7…89"},
  "session": "/…/sessions/main.session",
  "backup": "/…/sessions/main.session.bak"}
@@ -1113,8 +1119,8 @@ Step completed but more needed (exit 0):
 `session` and may clear `next`.
 
 Exit codes (existing set): 0 step ok including `"next": "code"|"password"`;
-1 QR wait timed out (attempt kept; error names `login_id`); 2 readonly /
-authorized-without-`--force` / `--continue` flag conflicts; 3 invalid code /
+2 missing `--phone`, readonly, authorized-without-`--force`, or `--continue`
+flag conflicts; 3 invalid code /
 invalid cloud password / banned or invalid number / missing api credentials;
 4 unknown alias or unknown/expired `login_id`; 5 `FLOOD_WAIT` with
 `retry_after`. Phones in JSON, `--plain`, stderr, and audit are masked

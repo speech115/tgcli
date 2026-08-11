@@ -92,22 +92,3 @@ def test_dialog_available_requires_darwin_and_osascript(monkeypatch):
     assert desktop.dialog_available() is False
     monkeypatch.setattr(desktop.shutil, "which", lambda name: "/usr/bin/osascript")
     assert desktop.dialog_available() is True
-
-
-def test_open_url_darwin(monkeypatch):
-    monkeypatch.setattr(desktop.sys, "platform", "darwin")
-    monkeypatch.setattr(desktop.shutil, "which", lambda name: f"/usr/bin/{name}")
-    seen = []
-
-    def fake_run(argv, **kwargs):
-        seen.append(argv)
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr(desktop.subprocess, "run", fake_run)
-    assert desktop.open_url("tg://login?token=abc") is True
-    assert seen == [["open", "tg://login?token=abc"]]
-
-
-def test_open_url_non_darwin(monkeypatch):
-    monkeypatch.setattr(desktop.sys, "platform", "linux")
-    assert desktop.open_url("tg://login?token=abc") is False

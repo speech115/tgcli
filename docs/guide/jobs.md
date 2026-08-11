@@ -43,7 +43,7 @@ The lane opens no Telegram session and rejects `--session-role`.
 Authorize a separate role once, then run the Telegram lane:
 
 ```bash
-tg accounts login main --role job --json
+tg accounts login main --role job --phone PHONE --json
 tg jobs run --lane telegram --session-role job --max-runtime 300 --json
 ```
 

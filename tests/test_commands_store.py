@@ -331,7 +331,7 @@ def _write_naive_login(root: Path, login_id: str, *, mtime: datetime) -> Path:
             {
                 "login_id": login_id,
                 "alias": "tmp",
-                "method": "qr",
+                "method": "phone",
                 "expires_at": naive.isoformat(),
             }
         )
@@ -396,7 +396,7 @@ def test_cleanup_reaps_attempt_left_behind_by_expired_read(tmp_path, monkeypatch
     """`load_attempt` no longer deletes, so cleanup must still reap the dead."""
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     record = login_state.create_attempt(
-        "main", "qr", api_id=1, api_hash="h", now=NOW - login_state.LOGIN_TTL
+        "main", "phone", api_id=1, api_hash="h", now=NOW - login_state.LOGIN_TTL
     )
     login_id = record["login_id"]
     staged = login_state.staged_session_path(login_id)
@@ -440,7 +440,7 @@ def _write_login(
             {
                 "login_id": login_id,
                 "alias": "tmp",
-                "method": "qr",
+                "method": "phone",
                 "expires_at": expires_at.isoformat(),
             }
         )
@@ -723,17 +723,17 @@ def _hold_lock(path: Path):
 
 
 def test_cleanup_keeps_expired_login_whose_lock_is_held(tmp_path, monkeypatch):
-    """A QR wait can outlive LOGIN_TTL; its staged session is not litter.
+    """An in-flight authorization can outlive LOGIN_TTL without becoming litter.
 
     The running login holds the staged session's flock for the whole attempt
     (authclient), so cleanup probes it the same non-blocking way
     `session.lock_held` does before reaping an expired attempt.
     """
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    _write_login(tmp_path, "l_qr", expires_at=NOW - timedelta(minutes=1))
+    _write_login(tmp_path, "l_phone", expires_at=NOW - timedelta(minutes=1))
     logins = tmp_path / "logins"
 
-    handle = _hold_lock(logins / "l_qr.lock")
+    handle = _hold_lock(logins / "l_phone.lock")
     try:
         held = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
     finally:
@@ -741,14 +741,14 @@ def test_cleanup_keeps_expired_login_whose_lock_is_held(tmp_path, monkeypatch):
         handle.close()
 
     assert held["removed"] == []
-    assert (logins / "l_qr.json").exists()
-    assert (logins / "l_qr.session").exists()
+    assert (logins / "l_phone.json").exists()
+    assert (logins / "l_phone.session").exists()
 
     free = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
 
-    assert "l_qr.json" in free["removed"]
-    assert "l_qr.session" in free["removed"]
-    assert not (logins / "l_qr.session").exists()
+    assert "l_phone.json" in free["removed"]
+    assert "l_phone.session" in free["removed"]
+    assert not (logins / "l_phone.session").exists()
 
 
 def test_cleanup_keeps_media_cache_while_a_session_lock_is_held(tmp_path, monkeypatch):

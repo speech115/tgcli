@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -24,6 +23,8 @@ api_hash = "hash-main"
 session = "main"
 """
 
+PHONE = "+79991234589"
+
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
@@ -36,48 +37,11 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(state))
     # Headless: no native dialog unless a test opts in.
     monkeypatch.setattr(desktop, "dialog_available", lambda: False)
-    monkeypatch.setattr(desktop, "open_url", lambda url: False)
     return {"config": config_path, "state": state}
-
-
-class FakeQR:
-    def __init__(self, url="tg://login?token=tok123", *, fail_password=False):
-        self.url = url
-        self._fail_password = fail_password
-        self.recreate_calls = 0
-        self.wait_calls = 0
-        self._wait_behavior = "ok"
-        self._refresh_expires()
-
-    def _refresh_expires(self) -> None:
-        self.expires = datetime.now(UTC) + timedelta(seconds=30)
-
-    def set_wait(self, behavior: str):
-        self._wait_behavior = behavior
-
-    async def wait(self, timeout=None):
-        self.wait_calls += 1
-        if self._wait_behavior == "timeout":
-            raise TimeoutError
-        if self._wait_behavior == "password":
-            from telethon.errors import SessionPasswordNeededError
-
-            raise SessionPasswordNeededError(request=None)
-        if self._wait_behavior == "timeout_once":
-            self._wait_behavior = "ok"
-            raise TimeoutError
-        return SimpleNamespace(id=1)
-
-    async def recreate(self):
-        self.recreate_calls += 1
-        self.url = f"tg://login?token=tok-re{self.recreate_calls}"
-        self._refresh_expires()
-        return None
 
 
 class FakeAuthClient:
     def __init__(self):
-        self.qr = FakeQR()
         self.sign_in_calls = []
         self.send_code_calls = []
         self.disconnected = False
@@ -85,9 +49,6 @@ class FakeAuthClient:
         self._send_code_error = None
         self._sign_in_error = None
         self._authorized_probe = False
-
-    async def qr_login(self):
-        return self.qr
 
     async def send_code_request(self, phone):
         assert isinstance(phone, str)
@@ -140,6 +101,12 @@ def fake_client(env, monkeypatch):
     return client
 
 
+async def _complete_phone_login(pending: dict) -> dict:
+    return await login_cmd.continue_login(
+        login_id=pending["login_id"], code="12345", password_stdin=False
+    )
+
+
 def test_mask_phone_shapes():
     assert mask_phone("+79991234589") == "+7…89"
     assert mask_phone("79991234589") == "79…89"
@@ -163,44 +130,19 @@ session = "work-real"
     old_session.write_bytes(b"old-live-session")
     wrong_path = env["state"] / "sessions" / "work.session"
 
-    data = await login_cmd.start_login(
+    pending = await login_cmd.start_login(
         load_config(),
         "work",
-        phone=None,
+        phone=PHONE,
         api_id=None,
         api_hash=None,
         force=True,
-        timeout=30,
-        qr_format="link",
-        password_stdin=False,
     )
+    data = await _complete_phone_login(pending)
     assert data["status"] == "authorized"
     assert str(old_session) == data["session"]
     assert not wrong_path.exists()
     assert (env["state"] / "sessions" / "work-real.session.bak").is_file()
-
-
-@pytest.mark.asyncio
-async def test_qr_happy_path_promotes(env, fake_client):
-    config = load_config()
-    data = await login_cmd.start_login(
-        config,
-        "tmp",
-        phone=None,
-        api_id=99,
-        api_hash="newhash",
-        force=False,
-        timeout=30,
-        qr_format="link",
-        password_stdin=False,
-    )
-    assert data["status"] == "authorized"
-    assert data["method"] == "qr"
-    assert data["user"]["phone"] == "+7…89"
-    dest = env["state"] / "sessions" / "tmp.session"
-    assert dest.is_file()
-    assert "tmp" in load_config().accounts
-    assert fake_client.disconnected
 
 
 @pytest.mark.asyncio
@@ -211,13 +153,10 @@ async def test_force_required_when_authorized(env, fake_client):
         await login_cmd.start_login(
             load_config(),
             "main",
-            phone=None,
+            phone=PHONE,
             api_id=None,
             api_hash=None,
             force=False,
-            timeout=30,
-            qr_format="link",
-            password_stdin=False,
         )
 
 
@@ -230,34 +169,29 @@ async def test_new_alias_orphan_session_requires_force(env, fake_client):
         await login_cmd.start_login(
             load_config(),
             "tmp",
-            phone=None,
+            phone=PHONE,
             api_id=1,
             api_hash="h",
             force=False,
-            timeout=30,
-            qr_format="link",
-            password_stdin=False,
         )
 
 
 @pytest.mark.asyncio
 async def test_new_alias_orphan_session_keeps_backup(env, fake_client):
-    """QR promote for a new alias must .bak an existing destination file."""
+    """Phone promotion for a new alias must .bak an existing destination."""
     orphan = env["state"] / "sessions" / "tmp.session"
     orphan.write_bytes(b"orphan-previous")
     fake_client._authorized_probe = False
 
-    data = await login_cmd.start_login(
+    pending = await login_cmd.start_login(
         load_config(),
         "tmp",
-        phone=None,
+        phone=PHONE,
         api_id=1,
         api_hash="h",
         force=False,
-        timeout=30,
-        qr_format="link",
-        password_stdin=False,
     )
+    data = await _complete_phone_login(pending)
     assert data["status"] == "authorized"
     assert data["backup"] is not None
     bak = env["state"] / "sessions" / "tmp.session.bak"
@@ -275,192 +209,16 @@ async def test_no_probe_when_session_absent(env, fake_client, monkeypatch):
         return False
 
     monkeypatch.setattr(login_cmd.authclient, "probe_authorized", track)
-    await login_cmd.start_login(
+    pending = await login_cmd.start_login(
         load_config(),
         "main",
-        phone=None,
+        phone=PHONE,
         api_id=None,
         api_hash=None,
         force=False,
-        timeout=30,
-        qr_format="link",
-        password_stdin=False,
     )
+    await _complete_phone_login(pending)
     assert probes == []
-
-
-@pytest.mark.asyncio
-async def test_qr_timeout_keeps_attempt(env, fake_client):
-    fake_client.qr.set_wait("timeout")
-    with pytest.raises(login_cmd.LoginTimeoutError) as excinfo:
-        await login_cmd.start_login(
-            load_config(),
-            "tmp",
-            phone=None,
-            api_id=1,
-            api_hash="h",
-            force=False,
-            timeout=0.01,
-            qr_format="link",
-            password_stdin=False,
-        )
-    assert excinfo.value.exit_code == 1
-    assert "login_id" in excinfo.value.details
-    assert "--continue" not in str(excinfo.value)
-    login_id = excinfo.value.details["login_id"]
-    assert (env["state"] / "logins" / f"{login_id}.json").exists()
-
-
-@pytest.mark.asyncio
-async def test_qr_recreate_on_token_expiry(env, fake_client):
-    fake_client.qr.set_wait("timeout_once")
-    data = await login_cmd.start_login(
-        load_config(),
-        "tmp",
-        phone=None,
-        api_id=1,
-        api_hash="h",
-        force=False,
-        timeout=5,
-        qr_format="link",
-        password_stdin=False,
-    )
-    assert data["status"] == "authorized"
-    assert fake_client.qr.recreate_calls == 1
-
-
-@pytest.mark.asyncio
-async def test_qr_refresh_is_rate_limited_when_clock_runs_ahead(
-    env, fake_client, monkeypatch
-):
-    """A host clock ahead of Telegram judges every token expired on arrival."""
-    clock = {"t": 0.0}
-    monkeypatch.setattr(
-        login_cmd, "time", SimpleNamespace(monotonic=lambda: clock["t"])
-    )
-    qr = fake_client.qr
-
-    def stale_expires() -> None:
-        qr.expires = datetime.now(UTC) - timedelta(seconds=30)
-
-    async def expired_wait(timeout=None):
-        qr.wait_calls += 1
-        assert timeout is not None
-        clock["t"] += timeout
-        raise TimeoutError
-
-    qr._refresh_expires = stale_expires
-    qr.wait = expired_wait
-    stale_expires()
-
-    with pytest.raises(login_cmd.LoginTimeoutError):
-        await login_cmd.start_login(
-            load_config(),
-            "tmp",
-            phone=None,
-            api_id=1,
-            api_hash="h",
-            force=False,
-            timeout=120,
-            qr_format="link",
-            password_stdin=False,
-        )
-
-    # At most one exportLoginToken (and one desktop open) per 5s of the window.
-    assert qr.recreate_calls <= 24
-    assert qr.wait_calls == qr.recreate_calls + 1
-
-
-@pytest.mark.asyncio
-async def test_qr_format_text_skips_open_url(env, fake_client, monkeypatch, capsys):
-    opened = []
-    monkeypatch.setattr(desktop, "open_url", lambda url: opened.append(url) or True)
-    monkeypatch.setattr(
-        login_cmd.desktop, "open_url", lambda url: opened.append(url) or True
-    )
-    await login_cmd.start_login(
-        load_config(),
-        "tmp",
-        phone=None,
-        api_id=1,
-        api_hash="h",
-        force=False,
-        timeout=30,
-        qr_format="text",
-        password_stdin=False,
-    )
-    assert opened == []
-    err = capsys.readouterr().err
-    assert "tok123" in err
-    assert "tg://login" not in err or "token" in err
-
-
-@pytest.mark.asyncio
-async def test_qr_2fa_headless_returns_pending(env, fake_client):
-    fake_client.qr.set_wait("password")
-    data = await login_cmd.start_login(
-        load_config(),
-        "tmp",
-        phone=None,
-        api_id=1,
-        api_hash="h",
-        force=False,
-        timeout=30,
-        qr_format="link",
-        password_stdin=False,
-    )
-    assert data["status"] == "pending"
-    assert data["next"] == "password"
-    assert data["login_id"].startswith("l_")
-
-
-@pytest.mark.asyncio
-async def test_continue_password_stdin(env, fake_client, monkeypatch):
-    fake_client.qr.set_wait("password")
-    pending = await login_cmd.start_login(
-        load_config(),
-        "tmp",
-        phone=None,
-        api_id=1,
-        api_hash="h",
-        force=False,
-        timeout=30,
-        qr_format="link",
-        password_stdin=False,
-    )
-    monkeypatch.setattr("sys.stdin", SimpleNamespace(readline=lambda: "cloud-secret\n"))
-    data = await login_cmd.continue_login(
-        login_id=pending["login_id"], code=None, password_stdin=True
-    )
-    assert data["status"] == "authorized"
-    call = fake_client.sign_in_calls[-1]
-    assert call["args"] == ()
-    assert call["kwargs"] == {"password": "cloud-secret"}
-
-
-@pytest.mark.asyncio
-async def test_wrong_password_keeps_attempt(env, fake_client, monkeypatch):
-    from telethon.errors import PasswordHashInvalidError
-
-    fake_client.qr.set_wait("password")
-    pending = await login_cmd.start_login(
-        load_config(),
-        "tmp",
-        phone=None,
-        api_id=1,
-        api_hash="h",
-        force=False,
-        timeout=30,
-        qr_format="link",
-        password_stdin=False,
-    )
-    fake_client._sign_in_error = PasswordHashInvalidError(request=None)
-    monkeypatch.setattr("sys.stdin", SimpleNamespace(readline=lambda: "wrong\n"))
-    with pytest.raises(ConfigError, match="password"):
-        await login_cmd.continue_login(
-            login_id=pending["login_id"], code=None, password_stdin=True
-        )
-    assert (env["state"] / "logins" / f"{pending['login_id']}.json").exists()
 
 
 def test_continue_rejects_phone_force_api(env, capsys):
@@ -502,17 +260,15 @@ async def test_audit_before_promote(env, fake_client, monkeypatch):
 
     monkeypatch.setattr(login_cmd.safety, "append_audit", track_audit)
     monkeypatch.setattr(login_cmd.login_state, "promote", track_promote)
-    await login_cmd.start_login(
+    pending = await login_cmd.start_login(
         load_config(),
         "tmp",
-        phone=None,
+        phone=PHONE,
         api_id=1,
         api_hash="h",
         force=False,
-        timeout=30,
-        qr_format="link",
-        password_stdin=False,
     )
+    await _complete_phone_login(pending)
     assert order == ["audit", "audit", "promote"]
 
 
@@ -527,9 +283,6 @@ async def test_phone_three_step_handshake(env, fake_client, monkeypatch):
         api_id=1,
         api_hash="h",
         force=False,
-        timeout=30,
-        qr_format="link",
-        password_stdin=False,
     )
     assert pending["next"] == "code"
     assert fake_client.send_code_calls == ["+79991234589"]
@@ -556,6 +309,33 @@ async def test_phone_three_step_handshake(env, fake_client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_wrong_phone_login_password_keeps_attempt(env, fake_client, monkeypatch):
+    from telethon.errors import PasswordHashInvalidError, SessionPasswordNeededError
+
+    pending = await login_cmd.start_login(
+        load_config(),
+        "tmp",
+        phone=PHONE,
+        api_id=1,
+        api_hash="h",
+        force=False,
+    )
+    fake_client._sign_in_error = SessionPasswordNeededError(request=None)
+    password_pending = await login_cmd.continue_login(
+        login_id=pending["login_id"], code="12345", password_stdin=False
+    )
+    assert password_pending["next"] == "password"
+
+    fake_client._sign_in_error = PasswordHashInvalidError(request=None)
+    monkeypatch.setattr("sys.stdin", SimpleNamespace(readline=lambda: "wrong\n"))
+    with pytest.raises(ConfigError, match="password"):
+        await login_cmd.continue_login(
+            login_id=pending["login_id"], code=None, password_stdin=True
+        )
+    assert (env["state"] / "logins" / f"{pending['login_id']}.json").exists()
+
+
+@pytest.mark.asyncio
 async def test_phone_code_invalid_keeps_attempt(env, fake_client):
     from telethon.errors import PhoneCodeInvalidError
 
@@ -566,9 +346,6 @@ async def test_phone_code_invalid_keeps_attempt(env, fake_client):
         api_id=1,
         api_hash="h",
         force=False,
-        timeout=30,
-        qr_format="link",
-        password_stdin=False,
     )
     fake_client._sign_in_error = PhoneCodeInvalidError(request=None)
     with pytest.raises(ConfigError, match="code"):
@@ -589,9 +366,6 @@ async def test_phone_code_empty_keeps_attempt(env, fake_client):
         api_id=1,
         api_hash="h",
         force=False,
-        timeout=30,
-        qr_format="link",
-        password_stdin=False,
     )
     fake_client._sign_in_error = PhoneCodeEmptyError(request=None)
     with pytest.raises(ConfigError, match="code"):
@@ -611,9 +385,6 @@ async def test_headless_code_requires_flag(env, fake_client):
         api_id=1,
         api_hash="h",
         force=False,
-        timeout=30,
-        qr_format="link",
-        password_stdin=False,
     )
     with pytest.raises(ConfigError, match="--code"):
         await login_cmd.continue_login(
@@ -631,9 +402,6 @@ async def test_empty_code_rejected_before_sign_in(env, fake_client):
         api_id=1,
         api_hash="h",
         force=False,
-        timeout=30,
-        qr_format="link",
-        password_stdin=False,
     )
     with pytest.raises(ConfigError, match="--code"):
         await login_cmd.continue_login(
@@ -653,9 +421,6 @@ async def test_phone_code_expired_discards(env, fake_client):
         api_id=1,
         api_hash="h",
         force=False,
-        timeout=30,
-        qr_format="link",
-        password_stdin=False,
     )
     fake_client._sign_in_error = PhoneCodeExpiredError(request=None)
     with pytest.raises(ConfigError, match="expired"):
@@ -678,9 +443,6 @@ async def test_flood_wait_exit_5(env, fake_client):
             api_id=1,
             api_hash="h",
             force=False,
-            timeout=30,
-            qr_format="link",
-            password_stdin=False,
         )
     assert excinfo.value.exit_code == 5
 
@@ -694,9 +456,6 @@ async def test_audit_masks_phone_no_secrets(env, fake_client, monkeypatch):
         api_id=1,
         api_hash="h",
         force=False,
-        timeout=30,
-        qr_format="link",
-        password_stdin=False,
     )
     monkeypatch.setattr("sys.stdin", SimpleNamespace(readline=lambda: "99999\n"))
     await login_cmd.continue_login(
@@ -712,7 +471,7 @@ async def test_audit_masks_phone_no_secrets(env, fake_client, monkeypatch):
     assert "+7…89" in audit or "phone" in audit
 
 
-def test_cli_qr_json_url_on_stderr(env, fake_client, capsys):
+def test_initial_login_requires_phone_before_authclient(env, fake_client, capsys):
     code = main(
         [
             "accounts",
@@ -725,12 +484,71 @@ def test_cli_qr_json_url_on_stderr(env, fake_client, capsys):
             "--json",
         ]
     )
+    assert code == 2
+    assert "--phone" in capsys.readouterr().err
+    assert fake_client.send_code_calls == []
+
+
+def test_initial_login_rejects_an_empty_phone_before_authclient(
+    env, fake_client, capsys
+):
+    code = main(
+        [
+            "accounts",
+            "login",
+            "tmp",
+            "--phone",
+            "",
+            "--api-id",
+            "1",
+            "--api-hash",
+            "h",
+            "--json",
+        ]
+    )
+    assert code == 2
+    assert "non-empty" in capsys.readouterr().err
+    assert fake_client.send_code_calls == []
+
+
+def test_cli_phone_start_returns_a_resumable_code_step(env, fake_client, capsys):
+    code = main(
+        [
+            "accounts",
+            "login",
+            "tmp",
+            "--phone",
+            PHONE,
+            "--api-id",
+            "1",
+            "--api-hash",
+            "h",
+            "--json",
+        ]
+    )
     assert code == 0
-    captured = capsys.readouterr()
-    data = json.loads(captured.out)
-    assert data["status"] == "authorized"
-    assert "tg://login" in captured.err
-    assert "tg://login" not in captured.out
+    data = json.loads(capsys.readouterr().out)
+    assert data["method"] == "phone"
+    assert data["status"] == "pending"
+    assert data["next"] == "code"
+    assert data["login_id"].startswith("l_")
+    assert fake_client.send_code_calls == [PHONE]
+
+
+def test_initial_login_rejects_password_stdin(env, capsys):
+    code = main(
+        [
+            "accounts",
+            "login",
+            "main",
+            "--phone",
+            PHONE,
+            "--password-stdin",
+            "--json",
+        ]
+    )
+    assert code == 2
+    assert "without --continue" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(
@@ -743,29 +561,24 @@ async def test_new_alias_rejects_invalid_stems(env, fake_client, alias):
         await login_cmd.start_login(
             load_config(),
             alias,
-            phone=None,
+            phone=PHONE,
             api_id=1,
             api_hash="h",
             force=False,
-            timeout=30,
-            qr_format="link",
-            password_stdin=False,
         )
 
 
 @pytest.mark.asyncio
 async def test_new_alias_accepts_valid_stem(env, fake_client):
-    data = await login_cmd.start_login(
+    pending = await login_cmd.start_login(
         load_config(),
         "valid-alias_9",
-        phone=None,
+        phone=PHONE,
         api_id=1,
         api_hash="h",
         force=False,
-        timeout=30,
-        qr_format="link",
-        password_stdin=False,
     )
+    data = await _complete_phone_login(pending)
     assert data["status"] == "authorized"
     assert (env["state"] / "sessions" / "valid-alias_9.session").is_file()
 
@@ -784,15 +597,12 @@ async def test_audit_fail_closed_before_attempt(env, fake_client, monkeypatch):
         await login_cmd.start_login(
             load_config(),
             "tmp",
-            phone=None,
+            phone=PHONE,
             api_id=1,
             api_hash="h",
             force=False,
-            timeout=30,
-            qr_format="link",
-            password_stdin=False,
         )
-    assert calls == [{"method": "qr", "outcome": "started"}]
+    assert calls == [{"method": "phone", "outcome": "started", "phone": "+7…89"}]
     assert list((env["state"] / "logins").glob("l_*.json")) == []
 
 
@@ -802,18 +612,21 @@ async def test_continue_password_flood_wait_keeps_attempt(
 ):
     from telethon.errors import FloodWaitError
 
-    fake_client.qr.set_wait("password")
     pending = await login_cmd.start_login(
         load_config(),
         "tmp",
-        phone=None,
+        phone=PHONE,
         api_id=1,
         api_hash="h",
         force=False,
-        timeout=30,
-        qr_format="link",
-        password_stdin=False,
     )
+    from telethon.errors import SessionPasswordNeededError
+
+    fake_client._sign_in_error = SessionPasswordNeededError(request=None)
+    password_pending = await login_cmd.continue_login(
+        login_id=pending["login_id"], code="12345", password_stdin=False
+    )
+    assert password_pending["next"] == "password"
     fake_client._sign_in_error = FloodWaitError(request=None, capture=45)
     monkeypatch.setattr("sys.stdin", SimpleNamespace(readline=lambda: "pw\n"))
     with pytest.raises(Exception) as excinfo:
@@ -826,8 +639,10 @@ async def test_continue_password_flood_wait_keeps_attempt(
 
 
 @pytest.mark.asyncio
-async def test_continue_qr_without_password_step_rejects(env, fake_client):
-    record = login_state.create_attempt("tmp", "qr", api_id=1, api_hash="h", phone=None)
+async def test_continue_refuses_a_pending_removed_qr_attempt(env, fake_client):
+    record = login_state.create_attempt(
+        "tmp", "qr", api_id=1, api_hash="h", phone=PHONE
+    )
     login_id = record["login_id"]
     login_state.staged_session_path(login_id).write_bytes(b"staged")
     with pytest.raises(Exception) as excinfo:
@@ -871,7 +686,7 @@ def test_continue_without_timeout_reaches_attempt_lookup(env, capsys):
     assert error["code"] == "NOT_FOUND"
 
 
-def test_continue_rejects_qr_format(env, capsys):
+def test_qr_format_is_removed_from_the_parser(env, capsys):
     code = main(
         [
             "accounts",
@@ -883,7 +698,8 @@ def test_continue_rejects_qr_format(env, capsys):
             "--json",
         ]
     )
-    assert code == 2
+    assert code == 1
+    assert "unrecognized arguments: --qr-format" in capsys.readouterr().err
 
 
 def test_initial_login_rejects_code_without_continue(env, capsys):

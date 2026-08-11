@@ -288,10 +288,6 @@ def _prepare_login(args) -> None:
                 raise PolicyError(f"accounts login --continue rejects {flag}")
         if getattr(args, "force", False):
             raise PolicyError("accounts login --continue rejects --force")
-        # --timeout is a CONTRACT §1 global flag and is honoured as the whole
-        # invocation's deadline; --qr-format only shapes the start path's QR.
-        if hasattr(args, "qr_format"):
-            raise PolicyError("accounts login --continue rejects --qr-format")
         if getattr(args, "login_role", None) is not None:
             raise PolicyError("accounts login --continue rejects --role")
         return
@@ -299,6 +295,14 @@ def _prepare_login(args) -> None:
         raise PolicyError("accounts login requires ALIAS (or --continue LOGIN_ID)")
     if getattr(args, "code", None) is not None:
         raise PolicyError("accounts login rejects --code without --continue")
+    if getattr(args, "password_stdin", False):
+        raise PolicyError("accounts login rejects --password-stdin without --continue")
+    phone = getattr(args, "phone", None)
+    if not isinstance(phone, str) or not phone.strip():
+        if phone is not None:
+            raise PolicyError("accounts login --phone must be non-empty")
+        raise PolicyError("accounts login requires --phone PHONE")
+    args.phone = phone.strip()
     api_id = getattr(args, "api_id", None)
     api_hash = getattr(args, "api_hash", None)
     if (api_id is None) ^ (api_hash is None):

@@ -78,7 +78,9 @@ async def test_client_role_missing_is_config_error_with_remediation(state, monke
         "_make_client",
         lambda path, account, *, mutation_safe=False: FakeTelethonClient(),
     )
-    with pytest.raises(ConfigError, match=r"run: tg accounts login work --role job"):
+    with pytest.raises(
+        ConfigError, match=r"run: tg accounts login work --role job --phone PHONE"
+    ):
         async with session.client(ACCOUNT, role="job"):
             pass
 
@@ -300,7 +302,7 @@ def test_session_role_unknown_exits_3_before_network(config_env, monkeypatch, ca
     assert code == 3
     err = json.loads(capsys.readouterr().err)
     assert err["error"]["code"] == "CONFIG"
-    assert "accounts login work --role job" in err["error"]["message"]
+    assert "accounts login work --role job --phone PHONE" in err["error"]["message"]
 
 
 def test_session_role_accepted_on_api_and_mutation_flags(config_env):

@@ -23,9 +23,11 @@ def state(tmp_path, monkeypatch):
 
 
 def test_create_attempt_mode_and_fields(state):
-    record = login_state.create_attempt("main", "qr", api_id=1, api_hash="h", now=NOW)
+    record = login_state.create_attempt(
+        "main", "phone", api_id=1, api_hash="h", now=NOW
+    )
     assert record["login_id"].startswith("l_")
-    assert record["method"] == "qr"
+    assert record["method"] == "phone"
     assert record["phone_code_hash"] is None
     path = state / "logins" / f"{record['login_id']}.json"
     assert path.is_file()
@@ -36,7 +38,9 @@ def test_create_attempt_mode_and_fields(state):
 
 
 def test_update_attempt_rewrites_atomically(state):
-    record = login_state.create_attempt("main", "qr", api_id=1, api_hash="h", now=NOW)
+    record = login_state.create_attempt(
+        "main", "phone", api_id=1, api_hash="h", now=NOW
+    )
     updated = login_state.update_attempt(
         record["login_id"], phone_code_hash="abc", now=NOW
     )
@@ -58,7 +62,7 @@ def test_id_validation_rejects_traversal(state):
 def test_expiry_raises_without_deleting_staged_session(state):
     """A read reports expiry; it never destroys in-flight login material.
 
-    A forward clock step (or a QR wait that crosses the TTL) used to make
+    A forward clock step during a multi-step login used to make
     `load_attempt` discard the attempt json *and* the staged session, so
     merely inspecting an attempt threw away what the user was creating.
     """
@@ -83,7 +87,9 @@ def test_expiry_raises_without_deleting_staged_session(state):
 
 
 def test_promote_atomic_when_replace_fails_midway(state, monkeypatch):
-    record = login_state.create_attempt("main", "qr", api_id=1, api_hash="h", now=NOW)
+    record = login_state.create_attempt(
+        "main", "phone", api_id=1, api_hash="h", now=NOW
+    )
     login_id = record["login_id"]
     staged = login_state.staged_session_path(login_id)
     staged.write_bytes(b"new-session")
@@ -113,7 +119,9 @@ def test_promote_atomic_when_replace_fails_midway(state, monkeypatch):
 
 
 def test_promote_backup_slot_is_single(state):
-    record = login_state.create_attempt("main", "qr", api_id=1, api_hash="h", now=NOW)
+    record = login_state.create_attempt(
+        "main", "phone", api_id=1, api_hash="h", now=NOW
+    )
     login_id = record["login_id"]
     staged = login_state.staged_session_path(login_id)
     staged.write_bytes(b"first")
@@ -124,7 +132,9 @@ def test_promote_backup_slot_is_single(state):
     assert dest.read_bytes() == b"first"
     assert Path(str(dest) + ".bak").read_bytes() == b"original"
 
-    record2 = login_state.create_attempt("main", "qr", api_id=1, api_hash="h", now=NOW)
+    record2 = login_state.create_attempt(
+        "main", "phone", api_id=1, api_hash="h", now=NOW
+    )
     staged2 = login_state.staged_session_path(record2["login_id"])
     staged2.write_bytes(b"second")
     login_state.promote(record2["login_id"], dest, keep_backup=True)
@@ -136,7 +146,9 @@ def test_promote_backup_slot_is_single(state):
 def test_promote_enforces_sessions_dir_0700_and_files_0600(state, wide_umask):
     """The promoted .session (and its .bak) are account secrets; the mirror
     of the session.client() tighten must hold on the login path too."""
-    record = login_state.create_attempt("main", "qr", api_id=1, api_hash="h", now=NOW)
+    record = login_state.create_attempt(
+        "main", "phone", api_id=1, api_hash="h", now=NOW
+    )
     login_id = record["login_id"]
     staged = login_state.staged_session_path(login_id)
     staged.write_bytes(b"new")
@@ -155,7 +167,9 @@ def test_promote_enforces_sessions_dir_0700_and_files_0600(state, wide_umask):
 
 
 def test_promote_refuses_when_destination_lock_held(state):
-    record = login_state.create_attempt("main", "qr", api_id=1, api_hash="h", now=NOW)
+    record = login_state.create_attempt(
+        "main", "phone", api_id=1, api_hash="h", now=NOW
+    )
     staged = login_state.staged_session_path(record["login_id"])
     staged.write_bytes(b"new")
     dest = state / "sessions" / "main.session"
@@ -190,7 +204,7 @@ def test_update_and_discard(state):
 def test_load_attempt_rejects_a_naive_expiry(tmp_path, monkeypatch):
     """Same class as the store fix: a naive stamp must not raise TypeError."""
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    record = login_state.create_attempt("main", "qr", api_id=1, api_hash="h")
+    record = login_state.create_attempt("main", "phone", api_id=1, api_hash="h")
     path = login_state.logins_dir() / f"{record['login_id']}.json"
     stored = json.loads(path.read_text())
     stored["expires_at"] = "2026-07-26T12:00:00"

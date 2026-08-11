@@ -35,7 +35,7 @@ tgcli/
 │   ├── guide/                 [done]    user-facing task pages, 26 + index (ADR-0041/0065)
 │   ├── assets/                [done]    README banner, dark + light SVG, two manual jobs launchd templates (no external assets)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
-│   ├── decisions/             [done]    ADR-0001…0087 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope; ADR-0079 transcribe readonly gate; ADR-0080 notes trimming; ADR-0081 diagnostics honesty; ADR-0082 per-leg clone sync; ADR-0083 floods keep finished work; ADR-0084 resume identifies its media; ADR-0085 clone reports the bot keyboard it cannot carry; ADR-0086 clone reports durable degradation before a later exit; ADR-0087 foreground persisted jobs)
+│   ├── decisions/             [done]    ADR-0001…0088 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope; ADR-0079 transcribe readonly gate; ADR-0080 notes trimming; ADR-0081 diagnostics honesty; ADR-0082 per-leg clone sync; ADR-0083 floods keep finished work; ADR-0084 resume identifies its media; ADR-0085 clone reports the bot keyboard it cannot carry; ADR-0086 clone reports durable degradation before a later exit; ADR-0087 foreground persisted jobs; ADR-0088 phone-only authorization)
 │   ├── research/              [done]    read-only investigation notes backing a wayfinder map's closed children
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
@@ -56,7 +56,7 @@ tgcli/
 │   ├── formatting.py          [done]    outgoing --format {plain,md,html} → entities (ADR-0030); mask_phone (ADR-0042)
 │   ├── resolve_phone.py       [done]    shared contacts.resolvePhone cooldown (ADR-0029)
 │   ├── read_ops.py            [done]    typed read-operation seam shared by interactive CLI + batch (ADR-0034)
-│   ├── desktop.py             [done]    osascript/open escape hatch for secrets and tg:// links (ADR-0042)
+│   ├── desktop.py             [done]    osascript escape hatch for secrets and best-effort notifications (ADR-0042/0087)
 │   ├── authclient.py          [done]    unauthorized Telethon client + auth probe (ADR-0042)
 │   ├── changes_cursor.py      [done]    opaque v1 cursor codec for tg changes (ADR-0063; pure)
 │   ├── login_state.py         [done]    logins/ attempt state and session promotion (ADR-0042)
@@ -111,7 +111,7 @@ tgcli/
 │   └── commands/
 │   │   ├── batch.py           [done]    tg batch read-only JSONL runner (ADR-0032)
 │   │   ├── accounts.py        [done]    tg accounts list|import|show|remove (+ --role; ADR-0042/0062)
-│   │   ├── login.py           [done]    tg accounts login QR/phone + --continue + --role (ADR-0042/0062)
+│   │   ├── login.py           [done]    phone/code/password authorization + --continue + --role (ADR-0042/0062/0088)
 │   │   ├── doctor.py          [done]    offline/online health for primary + role sessions (ADR-0028/0040/0062)
 │   │   ├── changes.py         [done]    tg changes daemonless feed (ADR-0063 / FEED-001)
 │   │   ├── archive.py         [done]    tg archive init|add|remove|list|status|search|read|history|backfill|sync|transcribe|rebaseline (ADR-0068/0069)
