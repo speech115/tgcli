@@ -19,6 +19,7 @@ from tgcli.commands import (
     dialog as dialog_cmd,
     draft as draft_cmd,
     export as export_cmd,
+    jobs as jobs_cmd,
     media as media_cmd,
     mutate as mutate_cmd,
     send as send_cmd,
@@ -28,10 +29,17 @@ from tgcli.errors import PolicyError, RateLimitError
 
 
 async def run_network(args, account) -> tuple[dict, list[tuple]]:
-    mutation_safe = args.command == "clone" and (
-        args.clone_command == "sync"
-        or (args.clone_command == "init" and args.commit is not None)
-        or (args.clone_command == "refresh" and args.commit is not None)
+    mutation_safe = (
+        args.command == "jobs"
+        and args.jobs_command == "run"
+        and args.lane == "telegram"
+    ) or (
+        args.command == "clone"
+        and (
+            args.clone_command == "sync"
+            or (args.clone_command == "init" and args.commit is not None)
+            or (args.clone_command == "refresh" and args.commit is not None)
+        )
     )
     # cli._execute already holds the audit-role context var for the whole
     # invocation (including this coroutine); only the network session itself
@@ -41,6 +49,14 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
         async with session.client(
             account, mutation_safe=mutation_safe, role=role
         ) as tg:
+            if args.command == "jobs" and args.jobs_command == "run":
+                data = await jobs_cmd.run_telegram(
+                    tg,
+                    account.alias,
+                    max_runtime=args.max_runtime,
+                    config=None,
+                )
+                return data, jobs_cmd.run_rows(data)
             read_operation = read_ops.from_cli(args)
             if read_operation is not None:
                 result = await read_ops.execute(tg, read_operation)
@@ -223,17 +239,6 @@ async def _run_archive(tg, args, account) -> tuple[dict, list[tuple]]:
             max_media=getattr(args, "max_media", None),
         )
         return data, archive_cmd.sync_rows(data)
-    if cmd == "refresh":
-        data = await archive_cmd.refresh(
-            tg,
-            alias,
-            max_events=getattr(args, "max_events", None),
-            max_dialogs=getattr(args, "max_dialogs", None),
-            max_media=getattr(args, "max_media", None),
-            transcribe_limit=getattr(args, "transcribe_limit", None),
-            max_attempts=getattr(args, "max_attempts", None),
-        )
-        return data, archive_cmd.refresh_rows(data)
     if cmd == "rebaseline":
         data = await archive_cmd.rebaseline(tg, alias)
         return data, archive_cmd.rebaseline_rows(data)

@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from tgcli import session
+from tgcli.jobs import store as jobs_store
 from tgcli.login_state import LOGIN_TTL
 from tgcli.output import note
 from tgcli.safety import PREVIEW_TTL
@@ -258,6 +259,7 @@ def scan(root: Path, *, now: datetime | None = None) -> dict:
         if archive_root.is_dir()
         else []
     )
+    jobs = jobs_store.inventory(root)
 
     return {
         "previews": previews,
@@ -311,6 +313,7 @@ def scan(root: Path, *, now: datetime | None = None) -> dict:
                 "bytes": sum(_file_bytes(path) for path in archive_shm_files),
             },
         },
+        "jobs": {"bytes": _dir_bytes(root / "jobs"), **jobs},
         "downloads": {"bytes": _dir_bytes(root / "downloads")},
         "relics": relics,
     }
@@ -353,6 +356,10 @@ def stats_rows(data: dict) -> list[tuple]:
     for name in ("db", "wal", "shm"):
         bucket = data["archive"][name]
         rows.append((f"archive.{name}", bucket["count"], bucket["bytes"]))
+    rows.append(("jobs", None, data["jobs"]["bytes"]))
+    for name in ("db", "wal", "shm"):
+        bucket = data["jobs"][name]
+        rows.append((f"jobs.{name}", bucket["count"], bucket["bytes"]))
     rows.append(("downloads", None, data["downloads"]["bytes"]))
     for relic in data["relics"]:
         rows.append((f"relic.{relic['name']}", None, relic["bytes"]))
@@ -389,10 +396,9 @@ def _lock_busy(target: Path) -> bool:
 def _attempt_lock_held(logins_root: Path, login_id: str) -> bool:
     """Whether a login attempt is still running.
 
-    A QR wait can outlive `LOGIN_TTL`, and the running login holds the staged
-    session's flock for the whole attempt (`authclient.unauthorized_client`),
-    so an expired record alone does not mean abandoned: reaping it would take
-    an authorization in flight.
+    A running login holds the staged session's flock for the whole request
+    (`authclient.unauthorized_client`), so an expired record alone does not mean
+    abandoned: reaping it would take an authorization in flight.
     """
     return _lock_busy(logins_root / f"{login_id}.session")
 
@@ -531,6 +537,7 @@ def cleanup(
             "sessions": True,
             "session_backups": True,
             "archive": True,
+            "jobs": True,
             "relics": [item["name"] for item in inventory["relics"]],
         },
     }

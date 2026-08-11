@@ -49,11 +49,6 @@ Telegram has confirmed the authorization. The single moment at which a login
 attempt becomes the account's session; before it, nothing the account depends
 on has changed.
 
-**QR login** — authorizing by having an already-logged-in Telegram client
-accept a **login token**. The token travels either as a scanned QR code or, on
-the same machine, as a **deep link** (`tg://login?token=…`) handed to the
-native client. No secret is typed by the user.
-
 **confirmation code** — the short-lived numeric code Telegram delivers when
 authorizing by phone number. A credential, but a narrow one: it expires in
 minutes and is useless without the login attempt's local state.

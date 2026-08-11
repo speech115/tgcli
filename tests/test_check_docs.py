@@ -64,21 +64,29 @@ def copy_with_replacement(tmp_path: Path, source: Path, old: str, new: str) -> P
     return path
 
 
-def test_archive_refresh_plist_argv_stays_parseable():
-    """The launchd template's ProgramArguments must keep parsing: a flag
-    rename that silently breaks the scheduled job is a docs-asset regression
-    the gate should catch."""
+@pytest.mark.parametrize(
+    ("name", "lane", "key", "role"),
+    [
+        ("tgcli-jobs-telegram.plist", "telegram", "archive-sync", "job"),
+        ("tgcli-jobs-local.plist", "local", "archive-transcribe", None),
+    ],
+)
+def test_jobs_plist_argv_stays_parseable(name, lane, key, role):
+    """The checked-in launchd templates must keep parsing as bounded rearm."""
     import plistlib
 
     from tgcli.parser import build_parser
 
-    plist_path = ROOT / "docs" / "assets" / "tgcli-archive-refresh.plist"
+    plist_path = ROOT / "docs" / "assets" / name
     with plist_path.open("rb") as handle:
         plist = plistlib.load(handle)
     argv = plist["ProgramArguments"][1:]  # drop the absolute tg path
     args = build_parser().parse_args(argv)
-    assert args.command == "archive"
-    assert args.archive_command == "refresh"
+    assert args.command == "jobs"
+    assert args.jobs_command == "run"
+    assert args.rearm == key
+    assert args.lane is None
+    assert getattr(args, "session_role", None) == role
     assert args.max_runtime == 3000
 
 
@@ -285,13 +293,35 @@ def test_the_repository_supersessions_are_all_recorded():
     assert load_check_docs().adr_supersession_problems() == []
 
 
+def test_active_glossary_does_not_define_removed_qr_login():
+    glossary = (ROOT / "CONTEXT.md").read_text()
+
+    assert "**QR login**" not in glossary
+    assert "tg://login" not in glossary
+
+
+def test_active_contract_and_adr_index_match_the_jobs_cutover():
+    contract = (ROOT / "docs" / "CONTRACT.md").read_text()
+    index = (ROOT / "docs" / "decisions" / "README.md").read_text()
+    refresh = (
+        ROOT / "docs" / "decisions" / "ADR-0070-archive-refresh-scheduling.md"
+    ).read_text()
+
+    assert "Schema v7 tables" in contract
+    assert "`tg accounts login` requires explicit phone authorization" in index
+    assert "| superseded by ADR-0087 |" in index
+    assert "hourly one-shot refresh" not in index
+    assert "refresh scheduling amended by ADR-0087" in index
+    assert "Status: superseded by ADR-0087" in refresh
+
+
 def test_map_inventory_counts_must_match_the_tree(tmp_path):
     project_map = tmp_path / "MAP.md"
     project_map.write_text(
         (ROOT / "docs" / "MAP.md")
         .read_text()
-        .replace("task pages, 26 + index", "task pages, 22 + index", 1)
-        .replace("ADR-0001…0086", "ADR-0001…0057", 1)
+        .replace("task pages, 26 + index", "task pages, 23 + index", 1)
+        .replace("ADR-0001…0088", "ADR-0001…0057", 1)
     )
     result = run(
         ROOT / "CHANGELOG.md",
@@ -299,8 +329,8 @@ def test_map_inventory_counts_must_match_the_tree(tmp_path):
     )
 
     assert result.returncode == 1
-    assert "MAP.md: guide count is 22; tree has 26 task pages" in result.stdout
-    assert "MAP.md: ADR range ends at 0057; tree ends at 0086" in result.stdout
+    assert "MAP.md: guide count is 23; tree has 26 task pages" in result.stdout
+    assert "MAP.md: ADR range ends at 0057; tree ends at 0088" in result.stdout
 
 
 def test_contributor_docs_must_not_send_sessions_to_closed_devlog(tmp_path):

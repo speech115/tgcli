@@ -145,6 +145,24 @@ def export_state(source: str) -> dict:
     return matches[0].to_dict()
 
 
+def progress_token(account_user_id: int, source_peer_id: int) -> dict:
+    """Durable cursors for one resolved account/source identity."""
+    found = state.load(state.clone_id(account_user_id, source_peer_id))
+    return {
+        "clone": (
+            None
+            if found is None
+            else {
+                "source_peer_id": found.source_peer_id,
+                "cursor": found.cursor,
+                "discussion_cursor": found.discussion_cursor,
+                "copied": len(found.id_map),
+                "discussion_copied": len(found.discussion_id_map),
+            }
+        )
+    }
+
+
 def status_rows(data: dict) -> list[tuple]:
     return [
         (
@@ -199,6 +217,16 @@ async def _resolve_source(tg, source: str, *, account_user_id: int | None = None
         raise NotFoundError(f"clone source not found: {source!r}") from None
     kind = attribution.source_kind(entity)
     return entity, kind, attribution.display_name(entity)
+
+
+async def resolve_source_peer_id(tg, source: str, account_user_id: int) -> int:
+    """Resolve a job's SOURCE to the identity used by durable clone state."""
+    entity, _, _ = await _resolve_source(
+        tg,
+        source,
+        account_user_id=account_user_id,
+    )
+    return int(entity.id)
 
 
 def _supersede_status(clone_id: str, replace: bool) -> dict:
@@ -1010,7 +1038,7 @@ async def sync_text(
     participants = await roster.collect(tg, clone_state, source_entity)
     clone_state.last_synced_at = datetime.now(UTC).isoformat()
     state.save(clone_state)
-    data = {
+    data: dict = {
         "clone": {
             "id": clone_state.clone_id,
             "source": {
@@ -1036,6 +1064,7 @@ async def sync_text(
             **({"pinned": pinned_result} if pinned_result is not None else {}),
         },
     }
+    data["remaining"] = bool(more or cap_exhausted())
     if quote_flattened:
         raise PartialFailure(
             f"clone sync finished with {len(quote_flattened)} quote fallback(s)",

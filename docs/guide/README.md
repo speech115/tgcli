@@ -34,7 +34,6 @@ page is a bug** ([ADR-0041](../decisions/ADR-0041-user-facing-guide-split.md)).
 | [batch](batch.md) | `batch` — read-only operations from JSONL on stdin |
 | [changes](changes.md) | `changes` — daemonless update feed with opaque cursor |
 | [archive](archive.md) | `archive` — local store, private backfill, sync, media, search, and history (ADR-0068) |
-| [archive-refresh](archive-refresh.md) | `archive refresh` — bounded one-shot scheduling and manual launchd setup (ADR-0070) |
 
 ## Writing
 
@@ -62,6 +61,7 @@ Every page in this group is preview → commit unless it says otherwise.
 
 | Page | Covers |
 | --- | --- |
+| [jobs](jobs.md) | persisted foreground jobs — add, inspect, cancel, and run the local transcription lane (ADR-0087) |
 | [doctor](doctor.md) | offline-first health checks, `--connect` |
 | [store](store.md) | `store stats\|cleanup` — local state hygiene |
 | [safety](safety.md) | readonly and no-send gates, preview TTL, the audit log |
