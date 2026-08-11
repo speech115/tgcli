@@ -1,6 +1,6 @@
 # CLI Automation Contract
 
-Version: 2.0.0 (tracks the package release; see `CHANGELOG.md` and
+Version: 3.0.0 (tracks the package release; see `CHANGELOG.md` and
 `pyproject.toml`). Any change here lands in the same commit as the code
 change (AGENTS.md / ADR-0038).
 
@@ -23,8 +23,8 @@ Global flags (available on every command):
 | `--json` | machine output: one JSON document to stdout |
 | `--plain` | stable TSV to stdout (no colors, no alignment) |
 | `--readonly` | hard-block any mutating call in this invocation |
-| `--timeout <sec>` | overall invocation **hang detector** covering preflight and execution (default 60; governed sleep does not count against it; no default deadline for media, exports, `clone init|sync|refresh`, or `archive refresh`, which may wait out bounded work; `accounts login` defaults to 120 and `--continue` takes none; `tg transcribe` defaults to 120, the transcription wait) |
-| `--max-runtime <sec>` | explicit wall-clock cap for long runs: governed sleep counts against it; exhausting it is a normal stop (exit 0), with `stop_reason` and a resume pointer where the command keeps a cursor (clone sync, archive backfill; archive refresh defers sync and stops with `stop_reason: "wall_clock_cap"` and no cursor) |
+| `--timeout <sec>` | overall invocation **hang detector** covering preflight and execution (default 60; governed sleep does not count against it; no default deadline for media, exports, `clone init\|sync\|refresh`, or `jobs run`, which own bounded work; `accounts login --continue` takes none; `tg transcribe` defaults to 120, the transcription wait) |
+| `--max-runtime <sec>` | explicit wall-clock cap for long runs: governed sleep counts against it; exhausting it is a normal stop (exit 0), with `stop_reason` and a resume pointer where the command keeps a cursor; every `jobs run` requires it and caps it at 3000 seconds |
 | `-v/--verbose` | Python and Telethon debug diagnostics on stderr for this invocation |
 
 Env equivalents: `TGCLI_ACCOUNT`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`.
@@ -34,7 +34,7 @@ Flag beats env, env beats config.
 the client opens. Role names use the same charset/length rules as account
 aliases; `primary` is reserved (omit the flag to use the default session).
 There is **no implicit fallback**: a missing or unauthorized role is exit 3
-(`CONFIG`) with remediation `run: tg accounts login <alias> --role NAME`,
+(`CONFIG`) with remediation `run: tg accounts login <alias> --role NAME --phone PHONE`,
 never a silent switch to the primary. Symmetrically, omitting the flag always
 uses the primary even when roles exist. A role appears only through an
 explicit interactive `accounts login --role` — never created by using the
@@ -90,11 +90,10 @@ flag.
 | 4 | not found | unknown dialog, message id, media; unknown alias on `accounts show\|remove` (lookup) |
 | 5 | rate limited | FloodWait longer than threshold; `retry_after` in error JSON |
 
-A scheduled `archive refresh` that wakes into a partial cooldown exits **0**
-with `stop_reason: "cooldown_deferred"` and a `deferred` list instead of
-exit 5: it does what the free request types allow (local transcription) and
-reports the rest as deferred. A consumer polling exit 5 as "the account
-needs to wait" must poll the journal/JSON fields instead.
+A Telegram jobs lane that meets a rate limit persists the generation as queued
+with `not_before`, exits **0**, and reports
+`stop_reason: "cooldown_deferred"`. The scheduled wake did its job by
+deferring durable work; inspect `jobs show KEY` for the retry time.
 
 Exit 1 covers several distinguishable error codes in the JSON envelope:
 `TIMEOUT` (the `--timeout` deadline elapsed), `RUNTIME` (an untranslated
@@ -705,6 +704,8 @@ No config and no Telegram session. `--json` emits:
  "clone_media_cache":{"count":0,"bytes":0},
  "archive":{"bytes":0,"db":{"count":0,"bytes":0},"wal":{"count":0,"bytes":0},
             "shm":{"count":0,"bytes":0}},
+ "jobs":{"bytes":0,"db":{"count":0,"bytes":0},"wal":{"count":0,"bytes":0},
+         "shm":{"count":0,"bytes":0},"states":{},"unreadable":0},
  "downloads":{"bytes":0},
  "relics":[{"name":"labs","bytes":11}]}
 ```
@@ -726,7 +727,10 @@ reports abandoned `clones/<clone_id>-media/` directories left by a failed
 aggregate `clones` figure. `archive` reports
 `archive/<account>/` under the state root (ADR-0068): aggregate bytes plus
 `archive.db` / WAL / SHM counts; never auto-deleted. A custom
-`[archive] root` outside the state root is not inventoried here. Relic directories
+`[archive] root` outside the state root is not inventoried here. `jobs`
+reports account registries under `jobs/<alias>/`: DB/WAL/SHM bytes, the latest
+generation count by state, and unreadable DB count; cleanup never removes it.
+Relic directories
 (`mirrors`, `mirror-lab`, `labs`, `probes`) are reported when present and never
 auto-deleted. New previews are written mode `0600`; `store cleanup` also
 tightens surviving preview modes to `0600`.
@@ -747,6 +751,7 @@ deleted. Never touches `audit.jsonl`, `sessions/` (including `.bak`), live
 login attempts, live `.json` within TTL, clone state JSON, a media cache
 younger than one hour (`MEDIA_CACHE_MIN_AGE`, the running-sync guard), the
 archive store under `archive/` (ADR-0068), or relic directories.
+The jobs registry under `jobs/` (ADR-0087) is also never removed.
 `.pending` files are
 protected (ADR-0028 `random_id`) and are eligible only with `--include-pending`
 and only when far past TTL (`expires_at + PREVIEW_TTL`). Staged sessions are
@@ -769,7 +774,7 @@ guard is for Telegram sends, and cleanup reaches no network.
 ```json
 {"removed":[],"would_remove":["p_spent0.used","p_expired.json"],"bytes":130,
  "confirmed":false,"kept":{"audit_log":true,"sessions":true,
- "session_backups":true,"archive":true,"relics":["labs"]}}
+ "session_backups":true,"archive":true,"jobs":true,"relics":["labs"]}}
 ```
 
 With `--confirm`, `removed` is populated and `would_remove` is empty.
@@ -969,7 +974,7 @@ exit (exit 5) additionally carries `retry_after`, `request_type` (the
 governed key, e.g. `messages.GetHistoryRequest`) and `provenance`
 (`server` | `account_cooldown` | `resolve_phone_cooldown`). A normal stop
 carries `stop_reason` (`breadth_budget_exhausted` | `wall_clock_cap` |
-`cooldown_deferred`). The journal never contains message/search text, chat
+`cooldown_deferred` | `idle`). The journal never contains message/search text, chat
 references, raw API parameters, or command output. A journal-write failure
 emits a warning to stderr but does not change the command result.
 
@@ -984,9 +989,8 @@ tg accounts import [ALIAS ...] [--source-root PATH] [--force]
 tg accounts show ALIAS
 tg accounts remove ALIAS [--confirm] [--keep-session]
 tg accounts remove ALIAS --role NAME [--confirm]
-tg accounts login ALIAS [--phone PHONE] [--api-id N] [--api-hash H]
-                        [--force] [--timeout SECONDS] [--qr-format link|text]
-                        [--password-stdin] [--role NAME]
+tg accounts login ALIAS --phone PHONE [--api-id N] [--api-hash H]
+                        [--force] [--timeout SECONDS] [--role NAME]
 tg accounts login --continue LOGIN_ID [--code VALUE|-] [--password-stdin]
 ```
 
@@ -1066,15 +1070,18 @@ keeps `"config": "unchanged"`.
 `--plain` emits: `alias`, `config`, `session`, `backup`, `role` (empty when
 removing the whole account).
 
-`accounts login` authorizes a session (ADR-0042). No `--phone` ⇒ QR path;
-`--phone` ⇒ phone + confirmation code. `--api-id` / `--api-hash` are required
+`accounts login` authorizes a session by phone number (ADR-0042/0088).
+`--phone PHONE` is required and non-empty on the start invocation; omission
+or an empty value is exit **2**
+before audit, attempt creation, or network work. `--api-id` / `--api-hash` are required
 together and only for an alias absent from config. `--continue` takes no
 `ALIAS` and rejects `--phone` / `--api-id` / `--api-hash` / `--force` /
 `--role`. `--role NAME` authorizes a named session role beside an **already
 configured** alias (ADR-0062); it never appends config and refuses an
-unknown alias (exit 3). `--timeout` defaults to **120** seconds on the QR
-path when unset. The cloud password is never accepted as an argv value; use
-a native dialog or `--password-stdin`. `--code` is accepted only with
+unknown alias (exit 3). The ordinary **60**-second hang detector applies to
+the phone start; `--continue` has no implicit deadline. The cloud password is
+never accepted as an argv value; use a native dialog or `--password-stdin` on
+`--continue`. `--code` is accepted only with
 `--continue`; headless environments without a dialog must pass
 `--code VALUE` or `--code -` rather than blocking on stdin. `--readonly` /
 `TGCLI_READONLY=1` block login; `TGCLI_NO_SEND` does not. A still-authorized
@@ -1084,10 +1091,14 @@ rename is the only writer of `sessions/<alias>.session` (or
 `sessions/<alias>@<role>.session`); attempt state lives under `logins/` and
 records the role when set.
 
+There is no QR path, login token output, `tg://login` handoff, or QR-attempt
+compatibility. A pending attempt created by a removed method is exit **4** and
+must be restarted with `--phone`.
+
 Terminal success:
 
 ```json
-{"alias": "main", "method": "qr", "status": "authorized", "next": null,
+{"alias": "main", "method": "phone", "status": "authorized", "next": null,
  "user": {"id": 123, "username": "x", "phone": "+7…89"},
  "session": "/…/sessions/main.session",
  "backup": "/…/sessions/main.session.bak"}
@@ -1108,8 +1119,8 @@ Step completed but more needed (exit 0):
 `session` and may clear `next`.
 
 Exit codes (existing set): 0 step ok including `"next": "code"|"password"`;
-1 QR wait timed out (attempt kept; error names `login_id`); 2 readonly /
-authorized-without-`--force` / `--continue` flag conflicts; 3 invalid code /
+2 missing `--phone`, readonly, authorized-without-`--force`, or `--continue`
+flag conflicts; 3 invalid code /
 invalid cloud password / banned or invalid number / missing api credentials;
 4 unknown alias or unknown/expired `login_id`; 5 `FLOOD_WAIT` with
 `retry_after`. Phones in JSON, `--plain`, stderr, and audit are masked
@@ -1398,7 +1409,10 @@ resolved author name/title is a clickable `t.me` link when possible; Story IDs
 are not shown. Both use the audited `clone-sync-snapshot` path, receive
 source-to-destination mappings, and count as copied. Truly unsupported kinds
 such as dice advance the cursor and appear in `skipped_unsupported`; nothing is
-skipped silently (ADR-0019).
+skipped silently (ADR-0019). Each unsupported source message prints a stderr
+warning naming its id and TL kind immediately after the advanced leg cursor is
+saved. A later non-zero exit therefore cannot erase the only report of a skip
+that future runs will not revisit (ADR-0086).
 
 For forum clones, a topic-create service message creates the matching
 destination topic (counted in `topics_created`, not `skipped_service`); messages
@@ -1594,9 +1608,14 @@ the reply link kept, reported as `reason: "quote-rejected"`. `reply_from` /
 `reply_media` are server-rendered decorations and are ignored. Malformed quote
 metadata, an invalid reply parent, and inconsistent album reply shapes still
 exit 2 before audit or mutation.
-When a run plants at least one quote fallback it finishes copying, writes the
-full result document (including advanced cursors), and exits 2 (`PartialFailure`
-with `PolicyError` cause); a run that plants none exits 0.
+Each planted quote fallback prints a stderr warning naming its source message
+id and reason as soon as the copied message and cursor are durable. When a run
+plants at least one quote fallback it finishes copying, writes the full result
+document (including advanced cursors), and exits 2 (`PartialFailure` with
+`PolicyError` cause); a run that plants none exits 0. If a later flood ends the
+run first, the flood still exits 5 without the result document, while the
+already-emitted warning remains the report of the permanent fallback
+(ADR-0086).
 
 Reupload sends text and webpage messages with `sendMessage`, photos/documents
 with `sendMedia`, and albums with per-item `uploadMedia` followed by one
@@ -1652,7 +1671,7 @@ a normal stop (exit 0) with `stop_reason: "wall_clock_cap"` and a resume
 pointer. A flood exits 5 without advancing the current message. JSON:
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"markup_dropped":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"pinned":{"source_id":12,"destination_id":9,"status":"set"},"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}}}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"markup_dropped":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"pinned":{"source_id":12,"destination_id":9,"status":"set"},"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}},"remaining":false}
 ```
 
 On a broadcast destination, `sync.pinned` reports the pin carry-over
@@ -1775,7 +1794,7 @@ Boundary constants: common `GetDifferenceRequest.pts_total_limit =
 100000`; per-channel `GetChannelDifferenceRequest.limit = 100` with
 `ChannelMessagesFilterEmpty`.
 
-## 13. Local Archive (`tg archive`; ADR-0068 Phase 1–6 + ADR-0069/0070)
+## 13. Local Archive (`tg archive`; ADR-0068 Phase 1–6 + ADR-0069)
 
 ```
 tg archive init
@@ -1792,30 +1811,27 @@ tg archive history CHAT MESSAGE_ID
 tg archive backfill CHAT [CHAT ...] [--limit N]
 tg archive backfill --private [--limit N] [--max-dialogs N]
 tg archive sync [--max-events N] [--max-dialogs N] [--max-media N]
-tg archive refresh [--max-events N] [--max-dialogs N] [--max-media N]
-  [--transcribe-limit N] [--max-attempts N]
 tg archive transcribe [--limit N] [--max-attempts N]
 tg archive rebaseline
 ```
 
 Per-account SQLite/WAL store under `~/.local/state/tgcli/archive/<alias>/`
 (override with `[archive] root = "…"` in `config.toml`). Directory mode
-`0700`; `archive.db` mode `0600`. Schema v6 tables: `messages`, `revisions`,
+`0700`; `archive.db` mode `0600`. Schema v7 tables: `messages`, `revisions`,
 `tombstones`, `transcripts`, `scope`, `sync_state` (with peer identity
 columns), `account_sync` (account-level `tg changes` cursor + gap), plus an
 FTS5 index over message text and transcript text with
 `tokenize = "unicode61 remove_diacritics 2"` (Cyrillic `ё`/`е` folded at
-FTS write/query time). `account_sync` also stores the refresh failure streak,
-last error, and whether the one-shot notification was sent. Opening a
-v1/v2/v3/v4 store migrates in place. The message
+FTS write/query time). Opening a v1/v2/v3/v4 store migrates in place. The message
 payload is the universal `message_to_dict` JSON shape from `tg read` — not
 a second representation.
 
 **Account binding.** `init` binds the live `get_me().id` and selected alias
 into `meta`. Every network command (`init`, `add`, `remove`, `backfill`,
-`sync`, `refresh`, `rebaseline`) re-checks the live user id against the store before
+`sync`, `rebaseline`) re-checks the live user id against the store before
 touching data; mismatch is exit **2** and never merges stores. Offline
-commands (`list`, `status`, `search`, `read`, `history`, `transcribe`) do not open a Telegram session; they
+commands (`list`, `status`, `search`, `read`, `history`, `transcribe`) do not
+open a Telegram session; they
 refuse an alias/store mismatch (exit 2) and report `NOT_FOUND` (exit 4)
 when the store is missing.
 
@@ -1914,38 +1930,6 @@ stored loudly in `account_sync` and surfaced by `status` / sync JSON; exit
 message totals, rotating across tracked dialogs) runs at the end of sync
 and is reported under `reconcile` / `status.reconcile`.
 
-**Refresh.** `tg archive refresh` is a foreground one-shot for scheduling. It
-runs the bounded sync (whose final stage acquires media) and then the offline
-transcription queue; requests are paced by the request governor (ADR-0072).
-`--max-events`, `--max-dialogs`, and `--max-media` keep the sync
-caps above; `--transcribe-limit` defaults to **20** and is capped at **100**;
-`--max-attempts` defaults to **3** and is capped at **5**. Every numeric cap
-must be positive and within its hard ceiling; there is no unlimited sentinel.
-`--timeout` is a hang detector whose governed sleep does not count against
-it, and no implicit 60-second deadline is applied; `--max-runtime` bounds
-the pass — a wake whose cap is already exhausted defers sync and exits 0
-with `stop_reason: "wall_clock_cap"` (checked once, before dispatch).
-
-A network exception or unavailable transcription engine records the failure in
-`account_sync`, increments the consecutive `failure_streak`, and exits
-nonzero. Item-level media/transcription failures return completed stage data
-and exit nonzero, but do not increment the account-level streak. A
-`FLOOD_WAIT` arms the governor's per-type cooldown and exits **5** without
-changing that streak; a scheduled pass waking into a partial cooldown defers
-the blocked stage and exits **0** with `stop_reason: "cooldown_deferred"`
-and a `deferred` list — it is a success that deferred work, not a failure to
-alert on (the alert fires once, when the flood arms). A completed pipeline
-(including one with item-level failures) resets the streak, last error, and
-notification episode. On the third consecutive run-level failure, one
-best-effort generic macOS notification is sent through `desktop.py`; it is
-not repeated until a completed run resets the episode. Notification failure
-does not change the archive result. `tg archive status` exposes the streak,
-last error, threshold, and notification marker.
-
-`docs/assets/tgcli-archive-refresh.plist` is a manual launchd template with a
-3600-second interval. It contains explicit path placeholders; it is never
-installed or loaded automatically.
-
 **Media and transcription.** `backfill` and `sync` acquire queued `voice`
 and `video_note` media into the account-local `media/` directory. Backfill
 uses a fixed default budget of **50** media items per run; `sync` exposes
@@ -1978,7 +1962,7 @@ an empty FTS value.
 re-inits the changes cursor (and re-subscribes explicit scope channels)
 and clears the stored gap. It does not silently rebuild message history.
 
-**Readonly.** `init` / `add` / `remove` / `backfill` / `sync` / `refresh` / `transcribe` /
+**Readonly.** `init` / `add` / `remove` / `backfill` / `sync` / `transcribe` /
 `rebaseline` mutate local state and are blocked by `--readonly` /
 `TGCLI_READONLY=1` (exit 2). `list`, `status`, and `search` are allowed
 under readonly; `read` and `history` are also offline read-only commands.
@@ -1987,7 +1971,7 @@ under readonly; `read` and `history` are also offline read-only commands.
 
 ```json
 {"created":true,"path":"…/archive/main/archive.db",
- "account":{"alias":"main","user_id":42},"schema_version":6}
+ "account":{"alias":"main","user_id":42},"schema_version":7}
 ```
 
 ```json
@@ -1999,15 +1983,13 @@ under readonly; `read` and `history` are also offline read-only commands.
 
 ```json
 {"account":{"alias":"main","user_id":42},"path":"…",
- "schema_version":6,
+ "schema_version":7,
  "counts":{"messages":0,"revisions":0,"tombstones":0,"transcripts":0,
            "scope":0,"transcript_queue":0},
  "dialogs":[],"transcript_queue":0,
  "transcript_status":{"pending":0,"retryable":0,"done":0,"no_transcript":0},
  "transcript_errors":[],"last_errors":[],
- "gap":null,"last_sync_at":null,"reconcile":null,"has_cursor":false,
- "refresh":{"failure_streak":0,"last_error":null,
-             "notification_sent":false,"notification_threshold":3}}
+ "gap":null,"last_sync_at":null,"reconcile":null,"has_cursor":false}
 ```
 
 ```json
@@ -2045,12 +2027,13 @@ under readonly; `read` and `history` are also offline read-only commands.
  "dialogs":[{"chat":"@alice","peer_id":7,"kind":"user",
              "dialog":{"id":7,"name":"Alice"},"stored":2,"inserted":2,
              "updated":0,"more":true,"oldest_id":2,"newest_id":3}],
- "stored":2}
+ "stored":2,"remaining":true}
 ```
 
 ```json
 {"account":{"alias":"main","user_id":42},"mode":"private","limit":100,
- "max_dialogs":20,"dialogs":[…],"stored":5,"skipped_complete":2}
+ "max_dialogs":20,"dialogs":[…],"stored":5,"skipped_complete":2,
+ "remaining":false}
 ```
 
 ```json
@@ -2061,17 +2044,7 @@ under readonly; `read` and `history` are also offline read-only commands.
  "catchups":[],"gap":null,"skipped":{},"next_cursor":"v1:…",
  "media":{"limit":50,"queued":0,"downloaded":0,"skipped":0,"failed":[],"remaining":false},
  "reconcile":{"sampled":1,"mismatched":0,"next_offset":1,
-              "comparisons":[…]},"requests":1}
-```
-
-```json
-{"account":{"alias":"main","user_id":42},
- "max_events":500,"max_dialogs":20,"max_media":50,
- "transcribe_limit":20,"max_attempts":3,
- "sync":{"applied":{…},"media":{…}},
- "transcribe":{"transcribed":2,"errors":[],"remaining":false},
- "refresh":{"failure_streak":0,"last_error":null,
-             "notification_sent":false,"notification_threshold":3}}
+              "comparisons":[…]},"requests":1,"remaining":false}
 ```
 
 ```json
@@ -2092,13 +2065,132 @@ under readonly; `read` and `history` are also offline read-only commands.
 terminal `no_media` row without consuming transcription attempts.
 
 `--plain` rows: `init` → `created,alias,user_id,path`; `list` → standing +
-explicit peer rows; `status` → counts summary (+ gap/cursor/transcript and
-refresh statuses); `search` → per-hit
+explicit peer rows; `status` → counts summary (+ gap/cursor/transcript
+statuses); `search` → per-hit
 `peer_id,message_id,date,chat_ref|title,text,transcript,transcript_status,tg_link,snippet`;
 `read` → per-message `id,date,from_name,text,tg_link`; `history` → status,
 message id, current text, revision count, and deletion date;
 `backfill` → mode +
 per-dialog `chat,stored,inserted,updated,more` plus media counters; `sync` →
 applied and media counters; `transcribe` → queue counters;
-`rebaseline` → `rebaselined,peers,gap`; `refresh` → sync event/media
-counters, transcription counters, and `failure_streak,notification_sent`.
+`rebaseline` → `rebaselined,peers,gap`.
+
+## 14. Foreground Jobs (`tg jobs`; ADR-0087)
+
+The typed workload surface is:
+
+```text
+tg jobs add archive-backfill --key KEY (CHAT ... | --private) [--limit N]
+  [--priority {low,normal,high}] [--replace]
+tg jobs add archive-sync --key KEY [--max-events N] [--max-dialogs N]
+  [--max-media N] [--priority {low,normal,high}] [--replace]
+tg jobs add clone-sync --key KEY SOURCE
+  [--priority {low,normal,high}] [--replace]
+tg jobs add archive-transcribe --key KEY [--max-attempts N]
+  [--priority {low,normal,high}] [--replace]
+tg jobs list
+tg jobs show KEY
+tg jobs cancel KEY
+tg jobs run --lane {telegram,local}
+tg jobs run --rearm KEY
+```
+
+Every `jobs run` requires global `--max-runtime N`, positive and at most
+**3000** seconds. The cap is cooperative: the current workload quantum may
+finish after it. The local lane rejects `--session-role` and never opens
+Telegram. The Telegram lane requires an explicit named role and never falls
+back to primary; all of `--readonly`, `TGCLI_READONLY=1`, and
+`TGCLI_NO_SEND=1` block it before config, registry, session, or network work.
+`jobs add`, `cancel`, and the local runner are local mutations blocked by the
+readonly gates, while `TGCLI_NO_SEND=1` still permits the local lane. `list`
+and `show` are offline reads.
+
+`jobs run --rearm KEY` is the recurring-launchd form. A completed latest
+generation is copied into a new queued generation with the same typed spec and
+priority; an already queued generation runs as-is. A failed, cancelled, or
+running generation is exit **2** and is never resurrected by a timer wake.
+The resolved lane retains all normal lane and role gates before registry
+mutation, session, or network work.
+
+The account alias owns `TGCLI_STATE_DIR/jobs/<alias>/jobs.db`, SQLite/WAL in a
+`0700` directory with DB/WAL/SHM files restricted to `0600`. The registry
+stores immutable generations and retains only the newest 200 detailed events
+per key. `store stats` reports jobs DB/WAL/SHM bytes plus latest-generation
+state counts; `store cleanup` never removes the registry. The first Telegram
+run binds nullable registry metadata to `get_me().id`; every later Telegram
+run verifies it before recovering or selecting work. A mismatch is exit 2.
+
+Fixed quanta are one incomplete archive backfill dialog, one complete changes
+difference/replay plus bounded catch-up/media work, one existing 50-batch clone
+window, and one local transcription item. The ordinary `archive backfill`,
+`archive sync`, and `clone sync` results now expose the same top-level
+`remaining` completion signal as transcription. Archive sync checks the
+scheduler deadline/cancellation callback between its durable catch-up and
+media boundaries; clone and backfill retain their own cursor checkpoints.
+
+Priority defaults to `normal` and is ordered `high=2`, `normal=1`, `low=0`;
+an eligible job gains at most two aging points while other quanta run. Ties
+prefer never-run/oldest-run work, then key. One process holds the account/lane
+`flock` for the run. A second runner for that lane is exit 2; Telegram and
+local lanes use independent locks and may overlap.
+
+Adding an exact queued/running spec is an idempotent no-op. A terminal exact
+spec creates the next generation. Any spec/priority change requires
+`--replace`; replacement cancels queued work and refuses running work.
+`cancel` immediately cancels queued work or durably requests cancellation of a
+running quantum. At its next checkpoint cancellation wins atomically; the
+subprocess is never killed. A runner holding the lane lock recovers stale
+`running` rows to `queued`, or to `cancelled` when a request was already set.
+
+A successful quantum with `remaining: false` completes the generation;
+`remaining: true` queues another quantum. Normal governor stops remain queued;
+a rate limit records `not_before` from `retry_after` and ends the invocation as
+`cooldown_deferred`, without increasing the failure streak. Durable command
+progress before a later runtime error resets the streak and defers the next
+attempt. A no-progress runtime failure queues retries after 5 then 30 minutes;
+the third enters `failed` and records a two-hour recommendation/inherited
+earliest time for an explicit next generation. Policy/config/auth/not-found
+failures enter `failed` immediately. A job failure is data, not failure of the
+scheduler invocation: `jobs run` itself exits 0 after persisting the state.
+
+When a generation first enters `failed`, tgcli sends one best-effort macOS
+notification containing only the stable key and `tg jobs show KEY`. It never
+contains the account target, typed spec, error text, or raw argv. Notification
+failure cannot change the persisted state or runner result. The checked-in
+`docs/assets/tgcli-jobs-telegram.plist` and
+`docs/assets/tgcli-jobs-local.plist` are separate manual launchd templates;
+they call `jobs run --rearm archive-sync` and
+`jobs run --rearm archive-transcribe` respectively, use a 3600-second
+interval, contain explicit path placeholders, and are never installed or
+loaded automatically.
+
+The global invocation journal records only `command: "jobs"`, the runner
+`lane`, and aggregate `selected,completed,deferred,failed,cancelled` counts.
+It never stores a key, target, spec, per-job result, or per-job error.
+
+Representative JSON:
+
+```json
+{"created":true,"noop":false,
+ "job":{"key":"archive-hourly","generation":1,
+        "kind":"archive-sync","lane":"telegram",
+        "spec":{"max_events":500,"max_dialogs":20,"max_media":50},
+        "priority":"normal","state":"queued"}}
+```
+
+```json
+{"account":{"alias":"main"},"jobs":[{"key":"nightly","generation":1,
+ "kind":"archive-transcribe","lane":"local","state":"queued",…}]}
+```
+
+```json
+{"account":{"alias":"main"},"lane":"local","selected":1,
+ "completed":1,"queued":0,"failed":0,"cancelled":0,
+ "recovered":{"queued":0,"cancelled":0},"stop_reason":"idle",
+ "outcomes":[{"key":"nightly","generation":1,"state":"completed",
+              "result":{"remaining":false},"error":null,"not_before":null}]}
+```
+
+`--plain` columns: add/show/cancel →
+`key,generation,kind,lane,priority,state`; list appends `not_before`; run →
+`lane,selected,completed,queued,failed,cancelled,stop_reason`.

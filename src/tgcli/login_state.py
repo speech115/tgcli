@@ -99,9 +99,9 @@ def load_attempt(login_id: str, *, now: datetime | None = None) -> dict:
         # command with a TypeError.
         raise NotFoundError(f"unknown or expired login_id: {login_id!r}")
     if now >= expires_at:
-        # A read never deletes. A forward clock step — or a QR wait that just
-        # crossed the TTL — would otherwise destroy the staged session the user
-        # is in the middle of creating. Reaping belongs to the explicit paths:
+        # A read never deletes. A forward clock step during a multi-step login
+        # would otherwise destroy the staged session the user is still creating.
+        # Reaping belongs to the explicit paths:
         # `discard_attempt` and `store cleanup --confirm`.
         raise NotFoundError(f"login_id {login_id!r} expired at {record['expires_at']}")
     return record

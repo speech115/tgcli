@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from datetime import datetime
 
 from tgcli import read_ops, safety
 from tgcli.commands import api as api_cmd, batch as batch_cmd, dialog as dialog_cmd
 from tgcli.errors import ConfigError, PolicyError
+from tgcli.jobs import preflight as jobs_preflight
 
 MUTATION_POSITIONALS = {
     "edit": ("chat", "message_id", "text"),
@@ -35,18 +37,19 @@ def prepare(parser: argparse.ArgumentParser, args) -> None:
     _prepare_api(parser, args)
     _prepare_changes(args)
     _prepare_archive(args)
+    jobs_preflight.prepare(args)
 
 
 def _prepare_max_runtime(args) -> None:
     """--max-runtime is a wall-clock cap: non-positive values are misuse."""
     cap = getattr(args, "max_runtime", None)
-    if cap is not None and cap <= 0:
-        raise PolicyError("--max-runtime must be a positive number of seconds")
+    if cap is not None and (not math.isfinite(cap) or cap <= 0):
+        raise PolicyError("--max-runtime must be a positive finite number of seconds")
     # --timeout is a hang detector; a non-positive deadline is meaningless
     # and behaves differently for local vs network commands (review D2).
     timeout = getattr(args, "timeout", None)
-    if timeout is not None and timeout <= 0:
-        raise PolicyError("--timeout must be a positive number of seconds")
+    if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
+        raise PolicyError("--timeout must be a positive finite number of seconds")
 
 
 def _prepare_archive(args) -> None:
@@ -59,7 +62,6 @@ def _prepare_archive(args) -> None:
         "remove",
         "backfill",
         "sync",
-        "refresh",
         "rebaseline",
         "transcribe",
     ):
@@ -110,7 +112,7 @@ def _prepare_archive(args) -> None:
             raise PolicyError("archive history CHAT must be non-empty")
         args.message_id = explore_mod.validate_message_id(args.message_id)
         return
-    if cmd in ("sync", "refresh"):
+    if cmd == "sync":
         from tgcli.archive import sync as sync_mod
         from tgcli.commands import archive as archive_cmd
 
@@ -129,15 +131,6 @@ def _prepare_archive(args) -> None:
             default=archive_cmd.DEFAULT_SYNC_MEDIA,
             maximum=archive_cmd.MAX_SYNC_MEDIA,
         )
-        if cmd == "refresh":
-            from tgcli.archive import transcribe as transcribe_mod
-
-            args.transcribe_limit = transcribe_mod.validate_limit(
-                getattr(args, "transcribe_limit", None), label="transcribe-limit"
-            )
-            args.max_attempts = transcribe_mod.validate_max_attempts(
-                getattr(args, "max_attempts", None)
-            )
         return
     if cmd == "transcribe":
         from tgcli.archive import transcribe as transcribe_mod
@@ -295,10 +288,6 @@ def _prepare_login(args) -> None:
                 raise PolicyError(f"accounts login --continue rejects {flag}")
         if getattr(args, "force", False):
             raise PolicyError("accounts login --continue rejects --force")
-        # --timeout is a CONTRACT §1 global flag and is honoured as the whole
-        # invocation's deadline; --qr-format only shapes the start path's QR.
-        if hasattr(args, "qr_format"):
-            raise PolicyError("accounts login --continue rejects --qr-format")
         if getattr(args, "login_role", None) is not None:
             raise PolicyError("accounts login --continue rejects --role")
         return
@@ -306,6 +295,14 @@ def _prepare_login(args) -> None:
         raise PolicyError("accounts login requires ALIAS (or --continue LOGIN_ID)")
     if getattr(args, "code", None) is not None:
         raise PolicyError("accounts login rejects --code without --continue")
+    if getattr(args, "password_stdin", False):
+        raise PolicyError("accounts login rejects --password-stdin without --continue")
+    phone = getattr(args, "phone", None)
+    if not isinstance(phone, str) or not phone.strip():
+        if phone is not None:
+            raise PolicyError("accounts login --phone must be non-empty")
+        raise PolicyError("accounts login requires --phone PHONE")
+    args.phone = phone.strip()
     api_id = getattr(args, "api_id", None)
     api_hash = getattr(args, "api_hash", None)
     if (api_id is None) ^ (api_hash is None):

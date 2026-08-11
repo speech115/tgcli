@@ -260,6 +260,7 @@ def test_backfill_private_without_add_and_group_requires_add(
     data = json.loads(capsys.readouterr().out)
     assert data["dialogs"][0]["stored"] == 2
     assert data["dialogs"][0]["chat"] == "@alice"
+    assert data["remaining"] is True
     assert main(["archive", "status", "--json"]) == 0
     status = json.loads(capsys.readouterr().out)
     assert status["counts"]["messages"] == 2
@@ -282,6 +283,7 @@ def test_backfill_channel_after_add_stores_universal_shape(
     assert main(["archive", "backfill", "@news", "--limit", "10", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["dialogs"][0]["stored"] == 2
+    assert data["remaining"] is False
     # Resume stores nothing new when already complete for this window.
     assert main(["archive", "backfill", "@news", "--limit", "10", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
@@ -638,7 +640,7 @@ def test_archive_v1_store_migrates_fts_tokenizer(config_env, monkeypatch):
     conn.close()
     conn = store_mod.connect(path)
     try:
-        assert store_mod.schema_version(conn) == 6
+        assert store_mod.schema_version(conn) == 7
         rows = conn.execute(
             "SELECT peer_id, message_id FROM messages_fts WHERE messages_fts MATCH ?",
             (store_mod.fold_yo("елка"),),

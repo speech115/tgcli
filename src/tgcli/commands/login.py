@@ -1,11 +1,9 @@
-"""Authorize a session via QR or phone+code (ADR-0042)."""
+"""Authorize a session via phone, code, and optional password (ADR-0088)."""
 
 from __future__ import annotations
 
 import re
 import sys
-import time
-from datetime import UTC, datetime
 from pathlib import Path
 
 from telethon import errors as telethon_errors
@@ -19,31 +17,12 @@ from tgcli.config import (
     load_config,
     validate_role_name,
 )
-from tgcli.errors import (
-    ConfigError,
-    NotFoundError,
-    PolicyError,
-    RateLimitError,
-    TgcliError,
-)
+from tgcli.errors import ConfigError, NotFoundError, PolicyError, RateLimitError
 from tgcli.formatting import mask_phone
 from tgcli.output import note
 from tgcli.session import session_path, state_dir
 
-
-class LoginTimeoutError(TgcliError):
-    exit_code = 1
-    code = "TIMEOUT"
-
-
 _ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]+$")
-
-# Token expiry is judged against the host wall clock, so a clock running ahead
-# of Telegram declares every fresh token expired on arrival. Without a floor
-# the QR loop would then request a new token (and re-open the tg:// link) as
-# fast as the event loop allows until the timeout. A healthy token lives ~30s,
-# so this floor never delays an honest refresh.
-QR_MIN_REFRESH_S = 5.0
 
 
 def _validate_new_alias(alias: str) -> None:
@@ -257,13 +236,10 @@ async def start_login(
     config: Config,
     alias: str,
     *,
-    phone: str | None,
+    phone: str,
     api_id: int | None,
     api_hash: str | None,
     force: bool,
-    timeout: float,
-    qr_format: str,
-    password_stdin: bool,
     role: str | None = None,
 ) -> dict:
     if role is not None:
@@ -289,7 +265,7 @@ async def start_login(
     )
     if is_new:
         _validate_new_alias(alias)
-    method = "phone" if phone else "qr"
+    method = "phone"
     _audit_login(alias, method=method, outcome="started", phone=phone, role=role)
     attempt = login_state.create_attempt(
         alias,
@@ -301,30 +277,12 @@ async def start_login(
     )
     login_id = attempt["login_id"]
     staged = login_state.staged_session_path(login_id)
-    dest = _login_destination(config, alias, role)
-    # Backup whenever the destination exists — including an orphan session for
-    # a not-yet-configured alias (e.g. promote succeeded, config append failed).
-    keep_backup = dest.exists()
 
     try:
         async with authclient.unauthorized_client(
             staged, resolved_id, resolved_hash
         ) as client:
-            if method == "phone":
-                assert phone is not None
-                return await _phone_start(client, attempt, phone=phone)
-            return await _qr_wait(
-                client,
-                attempt,
-                is_new=is_new,
-                api_id=resolved_id,
-                api_hash=resolved_hash,
-                dest=dest,
-                keep_backup=keep_backup,
-                timeout=timeout,
-                qr_format=qr_format,
-                password_stdin=password_stdin,
-            )
+            return await _phone_start(client, attempt, phone=phone)
     except telethon_errors.FloodWaitError as exc:
         raise RateLimitError(
             f"FLOOD_WAIT; retry after {exc.seconds}s",
@@ -349,94 +307,6 @@ async def _phone_start(client, attempt: dict, *, phone: str) -> dict:
         f"continue with: tg accounts login --continue {attempt['login_id']} --code …"
     )
     return _pending(attempt, next_step="code")
-
-
-def _emit_qr(qr, *, qr_format: str) -> None:
-    url = qr.url
-    if qr_format == "text":
-        token = url.split("token=", 1)[-1] if "token=" in url else url
-        note(f"QR login token: {token}")
-        note("Confirm this login in Telegram, or use --qr-format link.")
-        return
-    note(f"Open this link in Telegram to confirm login:\n{url}")
-    if desktop.open_url(url):
-        note("opened tg:// login link in the native client")
-    else:
-        note("could not open tg:// link automatically; paste it into Telegram")
-
-
-async def _qr_wait(
-    client,
-    attempt: dict,
-    *,
-    is_new: bool,
-    api_id: int,
-    api_hash: str,
-    dest: Path,
-    keep_backup: bool,
-    timeout: float,
-    qr_format: str,
-    password_stdin: bool,
-) -> dict:
-    login_id = attempt["login_id"]
-    alias = attempt["alias"]
-    qr = await client.qr_login()
-    _emit_qr(qr, qr_format=qr_format)
-    deadline = time.monotonic() + timeout
-    while True:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise LoginTimeoutError(
-                f"QR login timed out after {timeout}s; start login again",
-                login_id=login_id,
-            )
-        expires_in = (qr.expires - datetime.now(UTC)).total_seconds()
-        wait_timeout = min(remaining, max(expires_in, QR_MIN_REFRESH_S))
-        try:
-            await qr.wait(timeout=wait_timeout)
-            break
-        except TimeoutError:
-            if time.monotonic() >= deadline:
-                raise LoginTimeoutError(
-                    f"QR login timed out after {timeout}s; start login again",
-                    login_id=login_id,
-                ) from None
-            await qr.recreate()
-            _emit_qr(qr, qr_format=qr_format)
-        except telethon_errors.SessionPasswordNeededError:
-            password = _collect_password(password_stdin=password_stdin)
-            if password is None:
-                login_state.update_attempt(login_id, next="password")
-                note(
-                    f"cloud password required; continue with: "
-                    f"tg accounts login --continue {login_id} --password-stdin"
-                )
-                return _pending(attempt, next_step="password")
-            try:
-                await _sign_in_password(client, password)
-            except telethon_errors.PasswordHashInvalidError as exc:
-                login_state.update_attempt(login_id, next="password")
-                raise ConfigError("invalid cloud password") from exc
-            except telethon_errors.FloodWaitError as exc:
-                raise RateLimitError(
-                    f"FLOOD_WAIT; retry after {exc.seconds}s",
-                    retry_after=exc.seconds,
-                ) from exc
-            break
-
-    return await _finish_authorized(
-        client,
-        login_id=login_id,
-        alias=alias,
-        method="qr",
-        phone=None,
-        is_new=is_new,
-        api_id=api_id,
-        api_hash=api_hash,
-        dest=dest,
-        keep_backup=keep_backup,
-        role=attempt.get("role"),
-    )
 
 
 async def _complete_password(
@@ -477,6 +347,10 @@ async def continue_login(
     attempt = login_state.load_attempt(login_id)
     alias = attempt["alias"]
     method = attempt["method"]
+    if method != "phone":
+        raise NotFoundError(
+            f"login_id {login_id!r} uses a removed login method; start login again"
+        )
     role = attempt.get("role")
     staged = login_state.staged_session_path(login_id)
     config = load_config()
@@ -494,8 +368,8 @@ async def continue_login(
             )
             if pending is not None:
                 return pending
-        elif method == "phone":
-            # Phone path: submit confirmation code first.
+        else:
+            # Submit the phone confirmation code first.
             resolved_code = _collect_code(code=code)
             phone = attempt["phone"]
             phone_code_hash = attempt["phone_code_hash"]
@@ -528,11 +402,6 @@ async def continue_login(
                     f"FLOOD_WAIT; retry after {exc.seconds}s",
                     retry_after=exc.seconds,
                 ) from exc
-        else:
-            raise NotFoundError(
-                f"login_id {login_id!r} is not awaiting a password; start login again"
-            )
-
         return await _finish_authorized(
             client,
             login_id=login_id,

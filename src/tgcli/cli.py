@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import io
 import logging
+import math
 import os
 import signal
 import sys
@@ -25,11 +26,13 @@ from tgcli.commands import (
     archive as archive_cmd,
     clone as clone_cmd,
     doctor as doctor_cmd,
+    jobs as jobs_cmd,
     login as login_cmd,
     store as store_cmd,
 )
 from tgcli.config import load_config, resolve_account
 from tgcli.errors import CommandTimeoutError, PartialFailure, TgcliError
+from tgcli.jobs import preflight as jobs_preflight, store as jobs_store
 from tgcli.parser import build_parser
 
 LOGGER = logging.getLogger(__name__)
@@ -37,8 +40,8 @@ LOGGER = logging.getLogger(__name__)
 __all__ = ["build_parser", "main", "entrypoint"]
 
 # The deadline is armed before preflight, so it must not preempt a command that
-# owns a graceful deadline of its own (the QR wait, asyncio.wait_for around the
-# network). Those arm later; this margin keeps them first.
+# owns a graceful asyncio deadline around the network. Those arm later; this
+# margin keeps them first.
 DEADLINE_GRACE = 1.0
 
 # The only argv tokens that may end a run successfully with text on stdout.
@@ -95,8 +98,12 @@ def _default_timeout(args) -> float | None:
     long-running commands keep no implicit deadline — CONTRACT §1 lists
     them; only explicit `--timeout`/`--max-runtime` bounds them.
     """
-    if args.command == "accounts" and args.subcommand == "login":
-        return None if getattr(args, "continue_id", None) else 120.0
+    if (
+        args.command == "accounts"
+        and args.subcommand == "login"
+        and getattr(args, "continue_id", None)
+    ):
+        return None
     if args.command == "transcribe":
         return 120.0
     if args.command == "changes" and getattr(args, "changes_wait", None) is not None:
@@ -115,7 +122,7 @@ def _long_running_command(args) -> bool:
             args.command == "clone"
             and args.clone_command in ("init", "sync", "refresh")
         )
-        or (args.command == "archive" and args.archive_command == "refresh")
+        or (args.command == "jobs" and args.jobs_command == "run")
     )
 
 
@@ -147,6 +154,7 @@ def _armed(seconds: float | None):
     """
     if (
         seconds is None
+        or not math.isfinite(seconds)
         or seconds <= 0
         or threading.current_thread() is not threading.main_thread()
     ):
@@ -385,6 +393,24 @@ def _execute(args) -> tuple[dict, list[tuple]]:
         return data, store_cmd.cleanup_rows(data)
 
     config = load_config()
+    if args.command == "jobs":
+        if args.jobs_command == "run":
+            alias = jobs_cmd.resolve_alias(args.account, config)
+            args.account = alias
+            rearm = getattr(args, "rearm", None)
+            if rearm is not None:
+                current = jobs_cmd.show(alias, rearm)["job"]
+                jobs_preflight.prepare_resolved_run(args, current["lane"])
+            with jobs_store.lane_lock(alias, args.lane):
+                if rearm is not None:
+                    jobs_cmd.rearm(alias, rearm, expected_lane=args.lane)
+                offline = jobs_cmd.execute_offline(args, config)
+                if offline is not None:
+                    return offline
+                return _execute_network(args, config)
+        offline = jobs_cmd.execute_offline(args, config)
+        if offline is not None:
+            return offline
     if args.command == "archive" and args.archive_command in (
         "list",
         "status",
@@ -453,7 +479,6 @@ def _execute(args) -> tuple[dict, list[tuple]]:
         )
         return data, accounts_cmd.remove_rows(data)
     if args.command == "accounts" and args.subcommand == "login":
-        timeout = args.timeout
         if getattr(args, "continue_id", None):
             data = asyncio.run(
                 login_cmd.continue_login(
@@ -467,13 +492,10 @@ def _execute(args) -> tuple[dict, list[tuple]]:
                 login_cmd.start_login(
                     config,
                     args.alias,
-                    phone=getattr(args, "phone", None),
+                    phone=args.phone,
                     api_id=getattr(args, "api_id", None),
                     api_hash=getattr(args, "api_hash", None),
                     force=bool(getattr(args, "force", False)),
-                    timeout=timeout,
-                    qr_format=getattr(args, "qr_format", "link"),
-                    password_stdin=bool(getattr(args, "password_stdin", False)),
                     role=getattr(args, "login_role", None),
                 )
             )
@@ -492,6 +514,11 @@ def _execute(args) -> tuple[dict, list[tuple]]:
             data = asyncio.run(coro)
         return data, doctor_cmd.to_rows(data)
 
+    return _execute_network(args, config)
+
+
+def _execute_network(args, config) -> tuple[dict, list[tuple]]:
+    """Own account resolution, audit context, and one network invocation."""
     account = resolve_account(config, args.account)
     args.account = account.alias
     if args.verbose:
@@ -676,6 +703,20 @@ def main(argv: list[str] | None = None) -> int:
         # requests (review fix m1): offline commands carry neither field.
         slept_ms = int(pacing.total_governed_sleep() * 1000)
         requests = pacing.request_count()
+        jobs_fields = {}
+        if (
+            args.command == "jobs"
+            and args.jobs_command == "run"
+            and isinstance(result_data, dict)
+        ):
+            jobs_fields = {
+                "lane": result_data["lane"],
+                "selected": result_data["selected"],
+                "completed": result_data["completed"],
+                "deferred": result_data["queued"],
+                "failed": result_data["failed"],
+                "cancelled": result_data["cancelled"],
+            }
         invocations.log_invocation(
             command=args.command,
             account=args.account,
@@ -686,6 +727,7 @@ def main(argv: list[str] | None = None) -> int:
             governed_sleep_ms=slept_ms if requests else None,
             request_count=requests or None,
             **stop_fields,
+            **jobs_fields,
         )
         _restore_diagnostics(verbose_diagnostics)
     return exit_code

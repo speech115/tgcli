@@ -1,0 +1,25 @@
+## 2026-08-11 — Foreground jobs integration and 3.0.0 (Codex)
+**Did:** integrated reviewed PRs #190, #191, #192, and #194 on
+`codex/issue-146-jobs`; prepared the breaking 3.0.0 release for ADR-0087 and
+ADR-0088. Authorized a dedicated `job` role by phone. Live local acceptance
+completed one transcription item without error. A bounded Telegram
+archive-sync quantum applied 1846 updates, preserved its next cursor, recorded
+one pre-existing channel gap, and stayed queued for remaining media work with
+`failure_streak=0` and `stop_reason=wall_clock_cap`.
+Whole-campaign review found eight defects and each gained a reproducing test.
+The final complexity reset gives CLI one lane lock around rearm, local work,
+and Telegram session acquisition. Archive progress hashes complete dialog
+checkpoints. Read-only registry queries use SQLite `mode=ro`; mutating opens
+repair account directories to `0700`. Active schema/supersession docs match
+the cutover. Release gate: 1884 passed, 9 skipped; coverage, docs, pyright,
+ruff, and architecture checks passed.
+**Decided:** did not run clone acceptance. The two accessible candidates were
+behind their source or discussion cursor, while the other recorded sources
+were no longer accessible to the role; none was a provable no-op. Creating a
+new fixture or running either candidate would publish to Telegram and was
+outside the non-publishing approval.
+**Learned:** archive `max_events` bounds catch-up reads, not the already-paid
+Telegram difference; applying all 1846 received events before advancing the
+cursor is the lossless behavior the contract requires.
+**Next:** full-campaign review and head-SHA CI, squash merge to `main`, then
+verify the automated `v3.0.0` tag and GitHub Release.

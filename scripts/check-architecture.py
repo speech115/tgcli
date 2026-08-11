@@ -32,17 +32,18 @@ CEILINGS = {
     # +21 for ADR-0068: offline archive list/status/search path in _execute.
     # +9 for ADR-0068 Phase 4: offline transcribe routing.
     # +24 for ADR-0068 Phase 5: offline read/history routing.
-    # +4 for ADR-0070 Phase 6: refresh routing.
     # +50 for ADR-0072: the SIGALRM hang-detector re-arm that reads governed
     # sleep off pacing and extends the deadline instead of killing the run,
     # the governed-sleep-aware _run_with_deadline poll loop, the
-    # _long_running_command exemption list (media/export/clone
-    # init,sync,refresh/archive refresh), and the journal's
+    # _long_running_command exemption list (media/export/clone/jobs), and the journal's
     # governed_sleep_ms/request_count/stop_reason fields.
     # +42 trued up at the 2.0.4 merge (ADR-0081/0083): the clone-status
     # pending-import and half-initialized stderr pointers, doctor's
     # readonly argument, and finish_commit for the clone commits.
-    "src/tgcli/cli.py": 705,
+    # ADR-0087: offline jobs routing plus resolved-lane recurring rearm.
+    # +14 final review reset: one CLI-owned lane lock now encloses rearm,
+    # local execution, and Telegram session acquisition.
+    "src/tgcli/cli.py": 747,
     # +2 for ADR-0057: isort section blanks, E501 split in the --format help.
     # +47 for ADR-0062 --session-role / accounts --role flags and the
     # ADR-0063 tg changes subcommand surface.
@@ -53,11 +54,13 @@ CEILINGS = {
     # +18 for ADR-0068 Phase 4: --max-media and the transcribe subcommand.
     # +39 for ADR-0068 Phase 5: search filter/sort/paging flags plus the
     # read and history subcommands.
-    # +30 for ADR-0070 Phase 6: the refresh subcommand and its caps.
     # +8 for ADR-0072: the --max-runtime wall-clock cap flag.
     # +19 trued up at the 2.0.4 merge: `clone status --all` (ADR-0081)
     # on top of growth the grace band had been absorbing.
-    "src/tgcli/parser.py": 759,
+    # ADR-0087 moved jobs grammar into jobs/arguments.py and removed the old
+    # archive scheduling composition.
+    # ADR-0088 removes the QR format grammar.
+    "src/tgcli/parser.py": 726,
     # +40 for ADR-0062 role validation and ADR-0063 changes preflight.
     # +37 for ADR-0068: archive preflight (readonly gates, backfill/search
     # caps).
@@ -65,21 +68,24 @@ CEILINGS = {
     # +21 for ADR-0068 Phase 4: media/transcribe cap validation.
     # +43 for ADR-0068 Phase 5: filter/date/sort/paging validation for
     # search, read, and history.
-    # +10 for ADR-0070 Phase 6: refresh cap validation.
     # +13 for ADR-0072: --max-runtime and --timeout positivity validation.
     # +7 trued up at the 2.0.4 merge (ADR-0083): clone init/refresh moved
     # to the begin/finish preview handshake, folded into one loop.
-    "src/tgcli/preflight.py": 447,
+    # ADR-0087 delegates jobs validation to jobs/preflight.py and removes the
+    # old archive composition gates.
+    # +4 for ADR-0088's explicit non-empty phone/password start validation.
+    "src/tgcli/preflight.py": 444,
     # +2 for ADR-0057: isort section blanks.
     # +17 for ADR-0062: role lookup threaded into session.client.
     # +23 for ADR-0068: archive network dispatch (init/add/remove/backfill).
     # +16 for ADR-0068 Phase 3: sync/rebaseline dispatch.
     # +1 for ADR-0068 Phase 4: media budget threading.
-    # +11 for ADR-0070 Phase 6: refresh dispatch.
     # +26 trued up at the 2.0.4 merge. Not caused by that release — the
     # grace band had been carrying it since earlier work; the ratchet is
     # the integrator's job and nobody had done it.
-    "src/tgcli/dispatch.py": 353,
+    # ADR-0087 routes the Telegram jobs lane through the existing session seam.
+    # The final review moved lane ownership to cli.py; ratchet the shrink.
+    "src/tgcli/dispatch.py": 358,
     "src/tgcli/commands/batch.py": 96,
     # +3 for ADR-0057: isort section blanks.
     "src/tgcli/read_ops.py": 437,
@@ -111,7 +117,10 @@ CEILINGS = {
     # clone/init_peers.py: the ratchet tightens instead of loosening.
     # +29 for ADR-0060: export-state command, status schema_version/integrity,
     # store stats .db/WAL/SHM breakdown on the clone surface.
-    "src/tgcli/commands/clone.py": 1230,
+    # +18 for ADR-0085: immediate bot-keyboard loss reporting.
+    # +9 for ADR-0086: immediate unsupported/quote degradation reporting.
+    # +29 for ADR-0087: one-window clone quantum and account-scoped progress.
+    "src/tgcli/commands/clone.py": 1286,
     # +21 for ADR-0055 pinned_dest_id / pin_occupied fields + validation.
     # +8 for id_map / retry_not_before validation on load (fail closed).
     # +48 for ADR-0060: the CloneState seam delegating to clone/statedb.py
@@ -133,8 +142,11 @@ CEILINGS = {
     # message/transcript/scope/sync accessors all live there today).
     # +6 for the Phase 5 review fix (Unicode casefold helper). Still the
     # first split candidate if it grows again.
-    "src/tgcli/archive/store.py": 1021,
-    "src/tgcli/archive/sync.py": 596,
+    # ADR-0087 removes the archive-level scheduling streak and rebuilds the
+    # released v6 account_sync table into truthful schema v7.
+    "src/tgcli/archive/store.py": 1017,
+    # +9 for ADR-0087 cooperative jobs deadline/cancellation boundaries.
+    "src/tgcli/archive/sync.py": 605,
     # +6 for ADR-0072: backfill_dialogs/backfill_one/backfill_private thread
     # through pacing's rolling breadth budget, wall-clock cap, and
     # sleep_flood instead of clone.flood.WaitBudget, plus the
@@ -147,22 +159,25 @@ CEILINGS = {
     # search.py shrank to MATCH normalization + peer resolution once
     # explore.py superseded its query path (ADR-0069).
     "src/tgcli/archive/search.py": 78,
-    # ADR-0070: the one-shot refresh composition and its media attempt
-    # taxonomy, kept out of sync.py/store.py.
-    # +50 for ADR-0072: sync_types_cooling's partial-cooldown defer path
-    # (skip dispatch when a sync-relevant RPC type is cooling rather than
-    # waking into the same refusal), the wall-clock-cap pre-check, and the
-    # deferred/stop_reason/refresh reporting either path returns.
-    "src/tgcli/archive/refresh.py": 196,
     "src/tgcli/archive/media.py": 72,
-    # +7 for ADR-0072: skip get_me entirely on a scheduled wake into a known
-    # cooldown (sync_types_cooling), reusing store_mod.read_meta's
-    # account_user_id instead of an RPC (review fix M2).
-    "src/tgcli/commands/archive_refresh.py": 118,
     # +1 for ADR-0072: cooldown_mod.cooled_account calls swapped for plain
     # tg.get_me(), plus stop_reason/deferred/resume reporting on
     # backfill_dialogs's chats-mode result.
-    "src/tgcli/commands/archive.py": 546,
+    "src/tgcli/commands/archive.py": 541,
+    # ADR-0087: fixed typed quantum over one archive backfill dialog; +15 review
+    # fix hashes complete per-dialog checkpoints into the runtime progress token.
+    "src/tgcli/commands/archive_jobs.py": 133,
+    # ADR-0087: jobs public command seam and typed control-plane routing.
+    "src/tgcli/commands/jobs.py": 163,
+    # ADR-0087: grammar/model/preflight, persistent WAL registry, and two
+    # independent foreground runners. Seed the new subsystem at release size.
+    "src/tgcli/jobs/arguments.py": 79,
+    "src/tgcli/jobs/model.py": 50,
+    "src/tgcli/jobs/preflight.py": 108,
+    # Final review moved both lane locks to the CLI full-invocation owner.
+    "src/tgcli/jobs/runner.py": 350,
+    # Final review splits query-only opens from mutation-time permission repair.
+    "src/tgcli/jobs/store.py": 919,
     # ADR-0072: the governor package (account-wide request pacing and
     # cooldowns around Telethon's private ``_call``) landed across phases
     # 0-2 with no ceilings at all; seed all seven modules at their current

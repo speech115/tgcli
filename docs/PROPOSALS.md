@@ -359,20 +359,9 @@ any message bodies are placed under `~/.local/state/tgcli/`.
 
 | Item | Value | Effort | Status |
 |---|---|---|---|
-| Selected-dialog local archive + FTS5 search | high | M | **shipped through Phase 6** — filtered/ranked search, offline read/history, bounded refresh, and manual launchd template (ADR-0068/0069/0070) |
-| Import/rebuild/status with account identity and gap reporting | high | M | **archive store/search/history/refresh shipped; rebuild/purge remain deferred** (ADR-0068/0069/0070) |
-| Continuous event-driven mirror | ? | L | **rejected for this effort — hourly foreground one-shots instead (ADR-0068)** |
-
-**`archive refresh` mid-run wall-clock enforcement.** The scheduled-pass
-guard is pre-dispatch only (CONTRACT §13: the cap is checked once, before
-dispatch), so a slow sync or transcription can still hold the session lock
-when the next launchd fire arrives. Real enforcement would thread the
-remaining-budget check through the sync/media/transcribe loops — the pattern
-`clone sync` and `archive backfill` already use — and would change CONTRACT
-§13 (full lane: released command + safety behavior; ADR + release). Deferred:
-the failure mode is bounded by the per-command caps, and the guide/plist now
-state the real semantics; revisit if a scheduled pass actually outruns the
-interval.
+| Selected-dialog local archive + FTS5 search | high | M | **shipped** — filtered/ranked search, offline read/history, and independent recurring sync/transcription jobs (ADR-0068/0069/0087) |
+| Import/rebuild/status with account identity and gap reporting | high | M | **archive store/search/history/jobs shipped; rebuild/purge remain deferred** (ADR-0068/0069/0087) |
+| Continuous event-driven mirror | ? | L | **rejected for this effort — launchd-driven foreground jobs instead (ADR-0087)** |
 
 Resolution (2026-07-31): wayfinder map #100 worked the gates below to closure
 — research #101–#103, decisions #104–#108, ADR-0068 accepted, plan at
@@ -594,9 +583,9 @@ sst's `AGENTS.md` → `CLAUDE.md` symlink and Verification checklist.
 
 ## Suggested sequencing (remaining items only)
 
-1. **Local archive/search (M, shipped — ADR-0068 Phase 6):** native store,
+1. **Local archive/search (M, shipped — ADR-0068/0087):** native store,
    bounded media/transcription, filtered/ranked search, offline read/history,
-   one-shot refresh, and manual launchd packaging are complete. Rebuild/purge,
+   and independent scheduled foreground jobs are complete. Rebuild/purge,
    export bundle, and off-machine backup remain separately scoped.
 2. **Data tail (S/M):** `export bundle` and typed temporary/permanent media
    failures, only against a concrete backup workflow.

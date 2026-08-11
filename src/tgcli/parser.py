@@ -12,6 +12,7 @@ from pathlib import Path
 
 from tgcli import __version__
 from tgcli.commands import media as media_cmd, store as store_cmd
+from tgcli.jobs import arguments as jobs_arguments
 
 
 class _Parser(argparse.ArgumentParser):
@@ -109,7 +110,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_login = accounts_sub.add_parser(
         "login",
-        help="Authorize a session (QR by default, --phone fallback)",
+        help="Authorize a session by phone + confirmation code",
         parents=[global_flags],
     )
     p_login.add_argument("alias", nargs="?", metavar="ALIAS")
@@ -119,19 +120,13 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="LOGIN_ID",
         help="resume a pending login attempt",
     )
-    p_login.add_argument("--phone", help="authorize by phone + confirmation code")
+    p_login.add_argument("--phone", help="phone number for authorization")
     p_login.add_argument("--api-id", dest="api_id", type=int)
     p_login.add_argument("--api-hash", dest="api_hash")
     p_login.add_argument(
         "--force",
         action="store_true",
         help="replace a still-authorized session",
-    )
-    p_login.add_argument(
-        "--qr-format",
-        choices=("link", "text"),
-        default=argparse.SUPPRESS,
-        help="QR payload shape (default: link)",
     )
     p_login.add_argument(
         "--code",
@@ -187,6 +182,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="actually delete; without this, dry-run only",
     )
+
+    jobs_arguments.add_to(sub, global_flags)
 
     p_archive = sub.add_parser(
         "archive",
@@ -305,36 +302,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-media",
         type=int,
         help="voice/video-note media downloads per run (default 50, hard cap 500)",
-    )
-    p_archive_refresh = archive_sub.add_parser(
-        "refresh",
-        help="Run one bounded sync, media, and transcription pass",
-        parents=[global_flags],
-    )
-    p_archive_refresh.add_argument(
-        "--max-events",
-        type=int,
-        help="catch-up message budget per run (default 500, hard cap 5000)",
-    )
-    p_archive_refresh.add_argument(
-        "--max-dialogs",
-        type=int,
-        help="channel catch-up dialogs per run (default 20, hard cap 50)",
-    )
-    p_archive_refresh.add_argument(
-        "--max-media",
-        type=int,
-        help="voice/video-note media downloads per run (default 50, hard cap 500)",
-    )
-    p_archive_refresh.add_argument(
-        "--transcribe-limit",
-        type=int,
-        help="local transcription items per run (default 20, hard cap 100)",
-    )
-    p_archive_refresh.add_argument(
-        "--max-attempts",
-        type=int,
-        help="retryable attempts before no transcript (default 3, hard cap 5)",
     )
     p_archive_transcribe = archive_sub.add_parser(
         "transcribe",

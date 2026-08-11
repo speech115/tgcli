@@ -32,7 +32,7 @@ every other command on the same account.
 
 ```bash
 # Authorize a role beside an already-configured alias
-tg --json accounts login main --role job
+tg --json accounts login main --role job --phone PHONE
 
 # Use it for any command
 tg --session-role job --account main --json dialogs
@@ -47,7 +47,7 @@ tg --json accounts remove main --role job --confirm
 | --- | --- |
 | File | `sessions/<session>@<role>.session` with its own lock. |
 | Names | Same charset as aliases; `primary` is reserved (omit `--session-role`). |
-| Fallback | None. A missing role is exit 3 with `tg accounts login <alias> --role …`. |
+| Fallback | None. A missing role is exit 3 with `tg accounts login <alias> --role … --phone PHONE`. |
 | Creation | Only via interactive `accounts login --role` — never implied by the flag. |
 | Cost | Each role is one more device in Telegram Settings → Devices; revoke there when retiring. |
 
@@ -56,20 +56,18 @@ journal rows record the role when set.
 
 ## Authorize a session: `accounts login`
 
-QR by default (no typed secret). Phone + confirmation code is the fallback.
+Authorization starts only with an explicit phone number, then continues with
+the confirmation code and, when required, the Telegram cloud password.
 
 ```bash
 # New alias — provide api credentials once
-tg --json accounts login tmp-login --api-id ID --api-hash HASH
+tg --json accounts login tmp-login --phone +79991234589 \
+  --api-id ID --api-hash HASH
 
 # Re-authorize an existing alias (refuses if still authorized unless --force)
-tg --json accounts login main --force
+tg --json accounts login main --phone +79991234589 --force
 
-# Bare token for an external QR renderer / phone camera
-tg --json accounts login tmp-login --api-id ID --api-hash HASH --qr-format text
-
-# Phone path
-tg --json accounts login tmp-login --phone +79991234589 --api-id ID --api-hash HASH
+# Continue the staged phone login
 tg --json accounts login --continue LOGIN_ID --code 12345
 tg --json accounts login --continue LOGIN_ID --password-stdin   # headless 2FA
 ```
@@ -77,14 +75,13 @@ tg --json accounts login --continue LOGIN_ID --password-stdin   # headless 2FA
 | Flag | Effect |
 | --- | --- |
 | `ALIAS` | Account to authorize (omit with `--continue`). |
-| `--phone PHONE` | Use the phone + code path instead of QR. |
+| `--phone PHONE` | Required phone number for a start invocation. |
 | `--api-id` / `--api-hash` | Required together, only for an alias absent from config. |
 | `--force` | Replace a still-authorized session (previous file kept as `.bak`). |
-| `--timeout SECONDS` | QR wait budget (default 120 when unset). |
-| `--qr-format link\|text` | Deep link (default) or bare token payload. |
+| `--timeout SECONDS` | Override the ordinary 60-second hang detector. |
 | `--continue LOGIN_ID` | Resume a pending attempt (no `ALIAS`). |
 | `--code VALUE\|-` | Confirmation code on `--continue` only; `-` reads one line from stdin. |
-| `--password-stdin` | Read the cloud password from stdin (never argv). |
+| `--password-stdin` | Read the cloud password on `--continue` (never argv). |
 | `--role NAME` | Authorize a named session role beside a configured alias (ADR-0062). |
 
 `--readonly` / `TGCLI_READONLY=1` block login. `TGCLI_NO_SEND` does **not**.

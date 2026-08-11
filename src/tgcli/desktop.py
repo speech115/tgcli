@@ -1,6 +1,6 @@
-"""Platform escape hatch for native dialogs and URL opens (ADR-0042).
+"""Platform escape hatch for native dialogs and notifications (ADR-0042/0087).
 
-Nothing else in the project may call `osascript` or `open`.
+Nothing else in the project may call `osascript`.
 """
 
 from __future__ import annotations
@@ -54,21 +54,6 @@ def _ask_osascript(title: str, prompt: str, *, hidden: bool) -> str:
         value = text.split(marker, 1)[1]
         return value.rstrip("\r\n")
     return text.rstrip("\r\n")
-
-
-def open_url(url: str) -> bool:
-    """Open a URL with the platform handler. Darwin only; else False."""
-    if sys.platform != "darwin":
-        return False
-    if shutil.which("open") is None:
-        return False
-    result = subprocess.run(
-        ["open", url],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
 
 
 def notify(title: str, message: str) -> bool:

@@ -505,13 +505,13 @@ def test_deadline_defaults_match_the_contract(monkeypatch):
     assert default_timeout_for(["clone", "init", "@s"]) is None
     assert default_timeout_for(["clone", "sync", "@s"]) is None
     assert default_timeout_for(["clone", "refresh", "@s"]) is None
-    assert default_timeout_for(["archive", "refresh"]) is None
+    assert default_timeout_for(["jobs", "run", "--lane", "local"]) is None
     assert default_timeout_for(["export", "messages", "@c", "--output", "x"]) is None
     assert default_timeout_for(["media", "download", "@c", "1"]) is None
-    # CONTRACT §10/§12 remain per-command defaults: QR and long-poll
-    # operator time are their own deadlines, not work to bound.
+    # CONTRACT §10/§12: phone start uses the ordinary detector; long-poll and
+    # interactive continuation own their operator-time boundary.
     assert default_timeout_for(["changes", "--wait", "300"]) is None
-    assert default_timeout_for(["accounts", "login", "main"]) == 120.0
+    assert default_timeout_for(["accounts", "login", "main", "--phone", "+1"]) == 60.0
     assert default_timeout_for(["accounts", "login", "main", "--continue", "c"]) is None
     # The exemption list is data, not deadline logic: the detector itself
     # has no command branches.
@@ -691,6 +691,14 @@ def test_max_runtime_must_be_positive(config_env, capsys):
     assert main(["--max-runtime", "0", "dialogs", "--json"]) == 2
     assert "positive" in capsys.readouterr().err.lower()
     assert main(["--max-runtime", "-5", "dialogs", "--json"]) == 2
+
+
+@pytest.mark.parametrize("flag", ["--max-runtime", "--timeout"])
+def test_runtime_bounds_must_be_finite(config_env, capsys, flag):
+    from tgcli.cli import main
+
+    assert main([flag, "nan", "dialogs", "--json"]) == 2
+    assert "finite" in capsys.readouterr().err.lower()
 
 
 async def test_resolve_twice_within_three_seconds_paces_like_today(client, sleeper):

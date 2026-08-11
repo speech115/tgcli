@@ -21,14 +21,21 @@ def log_invocation(
     stop_reason: str | None = None,
     governed_sleep_ms: int | None = None,
     request_count: int | None = None,
+    lane: str | None = None,
+    selected: int | None = None,
+    completed: int | None = None,
+    deferred: int | None = None,
+    failed: int | None = None,
+    cancelled: int | None = None,
 ) -> None:
     """Append one completed invocation.
 
     ``retry_after``, ``request_type``, ``provenance``, ``stop_reason``,
     ``governed_sleep_ms`` and ``request_count`` come from the governor's
-    per-invocation accounting (ADR-0072 decision 4, plan phase 6). No
-    message text, no chat refs, no raw API parameters — a request *type*
-    is not a chat reference.
+    per-invocation accounting (ADR-0072 decision 4, plan phase 6). The lane and
+    aggregate counters describe a jobs runner without storing a key, target,
+    spec, result, or error (ADR-0087). No message text, no chat refs, no raw API
+    parameters — a request *type* is not a chat reference.
     """
     entry = {
         "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -44,6 +51,12 @@ def log_invocation(
         "stop_reason": stop_reason,
         "governed_sleep_ms": governed_sleep_ms,
         "request_count": request_count,
+        "lane": lane,
+        "selected": selected,
+        "completed": completed,
+        "deferred": deferred,
+        "failed": failed,
+        "cancelled": cancelled,
     }
     path = state_dir() / "invocations.jsonl"
     try:
