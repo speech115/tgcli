@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tgcli import session
+from tgcli import desktop, session
 from tgcli.cli import main
 from tgcli.clone import state as clone_state
 from tgcli.commands import (
@@ -43,6 +43,17 @@ def telegram_registry(tmp_path, monkeypatch):
         yield conn, load_config()
     finally:
         conn.close()
+
+
+@pytest.fixture(autouse=True)
+def captured_notifications(monkeypatch):
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        desktop,
+        "notify",
+        lambda title, message: calls.append((title, message)) or True,
+    )
+    return calls
 
 
 def _add(conn, key, kind, spec):
@@ -465,7 +476,7 @@ def test_username_clone_progress_uses_resolved_identity(telegram_registry, monke
 
 
 def test_policy_partial_failure_is_terminal_even_after_progress(
-    telegram_registry, monkeypatch
+    telegram_registry, monkeypatch, captured_notifications
 ):
     conn, config = telegram_registry
     _add(conn, "clone", "clone-sync", {"source": "-100123"})
@@ -492,3 +503,6 @@ def test_policy_partial_failure_is_terminal_even_after_progress(
     assert result["failed"] == 1
     assert job["state"] == "failed"
     assert job["last_error"] == {"code": "BLOCKED", "message": "quote fallback"}
+    assert captured_notifications == [
+        ("tgcli job failed", "clone; run: tg jobs show clone")
+    ]
