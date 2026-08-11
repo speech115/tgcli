@@ -125,6 +125,13 @@ def test_runtime_failures_back_off_then_fail_and_delay_the_next_generation(
     assert first_failed["state"] == "queued"
     assert first_failed["failure_streak"] == 1
     assert first_failed["not_before"] == (NOW + timedelta(minutes=5)).isoformat()
+    first_event = jobs_store.show_job(registry, "retry")["events"][-1]
+    assert first_event["detail"] == {
+        "error": {"code": "RUNTIME"},
+        "failure_streak": 1,
+        "not_before": (NOW + timedelta(minutes=5)).isoformat(),
+        "reason": "runtime_failure",
+    }
 
     second = jobs_store.claim_next(registry, "local", now=NOW + timedelta(minutes=5))
     second_failed = jobs_store.fail_runtime(
@@ -141,6 +148,16 @@ def test_runtime_failures_back_off_then_fail_and_delay_the_next_generation(
     assert terminal["state"] == "failed"
     assert terminal["failure_streak"] == 3
     assert terminal["not_before"] == retry_at.isoformat()
+    terminal_event = jobs_store.show_job(registry, "retry")["events"][-1]
+    assert terminal_event["detail"] == {
+        "error": {
+            "code": "RUNTIME",
+            "retry_recommended_at": retry_at.isoformat(),
+        },
+        "failure_streak": 3,
+        "not_before": retry_at.isoformat(),
+        "reason": "runtime_failure",
+    }
 
     replacement = jobs_store.add_job(
         registry,

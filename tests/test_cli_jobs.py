@@ -215,6 +215,33 @@ def test_local_transcription_job_runs_offline_to_completion(
     assert next_generation["created"] is True
     assert next_generation["job"]["generation"] == 2
 
+    journal = [
+        json.loads(line)
+        for line in (jobs_env / "invocations.jsonl").read_text().splitlines()
+    ]
+    assert {
+        key: journal[-2][key]
+        for key in (
+            "command",
+            "lane",
+            "selected",
+            "completed",
+            "deferred",
+            "failed",
+            "cancelled",
+        )
+    } == {
+        "command": "jobs",
+        "lane": "local",
+        "selected": 1,
+        "completed": 1,
+        "deferred": 0,
+        "failed": 0,
+        "cancelled": 0,
+    }
+    assert "key" not in journal[-2]
+    assert "outcomes" not in journal[-2]
+
 
 def test_local_runner_uses_one_item_quanta_until_remaining_is_false(
     jobs_env, monkeypatch, capsys

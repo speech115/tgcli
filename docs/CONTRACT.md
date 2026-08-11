@@ -2166,6 +2166,10 @@ generation. Policy/config/not-found failures enter `failed` immediately. A job
 failure is data, not failure of the scheduler invocation: `jobs run` itself
 exits 0 after persisting the state.
 
+The global invocation journal records only `command: "jobs"`, the runner
+`lane`, and aggregate `selected,completed,deferred,failed,cancelled` counts.
+It never stores a key, target, spec, per-job result, or per-job error.
+
 Representative JSON:
 
 ```json

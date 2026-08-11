@@ -708,6 +708,20 @@ def main(argv: list[str] | None = None) -> int:
         # requests (review fix m1): offline commands carry neither field.
         slept_ms = int(pacing.total_governed_sleep() * 1000)
         requests = pacing.request_count()
+        jobs_fields = {}
+        if (
+            args.command == "jobs"
+            and args.jobs_command == "run"
+            and isinstance(result_data, dict)
+        ):
+            jobs_fields = {
+                "lane": result_data["lane"],
+                "selected": result_data["selected"],
+                "completed": result_data["completed"],
+                "deferred": result_data["queued"],
+                "failed": result_data["failed"],
+                "cancelled": result_data["cancelled"],
+            }
         invocations.log_invocation(
             command=args.command,
             account=args.account,
@@ -718,6 +732,7 @@ def main(argv: list[str] | None = None) -> int:
             governed_sleep_ms=slept_ms if requests else None,
             request_count=requests or None,
             **stop_fields,
+            **jobs_fields,
         )
         _restore_diagnostics(verbose_diagnostics)
     return exit_code

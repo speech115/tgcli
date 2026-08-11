@@ -541,12 +541,22 @@ def _transition(
                 job["generation"],
             ),
         )
+        detail: dict[str, Any] = {
+            "failure_streak": failure_streak,
+            "reason": reason,
+        }
+        if result is not None:
+            detail["result"] = result
+        if error is not None:
+            detail["error"] = error
+        if not_before is not None:
+            detail["not_before"] = not_before
         _event(
             conn,
             key=job["key"],
             generation=job["generation"],
             event_type=state,
-            detail={"reason": reason},
+            detail=detail,
             timestamp=timestamp,
         )
         row = _latest_row(conn, job["key"])

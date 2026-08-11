@@ -14,6 +14,8 @@ a terminal no-op.
 though account resolution already came from config. The regression test now
 proves `../` cannot escape `TGCLI_STATE_DIR`; finite-number checks also reject
 `NaN` before it can reach the process deadline or scheduler loop.
+Detailed transition events retain each bounded quantum result/error, while the
+global journal keeps only lane-level aggregate counters.
 
 **Next:** independent review and squash #187 into the #146 integration branch;
 then add the explicit-role Telegram lane in #188.
