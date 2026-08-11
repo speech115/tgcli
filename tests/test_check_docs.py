@@ -293,13 +293,20 @@ def test_the_repository_supersessions_are_all_recorded():
     assert load_check_docs().adr_supersession_problems() == []
 
 
+def test_active_glossary_does_not_define_removed_qr_login():
+    glossary = (ROOT / "CONTEXT.md").read_text()
+
+    assert "**QR login**" not in glossary
+    assert "tg://login" not in glossary
+
+
 def test_map_inventory_counts_must_match_the_tree(tmp_path):
     project_map = tmp_path / "MAP.md"
     project_map.write_text(
         (ROOT / "docs" / "MAP.md")
         .read_text()
         .replace("task pages, 26 + index", "task pages, 23 + index", 1)
-        .replace("ADR-0001…0087", "ADR-0001…0057", 1)
+        .replace("ADR-0001…0088", "ADR-0001…0057", 1)
     )
     result = run(
         ROOT / "CHANGELOG.md",
@@ -308,7 +315,7 @@ def test_map_inventory_counts_must_match_the_tree(tmp_path):
 
     assert result.returncode == 1
     assert "MAP.md: guide count is 23; tree has 26 task pages" in result.stdout
-    assert "MAP.md: ADR range ends at 0057; tree ends at 0087" in result.stdout
+    assert "MAP.md: ADR range ends at 0057; tree ends at 0088" in result.stdout
 
 
 def test_contributor_docs_must_not_send_sessions_to_closed_devlog(tmp_path):

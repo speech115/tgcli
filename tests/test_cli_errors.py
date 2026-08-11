@@ -19,7 +19,7 @@ from telethon.errors import rpcerrorlist
 
 from tgcli import cli, dispatch, output
 from tgcli.cli import main
-from tgcli.commands.login import LoginTimeoutError
+from tgcli.errors import CommandTimeoutError
 from tgcli.session import state_dir
 
 SAMPLE = """
@@ -65,7 +65,7 @@ def test_timeout_expiry_is_a_timeout_envelope_on_both_streams(env, monkeypatch, 
 
     captured = capsys.readouterr()
     envelope = json.loads(captured.out)
-    assert envelope["error"]["code"] == LoginTimeoutError.code == "TIMEOUT"
+    assert envelope["error"]["code"] == CommandTimeoutError.code == "TIMEOUT"
     assert "0.05" in envelope["error"]["message"]
     assert json.loads(captured.err.splitlines()[-1]) == envelope
     assert "Traceback" not in captured.err

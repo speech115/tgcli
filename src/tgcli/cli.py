@@ -40,8 +40,8 @@ LOGGER = logging.getLogger(__name__)
 __all__ = ["build_parser", "main", "entrypoint"]
 
 # The deadline is armed before preflight, so it must not preempt a command that
-# owns a graceful deadline of its own (the QR wait, asyncio.wait_for around the
-# network). Those arm later; this margin keeps them first.
+# owns a graceful asyncio deadline around the network. Those arm later; this
+# margin keeps them first.
 DEADLINE_GRACE = 1.0
 
 # The only argv tokens that may end a run successfully with text on stdout.
@@ -98,8 +98,12 @@ def _default_timeout(args) -> float | None:
     long-running commands keep no implicit deadline — CONTRACT §1 lists
     them; only explicit `--timeout`/`--max-runtime` bounds them.
     """
-    if args.command == "accounts" and args.subcommand == "login":
-        return None if getattr(args, "continue_id", None) else 120.0
+    if (
+        args.command == "accounts"
+        and args.subcommand == "login"
+        and getattr(args, "continue_id", None)
+    ):
+        return None
     if args.command == "transcribe":
         return 120.0
     if args.command == "changes" and getattr(args, "changes_wait", None) is not None:
@@ -466,7 +470,6 @@ def _execute(args) -> tuple[dict, list[tuple]]:
         )
         return data, accounts_cmd.remove_rows(data)
     if args.command == "accounts" and args.subcommand == "login":
-        timeout = args.timeout
         if getattr(args, "continue_id", None):
             data = asyncio.run(
                 login_cmd.continue_login(
@@ -480,13 +483,10 @@ def _execute(args) -> tuple[dict, list[tuple]]:
                 login_cmd.start_login(
                     config,
                     args.alias,
-                    phone=getattr(args, "phone", None),
+                    phone=args.phone,
                     api_id=getattr(args, "api_id", None),
                     api_hash=getattr(args, "api_hash", None),
                     force=bool(getattr(args, "force", False)),
-                    timeout=timeout,
-                    qr_format=getattr(args, "qr_format", "link"),
-                    password_stdin=bool(getattr(args, "password_stdin", False)),
                     role=getattr(args, "login_role", None),
                 )
             )

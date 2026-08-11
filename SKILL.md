@@ -25,7 +25,7 @@ selected account session, does one operation, and exits.
 
 - Run one process per account session at a time. Exit 3 can mean a busy
   session lock; retry in a few seconds. For concurrency, authorize a named
-  role (`accounts login ALIAS --role job`) and pass `--session-role job`.
+  role (`accounts login ALIAS --role job --phone PHONE`) and pass `--session-role job`.
 - Never open a tgcli `.session` file with bare `python3` or a system/user-site
   Telethon. Use the `tg` entrypoint or `./.venv/bin/python` from this checkout;
   `tg doctor` reports the active Python and Telethon runtime under `runtime`.
@@ -36,8 +36,8 @@ selected account session, does one operation, and exits.
 |---|---|
 | List configured accounts | `tg --json accounts list` |
 | Show offline account / session status | `tg --json accounts show ALIAS` |
-| Authorize / re-authorize a session | `tg --json accounts login ALIAS` (QR) / `--phone` / `--continue LOGIN_ID` |
-| Authorize a named session role | `tg --json accounts login ALIAS --role job` |
+| Authorize / re-authorize a session | `tg --json accounts login ALIAS --phone PHONE`, then `--continue LOGIN_ID --code …` |
+| Authorize a named session role | `tg --json accounts login ALIAS --role job --phone PHONE` |
 | Poll a daemonless change feed | `tg --json changes --init` then `tg --json changes --cursor C [--wait N]` |
 | Init local archive store | `tg --json archive init` |
 | Opt a group/channel into archive scope | `tg --json archive add CHAT` / `remove CHAT` / `list` |

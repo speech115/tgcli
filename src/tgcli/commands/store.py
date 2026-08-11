@@ -396,10 +396,9 @@ def _lock_busy(target: Path) -> bool:
 def _attempt_lock_held(logins_root: Path, login_id: str) -> bool:
     """Whether a login attempt is still running.
 
-    A QR wait can outlive `LOGIN_TTL`, and the running login holds the staged
-    session's flock for the whole attempt (`authclient.unauthorized_client`),
-    so an expired record alone does not mean abandoned: reaping it would take
-    an authorization in flight.
+    A running login holds the staged session's flock for the whole request
+    (`authclient.unauthorized_client`), so an expired record alone does not mean
+    abandoned: reaping it would take an authorization in flight.
     """
     return _lock_busy(logins_root / f"{login_id}.session")
 

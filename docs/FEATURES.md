@@ -43,7 +43,8 @@ Status values:
 - **Secret chats** — not part of the TL API Telethon implements.
 - **Bot API (HTTP)** — non-goal; tgcli is an MTProto user-account tool.
 - **Signup** — account creation is a ToS and ban risk; authorize with
-  `tg accounts login`, or `tg accounts import` for an old-stack session.
+  `tg accounts login --phone PHONE`, or `tg accounts import` for an old-stack
+  session.
 - **Local archive search/sync/transcribe** — ADR-0068/0087 ship private
   `--private` backfill, `archive sync` / `rebaseline`, bounded media
   acquisition, local Parakeet transcription, gap reporting, filtered/ranked

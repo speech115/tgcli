@@ -204,7 +204,7 @@ async def client(
     if role is not None and not path.is_file():
         raise ConfigError(
             f"session role {role!r} for account {account.alias!r} is not authorized; "
-            f"run: tg accounts login {account.alias} --role {role}"
+            f"run: tg accounts login {account.alias} --role {role} --phone PHONE"
         )
     ensure_state_dir("sessions")
     lock = open(path.with_suffix(".lock"), "w")
@@ -238,11 +238,12 @@ async def client(
                 raise ConfigError(
                     f"session role {role!r} for account {account.alias!r} "
                     "is not authorized; "
-                    f"run: tg accounts login {account.alias} --role {role}"
+                    f"run: tg accounts login {account.alias} --role {role} "
+                    "--phone PHONE"
                 )
             raise ConfigError(
                 f"session {account.session!r} is not authorized; "
-                "run: tg accounts login <alias> "
+                "run: tg accounts login <alias> --phone PHONE "
                 "(or tg accounts import for an old-stack session)"
             )
         yield tg

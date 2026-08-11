@@ -57,7 +57,8 @@ CEILINGS = {
     # on top of growth the grace band had been absorbing.
     # ADR-0087 moved jobs grammar into jobs/arguments.py and removed the old
     # archive scheduling composition.
-    "src/tgcli/parser.py": 732,
+    # ADR-0088 removes the QR format grammar.
+    "src/tgcli/parser.py": 726,
     # +40 for ADR-0062 role validation and ADR-0063 changes preflight.
     # +37 for ADR-0068: archive preflight (readonly gates, backfill/search
     # caps).
@@ -70,7 +71,8 @@ CEILINGS = {
     # to the begin/finish preview handshake, folded into one loop.
     # ADR-0087 delegates jobs validation to jobs/preflight.py and removes the
     # old archive composition gates.
-    "src/tgcli/preflight.py": 440,
+    # +4 for ADR-0088's explicit non-empty phone/password start validation.
+    "src/tgcli/preflight.py": 444,
     # +2 for ADR-0057: isort section blanks.
     # +17 for ADR-0062: role lookup threaded into session.client.
     # +23 for ADR-0068: archive network dispatch (init/add/remove/backfill).
