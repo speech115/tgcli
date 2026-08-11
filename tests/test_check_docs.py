@@ -293,6 +293,13 @@ def test_the_repository_supersessions_are_all_recorded():
     assert load_check_docs().adr_supersession_problems() == []
 
 
+def test_active_glossary_does_not_define_removed_qr_login():
+    glossary = (ROOT / "CONTEXT.md").read_text()
+
+    assert "**QR login**" not in glossary
+    assert "tg://login" not in glossary
+
+
 def test_map_inventory_counts_must_match_the_tree(tmp_path):
     project_map = tmp_path / "MAP.md"
     project_map.write_text(

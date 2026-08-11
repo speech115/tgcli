@@ -6,7 +6,7 @@ Telegram QR token/wait/recreate path, native `tg://login` opening, QR timeout,
 and QR-only tests. Kept the staged phone → code → optional cloud-password
 continuation, masked output/audit data, atomic promotion, backups, and role
 isolation. Updated CONTRACT, SKILL, account/jobs guides, FEATURES, MAP, ADR
-index, architecture ratchets, and regression coverage. Full gate: 1876 passed,
+index, architecture ratchets, and regression coverage. Full gate: 1877 passed,
 9 skipped; ruff, format, strict architecture, pyright, coverage, and docs green.
 **Decided:** removed pending QR attempts have no compatibility path; continuing
 one fails before a Telegram client opens and the operator starts again with a
@@ -15,5 +15,7 @@ phone number. Login start now uses the ordinary 60-second hang detector, while
 preempted.
 **Learned:** the parser removal alone was insufficient: preflight also had to
 reject a missing or empty phone before audit, attempt creation, or network I/O.
-**Next:** independent whole-diff review, then merge #193 into the #146 campaign
-branch and perform the owner-assisted live phone authorization.
+Independent review found the active glossary still defined QR login; a docs
+regression test now keeps removed QR terminology out of `CONTEXT.md`.
+**Next:** merge #193 into the #146 campaign branch, then perform the
+owner-assisted live phone authorization.
