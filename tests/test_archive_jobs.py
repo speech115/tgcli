@@ -10,6 +10,7 @@ from telethon.tl.types import Message, PeerUser, User
 from tests.conftest import FakeClient
 from tgcli.archive import store as archive_store
 from tgcli.commands import archive_jobs as archive_jobs_cmd
+from tgcli.config import Config
 
 
 def _user(user_id: int, username: str) -> User:
@@ -27,9 +28,13 @@ def test_backfill_quantum_advances_one_incomplete_dialog_at_a_time(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
-    directory = archive_store.ensure_account_dir(
-        archive_store.default_archive_root(), "main"
+    archive_root = tmp_path / "archive"
+    config = Config(
+        default_account=None,
+        accounts={},
+        archive_root=archive_root,
     )
+    directory = archive_store.ensure_account_dir(archive_root, "main")
     conn = archive_store.connect(archive_store.db_path_for(directory))
     archive_store.ensure_meta(conn, account_user_id=42, account_alias="main")
     conn.close()
@@ -63,6 +68,7 @@ def test_backfill_quantum_advances_one_incomplete_dialog_at_a_time(
             chats=["@alice", "@bob"],
             private=False,
             limit=10,
+            config=config,
         )
     )
     assert [item["chat"] for item in first["dialogs"]] == ["@alice"]
@@ -75,6 +81,7 @@ def test_backfill_quantum_advances_one_incomplete_dialog_at_a_time(
             chats=["@alice", "@bob"],
             private=False,
             limit=10,
+            config=config,
         )
     )
     assert [item["chat"] for item in second["dialogs"]] == ["@bob"]
