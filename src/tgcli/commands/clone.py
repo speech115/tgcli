@@ -145,13 +145,14 @@ def export_state(source: str) -> dict:
     return matches[0].to_dict()
 
 
-def progress_token(account_user_id: int) -> dict:
-    """Durable cursors for every clone owned by one Telegram account."""
+def progress_token(account_user_id: int, source: str) -> dict:
+    """Durable cursors for the account-owned clone selected by SOURCE."""
     clones = sorted(
         (
             loaded
             for loaded in lookup.loaded_states()
             if loaded.account_user_id == account_user_id
+            and lookup.matches(loaded, source)
         ),
         key=lambda loaded: loaded.source_peer_id,
     )

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from tgcli.clone import state as clone_state
 from tgcli.commands import (
     archive as archive_cmd,
     archive_jobs as archive_jobs_cmd,
@@ -344,6 +345,47 @@ def test_progress_before_runtime_error_requeues_and_resets_streak(
         "progress": {"cursor": 2},
         "remaining": True,
     }
+
+
+def test_unrelated_clone_progress_does_not_reset_failure_streak(
+    telegram_registry, monkeypatch
+):
+    conn, config = telegram_registry
+    selected = clone_state.CloneState.new(
+        account_user_id=42,
+        source_peer_id=111,
+        source_title="Selected",
+    )
+    unrelated = clone_state.CloneState.new(
+        account_user_id=42,
+        source_peer_id=222,
+        source_title="Unrelated",
+    )
+    clone_state.save(selected)
+    clone_state.save(unrelated)
+    _add(conn, "clone", "clone-sync", {"source": "111"})
+
+    async def broken(*_args, **_kwargs):
+        changed = clone_state.load(unrelated.clone_id)
+        assert changed is not None
+        changed.cursor = 1
+        clone_state.save(changed)
+        raise RuntimeError("selected clone failed")
+
+    monkeypatch.setattr(clone_cmd, "sync_text", broken)
+    asyncio.run(
+        runner.run_telegram(
+            Telegram(),
+            "main",
+            max_runtime=1,
+            config=config,
+            wall_clock=lambda: NOW,
+        )
+    )
+
+    job = store.show_job(conn, "clone")["job"]
+    assert job["state"] == "queued"
+    assert job["failure_streak"] == 1
 
 
 def test_policy_partial_failure_is_terminal_even_after_progress(

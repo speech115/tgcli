@@ -58,7 +58,7 @@ def _progress_token(
     if job["kind"] in ("archive-backfill", "archive-sync"):
         return archive_jobs_cmd.progress_token(alias, config)
     if job["kind"] == "clone-sync":
-        return clone_cmd.progress_token(user_id)
+        return clone_cmd.progress_token(user_id, str(job["spec"]["source"]))
     raise PolicyError(f"unsupported telegram job kind: {job['kind']}")
 
 
