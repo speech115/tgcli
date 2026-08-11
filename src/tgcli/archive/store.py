@@ -11,7 +11,7 @@ from typing import Any
 from tgcli.errors import NotFoundError, PolicyError
 from tgcli.session import ensure_state_dir, restrict_file
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 DB_NAME = "archive.db"
 TRANSCRIBABLE_MEDIA_KINDS = ("voice", "video_note")
 NO_TRANSCRIPT_MARKER = "no_transcript no transcript"
@@ -141,17 +141,24 @@ def connect(path: Path) -> sqlite3.Connection:
             _migrate_v2_to_v3(conn)
             _migrate_v3_to_v4(conn)
             _migrate_v5_to_v6(conn)
+            _migrate_v6_to_v7(conn)
         elif version == 2:
             _migrate_v2_to_v3(conn)
             _migrate_v3_to_v4(conn)
             _migrate_v5_to_v6(conn)
+            _migrate_v6_to_v7(conn)
         elif version == 3:
             _migrate_v3_to_v4(conn)
             _migrate_v5_to_v6(conn)
+            _migrate_v6_to_v7(conn)
         elif version == 4:
             _migrate_v5_to_v6(conn)
+            _migrate_v6_to_v7(conn)
         elif version == 5:
             _migrate_v5_to_v6(conn)
+            _migrate_v6_to_v7(conn)
+        elif version == 6:
+            _migrate_v6_to_v7(conn)
         elif version != SCHEMA_VERSION:
             conn.close()
             raise PolicyError(
@@ -267,6 +274,33 @@ def _migrate_v5_to_v6(conn: sqlite3.Connection) -> None:
             "UPDATE transcripts SET media_status = 'done' "
             "WHERE media_path IS NOT NULL AND media_path <> ''"
         )
+        conn.execute("PRAGMA user_version=6")
+
+
+def _migrate_v6_to_v7(conn: sqlite3.Connection) -> None:
+    """Remove the superseded archive-refresh failure state."""
+    with conn:
+        conn.execute("ALTER TABLE account_sync RENAME TO account_sync_v6")
+        conn.execute(
+            """
+            CREATE TABLE account_sync (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                changes_cursor TEXT,
+                gap_json TEXT,
+                last_sync_at TEXT,
+                last_reconcile_at TEXT,
+                reconcile_json TEXT
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO account_sync("
+            "id, changes_cursor, gap_json, last_sync_at, last_reconcile_at, "
+            "reconcile_json"
+            ") SELECT id, changes_cursor, gap_json, last_sync_at, "
+            "last_reconcile_at, reconcile_json FROM account_sync_v6"
+        )
+        conn.execute("DROP TABLE account_sync_v6")
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
 

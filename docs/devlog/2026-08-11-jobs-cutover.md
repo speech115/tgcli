@@ -19,7 +19,10 @@ ones; there is no command alias or migration ceremony for removed behavior.
 under `TGCLI_NO_SEND=1` (`attempted=1`, `transcribed=1`, no errors). Telegram
 acceptance could not begin because no explicit `job` role was authorized; the
 runner correctly refused to fall back to primary. Offline clone cursors alone
-do not prove a caught-up no-op, so no clone mutation was attempted.
+do not prove a caught-up no-op, so no clone mutation was attempted. Independent
+review also caught that deleting columns only from the create schema left
+released v6 stores structurally stale; schema v7 now rebuilds `account_sync`
+and preserves its cursor, gap, timestamps, and reconciliation data.
 **Next:** independent whole-diff review, then merge #189 into the campaign
 branch. Complete Telegram live acceptance only after explicit role
 authorization is available.

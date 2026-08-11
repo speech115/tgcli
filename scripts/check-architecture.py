@@ -137,8 +137,9 @@ CEILINGS = {
     # message/transcript/scope/sync accessors all live there today).
     # +6 for the Phase 5 review fix (Unicode casefold helper). Still the
     # first split candidate if it grows again.
-    # ADR-0087 removes the archive-level scheduling streak from the schema.
-    "src/tgcli/archive/store.py": 983,
+    # ADR-0087 removes the archive-level scheduling streak and rebuilds the
+    # released v6 account_sync table into truthful schema v7.
+    "src/tgcli/archive/store.py": 1017,
     # +9 for ADR-0087 cooperative jobs deadline/cancellation boundaries.
     "src/tgcli/archive/sync.py": 605,
     # +6 for ADR-0072: backfill_dialogs/backfill_one/backfill_private thread

@@ -1965,7 +1965,7 @@ under readonly; `read` and `history` are also offline read-only commands.
 
 ```json
 {"created":true,"path":"…/archive/main/archive.db",
- "account":{"alias":"main","user_id":42},"schema_version":6}
+ "account":{"alias":"main","user_id":42},"schema_version":7}
 ```
 
 ```json
@@ -1977,7 +1977,7 @@ under readonly; `read` and `history` are also offline read-only commands.
 
 ```json
 {"account":{"alias":"main","user_id":42},"path":"…",
- "schema_version":6,
+ "schema_version":7,
  "counts":{"messages":0,"revisions":0,"tombstones":0,"transcripts":0,
            "scope":0,"transcript_queue":0},
  "dialogs":[],"transcript_queue":0,

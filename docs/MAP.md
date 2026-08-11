@@ -62,7 +62,7 @@ tgcli/
 │   ├── login_state.py         [done]    logins/ attempt state and session promotion (ADR-0042)
 │   ├── transfer.py            [done]    striped download, serial resumable download, parallel Save*FilePart upload, media size/identity helpers, one progress cadence (ADR-0047/0049/0055/0083/0084)
 │   ├── archive/               [done]    local archive store, media acquisition, and transcription (ADR-0068/0069)
-│   │   ├── store.py           [done]    schema v6, WAL, FTS5 text+transcripts, account/peer sync state, tombstones
+│   │   ├── store.py           [done]    schema v7, WAL, FTS5 text+transcripts, account/peer sync state, tombstones
 │   │   ├── media.py           [done]    bounded media paths, retry state, and terminal acquisition failures
 │   │   ├── scope.py           [done]    standing private category + group/channel classification
 │   │   ├── search.py          [done]    FTS5 MATCH normalization + scope/sync_state peer resolve

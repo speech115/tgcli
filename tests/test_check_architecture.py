@@ -17,7 +17,7 @@ CEILINGS = {
     "src/tgcli/clone/state.py": 409,
     "src/tgcli/clone/quotes.py": 392,
     "src/tgcli/clone/quote_fallback.py": 127,
-    "src/tgcli/archive/store.py": 983,
+    "src/tgcli/archive/store.py": 1017,
     "src/tgcli/archive/sync.py": 605,
     "src/tgcli/archive/backfill.py": 320,
     "src/tgcli/archive/transcribe.py": 251,

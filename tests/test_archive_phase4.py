@@ -93,7 +93,7 @@ def test_transcript_queue_is_newest_first_and_bounded(tmp_path):
         conn.close()
 
 
-def test_schema_v6_keeps_media_failure_state_without_refresh_state(tmp_path):
+def test_schema_v7_keeps_media_failure_state_without_refresh_state(tmp_path):
     conn = _connection(tmp_path)
     try:
         columns = {
@@ -117,7 +117,7 @@ def test_schema_v6_keeps_media_failure_state_without_refresh_state(tmp_path):
                 for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
             }
         )
-        assert store.schema_version(conn) == 6
+        assert store.schema_version(conn) == 7
     finally:
         conn.close()
 
@@ -143,9 +143,64 @@ def test_schema_v5_migrates_media_retry_state(tmp_path):
     conn = store.connect(path)
     try:
         row = store.transcript_row(conn, 7, 1)
-        assert store.schema_version(conn) == 6
+        assert store.schema_version(conn) == 7
         assert row["media_attempts"] == 0
         assert row["media_status"] == "done"
+    finally:
+        conn.close()
+
+
+def test_schema_v6_migrates_refresh_state_out_and_preserves_sync_data(tmp_path):
+    path = tmp_path / "archive.db"
+    prior_v6_sql = store._SCHEMA_SQL.replace(
+        "    reconcile_json TEXT\n);",
+        "    reconcile_json TEXT,\n"
+        "    refresh_failure_streak INTEGER NOT NULL DEFAULT 0,\n"
+        "    refresh_last_error TEXT,\n"
+        "    refresh_notification_sent INTEGER NOT NULL DEFAULT 0\n"
+        ");",
+        1,
+    )
+    raw = sqlite3.connect(path)
+    raw.executescript(prior_v6_sql)
+    raw.execute("PRAGMA user_version=6")
+    raw.execute(
+        "INSERT INTO account_sync("
+        "id, changes_cursor, gap_json, last_sync_at, last_reconcile_at, "
+        "reconcile_json, refresh_failure_streak, refresh_last_error, "
+        "refresh_notification_sent"
+        ") VALUES (1, ?, ?, ?, ?, ?, 3, 'obsolete detail', 1)",
+        (
+            "cursor-v1",
+            '{"kind":"difference-too-long"}',
+            "2026-08-01T00:00:00+00:00",
+            "2026-08-01T00:01:00+00:00",
+            '{"sampled":1}',
+        ),
+    )
+    raw.commit()
+    raw.close()
+
+    conn = store.connect(path)
+    try:
+        assert store.schema_version(conn) == 7
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
+        }
+        assert {
+            "refresh_failure_streak",
+            "refresh_last_error",
+            "refresh_notification_sent",
+        }.isdisjoint(columns)
+        row = conn.execute("SELECT * FROM account_sync WHERE id = 1").fetchone()
+        assert dict(row) == {
+            "id": 1,
+            "changes_cursor": "cursor-v1",
+            "gap_json": '{"kind":"difference-too-long"}',
+            "last_sync_at": "2026-08-01T00:00:00+00:00",
+            "last_reconcile_at": "2026-08-01T00:01:00+00:00",
+            "reconcile_json": '{"sampled":1}',
+        }
     finally:
         conn.close()
 
