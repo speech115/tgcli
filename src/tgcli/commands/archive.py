@@ -56,6 +56,10 @@ def db_path(alias: str, config: Config | None = None) -> Path:
     return store_mod.db_path_for(account_dir(alias, config))
 
 
+def require_no_pending_purge(alias: str, config: Config | None = None) -> None:
+    purge_mod.require_no_pending(account_dir(alias, config))
+
+
 def _open_existing(alias: str, config: Config | None = None):
     path = db_path(alias, config)
     if not path.exists():
@@ -97,6 +101,7 @@ async def init_archive(tg, alias: str, config: Config | None = None) -> dict:
 
 
 async def add_chat(tg, alias: str, chat: str, config: Config | None = None) -> dict:
+    require_no_pending_purge(alias, config)
     me = await tg.get_me()
     conn = _open_existing(alias, config)
     try:
@@ -118,6 +123,7 @@ async def add_chat(tg, alias: str, chat: str, config: Config | None = None) -> d
 
 
 async def remove_chat(tg, alias: str, chat: str, config: Config | None = None) -> dict:
+    require_no_pending_purge(alias, config)
     me = await tg.get_me()
     conn = _open_existing(alias, config)
     try:
@@ -294,6 +300,7 @@ async def backfill(
     limit = backfill_mod.validate_limit(
         limit, default=DEFAULT_BACKFILL_LIMIT, maximum=MAX_BACKFILL_LIMIT
     )
+    require_no_pending_purge(alias, config)
     me = await tg.get_me()
     conn = _open_existing(alias, config)
     try:
@@ -369,6 +376,7 @@ async def sync(
     max_media = sync_mod.validate_max_media(
         max_media, default=DEFAULT_SYNC_MEDIA, maximum=MAX_SYNC_MEDIA
     )
+    require_no_pending_purge(alias, config)
     me = await tg.get_me()
     conn = _open_existing(alias, config)
     try:
@@ -394,6 +402,7 @@ async def sync(
 
 
 async def rebaseline(tg, alias: str, *, config: Config | None = None) -> dict:
+    require_no_pending_purge(alias, config)
     me = await tg.get_me()
     conn = _open_existing(alias, config)
     try:

@@ -10,6 +10,7 @@ from __future__ import annotations
 from telethon import errors as telethon_errors
 
 from tgcli import output, read_ops, session
+from tgcli.archive import purge as archive_purge
 from tgcli.commands import (
     api as api_cmd,
     archive as archive_cmd,
@@ -209,6 +210,13 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
 
 
 async def _run_archive(tg, args, account) -> tuple[dict, list[tuple]]:
+    alias = account.alias
+    directory = archive_cmd.account_dir(alias)
+    with archive_purge.operation_lock(directory, alias):
+        return await _run_archive_mutation(tg, args, account)
+
+
+async def _run_archive_mutation(tg, args, account) -> tuple[dict, list[tuple]]:
     cmd = args.archive_command
     alias = account.alias
     if cmd == "init":

@@ -1846,7 +1846,9 @@ returns the standing category plus the explicit allowlist.
 surface for stored groups and channels. Private 1:1 dialogs are rejected
 (exit 2). `CHAT` resolves only from stored `scope` / `sync_state` identity;
 a numeric peer known only from message rows is not found (exit 4). No Telegram
-session or RPC is opened. Without `--confirm`, JSON reports exact
+session or RPC is opened. If one non-numeric reference matches multiple durable
+peer ids, purge fails closed (exit 2) and requires a numeric id. Without
+`--confirm`, JSON reports exact
 current counts for `messages`, `revisions`, `tombstones`, `transcripts`, FTS,
 `scope`, and `sync_state`, plus controlled media/download file count and bytes;
 it changes no archive data and is allowed under readonly mode. `remove`
@@ -1862,13 +1864,25 @@ blocking jobs so the operator can cancel them explicitly. Audit and job history
 are retained. A shared account-local archive lock also excludes direct offline
 transcription, another purge, and creation of a new `archive-*` job during the
 destructive window.
+Normal session-backed archive mutations and archive job quanta take this lock
+in shared mode; purge takes it exclusively. The independent Telegram/local job
+lanes may still overlap each other, while a newly authorized named role cannot
+open an unprotected writer during purge. Missing session storage creates only
+the private directory and lock file; purge never creates a Telegram `.session`.
+Download checkpoint ownership is proven by its JSON destination resolving
+below this account's `media/<peer_id>/` directory. A same-source manual
+download or another account's checkpoint is retained. A same-key checkpoint
+created after quarantine is also retained during retry.
 
 SQLite and filesystem deletion are crash-recoverable, not globally atomic. A
 versioned atomic marker lets the same stored username or peer id resume after a
 failure. A database failure leaves rows intact and files quarantined for retry.
 If final filesystem cleanup fails after the database commit, JSON reports
 `confirmed: true`, `cleanup_pending: true` and exits **1**; retry completes
-cleanup. Successful completion reports `cleanup_pending: false`.
+cleanup. Successful completion reports `cleanup_pending: false`. While a
+recovery marker remains, every archive mutation and creation of a new
+`archive-*` job is blocked (exit 2); the error gives the numeric purge retry
+command, preventing work from restoring the peer before recovery completes.
 
 The JSON result has exactly these top-level fields:
 
@@ -2056,7 +2070,9 @@ commands.
  "files":6,"bytes":123456,"cleanup_pending":false}
 ```
 
-Purge `--plain` rows are `confirmed`, `peer_id`, `kind`, `files`, `bytes`.
+Purge `--plain` rows use the complete stable sequence defined above:
+`confirmed`, `cleanup_pending`, `peer_id`, `kind`, the seven named row counts,
+`files`, and `bytes`.
 
 ```json
 {"account":{"alias":"main","user_id":42},"path":"…",

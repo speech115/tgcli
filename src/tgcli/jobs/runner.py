@@ -9,6 +9,7 @@ from typing import Any
 from telethon import errors as telethon_errors
 
 from tgcli import desktop
+from tgcli.archive import purge as purge_mod
 from tgcli.clone import legs
 from tgcli.commands import (
     archive as archive_cmd,
@@ -89,24 +90,28 @@ async def _run_telegram_job(
 ) -> dict:
     spec = job["spec"]
     if job["kind"] == "archive-backfill":
-        return await archive_jobs_cmd.backfill_quantum(
-            tg,
-            alias,
-            chats=list(spec["chats"]),
-            private=bool(spec["private"]),
-            limit=int(spec["limit"]),
-            config=config,
-        )
+        directory = archive_cmd.account_dir(alias, config)
+        with purge_mod.operation_lock(directory, alias):
+            return await archive_jobs_cmd.backfill_quantum(
+                tg,
+                alias,
+                chats=list(spec["chats"]),
+                private=bool(spec["private"]),
+                limit=int(spec["limit"]),
+                config=config,
+            )
     if job["kind"] == "archive-sync":
-        return await archive_cmd.sync(
-            tg,
-            alias,
-            max_events=int(spec["max_events"]),
-            max_dialogs=int(spec["max_dialogs"]),
-            max_media=int(spec["max_media"]),
-            config=config,
-            should_stop=should_stop,
-        )
+        directory = archive_cmd.account_dir(alias, config)
+        with purge_mod.operation_lock(directory, alias):
+            return await archive_cmd.sync(
+                tg,
+                alias,
+                max_events=int(spec["max_events"]),
+                max_dialogs=int(spec["max_dialogs"]),
+                max_media=int(spec["max_media"]),
+                config=config,
+                should_stop=should_stop,
+            )
     if job["kind"] == "clone-sync":
         return await clone_cmd.sync_text(
             tg,

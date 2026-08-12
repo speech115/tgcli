@@ -69,6 +69,7 @@ async def backfill_quantum(
     config: Config | None = None,
 ) -> dict:
     """Backfill one incomplete dialog using the archive's own checkpoint."""
+    archive_cmd.require_no_pending_purge(alias, config)
     me = await tg.get_me()
     conn = _open_existing(alias, config)
     try:

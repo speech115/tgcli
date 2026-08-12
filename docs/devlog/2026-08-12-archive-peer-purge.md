@@ -19,6 +19,15 @@ Download checkpoints quarantine below the state downloads root, so an external
 archive volume never requires a cross-device rename.
 The purge resolver rejects message-only numeric identities, and audit failure
 leaves no marker, quarantined file, or deleted row.
+It also rejects recycled usernames that match multiple durable peers. Pending
+recovery blocks every archive writer/new archive job until retry, so work cannot
+recreate a quarantined peer and wedge recovery.
+Checkpoint destination now proves account ownership before global download
+state is touched. Archive writers take a shared operation lock while purge is
+exclusive, closing a late named-role race without serializing the two job
+lanes. Headless purge creates only the private lock directory, not a session.
+Retry preserves any same-key checkpoint created after the original was moved
+to quarantine.
 
 **Learned:** a peer can survive in FTS, transcript queues, download checkpoints,
 the changes channel map, a scoped gap, and reconcile output after its scope row

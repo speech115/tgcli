@@ -28,7 +28,9 @@ Add `tg archive purge CHAT [--confirm]`. `remove` remains non-destructive and
 unchanged. `purge` has its own resolver and accepts identity only from durable
 `scope` / `sync_state` rows; a numeric peer known only from messages is not a
 purge target. It never opens Telegram. It accepts groups and channels; private
-1:1 dialogs stay the standing category and are rejected.
+1:1 dialogs stay the standing category and are rejected. If stale durable rows
+make a username/chat reference match more than one peer, purge fails closed and
+requires the intended numeric peer id.
 
 Without `--confirm`, the command reports exact current row counts plus the
 number and bytes of peer media and resumable download files. It changes no
@@ -56,12 +58,21 @@ The marker retains only peer identity, aggregate counts, and controlled
 checkpoint filenames — never message bodies. A retry using the same stored
 username or peer id can find the marker even after SQLite identity rows are
 gone.
+The shared download checkpoint namespace is not proof of ownership: purge
+includes a checkpoint only when its JSON destination resolves below this
+account's `media/<peer_id>/` directory. Same-source manual downloads and
+another account's checkpoint are retained. If a same-key checkpoint appears
+after the original was quarantined, retry preserves the replacement while
+removing only the recorded quarantine.
 
 If the database step fails after quarantine, the marker and files remain and
 the database transaction rolls back; retry completes both steps. If final
 filesystem cleanup fails, SQLite remains purged, JSON reports
 `cleanup_pending: true`, and the command exits 1; retry finishes cleanup.
 Absence is never reported as successful cleanup while a marker remains.
+While any recovery marker remains for the account, every archive mutation and
+new `archive-*` job is blocked with the numeric retry command. No backfill,
+sync, transcription, or job can recreate rows/files between failure and retry.
 
 ### 3. Work that can restore the peer is excluded
 
@@ -71,9 +82,12 @@ a new `archive-*` job takes the same account-local archive lock as purge, so a
 job cannot enter the queue after that check and before deletion. Purge also
 takes every primary/named session lock for the selected account, so a manual
 session-backed `archive add`, `backfill`, `sync`, or `rebaseline` cannot overlap
-the destructive window. The archive lock is shared with offline transcription
-and another purge, preventing a transcriber from recreating an FTS row after
-peer deletion. Audit and completed/cancelled job history are retained.
+the destructive window. The archive operation lock uses shared mode for normal
+archive writers/jobs and exclusive mode for purge: independent Telegram and
+local jobs may still overlap, but no writer can start during deletion. Every
+session-backed archive mutation and both archive job quanta take shared mode,
+so a newly authorized session role cannot bypass a stale role snapshot. Audit
+and completed/cancelled job history are retained.
 
 ## Rejected alternatives
 

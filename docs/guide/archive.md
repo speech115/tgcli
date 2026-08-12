@@ -197,6 +197,13 @@ A confirmed purge refuses queued/running archive jobs, a concurrently added
 archive job, active account sessions, direct local transcription, and another
 purge. Media and resumable-download quarantine stay on their respective
 filesystems, including with an external `[archive] root`.
+Only checkpoints whose stored destination is inside this account's peer media
+directory are removed; same-source manual/other-account downloads are kept.
+Ordinary archive writers share the operation lock, so Telegram/local jobs keep
+their independent overlap while purge remains exclusive.
+An interrupted purge blocks all archive writes and new archive jobs until its
+numeric retry command completes. Ambiguous stored usernames also fail closed;
+use the intended numeric peer id shown by archive status/list data.
 
 ## See also
 

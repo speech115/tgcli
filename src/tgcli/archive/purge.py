@@ -12,7 +12,7 @@ from typing import Any
 
 from tgcli import atomic, changes_cursor, safety, session
 from tgcli.errors import NotFoundError, PartialFailure, PolicyError, TgcliError
-from tgcli.session import restrict_file, state_dir
+from tgcli.session import ensure_state_dir, restrict_file, state_dir
 
 _STATE_VERSION = 1
 
@@ -48,6 +48,7 @@ def _require_no_archive_jobs(alias: str) -> None:
 
 
 def _hold_session_locks(stack: ExitStack, account) -> None:
+    ensure_state_dir("sessions")
     roles: list[str | None] = [None, *session.list_roles(account)]
     for role in roles:
         session_file = session.session_path(account, role=role)
@@ -65,19 +66,40 @@ def _hold_session_locks(stack: ExitStack, account) -> None:
         stack.callback(fcntl.flock, handle, fcntl.LOCK_UN)
 
 
+def require_no_pending(account_dir: Path) -> None:
+    """Block archive mutations until an interrupted purge is resumed."""
+    markers = sorted(_marker_root(account_dir).glob("*.json"))
+    if not markers:
+        return
+    peer_id = markers[0].stem
+    raise PolicyError(
+        "archive purge recovery is pending; resume it before archive work: "
+        f"tg archive purge {peer_id} --confirm"
+    )
+
+
 @contextmanager
-def operation_lock(account_dir: Path, alias: str):
+def operation_lock(
+    account_dir: Path,
+    alias: str,
+    *,
+    exclusive: bool = False,
+    allow_pending: bool = False,
+):
     """Exclude peer purge from archive-local work that can restore rows."""
     path = account_dir / "archive.lock"
     handle = path.open("a+")
     restrict_file(path)
     try:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            mode = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+            fcntl.flock(handle, mode | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise PolicyError(
                 f"archive is busy for account {alias!r}; retry after it finishes"
             ) from exc
+        if not allow_pending:
+            require_no_pending(account_dir)
         yield
     finally:
         try:
@@ -96,7 +118,9 @@ def exclusive(account_dir: Path, account):
         with ExitStack() as stack:
             stack.enter_context(jobs_store.lane_lock(alias, "local"))
             stack.enter_context(jobs_store.lane_lock(alias, "telegram"))
-            stack.enter_context(operation_lock(account_dir, alias))
+            stack.enter_context(
+                operation_lock(account_dir, alias, exclusive=True, allow_pending=True)
+            )
             _hold_session_locks(stack, account)
             _require_no_archive_jobs(alias)
             yield
@@ -152,16 +176,24 @@ def _resolve_peer_id(conn, chat: str) -> int:
     except ValueError:
         numeric = None
     needle = raw.lstrip("@").casefold()
+    matches: set[int] = set()
     for row in rows:
         peer_id = int(row["peer_id"])
         if numeric is not None and peer_id == numeric:
-            return peer_id
+            matches.add(peer_id)
         for candidate in (row["chat_ref"], row["username"]):
             if (
                 candidate is not None
                 and str(candidate).lstrip("@").casefold() == needle
             ):
-                return peer_id
+                matches.add(peer_id)
+    if len(matches) == 1:
+        return matches.pop()
+    if len(matches) > 1:
+        raise PolicyError(
+            f"archive purge CHAT is ambiguous across peer ids {sorted(matches)}; "
+            "retry with the intended numeric peer id"
+        )
     raise NotFoundError(f"chat not in archive scope or sync state: {chat!r}")
 
 
@@ -179,16 +211,34 @@ def _file_stats(path: Path) -> tuple[int, int]:
     return files, size
 
 
-def _download_paths(conn, peer_id: int) -> list[Path]:
+def _download_paths(conn, account_dir: Path, peer: dict[str, Any]) -> list[Path]:
+    peer_id = int(peer["peer_id"])
     rows = conn.execute(
-        "SELECT message_id FROM transcripts WHERE peer_id = ? ORDER BY message_id",
-        (peer_id,),
+        "SELECT message_id FROM messages WHERE peer_id = ? "
+        "UNION SELECT message_id FROM revisions WHERE peer_id = ? "
+        "UNION SELECT message_id FROM tombstones WHERE peer_id = ? "
+        "UNION SELECT message_id FROM transcripts WHERE peer_id = ? "
+        "ORDER BY message_id",
+        (peer_id, peer_id, peer_id, peer_id),
     ).fetchall()
     root = state_dir() / "downloads"
+    owned_root = (account_dir / "media" / str(peer_id)).resolve()
     paths: list[Path] = []
     for row in rows:
-        key = sha256(f"{peer_id}:{int(row['message_id'])}".encode()).hexdigest()
-        paths.extend((root / f"{key}.json", root / f"{key}.part"))
+        message_id = int(row["message_id"])
+        key = sha256(f"{peer_id}:{message_id}".encode()).hexdigest()
+        state_path = root / f"{key}.json"
+        try:
+            checkpoint = json.loads(state_path.read_text())
+            destination = Path(str(checkpoint["destination"])).expanduser().resolve()
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not destination.is_relative_to(owned_root):
+            continue
+        paths.append(state_path)
+        part_path = root / f"{key}.part"
+        if part_path.exists():
+            paths.append(part_path)
     return paths
 
 
@@ -262,7 +312,7 @@ def _fresh_preview(conn, account_dir: Path, chat: str) -> dict[str, Any]:
         for name, table in tables.items()
     }
     files, size = _file_stats(account_dir / "media" / str(peer_id))
-    for path in _download_paths(conn, peer_id):
+    for path in _download_paths(conn, account_dir, peer):
         count, byte_count = _file_stats(path)
         files += count
         size += byte_count
@@ -302,10 +352,14 @@ def _write_marker(
     return record
 
 
-def _move_if_present(source: Path, destination: Path) -> None:
+def _move_if_present(
+    source: Path, destination: Path, *, preserve_replacement: bool = False
+) -> None:
     if not source.exists():
         return
     if destination.exists():
+        if preserve_replacement:
+            return
         raise PolicyError(
             f"archive purge quarantine target already exists: {destination}"
         )
@@ -321,7 +375,11 @@ def _quarantine(account_dir: Path, alias: str, record: dict[str, Any]) -> None:
     downloads = state_dir() / "downloads"
     download_target = _download_quarantine_path(alias, peer_id)
     for name in record.get("download_names") or []:
-        _move_if_present(downloads / str(name), download_target / str(name))
+        _move_if_present(
+            downloads / str(name),
+            download_target / str(name),
+            preserve_replacement=True,
+        )
 
 
 def _without_peer_account_state(
@@ -452,7 +510,7 @@ def commit(conn, account_dir: Path, alias: str, chat: str) -> dict[str, Any]:
     record = _pending_record(account_dir, chat)
     if record is None:
         plan = _fresh_preview(conn, account_dir, chat)
-        download_paths = _download_paths(conn, int(plan["peer"]["peer_id"]))
+        download_paths = _download_paths(conn, account_dir, plan["peer"])
         _append_audit(alias, plan)
         record = _write_marker(account_dir, plan, download_paths)
     else:
