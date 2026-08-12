@@ -403,7 +403,13 @@ def _execute(args) -> tuple[dict, list[tuple]]:
                 jobs_preflight.prepare_resolved_run(args, current["lane"])
             with jobs_store.lane_lock(alias, args.lane):
                 if rearm is not None:
-                    jobs_cmd.rearm(alias, rearm, expected_lane=args.lane)
+                    jobs_cmd.rearm(
+                        alias,
+                        rearm,
+                        expected_lane=args.lane,
+                        kind=current["kind"],
+                        config=config,
+                    )
                 offline = jobs_cmd.execute_offline(args, config)
                 if offline is not None:
                     return offline

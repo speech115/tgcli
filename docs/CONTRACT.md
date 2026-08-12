@@ -1871,8 +1871,9 @@ open an unprotected writer during purge. Missing session storage creates only
 the private directory and lock file; purge never creates a Telegram `.session`.
 Download checkpoint ownership is proven by its JSON destination resolving
 below this account's `media/<peer_id>/` directory. A same-source manual
-download or another account's checkpoint is retained. A same-key checkpoint
-created after quarantine is also retained during retry.
+download or another account's checkpoint is retained. Recovery records the
+original state checksum and moves part-first/state-last; a changed same-key
+state identifies a replacement pair, which retry retains.
 
 SQLite and filesystem deletion are crash-recoverable, not globally atomic. A
 versioned atomic marker lets the same stored username or peer id resume after a
@@ -1883,6 +1884,9 @@ cleanup. Successful completion reports `cleanup_pending: false`. While a
 recovery marker remains, every archive mutation and creation of a new
 `archive-*` job is blocked (exit 2); the error gives the numeric purge retry
 command, preventing work from restoring the peer before recovery completes.
+This includes `jobs run --rearm` before it writes a new generation. A confirmed
+purge for a different peer is also blocked; only the pending peer's retry is
+allowed through the exclusive window.
 
 The JSON result has exactly these top-level fields:
 

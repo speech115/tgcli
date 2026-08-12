@@ -61,9 +61,10 @@ gone.
 The shared download checkpoint namespace is not proof of ownership: purge
 includes a checkpoint only when its JSON destination resolves below this
 account's `media/<peer_id>/` directory. Same-source manual downloads and
-another account's checkpoint are retained. If a same-key checkpoint appears
-after the original was quarantined, retry preserves the replacement while
-removing only the recorded quarantine.
+another account's checkpoint are retained. The marker records the original
+state checksum; the pair moves part-first and state-last. On retry, a changed
+same-key state means the source pair is a replacement and is preserved while
+only the recorded quarantine is removed.
 
 If the database step fails after quarantine, the marker and files remain and
 the database transaction rolls back; retry completes both steps. If final
@@ -73,6 +74,9 @@ Absence is never reported as successful cleanup while a marker remains.
 While any recovery marker remains for the account, every archive mutation and
 new `archive-*` job is blocked with the numeric retry command. No backfill,
 sync, transcription, or job can recreate rows/files between failure and retry.
+Rearming a completed archive job is covered by the same block before a new
+queued generation is written. Only a retry matching the pending peer may enter
+the exclusive purge window; a fresh purge target is rejected.
 
 ### 3. Work that can restore the peer is excluded
 

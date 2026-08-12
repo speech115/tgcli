@@ -28,6 +28,9 @@ exclusive, closing a late named-role race without serializing the two job
 lanes. Headless purge creates only the private lock directory, not a session.
 Retry preserves any same-key checkpoint created after the original was moved
 to quarantine.
+The marker fingerprints its original checkpoint and moves part-first/state-last
+to make every pair crash boundary distinguishable. Archive job rearm and a
+different peer purge are rejected before they can mutate pending recovery.
 
 **Learned:** a peer can survive in FTS, transcript queues, download checkpoints,
 the changes channel map, a scoped gap, and reconcile output after its scope row

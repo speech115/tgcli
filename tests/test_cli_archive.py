@@ -498,8 +498,25 @@ def test_archive_purge_database_failure_keeps_recoverable_quarantine(
     config_env, monkeypatch, capsys
 ):
     from tgcli.archive import purge as purge_mod, store as store_mod
+    from tgcli.jobs import store as jobs_store
 
     peer, root = _seed_purge_peer(config_env, monkeypatch, capsys)
+    jobs = jobs_store.connect("main")
+    try:
+        jobs_store.add_job(
+            jobs,
+            key="completed-sync",
+            kind="archive-sync",
+            lane="telegram",
+            spec={"max_dialogs": 1, "max_events": 1, "max_media": 1},
+            priority="normal",
+            replace=False,
+        )
+        running = jobs_store.claim_next(jobs, "telegram")
+        assert running is not None
+        jobs_store.complete(jobs, running, {"remaining": False})
+    finally:
+        jobs.close()
     real_delete = purge_mod._delete_peer
 
     def fail_delete(_conn, _peer_id):
@@ -517,6 +534,27 @@ def test_archive_purge_database_failure_keeps_recoverable_quarantine(
     assert (root / ".purge" / f"{peer}.json").is_file()
     assert (root / ".purge" / str(peer) / "media" / "10.ogg").is_file()
 
+    assert (
+        main(
+            [
+                "--session-role",
+                "job",
+                "--max-runtime",
+                "1",
+                "jobs",
+                "run",
+                "--rearm",
+                "completed-sync",
+                "--json",
+            ]
+        )
+        == 2
+    )
+    assert "purge recovery" in capsys.readouterr().err.lower()
+    assert main(["jobs", "show", "completed-sync", "--json"]) == 0
+    unchanged = json.loads(capsys.readouterr().out)["job"]
+    assert (unchanged["generation"], unchanged["state"]) == (1, "completed")
+
     assert main(["archive", "backfill", "@news", "--limit", "1", "--json"]) == 2
     assert "purge recovery" in capsys.readouterr().err.lower()
     assert (
@@ -533,8 +571,36 @@ def test_archive_purge_database_failure_keeps_recoverable_quarantine(
         == 2
     )
     assert "purge recovery" in capsys.readouterr().err.lower()
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        store_mod.upsert_sync_state(
+            conn,
+            -1002222,
+            oldest_id=1,
+            newest_id=1,
+            more=False,
+            kind="channel",
+            title="Other",
+            username="other",
+            chat_ref="@other",
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    assert main(["archive", "purge", "@other", "--confirm", "--json"]) == 2
+    assert "purge recovery" in capsys.readouterr().err.lower()
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        assert store_mod.get_sync_state(conn, -1002222) is not None
+    finally:
+        conn.close()
 
     key = sha256(f"{peer}:10".encode()).hexdigest()
+    quarantine = config_env / "downloads" / ".purge" / "main" / str(peer)
+    original_state = quarantine / f"{key}.json"
+    original_part = quarantine / f"{key}.part"
+    restored_part = config_env / "downloads" / f"{key}.part"
+    original_part.replace(restored_part)
     replacement_state = config_env / "downloads" / f"{key}.json"
     replacement_part = config_env / "downloads" / f"{key}.part"
     replacement_state.write_text(
@@ -554,6 +620,7 @@ def test_archive_purge_database_failure_keeps_recoverable_quarantine(
     assert not (root / ".purge").exists()
     assert replacement_state.is_file()
     assert replacement_part.read_bytes() == b"other"
+    assert not original_state.exists()
 
 
 def test_archive_purge_rejects_private_dialogs_and_readonly_commit(

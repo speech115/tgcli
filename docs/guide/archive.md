@@ -199,6 +199,9 @@ purge. Media and resumable-download quarantine stay on their respective
 filesystems, including with an external `[archive] root`.
 Only checkpoints whose stored destination is inside this account's peer media
 directory are removed; same-source manual/other-account downloads are kept.
+The recovery marker fingerprints checkpoint state and moves a pair
+part-first/state-last, so a replacement pair created at any crash boundary is
+not mistaken for the quarantined original.
 Ordinary archive writers share the operation lock, so Telegram/local jobs keep
 their independent overlap while purge remains exclusive.
 An interrupted purge blocks all archive writes and new archive jobs until its

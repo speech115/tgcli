@@ -173,6 +173,7 @@ def purge(
             conn.close()
     else:
         with purge_mod.exclusive(directory, account):
+            purge_mod.require_pending_matches(directory, chat)
             conn = _open_existing(alias, cfg)
             try:
                 store_mod.require_bound_alias(conn, alias)

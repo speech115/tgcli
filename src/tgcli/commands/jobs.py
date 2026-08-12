@@ -81,14 +81,29 @@ def cancel(alias: str, key: str) -> dict:
     return data
 
 
-def rearm(alias: str, key: str, *, expected_lane: str) -> dict:
-    conn = store.connect_mutating(alias)
-    try:
-        data = store.rearm_job(conn, key, expected_lane=expected_lane)
-    finally:
-        conn.close()
-    data["account"] = {"alias": alias}
-    return data
+def rearm(
+    alias: str,
+    key: str,
+    *,
+    expected_lane: str,
+    kind: str,
+    config: Config,
+) -> dict:
+    def write() -> dict:
+        conn = store.connect_mutating(alias)
+        try:
+            return store.rearm_job(conn, key, expected_lane=expected_lane)
+        finally:
+            conn.close()
+
+    if kind.startswith("archive-"):
+        from tgcli.archive import purge as purge_mod
+        from tgcli.commands import archive as archive_cmd
+
+        directory = archive_cmd.account_dir(alias, config)
+        with purge_mod.operation_lock(directory, alias):
+            return write()
+    return write()
 
 
 def run_local(alias: str, *, max_runtime: float, config: Config) -> dict:

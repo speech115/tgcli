@@ -14,7 +14,7 @@ from tgcli import atomic, changes_cursor, safety, session
 from tgcli.errors import NotFoundError, PartialFailure, PolicyError, TgcliError
 from tgcli.session import ensure_state_dir, restrict_file, state_dir
 
-_STATE_VERSION = 1
+_STATE_VERSION = 2
 
 
 def _archive_job_blockers(alias: str) -> list[dict[str, Any]]:
@@ -291,6 +291,12 @@ def _pending_record(account_dir: Path, chat: str) -> dict[str, Any] | None:
     return None
 
 
+def require_pending_matches(account_dir: Path, chat: str) -> None:
+    markers = sorted(_marker_root(account_dir).glob("*.json"))
+    if markers and _pending_record(account_dir, chat) is None:
+        require_no_pending(account_dir)
+
+
 def _fresh_preview(conn, account_dir: Path, chat: str) -> dict[str, Any]:
     peer_id = _resolve_peer_id(conn, chat)
     peer = _identity(conn, peer_id)
@@ -340,10 +346,19 @@ def _write_marker(
     peer_id = int(plan["peer"]["peer_id"])
     root = _marker_root(account_dir)
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    states = {path.stem: path for path in download_paths if path.suffix == ".json"}
+    parts = {path.stem: path for path in download_paths if path.suffix == ".part"}
     record = {
         "version": _STATE_VERSION,
         "plan": plan,
-        "download_names": [path.name for path in download_paths],
+        "downloads": [
+            {
+                "state_name": state.name,
+                "part_name": parts[key].name if key in parts else None,
+                "state_sha256": sha256(state.read_bytes()).hexdigest(),
+            }
+            for key, state in sorted(states.items())
+        ],
     }
     atomic.replace_text(
         _marker_path(account_dir, peer_id),
@@ -352,14 +367,10 @@ def _write_marker(
     return record
 
 
-def _move_if_present(
-    source: Path, destination: Path, *, preserve_replacement: bool = False
-) -> None:
+def _move_if_present(source: Path, destination: Path) -> None:
     if not source.exists():
         return
     if destination.exists():
-        if preserve_replacement:
-            return
         raise PolicyError(
             f"archive purge quarantine target already exists: {destination}"
         )
@@ -374,12 +385,22 @@ def _quarantine(account_dir: Path, alias: str, record: dict[str, Any]) -> None:
     _move_if_present(account_dir / "media" / str(peer_id), target / "media")
     downloads = state_dir() / "downloads"
     download_target = _download_quarantine_path(alias, peer_id)
-    for name in record.get("download_names") or []:
-        _move_if_present(
-            downloads / str(name),
-            download_target / str(name),
-            preserve_replacement=True,
-        )
+    for checkpoint in record.get("downloads") or []:
+        state_name = str(checkpoint["state_name"])
+        source_state = downloads / state_name
+        if source_state.exists():
+            current_digest = sha256(source_state.read_bytes()).hexdigest()
+            if current_digest != checkpoint["state_sha256"]:
+                continue
+        part_name = checkpoint.get("part_name")
+        if part_name:
+            source_part = downloads / str(part_name)
+            target_part = download_target / str(part_name)
+            if source_part.exists() and not target_part.exists():
+                _move_if_present(source_part, target_part)
+        target_state = download_target / state_name
+        if source_state.exists() and not target_state.exists():
+            _move_if_present(source_state, target_state)
 
 
 def _without_peer_account_state(
