@@ -43,7 +43,8 @@ CEILINGS = {
     # ADR-0087: offline jobs routing plus resolved-lane recurring rearm.
     # +14 final review reset: one CLI-owned lane lock now encloses rearm,
     # local execution, and Telegram session acquisition.
-    "src/tgcli/cli.py": 747,
+    # +12 for ADR-0089: purge dispatch and archive-safe recurring rearm.
+    "src/tgcli/cli.py": 759,
     # +2 for ADR-0057: isort section blanks, E501 split in the --format help.
     # +47 for ADR-0062 --session-role / accounts --role flags and the
     # ADR-0063 tg changes subcommand surface.
@@ -60,7 +61,8 @@ CEILINGS = {
     # ADR-0087 moved jobs grammar into jobs/arguments.py and removed the old
     # archive scheduling composition.
     # ADR-0088 removes the QR format grammar.
-    "src/tgcli/parser.py": 726,
+    # +11 for ADR-0089's separate purge command and explicit confirm gate.
+    "src/tgcli/parser.py": 737,
     # +40 for ADR-0062 role validation and ADR-0063 changes preflight.
     # +37 for ADR-0068: archive preflight (readonly gates, backfill/search
     # caps).
@@ -74,7 +76,8 @@ CEILINGS = {
     # ADR-0087 delegates jobs validation to jobs/preflight.py and removes the
     # old archive composition gates.
     # +4 for ADR-0088's explicit non-empty phone/password start validation.
-    "src/tgcli/preflight.py": 444,
+    # +2 for ADR-0089's local mutation gate.
+    "src/tgcli/preflight.py": 446,
     # +2 for ADR-0057: isort section blanks.
     # +17 for ADR-0062: role lookup threaded into session.client.
     # +23 for ADR-0068: archive network dispatch (init/add/remove/backfill).
@@ -85,7 +88,8 @@ CEILINGS = {
     # the integrator's job and nobody had done it.
     # ADR-0087 routes the Telegram jobs lane through the existing session seam.
     # The final review moved lane ownership to cli.py; ratchet the shrink.
-    "src/tgcli/dispatch.py": 358,
+    # +8 for ADR-0089's shared writer lock around network archive mutations.
+    "src/tgcli/dispatch.py": 366,
     "src/tgcli/commands/batch.py": 96,
     # +3 for ADR-0057: isort section blanks.
     "src/tgcli/read_ops.py": 437,
@@ -160,22 +164,29 @@ CEILINGS = {
     # explore.py superseded its query path (ADR-0069).
     "src/tgcli/archive/search.py": 78,
     "src/tgcli/archive/media.py": 72,
+    # ADR-0089: explicit peer purge, crash-recovery marker, per-filesystem
+    # quarantine, shared/exclusive operation locking, and ownership checks.
+    "src/tgcli/archive/purge.py": 559,
     # +1 for ADR-0072: cooldown_mod.cooled_account calls swapped for plain
     # tg.get_me(), plus stop_reason/deferred/resume reporting on
     # backfill_dialogs's chats-mode result.
-    "src/tgcli/commands/archive.py": 541,
+    # +46 for ADR-0089's preview/commit seam, rows, and recovery guards.
+    "src/tgcli/commands/archive.py": 587,
     # ADR-0087: fixed typed quantum over one archive backfill dialog; +15 review
     # fix hashes complete per-dialog checkpoints into the runtime progress token.
-    "src/tgcli/commands/archive_jobs.py": 133,
+    # +1 for ADR-0089's pending-recovery guard.
+    "src/tgcli/commands/archive_jobs.py": 134,
     # ADR-0087: jobs public command seam and typed control-plane routing.
-    "src/tgcli/commands/jobs.py": 163,
+    # +27 for ADR-0089's archive job add/rearm writer locks.
+    "src/tgcli/commands/jobs.py": 190,
     # ADR-0087: grammar/model/preflight, persistent WAL registry, and two
     # independent foreground runners. Seed the new subsystem at release size.
     "src/tgcli/jobs/arguments.py": 79,
     "src/tgcli/jobs/model.py": 50,
     "src/tgcli/jobs/preflight.py": 108,
     # Final review moved both lane locks to the CLI full-invocation owner.
-    "src/tgcli/jobs/runner.py": 350,
+    # +5 for ADR-0089's shared archive writer boundary around Telegram quanta.
+    "src/tgcli/jobs/runner.py": 355,
     # Final review splits query-only opens from mutation-time permission repair.
     "src/tgcli/jobs/store.py": 919,
     # ADR-0072: the governor package (account-wide request pacing and
@@ -238,6 +249,7 @@ STATE_WRITER_MODULES = (
     "src/tgcli/commands/accounts.py",
     "src/tgcli/commands/media.py",
     "src/tgcli/commands/store.py",
+    "src/tgcli/archive/purge.py",
 )
 
 

@@ -11,6 +11,26 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [3.0.1] — 2026-08-12
+
+`tg archive purge CHAT` now provides explicit per-dialog deletion for stored
+groups and channels without changing the scope-only meaning of `archive
+remove`. The offline default is a non-destructive exact inventory; `--confirm`
+requires a writable local context, records a redacted audit event, and removes
+peer rows, search/transcript state, cursor traces, media, and account-owned
+download checkpoints through a crash-recoverable quarantine. Private dialogs,
+ambiguous identities, active archive work, and non-matching recovery targets
+fail closed. Interrupted cleanup resumes by numeric peer id, while unrelated
+manual/account download state and completed job history remain intact.
+
+Rationale: ADR-0089.
+
+### Changed
+
+- Add recoverable archive peer purge (ADR-0089) (#203)
+- Record the live check behind ADR-0085's forward premise (#185)
+- Isolate job notifications in scheduler tests (#197)
+
 ## [3.0.0] — 2026-08-11
 
 `tg jobs` now persists four typed workloads — archive backfill, archive sync,
@@ -877,6 +897,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[3.0.1]: https://github.com/speech115/tgcli/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/speech115/tgcli/compare/v2.0.7...v3.0.0
 [2.0.7]: https://github.com/speech115/tgcli/compare/v2.0.6...v2.0.7
 [2.0.6]: https://github.com/speech115/tgcli/compare/v2.0.5...v2.0.6
