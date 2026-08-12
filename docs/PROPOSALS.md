@@ -585,8 +585,9 @@ sst's `AGENTS.md` → `CLAUDE.md` symlink and Verification checklist.
 
 1. **Local archive/search (M, shipped — ADR-0068/0087):** native store,
    bounded media/transcription, filtered/ranked search, offline read/history,
-   and independent scheduled foreground jobs are complete. Rebuild/purge,
-   export bundle, and off-machine backup remain separately scoped.
+   independent scheduled foreground jobs, and explicit per-dialog purge are
+   complete. Rebuild, export bundle, and off-machine backup remain separately
+   scoped.
 2. **Data tail (S/M):** `export bundle` and typed temporary/permanent media
    failures, only against a concrete backup workflow.
 3. **Measured performance (S):** baseline → `--profile` → per-run RPC cache.

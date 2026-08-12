@@ -49,5 +49,5 @@ Status values:
   `--private` backfill, `archive sync` / `rebaseline`, bounded media
   acquisition, local Parakeet transcription, gap reporting, filtered/ranked
   offline search, read/history exploration, and independent Telegram/local
-  recurring jobs with manual launchd templates. Archive purge/rebuild and
-  off-machine backup remain deferred.
+  recurring jobs with manual launchd templates, and explicit recoverable
+  per-dialog purge. Archive rebuild and off-machine backup remain deferred.
