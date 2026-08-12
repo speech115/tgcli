@@ -178,14 +178,7 @@ def purge(
 
 
 def purge_rows(data: dict) -> list[tuple]:
-    peer = data["peer"]
-    return [
-        ("confirmed", data["confirmed"]),
-        ("peer_id", peer["peer_id"]),
-        ("kind", peer["kind"]),
-        ("files", data["files"]),
-        ("bytes", data["bytes"]),
-    ]
+    return purge_mod.result_rows(data)
 
 
 def status(alias: str, config: Config | None = None) -> dict:
@@ -421,17 +414,19 @@ def transcribe(
 ) -> dict:
     limit = transcribe_mod.validate_limit(limit)
     max_attempts = transcribe_mod.validate_max_attempts(max_attempts)
-    conn = _open_existing(alias, config)
-    try:
-        store_mod.require_bound_alias(conn, alias)
-        data = transcribe_mod.run_queue(
-            conn,
-            account_dir(alias, config),
-            limit=limit,
-            max_attempts=max_attempts,
-        )
-    finally:
-        conn.close()
+    directory = account_dir(alias, config)
+    with purge_mod.operation_lock(directory, alias):
+        conn = _open_existing(alias, config)
+        try:
+            store_mod.require_bound_alias(conn, alias)
+            data = transcribe_mod.run_queue(
+                conn,
+                directory,
+                limit=limit,
+                max_attempts=max_attempts,
+            )
+        finally:
+            conn.close()
     data["account"] = {"alias": alias}
     return data
 

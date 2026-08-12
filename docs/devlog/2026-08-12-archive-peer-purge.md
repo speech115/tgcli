@@ -12,6 +12,13 @@ failure/retry. `archive remove` remains scope-only.
 an atomic marker makes both sides idempotently recoverable by the same stored
 username or peer id. Confirmed purge keeps audit and jobs history, refuses all
 active archive workloads, and never opens Telegram.
+The archive-local lock is shared with transcription so a concurrent engine
+completion cannot recreate an FTS row after purge.
+Archive job creation shares that lock, closing the check-then-enqueue race.
+Download checkpoints quarantine below the state downloads root, so an external
+archive volume never requires a cross-device rename.
+The purge resolver rejects message-only numeric identities, and audit failure
+leaves no marker, quarantined file, or deleted row.
 
 **Learned:** a peer can survive in FTS, transcript queues, download checkpoints,
 the changes channel map, a scoped gap, and reconcile output after its scope row

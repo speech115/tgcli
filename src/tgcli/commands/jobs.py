@@ -20,20 +20,31 @@ def add(
     spec: dict,
     priority: str | None,
     replace: bool,
+    config: Config,
 ) -> dict:
-    conn = store.connect(alias)
-    try:
-        return store.add_job(
-            conn,
-            key=key,
-            kind=kind,
-            lane=lane,
-            spec=spec,
-            priority=model.validate_priority(priority),
-            replace=replace,
-        )
-    finally:
-        conn.close()
+    def write() -> dict:
+        conn = store.connect(alias)
+        try:
+            return store.add_job(
+                conn,
+                key=key,
+                kind=kind,
+                lane=lane,
+                spec=spec,
+                priority=model.validate_priority(priority),
+                replace=replace,
+            )
+        finally:
+            conn.close()
+
+    if kind.startswith("archive-"):
+        from tgcli.archive import purge as purge_mod
+        from tgcli.commands import archive as archive_cmd
+
+        directory = archive_cmd.account_dir(alias, config)
+        with purge_mod.operation_lock(directory, alias):
+            return write()
+    return write()
 
 
 def list_jobs(alias: str) -> dict:
@@ -146,6 +157,7 @@ def execute_offline(args, config: Config) -> tuple[dict, list[tuple]] | None:
             spec=args.job_spec,
             priority=args.priority,
             replace=bool(args.replace),
+            config=config,
         )
         return data, job_rows(data)
     if args.jobs_command == "list":

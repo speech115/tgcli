@@ -50,8 +50,8 @@ row counts, file count, and bytes without changing data and is allowed under
 `--readonly`. `--confirm` removes scope, messages, revisions, tombstones,
 transcripts, FTS rows, checkpoints, cursor/gap/reconcile traces, peer media,
 and resumable download files. It refuses queued/running archive jobs (naming
-their keys) and busy account sessions; cancel or finish them first. Audit and
-job history remain. If final file cleanup fails, exit 1 reports
+their keys), busy account sessions, and concurrent local transcription; cancel
+or finish them first. Audit and job history remain. If final file cleanup fails, exit 1 reports
 `cleanup_pending: true`; rerun the same command to resume.
 
 `list`, `status`, `search`, `read`, `history`, `transcribe`, and purge are
@@ -192,6 +192,11 @@ errors, and media retry state.
 `store stats` inventories archive bytes under
 the state root; `store cleanup` never deletes anything under the archive
 root.
+
+A confirmed purge refuses queued/running archive jobs, a concurrently added
+archive job, active account sessions, direct local transcription, and another
+purge. Media and resumable-download quarantine stay on their respective
+filesystems, including with an external `[archive] root`.
 
 ## See also
 

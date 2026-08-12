@@ -25,23 +25,27 @@ not a claim of global atomicity.
 ### 1. Purge is a separate offline command with an explicit commit gate
 
 Add `tg archive purge CHAT [--confirm]`. `remove` remains non-destructive and
-unchanged. `purge` resolves only durable `scope` / `sync_state` identity and
-never opens Telegram. It accepts groups and channels; private 1:1 dialogs stay
-the standing category and are rejected.
+unchanged. `purge` has its own resolver and accepts identity only from durable
+`scope` / `sync_state` rows; a numeric peer known only from messages is not a
+purge target. It never opens Telegram. It accepts groups and channels; private
+1:1 dialogs stay the standing category and are rejected.
 
 Without `--confirm`, the command reports exact current row counts plus the
 number and bytes of peer media and resumable download files. It changes no
 archive data and is allowed under readonly mode. `--confirm` is blocked by
-readonly mode before configuration or state access and writes a redacted
-`archive-purge` audit record before destructive work.
+readonly mode before configuration or state access and must write a redacted
+`archive-purge` audit record before creating recovery state or starting
+destructive work.
 
 ### 2. Commit is quarantine, one SQLite transaction, then cleanup
 
 For one peer, the confirmed command:
 
 1. writes an atomic versioned recovery marker under the account archive;
-2. renames the controlled `media/<peer_id>/` directory and matching resumable
-   download records into an account-local quarantine;
+2. renames the controlled `media/<peer_id>/` directory into account-local
+   quarantine and matching resumable download records into quarantine below
+   the downloads root, so every rename stays on its source filesystem even
+   when `[archive] root` is an external volume;
 3. in one SQLite transaction deletes the peer from FTS, transcripts,
    revisions, tombstones, messages, `sync_state`, and `scope`; removes its
    channel subscription from the changes cursor; clears its scoped gap; and
@@ -62,11 +66,14 @@ Absence is never reported as successful cleanup while a marker remains.
 ### 3. Work that can restore the peer is excluded
 
 The confirmed command takes both jobs lane locks and refuses every queued or
-running `archive-*` job by key, telling the operator to cancel it first. It
-also takes every primary/named session lock for the selected account, so a
-manual session-backed `archive add`, `backfill`, `sync`, or `rebaseline`
-cannot overlap the destructive window. Another purge is excluded by an
-account-local lock. Audit and completed/cancelled job history are retained.
+running `archive-*` job by key, telling the operator to cancel it first. Adding
+a new `archive-*` job takes the same account-local archive lock as purge, so a
+job cannot enter the queue after that check and before deletion. Purge also
+takes every primary/named session lock for the selected account, so a manual
+session-backed `archive add`, `backfill`, `sync`, or `rebaseline` cannot overlap
+the destructive window. The archive lock is shared with offline transcription
+and another purge, preventing a transcriber from recreating an FTS row after
+peer deletion. Audit and completed/cancelled job history are retained.
 
 ## Rejected alternatives
 

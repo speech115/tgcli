@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import errno
 import json
 from datetime import UTC, datetime
 from hashlib import sha256
+from pathlib import Path
 
 import pytest
 from telethon.tl.types import Channel, Message, PeerUser, User
@@ -340,6 +342,15 @@ def test_archive_purge_preview_is_offline_exact_and_non_destructive(
     data = json.loads(capsys.readouterr().out)
 
     assert opened["n"] == 0
+    assert set(data) == {
+        "account",
+        "peer",
+        "rows",
+        "files",
+        "bytes",
+        "confirmed",
+        "cleanup_pending",
+    }
     assert data["confirmed"] is False
     assert data["peer"] == {
         "peer_id": peer,
@@ -545,6 +556,45 @@ def test_archive_purge_rejects_private_dialogs_and_readonly_commit(
     assert "readonly" in capsys.readouterr().err.lower()
 
 
+def test_archive_purge_rejects_numeric_peer_known_only_from_messages(
+    config_env, monkeypatch, capsys
+):
+    from tgcli.archive import store as store_mod
+
+    make_session_fake(monkeypatch, _client())
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    peer = -1009999
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        store_mod.upsert_message(
+            conn,
+            peer,
+            {
+                "id": 1,
+                "date": "2026-01-02T00:00:00+00:00",
+                "text": "orphan",
+                "from": {"id": 1},
+            },
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert main(["archive", "purge", str(peer), "--json"]) == 4
+    assert "not in archive" in capsys.readouterr().err.lower()
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM messages WHERE peer_id = ?", (peer,)
+            ).fetchone()[0]
+            == 1
+        )
+    finally:
+        conn.close()
+
+
 def test_archive_purge_confirm_names_queued_archive_job_that_can_restore_data(
     config_env, monkeypatch, capsys
 ):
@@ -573,6 +623,29 @@ def test_archive_purge_confirm_names_queued_archive_job_that_can_restore_data(
     assert (root / "media" / str(peer) / "10.ogg").is_file()
 
 
+def test_archive_purge_lock_blocks_a_new_archive_job(config_env, monkeypatch, capsys):
+    from tgcli.archive import purge as purge_mod
+
+    _peer, root = _seed_purge_peer(config_env, monkeypatch, capsys)
+    with purge_mod.operation_lock(root, "main"):
+        assert (
+            main(
+                [
+                    "jobs",
+                    "add",
+                    "archive-sync",
+                    "--key",
+                    "late-sync",
+                    "--json",
+                ]
+            )
+            == 2
+        )
+    assert "archive" in capsys.readouterr().err.lower()
+    assert main(["jobs", "list", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["jobs"] == []
+
+
 def test_archive_purge_confirm_refuses_a_concurrent_account_command(
     config_env, monkeypatch, capsys
 ):
@@ -590,6 +663,102 @@ def test_archive_purge_confirm_refuses_a_concurrent_account_command(
         fcntl.flock(lock, fcntl.LOCK_UN)
         lock.close()
     assert (root / "media" / str(peer) / "10.ogg").is_file()
+
+
+def test_archive_purge_confirm_refuses_concurrent_offline_transcription(
+    config_env, monkeypatch, capsys
+):
+    from tgcli.archive import purge as purge_mod
+
+    peer, root = _seed_purge_peer(config_env, monkeypatch, capsys)
+    with purge_mod.operation_lock(root, "main"):
+        assert main(["archive", "transcribe", "--json"]) == 2
+        assert "busy" in json.loads(capsys.readouterr().err)["error"]["message"]
+        assert main(["archive", "purge", "@news", "--confirm", "--json"]) == 2
+        error = json.loads(capsys.readouterr().err)
+        assert "archive" in error["error"]["message"]
+        assert "busy" in error["error"]["message"]
+    assert (root / "media" / str(peer) / "10.ogg").is_file()
+
+
+def test_archive_purge_audit_failure_leaves_database_and_files_intact(
+    config_env, monkeypatch, capsys
+):
+    from tgcli import safety
+    from tgcli.archive import store as store_mod
+    from tgcli.errors import PolicyError
+
+    peer, root = _seed_purge_peer(config_env, monkeypatch, capsys)
+
+    def fail_audit(*_args, **_kwargs):
+        raise PolicyError("cannot write audit record")
+
+    monkeypatch.setattr(safety, "append_audit", fail_audit)
+    assert main(["archive", "purge", "@news", "--confirm", "--json"]) == 2
+    assert "audit" in capsys.readouterr().err.lower()
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        assert store_mod.in_explicit_scope(conn, peer) is True
+        assert store_mod.counts(conn)["messages"] == 1
+    finally:
+        conn.close()
+    assert (root / "media" / str(peer) / "10.ogg").is_file()
+    assert not (root / ".purge").exists()
+
+
+def test_archive_purge_quarantines_downloads_on_their_own_filesystem(
+    config_env, monkeypatch, capsys
+):
+    custom = config_env.parent / "external-archive"
+    config = config_env.parent / "config.toml"
+    config.write_text(SAMPLE + "\n[archive]\n" + f'root = "{custom}"\n')
+    peer, root = _seed_purge_peer(config_env, monkeypatch, capsys)
+    real_replace = Path.replace
+
+    def reject_cross_device(source: Path, target):
+        destination = Path(target)
+        source_fs = "archive" if custom in source.parents else "state"
+        target_fs = "archive" if custom in destination.parents else "state"
+        if source_fs != target_fs:
+            raise OSError(errno.EXDEV, "cross-device link")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(Path, "replace", reject_cross_device)
+    assert main(["archive", "purge", "@news", "--confirm", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["cleanup_pending"] is False
+    assert not (root / "media" / str(peer)).exists()
+    assert list((config_env / "downloads").glob("*.json")) == []
+    assert list((config_env / "downloads").glob("*.part")) == []
+
+
+def test_archive_purge_cleanup_failure_emits_complete_plain_result(
+    config_env, monkeypatch, capsys
+):
+    from tgcli.archive import purge as purge_mod
+
+    _seed_purge_peer(config_env, monkeypatch, capsys)
+
+    def fail_cleanup(*_args, **_kwargs):
+        raise OSError("disk busy")
+
+    monkeypatch.setattr(purge_mod, "_cleanup", fail_cleanup)
+    assert main(["archive", "purge", "@news", "--confirm", "--plain"]) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        "confirmed\tTrue",
+        "cleanup_pending\tTrue",
+        "peer_id\t-1001234",
+        "kind\tchannel",
+        "messages\t1",
+        "revisions\t1",
+        "tombstones\t1",
+        "transcripts\t1",
+        "fts\t1",
+        "scope\t1",
+        "sync_state\t1",
+        "files\t3",
+        f"bytes\t{len(b'voice-bytes') + len(b'{"offset":4}') + len(b'part')}",
+    ]
 
 
 def test_backfill_private_without_add_and_group_requires_add(

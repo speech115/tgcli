@@ -11,8 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from tgcli import atomic, changes_cursor, safety, session
-from tgcli.archive import search as search_mod
-from tgcli.errors import PartialFailure, PolicyError, TgcliError
+from tgcli.errors import NotFoundError, PartialFailure, PolicyError, TgcliError
 from tgcli.session import restrict_file, state_dir
 
 _STATE_VERSION = 1
@@ -67,12 +66,9 @@ def _hold_session_locks(stack: ExitStack, account) -> None:
 
 
 @contextmanager
-def exclusive(account_dir: Path, account):
-    """Exclude archive jobs and another purge for the destructive window."""
-    from tgcli.jobs import store as jobs_store
-
-    alias = account.alias
-    path = account_dir / "purge.lock"
+def operation_lock(account_dir: Path, alias: str):
+    """Exclude peer purge from archive-local work that can restore rows."""
+    path = account_dir / "archive.lock"
     handle = path.open("a+")
     restrict_file(path)
     try:
@@ -80,25 +76,35 @@ def exclusive(account_dir: Path, account):
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise PolicyError(
-                f"archive purge is already running for account {alias!r}"
+                f"archive is busy for account {alias!r}; retry after it finishes"
             ) from exc
-        try:
-            with ExitStack() as stack:
-                stack.enter_context(jobs_store.lane_lock(alias, "local"))
-                stack.enter_context(jobs_store.lane_lock(alias, "telegram"))
-                _hold_session_locks(stack, account)
-                _require_no_archive_jobs(alias)
-                yield
-        except PolicyError as exc:
-            blockers = _archive_job_blockers(alias)
-            if blockers:
-                _require_no_archive_jobs(alias)
-            raise exc
+        yield
     finally:
         try:
             fcntl.flock(handle, fcntl.LOCK_UN)
         finally:
             handle.close()
+
+
+@contextmanager
+def exclusive(account_dir: Path, account):
+    """Exclude archive jobs and other archive work for the destructive window."""
+    from tgcli.jobs import store as jobs_store
+
+    alias = account.alias
+    try:
+        with ExitStack() as stack:
+            stack.enter_context(jobs_store.lane_lock(alias, "local"))
+            stack.enter_context(jobs_store.lane_lock(alias, "telegram"))
+            stack.enter_context(operation_lock(account_dir, alias))
+            _hold_session_locks(stack, account)
+            _require_no_archive_jobs(alias)
+            yield
+    except PolicyError as exc:
+        blockers = _archive_job_blockers(alias)
+        if blockers:
+            _require_no_archive_jobs(alias)
+        raise exc
 
 
 def _identity(conn, peer_id: int) -> dict[str, Any]:
@@ -111,20 +117,52 @@ def _identity(conn, peer_id: int) -> dict[str, Any]:
             "SELECT kind, title, username, chat_ref FROM sync_state WHERE peer_id = ?",
             (peer_id,),
         ).fetchone()
-    kind = row["kind"] if row is not None else None
-    if kind == "user" or (kind is None and peer_id > 0):
+    if row is None:
+        raise NotFoundError(f"chat not in archive scope or sync state: {peer_id!r}")
+    kind = row["kind"]
+    if kind == "user":
         raise PolicyError(
             "private 1:1 dialogs are standing archive scope and cannot be purged"
         )
-    if kind not in (None, "group", "channel"):
+    if kind not in ("group", "channel"):
         raise PolicyError(f"unsupported archive peer kind: {kind!r}")
     return {
         "peer_id": peer_id,
-        "kind": kind or "group",
-        "title": row["title"] if row is not None else None,
-        "username": row["username"] if row is not None else None,
-        "chat_ref": row["chat_ref"] if row is not None else str(peer_id),
+        "kind": kind,
+        "title": row["title"],
+        "username": row["username"],
+        "chat_ref": row["chat_ref"],
     }
+
+
+def _resolve_peer_id(conn, chat: str) -> int:
+    """Resolve only durable purge identities, never message-only orphans."""
+    raw = chat.strip()
+    if not raw:
+        raise PolicyError("archive purge CHAT must be non-empty")
+    rows = conn.execute(
+        "SELECT peer_id, chat_ref, username FROM scope "
+        "UNION ALL "
+        "SELECT peer_id, chat_ref, username FROM sync_state "
+        "WHERE peer_id NOT IN (SELECT peer_id FROM scope) "
+        "ORDER BY peer_id"
+    ).fetchall()
+    try:
+        numeric = int(raw)
+    except ValueError:
+        numeric = None
+    needle = raw.lstrip("@").casefold()
+    for row in rows:
+        peer_id = int(row["peer_id"])
+        if numeric is not None and peer_id == numeric:
+            return peer_id
+        for candidate in (row["chat_ref"], row["username"]):
+            if (
+                candidate is not None
+                and str(candidate).lstrip("@").casefold() == needle
+            ):
+                return peer_id
+    raise NotFoundError(f"chat not in archive scope or sync state: {chat!r}")
 
 
 def _file_stats(path: Path) -> tuple[int, int]:
@@ -166,6 +204,10 @@ def _quarantine_path(account_dir: Path, peer_id: int) -> Path:
     return _marker_root(account_dir) / str(peer_id)
 
 
+def _download_quarantine_path(alias: str, peer_id: int) -> Path:
+    return state_dir() / "downloads" / ".purge" / alias / str(peer_id)
+
+
 def _matches_chat(plan: dict[str, Any], chat: str) -> bool:
     peer = plan["peer"]
     needle = chat.strip().lstrip("@").casefold()
@@ -200,7 +242,7 @@ def _pending_record(account_dir: Path, chat: str) -> dict[str, Any] | None:
 
 
 def _fresh_preview(conn, account_dir: Path, chat: str) -> dict[str, Any]:
-    peer_id = search_mod.resolve_peer_id(conn, chat)
+    peer_id = _resolve_peer_id(conn, chat)
     peer = _identity(conn, peer_id)
     tables = {
         "messages": "messages",
@@ -271,14 +313,15 @@ def _move_if_present(source: Path, destination: Path) -> None:
     source.replace(destination)
 
 
-def _quarantine(account_dir: Path, record: dict[str, Any]) -> None:
+def _quarantine(account_dir: Path, alias: str, record: dict[str, Any]) -> None:
     peer_id = int(record["plan"]["peer"]["peer_id"])
     target = _quarantine_path(account_dir, peer_id)
     target.mkdir(mode=0o700, parents=True, exist_ok=True)
     _move_if_present(account_dir / "media" / str(peer_id), target / "media")
     downloads = state_dir() / "downloads"
+    download_target = _download_quarantine_path(alias, peer_id)
     for name in record.get("download_names") or []:
-        _move_if_present(downloads / str(name), target / "downloads" / str(name))
+        _move_if_present(downloads / str(name), download_target / str(name))
 
 
 def _without_peer_account_state(
@@ -344,10 +387,18 @@ def _delete_peer(conn, peer_id: int) -> None:
         )
 
 
-def _cleanup(account_dir: Path, peer_id: int) -> None:
+def _cleanup(account_dir: Path, alias: str, peer_id: int) -> None:
     quarantine = _quarantine_path(account_dir, peer_id)
     if quarantine.exists():
         shutil.rmtree(quarantine)
+    download_quarantine = _download_quarantine_path(alias, peer_id)
+    if download_quarantine.exists():
+        shutil.rmtree(download_quarantine)
+    for directory in (download_quarantine.parent, download_quarantine.parent.parent):
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
     _marker_path(account_dir, peer_id).unlink(missing_ok=True)
     try:
         _marker_root(account_dir).rmdir()
@@ -355,14 +406,33 @@ def _cleanup(account_dir: Path, peer_id: int) -> None:
         pass
 
 
-def commit(conn, account_dir: Path, alias: str, chat: str) -> dict[str, Any]:
-    """Quarantine files, commit database deletion, then reap the quarantine."""
-    record = _pending_record(account_dir, chat)
-    if record is None:
-        plan = _fresh_preview(conn, account_dir, chat)
-        download_paths = _download_paths(conn, int(plan["peer"]["peer_id"]))
-        record = _write_marker(account_dir, plan, download_paths)
-    plan = record["plan"]
+def result_rows(data: dict[str, Any]) -> list[tuple[str, Any]]:
+    """Stable two-column plain result for previews and partial cleanup."""
+    peer = data["peer"]
+    rows = data["rows"]
+    return [
+        ("confirmed", data["confirmed"]),
+        ("cleanup_pending", data["cleanup_pending"]),
+        ("peer_id", peer["peer_id"]),
+        ("kind", peer["kind"]),
+        *(
+            (name, rows[name])
+            for name in (
+                "messages",
+                "revisions",
+                "tombstones",
+                "transcripts",
+                "fts",
+                "scope",
+                "sync_state",
+            )
+        ),
+        ("files", data["files"]),
+        ("bytes", data["bytes"]),
+    ]
+
+
+def _append_audit(alias: str, plan: dict[str, Any]) -> None:
     peer_id = int(plan["peer"]["peer_id"])
     safety.append_audit(
         "archive-purge",
@@ -375,7 +445,22 @@ def commit(conn, account_dir: Path, alias: str, chat: str) -> dict[str, Any]:
             "bytes": int(plan["bytes"]),
         },
     )
-    _quarantine(account_dir, record)
+
+
+def commit(conn, account_dir: Path, alias: str, chat: str) -> dict[str, Any]:
+    """Quarantine files, commit database deletion, then reap the quarantine."""
+    record = _pending_record(account_dir, chat)
+    if record is None:
+        plan = _fresh_preview(conn, account_dir, chat)
+        download_paths = _download_paths(conn, int(plan["peer"]["peer_id"]))
+        _append_audit(alias, plan)
+        record = _write_marker(account_dir, plan, download_paths)
+    else:
+        plan = record["plan"]
+        _append_audit(alias, plan)
+    plan = record["plan"]
+    peer_id = int(plan["peer"]["peer_id"])
+    _quarantine(account_dir, alias, record)
     _delete_peer(conn, peer_id)
     data = plan | {
         "confirmed": True,
@@ -383,12 +468,13 @@ def commit(conn, account_dir: Path, alias: str, chat: str) -> dict[str, Any]:
         "account": {"alias": alias},
     }
     try:
-        _cleanup(account_dir, peer_id)
+        _cleanup(account_dir, alias, peer_id)
     except OSError as exc:
         data["cleanup_pending"] = True
         raise PartialFailure(
             "archive peer data was purged but quarantine cleanup is pending",
             data,
             cause=TgcliError(str(exc)),
+            rows=result_rows(data),
         ) from exc
     return data

@@ -1845,7 +1845,8 @@ returns the standing category plus the explicit allowlist.
 **Purge.** `tg archive purge CHAT` is the offline, irreversible peer-deletion
 surface for stored groups and channels. Private 1:1 dialogs are rejected
 (exit 2). `CHAT` resolves only from stored `scope` / `sync_state` identity;
-no Telegram session or RPC is opened. Without `--confirm`, JSON reports exact
+a numeric peer known only from message rows is not found (exit 4). No Telegram
+session or RPC is opened. Without `--confirm`, JSON reports exact
 current counts for `messages`, `revisions`, `tombstones`, `transcripts`, FTS,
 `scope`, and `sync_state`, plus controlled media/download file count and bytes;
 it changes no archive data and is allowed under readonly mode. `remove`
@@ -1858,7 +1859,9 @@ subscription from the changes cursor, clears a gap scoped to that peer, and
 removes it from the last reconcile sample. Queued/running `archive-*` jobs and
 busy primary/named account sessions block the commit (exit 2); the error names
 blocking jobs so the operator can cancel them explicitly. Audit and job history
-are retained.
+are retained. A shared account-local archive lock also excludes direct offline
+transcription, another purge, and creation of a new `archive-*` job during the
+destructive window.
 
 SQLite and filesystem deletion are crash-recoverable, not globally atomic. A
 versioned atomic marker lets the same stored username or peer id resume after a
@@ -1866,6 +1869,41 @@ failure. A database failure leaves rows intact and files quarantined for retry.
 If final filesystem cleanup fails after the database commit, JSON reports
 `confirmed: true`, `cleanup_pending: true` and exits **1**; retry completes
 cleanup. Successful completion reports `cleanup_pending: false`.
+
+The JSON result has exactly these top-level fields:
+
+```json
+{
+  "account": {"alias": "main"},
+  "peer": {
+    "peer_id": -1001234,
+    "kind": "channel",
+    "title": "News",
+    "username": "news",
+    "chat_ref": "@news"
+  },
+  "rows": {
+    "messages": 1,
+    "revisions": 1,
+    "tombstones": 1,
+    "transcripts": 1,
+    "fts": 1,
+    "scope": 1,
+    "sync_state": 1
+  },
+  "files": 3,
+  "bytes": 42,
+  "confirmed": false,
+  "cleanup_pending": false
+}
+```
+
+`title`, `username`, and `chat_ref` may be null. Counts are non-negative
+integers. `--plain` is a stable two-column sequence in this order:
+`confirmed`, `cleanup_pending`, `peer_id`, `kind`, `messages`, `revisions`,
+`tombstones`, `transcripts`, `fts`, `scope`, `sync_state`, `files`, `bytes`.
+A cleanup-pending partial failure emits this same JSON or plain result before
+exiting 1.
 
 **Search.** Offline FTS5 over archived messages only. Default MATCH
 is exact (no auto-prefix on short tokens); if `QUERY` contains FTS

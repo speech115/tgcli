@@ -115,7 +115,7 @@ tgcli/
 │   │   ├── login.py           [done]    phone/code/password authorization + --continue + --role (ADR-0042/0062/0088)
 │   │   ├── doctor.py          [done]    offline/online health for primary + role sessions (ADR-0028/0040/0062)
 │   │   ├── changes.py         [done]    tg changes daemonless feed (ADR-0063 / FEED-001)
-│   │   ├── archive.py         [done]    tg archive init|add|remove|list|status|search|read|history|backfill|sync|transcribe|rebaseline (ADR-0068/0069)
+│   │   ├── archive.py         [done]    tg archive init|add|remove|purge|list|status|search|read|history|backfill|sync|transcribe|rebaseline (ADR-0068/0069/0089)
 │   │   ├── archive_jobs.py    [done]    one-dialog archive backfill quantum + durable archive progress token (ADR-0087 / #188)
 │   │   ├── jobs.py            [done]    four typed workloads, safe recurring rearm, and independent Telegram/local foreground lanes (ADR-0087 / #187/#188/#189)
 │   │   ├── dialogs.py         [done]    tg dialogs                    (phase 1)
