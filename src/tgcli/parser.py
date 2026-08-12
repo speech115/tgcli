@@ -204,6 +204,17 @@ def build_parser() -> argparse.ArgumentParser:
         parents=[global_flags],
     )
     p_archive_remove.add_argument("chat", help="@username, t.me link, or dialog id")
+    p_archive_purge = archive_sub.add_parser(
+        "purge",
+        help="Preview or delete one group/channel from the local archive",
+        parents=[global_flags],
+    )
+    p_archive_purge.add_argument("chat", help="stored username or dialog id")
+    p_archive_purge.add_argument(
+        "--confirm",
+        action="store_true",
+        help="actually delete; without this, dry-run only",
+    )
     archive_sub.add_parser(
         "list", help="List standing + explicit archive scope", parents=[global_flags]
     )

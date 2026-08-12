@@ -66,6 +66,8 @@ def _prepare_archive(args) -> None:
         "transcribe",
     ):
         safety.enforce_local_mutation_allowed(args.readonly)
+    if cmd == "purge" and bool(getattr(args, "confirm", False)):
+        safety.enforce_local_mutation_allowed(args.readonly)
     if cmd == "search":
         from tgcli.archive import explore as explore_mod, search as search_mod
         from tgcli.commands import archive as archive_cmd

@@ -418,6 +418,7 @@ def _execute(args) -> tuple[dict, list[tuple]]:
         "read",
         "history",
         "transcribe",
+        "purge",
     ):
         alias = archive_cmd.resolve_alias(args.account, config)
         if args.archive_command == "list":
@@ -434,6 +435,11 @@ def _execute(args) -> tuple[dict, list[tuple]]:
                 config=config,
             )
             return data, archive_cmd.transcribe_rows(data)
+        if args.archive_command == "purge":
+            data = archive_cmd.purge(
+                alias, args.chat, confirm=bool(args.confirm), config=config
+            )
+            return data, archive_cmd.purge_rows(data)
         if args.archive_command == "read":
             data = archive_cmd.read(
                 alias,

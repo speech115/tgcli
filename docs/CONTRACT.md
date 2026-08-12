@@ -1800,6 +1800,7 @@ Boundary constants: common `GetDifferenceRequest.pts_total_limit =
 tg archive init
 tg archive add CHAT
 tg archive remove CHAT
+tg archive purge CHAT [--confirm]
 tg archive list
 tg archive status
 tg archive search QUERY [--chat CHAT] [--from SENDER] [--since ISO]
@@ -1830,7 +1831,8 @@ a second representation.
 into `meta`. Every network command (`init`, `add`, `remove`, `backfill`,
 `sync`, `rebaseline`) re-checks the live user id against the store before
 touching data; mismatch is exit **2** and never merges stores. Offline
-commands (`list`, `status`, `search`, `read`, `history`, `transcribe`) do not
+commands (`list`, `status`, `search`, `read`, `history`, `transcribe`,
+`purge`) do not
 open a Telegram session; they
 refuse an alias/store mismatch (exit 2) and report `NOT_FOUND` (exit 4)
 when the store is missing.
@@ -1839,6 +1841,31 @@ when the store is missing.
 including future correspondents; `add` of a private user is exit 2.
 Groups and channels join only via `add` / leave via `remove`. `list`
 returns the standing category plus the explicit allowlist.
+
+**Purge.** `tg archive purge CHAT` is the offline, irreversible peer-deletion
+surface for stored groups and channels. Private 1:1 dialogs are rejected
+(exit 2). `CHAT` resolves only from stored `scope` / `sync_state` identity;
+no Telegram session or RPC is opened. Without `--confirm`, JSON reports exact
+current counts for `messages`, `revisions`, `tombstones`, `transcripts`, FTS,
+`scope`, and `sync_state`, plus controlled media/download file count and bytes;
+it changes no archive data and is allowed under readonly mode. `remove`
+remains a non-destructive scope-only command.
+
+`--confirm` is a local mutation blocked by readonly mode before config/state
+access. It writes a redacted audit record, quarantines peer media and resumable
+download records, transactionally deletes every peer row, removes its channel
+subscription from the changes cursor, clears a gap scoped to that peer, and
+removes it from the last reconcile sample. Queued/running `archive-*` jobs and
+busy primary/named account sessions block the commit (exit 2); the error names
+blocking jobs so the operator can cancel them explicitly. Audit and job history
+are retained.
+
+SQLite and filesystem deletion are crash-recoverable, not globally atomic. A
+versioned atomic marker lets the same stored username or peer id resume after a
+failure. A database failure leaves rows intact and files quarantined for retry.
+If final filesystem cleanup fails after the database commit, JSON reports
+`confirmed: true`, `cleanup_pending: true` and exits **1**; retry completes
+cleanup. Successful completion reports `cleanup_pending: false`.
 
 **Search.** Offline FTS5 over archived messages only. Default MATCH
 is exact (no auto-prefix on short tokens); if `QUERY` contains FTS
@@ -1963,9 +1990,10 @@ re-inits the changes cursor (and re-subscribes explicit scope channels)
 and clears the stored gap. It does not silently rebuild message history.
 
 **Readonly.** `init` / `add` / `remove` / `backfill` / `sync` / `transcribe` /
-`rebaseline` mutate local state and are blocked by `--readonly` /
+`rebaseline` and `purge --confirm` mutate local state and are blocked by `--readonly` /
 `TGCLI_READONLY=1` (exit 2). `list`, `status`, and `search` are allowed
-under readonly; `read` and `history` are also offline read-only commands.
+under readonly; `read`, `history`, and purge preview are also offline read-only
+commands.
 
 `--json` shapes:
 
@@ -1980,6 +2008,17 @@ under readonly; `read` and `history` are also offline read-only commands.
  "explicit":[{"peer_id":-1001234,"kind":"channel","title":"News",
               "username":"news","chat_ref":"@news","added_at":"…"}]}
 ```
+
+```json
+{"account":{"alias":"main"},"confirmed":false,
+ "peer":{"peer_id":-1001234,"kind":"channel","title":"News",
+         "username":"news","chat_ref":"@news"},
+ "rows":{"messages":100,"revisions":2,"tombstones":1,"transcripts":4,
+         "fts":100,"scope":1,"sync_state":1},
+ "files":6,"bytes":123456,"cleanup_pending":false}
+```
+
+Purge `--plain` rows are `confirmed`, `peer_id`, `kind`, `files`, `bytes`.
 
 ```json
 {"account":{"alias":"main","user_id":42},"path":"…",

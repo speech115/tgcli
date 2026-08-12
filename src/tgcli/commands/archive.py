@@ -7,6 +7,7 @@ from pathlib import Path
 from tgcli.archive import (
     backfill as backfill_mod,
     explore as explore_mod,
+    purge as purge_mod,
     scope as scope_mod,
     store as store_mod,
     sync as sync_mod,
@@ -145,6 +146,46 @@ def list_scope(alias: str, config: Config | None = None) -> dict:
         },
         "explicit": explicit,
     }
+
+
+def purge(
+    alias: str,
+    chat: str,
+    *,
+    confirm: bool,
+    config: Config | None = None,
+) -> dict:
+    cfg = config if config is not None else load_config()
+    account = resolve_account(cfg, alias)
+    directory = account_dir(alias, cfg)
+    if not confirm:
+        conn = _open_existing(alias, cfg)
+        try:
+            store_mod.require_bound_alias(conn, alias)
+            data = purge_mod.preview(conn, directory, chat)
+        finally:
+            conn.close()
+    else:
+        with purge_mod.exclusive(directory, account):
+            conn = _open_existing(alias, cfg)
+            try:
+                store_mod.require_bound_alias(conn, alias)
+                data = purge_mod.commit(conn, directory, alias, chat)
+            finally:
+                conn.close()
+    data["account"] = {"alias": alias}
+    return data
+
+
+def purge_rows(data: dict) -> list[tuple]:
+    peer = data["peer"]
+    return [
+        ("confirmed", data["confirmed"]),
+        ("peer_id", peer["peer_id"]),
+        ("kind", peer["kind"]),
+        ("files", data["files"]),
+        ("bytes", data["bytes"]),
+    ]
 
 
 def status(alias: str, config: Config | None = None) -> dict:

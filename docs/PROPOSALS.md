@@ -360,7 +360,7 @@ any message bodies are placed under `~/.local/state/tgcli/`.
 | Item | Value | Effort | Status |
 |---|---|---|---|
 | Selected-dialog local archive + FTS5 search | high | M | **shipped** — filtered/ranked search, offline read/history, and independent recurring sync/transcription jobs (ADR-0068/0069/0087) |
-| Import/rebuild/status with account identity and gap reporting | high | M | **archive store/search/history/jobs shipped; rebuild/purge remain deferred** (ADR-0068/0069/0087) |
+| Import/rebuild/status with account identity and gap reporting | high | M | **archive store/search/history/jobs and per-dialog purge shipped; rebuild remains deferred** (ADR-0068/0069/0087/0089) |
 | Continuous event-driven mirror | ? | L | **rejected for this effort — launchd-driven foreground jobs instead (ADR-0087)** |
 
 Resolution (2026-07-31): wayfinder map #100 worked the gates below to closure

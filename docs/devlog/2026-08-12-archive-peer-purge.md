@@ -1,0 +1,22 @@
+## 2026-08-12 — Recoverable archive peer purge (Codex)
+
+**Did:** implemented owner-approved issue #198 as `tg archive purge CHAT`.
+The offline default reports exact peer row/file/byte inventory; `--confirm`
+quarantines media and resumable downloads, deletes all peer-owned SQLite/FTS
+state in one transaction, removes cursor/gap/reconcile traces, then reaps the
+quarantine. Added public-boundary tests for preview, commit, private rejection,
+readonly, active sessions, queued archive jobs, database failure, and cleanup
+failure/retry. `archive remove` remains scope-only.
+
+**Decided:** ADR-0089. Global SQLite/filesystem atomicity is not claimed;
+an atomic marker makes both sides idempotently recoverable by the same stored
+username or peer id. Confirmed purge keeps audit and jobs history, refuses all
+active archive workloads, and never opens Telegram.
+
+**Learned:** a peer can survive in FTS, transcript queues, download checkpoints,
+the changes channel map, a scoped gap, and reconcile output after its scope row
+is gone. Treating `scope` as the deletion inventory would leave several paths
+that can rediscover or report the peer.
+
+**Next:** independent whole-diff review, full gate, PR CI, patch release, then
+show the owner a live preview before any real archive deletion.

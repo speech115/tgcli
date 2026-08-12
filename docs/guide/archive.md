@@ -37,7 +37,25 @@ tg --json archive remove @channel
 tg --json archive list
 ```
 
-`list`, `status`, `search`, `read`, `history`, and `transcribe` are offline: they load config +
+`remove` only stops future explicit acquisition; it deliberately keeps existing
+history. Inspect a full local deletion before committing it:
+
+```bash
+tg --json archive purge @channel
+tg --json archive purge @channel --confirm
+```
+
+Purge is offline and supports groups/channels only. The preview reports exact
+row counts, file count, and bytes without changing data and is allowed under
+`--readonly`. `--confirm` removes scope, messages, revisions, tombstones,
+transcripts, FTS rows, checkpoints, cursor/gap/reconcile traces, peer media,
+and resumable download files. It refuses queued/running archive jobs (naming
+their keys) and busy account sessions; cancel or finish them first. Audit and
+job history remain. If final file cleanup fails, exit 1 reports
+`cleanup_pending: true`; rerun the same command to resume.
+
+`list`, `status`, `search`, `read`, `history`, `transcribe`, and purge are
+offline: they load config +
 the local DB and do **not** open a Telegram session.
 
 ## Backfill
@@ -183,3 +201,4 @@ root.
 - [jobs.md](jobs.md) — recurring archive sync and local transcription
 - [ADR-0068](../decisions/ADR-0068-local-archive-store.md)
 - [ADR-0087](../decisions/ADR-0087-foreground-persisted-jobs.md)
+- [ADR-0089](../decisions/ADR-0089-archive-peer-purge.md)

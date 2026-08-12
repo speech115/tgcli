@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from hashlib import sha256
 
 import pytest
 from telethon.tl.types import Channel, Message, PeerUser, User
@@ -239,6 +240,356 @@ def test_remove_drops_explicit_scope(config_env, monkeypatch, capsys):
     assert data["removed"]["kind"] == "channel"
     assert main(["archive", "list", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["explicit"] == []
+
+
+def _seed_purge_peer(config_env, monkeypatch, capsys):
+    from tgcli import changes_cursor
+    from tgcli.archive import media as media_mod, store as store_mod
+    from tgcli.changes_cursor import ChangesCursor
+
+    peer = -1001234
+    channel = _channel()
+    make_session_fake(monkeypatch, _client(entities={"@news": channel}))
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    root = archive_cmd.account_dir("main")
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        store_mod.add_scope(
+            conn,
+            peer_id=peer,
+            kind="channel",
+            title="News",
+            username="news",
+            chat_ref="@news",
+        )
+        payload = {
+            "id": 10,
+            "date": "2026-01-02T00:00:00+00:00",
+            "text": "original",
+            "from": {"id": 1},
+            "media_kind": "voice",
+        }
+        store_mod.upsert_message(conn, peer, payload, media_kind="voice")
+        store_mod.upsert_message(
+            conn,
+            peer,
+            payload | {"text": "edited", "edited_at": "2026-01-03T00:00:00Z"},
+            media_kind="voice",
+        )
+        store_mod.insert_tombstone(conn, peer, 10)
+        store_mod.upsert_sync_state(
+            conn,
+            peer,
+            oldest_id=10,
+            newest_id=10,
+            more=False,
+            kind="channel",
+            title="News",
+            username="news",
+            chat_ref="@news",
+        )
+        cursor = ChangesCursor(
+            pts=5,
+            qts=1,
+            date=1_735_689_600,
+            seq=1,
+            channels={peer: 8},
+        )
+        store_mod.write_account_sync(
+            conn,
+            changes_cursor=changes_cursor.encode(cursor),
+            gap={"scope": peer, "reason": "channelDifferenceTooLong"},
+            reconcile={
+                "sampled": 1,
+                "mismatched": 1,
+                "comparisons": [
+                    {"peer_id": peer, "local": 1, "telegram": 2, "error": None}
+                ],
+                "next_offset": 1,
+            },
+        )
+        relative = media_mod.media_relative_path(
+            peer, 10, media_kind="voice", mime=None
+        )
+        with conn:
+            media_mod.set_media_path(conn, peer, 10, path=relative, media_kind="voice")
+    finally:
+        conn.close()
+
+    media_path = root / relative
+    media_path.parent.mkdir(parents=True)
+    media_path.write_bytes(b"voice-bytes")
+    key = sha256(f"{peer}:10".encode()).hexdigest()
+    downloads = config_env / "downloads"
+    downloads.mkdir(parents=True)
+    (downloads / f"{key}.json").write_text('{"offset":4}')
+    (downloads / f"{key}.part").write_bytes(b"part")
+    return peer, root
+
+
+def test_archive_purge_preview_is_offline_exact_and_non_destructive(
+    config_env, monkeypatch, capsys
+):
+    from tgcli.archive import store as store_mod
+
+    peer, root = _seed_purge_peer(config_env, monkeypatch, capsys)
+    opened = _block_telegram_session(monkeypatch)
+
+    assert main(["--readonly", "archive", "purge", "@news", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+
+    assert opened["n"] == 0
+    assert data["confirmed"] is False
+    assert data["peer"] == {
+        "peer_id": peer,
+        "kind": "channel",
+        "title": "News",
+        "username": "news",
+        "chat_ref": "@news",
+    }
+    assert data["rows"] == {
+        "messages": 1,
+        "revisions": 1,
+        "tombstones": 1,
+        "transcripts": 1,
+        "fts": 1,
+        "scope": 1,
+        "sync_state": 1,
+    }
+    assert data["files"] == 3
+    assert data["bytes"] == len(b"voice-bytes") + len(b'{"offset":4}') + len(b"part")
+    assert data["cleanup_pending"] is False
+
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        assert store_mod.counts(conn)["messages"] == 1
+        assert store_mod.in_explicit_scope(conn, peer) is True
+    finally:
+        conn.close()
+    assert (root / "media" / str(peer) / "10.ogg").is_file()
+
+
+def test_archive_purge_confirm_removes_peer_state_media_and_cursor_traces(
+    config_env, monkeypatch, capsys
+):
+    from tgcli import changes_cursor
+    from tgcli.archive import store as store_mod
+
+    peer, root = _seed_purge_peer(config_env, monkeypatch, capsys)
+    opened = _block_telegram_session(monkeypatch)
+
+    assert main(["archive", "purge", "@news", "--confirm", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+
+    assert opened["n"] == 0
+    assert data["confirmed"] is True
+    assert data["cleanup_pending"] is False
+    assert data["rows"]["messages"] == 1
+    assert data["files"] == 3
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        assert store_mod.counts(conn) == {
+            "messages": 0,
+            "revisions": 0,
+            "tombstones": 0,
+            "transcripts": 0,
+            "scope": 0,
+            "transcript_queue": 0,
+        }
+        assert store_mod.get_sync_state(conn, peer) is None
+        account = store_mod.read_account_sync(conn)
+        assert changes_cursor.decode(account["changes_cursor"]).channels == {}
+        assert account["gap"] is None
+        assert account["reconcile"] == {
+            "sampled": 0,
+            "mismatched": 0,
+            "comparisons": [],
+            "next_offset": 1,
+        }
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM messages_fts WHERE peer_id = ?", (peer,)
+            ).fetchone()[0]
+            == 0
+        )
+    finally:
+        conn.close()
+    assert not (root / "media" / str(peer)).exists()
+    assert list((config_env / "downloads").iterdir()) == []
+    audit = [
+        json.loads(line)
+        for line in (config_env / "audit.jsonl").read_text().splitlines()
+    ]
+    assert audit[-1]["action"] == "archive-purge"
+    assert audit[-1]["account"] == "main"
+    assert audit[-1]["peer_id"] == peer
+    assert audit[-1]["rows"] == 7
+    assert "chat" not in audit[-1]
+
+
+def test_archive_purge_cleanup_failure_is_nonzero_and_retry_resumes_by_chat(
+    config_env, monkeypatch, capsys
+):
+    from tgcli.archive import purge as purge_mod, store as store_mod
+
+    peer, root = _seed_purge_peer(config_env, monkeypatch, capsys)
+    real_rmtree = purge_mod.shutil.rmtree
+    calls = {"count": 0}
+
+    def fail_once(path):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise OSError("disk busy")
+        return real_rmtree(path)
+
+    monkeypatch.setattr(purge_mod.shutil, "rmtree", fail_once)
+
+    assert main(["archive", "purge", "@news", "--confirm", "--json"]) == 1
+    partial = json.loads(capsys.readouterr().out)
+    assert partial["account"] == {"alias": "main"}
+    assert partial["confirmed"] is True
+    assert partial["cleanup_pending"] is True
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        assert store_mod.get_sync_state(conn, peer) is None
+        assert store_mod.counts(conn)["messages"] == 0
+    finally:
+        conn.close()
+    assert (root / ".purge" / f"{peer}.json").is_file()
+    assert (root / ".purge" / str(peer) / "media" / "10.ogg").is_file()
+
+    assert main(["archive", "purge", "@news", "--json"]) == 0
+    preview = json.loads(capsys.readouterr().out)
+    assert preview["confirmed"] is False
+    assert preview["cleanup_pending"] is True
+    assert preview["rows"]["messages"] == 1
+
+    assert main(["archive", "purge", "@news", "--confirm", "--json"]) == 0
+    resumed = json.loads(capsys.readouterr().out)
+    assert resumed["confirmed"] is True
+    assert resumed["cleanup_pending"] is False
+    assert not (root / ".purge").exists()
+
+
+def test_archive_purge_database_failure_keeps_recoverable_quarantine(
+    config_env, monkeypatch, capsys
+):
+    from tgcli.archive import purge as purge_mod, store as store_mod
+
+    peer, root = _seed_purge_peer(config_env, monkeypatch, capsys)
+    real_delete = purge_mod._delete_peer
+
+    def fail_delete(_conn, _peer_id):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(purge_mod, "_delete_peer", fail_delete)
+    assert main(["archive", "purge", "@news", "--confirm", "--json"]) == 1
+    assert "database unavailable" in capsys.readouterr().err
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        assert store_mod.counts(conn)["messages"] == 1
+        assert store_mod.in_explicit_scope(conn, peer) is True
+    finally:
+        conn.close()
+    assert (root / ".purge" / f"{peer}.json").is_file()
+    assert (root / ".purge" / str(peer) / "media" / "10.ogg").is_file()
+
+    monkeypatch.setattr(purge_mod, "_delete_peer", real_delete)
+    assert main(["archive", "purge", "@news", "--confirm", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["cleanup_pending"] is False
+    assert not (root / ".purge").exists()
+
+
+def test_archive_purge_rejects_private_dialogs_and_readonly_commit(
+    config_env, monkeypatch, capsys
+):
+    from tgcli.archive import store as store_mod
+
+    make_session_fake(monkeypatch, _client())
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        store_mod.upsert_message(
+            conn,
+            7,
+            {
+                "id": 1,
+                "date": "2026-01-02T00:00:00+00:00",
+                "text": "private",
+                "from": {"id": 7},
+            },
+        )
+        store_mod.upsert_sync_state(
+            conn,
+            7,
+            oldest_id=1,
+            newest_id=1,
+            more=False,
+            kind="user",
+            title="Alice",
+            username="alice",
+            chat_ref="@alice",
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    _block_telegram_session(monkeypatch)
+
+    assert main(["archive", "purge", "@alice", "--json"]) == 2
+    assert "private" in capsys.readouterr().err.lower()
+    assert (
+        main(["--readonly", "archive", "purge", "@alice", "--confirm", "--json"]) == 2
+    )
+    assert "readonly" in capsys.readouterr().err.lower()
+
+
+def test_archive_purge_confirm_names_queued_archive_job_that_can_restore_data(
+    config_env, monkeypatch, capsys
+):
+    peer, root = _seed_purge_peer(config_env, monkeypatch, capsys)
+    assert (
+        main(
+            [
+                "jobs",
+                "add",
+                "archive-sync",
+                "--key",
+                "sync-main",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    _block_telegram_session(monkeypatch)
+
+    assert main(["archive", "purge", "@news", "--confirm", "--json"]) == 2
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"]["code"] == "BLOCKED"
+    assert "sync-main" in error["error"]["message"]
+    assert "cancel" in error["error"]["message"]
+    assert (root / "media" / str(peer) / "10.ogg").is_file()
+
+
+def test_archive_purge_confirm_refuses_a_concurrent_account_command(
+    config_env, monkeypatch, capsys
+):
+    import fcntl
+
+    peer, root = _seed_purge_peer(config_env, monkeypatch, capsys)
+    lock = (config_env / "sessions" / "main.lock").open("w")
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        assert main(["archive", "purge", "@news", "--confirm", "--json"]) == 2
+        error = json.loads(capsys.readouterr().err)
+        assert "session" in error["error"]["message"]
+        assert "busy" in error["error"]["message"]
+    finally:
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        lock.close()
+    assert (root / "media" / str(peer) / "10.ogg").is_file()
 
 
 def test_backfill_private_without_add_and_group_requires_add(

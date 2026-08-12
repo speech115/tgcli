@@ -41,6 +41,7 @@ selected account session, does one operation, and exits.
 | Poll a daemonless change feed | `tg --json changes --init` then `tg --json changes --cursor C [--wait N]` |
 | Init local archive store | `tg --json archive init` |
 | Opt a group/channel into archive scope | `tg --json archive add CHAT` / `remove CHAT` / `list` |
+| Preview or confirm deletion of one archived group/channel | `tg --json archive purge CHAT [--confirm]` (offline; private dialogs rejected) |
 | Backfill selected dialogs into archive | `tg --json archive backfill CHAT [CHAT …] [--limit N]` |
 | Backfill standing private dialogs | `tg --json archive backfill --private [--max-dialogs N] [--limit N]` |
 | Sync archive from changes cursor | `tg --json archive sync [--max-events N] [--max-dialogs N] [--max-media N]` (applies full difference; caps catch-up RPCs and media downloads) |
