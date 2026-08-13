@@ -122,6 +122,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0113](ADR-0113-jobs-store-split.md) | Split `jobs/store.py` bootstrap/schema/SQL into `jobs/db.py`; runtime retry policy constants live in `jobs/model.py`; store keeps CRUD, transitions, lane locks | accepted; thermos debt T29 |
 | [0114](ADR-0114-jobkind-registry.md) | JobKind registry and shared lane loop helpers | accepted; thermos debt T33 |
 | [0115](ADR-0115-archive-cli-extract.md) | Extract archive CLI grammar and offline routing into `archive/arguments.py`, `archive/preflight.py`, and `archive/offline.py` | accepted; thermos debt T32 |
+| [0117](ADR-0117-breadth-atomic-check-and-touch.md) | Breadth budget check-and-touch is one `BEGIN IMMEDIATE` claim; gate still dispatches on refuse | accepted; thermos debt T36 |
 
 Notes on supersessions:
 

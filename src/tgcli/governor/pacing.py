@@ -184,25 +184,27 @@ async def pace_before_dispatch(
 
 def touch_history_peer(
     ledger: Ledger, account: int, request: object, *, now: float | None = None
-) -> None:
-    """Record a history read's peer against the breadth budget.
+) -> bool:
+    """Claim a history read's peer against the breadth budget.
 
     Called before dispatch; durable per peer (ADR-0072 decision 5) so a
     killed process does not hand back budget for peers it really read.
-    A request without a peer (search-global, difference) is not a breadth
-    read and touches nothing.
+    Non-HISTORY / unresolvable peer is not a breadth spend (returns True).
+    Atomic check-and-touch (ADR-0117): False only when a *new* peer is
+    refused because the budget is full. Walkers stop via ``budget_ok``;
+    the gate discards False and still dispatches.
     """
     if registry.classify(request) is not registry.RequestClass.HISTORY:
-        return
+        return True
     peer = getattr(request, "peer", None)
     if peer is None:
-        return
+        return True
     try:
         peer_id = telethon_utils.get_peer_id(peer)
     except (TypeError, ValueError):
-        return
+        return True
     moment = time.time() if now is None else now
-    ledger.touch_peer(account, peer_id, moment)
+    return ledger.try_touch_peer(account, peer_id, moment)
 
 
 def budget_ok(ledger: Ledger, account: int, *, now: float | None = None) -> bool:
@@ -210,7 +212,9 @@ def budget_ok(ledger: Ledger, account: int, *, now: float | None = None) -> bool
 
     Commands that walk peers call this before each new one and stop
     *normally* (exit 0, ``stop_reason``, checkpoint intact) when it
-    returns False.
+    returns False. The authoritative spend is ``try_touch_peer`` /
+    ``touch_history_peer`` (ADR-0117); this read is an early-exit hint
+    and is not itself race-free against a concurrent claim.
     """
     moment = time.time() if now is None else now
     return ledger.breadth_remaining(account, moment) > 0

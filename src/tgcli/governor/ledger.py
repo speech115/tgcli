@@ -22,6 +22,10 @@ Four behaviours are load-bearing and each answers a specific past failure:
   it to a bounded wait.
 * **``busy_timeout`` is set deliberately.** #137's inventory found none set
   anywhere today, which leaves concurrent writers to the driver default.
+* **Breadth spend is atomic check-and-touch.** ``try_touch_peer`` holds a
+  ``BEGIN IMMEDIATE`` transaction across the remaining count and the peer
+  insert so concurrent primary + role jobs cannot both spend the last slot
+  (ADR-0117 / thermos T36).
 """
 
 from __future__ import annotations
@@ -436,6 +440,8 @@ class Ledger:
 
         Durable per peer rather than per run (ADR-0072 decision 5): a killed
         process must not hand back budget for peers it really did read.
+        Unconditional: test seeding and already-decided refreshes. Budgeted
+        claims go through ``try_touch_peer`` (ADR-0117).
         """
         try:
             self._db.execute(
@@ -447,6 +453,56 @@ class Ledger:
             )
             self._db.commit()
         except sqlite3.Error:
+            return False
+        return True
+
+    def try_touch_peer(
+        self,
+        account_user_id: int,
+        peer_id: int,
+        at: float,
+        *,
+        budget: int = BREADTH_BUDGET,
+        window: float = BREADTH_WINDOW_S,
+    ) -> bool:
+        """Atomically claim a peer against the rolling breadth budget.
+
+        Check and insert share one ``BEGIN IMMEDIATE`` transaction so two
+        processes that both see remaining==1 cannot both insert a new peer
+        (ADR-0117 / thermos T36). A peer already inside the window always
+        succeeds and only refreshes ``touched_at``.
+        """
+        cutoff = at - window
+        try:
+            self._db.execute("BEGIN IMMEDIATE")
+            existing = self._db.execute(
+                "SELECT 1 FROM peer_touches "
+                "WHERE account_user_id = ? AND peer_id = ? AND touched_at >= ?",
+                (account_user_id, peer_id, cutoff),
+            ).fetchone()
+            if existing is None:
+                row = self._db.execute(
+                    "SELECT COUNT(*) FROM peer_touches "
+                    "WHERE account_user_id = ? AND touched_at >= ?",
+                    (account_user_id, cutoff),
+                ).fetchone()
+                count = int(row[0]) if row is not None else 0
+                if count >= budget:
+                    self._db.rollback()
+                    return False
+            self._db.execute(
+                "INSERT INTO peer_touches (account_user_id, peer_id, touched_at) "
+                "VALUES (?, ?, ?) "
+                "ON CONFLICT(account_user_id, peer_id) DO UPDATE SET "
+                "touched_at = excluded.touched_at",
+                (account_user_id, peer_id, at),
+            )
+            self._db.commit()
+        except sqlite3.Error:
+            try:
+                self._db.rollback()
+            except sqlite3.Error:
+                pass
             return False
         return True
 

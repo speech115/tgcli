@@ -4,7 +4,9 @@ Covers #139's matrix rows L1–L4 and the crash-safety halves of C2 and C5 that
 belong to the store rather than to the seam.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from threading import Barrier
 
 import pytest
 
@@ -287,3 +289,50 @@ def test_reserve_at_the_same_moment_loses_not_overwrites(tmp_path):
         # instead of overwriting the first (the old <= let it through).
         assert second.reserve(ACCOUNT, HISTORY, 10.0) is False
         assert first.last_reserved(ACCOUNT, HISTORY) == 10.0
+
+
+def test_try_touch_peer_refuses_a_new_peer_when_budget_is_full(ledger):
+    """ADR-0117: check-and-touch is one decision, not budget_ok then touch."""
+    now = 1_000_000.0
+    budget = 2
+    assert ledger.try_touch_peer(ACCOUNT, 1, now, budget=budget) is True
+    assert ledger.try_touch_peer(ACCOUNT, 2, now, budget=budget) is True
+    assert ledger.try_touch_peer(ACCOUNT, 3, now, budget=budget) is False
+    assert ledger.peers_in_window(ACCOUNT, now) == budget
+    # An already-counted peer may refresh its stamp without spending budget.
+    assert ledger.try_touch_peer(ACCOUNT, 1, now + 1, budget=budget) is True
+    assert ledger.peers_in_window(ACCOUNT, now + 1) == budget
+
+
+def test_concurrent_try_touch_with_remaining_one_cannot_both_succeed(tmp_path):
+    """T36 / ADR-0117: two connections racing remaining==1 must not both win.
+
+    The pre-fix budget_ok→touch_peer split let primary and role sessions
+    both observe one slot left and both insert, exceeding the hedge.
+
+    Bootstrap the on-disk schema once, then open each connection inside its
+    own thread (sqlite3 connections are not shareable across threads). Do
+    not race two cold ``Ledger.open`` calls on a missing file: concurrent
+    ``executescript`` can degrade one side to in-memory (ADR-0089), and
+    both claims would "succeed" on separate tables.
+    """
+    path = tmp_path / "governor.db"
+    budget = 1
+    now = 1_000_000.0
+    with Ledger.open(path) as bootstrap:
+        assert bootstrap.degraded is False
+    ready = Barrier(2, timeout=5.0)
+
+    def claim(peer_id: int) -> bool:
+        with Ledger.open(path) as store:
+            assert store.degraded is False
+            ready.wait()
+            return store.try_touch_peer(ACCOUNT, peer_id, now, budget=budget)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(claim, (101, 202)))
+
+    assert sorted(outcomes) == [False, True]
+    with Ledger.open(path) as store:
+        assert store.peers_in_window(ACCOUNT, now) == budget
+        assert store.breadth_remaining(ACCOUNT, now, budget=budget) == 0

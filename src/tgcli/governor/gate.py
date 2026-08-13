@@ -101,7 +101,7 @@ def install(
                 await pacing.pace_before_dispatch(
                     ledger, account, request, now=clock(), sleep=sleep
                 )
-            pacing.touch_history_peer(ledger, account, request, now=clock())
+            _ = pacing.touch_history_peer(ledger, account, request, now=clock())
             pacing.note_request()
         try:
             result = await original(sender, request, *args, **kwargs)

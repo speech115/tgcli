@@ -8,6 +8,7 @@ import time
 
 import pytest
 from telethon.tl.functions import messages, updates, upload
+from telethon.tl.types import InputPeerUser
 
 from tgcli.archive import store as store_mod
 from tgcli.governor import gate, pacing, registry
@@ -218,6 +219,30 @@ def test_a_run_with_95_peers_in_window_can_touch_five_more(ledger):
     for peer in range(95, 100):
         ledger.touch_peer(ACCOUNT, peer, now)
     assert pacing.budget_ok(ledger, ACCOUNT, now=now) is False
+
+
+def test_touch_history_peer_returns_false_only_when_budget_refuses(ledger):
+    """ADR-0117: False means budget-full new peer; non-HISTORY stays True."""
+    now = 1_000_000.0
+    peer_a = InputPeerUser(user_id=101, access_hash=1)
+    peer_b = InputPeerUser(user_id=202, access_hash=1)
+    req_a = history(peer=peer_a)
+    req_b = history(peer=peer_b)
+
+    assert pacing.touch_history_peer(ledger, ACCOUNT, req_a, now=now) is True
+    # Fill the remaining default budget with distinct peers.
+    while ledger.breadth_remaining(ACCOUNT, now) > 0:
+        next_id = ledger.peers_in_window(ACCOUNT, now) + 10_000
+        assert ledger.touch_peer(ACCOUNT, next_id, now) is True
+    assert pacing.budget_ok(ledger, ACCOUNT, now=now) is False
+    assert pacing.touch_history_peer(ledger, ACCOUNT, req_b, now=now) is False
+    # Non-HISTORY is not a breadth spend — True, not "budget denied".
+    assert (
+        pacing.touch_history_peer(ledger, ACCOUNT, updates.GetStateRequest(), now=now)
+        is True
+    )
+    # Already-counted peer may refresh without spending a new slot.
+    assert pacing.touch_history_peer(ledger, ACCOUNT, req_a, now=now + 1) is True
 
 
 def test_killed_after_ten_peers_leaves_ninety_budget(tmp_path):
