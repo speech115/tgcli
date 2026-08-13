@@ -13,6 +13,7 @@ from telethon import errors as telethon_errors
 from tgcli.archive import (
     explore as explore_module,
     media as media_module,
+    schema as schema_mod,
     store,
     sync as sync_module,
     transcribe as transcribe_module,
@@ -124,7 +125,7 @@ def test_schema_v7_keeps_media_failure_state_without_refresh_state(tmp_path):
 
 def test_schema_v5_migrates_media_retry_state(tmp_path):
     path = tmp_path / "archive.db"
-    old_sql = store._SCHEMA_SQL.replace(
+    old_sql = schema_mod._SCHEMA_SQL.replace(
         "    media_attempts INTEGER NOT NULL DEFAULT 0,\n"
         "    media_status TEXT NOT NULL DEFAULT 'pending',\n",
         "",
@@ -152,7 +153,7 @@ def test_schema_v5_migrates_media_retry_state(tmp_path):
 
 def test_schema_v6_migrates_refresh_state_out_and_preserves_sync_data(tmp_path):
     path = tmp_path / "archive.db"
-    prior_v6_sql = store._SCHEMA_SQL.replace(
+    prior_v6_sql = schema_mod._SCHEMA_SQL.replace(
         "    reconcile_json TEXT\n);",
         "    reconcile_json TEXT,\n"
         "    refresh_failure_streak INTEGER NOT NULL DEFAULT 0,\n"

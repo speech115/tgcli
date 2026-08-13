@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import sqlite3
 
-from tgcli.archive import store as store_mod
+from tgcli.archive import peers as peers_mod, store as store_mod
 from tgcli.errors import NotFoundError, PolicyError
 
 # FTS5 operators / wildcards — presence means pass-through raw MATCH.
@@ -45,12 +45,12 @@ def resolve_peer_id(conn: sqlite3.Connection, chat: str) -> int:
     except ValueError:
         peer = None
     if peer is not None:
-        if _peer_known(conn, peer):
+        if peers_mod.known(conn, peer):
             return peer
         raise NotFoundError(f"chat not in archive store: {chat!r}")
 
     needle = raw.lstrip("@").casefold()
-    for row in list(store_mod.list_scope(conn)) + store_mod.list_sync_identity(conn):
+    for row in peers_mod.list_resolve_rows(conn):
         candidates = [
             row.get("chat_ref"),
             row.get("username"),
@@ -65,14 +65,3 @@ def resolve_peer_id(conn: sqlite3.Connection, chat: str) -> int:
             if str(candidate) == raw:
                 return int(row["peer_id"])
     raise NotFoundError(f"chat not in archive store: {chat!r}")
-
-
-def _peer_known(conn: sqlite3.Connection, peer_id: int) -> bool:
-    if store_mod.in_explicit_scope(conn, peer_id):
-        return True
-    if store_mod.get_sync_state(conn, peer_id) is not None:
-        return True
-    row = conn.execute(
-        "SELECT 1 FROM messages WHERE peer_id = ? LIMIT 1", (peer_id,)
-    ).fetchone()
-    return row is not None

@@ -25,7 +25,7 @@ def test_archive_connect_issues_busy_timeout_pragma(tmp_path, monkeypatch):
         conn.set_trace_callback(statements.append)
         return conn
 
-    monkeypatch.setattr(archive_store.sqlite3, "connect", traced_connect)
+    monkeypatch.setattr("tgcli.archive.schema.sqlite3.connect", traced_connect)
     conn = archive_store.connect(tmp_path / "archive.db")
     conn.close()
 
