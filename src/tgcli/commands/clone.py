@@ -321,16 +321,19 @@ _init_discussion = init_peers.init_discussion
 
 async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dict:
     # Local cooldown gate first — CONTRACT/ADR-0045: no Telegram traffic while
-    # an account (or existing per-clone) deadline is active. Preview payload
-    # already carries account_user_id / source_peer_id.
+    # an existing per-clone deadline is active. Preview payload already
+    # carries account_user_id / source_peer_id. `--replace` abandons that
+    # slot outright, so its legacy deadline must not block superseding it
+    # (T19); the governor's account-wide gate still covers every RPC below.
     account_user_id = payload["account_user_id"]
     source_peer_id = payload["source_peer_id"]
+    replace = bool(payload.get("replace"))
     early_id = state.clone_id(account_user_id, source_peer_id)
     try:
         early_state = state.load(early_id)
     except PolicyError:
         early_state = None
-    if early_state is not None:
+    if early_state is not None and not replace:
         _enforce_cooldown(early_state)
 
     entity, source_kind, _ = await _resolve_source(tg, source)
@@ -342,7 +345,6 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
     ):
         raise PolicyError("clone init preview no longer matches the source or account")
     clone_id = state.clone_id(me.id, entity.id)
-    replace = bool(payload.get("replace"))
     if replace and (
         archived := state.supersede(clone_id, (roster.path_for(clone_id),))
     ):

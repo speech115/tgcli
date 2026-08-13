@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1815,6 +1816,33 @@ def test_clone_init_replace_does_not_reuse_recorded_destination(
     assert any(
         isinstance(r, functions.channels.CreateChannelRequest) for r in client.requests
     )
+
+
+def test_clone_init_replace_supersedes_cooling_legacy_slot(
+    config_env, monkeypatch, capsys
+):
+    """A stale per-clone `retry_not_before` (ADR-0045, retired by ADR-0072)
+    must not block abandoning that slot via --replace (T19)."""
+    old = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel"
+    )
+    old.creation_marker = f"tgcli-clone-{old.clone_id[:12]}"
+    old.destination_peer_id = 555
+    old.set_cooldown(datetime.now(UTC) + timedelta(minutes=10))
+    state.save(old)
+    client = CloneInitClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "init", "@source", "--replace", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+
+    assert main(["clone", "init", "@source", "--commit", preview_id, "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["destination"]["id"] == 999
+
+    saved = state.load(old.clone_id)
+    assert saved.destination_peer_id == 999
+    assert saved.retry_not_before is None
 
 
 def test_clone_init_replace_without_existing_state_is_plain_init(
