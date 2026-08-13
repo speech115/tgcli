@@ -15,6 +15,7 @@ import sys
 from datetime import datetime
 
 from tgcli import preview_commit, read_ops, safety
+from tgcli.archive import preflight as archive_preflight
 from tgcli.commands import api as api_cmd, batch as batch_cmd, dialog as dialog_cmd
 from tgcli.errors import ConfigError, PolicyError
 from tgcli.jobs import preflight as jobs_preflight
@@ -30,7 +31,7 @@ def prepare(parser: argparse.ArgumentParser, args) -> None:
     preview_commit.prepare(parser, args)
     _prepare_api(parser, args)
     _prepare_changes(args)
-    _prepare_archive(args)
+    archive_preflight.prepare(args)
     jobs_preflight.prepare(args)
 
 
@@ -44,120 +45,6 @@ def _prepare_max_runtime(args) -> None:
     timeout = getattr(args, "timeout", None)
     if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
         raise PolicyError("--timeout must be a positive finite number of seconds")
-
-
-def _prepare_archive(args) -> None:
-    if args.command != "archive":
-        return
-    cmd = args.archive_command
-    if cmd in (
-        "init",
-        "add",
-        "remove",
-        "backfill",
-        "sync",
-        "rebaseline",
-        "transcribe",
-    ):
-        safety.enforce_local_mutation_allowed(args.readonly)
-    if cmd == "search":
-        from tgcli.archive import explore as explore_mod, search as search_mod
-        from tgcli.commands import archive as archive_cmd
-
-        args.query = search_mod.validate_query(getattr(args, "query", None))
-        chat = getattr(args, "chat", None)
-        if chat is not None and not str(chat).strip():
-            raise PolicyError("archive search --chat must be non-empty")
-        args.from_user = explore_mod.validate_filter(
-            getattr(args, "from_user", None), "--from"
-        )
-        args.kind = explore_mod.validate_kind(getattr(args, "kind", None))
-        args.sort = explore_mod.validate_sort(getattr(args, "sort", None))
-        explore_mod.validate_date_range(args.since, args.until, "search")
-        args.limit = explore_mod.validate_limit(
-            getattr(args, "limit", None),
-            default=archive_cmd.DEFAULT_SEARCH_LIMIT,
-            maximum=archive_cmd.MAX_SEARCH_LIMIT,
-            label="search",
-        )
-        args.page = explore_mod.validate_page(getattr(args, "page", None))
-        return
-    if cmd == "read":
-        from tgcli.archive import explore as explore_mod
-        from tgcli.commands import archive as archive_cmd
-
-        if not str(args.chat).strip():
-            raise PolicyError("archive read CHAT must be non-empty")
-        explore_mod.validate_date_range(args.since, args.until, "read")
-        explore_mod.validate_read_centers(
-            getattr(args, "around_id", None), args.around_date
-        )
-        args.limit = explore_mod.validate_limit(
-            getattr(args, "limit", None),
-            default=archive_cmd.DEFAULT_READ_LIMIT,
-            maximum=archive_cmd.MAX_READ_LIMIT,
-            label="read",
-        )
-        return
-    if cmd == "history":
-        from tgcli.archive import explore as explore_mod
-
-        if not str(args.chat).strip():
-            raise PolicyError("archive history CHAT must be non-empty")
-        args.message_id = explore_mod.validate_message_id(args.message_id)
-        return
-    if cmd == "sync":
-        from tgcli.archive import sync as sync_mod
-        from tgcli.commands import archive as archive_cmd
-
-        args.max_events = sync_mod.validate_max_events(
-            getattr(args, "max_events", None),
-            default=archive_cmd.DEFAULT_SYNC_EVENTS,
-            maximum=archive_cmd.MAX_SYNC_EVENTS,
-        )
-        args.max_dialogs = sync_mod.validate_max_dialogs(
-            getattr(args, "max_dialogs", None),
-            default=archive_cmd.DEFAULT_SYNC_DIALOGS,
-            maximum=archive_cmd.MAX_SYNC_DIALOGS,
-        )
-        args.max_media = sync_mod.validate_max_media(
-            getattr(args, "max_media", None),
-            default=archive_cmd.DEFAULT_SYNC_MEDIA,
-            maximum=archive_cmd.MAX_SYNC_MEDIA,
-        )
-        return
-    if cmd == "transcribe":
-        from tgcli.archive import transcribe as transcribe_mod
-
-        args.limit = transcribe_mod.validate_limit(getattr(args, "limit", None))
-        args.max_attempts = transcribe_mod.validate_max_attempts(
-            getattr(args, "max_attempts", None)
-        )
-        return
-    if cmd != "backfill":
-        return
-    from tgcli.archive import backfill as backfill_mod
-    from tgcli.commands import archive as archive_cmd
-
-    private = bool(getattr(args, "private", False))
-    chats = list(getattr(args, "chats", None) or [])
-    backfill_mod.validate_private_mode(private=private, chats=chats)
-    if private:
-        args.max_dialogs = backfill_mod.validate_max_dialogs(
-            getattr(args, "max_dialogs", None),
-            default=archive_cmd.DEFAULT_PRIVATE_DIALOGS,
-            maximum=archive_cmd.MAX_PRIVATE_DIALOGS,
-        )
-        args.chats = []
-    else:
-        args.chats = backfill_mod.validate_dialogs(
-            chats, maximum=archive_cmd.MAX_BACKFILL_DIALOGS
-        )
-    args.limit = backfill_mod.validate_limit(
-        getattr(args, "limit", None),
-        default=archive_cmd.DEFAULT_BACKFILL_LIMIT,
-        maximum=archive_cmd.MAX_BACKFILL_LIMIT,
-    )
 
 
 def _prepare_changes(args) -> None:
@@ -222,12 +109,9 @@ def _prepare_batch(args) -> None:
 
 
 def _prepare_time_bounds(parser: argparse.ArgumentParser, args) -> None:
-    archive_read = args.command == "archive" and args.archive_command == "read"
-    archive_search = args.command == "archive" and args.archive_command == "search"
     if (
         args.command not in ("read", "search")
-        and not archive_read
-        and not archive_search
+        and not archive_preflight.uses_time_bounds(args)
         and not (
             args.command == "media" and args.media_command in ("manifest", "download")
         )
@@ -236,7 +120,7 @@ def _prepare_time_bounds(parser: argparse.ArgumentParser, args) -> None:
     args.since = _parse_when(parser, getattr(args, "since", None), "--since")
     if args.command != "media" or args.media_command == "manifest":
         args.until = _parse_when(parser, getattr(args, "until", None), "--until")
-    if archive_read:
+    if args.command == "archive" and args.archive_command == "read":
         args.around_date = _parse_when(
             parser, getattr(args, "around_date", None), "--around-date"
         )

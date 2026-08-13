@@ -28,10 +28,10 @@ from tgcli import (
     safety,
     session,
 )
+from tgcli.archive import offline as archive_offline
 from tgcli.commands import (
     accounts as accounts_cmd,
     api as api_cmd,
-    archive as archive_cmd,
     clone as clone_cmd,
     doctor as doctor_cmd,
     jobs as jobs_cmd,
@@ -377,59 +377,9 @@ def _execute(args) -> tuple[dict, list[tuple]]:
         offline = jobs_cmd.execute_offline(args, config)
         if offline is not None:
             return offline
-    if args.command == "archive" and args.archive_command in (
-        "list",
-        "status",
-        "search",
-        "read",
-        "history",
-        "transcribe",
-    ):
-        alias = archive_cmd.resolve_alias(args.account, config)
-        if args.archive_command == "list":
-            data = archive_cmd.list_scope(alias, config)
-            return data, archive_cmd.list_rows(data)
-        if args.archive_command == "status":
-            data = archive_cmd.status(alias, config)
-            return data, archive_cmd.status_rows(data)
-        if args.archive_command == "transcribe":
-            data = archive_cmd.transcribe(
-                alias,
-                limit=getattr(args, "limit", None),
-                max_attempts=getattr(args, "max_attempts", None),
-                config=config,
-            )
-            return data, archive_cmd.transcribe_rows(data)
-        if args.archive_command == "read":
-            data = archive_cmd.read(
-                alias,
-                args.chat,
-                around_id=getattr(args, "around_id", None),
-                around_date=getattr(args, "around_date", None),
-                since=getattr(args, "since", None),
-                until=getattr(args, "until", None),
-                limit=getattr(args, "limit", None),
-                config=config,
-            )
-            return data, archive_cmd.read_rows(data)
-        if args.archive_command == "history":
-            data = archive_cmd.history(alias, args.chat, args.message_id, config=config)
-            return data, archive_cmd.history_rows(data)
-        data = archive_cmd.search(
-            alias,
-            args.query,
-            chat=getattr(args, "chat", None),
-            from_user=getattr(args, "from_user", None),
-            since=getattr(args, "since", None),
-            until=getattr(args, "until", None),
-            kind=getattr(args, "kind", None),
-            transcripts_only=bool(getattr(args, "transcripts_only", False)),
-            sort=getattr(args, "sort", "relevance"),
-            limit=getattr(args, "limit", None),
-            page=getattr(args, "page", None),
-            config=config,
-        )
-        return data, archive_cmd.search_rows(data)
+    offline = archive_offline.execute(args, config)
+    if offline is not None:
+        return offline
     if args.command == "accounts" and args.subcommand == "show":
         data = accounts_cmd.show_account(config, args.alias)
         return data, accounts_cmd.show_rows(data)

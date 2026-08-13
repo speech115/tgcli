@@ -7,9 +7,13 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "check-architecture.py"
 CEILINGS = {
-    "src/tgcli/cli.py": 749,
-    "src/tgcli/parser.py": 726,
-    "src/tgcli/preflight.py": 446,
+    "src/tgcli/cli.py": 690,
+    "src/tgcli/parser.py": 620,
+    "src/tgcli/preflight.py": 250,
+    # ADR-0115 moved archive grammar into archive/arguments.py (thermos T32).
+    "src/tgcli/archive/arguments.py": 140,
+    "src/tgcli/archive/preflight.py": 170,
+    "src/tgcli/archive/offline.py": 70,
     "src/tgcli/dispatch.py": 373,
     "src/tgcli/commands/batch.py": 100,
     "src/tgcli/commands/changes.py": 556,
@@ -192,7 +196,7 @@ def test_growth_within_grace_passes_with_warning(tmp_path):
 
     assert result.returncode == 0, result.stdout
     assert "architecture check passed" in result.stdout
-    assert "src/tgcli/cli.py has 750 lines; over ceiling 749" in result.stderr
+    assert "src/tgcli/cli.py has 691 lines; over ceiling 690" in result.stderr
     assert "grace" in result.stderr
 
 
@@ -214,7 +218,7 @@ def test_architecture_check_rejects_growth_past_the_grace_band(tmp_path):
     result = _run(tmp_path)
 
     assert result.returncode == 1
-    assert "src/tgcli/cli.py has 800 lines; reviewed ceiling is 749" in result.stdout
+    assert "src/tgcli/cli.py has 741 lines; reviewed ceiling is 690" in result.stdout
 
 
 def test_strict_mode_rejects_any_growth_past_the_ceiling(tmp_path):
@@ -226,7 +230,7 @@ def test_strict_mode_rejects_any_growth_past_the_ceiling(tmp_path):
     result = _run(tmp_path, "--strict")
 
     assert result.returncode == 1
-    assert "src/tgcli/cli.py has 750 lines; reviewed ceiling is 749" in result.stdout
+    assert "src/tgcli/cli.py has 691 lines; reviewed ceiling is 690" in result.stdout
 
 
 def test_repository_passes_architecture_check():
