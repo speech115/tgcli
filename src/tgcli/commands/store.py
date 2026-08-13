@@ -385,15 +385,18 @@ def _lock_busy(target: Path) -> bool:
     the staged `.session` — during that window `target` does not exist yet
     even though the lock is real. Only probed when the lock file already
     exists — a holder always creates it first, so a read-only inventory
-    never leaves a new lock file behind. Fail-open: anything but a definite
+    never leaves a new lock file behind. Fail-closed: anything but a definite
     "free" counts as busy, because the caller is about to delete state that a
     running command may still own, and a probe that cannot run must never
-    block the cleanup either.
+    enable cleanup.
     """
     lock_path = target.with_suffix(".lock")
     if not lock_path.exists():
         return False
-    return session.lock_file_held(lock_path) is not False
+    try:
+        return session.lock_file_held(lock_path) is not False
+    except OSError:
+        return True
 
 
 def _attempt_lock_held(logins_root: Path, login_id: str) -> bool:

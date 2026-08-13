@@ -95,6 +95,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0086](ADR-0086-clone-reports-permanent-degradation-before-run-exit.md) | `clone sync` reports each durable quote fallback and unsupported-message skip on stderr immediately, so a later flood cannot erase the only operator-visible evidence; existing JSON and exit semantics stay unchanged | accepted |
 | [0087](ADR-0087-foreground-persisted-jobs.md) | `tg jobs` persists four typed checkpointed workloads in an account-scoped SQLite registry and runs them through independent foreground Telegram/local lanes with bounded-aging priority, cooperative cancellation, retry state, explicit role/safety gates, and launchd-owned recurrence; replaces `archive refresh` without a daemon | accepted; implementation campaign #146 |
 | [0088](ADR-0088-phone-only-session-authorization.md) | `tg accounts login` starts only with explicit `--phone`; removes QR token/deep-link/wait behavior and `--qr-format` while retaining staged code/password continuation for primary and named-role sessions | accepted; owner request #193 |
+| [0109](ADR-0109-store-cleanup-login-lock-uncertainty.md) | `store cleanup` probes a staged login's existing lock directly and treats every result except definitely free, including `flock` errors, as busy | accepted |
 
 Notes on supersessions:
 
