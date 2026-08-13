@@ -21,8 +21,9 @@ ADR-0065 extends the same fail-closed posture to active summaries that the
 guide-only gate could not see:
 
   5. README names exactly the root global flags and links every task guide page;
-  6. README scopes ``random_id`` confirmation to send/forward and requires a
-     fresh preview after a failed ``clone init`` / ``clone refresh`` commit;
+  6. README scopes ``random_id`` confirmation to send/forward and requires
+     retrying the same preview id after a failed ``clone init`` /
+     ``clone refresh`` commit (ADR-0083);
   7. any exhaustive benchmark claim requires actual parser-wide coverage;
   8. MAP guide/ADR inventory matches the tree;
   9. contributor workflow docs route session entries to ``docs/devlog/``;
@@ -154,21 +155,29 @@ def readme_random_id_problems(readme: Path) -> list[str]:
 
 
 def readme_clone_retry_problems(readme: Path) -> list[str]:
-    """Clone previews are consumed before dispatch, so retries need a new one."""
-    text = readme.read_text()
-    unsafe = any(
-        "same preview id" in line
-        and ("`clone init`" in line or "`clone refresh`" in line)
-        for line in text.splitlines()
-    )
-    documents_fresh_preview = re.search(
-        r"`clone init`.*?`clone refresh`.*?fresh preview",
-        text,
-        re.DOTALL | re.IGNORECASE,
-    )
-    if not unsafe and documents_fresh_preview is not None:
-        return []
-    return [f"{readme.name}: clone init/refresh retries must require a fresh preview"]
+    """Clone commits are retryable via begin_commit (ADR-0083), not spend-once."""
+    lines = readme.read_text().splitlines()
+    try:
+        start = next(
+            i
+            for i, line in enumerate(lines)
+            if line.lstrip().startswith("- `clone init`") and "`clone refresh`" in line
+        )
+    except StopIteration:
+        return [
+            f"{readme.name}: clone init/refresh retries must reuse the same preview id"
+        ]
+    block = [lines[start]]
+    for line in lines[start + 1 :]:
+        if line.startswith("- ") or (line.strip() and not line.startswith((" ", "\t"))):
+            break
+        block.append(line)
+    block_text = "\n".join(block)
+    if "fresh preview" in block_text or "same preview id" not in block_text:
+        return [
+            f"{readme.name}: clone init/refresh retries must reuse the same preview id"
+        ]
+    return []
 
 
 def benchmark_claim_problems(

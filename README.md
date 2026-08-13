@@ -181,7 +181,12 @@ tg --json send --commit p_9f3a
 
 - Previews expire after 5 minutes and are consumed on commit.
 - `send`, `edit`, `delete`, `forward`, and draft commits use the retryable preview lifecycle: after a network/runtime failure, retry the same preview id; never create a second preview. `send` and `forward` additionally use their stored Telegram `random_id` for network-level deduplication.
-- `clone init` and `clone refresh` consume their preview before dispatch. If either commit fails, create a fresh preview before retrying; already-applied work is recovered or rechecked by the command.
+- `clone init` and `clone refresh` commits use the same retryable
+  `begin_commit` / `finish_commit` handshake as `send`/`edit` (ADR-0083):
+  after a mid-commit failure, retry the same preview id within its TTL;
+  never create a second preview for that attempt. Already-applied work is
+  recovered or rechecked by the command. A FloodWait during the preview
+  scan itself still needs a new preview after the cooldown.
 - `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` hard-block mutations with exit 2, before any network call.
 - Every committed mutation is appended to the audit log; `tg store cleanup` can never delete it.
 

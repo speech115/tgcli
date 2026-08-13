@@ -1557,8 +1557,12 @@ the rendered text (recomputed fresh at commit). `--readonly` /
 `TGCLI_READONLY` / `TGCLI_NO_SEND` gate the commit only, not the preview scan
 (identical rule to `clone init`).
 
-`--commit PREVIEW_ID` consumes the preview (single-shot via
-`safety.consume_preview`, not `begin_commit`), then fail-closes (exit 2) if
+`--commit PREVIEW_ID` takes the preview via `safety.begin_commit`
+(`expected_kind="clone-refresh"`) and `finish_commit` after a successful
+run (ADR-0083) — the same retryable `.pending` handshake as
+`clone init --commit` and `send`/`edit`. A mid-flight failure leaves the
+preview retryable within its TTL; recovery is the same `--commit
+PREVIEW_ID`, not a fresh preview. Commit fail-closes (exit 2) if
 the live account/`source` peer no longer match the preview's
 `account_user_id` / `source_peer_id`, or if any eligible
 `{source_id,destination_id}` pair no longer matches the current posts-leg
@@ -1581,10 +1585,14 @@ declined.
 
 FloodWait during preview or commit exits 5 through the same request-governor
 per-type cooldown as `sync` and `init --commit`; there is no retry loop
-inside `refresh` (ADR-0072). Recovery is a **fresh** preview after the
-cooldown, not a retried `--commit` of the same already-consumed preview id
-(contrast `send`/`edit`'s `begin_commit` retry idiom). Posts already fixed no
-longer match eligibility, so a second run is a quiet no-op.
+inside `refresh` (ADR-0072). Distinguish recovery by when the flood hits:
+a FloodWait during the **preview** scan never creates a `.pending` preview
+or preview id — rerun the preview after the cooldown. A FloodWait during
+**commit** leaves the `.pending` preview retryable within its TTL
+(ADR-0083) — re-run the same `--commit PREVIEW_ID` once the cooldown lifts.
+An expired or finished preview needs a **fresh** preview scan. Posts already
+fixed no longer match eligibility, so a second successful run is a quiet
+no-op.
 
 A batch uses download/reupload reconstruction when the source or any message
 has `noforwards`, or when it has a mapped reply. Attributed reuploads prepend

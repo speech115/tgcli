@@ -156,18 +156,18 @@ def test_readme_random_id_guarantees_are_scoped_to_send_and_forward(tmp_path):
     )
 
 
-def test_readme_clone_commits_require_a_fresh_preview_after_failure(tmp_path):
+def test_readme_clone_commits_retry_the_same_preview_after_failure(tmp_path):
     readme = copy_with_replacement(
         tmp_path,
         ROOT / "README.md",
-        "If either commit fails, create a fresh preview before retrying",
-        "If either commit fails, retry the same preview id",
+        "retry the same preview id within its TTL",
+        "create a fresh preview before retrying",
     )
     result = run(ROOT / "CHANGELOG.md", readme=readme)
 
     assert result.returncode == 1
     assert (
-        "README.md: clone init/refresh retries must require a fresh preview"
+        "README.md: clone init/refresh retries must reuse the same preview id"
         in result.stdout
     )
 

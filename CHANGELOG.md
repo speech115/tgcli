@@ -11,6 +11,20 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [3.0.5] — 2026-08-13
+
+`clone refresh --commit` uses the same retryable `begin_commit` /
+`finish_commit` handshake as `clone init --commit` (ADR-0083). CONTRACT now
+distinguishes FloodWait recovery: preview floods need a fresh preview;
+commit floods retry the same `--commit PREVIEW_ID` within TTL. README /
+docs-gate wording for ADR-0083 same-id retry is aligned.
+
+Rationale: ADR-0083 (CONTRACT refresh).
+
+### Changed
+
+- Align CONTRACT refresh commit text with ADR-0083 (#246)
+
 ## [3.0.4] — 2026-08-13
 
 `tg media download` no longer publishes a short or sparse file as complete.
@@ -932,6 +946,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[3.0.5]: https://github.com/speech115/tgcli/compare/v3.0.4...v3.0.5
 [3.0.4]: https://github.com/speech115/tgcli/compare/v3.0.3...v3.0.4
 [3.0.3]: https://github.com/speech115/tgcli/compare/v3.0.2...v3.0.3
 [3.0.2]: https://github.com/speech115/tgcli/compare/v3.0.1...v3.0.2
