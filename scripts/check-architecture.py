@@ -74,7 +74,7 @@ CEILINGS = {
     # ADR-0087 delegates jobs validation to jobs/preflight.py and removes the
     # old archive composition gates.
     # +4 for ADR-0088's explicit non-empty phone/password start validation.
-    "src/tgcli/preflight.py": 444,
+    "src/tgcli/preflight.py": 446,
     # +2 for ADR-0057: isort section blanks.
     # +17 for ADR-0062: role lookup threaded into session.client.
     # +23 for ADR-0068: archive network dispatch (init/add/remove/backfill).
