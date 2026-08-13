@@ -692,10 +692,10 @@ def main(argv: list[str] | None = None) -> int:
             stop_reason = result_data.get("stop_reason")
         if stop_reason is not None:
             stop_fields = {"stop_reason": stop_reason}
-        elif exit_code != 0:
-            # A flood-family stop (refusal or unhandled flood) only counts
-            # when the run actually ended on it; a flood that was slept out
-            # and survived is not a flood-related exit (plan phase 6).
+        elif exit_code == 5 or error_code == "FLOOD_WAIT":
+            # CONTRACT §9 / thermos T16: flood metadata only on flood exits.
+            # A survived flood then NOT_FOUND/CONFIG/TIMEOUT must not inherit
+            # last_stop() fields from an earlier arm.
             stop_fields = pacing.last_stop() or {}
         else:
             stop_fields = {}
