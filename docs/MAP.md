@@ -37,7 +37,7 @@ tgcli/
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
 │   ├── thermos-audit-2026-08-13-backlog.md [done] ticket-ready backlog from whole-repo thermos audit (37 items)
 │   ├── thermos-audit-2026-08-13/ [done]   per-ticket bodies for scripts/publish-thermos-backlog.py
-│   ├── decisions/             [done]    ADR-0001…0088 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope; ADR-0079 transcribe readonly gate; ADR-0080 notes trimming; ADR-0081 diagnostics honesty; ADR-0082 per-leg clone sync; ADR-0083 floods keep finished work; ADR-0084 resume identifies its media; ADR-0085 clone reports the bot keyboard it cannot carry; ADR-0086 clone reports durable degradation before a later exit; ADR-0087 foreground persisted jobs; ADR-0088 phone-only authorization)
+│   ├── decisions/             [done]    ADR-0001…0091 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope; ADR-0079 transcribe readonly gate; ADR-0080 notes trimming; ADR-0081 diagnostics honesty; ADR-0082 per-leg clone sync; ADR-0083 floods keep finished work; ADR-0084 resume identifies its media; ADR-0085 clone reports the bot keyboard it cannot carry; ADR-0086 clone reports durable degradation before a later exit; ADR-0087 foreground persisted jobs; ADR-0088 phone-only authorization; ADR-0091 media download completeness)
 │   ├── research/              [done]    read-only investigation notes backing a wayfinder map's closed children
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
@@ -62,7 +62,7 @@ tgcli/
 │   ├── authclient.py          [done]    unauthorized Telethon client + auth probe (ADR-0042)
 │   ├── changes_cursor.py      [done]    opaque v1 cursor codec for tg changes (ADR-0063; pure)
 │   ├── login_state.py         [done]    logins/ attempt state and session promotion (ADR-0042)
-│   ├── transfer.py            [done]    striped download, serial resumable download, parallel Save*FilePart upload, media size/identity helpers, one progress cadence (ADR-0047/0049/0055/0083/0084)
+│   ├── transfer.py            [done]    striped download, serial resumable download, parallel Save*FilePart upload, media size/identity helpers, one progress cadence (ADR-0047/0049/0055/0083/0084/0091)
 │   ├── archive/               [done]    local archive store, media acquisition, and transcription (ADR-0068/0069)
 │   │   ├── store.py           [done]    schema v7, WAL, FTS5 text+transcripts, account/peer sync state, tombstones
 │   │   ├── media.py           [done]    bounded media paths, retry state, and terminal acquisition failures
@@ -127,7 +127,7 @@ tgcli/
 │   │   ├── identity.py        [done]    tg resolve / contacts / mutual-chats (ADR-0029/0032)
 │   │   ├── dialog.py          [done]    tg dialog pin/unpin/archive/mute (ADR-0029/0032)
 │   │   ├── thread.py          [done]    tg thread reply-chain read (ADR-0029)
-│   │   ├── media.py           [done]    tg media download|manifest (+ bulk ADR-0032; story links + --codec ADR-0076)
+│   │   ├── media.py           [done]    tg media download|manifest (+ bulk ADR-0032; story links + --codec ADR-0076; complete-publish + fsynced checkpoint ADR-0091)
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── draft.py           [done]    tg draft set|show|clear|list (ADR-0039)
 │   │   ├── mutate.py          [done]    tg edit|delete|forward preview / commit; tg mark-read|mark-unread (ADR-0028/0029)

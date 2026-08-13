@@ -392,6 +392,13 @@ one-line note on **stderr**. `resumed` is then `false`. A source that replaces
 the file behind a message used to have the new file's tail appended to the old
 file's head and published as complete.
 
+A stream that ends before `target.size` (server closed the connection, no
+error raised) never reaches the final name (ADR-0091, mirroring ADR-0083): the
+single-stream path exits 2 (`BLOCKED`) and keeps its checkpointed partial file
+for the next run's resume; `--parallel` exits 2 (`BLOCKED`) after the
+striped transfer refuses a short download and restarts from zero on the
+next run (ADR-0091).
+
 Story links `t.me/<user>/s/<id>` and `t.me/c/<channel_id>/s/<id>` download
 story media via `stories.getStoriesByID` (ADR-0076). A story source is single
 download only: combining it with bulk flags is exit 2. Video stories download
