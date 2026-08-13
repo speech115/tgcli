@@ -35,6 +35,8 @@ tgcli/
 │   ├── guide/                 [done]    user-facing task pages, 26 + index (ADR-0041/0065)
 │   ├── assets/                [done]    README banner, dark + light SVG, two manual jobs launchd templates (no external assets)
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
+│   ├── thermos-audit-2026-08-13-backlog.md [done] ticket-ready backlog from whole-repo thermos audit (37 items)
+│   ├── thermos-audit-2026-08-13/ [done]   per-ticket bodies for scripts/publish-thermos-backlog.py
 │   ├── decisions/             [done]    ADR-0001…0088 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope; ADR-0079 transcribe readonly gate; ADR-0080 notes trimming; ADR-0081 diagnostics honesty; ADR-0082 per-leg clone sync; ADR-0083 floods keep finished work; ADR-0084 resume identifies its media; ADR-0085 clone reports the bot keyboard it cannot carry; ADR-0086 clone reports durable degradation before a later exit; ADR-0087 foreground persisted jobs; ADR-0088 phone-only authorization)
 │   ├── research/              [done]    read-only investigation notes backing a wayfinder map's closed children
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
@@ -141,6 +143,7 @@ tgcli/
     ├── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
     ├── check-docs.py          [done]    guide + active-doc drift gate; CHANGELOG release links (ADR-0038/0041/0065)
     ├── prepare-release.py     [done]    integrator-only: version bump, CHANGELOG section, compare link (ADR-0074)
+    ├── publish-thermos-backlog.py [done] dry-run/apply publisher for docs/thermos-audit-2026-08-13 tickets
     ├── bench.py               [done]    representative 13-step live smoke benchmark
     ├── bench-clone-state.py   [done]    offline bf-19 benchmark: JSON rewrite vs SQLite/WAL (ADR-0060)
     ├── seed_demo_channel.py   [done]    manual demo-channel seeding for clone visual acceptance
