@@ -1,6 +1,6 @@
 import pytest
 
-from tgcli.config import load_config, resolve_account
+from tgcli.config import load_config, resolve_account, validate_session_stem
 from tgcli.errors import ConfigError
 
 SAMPLE = """
@@ -131,3 +131,42 @@ def test_resolve_unknown_alias_raises(config_file):
     config = load_config(config_file)
     with pytest.raises(ConfigError):
         resolve_account(config, "ghost")
+
+
+@pytest.mark.parametrize(
+    "session",
+    [
+        "../evil",
+        "a/../../etc/passwd",
+        "/etc/passwd",
+        "sub/dir",
+        "back\\slash",
+        "..",
+        "-flag",
+        "role@name",
+    ],
+)
+def test_path_escaping_session_stem_rejected_at_load(tmp_path, session):
+    """T07: a stem with a separator, '..', leading '-', or '@' could resolve
+    a session/lock file outside sessions/, weakening the 0700/0600 state
+    model — reject it before the account is ever built."""
+    path = tmp_path / "config.toml"
+    # A TOML literal string ('...') takes the value verbatim, so the
+    # backslash/slash cases need no TOML-level escaping here.
+    path.write_text(
+        f"[accounts.main]\napi_id = 1\napi_hash = \"x\"\nsession = '{session}'\n"
+    )
+    with pytest.raises(ConfigError, match="main"):
+        load_config(path)
+
+
+def test_empty_session_stem_rejected_at_load(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[accounts.main]\napi_id = 1\napi_hash = "x"\nsession = ""\n')
+    with pytest.raises(ConfigError, match="main"):
+        load_config(path)
+
+
+def test_null_byte_session_stem_rejected():
+    with pytest.raises(ConfigError, match="null byte"):
+        validate_session_stem("evil\x00null", "main")
