@@ -1,13 +1,14 @@
 import csv
 import json
 import os
+import shutil
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
 from telethon import errors as telethon_errors
 
-from tgcli import chatref
+from tgcli import atomic, chatref
 from tgcli.commands.read import _dialog_name, message_to_dict
 from tgcli.errors import ExportError, NotFoundError
 
@@ -24,22 +25,30 @@ _SEARCH_REFINE_ALPHABET = (
 
 
 @contextmanager
-def _atomic_text_destination(destination: Path):
+def _atomic_text_destination(
+    destination: Path, *, preserve_existing: bool = False
+):
     try:
         fd, temporary_name = tempfile.mkstemp(
             dir=destination.parent,
             prefix=f".{destination.name}.",
             suffix=".tmp",
-            text=True,
         )
     except OSError as exc:
         raise ExportError(f"cannot write export to {destination}: {exc}") from exc
 
     temporary = Path(temporary_name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+        with os.fdopen(fd, "wb") as raw_handle:
+            if preserve_existing and destination.exists():
+                with destination.open("rb") as source:
+                    shutil.copyfileobj(source, raw_handle)
+        with temporary.open("a", encoding="utf-8", newline="") as handle:
             yield handle
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(temporary, destination)
+        atomic._fsync_directory(destination.parent)
     except OSError as exc:
         raise ExportError(f"cannot write export to {destination}: {exc}") from exc
     finally:
@@ -135,33 +144,16 @@ async def export_messages(
     min_id = after_id or 0
 
     if append:
-        try:
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            with destination.open("a", encoding="utf-8", newline="") as handle:
-                async with _message_takeout(tg) as takeout:
-                    async for message in takeout.iter_messages(
-                        entity, limit=limit, reverse=True, min_id=min_id
-                    ):
-                        handle.write(
-                            json.dumps(
-                                message_to_dict(message, entity), ensure_ascii=False
-                            )
-                            + "\n"
-                        )
-                        count += 1
-        except OSError as exc:
-            raise ExportError(f"cannot write export to {destination}: {exc}") from exc
-    else:
-        with _atomic_text_destination(destination) as handle:
-            async with _message_takeout(tg) as takeout:
-                async for message in takeout.iter_messages(
-                    entity, limit=limit, reverse=True, min_id=min_id
-                ):
-                    handle.write(
-                        json.dumps(message_to_dict(message, entity), ensure_ascii=False)
-                        + "\n"
-                    )
-                    count += 1
+        destination.parent.mkdir(parents=True, exist_ok=True)
+    with _atomic_text_destination(destination, preserve_existing=append) as handle:
+        async with _message_takeout(tg) as takeout:
+            async for message in takeout.iter_messages(
+                entity, limit=limit, reverse=True, min_id=min_id
+            ):
+                handle.write(
+                    json.dumps(message_to_dict(message, entity), ensure_ascii=False) + "\n"
+                )
+                count += 1
 
     return _summary(
         "messages",
