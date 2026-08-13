@@ -69,7 +69,6 @@ def create_attempt(
     *,
     api_id: int,
     api_hash: str,
-    phone: str | None = None,
     role: str | None = None,
     now: datetime | None = None,
 ) -> dict:
@@ -88,10 +87,6 @@ def create_attempt(
     }
     path = _attempt_path(login_id)
     _write_attempt(path, record)
-    if phone is not None:
-        # Kept out of the attempt json (ADR-0042 §5, T08): a sidecar file at
-        # the same 0600 mode, cleaned up wherever the attempt itself is.
-        atomic.replace_text(_phone_path(login_id), phone)
     return record
 
 
@@ -122,11 +117,16 @@ def load_attempt(login_id: str, *, now: datetime | None = None) -> dict:
     return record
 
 
-def load_phone(login_id: str) -> str | None:
-    """Read the phone sidecar written by `create_attempt`, if any.
+def save_phone(login_id: str, phone: str) -> None:
+    """Persist the phone only after Telegram accepts the code request."""
+    atomic.replace_text(_phone_path(login_id), phone)
 
-    The attempt json never carries the phone (ADR-0042 §5); the continue
-    path resolves it from here instead.
+
+def load_phone(login_id: str) -> str | None:
+    """Read the restricted phone sidecar, if any.
+
+    Telegram requires the literal phone again for `auth.SignInRequest`; the
+    staged Telethon session does not retain it (ADR-0109).
     """
     path = _phone_path(login_id)
     if not path.is_file():

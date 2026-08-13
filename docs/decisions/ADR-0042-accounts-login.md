@@ -1,7 +1,8 @@
 # ADR-0042: `tg accounts login` — session (re)authorization, and the rest of the account lifecycle
 
 Date: 2026-07-24
-Status: accepted (QR start path removed by ADR-0088)
+Status: accepted (QR start path removed by ADR-0088; phone continuation
+sidecar governed by ADR-0109)
 
 ## Context
 

@@ -272,7 +272,6 @@ async def start_login(
         method,
         api_id=resolved_id,
         api_hash=resolved_hash,
-        phone=phone,
         role=role,
     )
     login_id = attempt["login_id"]
@@ -301,6 +300,7 @@ async def _phone_start(client, attempt: dict, *, phone: str) -> dict:
     phone_code_hash = sent.phone_code_hash
     if not isinstance(phone, str) or not isinstance(phone_code_hash, str):
         raise ConfigError("Telegram returned unexpected send_code_request types")
+    login_state.save_phone(attempt["login_id"], phone)
     login_state.update_attempt(attempt["login_id"], phone_code_hash=phone_code_hash)
     note(
         f"confirmation code sent to {mask_phone(phone)}; "

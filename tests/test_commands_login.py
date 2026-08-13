@@ -467,6 +467,7 @@ async def test_flood_wait_exit_5(env, fake_client):
             force=False,
         )
     assert excinfo.value.exit_code == 5
+    assert list((env["state"] / "logins").glob("l_*.phone")) == []
 
 
 @pytest.mark.asyncio
@@ -662,9 +663,7 @@ async def test_continue_password_flood_wait_keeps_attempt(
 
 @pytest.mark.asyncio
 async def test_continue_refuses_a_pending_removed_qr_attempt(env, fake_client):
-    record = login_state.create_attempt(
-        "tmp", "qr", api_id=1, api_hash="h", phone=PHONE
-    )
+    record = login_state.create_attempt("tmp", "qr", api_id=1, api_hash="h")
     login_id = record["login_id"]
     login_state.staged_session_path(login_id).write_bytes(b"staged")
     with pytest.raises(Exception) as excinfo:

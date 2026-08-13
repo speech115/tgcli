@@ -722,9 +722,10 @@ Preview buckets are classified from each file's stored `expires_at` (not mtime):
 `pending` = `.pending`. `previews_world_readable` counts preview files with any
 other-user permission bit set (legacy `0644` bodies). Login attempts under
 `logins/` are classified by `LOGIN_TTL` (30 minutes); `count` is the number of
-files in each attempt pair (json and staged session, plus journal when present)
-and `bytes` is their total size. `session_backups` reports
-`sessions/*.session.bak` and is never deleted by cleanup. `clones` aggregates
+files owned by each attempt (JSON, staged session, and optional session journal
+and restricted phone sidecar) and `bytes` is their total size.
+`session_backups` reports `sessions/*.session.bak` and is never deleted by
+cleanup. `clones` aggregates
 everything under `clones/` and additionally breaks out SQLite state files
 (`.db` / `.db-wal` / `.db-shm`) plus one-time JSON import backups
 (`.json.imported`, ADR-0060); `.imported` files are reported and never
@@ -749,10 +750,10 @@ tg store cleanup [--older-than Nd|Nh|N] [--include-pending] [--confirm]
 ```
 
 Reaps **spent** (`.used`) and **expired** (`.json` past TTL) previews under
-the state root, **expired** login attempts under `logins/` (json + staged
-session), and abandoned `clones/*-media/` directories (mtime-gated; never the
-clone's own `.json` state). Default is dry-run: stdout lists what would be
-removed and
+the state root, **expired** login attempts under `logins/` (JSON + staged
+session + optional journal and `0600` phone sidecar), and abandoned
+`clones/*-media/` directories (mtime-gated; never the clone's own `.json`
+state). Default is dry-run: stdout lists what would be removed and
 stderr prints a one-line `--confirm` hint. With `--confirm`, those files are
 deleted. Never touches `audit.jsonl`, `sessions/` (including `.bak`), live
 login attempts, live `.json` within TTL, clone state JSON, a media cache
@@ -1101,7 +1102,11 @@ existing session (or role) refuses without `--force` (exit 2) — including an
 orphan session file for an alias not yet in config. Promotion by atomic
 rename is the only writer of `sessions/<alias>.session` (or
 `sessions/<alias>@<role>.session`); attempt state lives under `logins/` and
-records the role when set.
+records the role when set. The raw phone is never written to attempt JSON.
+After Telegram accepts the code request, the value required by
+`auth.SignInRequest` is held only in an atomically written `0600`
+`logins/l_<login_id>.phone` sidecar (ADR-0109); promotion, discard, code expiry,
+and expired-attempt `store cleanup` delete it with the staged attempt.
 
 There is no QR path, login token output, `tg://login` handoff, or QR-attempt
 compatibility. A pending attempt created by a removed method is exit **4** and
