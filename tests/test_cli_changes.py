@@ -63,6 +63,14 @@ def _msg(*, mid=1, peer=None, text="hi", edit_date=None):
     )
 
 
+def _main_binding_key() -> bytes:
+    return changes_cursor.account_binding_key(alias="main", api_id=1, api_hash="h")
+
+
+def _bound_cursor(cursor: ChangesCursor) -> str:
+    return changes_cursor.encode(cursor, binding_key=_main_binding_key())
+
+
 class FakeTg:
     def __init__(self, handler):
         self.handler = handler
@@ -397,8 +405,10 @@ async def test_wait_settle_uses_fake_clock(monkeypatch):
         raise AssertionError(type(request))
 
     tg = FakeTg(handler)
-    cursor = changes_cursor.encode(ChangesCursor(pts=1, qts=0, date=0, seq=0))
-    data = await changes_cmd.run_changes(tg, cursor_text=cursor, wait=5.0)
+    cursor = _bound_cursor(ChangesCursor(pts=1, qts=0, date=0, seq=0))
+    data = await changes_cmd.run_changes(
+        tg, cursor_text=cursor, binding_key=_main_binding_key(), wait=5.0
+    )
     assert [e["message"]["id"] for e in data["events"]] == [1, 2]
     assert clock["t"] <= 5.0 + 1e-9
     assert any(s <= changes_cmd.SETTLE_SECONDS for s in sleeps)
@@ -437,7 +447,7 @@ def test_cli_wait_has_no_implicit_deadline(config_env, monkeypatch, capsys):
         yield tg
 
     monkeypatch.setattr(session, "client", fake_session)
-    cursor = changes_cursor.encode(ChangesCursor(pts=1, qts=0, date=0, seq=0))
+    cursor = _bound_cursor(ChangesCursor(pts=1, qts=0, date=0, seq=0))
 
     assert main(["changes", "--cursor", cursor, "--wait", "120", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
@@ -496,7 +506,7 @@ def test_drop_unsubscribed_peer_exits_2(config_env, monkeypatch, capsys):
         yield tg
 
     monkeypatch.setattr(session, "client", fake_session)
-    cursor = changes_cursor.encode(ChangesCursor(pts=1, qts=0, date=0, seq=0))
+    cursor = _bound_cursor(ChangesCursor(pts=1, qts=0, date=0, seq=0))
     assert main(["changes", "--cursor", cursor, "--drop-peer", "@c", "--json"]) == 2
     assert "not a subscribed" in capsys.readouterr().err
 
@@ -536,9 +546,7 @@ def test_cli_init_returns_account_bound_cursor(config_env, monkeypatch, capsys):
     assert cursor.startswith("v2:")
 
 
-def test_cli_refuses_forged_cursor_channel_map(
-    config_env, monkeypatch, capsys
-):
+def test_cli_refuses_forged_cursor_channel_map(config_env, monkeypatch, capsys):
     async def handler(request, tg):
         if isinstance(request, GetStateRequest):
             return _state()
@@ -562,9 +570,7 @@ def test_cli_refuses_forged_cursor_channel_map(
     assert tg.requests == []
 
 
-def test_cli_refuses_cursor_bound_to_another_account(
-    config_env, monkeypatch, capsys
-):
+def test_cli_refuses_cursor_bound_to_another_account(config_env, monkeypatch, capsys):
     async def handler(request, tg):
         if isinstance(request, GetStateRequest):
             return _state()
@@ -579,9 +585,7 @@ def test_cli_refuses_cursor_bound_to_another_account(
     cursor = json.loads(capsys.readouterr().out)["next_cursor"]
     tg.requests.clear()
 
-    assert (
-        main(["--account", "other", "changes", "--cursor", cursor, "--json"]) == 2
-    )
+    assert main(["--account", "other", "changes", "--cursor", cursor, "--json"]) == 2
     captured = capsys.readouterr()
     assert "bound to this account" in captured.err
     assert tg.requests == []
@@ -629,7 +633,7 @@ def test_regular_call_peer_adds_baseline_no_replay(config_env, monkeypatch, caps
     tg.entities["@c"] = channel
     _fake_session(monkeypatch, tg)
 
-    cursor = changes_cursor.encode(ChangesCursor(pts=1, qts=0, date=0, seq=0))
+    cursor = _bound_cursor(ChangesCursor(pts=1, qts=0, date=0, seq=0))
     assert main(["changes", "--cursor", cursor, "--peer", "@c", "--json"]) == 0
     captured = capsys.readouterr()
     assert f"subscribed {peer} at pts 55 (no history replay)" in captured.err
@@ -665,7 +669,7 @@ def test_regular_call_peer_already_subscribed_is_idempotent(
     tg.entities["@c"] = channel
     _fake_session(monkeypatch, tg)
 
-    cursor = changes_cursor.encode(
+    cursor = _bound_cursor(
         ChangesCursor(pts=1, qts=0, date=0, seq=0, channels={peer: 3})
     )
     assert main(["changes", "--cursor", cursor, "--peer", "@c", "--json"]) == 0
@@ -701,7 +705,7 @@ def test_regular_call_drop_peer_removes_from_persisted_cursor(
     tg.entities["@c"] = channel
     _fake_session(monkeypatch, tg)
 
-    cursor = changes_cursor.encode(
+    cursor = _bound_cursor(
         ChangesCursor(pts=1, qts=0, date=0, seq=0, channels={peer: 3})
     )
     assert main(["changes", "--cursor", cursor, "--drop-peer", "@c", "--json"]) == 0
