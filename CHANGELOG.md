@@ -11,6 +11,20 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [3.0.1] — 2026-08-13
+
+A degraded governor ledger no longer fails open for authenticated Telegram
+traffic. When `governor.db` cannot be opened, governed RPCs refuse with
+`PolicyError` (exit 2) and `tg doctor` reports `governor_degraded: true` with
+`ok: false`. Pre-auth traffic and `doctor --connect` stay ungated so the
+failure remains diagnosable.
+
+Rationale: ADR-0089.
+
+### Changed
+
+- Fail closed when the governor ledger is degraded (ADR-0089) (#242)
+
 ## [3.0.0] — 2026-08-11
 
 `tg jobs` now persists four typed workloads — archive backfill, archive sync,
@@ -877,6 +891,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[3.0.1]: https://github.com/speech115/tgcli/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/speech115/tgcli/compare/v2.0.7...v3.0.0
 [2.0.7]: https://github.com/speech115/tgcli/compare/v2.0.6...v2.0.7
 [2.0.6]: https://github.com/speech115/tgcli/compare/v2.0.5...v2.0.6
