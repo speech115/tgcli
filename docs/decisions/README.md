@@ -100,6 +100,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0091](ADR-0091-media-download-completeness.md) | `media download`'s serial loop requires `current == size` before publishing and fsyncs its part file before each checkpoint; `transfer.download_striped` raises and unlinks when its own downloaded-byte counter falls short of `size`, since the pre-allocated file's on-disk size cannot prove completeness — mirrors ADR-0083 decisions 1 and 3 onto the one download path they did not reach | accepted; thermos audit T03 |
 | [0092](ADR-0092-api-write-auth-account-namespace-deny.md) | `tg api --write` wholesale-denies `auth.*`/`account.*` (mirrors ADR-0010's read-path exclusion), not just the four named `HARD_DENYLIST` methods | accepted; thermos audit T04 |
 | [0093](ADR-0093-login-phone-continuation-sidecar.md) | Pending phone login keeps the raw phone only in an atomic `0600` sidecar required by Telegram sign-in; every attempt inventory and deletion path owns it | accepted; thermos T08 / PR #248 review |
+| [0094](ADR-0094-store-cleanup-login-lock-uncertainty.md) | `store cleanup` probes a staged login's existing lock directly and treats every result except definitely free, including `flock` errors, as busy | accepted |
 
 Notes on supersessions:
 
