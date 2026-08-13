@@ -44,6 +44,7 @@ from tgcli.archive import (
 from tgcli.changes_cursor import ChangesCursor
 from tgcli.cli import main
 from tgcli.commands import archive as archive_cmd
+from tgcli.governor import pacing
 
 SAMPLE = """
 default_account = "main"
@@ -207,6 +208,73 @@ def test_backfill_persists_identity_for_private_peer(config_env, monkeypatch, ca
         assert state["username"] == "alice"
         assert state["chat_ref"] == "@alice"
         assert state["title"] == "Alice"
+    finally:
+        conn.close()
+
+
+def test_backfill_max_runtime_does_not_start_media_tail(
+    config_env, monkeypatch, capsys
+):
+    user = _user()
+    client = _client(
+        entities={"@alice": user, 7: user},
+        messages=[_msg(mid=1, text="hi")],
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        store_mod.upsert_message(
+            conn,
+            7,
+            {
+                "id": 99,
+                "date": "2026-01-02T00:00:00+00:00",
+                "text": "pending voice",
+                "from": {"id": 7},
+                "media": "MessageMediaDocument",
+                "media_info": {"mime": "audio/ogg", "size": 10},
+                "media_kind": "voice",
+            },
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    downloads = []
+
+    async def unexpected_download(_tg, source, *_args, **_kwargs):
+        downloads.append(source.message_id)
+        raise AssertionError("expired backfill must not start media")
+
+    monkeypatch.setattr(sync_mod.media_cmd, "download_media", unexpected_download)
+    monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: 0.0)
+
+    assert (
+        main(
+            [
+                "archive",
+                "backfill",
+                "@alice",
+                "--max-runtime",
+                "0.001",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    data = json.loads(capsys.readouterr().out)
+    assert data["stop_reason"] == "wall_clock_cap"
+    assert data["media"]["downloaded"] == 0
+    assert data["media"]["failed"] == []
+    assert data["media"]["remaining"] is True
+    assert downloads == []
+
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        assert store_mod.transcript_row(conn, 7, 99)["media_attempts"] == 0
     finally:
         conn.close()
 
@@ -847,6 +915,112 @@ def test_remove_drops_channel_from_changes_cursor(config_env, monkeypatch, capsy
         isinstance(request, GetChannelDifferenceRequest)
         for request in client.call_requests
     )
+
+
+def test_sync_max_runtime_stops_before_catchup_and_media(
+    config_env, monkeypatch, capsys
+):
+    channel = Channel(
+        id=1234,
+        title="News",
+        photo=None,
+        date=datetime(2026, 1, 1, tzinfo=UTC),
+        access_hash=99,
+        megagroup=False,
+        username="news",
+    )
+    peer = utils.get_peer_id(channel)
+    client = _client(
+        entities={peer: channel},
+        messages=[
+            Message(
+                id=10,
+                peer_id=PeerChannel(1234),
+                message="must stay deferred",
+                date=datetime(2026, 1, 4, tzinfo=UTC),
+                out=False,
+            )
+        ],
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+
+    cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        store_mod.add_scope(
+            conn,
+            peer_id=peer,
+            kind="channel",
+            title="News",
+            username="news",
+            chat_ref="@news",
+        )
+        store_mod.upsert_sync_state(
+            conn,
+            peer,
+            oldest_id=1,
+            newest_id=5,
+            more=False,
+            kind="channel",
+            title="News",
+            username="news",
+            chat_ref="@news",
+        )
+        store_mod.upsert_message(
+            conn,
+            peer,
+            {
+                "id": 9,
+                "date": "2026-01-03T00:00:00+00:00",
+                "text": "pending voice",
+                "from": {"id": 7},
+                "media": "MessageMediaDocument",
+                "media_info": {"mime": "audio/ogg", "size": 10},
+                "media_kind": "voice",
+            },
+        )
+        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
+        conn.commit()
+    finally:
+        conn.close()
+
+    async def keep_subscriptions(_tg, _conn, current):
+        return current
+
+    async def one_activity(_tg, current, **_kwargs):
+        return (
+            {
+                "events": [{"type": "channel_activity", "peer": peer}],
+                "gap": None,
+                "skipped": {},
+            },
+            current,
+            [],
+        )
+
+    downloads = []
+
+    async def unexpected_download(_tg, source, *_args, **_kwargs):
+        downloads.append(source.message_id)
+        raise AssertionError("expired sync must not start media")
+
+    monkeypatch.setattr(sync_mod, "_ensure_channel_subscriptions", keep_subscriptions)
+    monkeypatch.setattr(sync_mod.changes_cmd, "once", one_activity)
+    monkeypatch.setattr(sync_mod.media_cmd, "download_media", unexpected_download)
+    monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: 0.0)
+
+    assert main(["archive", "sync", "--max-runtime", "0.001", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["stop_reason"] == "wall_clock_cap"
+    assert data["catchups"] == []
+    assert data["media"]["downloaded"] == 0
+    assert data["media"]["failed"] == []
+    assert data["media"]["remaining"] is True
+    assert data["remaining"] is True
+    assert client.iter_messages_calls == []
+    assert downloads == []
 
 
 def test_remove_keeps_scope_when_changes_cursor_is_corrupt(

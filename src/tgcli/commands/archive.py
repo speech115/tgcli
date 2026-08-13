@@ -256,6 +256,7 @@ async def backfill(
     private: bool = False,
     max_dialogs: int | None = None,
     config: Config | None = None,
+    should_stop=None,
 ) -> dict:
     backfill_mod.validate_private_mode(private=private, chats=chats)
     limit = backfill_mod.validate_limit(
@@ -305,6 +306,7 @@ async def backfill(
             account_user_id=int(me.id),
             account_dir=account_dir(alias, config),
             limit=DEFAULT_SYNC_MEDIA,
+            should_stop=should_stop,
         )
         data["remaining"] = bool(
             any(item["more"] for item in data["dialogs"])

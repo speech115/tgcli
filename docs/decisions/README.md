@@ -113,6 +113,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0104](ADR-0104-clone-lookup-uses-peer-class-tokens.md) | Numeric clone filters match the canonical token for the recorded source peer class: raw user id, negative basic-group id, or `-100`-marked channel id; cross-class aliases are refused | accepted; thermos T18; depends on ADR-0103 |
 | [0105](ADR-0105-clone-json-import-crash-safety.md) | Clone JSON→SQLite import renames the JSON to `.importing` before the SQLite write, not `.imported` after it, so a crash mid-import resumes on the next `load()` instead of fail-closing as an ambiguous both-files conflict | accepted; T06 |
 | [0106](ADR-0106-reupload-cache-clears-after-save.md) | The clone reupload media cache clears once, after `confirmed_destination_ids` and `state.save` both succeed, instead of right after the send RPC — an unconfirmed or unsaved batch keeps its downloaded bytes | accepted; amends ADR-0052 decision 7 (thermos T12) |
+| [0107](ADR-0107-archive-max-runtime-stop.md) | Archive CLI sync/backfill and job quanta honor `--max-runtime` through `fetch_media`; stop_reason wall_clock_cap | accepted; thermos T10 |
 
 Notes on supersessions:
 

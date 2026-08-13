@@ -26,6 +26,12 @@ from tgcli.commands import (
     transcribe as transcribe_cmd,
 )
 from tgcli.errors import PolicyError, RateLimitError
+from tgcli.governor import pacing
+
+
+def _wall_clock_exhausted() -> bool:
+    remaining = pacing.wall_clock_remaining()
+    return remaining is not None and remaining <= 0
 
 
 async def run_network(args, account) -> tuple[dict, list[tuple]]:
@@ -228,6 +234,7 @@ async def _run_archive(tg, args, account) -> tuple[dict, list[tuple]]:
             limit=getattr(args, "limit", None),
             private=bool(getattr(args, "private", False)),
             max_dialogs=getattr(args, "max_dialogs", None),
+            should_stop=_wall_clock_exhausted,
         )
         return data, archive_cmd.backfill_rows(data)
     if cmd == "sync":
@@ -237,7 +244,10 @@ async def _run_archive(tg, args, account) -> tuple[dict, list[tuple]]:
             max_events=getattr(args, "max_events", None),
             max_dialogs=getattr(args, "max_dialogs", None),
             max_media=getattr(args, "max_media", None),
+            should_stop=_wall_clock_exhausted,
         )
+        if data.get("remaining") and _wall_clock_exhausted():
+            data["stop_reason"] = "wall_clock_cap"
         return data, archive_cmd.sync_rows(data)
     if cmd == "rebaseline":
         data = await archive_cmd.rebaseline(tg, alias)
