@@ -22,12 +22,13 @@ Bodies live under `docs/thermos-audit-2026-08-13/tickets/`.
 | P0 | 4 | Safety / account-risk; fix first | landed on `main` |
 | P1 | 9 | Data integrity / contract holes | landed on `main` |
 | P2 | 12 | Ops hygiene / smaller bugs / spec drift | landed on `main` |
-| Debt | 12 | Structural; often needs ADR / owner call | 4 on `main`; T28–T37 in Wave E PRs |
+| Debt | 12 | Structural; often needs ADR / owner call | all landed on `main` (#272–#280) |
 
-Owner request «Доделай все» opened Wave E (plan
-`docs/plans/2026-08-13-thermos-debt-wave-e.md`). Bug tickets T01–T25 are in
-code; remaining conscious engineering work is the debt PR queue plus the
-export `fsync_directory` smell PR.
+Owner request «Доделай все» closed Wave E (plan
+`docs/plans/2026-08-13-thermos-debt-wave-e.md`). Bug tickets T01–T25 and
+structural debt T26–T37 (plus the export `fsync_directory` smell) are in
+code on `main`. GitHub issue create for the ticket bodies remains optional
+owner-side work (`issues:write`).
 
 ## Dependency sketch
 
@@ -122,26 +123,28 @@ Read path, CLI shell, Gates & contract surface.
 
 | ID | Branch / PR | ADR | Notes |
 |----|-------------|-----|-------|
-| T26 | merged (session lock) | ADR-0105 / ADR-0099 | on `main` |
-| T27 | merged (preview→commit) | ADR-0111 | on `main` |
-| T28 | `cursor/clone-send-split-a379` (#274) | ADR-0112 | PR open |
-| T29 | `cursor/jobs-store-split-a379` (#275) | ADR-0113 | PR open |
-| T30 | `cursor/archive-store-split-a379` (#278) | ADR-0116 | PR open |
-| T31 | merged (media resumable) | — | on `main` |
-| T32 | `cursor/cli-archive-extract-a379` (#277) | ADR-0115 | PR open |
-| T33 | `cursor/jobkind-registry-a379` (#276) | ADR-0114 | PR open |
-| T34 | merged (gate hardening) | ADR-0110 | on `main` |
-| T35 | `cursor/changes-decompose-a379` (#273) | — | PR open |
-| T36 | `cursor/breadth-atomic-a379` (#279) | ADR-0117 | PR open |
-| T37 | `cursor/private-backfill-cursor-a379` (#280) | ADR-0118 | PR open |
-| smell | `cursor/export-fsync-public-a379` (#272) | — | public `fsync_directory` |
+| T26 | merged | ADR-0105 / ADR-0099 | on `main` |
+| T27 | merged | ADR-0111 | on `main` |
+| T28 | #274 | ADR-0112 | on `main` |
+| T29 | #275 | ADR-0113 | on `main` |
+| T30 | #278 | ADR-0116 | on `main` |
+| T31 | merged | — | on `main` |
+| T32 | #277 | ADR-0115 | on `main` |
+| T33 | #276 | ADR-0114 | on `main` |
+| T34 | merged | ADR-0110 | on `main` |
+| T35 | #273 | — | on `main` |
+| T36 | #279 | ADR-0117 | on `main` |
+| T37 | #280 | ADR-0118 | on `main` |
+| smell | #272 | — | public `fsync_directory` on `main` |
 
 GitHub issue create remains blocked for cloud tokens (`issues:write`); ticket
 bodies stay under `docs/thermos-audit-2026-08-13/tickets/` for
-`scripts/publish-thermos-backlog.py --apply` when available.
+`scripts/publish-thermos-backlog.py --apply` when an owner token has that
+scope. Dry-run works; `--apply` fails without `issues:write`.
 
 ## Reviews (Wave E)
 
 Independent Spec+Standards + thermos security/quality completed 2026-08-13.
-See `docs/devlog/2026-08-13-wave-e-reviews.md`. Confirmed blockers fixed on
-#280 tip; #276 dead field removed. GitHub CI red = billing, not gate.
+See `docs/devlog/2026-08-13-wave-e-reviews.md` and
+`docs/devlog/2026-08-13-wave-e-merge.md`. Confirmed blockers fixed before
+merge. GitHub CI red = billing, not gate.
