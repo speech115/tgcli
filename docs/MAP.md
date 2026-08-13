@@ -61,7 +61,7 @@ tgcli/
 │   ├── desktop.py             [done]    osascript escape hatch for secrets and best-effort notifications (ADR-0042/0087)
 │   ├── authclient.py          [done]    unauthorized Telethon client + auth probe (ADR-0042)
 │   ├── changes_cursor.py      [done]    opaque v1 cursor codec for tg changes (ADR-0063; pure)
-│   ├── login_state.py         [done]    logins/ attempt state, restricted phone sidecar, and session promotion (ADR-0042/0109)
+│   ├── login_state.py         [done]    logins/ attempt state, restricted phone sidecar, and session promotion (ADR-0042/0114)
 │   ├── transfer.py            [done]    striped download, serial resumable download, parallel Save*FilePart upload, media size/identity helpers, one progress cadence (ADR-0047/0049/0055/0083/0084/0091)
 │   ├── archive/               [done]    local archive store, media acquisition, and transcription (ADR-0068/0069)
 │   │   ├── store.py           [done]    schema v7, WAL, FTS5 text+transcripts, account/peer sync state, tombstones
