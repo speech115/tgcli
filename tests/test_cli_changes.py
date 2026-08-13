@@ -476,7 +476,7 @@ def test_cli_init_json(config_env, monkeypatch, capsys):
     assert main(["changes", "--init", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["events"] == []
-    assert data["next_cursor"].startswith("v1:")
+    assert data["next_cursor"].startswith("v2:")
     changes_cursor.decode(data["next_cursor"])
 
 
