@@ -677,6 +677,13 @@ Allowlisted `op` values:
 `media.manifest`, `thread`, `draft.show`, `draft.list`. Mutations, `doctor`, `export`, `clone`,
 `media.download`, `api`, and `accounts` are rejected (exit 2).
 
+A bool field (`unread_only`, `all`, `full`, `global`, `replies`) accepts only
+a real JSON `true`/`false` — a string (`"false"`), a number, or anything else
+is exit 2 (`BLOCKED`) for that op, never a truthy fallthrough. An int field
+(`limit`, `before_id`, `after_id`, `topic`, `message_id`, `context`, `depth`)
+accepts only a real JSON integer; a JSON `true`/`false` (an `int` subclass in
+Python) or any non-integer value is the same exit 2 (`BLOCKED`) (ADR-0096).
+
 Each stdout line is `{"ok":true,"op":"…","data":{…}}` or
 `{"ok":false,"op":"…","error":{"code":"…","message":"…"}}`. Process exit is
 **0 only if every op succeeded**; otherwise the first failure's exit code
