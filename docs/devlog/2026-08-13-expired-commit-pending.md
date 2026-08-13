@@ -4,7 +4,9 @@
 pending renamed back for default cleanup. Tests in `test_safety` /
 `test_commands_store`. Thermos T13.
 
-**Decided:** Small-fix restoring preview TTL intent; no ADR.
+**Decided:** Safety behavior (preview→commit) is a full-lane trigger per
+AGENTS.md regardless of size; added ADR-0097 rather than treating this as
+a plain small-fix.
 
 **Learned:** none.
 
