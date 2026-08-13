@@ -121,6 +121,30 @@ def test_untranslated_failure_reports_through_stderr_in_plain_mode(
     assert captured.err == "error: connection to Telegram failed\n"
 
 
+def test_untranslated_failure_masks_phones_in_json_and_stderr(env, monkeypatch, capsys):
+    _fails_with(monkeypatch, ConnectionError("failed for +79991234567"))
+
+    assert main(["dialogs", "--json"]) == 1
+
+    captured = capsys.readouterr()
+    envelope = json.loads(captured.out)
+    assert envelope == {"error": {"code": "RUNTIME", "message": "failed for +7…67"}}
+    assert "79991234567" not in captured.out
+    assert "79991234567" not in captured.err
+    assert json.loads(captured.err.splitlines()[-1]) == envelope
+
+
+def test_untranslated_failure_masks_phones_in_plain_mode(env, monkeypatch, capsys):
+    _fails_with(monkeypatch, ConnectionError("failed for +79991234567"))
+
+    assert main(["dialogs", "--plain"]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: failed for +7…67\n"
+    assert "79991234567" not in captured.err
+
+
 def test_untranslated_failure_shows_the_traceback_only_under_verbose(
     env, monkeypatch, capsys
 ):

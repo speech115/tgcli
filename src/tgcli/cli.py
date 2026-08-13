@@ -32,6 +32,7 @@ from tgcli.commands import (
 )
 from tgcli.config import load_config, resolve_account
 from tgcli.errors import CommandTimeoutError, PartialFailure, TgcliError
+from tgcli.formatting import mask_phones_in_text
 from tgcli.jobs import preflight as jobs_preflight, store as jobs_store
 from tgcli.parser import build_parser
 
@@ -669,7 +670,8 @@ def main(argv: list[str] | None = None) -> int:
             traceback.print_exc()
         with _tolerate_hangup():
             output.emit_error(
-                TgcliError(str(err) or type(err).__name__), as_json=args.json
+                TgcliError(mask_phones_in_text(str(err) or type(err).__name__)),
+                as_json=args.json,
             )
     except BaseException as err:
         # An abnormal unwind (SIGINT) must not leave the journal claiming the

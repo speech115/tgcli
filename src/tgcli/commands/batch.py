@@ -9,6 +9,7 @@ from telethon import errors as telethon_errors
 
 from tgcli import read_ops
 from tgcli.errors import PolicyError, RateLimitError, TgcliError
+from tgcli.formatting import mask_phones_in_text
 
 BATCH_OP_CAP = 100
 
@@ -86,7 +87,10 @@ async def run_batch(
                 {
                     "ok": False,
                     "op": op,
-                    "error": {"code": "RUNTIME", "message": str(exc)},
+                    "error": {
+                        "code": "RUNTIME",
+                        "message": mask_phones_in_text(str(exc)),
+                    },
                 }
             )
             if first_exit is None:

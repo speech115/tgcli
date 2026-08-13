@@ -12,7 +12,7 @@ from tgcli.cli import main
 from tgcli.commands import login as login_cmd
 from tgcli.config import load_config
 from tgcli.errors import ConfigError, PolicyError
-from tgcli.formatting import mask_phone
+from tgcli.formatting import mask_phone, mask_phones_in_text
 
 SAMPLE = """
 default_account = "main"
@@ -113,6 +113,20 @@ def test_mask_phone_shapes():
     assert mask_phone("12") == "…12"
     assert mask_phone("") == ""
     assert mask_phone(None) == ""
+
+
+def test_mask_phones_in_text_redacts_embedded_phones():
+    text = "PhoneNumberInvalidError for +79991234589 (caller +12025550123)"
+    masked = mask_phones_in_text(text)
+    assert masked == "PhoneNumberInvalidError for +7…89 (caller +1…23)"
+    assert "79991234589" not in masked
+    assert "2025550123" not in masked
+
+
+def test_mask_phones_in_text_leaves_non_phone_text_untouched():
+    text = "connection to Telegram failed"
+    assert mask_phones_in_text(text) == text
+    assert mask_phones_in_text("") == ""
 
 
 @pytest.mark.asyncio

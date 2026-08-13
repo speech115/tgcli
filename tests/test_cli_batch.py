@@ -229,6 +229,30 @@ def test_batch_media_manifest_rejects_unknown_type(config_env, monkeypatch, caps
     )
 
 
+def test_batch_masks_phones_in_runtime_error_message(config_env, monkeypatch, capsys):
+    client = FakeClient(dialogs=[make_dialog()])
+    make_session_fake(monkeypatch, client)
+
+    async def boom():
+        raise ConnectionError("failed for +79991234567")
+        yield
+
+    client.iter_dialogs = boom
+    monkeypatch.setattr(
+        "sys.stdin",
+        type(
+            "S",
+            (),
+            {"read": lambda self: json.dumps({"op": "dialogs", "limit": 1}) + "\n"},
+        )(),
+    )
+
+    assert main(["batch"]) == 1
+    line = json.loads(capsys.readouterr().out.splitlines()[0])
+    assert line["ok"] is False
+    assert line["error"] == {"code": "RUNTIME", "message": "failed for +7…67"}
+
+
 def test_batch_maps_flood_wait_to_exit_5(config_env, monkeypatch, capsys):
     from telethon import errors as telethon_errors
 

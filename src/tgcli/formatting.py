@@ -14,6 +14,8 @@ Formats:
               expandable quote, spoiler, code/pre, links, custom emoji.
 """
 
+import re
+
 from telethon.extensions import markdown
 from telethon.extensions.html import HTMLToTelegramParser
 from telethon.helpers import add_surrogate, del_surrogate, strip_text
@@ -139,3 +141,15 @@ def mask_phone(phone: str | None) -> str:
     if len(phone) <= 4:
         return "…" + phone[-2:] if len(phone) >= 2 else "…"
     return f"{phone[:2]}…{phone[-2:]}"
+
+
+# The only phone shape this CLI ever accepts or prints (CONTRACT §9 REF,
+# ADR-0042): a leading `+` followed by digits. Free-form exception text
+# (Telethon RPC/network errors) is scanned for this shape only, so bare
+# numeric ids and message ids are left untouched.
+_EMBEDDED_PHONE = re.compile(r"\+\d{4,15}")
+
+
+def mask_phones_in_text(text: str) -> str:
+    """Redact `+<digits>` phone-shaped substrings inside free-form text."""
+    return _EMBEDDED_PHONE.sub(lambda match: mask_phone(match.group()), text)
