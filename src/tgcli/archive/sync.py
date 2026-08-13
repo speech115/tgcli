@@ -367,6 +367,25 @@ async def fetch_media(
     }
 
 
+def drop_channel_subscription(conn: sqlite3.Connection, peer_id: int) -> bool:
+    """Unsubscribe ``peer_id`` from the persisted account changes cursor.
+
+    Mirrors ``_ensure_channel_subscriptions`` in the other direction: once a
+    channel leaves explicit scope, ``archive sync`` must stop paying the
+    ``GetChannelDifference`` cost for it. A no-op when no cursor has been
+    initialized yet or the peer was never subscribed.
+    """
+    account = store_mod.read_account_sync(conn)
+    if not account["changes_cursor"]:
+        return False
+    cursor = changes_cursor.decode(account["changes_cursor"])
+    if peer_id not in cursor.channels:
+        return False
+    cursor = changes_cursor.without_channel(cursor, peer_id)
+    store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
+    return True
+
+
 async def _ensure_channel_subscriptions(
     tg, conn: sqlite3.Connection, cursor: ChangesCursor
 ) -> ChangesCursor:

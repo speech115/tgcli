@@ -9,7 +9,11 @@ from types import SimpleNamespace
 import pytest
 from telethon import utils
 from telethon.tl.functions.channels import GetFullChannelRequest
-from telethon.tl.functions.updates import GetDifferenceRequest, GetStateRequest
+from telethon.tl.functions.updates import (
+    GetChannelDifferenceRequest,
+    GetDifferenceRequest,
+    GetStateRequest,
+)
 from telethon.tl.types import (
     Channel,
     Message,
@@ -22,6 +26,7 @@ from telethon.tl.types import (
 )
 from telethon.tl.types.updates import (
     Difference,
+    DifferenceEmpty,
     DifferenceTooLong,
     State,
 )
@@ -676,6 +681,82 @@ def test_sync_channel_activity_catchup_for_scoped_channel(
         assert row["text"] == "caught up"
     finally:
         conn.close()
+
+
+def test_remove_drops_channel_from_changes_cursor(config_env, monkeypatch, capsys):
+    """T09: remove must unsubscribe the channel from the persisted cursor.
+
+    Otherwise a later `archive sync` keeps polling `GetChannelDifference`
+    for a channel that already left explicit scope.
+    """
+    channel = Channel(
+        id=1234,
+        title="News",
+        photo=None,
+        date=datetime(2026, 1, 1, tzinfo=UTC),
+        access_hash=99,
+        megagroup=False,
+        username="news",
+    )
+    peer = utils.get_peer_id(channel)
+
+    class NoChannelPollClient(FakeClient):
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, GetStateRequest):
+                return _state(pts=5, qts=1, seq=1)
+            if isinstance(request, GetDifferenceRequest):
+                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=1)
+            if isinstance(request, GetChannelDifferenceRequest):
+                raise AssertionError(
+                    "archive sync must not poll a channel dropped by remove"
+                )
+            raise AssertionError(request)
+
+    client = NoChannelPollClient(
+        me=_me(), entities={peer: channel, 1234: channel, "@news": channel}
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    path = archive_cmd.db_path("main")
+    conn = store_mod.connect(path)
+    try:
+        store_mod.add_scope(
+            conn,
+            peer_id=peer,
+            kind="channel",
+            title="News",
+            username="news",
+            chat_ref="@news",
+        )
+        # Simulate an earlier sync that already subscribed this channel.
+        cursor = ChangesCursor(
+            pts=5, qts=1, date=1_735_689_600, seq=1, channels={peer: 3}
+        )
+        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert main(["archive", "remove", "@news", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["removed"]["kind"] == "channel"
+
+    conn = store_mod.connect(path)
+    try:
+        encoded = store_mod.read_account_sync(conn)["changes_cursor"]
+        assert encoded is not None
+        decoded = changes_cursor.decode(encoded)
+        assert peer not in decoded.channels
+    finally:
+        conn.close()
+
+    assert main(["archive", "sync", "--json"]) == 0
+    assert not any(
+        isinstance(request, GetChannelDifferenceRequest)
+        for request in client.call_requests
+    )
 
 
 def test_sync_new_private_dialog_enters_sync_state(config_env, monkeypatch, capsys):
