@@ -5,8 +5,10 @@ Two things happen around every Telegram request, and the order matters:
 * **before dispatch** — if this request type is cooling, refuse here. No RPC
   leaves. The incident's cost was not one flood but an agent retrying into a
   live penalty, so the cheapest correct behaviour is to never send at all.
-* **after a flood** — arm the cooldown for exactly the type that drew it, from
-  the server's own ``retry_after``. Never a guess, never a peer.
+* **after a flood** — arm the cooldown for exactly the type that drew it,
+  from the server's own ``retry_after``. A failed durable arm keeps a
+  process-local sticky deadline and fails closed with ``PolicyError``
+  (ADR-0090) instead of leaving the next RPC unprotected.
 
 Installed on the *instance*, not the class. ``downloads.py`` calls ``_call``
 directly on a per-datacentre sender; an instance attribute still shadows the
@@ -34,7 +36,7 @@ from math import ceil
 
 from telethon import errors as telethon_errors
 
-from tgcli.errors import RateLimitError
+from tgcli.errors import PolicyError, RateLimitError
 from tgcli.governor import pacing, probe, registry
 from tgcli.governor.ledger import Ledger
 
@@ -98,12 +100,16 @@ def install(
             result = await original(sender, request, *args, **kwargs)
         except ARMING_ERRORS as exc:
             if account is not None:
-                arm_from_flood(ledger, account, key, exc)
+                armed = arm_from_flood(ledger, account, key, exc)
                 pacing.note_stop(
                     retry_after=exc.seconds,
                     request_type=key,
                     provenance="server",
                 )
+                if not armed:
+                    raise PolicyError(
+                        f"governor could not persist flood cooldown for {key}"
+                    ) from exc
             raise
         if is_probe and account is not None:
             probe.settle(ledger, account, key)
@@ -168,8 +174,12 @@ def arm_from_flood(
     account: int,
     request_key: str,
     exc: BaseException,
-) -> None:
+) -> bool:
     """Record the server's own deadline for the type that drew the flood.
+
+    Returns ``True`` when the durable arm landed. On write failure the
+    deadline is kept process-locally (ADR-0089) and ``False`` is returned
+    so the caller can fail closed instead of re-raising FloodWait alone.
 
     The stderr line is the one alert for this cooldown: it fires at
     arming, not on every scheduled wake that finds the type still cooling
@@ -178,9 +188,17 @@ def arm_from_flood(
     """
     seconds = getattr(exc, "seconds", None)
     if not isinstance(seconds, int | float) or seconds <= 0:
-        return
+        return True
     deadline = datetime.now(UTC) + timedelta(seconds=float(seconds))
-    ledger.arm_cooldown(account, request_key, deadline)
     from tgcli.output import note
 
-    note(f"telegram flood on {request_key}: cooling for {seconds}s")
+    for _ in range(3):
+        if ledger.arm_cooldown(account, request_key, deadline):
+            note(f"telegram flood on {request_key}: cooling for {seconds}s")
+            return True
+    ledger.remember_cooldown(account, request_key, deadline)
+    note(
+        f"telegram flood on {request_key}: cooling for {seconds}s "
+        "(cooldown not persisted)"
+    )
+    return False

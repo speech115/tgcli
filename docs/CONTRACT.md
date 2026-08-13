@@ -85,7 +85,7 @@ flag.
 |------|---------|---------------|
 | 0 | success | |
 | 1 | runtime error | network, unexpected exception |
-| 2 | blocked by safety policy | `--readonly` + mutating command, `TGCLI_NO_SEND` |
+| 2 | blocked by safety policy | `--readonly` + mutating command, `TGCLI_NO_SEND`; governor could not persist a FloodWait cooldown (ADR-0090) |
 | 3 | config/auth error | missing `--account` / `default_account`, dead session, bad api_id |
 | 4 | not found | unknown dialog, message id, media; unknown alias on `accounts show\|remove` (lookup) |
 | 5 | rate limited | FloodWait longer than threshold; `retry_after` in error JSON |

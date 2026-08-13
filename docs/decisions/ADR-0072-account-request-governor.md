@@ -2,7 +2,9 @@
 
 Date: 2026-08-01
 Status: **accepted** (2026-08-02), **implemented** (2026-08-02, #145's
-phases 0–7). This ADR records the decisions reached
+phases 0–7). Amended by
+[ADR-0090](ADR-0090-failed-flood-arm-fails-closed.md) (failed FloodWait
+arm fails closed). This ADR records the decisions reached
 across map #131 and tickets #132–#139. It was drafted `proposed` and held
 there until #140's owner-gated live canary ran on 2026-08-02; the evidence
 is folded in under "Evidence from #140" below, which also records what the

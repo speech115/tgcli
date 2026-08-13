@@ -72,12 +72,13 @@ def default_path() -> Path:
 
 
 class Ledger:
-    """Governor state for one machine. Reads fail open; writes are best-effort.
+    """Governor state for one machine. Reads fail open; writes report ``False``.
 
-    A write that cannot land is reported by returning ``False`` rather than
-    raising: losing a pacing reservation degrades the pace, losing a cooldown
-    arm degrades protection, and neither is worth aborting a command the user
-    asked for. Callers that care can check.
+    A pacing reservation that cannot land degrades the pace and is not worth
+    aborting the command. A cooldown arm that cannot land is different:
+    ``gate.arm_from_flood`` keeps a process-local sticky deadline via
+    ``remember_cooldown`` and fails closed (ADR-0089) so the next same-type
+    RPC cannot deepen the penalty.
     """
 
     def __init__(
@@ -85,6 +86,8 @@ class Ledger:
     ) -> None:
         self._db = connection
         self.degraded = degraded
+        # Process-local cooldowns when a durable arm write fails (ADR-0089).
+        self._volatile_cooldowns: dict[tuple[int, str], datetime] = {}
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -139,11 +142,23 @@ class Ledger:
 
     # -- cooldowns ---------------------------------------------------------
 
+    def remember_cooldown(
+        self,
+        account_user_id: int,
+        request_key: str,
+        deadline: datetime,
+    ) -> None:
+        """Keep a process-local cooldown when durable arm cannot land."""
+        self._volatile_cooldowns[(account_user_id, request_key)] = deadline.astimezone(
+            UTC
+        )
+
     def cooldown_deadline(
         self, account_user_id: int, request_key: str, *, now: datetime | None = None
     ) -> datetime | None:
         """The active deadline for this request type, clamped, or ``None``."""
         moment = datetime.now(UTC) if now is None else now
+        deadline: datetime | None = None
         try:
             row = self._db.execute(
                 "SELECT deadline FROM cooldowns "
@@ -151,16 +166,19 @@ class Ledger:
                 (account_user_id, request_key),
             ).fetchone()
         except sqlite3.Error:
+            row = None
+        if row is not None:
+            try:
+                parsed = datetime.fromisoformat(row[0])
+            except (TypeError, ValueError):
+                parsed = None
+            if parsed is not None and parsed.tzinfo is not None:
+                deadline = parsed.astimezone(UTC)
+        volatile = self._volatile_cooldowns.get((account_user_id, request_key))
+        if volatile is not None:
+            deadline = volatile if deadline is None else max(deadline, volatile)
+        if deadline is None:
             return None
-        if row is None:
-            return None
-        try:
-            deadline = datetime.fromisoformat(row[0])
-        except (TypeError, ValueError):
-            return None
-        if deadline.tzinfo is None:
-            return None
-        deadline = deadline.astimezone(UTC)
         clamped = min(deadline, moment + timedelta(seconds=MAX_COOLDOWN_S))
         return clamped if clamped > moment else None
 
@@ -207,6 +225,7 @@ class Ledger:
         makes a wrong assumption 1 cost one extra request rather than a loop.
         """
         moment = datetime.now(UTC) if now is None else now
+        aware = deadline.astimezone(UTC)
         try:
             self._db.execute(
                 "INSERT INTO cooldowns "
@@ -218,13 +237,15 @@ class Ledger:
                 (
                     account_user_id,
                     request_key,
-                    deadline.astimezone(UTC).isoformat(),
+                    aware.isoformat(),
                     moment.isoformat(),
                 ),
             )
             self._db.commit()
         except sqlite3.Error:
+            self.remember_cooldown(account_user_id, request_key, aware)
             return False
+        self._volatile_cooldowns.pop((account_user_id, request_key), None)
         return True
 
     def clear_cooldown(self, account_user_id: int, request_key: str) -> bool:
@@ -236,6 +257,7 @@ class Ledger:
             self._db.commit()
         except sqlite3.Error:
             return False
+        self._volatile_cooldowns.pop((account_user_id, request_key), None)
         return True
 
     def probe_spent(self, account_user_id: int, request_key: str) -> bool:
@@ -298,15 +320,22 @@ class Ledger:
     ) -> dict[str, datetime]:
         """Every request type currently cooling, for ``doctor`` to report."""
         moment = datetime.now(UTC) if now is None else now
+        keys: set[str] = set()
         try:
             rows = self._db.execute(
                 "SELECT request_key FROM cooldowns WHERE account_user_id = ?",
                 (account_user_id,),
             ).fetchall()
         except sqlite3.Error:
-            return {}
+            rows = ()
+        keys.update(request_key for (request_key,) in rows)
+        keys.update(
+            key
+            for (account, key), deadline in self._volatile_cooldowns.items()
+            if account == account_user_id and deadline > moment
+        )
         active = {}
-        for (request_key,) in rows:
+        for request_key in keys:
             deadline = self.cooldown_deadline(account_user_id, request_key, now=moment)
             if deadline is not None:
                 active[request_key] = deadline
