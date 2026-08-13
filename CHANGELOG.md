@@ -11,6 +11,18 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [3.0.13] — 2026-08-13
+
+Incremental `export messages --append` / `--resume` publishes each batch via a
+same-directory temporary file and atomic replace; a failed batch leaves the
+previous destination unchanged (ADR-0108).
+
+Rationale: ADR-0108.
+
+### Changed
+
+- Make incremental export append crash-safe (ADR-0108) (#265)
+
 ## [3.0.12] — 2026-08-13
 
 Archive CLI sync/backfill and job quanta honor `--max-runtime` through the
@@ -1030,6 +1042,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[3.0.13]: https://github.com/speech115/tgcli/compare/v3.0.12...v3.0.13
 [3.0.12]: https://github.com/speech115/tgcli/compare/v3.0.11...v3.0.12
 [3.0.11]: https://github.com/speech115/tgcli/compare/v3.0.10...v3.0.11
 [3.0.10]: https://github.com/speech115/tgcli/compare/v3.0.9...v3.0.10

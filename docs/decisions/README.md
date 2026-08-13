@@ -114,6 +114,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0105](ADR-0105-clone-json-import-crash-safety.md) | Clone JSON→SQLite import renames the JSON to `.importing` before the SQLite write, not `.imported` after it, so a crash mid-import resumes on the next `load()` instead of fail-closing as an ambiguous both-files conflict | accepted; T06 |
 | [0106](ADR-0106-reupload-cache-clears-after-save.md) | The clone reupload media cache clears once, after `confirmed_destination_ids` and `state.save` both succeed, instead of right after the send RPC — an unconfirmed or unsaved batch keeps its downloaded bytes | accepted; amends ADR-0052 decision 7 (thermos T12) |
 | [0107](ADR-0107-archive-max-runtime-stop.md) | Archive CLI sync/backfill and job quanta honor `--max-runtime` through `fetch_media`; stop_reason wall_clock_cap | accepted; thermos T10 |
+| [0108](ADR-0108-incremental-export-append-atomicity.md) | `export messages --append` / `--resume` stages the existing JSONL plus each new batch in a same-directory temporary file, fsyncs it, and atomically replaces the destination only after the complete batch succeeds | accepted; thermos audit T21 |
 
 Notes on supersessions:
 

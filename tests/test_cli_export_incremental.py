@@ -105,6 +105,39 @@ def test_export_messages_append_with_after_id(
     ] == [1, 2, 3]
 
 
+def test_export_messages_append_preserves_destination_when_batch_crashes(
+    config_env, monkeypatch, tmp_path
+):
+    fake = make_export_fake()
+
+    async def interrupted_messages(*args, **kwargs):
+        yield make_message(2, "partial")
+        raise OSError("connection failed")
+
+    fake.iter_messages = interrupted_messages
+    make_session_fake(monkeypatch, fake)
+    destination = tmp_path / "messages.jsonl"
+    original = json.dumps({"id": 1, "text": "complete"}) + "\n"
+    destination.write_text(original, encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "export",
+                "messages",
+                "@chan",
+                "--output",
+                str(destination),
+                "--append",
+                "--after-id",
+                "1",
+            ]
+        )
+        == 1
+    )
+    assert destination.read_text(encoding="utf-8") == original
+
+
 def test_export_messages_resume_from_last_line(
     config_env, monkeypatch, tmp_path, capsys
 ):
