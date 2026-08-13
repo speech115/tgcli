@@ -1,4 +1,4 @@
-# ADR-0109: Store cleanup treats login lock uncertainty as busy
+# ADR-0112: Store cleanup treats login lock uncertainty as busy
 
 Date: 2026-08-13
 Status: accepted

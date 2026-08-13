@@ -16,7 +16,7 @@ contract via a thin wrapper. Regression tests:
 cleanup preserves the record and continues). Also fixed two pre-existing
 E501s in `scripts/publish-thermos-backlog.py` (unrelated lint failures on
 `main`).
-**Decided:** full lane under [ADR-0109](../decisions/ADR-0109-store-cleanup-login-lock-uncertainty.md):
+**Decided:** full lane under [ADR-0112](../decisions/ADR-0112-store-cleanup-login-lock-uncertainty.md):
 this changes a released cleanup command, protects persistent login state, and
 adds the direct `lock_file_held` abstraction — three ADR-0073 triggers. Only a
 definite free probe permits deletion; unknown means busy.
