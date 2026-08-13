@@ -82,7 +82,9 @@ def main() -> int:
         if not args.apply:
             print("(dry-run; pass --apply to create)\n")
             continue
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".md", delete=False) as handle:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", suffix=".md", delete=False
+        ) as handle:
             handle.write(body)
             body_path = Path(handle.name)
         cmd = [
@@ -107,7 +109,10 @@ def main() -> int:
     if args.apply:
         print(f"created {created} issues")
     else:
-        print(f"dry-run complete ({len(tickets)} tickets); re-run with --apply when gh has issues:write")
+        print(
+            f"dry-run complete ({len(tickets)} tickets); "
+            "re-run with --apply when gh has issues:write"
+        )
     return 0
 
 
