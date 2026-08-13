@@ -1,6 +1,6 @@
 import pytest
 
-from tgcli.config import load_config, resolve_account
+from tgcli.config import load_config, resolve_account, validate_session_stem
 from tgcli.errors import ConfigError
 
 SAMPLE = """
