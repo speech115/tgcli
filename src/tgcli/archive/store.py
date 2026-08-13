@@ -15,6 +15,9 @@ SCHEMA_VERSION = 7
 DB_NAME = "archive.db"
 TRANSCRIBABLE_MEDIA_KINDS = ("voice", "video_note")
 NO_TRANSCRIPT_MARKER = "no_transcript no transcript"
+# Explicitly pin archive contention behavior alongside jobs/governor
+# (ADR-0096); do not inherit the driver's timeout default.
+BUSY_TIMEOUT_MS = 5_000
 
 _FTS_TOKENIZER = 'tokenize = "unicode61 remove_diacritics 2"'
 
@@ -121,13 +124,19 @@ def fold_yo(text: str) -> str:
 
 
 def connect(path: Path) -> sqlite3.Connection:
-    """Open (or create) an archive DB with WAL pragmas and current schema."""
+    """Open (or create) an archive DB with WAL pragmas and current schema.
+
+    Concurrent sync + search/transcribe on the same file is supported at the
+    SQLite level via WAL + ``busy_timeout``; writers still serialize. Prefer
+    one sync writer at a time for predictable pacing.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     created = not path.exists()
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_MS / 1000)
     conn.row_factory = sqlite3.Row
     conn.create_function("tgcli_casefold", 1, _casefold)
     try:
+        conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA foreign_keys=ON")

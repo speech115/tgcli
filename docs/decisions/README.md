@@ -102,6 +102,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0093](ADR-0093-login-phone-continuation-sidecar.md) | Pending phone login keeps the raw phone only in an atomic `0600` sidecar required by Telegram sign-in; every attempt inventory and deletion path owns it | accepted; thermos T08 / PR #248 review |
 | [0094](ADR-0094-store-cleanup-login-lock-uncertainty.md) | `store cleanup` probes a staged login's existing lock directly and treats every result except definitely free, including `flock` errors, as busy | accepted |
 | [0095](ADR-0095-runtime-error-phone-redaction.md) | Runtime errors redact compact and formatted phone-shaped text before CLI emission or job persistence, including opt-in verbose tracebacks | accepted |
+| [0096](ADR-0096-archive-sqlite-contention-policy.md) | Archive connections explicitly pin a 5-second SQLite busy timeout instead of inheriting the CPython driver default | accepted; thermos audit T24 |
 
 Notes on supersessions:
 
