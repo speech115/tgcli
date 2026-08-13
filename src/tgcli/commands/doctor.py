@@ -304,10 +304,12 @@ async def run(
 
 
 def _plain_failure_keys(checks: dict) -> list[str]:
+    # governor_degraded uses inverted polarity (True = unhealthy), so it
+    # must be excluded from the generic False-means-failed scan.
     failures = [
         key
         for key, value in checks.items()
-        if key not in ("error", "state_size") and value is False
+        if key not in ("error", "state_size", "governor_degraded") and value is False
     ]
     if checks.get("governor_degraded") is True:
         failures.append("governor_degraded")

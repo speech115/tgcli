@@ -271,6 +271,39 @@ def test_governor_degraded_appears_in_plain_failures_column():
     assert rows[0][3] == "governor_degraded"
 
 
+def test_healthy_governor_degraded_false_is_not_a_plain_failure():
+    """Inverted polarity: False means healthy, must not appear in failures."""
+    checks = {
+        "session_file": True,
+        "lock_free": True,
+        "state_writable": True,
+        "preview_perms_ok": True,
+        "preview_perms_repaired": 0,
+        "audit_perms_ok": True,
+        "session_perms_ok": True,
+        "state_size": 12,
+        "governor_degraded": False,
+        "governor_cooldowns": {},
+        "authorized": None,
+    }
+    assert doctor_cmd._local_ok(checks) is True
+    assert doctor_cmd._plain_failure_keys(checks) == []
+    rows = doctor_cmd.to_rows(
+        {
+            "accounts": [
+                {
+                    "alias": "main",
+                    "ok": True,
+                    "user": None,
+                    "checks": checks,
+                    "roles": [],
+                }
+            ]
+        }
+    )
+    assert rows[0][3] is None
+
+
 def test_repaired_count_is_never_read_as_a_failed_check():
     """An int in a dict of booleans must not reach `ok` or the failures column."""
     checks = {

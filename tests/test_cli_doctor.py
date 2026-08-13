@@ -260,3 +260,35 @@ def test_doctor_plain_lists_governor_degraded_failure(config_env, monkeypatch, c
     assert main(["doctor", "--account", "main", "--plain"]) == 0
     out = capsys.readouterr().out
     assert "governor_degraded" in out
+
+
+def test_doctor_plain_omits_governor_degraded_when_healthy(
+    config_env, monkeypatch, capsys
+):
+    _touch_session("main", user_id=1)
+    _fake_client(monkeypatch)
+
+    assert main(["doctor", "--account", "main", "--plain"]) == 0
+    out = capsys.readouterr().out
+    assert "governor_degraded" not in out
+
+
+def test_doctor_connect_still_works_when_governor_is_degraded(
+    config_env, monkeypatch, capsys
+):
+    """ADR-0089: --connect stays ungated; ok:false still reports degraded."""
+    from tgcli import session
+
+    _touch_session("main", user_id=1)
+    _fake_client(monkeypatch)
+
+    corrupt = session.state_dir() / "governor.db"
+    corrupt.write_bytes(b"not-a-database")
+
+    assert main(["doctor", "--account", "main", "--connect", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    report = data["accounts"][0]
+    assert report["checks"]["authorized"] is True
+    assert report["checks"]["governor_degraded"] is True
+    assert report["ok"] is False
+    assert data["ok"] is False
