@@ -99,6 +99,22 @@ def _validate_preview_kind(payload: dict, expected_kind: str | None) -> None:
         raise PolicyError(f"preview does not match {expected_kind}")
 
 
+def _expire_pending(pending: Path, path: Path) -> None:
+    """Return an expired preview to the plain .json expired bucket.
+
+    Default `store cleanup` skips `.pending` outright and only reaps it
+    under `--include-pending` after a second full TTL. An expired preview
+    must never sit sticky-pending until then (T13), so it is renamed back
+    to `.json` the moment expiry is detected here, landing in the same
+    expired bucket a never-begun preview would.
+    """
+    try:
+        pending.replace(path)
+        os.chmod(path, 0o600)
+    except FileNotFoundError:
+        pass
+
+
 def begin_commit(
     preview_id: str,
     *,
@@ -109,9 +125,14 @@ def begin_commit(
 
     Unlike consume_preview, a .pending preview may be begun again: the
     stored random_id makes a retried network send idempotent (ADR-0028).
+    Kind and TTL are both validated before any rename to `.pending`, and
+    an already-pending preview found expired here is renamed back to
+    `.json` (T13): an expired preview always ends up in the plain expired
+    bucket, never sticky-pending.
     """
     if not preview_id.startswith("p_") or "/" in preview_id:
         raise PolicyError("preview is already used or does not exist")
+    now = now or datetime.now(UTC)
     path = previews_dir() / f"{preview_id}.json"
     pending = path.with_suffix(".pending")
     try:
@@ -121,6 +142,8 @@ def begin_commit(
             raise PolicyError("preview is already used or does not exist") from None
     else:
         _validate_preview_kind(record["payload"], expected_kind)
+        if now >= _expires_at(record):
+            raise PolicyError("preview has expired")
         try:
             path.replace(pending)
             os.chmod(pending, 0o600)
@@ -132,8 +155,8 @@ def begin_commit(
     except FileNotFoundError:
         raise PolicyError("preview is already used or does not exist") from None
     _validate_preview_kind(record["payload"], expected_kind)
-    now = now or datetime.now(UTC)
     if now >= _expires_at(record):
+        _expire_pending(pending, path)
         raise PolicyError("preview has expired")
     os.chmod(pending, 0o600)
     return record["payload"]

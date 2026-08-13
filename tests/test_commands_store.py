@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from tgcli import login_state
+from tgcli import login_state, safety
 from tgcli.cli import main
 from tgcli.commands import store as store_cmd
-from tgcli.errors import NotFoundError
+from tgcli.errors import NotFoundError, PolicyError
 from tgcli.safety import PREVIEW_TTL
 
 NOW = datetime(2026, 7, 23, 12, 0, tzinfo=UTC)
@@ -144,6 +144,32 @@ def test_cleanup_include_pending_only_when_far_past_ttl(tmp_path, monkeypatch):
     assert "p_fresh.pending" not in result["removed"]
     assert (tmp_path / "previews" / "p_fresh.pending").exists()
     assert not (tmp_path / "previews" / "p_old.pending").exists()
+
+
+def test_expired_begin_commit_is_reaped_by_default_cleanup(tmp_path, monkeypatch):
+    """T13: an expired preview must land in the plain expired bucket that
+    default `store cleanup` already reaps, whether or not it was ever
+    begun -- never sticky-pending until --include-pending."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    never_begun = safety.create_preview({"kind": "send"}, now=NOW)
+    retried = safety.create_preview({"kind": "send"}, now=NOW)
+    safety.begin_commit(retried["preview_id"], now=NOW)
+    late = NOW + timedelta(minutes=6)
+
+    with pytest.raises(PolicyError, match="expired"):
+        safety.begin_commit(never_begun["preview_id"], now=late)
+    with pytest.raises(PolicyError, match="expired"):
+        safety.begin_commit(retried["preview_id"], now=late)
+
+    result = store_cmd.cleanup(tmp_path, confirm=True, now=late)
+
+    assert f"{never_begun['preview_id']}.json" in result["removed"]
+    assert f"{retried['preview_id']}.json" in result["removed"]
+    previews = tmp_path / "previews"
+    assert not (previews / f"{never_begun['preview_id']}.json").exists()
+    assert not (previews / f"{retried['preview_id']}.json").exists()
+    assert not (previews / f"{never_begun['preview_id']}.pending").exists()
+    assert not (previews / f"{retried['preview_id']}.pending").exists()
 
 
 def test_cleanup_older_than_keeps_recent_spent(tmp_path, monkeypatch):
