@@ -67,11 +67,16 @@ follow-up rather than fixing it there:
    check lives in `transfer.py`, not at the `media.py` call site: the
    pre-allocated file's on-disk size cannot prove completeness (that is
    exactly the trap), so only the function that holds the real byte counter
-   can verify it. `_download_parallel` gets the guarantee for free and needs
-   no new code — a `download_striped` failure means `_publish` is never
-   reached, `state_path` is left with `"resumable": false` (unchanged
-   behavior on any striped failure), and the next run restarts from zero
-   through the existing "unresumable, discard both files" path.
+   can verify it. `_download_parallel` wraps the call in
+   `except RuntimeError as exc: raise PolicyError(str(exc)) from exc` — the
+   only `RuntimeError` `download_striped` ever raises is this one
+   postcondition, so the translation is exact — giving the parallel path the
+   same exit 2 (`BLOCKED`) a caller already gets from every other
+   `media download` refusal, instead of the generic exit 1 (`RUNTIME`) an
+   untranslated exception would fall through to. `state_path` is left with
+   `"resumable": false` (unchanged behavior on any striped failure), and the
+   next run restarts from zero through the existing "unresumable, discard
+   both files" path.
 
 ## Rejected alternatives
 
@@ -91,17 +96,17 @@ follow-up rather than fixing it there:
   `transfer.py` has no dependency on `tgcli.errors` today (Telethon-facing
   code, plain-Python exceptions only, matching `upload_parts`'s existing
   `RuntimeError` for its own postcondition failure). Adding that import for
-  one raise site is not worth a new module coupling; the CLI's generic
-  `except Exception` arm already turns any untranslated failure into a
-  `RUNTIME` / exit 1 envelope, consistent with `upload_parts`'s own failure
-  shape.
+  one raise site is not worth a new module coupling; `media.py` already
+  imports `tgcli.errors` and is the one caller that gets to decide what its
+  own exit code means, so the translation happens at the one call site
+  instead.
 
 ## Contract impact
 
 `docs/CONTRACT.md`: a `media download` (serial or `--parallel`) whose stream
 ends early now exits nonzero instead of silently succeeding with a short or
-sparse file. The serial case is `PolicyError` (exit 2, `BLOCKED`) and keeps
-its partial file resumable; the parallel case is the existing striped-failure
-shape (exit 1, `RUNTIME`) and restarts from zero on the next run, both
-already-documented behaviors for a failed transfer — only the trigger
-(silent short stream, not just an explicit error) is new.
+sparse file. Both cases are `PolicyError` (exit 2, `BLOCKED`): the serial case
+keeps its partial file resumable; the parallel case restarts from zero on the
+next run, the existing striped-failure behavior for any other failed
+transfer — only the trigger (a silent short stream, not just an explicit
+error) is new.

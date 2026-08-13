@@ -1,12 +1,20 @@
-## 2026-08-13 — Media download never publishes incomplete bytes (Composer)
+## 2026-08-13 — `media download` never publishes incomplete bytes (ADR-0091)
 
-**Did:** ADR-0091: serial size check + fsync-before-checkpoint; striped
-short-stream unlink+raise; parallel maps to PolicyError. CONTRACT §3.
-Tests in `test_commands_media` / `test_transfer`. Thermos T03 / #207.
+**Did:** thermos T03. Serial loop now requires `current == size` before
+`_publish` and fsyncs the part file before every checkpoint (was flush-only).
+`transfer.download_striped` raises + unlinks when its own downloaded-byte
+counter falls short of `size`; `_download_parallel` maps that into
+`PolicyError` so both paths exit 2 (`BLOCKED`). Tests in
+`test_commands_media.py` / `test_transfer.py`; fixed three existing fakes
+whose declared `file.size` never matched their fed chunk length. Fixed
+`scripts/publish-thermos-backlog.py` E501s already on main.
 
-**Decided:** Completeness guards now; T31 resumable routing later.
+**Decided:** fix the completeness gap now; leave routing `media download`
+through `download_resumable` itself (T31) as a separate, bigger decision
+about a released command's on-disk state format.
 
-**Learned:** Sparse `truncate(size)` made `st_size` a false completeness
-signal — must count downloaded bytes.
+**Learned:** `download_striped`'s `truncate(size)` pre-allocation makes the
+on-disk file size a false completeness signal — only the in-memory
+downloaded-byte counter can prove a striped transfer actually finished.
 
-**Next:** T31 optional follow-up; continue thermos backlog.
+**Next:** T31, if the owner wants it.
