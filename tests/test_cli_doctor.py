@@ -246,3 +246,17 @@ def test_doctor_marks_degraded_governor_as_unhealthy(config_env, monkeypatch, ca
     assert report["checks"]["governor_degraded"] is True
     assert report["ok"] is False
     assert data["ok"] is False
+
+
+def test_doctor_plain_lists_governor_degraded_failure(config_env, monkeypatch, capsys):
+    from tgcli import session
+
+    _touch_session("main", user_id=1)
+    _fake_client(monkeypatch)
+
+    corrupt = session.state_dir() / "governor.db"
+    corrupt.write_bytes(b"not-a-database")
+
+    assert main(["doctor", "--account", "main", "--plain"]) == 0
+    out = capsys.readouterr().out
+    assert "governor_degraded" in out

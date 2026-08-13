@@ -2,9 +2,10 @@
 
 **Did:** ADR-0089 + gate `refuse_if_degraded` (`PolicyError` exit 2) when
 `ledger.degraded` on authenticated RPCs; doctor treats
-`governor_degraded: true` as `ok: false`. CONTRACT §5.1 updated. Repro
-tests in `test_governor_gate` / `test_cli_doctor`. Pre-auth and
-`doctor --connect` stay ungated. Addresses thermos T01 / #205.
+`governor_degraded: true` as `ok: false` and lists it in `--plain`
+failures. CONTRACT §5.1 + SKILL updated. Repro tests in
+`test_governor_gate` / `test_cli_doctor` / `test_commands_doctor`.
+Pre-auth and `doctor --connect` stay ungated. Addresses thermos T01 / #205.
 
 **Decided:** Keep non-raising `Ledger.open()` for diagnosis; fail closed
 at the governed `_call` seam, not inside open. Exit 2 not exit 5.

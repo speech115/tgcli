@@ -238,6 +238,39 @@ def test_doctor_survives_a_previews_directory_that_vanishes(config_env, monkeypa
     assert main(["doctor", "--json"]) == 0
 
 
+def test_governor_degraded_appears_in_plain_failures_column():
+    """ADR-0089: True governor_degraded must surface in --plain failures."""
+    checks = {
+        "session_file": True,
+        "lock_free": True,
+        "state_writable": True,
+        "preview_perms_ok": True,
+        "preview_perms_repaired": 0,
+        "audit_perms_ok": True,
+        "session_perms_ok": True,
+        "state_size": 12,
+        "governor_degraded": True,
+        "governor_cooldowns": {},
+        "authorized": None,
+    }
+    assert doctor_cmd._local_ok(checks) is False
+    rows = doctor_cmd.to_rows(
+        {
+            "accounts": [
+                {
+                    "alias": "main",
+                    "ok": False,
+                    "user": None,
+                    "checks": checks,
+                    "roles": [],
+                }
+            ]
+        }
+    )
+    assert rows[0][1] == "fail"
+    assert rows[0][3] == "governor_degraded"
+
+
 def test_repaired_count_is_never_read_as_a_failed_check():
     """An int in a dict of booleans must not reach `ok` or the failures column."""
     checks = {

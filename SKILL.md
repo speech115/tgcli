@@ -196,8 +196,11 @@ intentionally changed.
 Every Telegram request is paced and gated per request type by a persisted
 governor: history reads and dialog enumeration wait 3 s between requests,
 and a flood arms a per-type cooldown that refuses locally (exit 5,
-`retry_after`) with zero RPCs. `tg doctor` reports active cooldowns — it is
-the one command that works while everything else refuses. A Telegram jobs
+`retry_after`) with zero RPCs. `tg doctor` reports active cooldowns and
+ledger health — it is the one command that works while everything else
+refuses. A degraded governor ledger (`governor_degraded: true`) marks the
+account unhealthy and makes governed commands fail closed (exit 2,
+`BLOCKED`) until the ledger file is repaired. A Telegram jobs
 lane reaching a cooldown leaves the job queued and exits 0 with
 `stop_reason: "cooldown_deferred"`. The default `--timeout` is a
 hang detector that ignores governed sleep; `--max-runtime` bounds a long

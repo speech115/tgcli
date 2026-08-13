@@ -303,6 +303,17 @@ async def run(
     }
 
 
+def _plain_failure_keys(checks: dict) -> list[str]:
+    failures = [
+        key
+        for key, value in checks.items()
+        if key not in ("error", "state_size") and value is False
+    ]
+    if checks.get("governor_degraded") is True:
+        failures.append("governor_degraded")
+    return failures
+
+
 def to_rows(data: dict) -> list[tuple]:
     rows = []
     for report in data["accounts"]:
@@ -313,11 +324,7 @@ def to_rows(data: dict) -> list[tuple]:
             status = "unknown"
         else:
             status = "ok"
-        failures = [
-            key
-            for key, value in report["checks"].items()
-            if key not in ("error", "state_size") and value is False
-        ]
+        failures = _plain_failure_keys(report["checks"])
         rows.append(
             (
                 report["alias"],
@@ -334,11 +341,7 @@ def to_rows(data: dict) -> list[tuple]:
                 role_status = "unknown"
             else:
                 role_status = "ok"
-            role_failures = [
-                key
-                for key, value in role["checks"].items()
-                if key not in ("error", "state_size") and value is False
-            ]
+            role_failures = _plain_failure_keys(role["checks"])
             rows.append(
                 (
                     f"{report['alias']}@{role['name']}",
