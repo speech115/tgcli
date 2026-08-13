@@ -7,10 +7,12 @@ a second process must see the first one's clock rather than keep its own.
 
 Three behaviours are load-bearing and each answers a specific past failure:
 
-* **Reads fail open.** A missing or corrupt ledger must never wedge the CLI.
-  the pre-governor clone record already worked this way; the cost of failing closed on
-  corruption is an account that cannot be used at all with no way out but
-  hand-editing state.
+* **Ledger open still returns a degraded in-memory store.** A missing or
+  corrupt file must not crash ``doctor`` mid-report (ADR-0072 L3 open path,
+  amended by ADR-0089). The fallback announces itself through ``degraded``.
+* **Governed traffic fails closed when ``degraded``.** ADR-0089: the gate
+  refuses authenticated RPCs with ``PolicyError`` rather than dispatching
+  unprotected. Pre-auth and ``doctor --connect`` stay ungated.
 * **Deadlines are clamped at read time, not at write time.** A host clock that
   ran ahead when a cooldown was armed persists a deadline no honest FloodWait
   could produce. Arming stays honest and stores the raw value; reading degrades
@@ -72,12 +74,13 @@ def default_path() -> Path:
 
 
 class Ledger:
-    """Governor state for one machine. Reads fail open; writes are best-effort.
+    """Governor state for one machine.
 
-    A write that cannot land is reported by returning ``False`` rather than
-    raising: losing a pacing reservation degrades the pace, losing a cooldown
-    arm degrades protection, and neither is worth aborting a command the user
-    asked for. Callers that care can check.
+    Opening a corrupt path returns a private in-memory ledger with
+    ``degraded=True`` so ``doctor`` can still report (ADR-0072 L3). Writes on
+    that fallback are best-effort and may return ``False``. Authenticated
+    governed traffic must not use a degraded ledger as if it were healthy —
+    ``gate.refuse_if_degraded`` fails closed (ADR-0089).
     """
 
     def __init__(
@@ -92,12 +95,10 @@ class Ledger:
     def open(cls, path: Path | None = None) -> Ledger:
         """Open the ledger, or fall back to a private in-memory one.
 
-        Failing open is the whole contract (L3): a corrupt or unopenable
-        ledger degrades protection, while failing closed would make every
-        command on the account exit non-zero with no remedy but hand-deleting
-        state. The fallback is a real, empty ledger — reads answer "nothing is
-        cooling" and writes go nowhere — and it announces itself through
-        ``degraded`` so ``doctor`` can say the governor is not persisting.
+        A corrupt or unopenable file still yields a real empty ledger marked
+        ``degraded`` so ``doctor`` can report without crashing. Callers that
+        send authenticated Telegram traffic must refuse when ``degraded`` is
+        set (ADR-0089) — the open path itself stays non-raising.
         """
         target = default_path() if path is None else path
         try:

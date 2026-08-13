@@ -34,7 +34,7 @@ from math import ceil
 
 from telethon import errors as telethon_errors
 
-from tgcli.errors import RateLimitError
+from tgcli.errors import PolicyError, RateLimitError
 from tgcli.governor import pacing, probe, registry
 from tgcli.governor.ledger import Ledger
 
@@ -84,6 +84,7 @@ def install(
         key = registry.request_key(request)
         is_probe = False
         if account is not None:
+            refuse_if_degraded(ledger)
             is_probe = refuse_if_cooling(ledger, account, key)
             if not is_probe:
                 # The probe must not pace itself out of its own cooldown
@@ -133,6 +134,24 @@ def _govern_cdn_children(client, ledger: Ledger, resolve) -> None:
         return cdn
 
     client._get_cdn_client = types.MethodType(governed_factory, client)
+
+
+def refuse_if_degraded(ledger: Ledger) -> None:
+    """Refuse governed traffic when the ledger cannot persist protection.
+
+    ADR-0089: a corrupt or unopenable ``governor.db`` used to fail open
+    (dispatch as if nothing were cooling). That silently removes the
+    account-wide hedge. Fail closed instead — exit 2 — so operators fix
+    the ledger rather than burn FloodWait. Pre-auth traffic (no account
+    id yet) never reaches this helper; ``doctor --connect`` skips the
+    seam entirely.
+    """
+    if not ledger.degraded:
+        return
+    raise PolicyError(
+        "request governor ledger is unavailable; "
+        "fix or remove the governor.db under TGCLI_STATE_DIR and retry"
+    )
 
 
 def refuse_if_cooling(ledger: Ledger, account: int, request_key: str) -> bool:

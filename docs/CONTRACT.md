@@ -803,11 +803,12 @@ When `--connect` is absent, `checks.authorized` is `null` (unknown), not
 
 `checks.governor_cooldowns` maps each cooling request type to its deadline
 (an empty object when nothing is cooling); `checks.governor_degraded` is
-`true` when the governor's ledger could not be opened (reads fail open, so
-protection degrades without blocking). A cooldown is reportable state, not a
-failure: it does not set `ok: false`. The governor probes each cooldown once
-at half its wait, so an early-lifted limit clears itself without operator
-action.
+`true` when the governor's ledger could not be opened. A degraded ledger
+fails closed for authenticated Telegram traffic (`PolicyError`, exit 2;
+ADR-0089) and sets per-account / top-level `ok: false` in `doctor`. A
+cooldown alone is reportable state, not a failure: it does not set
+`ok: false`. The governor probes each cooldown once at half its wait, so
+an early-lifted limit clears itself without operator action.
 
 The health checks make short-lived local probes: for an existing session they
 may create and acquire its `.lock` file, and they create then remove a

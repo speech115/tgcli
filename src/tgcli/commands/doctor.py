@@ -136,9 +136,14 @@ def _local_ok(checks: dict) -> bool:
     for key, value in checks.items():
         if key in ("error", "authorized", "state_size"):
             continue
-        if key in ("governor_cooldowns", "governor_degraded"):
-            # A cooldown is reportable state, not a failure; a degraded
-            # ledger is a warning the governor already fails open on.
+        if key == "governor_cooldowns":
+            # A cooldown is reportable state, not a failure.
+            continue
+        if key == "governor_degraded":
+            # ADR-0089: an unopenable ledger fails closed for governed
+            # traffic — doctor must report the account unhealthy.
+            if value is True:
+                return False
             continue
         if value is False:
             return False
@@ -187,8 +192,9 @@ def _governor_check(session_file: Path) -> dict:
 
     Reads the ledger directly, no RPC: `doctor` is the one command that
     must work precisely when everything else is refusing (ADR-0072
-    decision 1). An unreadable ledger reports ``governor_degraded`` rather
-    than failing the check — the governor failing open is the design.
+    decision 1). An unreadable ledger reports ``governor_degraded: true``
+    and sets per-account ``ok: false`` (ADR-0089) — governed traffic
+    fails closed until the ledger is repaired.
     """
     from tgcli.governor.ledger import Ledger
 

@@ -228,3 +228,21 @@ def test_doctor_connect_is_exempt_from_governor_cooldowns(
     assert report["checks"]["authorized"] is True
     assert "users.GetUsersRequest" in report["checks"]["governor_cooldowns"]
     assert report["ok"] is True
+
+
+def test_doctor_marks_degraded_governor_as_unhealthy(config_env, monkeypatch, capsys):
+    """ADR-0089: governor_degraded must set ok:false — not a silent warning."""
+    from tgcli import session
+
+    _touch_session("main", user_id=1)
+    _fake_client(monkeypatch)
+
+    corrupt = session.state_dir() / "governor.db"
+    corrupt.write_bytes(b"not-a-database")
+
+    assert main(["doctor", "--account", "main", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    report = data["accounts"][0]
+    assert report["checks"]["governor_degraded"] is True
+    assert report["ok"] is False
+    assert data["ok"] is False
