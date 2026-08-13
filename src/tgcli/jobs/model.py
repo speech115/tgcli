@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from hashlib import sha256
 
 from tgcli.archive import transcribe as transcribe_mod
@@ -14,6 +15,10 @@ PRIORITY_VALUES = {"low": 0, "normal": 1, "high": 2}
 PRIORITY_NAMES = {value: name for name, value in PRIORITY_VALUES.items()}
 MAX_RUNTIME_SECONDS = 3000.0
 EVENT_LIMIT = 200
+RUNTIME_FAILURE_TERMINAL_STREAK = 3
+RUNTIME_RETRY_DELAY_FIRST = timedelta(minutes=5)
+RUNTIME_RETRY_DELAY_SECOND = timedelta(minutes=30)
+RUNTIME_TERMINAL_NOT_BEFORE = timedelta(hours=2)
 
 
 def validate_key(value: str) -> str:
