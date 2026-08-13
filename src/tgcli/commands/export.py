@@ -46,7 +46,7 @@ def _atomic_text_destination(destination: Path, *, preserve_existing: bool = Fal
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, destination)
-        atomic._fsync_directory(destination.parent)
+        atomic.fsync_directory(destination.parent)
     except OSError as exc:
         raise ExportError(f"cannot write export to {destination}: {exc}") from exc
     finally:

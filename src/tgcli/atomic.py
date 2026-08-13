@@ -12,11 +12,13 @@ import tempfile
 from pathlib import Path
 
 
-def _fsync_directory(directory: Path) -> None:
+def fsync_directory(directory: Path) -> None:
     """Flush the directory entry so the rename itself survives a power loss.
 
     Fail-open: some filesystems refuse to fsync a directory, and a write that
-    already landed must not be reported as a failed command.
+    already landed must not be reported as a failed command. Public so
+    same-directory atomic publishers outside this module (e.g. export append)
+    share one helper instead of reaching for a private name.
     """
     try:
         fd = os.open(directory, os.O_RDONLY)
@@ -53,4 +55,4 @@ def replace_text(path: Path, text: str, *, mode: int = 0o600) -> None:
         except OSError:
             pass
         raise
-    _fsync_directory(path.parent)
+    fsync_directory(path.parent)
