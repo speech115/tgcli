@@ -186,6 +186,13 @@ def test_batch_bool_field_accepts_real_booleans(op, field):
         read_ops.from_batch(payload)  # must not raise
 
 
+@pytest.mark.parametrize("op, field", BATCH_BOOL_FIELDS)
+def test_batch_bool_field_treats_null_as_unset(op, field):
+    """Absent key and JSON null both mean the flag's default (False)."""
+    payload = {**BATCH_PAYLOADS[op], field: None}
+    read_ops.from_batch(payload)  # must not raise
+
+
 @pytest.mark.parametrize("op, field", BATCH_INT_FIELDS)
 def test_batch_int_field_accepts_real_integers(op, field):
     payload = {**BATCH_PAYLOADS[op], field: 3}
@@ -194,6 +201,21 @@ def test_batch_int_field_accepts_real_integers(op, field):
 
 def test_batch_optional_int_field_stays_none_when_absent():
     op = read_ops.from_batch({"op": "read", "chat": "@chat"})
+    assert op.before_id is None
+    assert op.after_id is None
+    assert op.topic is None
+
+
+def test_batch_optional_int_field_treats_null_as_unset():
+    op = read_ops.from_batch(
+        {
+            "op": "read",
+            "chat": "@chat",
+            "before_id": None,
+            "after_id": None,
+            "topic": None,
+        }
+    )
     assert op.before_id is None
     assert op.after_id is None
     assert op.topic is None

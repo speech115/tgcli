@@ -23,3 +23,5 @@ checkpoint auto-committed this work mid-session to
 landed; both are the same slice, just two commits.
 
 **Next:** none — T15 is done pending independent review.
+
+**Review fix:** CONTRACT §5.0 now matches ADR-0096 — JSON `null` / absent bool and optional-int fields are unset, with regression tests.
