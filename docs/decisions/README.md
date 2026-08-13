@@ -104,6 +104,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0095](ADR-0095-runtime-error-phone-redaction.md) | Runtime errors redact compact and formatted phone-shaped text before CLI emission or job persistence, including opt-in verbose tracebacks | accepted |
 | [0096](ADR-0096-archive-sqlite-contention-policy.md) | Archive connections explicitly pin a 5-second SQLite busy timeout instead of inheriting the CPython driver default | accepted; thermos audit T24 |
 | [0097](ADR-0097-archive-scope-cursor-atomicity.md) | Archive remove drops scope and channel subscription in one SQLite write transaction; sync cursor writers re-project onto current scope under the same lock | accepted; thermos T09/T23 |
+| [0100](ADR-0100-alias-charset-validated-on-load.md) | `load_config` validates every `[accounts.<alias>]` key against the alias-grade charset (previously enforced only by `accounts login` for a brand-new alias) and rejects `@` in a `session` stem (the role-suffix separator); overlaps T07/ADR-0098, which independently excludes `@` for its own path-escape reason | accepted (ADR-lite) |
 
 Notes on supersessions:
 

@@ -131,3 +131,49 @@ def test_resolve_unknown_alias_raises(config_file):
     config = load_config(config_file)
     with pytest.raises(ConfigError):
         resolve_account(config, "ghost")
+
+
+@pytest.mark.parametrize("alias", ["a b", "a.b", "x@y", "a/b", "héllo"])
+def test_load_config_rejects_invalid_alias_charset(tmp_path, alias):
+    """T25: the same alias regex `accounts login` enforces for a brand-new
+    alias (commands/login.py) must also apply to a stray key typed straight
+    into config.toml, not just to arguments passed on the command line."""
+    path = tmp_path / "config.toml"
+    path.write_text(f'[accounts."{alias}"]\napi_id = 1\napi_hash = "h"\n')
+    with pytest.raises(ConfigError, match="invalid account alias"):
+        load_config(path)
+
+
+def test_load_config_accepts_alias_grade_charset(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[accounts.A_1-z]\napi_id = 1\napi_hash = "h"\n')
+    config = load_config(path)
+    assert "A_1-z" in config.accounts
+
+
+def test_load_config_rejects_at_in_explicit_session(tmp_path):
+    """A session stem is `<session>@<role>` on disk (session.py); one that
+    already contains '@' would make `list_roles` misparse its own stem as
+    a role suffix (T25). Overlaps T07's broader escape rule, which also
+    excludes '@' — both must hold."""
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[accounts.work]\napi_id = 1\napi_hash = "h"\nsession = "work@evil"\n'
+    )
+    with pytest.raises(ConfigError, match="must not contain '@'") as excinfo:
+        load_config(path)
+    assert "work@evil" in str(excinfo.value)
+
+
+def test_load_config_rejects_invalid_alias_exits_3_through_cli(
+    tmp_path, monkeypatch, capsys
+):
+    import json
+
+    from tgcli.cli import main
+
+    path = tmp_path / "config.toml"
+    path.write_text('[accounts."x@y"]\napi_id = 1\napi_hash = "h"\n')
+    monkeypatch.setenv("TGCLI_CONFIG", str(path))
+    assert main(["--json", "accounts", "list"]) == 3
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "CONFIG"

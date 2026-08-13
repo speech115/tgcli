@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 
@@ -15,22 +14,13 @@ from tgcli.config import (
     Config,
     default_config_path,
     load_config,
+    validate_alias,
     validate_role_name,
 )
 from tgcli.errors import ConfigError, NotFoundError, PolicyError
 from tgcli.formatting import mask_phone
 from tgcli.output import note
 from tgcli.session import session_path, state_dir
-
-_ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]+$")
-
-
-def _validate_new_alias(alias: str) -> None:
-    if not alias or not _ALIAS_RE.match(alias):
-        raise ConfigError(
-            f"invalid account alias {alias!r}; "
-            "use letters, digits, underscore, or hyphen only"
-        )
 
 
 def login_rows(data: dict) -> list[tuple]:
@@ -264,7 +254,7 @@ async def start_login(
         role=role,
     )
     if is_new:
-        _validate_new_alias(alias)
+        validate_alias(alias)
     method = "phone"
     _audit_login(alias, method=method, outcome="started", phone=phone, role=role)
     attempt = login_state.create_attempt(

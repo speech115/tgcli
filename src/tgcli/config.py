@@ -31,6 +31,42 @@ class Config:
     archive_root: Path | None = None
 
 
+def validate_alias(alias: str) -> str:
+    """Charset an account alias must satisfy, on login and on every load.
+
+    Historically this regex was only enforced by ``accounts login`` for a
+    brand-new alias (`commands/login.py`); an alias typed straight into
+    ``config.toml`` skipped it entirely. That let a stray key like
+    ``[accounts."a b"]`` or ``[accounts."x@y"]`` load successfully and only
+    fail later, confusingly, wherever the alias was next used (T25).
+    """
+    if not alias or not _ALIAS_RE.match(alias):
+        raise ConfigError(
+            f"invalid account alias {alias!r}; "
+            "use letters, digits, underscore, or hyphen only"
+        )
+    return alias
+
+
+def validate_session_charset(session: str, alias: str) -> str:
+    """Reject ``@`` in a session stem loaded from config (T25).
+
+    ``session.py`` names a role session ``<primary-stem>@<role>`` and
+    ``list_roles`` recovers the role by splitting on the first ``@``. A
+    primary stem that already contains ``@`` would make that split
+    misparse part of the stem itself as a role name. (T07 separately
+    rejects a stem that escapes the sessions directory via ``/``, ``..``,
+    or a leading ``-``; this check is narrower and stays even if that one
+    also ends up covering ``@``.)
+    """
+    if "@" in session:
+        raise ConfigError(
+            f"account {alias!r}: session {session!r} must not contain '@' "
+            "(reserved for the role-suffix separator)"
+        )
+    return session
+
+
 def validate_role_name(role: str) -> str:
     """Alias-grade role names; ``primary`` is reserved (ADR-0062)."""
     if not role or not _ALIAS_RE.match(role):
@@ -56,17 +92,19 @@ def load_config(path: Path | None = None) -> Config:
     if not isinstance(raw_accounts, dict):
         raise ConfigError("accounts must be a table of [accounts.<alias>] entries")
     for alias, entry in raw_accounts.items():
+        validate_alias(alias)
         if not isinstance(entry, dict):
             raise ConfigError(
                 f"account {alias!r} must be an [accounts.{alias}] table "
                 "with api_id and api_hash"
             )
         try:
+            session = validate_session_charset(str(entry.get("session", alias)), alias)
             accounts[alias] = Account(
                 alias=alias,
                 api_id=int(entry["api_id"]),
                 api_hash=str(entry["api_hash"]),
-                session=str(entry.get("session", alias)),
+                session=session,
             )
         except KeyError as exc:
             raise ConfigError(f"account {alias!r}: missing key {exc}") from exc
