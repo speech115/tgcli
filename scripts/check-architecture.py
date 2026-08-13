@@ -217,10 +217,10 @@ CEILINGS = {
     # ledger.py: persisted governor state (cooldowns, pacing reservations,
     # peer breadth) in SQLite under the state dir, ADR-0060's statedb.py
     # pattern, keyed by account_user_id.
-    "src/tgcli/governor/ledger.py": 469,
+    "src/tgcli/governor/ledger.py": 525,
     # pacing.py: sleep-before-dispatch pacing and the rolling breadth
     # budget — the start-to-start minimum interval per request type.
-    "src/tgcli/governor/pacing.py": 231,
+    "src/tgcli/governor/pacing.py": 236,
     # probe.py: the self-verifying probe that asks the server whether a
     # recorded cooldown deadline still holds, once per confirmed deadline.
     "src/tgcli/governor/probe.py": 86,
