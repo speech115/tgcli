@@ -1,5 +1,6 @@
 """Media download command helpers (Phase 3; Telethon-only)."""
 
+import contextlib
 import errno
 import hashlib
 import json
@@ -287,6 +288,27 @@ def _media_fingerprint(target: _DownloadTarget) -> dict:
     return {"media_id": media_identity(target.media), "size": target.size}
 
 
+def _checkpoint(
+    handle,
+    state_path: Path,
+    source: MediaSource,
+    destination: Path,
+    target: _DownloadTarget,
+    current: int,
+) -> None:
+    """Make ``current`` durable in the part file, then record it.
+
+    The fsync comes *before* the state write and is not optional: the state
+    file is written through ``atomic.replace_text``, which fsyncs itself, so
+    a flushed-but-unsynced tail would let a power loss leave a record
+    claiming bytes the part file does not have — and the next run would
+    resume onto a hole (mirrors `transfer._record`, ADR-0083).
+    """
+    handle.flush()
+    os.fsync(handle.fileno())
+    _write_state(state_path, source, destination, target, current)
+
+
 def _write_state(
     path: Path,
     source: MediaSource,
@@ -467,22 +489,37 @@ async def download_media(
                 chunks_since_checkpoint += 1
                 chunks_since_progress += 1
                 if chunks_since_checkpoint >= CHECKPOINT_EVERY_CHUNKS:
-                    handle.flush()
-                    _write_state(state_path, source, destination, target, current)
+                    _checkpoint(
+                        handle, state_path, source, destination, target, current
+                    )
                     chunks_since_checkpoint = 0
                 if progress and chunks_since_progress >= PROGRESS_EVERY_CHUNKS:
                     progress(current, target.size)
                     chunks_since_progress = 0
         except BaseException:
+            # Bookkeeping must never replace the exception being unwound: a
+            # FloodWait that leaves as an OSError loses its `retry_after`
+            # (ADR-0091 / ADR-0083 mirror of download_resumable).
             if chunks_since_checkpoint:
-                handle.flush()
-                _write_state(state_path, source, destination, target, current)
+                with contextlib.suppress(Exception):
+                    _checkpoint(
+                        handle, state_path, source, destination, target, current
+                    )
             raise
         if chunks_since_checkpoint:
-            handle.flush()
-            _write_state(state_path, source, destination, target, current)
+            _checkpoint(handle, state_path, source, destination, target, current)
         if progress and chunks_since_progress:
             progress(current, target.size)
+
+    if target.size is not None and current != target.size:
+        # The final name means complete; a stream that ended early is not.
+        # The checkpoint above already made `current` durable, so the next
+        # run resumes from here instead of restarting (ADR-0083 decision 3,
+        # mirrored from clone reupload's `download_resumable` guard).
+        raise PolicyError(
+            f"media download stopped at {current}/{target.size} bytes "
+            f"for {_source_label(source)}"
+        )
 
     _publish(part_path, destination)
     state_path.unlink(missing_ok=True)
@@ -514,14 +551,17 @@ async def _download_parallel(
             f"media size is unavailable for parallel download: {_source_label(source)}"
         )
 
-    await download_striped(
-        tg,
-        target.media,
-        part_path,
-        size=total,
-        parallel=parallel,
-        progress=progress,
-    )
+    try:
+        await download_striped(
+            tg,
+            target.media,
+            part_path,
+            size=total,
+            parallel=parallel,
+            progress=progress,
+        )
+    except RuntimeError as exc:
+        raise PolicyError(str(exc)) from exc
     _publish(part_path, destination)
     state_path.unlink(missing_ok=True)
     data = {

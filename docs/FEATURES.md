@@ -14,7 +14,7 @@ Status values:
 
 | TL namespace | Status | Notes |
 |--------------|--------|-------|
-| account | api | Raw account calls use the audited write gates; lifecycle denylist remains permanent (ADR-0010). |
+| account | excluded | Session lifecycle is owned by `tg accounts`; raw account calls are denylisted wholesale, reads and writes alike (ADR-0010/ADR-0092). |
 | aicompose | api | No dedicated workflow; use raw TL only after task-specific review. |
 | auth | excluded | Session lifecycle is owned by `tg accounts`; raw auth calls are denylisted. |
 | bots | api | User-account tool; bot-management calls are raw TL only. |

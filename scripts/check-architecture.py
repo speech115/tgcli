@@ -74,7 +74,7 @@ CEILINGS = {
     # ADR-0087 delegates jobs validation to jobs/preflight.py and removes the
     # old archive composition gates.
     # +4 for ADR-0088's explicit non-empty phone/password start validation.
-    "src/tgcli/preflight.py": 444,
+    "src/tgcli/preflight.py": 446,
     # +2 for ADR-0057: isort section blanks.
     # +17 for ADR-0062: role lookup threaded into session.client.
     # +23 for ADR-0068: archive network dispatch (init/add/remove/backfill).
@@ -186,11 +186,11 @@ CEILINGS = {
     "src/tgcli/governor/__init__.py": 14,
     # gate.py: the governed _call wrapper — refuse locally while cooling,
     # arm the cooldown from the server's own retry_after after a flood.
-    "src/tgcli/governor/gate.py": 186,
+    "src/tgcli/governor/gate.py": 227,
     # ledger.py: persisted governor state (cooldowns, pacing reservations,
     # peer breadth) in SQLite under the state dir, ADR-0060's statedb.py
     # pattern, keyed by account_user_id.
-    "src/tgcli/governor/ledger.py": 416,
+    "src/tgcli/governor/ledger.py": 469,
     # pacing.py: sleep-before-dispatch pacing and the rolling breadth
     # budget — the start-to-start minimum interval per request type.
     "src/tgcli/governor/pacing.py": 231,

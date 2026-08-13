@@ -129,6 +129,14 @@ async def download_striped(
 
     try:
         await _run_workers(worker(index) for index in range(worker_count))
+        if downloaded != size:
+            # `truncate(size)` above already gave the file its final byte
+            # count, so a stream that stopped without raising (server closed
+            # the connection, no FloodWait, no worker exception) would
+            # otherwise leave a full-size *sparse* file that looks complete
+            # (ADR-0083 decision 3). The caller's `_publish` must never see
+            # this path succeed.
+            raise RuntimeError(f"striped download ended at {downloaded}/{size} bytes")
     except BaseException:
         destination.unlink(missing_ok=True)
         raise
