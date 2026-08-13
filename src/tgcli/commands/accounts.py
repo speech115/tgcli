@@ -1,4 +1,3 @@
-import fcntl
 import json
 import sqlite3
 from datetime import UTC, datetime
@@ -127,20 +126,10 @@ def remove_account(
             f"refusing to remove default_account {alias!r}; "
             "edit default_account in config first"
         )
-    path = state_dir() / "sessions" / f"{config.accounts[alias].session}.session"
+    path = session.session_path(config.accounts[alias])
     bak = Path(str(path) + ".bak")
     session.ensure_state_dir("sessions")
-    lock_path = path.with_suffix(".lock")
-    lock = lock_path.open("w")
-    try:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise PolicyError(
-                f"session {path.stem!r} is busy (another tg process is using it); "
-                "retry in a few seconds"
-            ) from exc
-
+    with session.session_file_lock(path, busy_error=PolicyError):
         session_existed = path.is_file()
         backup_existed = bak.is_file()
 
@@ -174,9 +163,6 @@ def remove_account(
             "session": session_status,
             "backup": backup_status,
         }
-    finally:
-        fcntl.flock(lock, fcntl.LOCK_UN)
-        lock.close()
 
 
 def _remove_role(
@@ -207,15 +193,7 @@ def _remove_role(
         )
     bak = Path(str(path) + ".bak")
     session.ensure_state_dir("sessions")
-    lock = path.with_suffix(".lock").open("w")
-    try:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise PolicyError(
-                f"session {path.stem!r} is busy (another tg process is using it); "
-                "retry in a few seconds"
-            ) from exc
+    with session.session_file_lock(path, busy_error=PolicyError):
         backup_existed = bak.is_file()
         safety.append_audit(
             "accounts-remove-role",
@@ -235,9 +213,6 @@ def _remove_role(
             "session": "deleted",
             "backup": "deleted" if backup_existed else "absent",
         }
-    finally:
-        fcntl.flock(lock, fcntl.LOCK_UN)
-        lock.close()
 
 
 def remove_rows(data: dict) -> list[tuple]:
@@ -322,21 +297,9 @@ def _append_config_block(
 
 def _copy_session(source_path: Path, destination_path: Path) -> None:
     session.ensure_state_dir("sessions")
-    lock_path = destination_path.with_suffix(".lock")
-    lock = lock_path.open("w")
-    try:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise ConfigError(
-                f"session {destination_path.stem!r} is busy "
-                "(another tg process is using it); retry in a few seconds"
-            ) from exc
+    with session.session_file_lock(destination_path):
         _backup_sqlite(source_path, destination_path)
         session.restrict_file(destination_path)
-    finally:
-        fcntl.flock(lock, fcntl.LOCK_UN)
-        lock.close()
 
 
 def import_accounts(aliases: list[str] | None, source_root: Path, force: bool) -> dict:

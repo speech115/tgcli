@@ -104,6 +104,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0095](ADR-0095-runtime-error-phone-redaction.md) | Runtime errors redact compact and formatted phone-shaped text before CLI emission or job persistence, including opt-in verbose tracebacks | accepted |
 | [0096](ADR-0096-archive-sqlite-contention-policy.md) | Archive connections explicitly pin a 5-second SQLite busy timeout instead of inheriting the CPython driver default | accepted; thermos audit T24 |
 | [0097](ADR-0097-archive-scope-cursor-atomicity.md) | Archive remove drops scope and channel subscription in one SQLite write transaction; sync cursor writers re-project onto current scope under the same lock | accepted; thermos T09/T23 |
+| [0099](ADR-0099-session-file-lock.md) | Canonical `session.session_file_lock` for non-blocking `.lock` acquisition; call sites keep ConfigError vs PolicyError via `busy_error` | accepted; thermos debt T26 |
 
 Notes on supersessions:
 

@@ -7,7 +7,6 @@ A login attempt is not a preview: it owns a staged session and optional
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import re
@@ -16,8 +15,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from tgcli import atomic
-from tgcli.errors import ConfigError, NotFoundError, PolicyError
-from tgcli.session import ensure_state_dir, restrict_file
+from tgcli.errors import NotFoundError, PolicyError
+from tgcli.session import ensure_state_dir, restrict_file, session_file_lock
 
 LOGIN_TTL = timedelta(minutes=30)
 _LOGIN_ID_RE = re.compile(r"^l_[A-Za-z0-9_-]+$")
@@ -172,16 +171,7 @@ def promote(
     if not staged.is_file():
         raise PolicyError(f"staged session missing for {login_id!r}")
     ensure_state_dir("sessions")
-    lock_path = destination.with_suffix(".lock")
-    lock = lock_path.open("w")
-    try:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise ConfigError(
-                f"session {destination.stem!r} is busy "
-                "(another tg process is using it); retry in a few seconds"
-            ) from exc
+    with session_file_lock(destination):
         backup_path: Path | None = None
         bak = Path(str(destination) + ".bak")
         if destination.exists() and keep_backup:
@@ -206,6 +196,3 @@ def promote(
         (logins_dir() / f"{login_id}.session-journal").unlink(missing_ok=True)
         (logins_dir() / f"{login_id}.phone").unlink(missing_ok=True)
         return backup_path
-    finally:
-        fcntl.flock(lock, fcntl.LOCK_UN)
-        lock.close()
