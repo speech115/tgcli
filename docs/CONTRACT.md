@@ -1951,7 +1951,7 @@ cursor are still applied in full. Global `--max-runtime` also bounds this
 media tail (ADR-0106): when the wall clock is exhausted, media acquisition
 stops without starting further downloads, JSON may report
 `stop_reason: "wall_clock_cap"` with media remaining, and exit is **0**.
- Downloads are idempotent: a transcript
+Downloads are idempotent: a transcript
 queue row is marked with its controlled relative `media_path` only after the
 file is published successfully. Media acquisition has an independent fixed
 cap of **3** attempts, separate from transcription attempts. Ordinary
