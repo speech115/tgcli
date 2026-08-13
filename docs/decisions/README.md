@@ -111,6 +111,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0102](ADR-0102-expired-preview-never-sticky-pending.md) | `begin_commit` checks kind and TTL before any rename to `.pending`, and returns an already-`.pending` retry found expired back to `.json`; an expired preview always lands in the plain expired bucket `store cleanup` reaps by default (T13) | accepted |
 | [0103](ADR-0103-clone-id-includes-source-peer-class.md) | `clone_id` hashes the source's peer class (user/chat/channel), not the bare numeric peer id, so a User/basic-group/Channel collision on one integer no longer shares a clone state slot; a pre-ADR-0103 slot migrates onto its class-aware id lazily on first resolve | accepted; thermos T05 |
 | [0104](ADR-0104-clone-lookup-uses-peer-class-tokens.md) | Numeric clone filters match the canonical token for the recorded source peer class: raw user id, negative basic-group id, or `-100`-marked channel id; cross-class aliases are refused | accepted; thermos T18; depends on ADR-0103 |
+| [0105](ADR-0105-clone-json-import-crash-safety.md) | Clone JSON→SQLite import renames the JSON to `.importing` before the SQLite write, not `.imported` after it, so a crash mid-import resumes on the next `load()` instead of fail-closing as an ambiguous both-files conflict | accepted; T06 |
 
 Notes on supersessions:
 

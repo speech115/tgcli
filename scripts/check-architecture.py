@@ -130,7 +130,9 @@ CEILINGS = {
     # floods arm the governor's per-type cooldown instead.
     # +18 trued up at the 2.0.4 merge (ADR-0081): destination_title /
     # destination_username fields, their validation, and to_dict/from_dict.
-    "src/tgcli/clone/state.py": 409,
+    # +19 for ADR-0103/0105: peer-class clone_id + resolve_slot migration
+    # and crash-safe JSON import markers (begin/finish_json_import).
+    "src/tgcli/clone/state.py": 478,
     # +22 for ADR-0051: posts_cursor / posts_exhausted kwargs + deferred
     # short-circuit in resolve (mirror of transport.decide's deferred plan).
     # +1 for ADR-0061: the ResolveContext destination_group field.

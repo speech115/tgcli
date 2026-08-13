@@ -11,6 +11,17 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [3.0.11] — 2026-08-13
+
+Clone JSON→SQLite import renames legacy JSON to `.importing` before the SQLite
+write so a mid-import crash resumes on the next `load()` (ADR-0105).
+
+Rationale: ADR-0105.
+
+### Changed
+
+- Make clone JSON to SQLite import crash-safe (ADR-0105) (#259)
+
 ## [3.0.10] — 2026-08-13
 
 Numeric clone filters (`status`, `export-state`) match the canonical token for
@@ -1007,6 +1018,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[3.0.11]: https://github.com/speech115/tgcli/compare/v3.0.10...v3.0.11
 [3.0.10]: https://github.com/speech115/tgcli/compare/v3.0.9...v3.0.10
 [3.0.9]: https://github.com/speech115/tgcli/compare/v3.0.8...v3.0.9
 [3.0.8]: https://github.com/speech115/tgcli/compare/v3.0.7...v3.0.8

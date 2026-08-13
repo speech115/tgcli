@@ -382,10 +382,38 @@ def read_json_file(json_path: Path, *, expected_version: int) -> dict[str, Any]:
     return data
 
 
-def finish_json_import(json_path: Path, db_path: Path, data: dict[str, Any]) -> None:
-    """Write validated data to SQLite and rename the JSON to ``.imported``."""
+def begin_json_import(json_path: Path) -> Path:
+    """Atomically rename ``json_path`` to a ``.importing`` marker.
+
+    Once this rename lands, the on-disk state unambiguously says "an import
+    is underway" (ADR-0060 / T06). A crash between here and
+    ``finish_json_import`` therefore resumes on the next ``load()`` instead
+    of leaving a plain-named ``.json`` sitting next to a possibly
+    already-written ``.db`` — the ambiguous both-files shape that used to
+    fail-close for "manual resolution required" even though the crash was
+    purely a timing accident, not a real conflict.
+    """
+    importing_path = json_path.with_name(json_path.name + ".importing")
+    os.replace(json_path, importing_path)
+    return importing_path
+
+
+def finish_json_import(
+    importing_path: Path, db_path: Path, data: dict[str, Any]
+) -> None:
+    """Write validated data to SQLite and rename the ``.importing`` marker
+    to ``.imported``.
+
+    Idempotent: ``persist(..., full=True)`` always overwrites the whole
+    database, so replaying it after a crash between the two steps below is
+    harmless, and the caller re-derives ``data`` from the same
+    ``.importing`` file on every retry.
+    """
     persist(db_path, data, full=True)
-    os.replace(json_path, json_path.with_name(json_path.name + ".imported"))
+    imported_path = importing_path.with_name(
+        importing_path.name.removesuffix(".importing") + ".imported"
+    )
+    os.replace(importing_path, imported_path)
 
 
 def probe_paths(db_path: Path, json_path: Path) -> dict[str, Any]:
