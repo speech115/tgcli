@@ -5,10 +5,10 @@ same policy to `sqlite3.connect`, and explicitly issued `PRAGMA busy_timeout`
 before WAL/schema setup. Replaced the default-sensitive regression with one
 live-value assertion and one real-connection SQL trace. Removing the explicit
 PRAGMA produced the intended red result: 1 failed, 1 passed; restoring it
-produced 2 passed. Added ADR-0109, its index row, and the MAP inventory update.
+produced 2 passed. Added ADR-0111, its index row, and the MAP inventory update.
 
 **Decided:** full lane under ADR-0073 because this changes a released command's
-persistent archive store behavior. ADR-0109 treats five seconds as explicit
+persistent archive store behavior. ADR-0111 treats five seconds as explicit
 tgcli policy, not as a claim that the value differs from CPython's default.
 
 **Learned:** CPython already initializes SQLite's busy timeout to five seconds,

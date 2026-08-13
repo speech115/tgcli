@@ -1,4 +1,4 @@
-# ADR-0109: Pin the archive SQLite contention policy
+# ADR-0111: Pin the archive SQLite contention policy
 
 Date: 2026-08-13
 Status: accepted
