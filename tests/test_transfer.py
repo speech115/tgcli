@@ -448,10 +448,10 @@ async def test_upload_parts_reports_progress_with_uploaded_and_total_bytes(tmp_p
 
 
 def test_media_download_shares_the_one_progress_cadence():
-    """ADR-0043/0049: one seam, not a copy of the constant."""
+    """ADR-0043/0049 / T31: serial media downloads share transfer's cadence."""
     from tgcli.commands import media
 
-    assert media.PROGRESS_EVERY_CHUNKS is transfer.PROGRESS_EVERY_CHUNKS
+    assert media.download_resumable is transfer.download_resumable
 
 
 def _photo_media(*, sizes):
