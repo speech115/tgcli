@@ -17,7 +17,7 @@ from tgcli.config import (
     load_config,
     validate_role_name,
 )
-from tgcli.errors import ConfigError, NotFoundError, PolicyError, RateLimitError
+from tgcli.errors import ConfigError, NotFoundError, PolicyError
 from tgcli.formatting import mask_phone
 from tgcli.output import note
 from tgcli.session import session_path, state_dir
@@ -283,11 +283,6 @@ async def start_login(
             staged, resolved_id, resolved_hash
         ) as client:
             return await _phone_start(client, attempt, phone=phone)
-    except telethon_errors.FloodWaitError as exc:
-        raise RateLimitError(
-            f"FLOOD_WAIT; retry after {exc.seconds}s",
-            retry_after=exc.seconds,
-        ) from exc
     except (
         telethon_errors.PhoneNumberBannedError,
         telethon_errors.PhoneNumberInvalidError,
@@ -330,11 +325,6 @@ async def _complete_password(
     except telethon_errors.PasswordHashInvalidError as exc:
         login_state.update_attempt(login_id, next="password")
         raise ConfigError("invalid cloud password") from exc
-    except telethon_errors.FloodWaitError as exc:
-        raise RateLimitError(
-            f"FLOOD_WAIT; retry after {exc.seconds}s",
-            retry_after=exc.seconds,
-        ) from exc
     return None
 
 
@@ -396,11 +386,6 @@ async def continue_login(
                 login_state.discard_attempt(login_id)
                 raise ConfigError(
                     "confirmation code expired; start login again"
-                ) from exc
-            except telethon_errors.FloodWaitError as exc:
-                raise RateLimitError(
-                    f"FLOOD_WAIT; retry after {exc.seconds}s",
-                    retry_after=exc.seconds,
                 ) from exc
         return await _finish_authorized(
             client,

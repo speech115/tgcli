@@ -5,6 +5,7 @@ from __future__ import annotations
 import fcntl
 
 import pytest
+from telethon import errors as telethon_errors, functions
 
 from tgcli import authclient
 from tgcli.config import Account
@@ -19,6 +20,7 @@ class _FakeTg:
         self.connected = False
         self.disconnected = False
         self.disconnect_calls = 0
+        self.requests = []
 
     async def connect(self):
         if self.raise_on_connect is not None:
@@ -33,12 +35,13 @@ class _FakeTg:
         self.connected = False
         self.disconnected = True
 
-    async def is_user_authorized(self):
+    async def __call__(self, request):
+        self.requests.append(request)
         if self.revoke:
-            from telethon.errors import SessionRevokedError
-
-            raise SessionRevokedError(request=None)
-        return self.authorized
+            raise telethon_errors.SessionRevokedError(request=request)
+        if not self.authorized:
+            raise telethon_errors.AuthKeyUnregisteredError(request=request)
+        return object()
 
 
 @pytest.mark.asyncio
@@ -98,8 +101,30 @@ async def test_unauthorized_client_sets_same_telegram_device_identity(
             "device_model": "tgcli",
             "system_version": "TestOS",
             "app_version": "1.2.0",
+            "flood_sleep_threshold": 0,
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_unauthorized_client_disables_telethon_flood_sleeper(
+    tmp_path, monkeypatch
+):
+    """T20: login clients must match session._make_client (ADR-0072)."""
+    path = tmp_path / "staged.session"
+    fake = _FakeTg()
+    captured = {}
+
+    def fake_client(*args, **kwargs):
+        captured["kwargs"] = kwargs
+        return fake
+
+    monkeypatch.setattr(authclient, "TelegramClient", fake_client)
+
+    async with authclient.unauthorized_client(path, 1, "hash"):
+        pass
+
+    assert captured["kwargs"]["flood_sleep_threshold"] == 0
 
 
 @pytest.mark.asyncio
@@ -186,6 +211,8 @@ async def test_probe_authorized_maps_revoked_to_false(tmp_path, monkeypatch):
     monkeypatch.setattr(authclient, "TelegramClient", lambda *a, **k: fake)
 
     assert await authclient.probe_authorized(account) is False
+    assert len(fake.requests) == 1
+    assert isinstance(fake.requests[0], functions.updates.GetStateRequest)
     assert fake.disconnected
 
 
