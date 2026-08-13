@@ -69,6 +69,49 @@ async def _async_sleep(seconds: float) -> None:
     await asyncio.sleep(seconds)
 
 
+async def _poll_interval(end: float) -> bool:
+    """Sleep up to ``POLL_SLEEP_S`` or until *end*.
+
+    Return True if still before *end*.
+    """
+    remaining = end - _now()
+    if remaining <= 0:
+        return False
+    await _async_sleep(min(POLL_SLEEP_S, remaining))
+    return _now() < end
+
+
+def _merge_once_doc(doc: dict, more: dict) -> None:
+    doc["events"].extend(more["events"])
+    if more["gap"] is not None and doc["gap"] is None:
+        doc["gap"] = more["gap"]
+    for key, value in (more["skipped"] or {}).items():
+        doc["skipped"][key] = doc["skipped"].get(key, 0) + value
+
+
+async def _wait_poll(
+    tg,
+    cursor: ChangesCursor,
+    doc: dict,
+    *,
+    end: float,
+    while_idle: bool = False,
+    merge: bool = False,
+) -> tuple[dict, ChangesCursor]:
+    """Poll ``once`` until *end* or, when *while_idle*, until events or gap."""
+    while _now() < end:
+        if while_idle and (doc["events"] or doc["gap"] is not None):
+            break
+        if not await _poll_interval(end):
+            break
+        more, cursor, _ = await once(tg, cursor)
+        if merge:
+            _merge_once_doc(doc, more)
+        else:
+            doc = more
+    return doc, cursor
+
+
 def to_rows(data: dict) -> list[tuple]:
     gap = data.get("gap")
     gap_scope = None if gap is None else gap.get("scope")
@@ -246,6 +289,36 @@ def _map_messages(messages, *, kind: str, chats, skip_peers: set[int]) -> list[d
     return out
 
 
+def _map_difference_events(
+    result,
+    *,
+    subscribed: set[int],
+    skipped: dict,
+    private_deletes: bool = False,
+) -> list[dict]:
+    chats = list(result.chats or ())
+    events: list[dict] = []
+    events.extend(
+        _map_messages(
+            result.new_messages,
+            kind="message_new",
+            chats=chats,
+            skip_peers=subscribed,
+        )
+    )
+    for update in result.other_updates or ():
+        events.extend(
+            _map_update(
+                update,
+                subscribed=subscribed,
+                chats=chats,
+                skipped=skipped,
+                private_deletes=private_deletes,
+            )
+        )
+    return events
+
+
 def _gap(scope, *, reason: str) -> dict:
     recover: dict[str, Any] = {"edits_deletes": "lost"}
     if scope == "common":
@@ -291,25 +364,14 @@ async def _poll_common(
             )
             break
         if isinstance(result, (Difference, DifferenceSlice)):
-            chats = list(result.chats or ())
             events.extend(
-                _map_messages(
-                    result.new_messages,
-                    kind="message_new",
-                    chats=chats,
-                    skip_peers=subscribed,
+                _map_difference_events(
+                    result,
+                    subscribed=subscribed,
+                    skipped=skipped,
+                    private_deletes=private_deletes,
                 )
             )
-            for update in result.other_updates or ():
-                events.extend(
-                    _map_update(
-                        update,
-                        subscribed=subscribed,
-                        chats=chats,
-                        skipped=skipped,
-                        private_deletes=private_deletes,
-                    )
-                )
             common_state = (
                 result.state
                 if isinstance(result, Difference)
@@ -360,19 +422,9 @@ async def _poll_channel(
                 pts = await _channel_pts(tg, entity)
             break
         if isinstance(result, ChannelDifference):
-            chats = list(result.chats or ())
             events.extend(
-                _map_messages(
-                    result.new_messages,
-                    kind="message_new",
-                    chats=chats,
-                    skip_peers=set(),
-                )
+                _map_difference_events(result, subscribed=set(), skipped=skipped)
             )
-            for update in result.other_updates or ():
-                events.extend(
-                    _map_update(update, subscribed=set(), chats=chats, skipped=skipped)
-                )
             pts = int(result.pts)
             if getattr(result, "final", None):
                 break
@@ -492,33 +544,13 @@ async def run_changes(
     if wait is None:
         return _document(doc, cursor, binding_key=binding_key)
 
-    start = _now()
-    deadline = start + wait
+    deadline = _now() + wait
 
     if not doc["events"] and doc["gap"] is None:
-        while _now() < deadline and not doc["events"] and doc["gap"] is None:
-            remaining = deadline - _now()
-            if remaining <= 0:
-                break
-            await _async_sleep(min(POLL_SLEEP_S, remaining))
-            if _now() >= deadline:
-                break
-            doc, cursor, _ = await once(tg, cursor)
+        doc, cursor = await _wait_poll(tg, cursor, doc, end=deadline, while_idle=True)
 
     if doc["events"] and _now() < deadline:
         settle_end = min(_now() + SETTLE_SECONDS, deadline)
-        while _now() < settle_end:
-            remaining = settle_end - _now()
-            if remaining <= 0:
-                break
-            await _async_sleep(min(POLL_SLEEP_S, remaining))
-            if _now() >= settle_end:
-                break
-            more, cursor, _ = await once(tg, cursor)
-            doc["events"].extend(more["events"])
-            if more["gap"] is not None and doc["gap"] is None:
-                doc["gap"] = more["gap"]
-            for key, value in (more["skipped"] or {}).items():
-                doc["skipped"][key] = doc["skipped"].get(key, 0) + value
+        doc, cursor = await _wait_poll(tg, cursor, doc, end=settle_end, merge=True)
 
     return _document(doc, cursor, binding_key=binding_key)
