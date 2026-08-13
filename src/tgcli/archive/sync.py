@@ -145,7 +145,12 @@ def apply_events(
             if peer is None:
                 targets = store_mod.find_message_peers(conn, ids, exclude_channels=True)
             else:
-                targets = [(int(peer), mid) for mid in ids]
+                peer_id = int(peer)
+                if not _in_archive_scope(conn, peer_id, None):
+                    applied["skipped_out_of_scope"] += 1
+                    applied["events"] += 1
+                    continue
+                targets = [(peer_id, mid) for mid in ids]
             with conn:
                 for peer_id, mid in targets:
                     if store_mod.insert_tombstone(conn, peer_id, mid):
