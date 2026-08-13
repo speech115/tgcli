@@ -116,6 +116,28 @@ def test_mask_phone_shapes():
 
 
 @pytest.mark.asyncio
+async def test_attempt_json_has_no_raw_phone_on_disk(env, fake_client):
+    """T08 / ADR-0042 §5: the attempt json on disk must never carry the raw
+    phone, only the continue path may resolve it (from its own sidecar)."""
+    pending = await login_cmd.start_login(
+        load_config(),
+        "tmp",
+        phone=PHONE,
+        api_id=1,
+        api_hash="h",
+        force=False,
+    )
+    attempt_path = env["state"] / "logins" / f"{pending['login_id']}.json"
+    raw = attempt_path.read_text()
+    assert PHONE not in raw
+    assert "phone" not in json.loads(raw)
+
+    data = await _complete_phone_login(pending)
+    assert data["status"] == "authorized"
+    assert fake_client.sign_in_calls[0]["args"][0] == PHONE
+
+
+@pytest.mark.asyncio
 async def test_login_promotes_to_configured_session_stem(env, fake_client):
     env["config"].write_text(
         env["config"].read_text()

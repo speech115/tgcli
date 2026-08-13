@@ -29,6 +29,13 @@ def _write_attempt(path: Path, record: dict) -> None:
     A mid-write truncate would otherwise be classified as expired by a
     concurrent `store cleanup --confirm` and take the staged session with it.
     """
+    if "phone" in record:
+        # ADR-0042 §5: the attempt json holds alias/phone_code_hash/
+        # created_at, never the phone. A regression here would put the raw
+        # phone back on disk for the whole 30-minute TTL (T08).
+        raise AssertionError(
+            "login attempt record must not persist a raw phone (ADR-0042/0088)"
+        )
     atomic.replace_text(path, json.dumps(record))
 
 
@@ -44,6 +51,11 @@ def staged_session_path(login_id: str) -> Path:
 def _attempt_path(login_id: str) -> Path:
     _validate_id(login_id)
     return logins_dir() / f"{login_id}.json"
+
+
+def _phone_path(login_id: str) -> Path:
+    _validate_id(login_id)
+    return logins_dir() / f"{login_id}.phone"
 
 
 def _validate_id(login_id: str) -> None:
@@ -69,7 +81,6 @@ def create_attempt(
         "method": method,
         "api_id": api_id,
         "api_hash": api_hash,
-        "phone": phone,
         "phone_code_hash": None,
         "role": role,
         "created_at": now.isoformat(),
@@ -77,6 +88,10 @@ def create_attempt(
     }
     path = _attempt_path(login_id)
     _write_attempt(path, record)
+    if phone is not None:
+        # Kept out of the attempt json (ADR-0042 §5, T08): a sidecar file at
+        # the same 0600 mode, cleaned up wherever the attempt itself is.
+        atomic.replace_text(_phone_path(login_id), phone)
     return record
 
 
@@ -107,6 +122,21 @@ def load_attempt(login_id: str, *, now: datetime | None = None) -> dict:
     return record
 
 
+def load_phone(login_id: str) -> str | None:
+    """Read the phone sidecar written by `create_attempt`, if any.
+
+    The attempt json never carries the phone (ADR-0042 §5); the continue
+    path resolves it from here instead.
+    """
+    path = _phone_path(login_id)
+    if not path.is_file():
+        return None
+    try:
+        return path.read_text()
+    except OSError:
+        return None
+
+
 def update_attempt(login_id: str, *, now: datetime | None = None, **fields) -> dict:
     record = load_attempt(login_id, now=now)
     record.update(fields)
@@ -122,6 +152,7 @@ def discard_attempt(login_id: str) -> None:
         directory / f"{login_id}.json",
         directory / f"{login_id}.session",
         directory / f"{login_id}.session-journal",
+        directory / f"{login_id}.phone",
     ):
         path.unlink(missing_ok=True)
 
@@ -173,6 +204,7 @@ def promote(
         path = _attempt_path(login_id)
         path.unlink(missing_ok=True)
         (logins_dir() / f"{login_id}.session-journal").unlink(missing_ok=True)
+        (logins_dir() / f"{login_id}.phone").unlink(missing_ok=True)
         return backup_path
     finally:
         fcntl.flock(lock, fcntl.LOCK_UN)

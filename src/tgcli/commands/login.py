@@ -352,6 +352,7 @@ async def continue_login(
             f"login_id {login_id!r} uses a removed login method; start login again"
         )
     role = attempt.get("role")
+    phone = login_state.load_phone(login_id)
     staged = login_state.staged_session_path(login_id)
     config = load_config()
     dest = _login_destination(config, alias, role)
@@ -371,7 +372,6 @@ async def continue_login(
         else:
             # Submit the phone confirmation code first.
             resolved_code = _collect_code(code=code)
-            phone = attempt["phone"]
             phone_code_hash = attempt["phone_code_hash"]
             if not isinstance(phone, str) or not isinstance(phone_code_hash, str):
                 raise ConfigError("login attempt missing phone state")
@@ -407,7 +407,7 @@ async def continue_login(
             login_id=login_id,
             alias=alias,
             method=method,
-            phone=attempt.get("phone"),
+            phone=phone,
             is_new=is_new,
             api_id=attempt["api_id"],
             api_hash=attempt["api_hash"],
