@@ -923,13 +923,16 @@ tg export messages <chat> --output <path> [--limit <n>]
 tg export subscribers <channel> --output <path> [--limit <n>]
 ```
 
-- `--output` is required. It is the only destination for the export records;
-  without `--append`/`--resume`, the command writes a sibling temporary file and
-  replaces the destination only after the complete export succeeds. An existing
-  destination is unchanged on a failed full export.
+- `--output` is required. It is the only destination for the export records.
+  Every export writes a sibling temporary file, fsyncs it, and replaces the
+  destination only after the complete export succeeds. An existing destination
+  is unchanged on a failed full or incremental export (ADR-0104).
 - `--after-id N` exports only messages with `id > N` (Telethon `min_id`).
 - `--append` appends JSONL lines to an existing file (creating it if missing).
-  It requires `--after-id` or `--resume`; otherwise exit 2 (`BLOCKED`).
+  The existing bytes and the new batch are staged in a same-directory temporary
+  file and published together by atomic replacement; a failed batch publishes
+  none of its rows. It requires `--after-id` or `--resume`; otherwise exit 2
+  (`BLOCKED`).
 - `--resume` reads the last non-empty JSONL line's message `id` from
   `--output`, then behaves as `--append --after-id <that>`. Missing, empty, or
   corrupt last line → exit 1. No sidecar state file.
