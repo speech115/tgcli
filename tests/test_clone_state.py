@@ -148,6 +148,31 @@ def test_resolve_slot_leaves_a_corrupt_legacy_slot_for_manual_repair(
     assert state.path_for(legacy_id).exists()
 
 
+def test_resolve_slot_resumes_a_crashed_legacy_json_import(tmp_path, monkeypatch):
+    """T06 via ADR-0103: a legacy slot left at ``.json.importing`` after a
+    crash during the first post-upgrade ``resolve_slot`` must still migrate."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    legacy_id = state._kind_blind_clone_id(1, 2)
+    saved = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="Legacy", source_kind="basic"
+    )
+    saved.record_mapping(7, 70)
+    state.clones_dir().mkdir(parents=True)
+    json_path = state.json_path_for(legacy_id)
+    importing_path = json_path.with_name(json_path.name + ".importing")
+    importing_path.write_text(json.dumps(saved.to_dict()))
+
+    canonical_id = state.resolve_slot(1, 2, "basic")
+
+    assert canonical_id == state.clone_id(1, 2, "basic")
+    migrated = state.load(canonical_id)
+    assert migrated is not None
+    assert migrated.source_title == "Legacy"
+    assert migrated.dest_for(7) == 70
+    assert not state.path_for(legacy_id).exists()
+    assert not importing_path.exists()
+
+
 def test_save_then_load_round_trip():
     s = _fresh()
     s.source_kind = "megagroup"

@@ -420,13 +420,20 @@ def load(clone_id: str) -> CloneState | None:
     return None
 
 
+def _slot_markers_present(clone_id: str) -> bool:
+    db_path = path_for(clone_id)
+    json_path = json_path_for(clone_id)
+    importing_path = json_path.with_name(json_path.name + ".importing")
+    return db_path.exists() or json_path.exists() or importing_path.exists()
+
+
 def resolve_slot(account_user_id: int, source_peer_id: int, source_kind: str) -> str:
     """Canonical clone id, migrating a same-class legacy slot onto it once
     (ADR-0103); a different-class legacy slot is left for its own class."""
     canonical = clone_id(account_user_id, source_peer_id, source_kind)
     legacy = _kind_blind_clone_id(account_user_id, source_peer_id)
-    canonical_taken = path_for(canonical).exists() or json_path_for(canonical).exists()
-    legacy_present = path_for(legacy).exists() or json_path_for(legacy).exists()
+    canonical_taken = _slot_markers_present(canonical)
+    legacy_present = _slot_markers_present(legacy)
     if legacy == canonical or canonical_taken or not legacy_present:
         return canonical
     try:

@@ -137,7 +137,10 @@ CEILINGS = {
     # destination_username fields, their validation, and to_dict/from_dict.
     # +19 for ADR-0103/0105: peer-class clone_id + resolve_slot migration
     # and crash-safe JSON import markers (begin/finish_json_import).
-    "src/tgcli/clone/state.py": 478,
+    # +38 Wave D integrator ratchet (strict gate): ADR-0105 JSON import crash
+    # safety markers and resume path in clone/state.py.
+    # +7 Wave D review fix: _slot_markers_present for resolve_slot .importing.
+    "src/tgcli/clone/state.py": 485,
     # +22 for ADR-0051: posts_cursor / posts_exhausted kwargs + deferred
     # short-circuit in resolve (mirror of transport.decide's deferred plan).
     # +1 for ADR-0061: the ResolveContext destination_group field.
