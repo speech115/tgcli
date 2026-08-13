@@ -4,8 +4,10 @@ import fcntl
 import os
 import platform
 import sqlite3
-from contextlib import asynccontextmanager
+from collections.abc import Iterator
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
+from typing import IO
 from urllib.parse import quote
 
 from telethon import TelegramClient, errors as telethon_errors
@@ -141,6 +143,38 @@ def lock_held(session_file: Path) -> bool | None:
     return lock_file_held(session_file.with_suffix(".lock"))
 
 
+@contextmanager
+def session_file_lock(
+    session_file: Path,
+    *,
+    label: str | None = None,
+    busy_error: type[BaseException] = ConfigError,
+) -> Iterator[IO[str]]:
+    """Acquire the ``.lock`` beside ``session_file`` (ADR-0099).
+
+    Non-blocking ``LOCK_EX``. On contention raises ``busy_error`` (default
+    ``ConfigError``; mutation paths pass ``PolicyError``) with the standard
+    busy remediation. Callers must not open the flock themselves.
+    """
+    name = label if label is not None else session_file.stem
+    handle = session_file.with_suffix(".lock").open("w")
+    try:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise busy_error(
+                f"session {name!r} is busy (another tg process is using it); "
+                "retry in a few seconds"
+            ) from exc
+        yield handle
+    finally:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        handle.close()
+
+
 def client_identity() -> tuple[str, str, str]:
     """Stable Telegram Devices identity for every tgcli connection."""
     return "tgcli", platform.system(), __version__
@@ -226,53 +260,43 @@ async def client(
             f"run: tg accounts login {account.alias} --role {role} --phone PHONE"
         )
     ensure_state_dir("sessions")
-    lock = open(path.with_suffix(".lock"), "w")
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        lock.close()
-        raise ConfigError(
-            f"session {label!r} is busy (another tg process is using it); "
-            "retry in a few seconds"
-        ) from None
-    tg = _make_client(path, account, mutation_safe=mutation_safe)
-    # Telethon creates the SQLite session during client construction; tighten it
-    # before any network use.
-    restrict_file(path)
-    if govern:
-        from tgcli.governor.gate import install as install_governor
-        from tgcli.governor.ledger import Ledger
+    with session_file_lock(path, label=label):
+        tg = _make_client(path, account, mutation_safe=mutation_safe)
+        # Telethon creates the SQLite session during client construction; tighten it
+        # before any network use.
+        restrict_file(path)
+        if govern:
+            from tgcli.governor.gate import install as install_governor
+            from tgcli.governor.ledger import Ledger
 
-        governor = Ledger.open()
-        install_governor(tg, governor)
-    else:
-        # `doctor --connect` is the one command exempt from the governor
-        # (ADR-0072 decision 1): it must work precisely when every gated
-        # type is cooling. No seam, no pacing — the diagnosis is the point.
-        governor = None
-    try:
-        await tg.connect()
-        if not await tg.is_user_authorized():
-            if role is not None:
+            governor = Ledger.open()
+            install_governor(tg, governor)
+        else:
+            # `doctor --connect` is the one command exempt from the governor
+            # (ADR-0072 decision 1): it must work precisely when every gated
+            # type is cooling. No seam, no pacing — the diagnosis is the point.
+            governor = None
+        try:
+            await tg.connect()
+            if not await tg.is_user_authorized():
+                if role is not None:
+                    raise ConfigError(
+                        f"session role {role!r} for account {account.alias!r} "
+                        "is not authorized; "
+                        f"run: tg accounts login {account.alias} --role {role} "
+                        "--phone PHONE"
+                    )
                 raise ConfigError(
-                    f"session role {role!r} for account {account.alias!r} "
-                    "is not authorized; "
-                    f"run: tg accounts login {account.alias} --role {role} "
-                    "--phone PHONE"
+                    f"session {account.session!r} is not authorized; "
+                    "run: tg accounts login <alias> --phone PHONE "
+                    "(or tg accounts import for an old-stack session)"
                 )
+            yield tg
+        except telethon_errors.SessionRevokedError as exc:
             raise ConfigError(
-                f"session {account.session!r} is not authorized; "
-                "run: tg accounts login <alias> --phone PHONE "
-                "(or tg accounts import for an old-stack session)"
-            )
-        yield tg
-    except telethon_errors.SessionRevokedError as exc:
-        raise ConfigError(
-            f"session {label!r} needs reauthentication; authorize it again"
-        ) from exc
-    finally:
-        await tg.disconnect()  # type: ignore  # Telethon stub: Coroutine | None
-        if governor is not None:
-            governor.close()
-        fcntl.flock(lock, fcntl.LOCK_UN)
-        lock.close()
+                f"session {label!r} needs reauthentication; authorize it again"
+            ) from exc
+        finally:
+            await tg.disconnect()  # type: ignore  # Telethon stub: Coroutine | None
+            if governor is not None:
+                governor.close()
