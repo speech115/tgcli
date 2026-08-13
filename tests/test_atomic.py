@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import errno
+import inspect
 import os
 import stat
 
 from tgcli import atomic
+from tgcli.commands import export
 
 
 def test_replace_text_fsyncs_the_parent_directory(tmp_path, monkeypatch):
@@ -67,3 +69,15 @@ def test_replace_text_survives_an_unopenable_parent(tmp_path, monkeypatch):
     atomic.replace_text(target, '{"a": 3}')
 
     assert target.read_text() == '{"a": 3}'
+
+
+def test_fsync_directory_is_the_public_parent_helper():
+    """Cross-module callers must use the public name (ADR-0108 helper)."""
+    assert callable(atomic.fsync_directory)
+    assert not hasattr(atomic, "_fsync_directory")
+
+
+def test_export_uses_public_fsync_directory():
+    source = inspect.getsource(export)
+    assert "atomic._fsync_directory" not in source
+    assert "atomic.fsync_directory" in source
