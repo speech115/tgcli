@@ -10,11 +10,12 @@ once it has an owner request + ADR (as MSG-001 and FEED-001 already did).
 
 Audit findings from the 2026-08-13 whole-repo thermos pass are tracked in
 [thermos-audit-2026-08-13-backlog.md](thermos-audit-2026-08-13-backlog.md)
-(37 items). Bug tickets T01–T25 are in code; structural debt T26–T37 is the
-Wave E campaign
-([plan](plans/2026-08-13-thermos-debt-wave-e.md)). They are not deferred
-product work. GitHub issue publish remains optional
-(`scripts/publish-thermos-backlog.py --apply` when `issues:write` is available).
+(37 items). Bug tickets T01–T25 and structural debt T26–T37 landed on
+`main` via Wave E
+([plan](plans/2026-08-13-thermos-debt-wave-e.md)); they are not deferred
+product work. Publishing the ticket bodies as GitHub Issues remains optional
+owner-side work (`scripts/publish-thermos-backlog.py --apply` needs
+`issues:write`).
 
 ## JOBS-001 — Governed multi-day work scheduler
 
