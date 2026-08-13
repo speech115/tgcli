@@ -1,4 +1,4 @@
-"""Daemonless change feed: `tg changes` (ADR-0063 / FEED-001)."""
+"""Daemonless change feed: `tg changes` (ADR-0063 / ADR-0103 / FEED-001)."""
 
 from __future__ import annotations
 
@@ -416,16 +416,20 @@ async def once(
     return {"events": events, "gap": gap, "skipped": skipped}, cursor, all_requests
 
 
-def _document(doc: dict, cursor: ChangesCursor) -> dict:
+def _document(
+    doc: dict, cursor: ChangesCursor, *, binding_key: bytes | None = None
+) -> dict:
     return {
         "events": doc["events"],
-        "next_cursor": changes_cursor.encode(cursor),
+        "next_cursor": changes_cursor.encode(cursor, binding_key=binding_key),
         "gap": doc["gap"],
         "skipped": doc["skipped"],
     }
 
 
-async def init_changes(tg, peers: list[str] | None = None) -> dict:
+async def init_changes(
+    tg, peers: list[str] | None = None, *, binding_key: bytes | None = None
+) -> dict:
     state = await tg(GetStateRequest())
     cursor = _from_state(state)
     for ref in peers or ():
@@ -434,13 +438,18 @@ async def init_changes(tg, peers: list[str] | None = None) -> dict:
         pts = await _channel_pts(tg, entity)
         cursor = changes_cursor.with_channel(cursor, peer, pts)
         note(f"subscribed {peer} at pts {pts} (no history replay)")
-    return _document({"events": [], "gap": None, "skipped": {}}, cursor)
+    return _document(
+        {"events": [], "gap": None, "skipped": {}},
+        cursor,
+        binding_key=binding_key,
+    )
 
 
 async def run_changes(
     tg,
     *,
     cursor_text: str | None,
+    binding_key: bytes,
     init: bool = False,
     peers: list[str] | None = None,
     drop_peers: list[str] | None = None,
@@ -455,14 +464,16 @@ async def run_changes(
             raise PolicyError("changes --init rejects --drop-peer")
         if wait is not None:
             raise PolicyError("changes --init rejects --wait")
-        return await init_changes(tg, peers)
+        return await init_changes(tg, peers, binding_key=binding_key)
 
     if cursor_text is None:
         raise PolicyError("changes cursor is required; run: tg changes --init")
     if wait is not None and wait <= 0:
         raise PolicyError("--wait must be a positive number of seconds")
 
-    cursor = changes_cursor.decode(cursor_text)
+    cursor = changes_cursor.decode(
+        cursor_text, binding_key=binding_key, require_bound=True
+    )
 
     for ref in drop_peers:
         entity = await _resolve_channel(tg, ref)
@@ -479,7 +490,7 @@ async def run_changes(
 
     doc, cursor, _ = await once(tg, cursor)
     if wait is None:
-        return _document(doc, cursor)
+        return _document(doc, cursor, binding_key=binding_key)
 
     start = _now()
     deadline = start + wait
@@ -510,4 +521,4 @@ async def run_changes(
             for key, value in (more["skipped"] or {}).items():
                 doc["skipped"][key] = doc["skipped"].get(key, 0) + value
 
-    return _document(doc, cursor)
+    return _document(doc, cursor, binding_key=binding_key)

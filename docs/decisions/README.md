@@ -115,6 +115,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0106](ADR-0106-reupload-cache-clears-after-save.md) | The clone reupload media cache clears once, after `confirmed_destination_ids` and `state.save` both succeed, instead of right after the send RPC — an unconfirmed or unsaved batch keeps its downloaded bytes | accepted; amends ADR-0052 decision 7 (thermos T12) |
 | [0107](ADR-0107-archive-max-runtime-stop.md) | Archive CLI sync/backfill and job quanta honor `--max-runtime` through `fetch_media`; stop_reason wall_clock_cap | accepted; thermos T10 |
 | [0108](ADR-0108-incremental-export-append-atomicity.md) | `export messages --append` / `--resume` stages the existing JSONL plus each new batch in a same-directory temporary file, fsyncs it, and atomically replaces the destination only after the complete batch succeeds | accepted; thermos audit T21 |
+| [0109](ADR-0109-account-bound-changes-cursors.md) | Public `tg changes` emits account-bound HMAC `v2:` cursors and refuses legacy, modified, or wrong-account cursors before polling; trusted internal archive cursors remain `v1:` | accepted; thermos audit T14 |
 
 Notes on supersessions:
 

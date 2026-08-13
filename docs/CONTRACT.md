@@ -1784,7 +1784,7 @@ Plain sync columns are `copied`, `forwarded`, `reuploaded`, `snapshots`,
 `discussion_cursor`, `markup_dropped_count`. The `participants` roster is
 JSON-only; the plain row does not carry it.
 
-## 12. Change Feed (`tg changes`; ADR-0063 / FEED-001)
+## 12. Change Feed (`tg changes`; ADR-0063 / ADR-0109 / FEED-001)
 
 ```
 tg changes --init [--peer P …]
@@ -1792,22 +1792,28 @@ tg changes --cursor C [--peer P …] [--drop-peer P …] [--wait N]
 ```
 
 Foreground, daemonless update feed. One JSON document per invocation; no
-state files — the opaque cursor is the only continuity and lives with the
-caller. Works under `--readonly` and on any `--session-role` (ADR-0062).
-It mutates nothing and writes no audit mutation rows.
+state files — the opaque, authenticated `v2:` cursor is the only continuity
+and lives with the caller. Its complete common + channel state is MAC-bound to
+the selected configured account but not to a session role, so it works under
+`--readonly` and across that account's `--session-role` values (ADR-0062 /
+ADR-0109). It mutates nothing and writes no audit mutation rows.
 
-`--init` baselines a new cursor from `updates.getState` (and, for each
+`--init` baselines and binds a new cursor from `updates.getState` (and, for each
 `--peer`, the channel's current `pts` via `channels.getFullChannel`). It
 rejects `--cursor`, `--drop-peer`, and `--wait` (exit 2). A missing or
-corrupt `--cursor` on a regular call is exit 2 — never a silent
-full-history replay.
+corrupt `--cursor` on a regular call is exit 2 — never a silent full-history
+replay. A legacy unsigned `v1:`, a modified `v2:`, or a cursor bound to another
+account is also exit 2 **before any Telegram request**; run `--init` to replace
+it. Cursors are never silently upgraded because that would authenticate
+caller-supplied state.
 
 `--peer P` (repeatable) **adds** a channel/supergroup subscription,
 baselined at the current `pts` with a stderr note and **no history
 replay**. Private dialogs and basic groups ride the common
 `updates.getDifference` tier and cannot be subscribed (exit 2).
 `--drop-peer P` removes a subscription; dropping an unsubscribed peer is
-exit 2. Subscription membership lives **in the cursor**.
+exit 2. Subscription membership lives **in the authenticated cursor**; a
+channel map inserted directly into the opaque payload fails its account MAC.
 
 `--wait N` (N > 0) long-polls up to N seconds for the first event, then
 waits a fixed **2-second settle** window (bounded by the remaining
@@ -1819,7 +1825,7 @@ implicit 60s deadline so the wait budget is not clipped.
 `--json` document:
 
 ```json
-{"events":[…], "next_cursor":"v1:…", "gap":null,
+{"events":[…], "next_cursor":"v2:…", "gap":null,
  "skipped":{"UpdatePinnedMessage":2}}
 ```
 

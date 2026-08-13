@@ -11,6 +11,17 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [3.0.14] — 2026-08-13
+
+Public `tg changes` cursors are account-bound HMAC `v2:` tokens; legacy,
+modified, or wrong-account cursors fail closed before polling (ADR-0109).
+
+Rationale: ADR-0109.
+
+### Changed
+
+- Bind changes cursors to accounts (ADR-0109) (#266)
+
 ## [3.0.13] — 2026-08-13
 
 Incremental `export messages --append` / `--resume` publishes each batch via a
@@ -1042,6 +1053,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[3.0.14]: https://github.com/speech115/tgcli/compare/v3.0.13...v3.0.14
 [3.0.13]: https://github.com/speech115/tgcli/compare/v3.0.12...v3.0.13
 [3.0.12]: https://github.com/speech115/tgcli/compare/v3.0.11...v3.0.12
 [3.0.11]: https://github.com/speech115/tgcli/compare/v3.0.10...v3.0.11

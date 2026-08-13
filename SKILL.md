@@ -38,7 +38,7 @@ selected account session, does one operation, and exits.
 | Show offline account / session status | `tg --json accounts show ALIAS` |
 | Authorize / re-authorize a session | `tg --json accounts login ALIAS --phone PHONE`, then `--continue LOGIN_ID --code …` |
 | Authorize a named session role | `tg --json accounts login ALIAS --role job --phone PHONE` |
-| Poll a daemonless change feed | `tg --json changes --init` then `tg --json changes --cursor C [--wait N]` |
+| Poll a daemonless change feed | `tg --json changes --init` then `tg --json changes --cursor C [--wait N]` (the `v2:` cursor is account-bound; never edit or reuse it under another account) |
 | Init local archive store | `tg --json archive init` |
 | Opt a group/channel into archive scope | `tg --json archive add CHAT` / `remove CHAT` / `list` |
 | Backfill selected dialogs into archive | `tg --json archive backfill CHAT [CHAT …] [--limit N]` |

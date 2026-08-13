@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from telethon import errors as telethon_errors
 
-from tgcli import output, read_ops, session
+from tgcli import changes_cursor, output, read_ops, session
 from tgcli.commands import (
     api as api_cmd,
     archive as archive_cmd,
@@ -150,6 +150,11 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
                 data = await changes_cmd.run_changes(
                     tg,
                     cursor_text=getattr(args, "changes_cursor", None),
+                    binding_key=changes_cursor.account_binding_key(
+                        alias=account.alias,
+                        api_id=account.api_id,
+                        api_hash=account.api_hash,
+                    ),
                     init=bool(getattr(args, "init", False)),
                     peers=getattr(args, "changes_peers", None),
                     drop_peers=getattr(args, "changes_drop_peers", None),
