@@ -126,7 +126,6 @@ async def remove_chat(tg, alias: str, chat: str, config: Config | None = None) -
         removed = store_mod.remove_scope(conn, peer)
         if removed is None:
             raise NotFoundError(f"chat not in archive scope: {chat!r}")
-        sync_mod.drop_channel_subscription(conn, peer)
     finally:
         conn.close()
     return {"removed": removed}

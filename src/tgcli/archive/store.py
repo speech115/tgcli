@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from tgcli import changes_cursor as cursor_codec
 from tgcli.errors import NotFoundError, PolicyError
 from tgcli.session import ensure_state_dir, restrict_file
 
@@ -719,15 +720,31 @@ def add_scope(
 
 
 def remove_scope(conn: sqlite3.Connection, peer_id: int) -> dict[str, Any] | None:
-    row = conn.execute(
-        "SELECT peer_id, kind, title, username, chat_ref, added_at "
-        "FROM scope WHERE peer_id = ?",
-        (peer_id,),
-    ).fetchone()
-    if row is None:
-        return None
-    with conn:
+    """Atomically remove explicit scope and its cursor subscription."""
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        row = conn.execute(
+            "SELECT peer_id, kind, title, username, chat_ref, added_at "
+            "FROM scope WHERE peer_id = ?",
+            (peer_id,),
+        ).fetchone()
+        if row is None:
+            conn.commit()
+            return None
+        encoded = read_account_sync(conn)["changes_cursor"]
+        if encoded:
+            cursor = cursor_codec.decode(encoded)
+            if peer_id in cursor.channels:
+                cursor = cursor_codec.without_channel(cursor, peer_id)
+                conn.execute(
+                    "UPDATE account_sync SET changes_cursor = ? WHERE id = 1",
+                    (cursor_codec.encode(cursor),),
+                )
         conn.execute("DELETE FROM scope WHERE peer_id = ?", (peer_id,))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     return {
         "peer_id": int(row["peer_id"]),
         "kind": str(row["kind"]),
@@ -939,36 +956,63 @@ def write_account_sync(
     touch_sync: bool = False,
     reconcile: dict[str, Any] | None = None,
     clear_gap: bool = False,
-) -> None:
-    existing = read_account_sync(conn)
-    now = datetime.now(UTC).isoformat()
-    cursor = (
-        changes_cursor if changes_cursor is not None else existing["changes_cursor"]
-    )
-    if clear_gap:
-        gap_json = None
-    elif gap is not None:
-        gap_json = json.dumps(gap, ensure_ascii=False, separators=(",", ":"))
-    elif existing["gap"] is not None:
-        gap_json = json.dumps(
-            existing["gap"], ensure_ascii=False, separators=(",", ":")
+    scope_channels: bool = False,
+) -> str | None:
+    """Update account sync state without a stale read-modify-write window."""
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
+    try:
+        existing = read_account_sync(conn)
+        now = datetime.now(UTC).isoformat()
+        cursor = (
+            changes_cursor
+            if changes_cursor is not None
+            else existing["changes_cursor"]
         )
-    else:
-        gap_json = None
-    last_sync = now if touch_sync else existing["last_sync_at"]
-    if reconcile is not None:
-        reconcile_json = json.dumps(
-            reconcile, ensure_ascii=False, separators=(",", ":")
-        )
-        last_reconcile = now
-    else:
-        reconcile_json = (
-            json.dumps(existing["reconcile"], ensure_ascii=False, separators=(",", ":"))
-            if existing["reconcile"] is not None
-            else None
-        )
-        last_reconcile = existing["last_reconcile_at"]
-    with conn:
+        if scope_channels and cursor is not None:
+            decoded = cursor_codec.decode(cursor)
+            scoped_peers = {
+                int(row["peer_id"])
+                for row in conn.execute("SELECT peer_id FROM scope").fetchall()
+            }
+            cursor = cursor_codec.encode(
+                cursor_codec.ChangesCursor(
+                    pts=decoded.pts,
+                    qts=decoded.qts,
+                    date=decoded.date,
+                    seq=decoded.seq,
+                    channels={
+                        peer: pts
+                        for peer, pts in decoded.channels.items()
+                        if peer in scoped_peers
+                    },
+                )
+            )
+        if clear_gap:
+            gap_json = None
+        elif gap is not None:
+            gap_json = json.dumps(gap, ensure_ascii=False, separators=(",", ":"))
+        elif existing["gap"] is not None:
+            gap_json = json.dumps(
+                existing["gap"], ensure_ascii=False, separators=(",", ":")
+            )
+        else:
+            gap_json = None
+        last_sync = now if touch_sync else existing["last_sync_at"]
+        if reconcile is not None:
+            reconcile_json = json.dumps(
+                reconcile, ensure_ascii=False, separators=(",", ":")
+            )
+            last_reconcile = now
+        else:
+            reconcile_json = (
+                json.dumps(
+                    existing["reconcile"], ensure_ascii=False, separators=(",", ":")
+                )
+                if existing["reconcile"] is not None
+                else None
+            )
+            last_reconcile = existing["last_reconcile_at"]
         conn.execute(
             "INSERT INTO account_sync("
             "id, changes_cursor, gap_json, last_sync_at, "
@@ -988,6 +1032,11 @@ def write_account_sync(
                 reconcile_json,
             ),
         )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return cursor
 
 
 def db_path_for(account_dir: Path) -> Path:

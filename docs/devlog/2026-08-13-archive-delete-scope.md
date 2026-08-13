@@ -8,9 +8,9 @@ the channel has left explicit scope, then delivers a peer-scoped
 `_in_archive_scope` guard before inserting tombstones. Peer-less private
 deletes retain their existing local-message lookup behavior.
 
-**Decided:** no new ADR or CONTRACT change. This restores ADR-0068's explicit
-channel scope boundary and mirrors the existing new/edit/activity event gates;
-it does not add a new archive behavior or output shape.
+**Decided:** the apply guard restores ADR-0068's explicit channel scope
+boundary and adds no output shape. ADR-0110 was added later for the coupled
+T09 transaction/concurrency safety correction; CONTRACT remains unchanged.
 
 **Learned:** delete events were the only peer-scoped apply path that built its
 targets without consulting archive scope, allowing stale subscribed channels

@@ -372,25 +372,6 @@ async def fetch_media(
     }
 
 
-def drop_channel_subscription(conn: sqlite3.Connection, peer_id: int) -> bool:
-    """Unsubscribe ``peer_id`` from the persisted account changes cursor.
-
-    Mirrors ``_ensure_channel_subscriptions`` in the other direction: once a
-    channel leaves explicit scope, ``archive sync`` must stop paying the
-    ``GetChannelDifference`` cost for it. A no-op when no cursor has been
-    initialized yet or the peer was never subscribed.
-    """
-    account = store_mod.read_account_sync(conn)
-    if not account["changes_cursor"]:
-        return False
-    cursor = changes_cursor.decode(account["changes_cursor"])
-    if peer_id not in cursor.channels:
-        return False
-    cursor = changes_cursor.without_channel(cursor, peer_id)
-    store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
-    return True
-
-
 async def _ensure_channel_subscriptions(
     tg, conn: sqlite3.Connection, cursor: ChangesCursor
 ) -> ChangesCursor:
@@ -532,13 +513,16 @@ async def sync_archive(
 
     gap = doc.get("gap")
     encoded = changes_cursor.encode(cursor)
-    store_mod.write_account_sync(
+    persisted = store_mod.write_account_sync(
         conn,
         changes_cursor=encoded,
         gap=gap,
         touch_sync=True,
         clear_gap=gap is None,
+        scope_channels=True,
     )
+    assert persisted is not None
+    encoded = persisted
     reconcile_data = None
     if reconcile and not stopped:
         reconcile_data = await light_reconcile(tg, conn)
@@ -615,15 +599,17 @@ async def rebaseline(tg, conn: sqlite3.Connection) -> dict[str, Any]:
     ]
     # Prefer marked peer ids for GetFullChannel; chat_ref may be a username.
     doc = await changes_cmd.init_changes(tg, peers=peers)
-    store_mod.write_account_sync(
+    encoded = store_mod.write_account_sync(
         conn,
         changes_cursor=doc["next_cursor"],
         clear_gap=True,
         touch_sync=True,
+        scope_channels=True,
     )
+    assert encoded is not None
     return {
         "rebaselined": True,
-        "next_cursor": doc["next_cursor"],
+        "next_cursor": encoded,
         "gap": None,
         "peers": peers,
     }

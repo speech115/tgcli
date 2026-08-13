@@ -10,11 +10,10 @@ from explicit scope, so a later `archive sync` kept paying for
 two pre-existing `ruff` E501s in `scripts/publish-thermos-backlog.py` that
 blocked the gate.
 
-**Decided:** no ADR — this restores stated intent.
-`changes_cursor.without_channel` already existed for exactly this purpose
-(used by `tg changes --drop-peer`) but was never called from the archive
-surface; wiring it in is the minimal fix, not a new feature. No CONTRACT/JSON
-shape change — `removed` payload is unchanged.
+**Decided initially:** this restored stated intent with no output change.
+Independent review then exposed the cross-table atomicity and stale-writer
+safety requirement; ADR-0110 now governs the final implementation. No
+CONTRACT/JSON shape change — `removed` payload is unchanged.
 
 **Learned:** `_ensure_channel_subscriptions` only *adds* missing scope
 channels to the cursor on each sync; nothing mirrored it on the remove path,
