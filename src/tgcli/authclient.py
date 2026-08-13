@@ -55,6 +55,8 @@ async def unauthorized_client(path: Path, api_id: int, api_hash: str):
         device_model=device_model,
         system_version=system_version,
         app_version=app_version,
+        # ADR-0072 decision 2: never silently sleep floods on login either.
+        flood_sleep_threshold=0,
     )
     # Telethon creates the SQLite session during construction; tighten it
     # before any network use.

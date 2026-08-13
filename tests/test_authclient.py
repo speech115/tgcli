@@ -98,8 +98,30 @@ async def test_unauthorized_client_sets_same_telegram_device_identity(
             "device_model": "tgcli",
             "system_version": "TestOS",
             "app_version": "1.2.0",
+            "flood_sleep_threshold": 0,
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_unauthorized_client_disables_telethon_flood_sleeper(
+    tmp_path, monkeypatch
+):
+    """T20: login clients must match session._make_client (ADR-0072)."""
+    path = tmp_path / "staged.session"
+    fake = _FakeTg()
+    captured = {}
+
+    def fake_client(*args, **kwargs):
+        captured["kwargs"] = kwargs
+        return fake
+
+    monkeypatch.setattr(authclient, "TelegramClient", fake_client)
+
+    async with authclient.unauthorized_client(path, 1, "hash"):
+        pass
+
+    assert captured["kwargs"]["flood_sleep_threshold"] == 0
 
 
 @pytest.mark.asyncio
