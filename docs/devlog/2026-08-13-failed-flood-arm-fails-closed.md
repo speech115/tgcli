@@ -1,13 +1,16 @@
 ## 2026-08-13 — Failed FloodWait arm fails closed (Composer)
 
-**Did:** ADR-0090 + sticky `Ledger.remember_cooldown`; `arm_from_flood`
-retries then returns False; gate raises `PolicyError` (exit 2). Tests in
-`test_governor_gate`. CONTRACT §4. Addresses thermos T02 / #206.
+**Did:** ADR-0090 complexity reset after independent review of PR #243:
+sticky `Ledger.remember_cooldown` (with `armed_at`) on arm write failure;
+still re-raise live FloodWait so sibling handlers / jobs requeue keep
+working; next same-type RPC refuses via RateLimitError. Ledger test
+forces a real closed-connection `sqlite3.Error`. CONTRACT §4 notes sticky
+exit 5, not a new exit 2. Addresses thermos T02 / #206.
 
-**Decided:** Process-local sticky deadline + PolicyError, not ledger-wide
-degraded and not bare FloodWait re-raise.
+**Decided:** Do not replace FloodWait with PolicyError — that silently
+broke reupload/export soft-degrade paths and jobs requeue routing.
 
-**Learned:** sqlite3.Connection methods are not monkeypatchable; seam
-tests stub `arm_cooldown` and rely on `remember_cooldown` in the gate.
+**Learned:** Exception-type swaps at the governed `_call` seam need a
+mirror-fix audit of every narrow FloodWait catch.
 
-**Next:** #205 (T01) ADR-0089 on sibling PR; then T03 media completeness.
+**Next:** Wave A merge after P0 reviews clear.

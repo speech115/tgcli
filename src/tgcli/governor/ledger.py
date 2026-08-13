@@ -77,8 +77,8 @@ class Ledger:
     A pacing reservation that cannot land degrades the pace and is not worth
     aborting the command. A cooldown arm that cannot land is different:
     ``gate.arm_from_flood`` keeps a process-local sticky deadline via
-    ``remember_cooldown`` and fails closed (ADR-0089) so the next same-type
-    RPC cannot deepen the penalty.
+    ``remember_cooldown`` (ADR-0090) so the next same-type RPC in this
+    process still refuses locally while the live FloodWait is re-raised.
     """
 
     def __init__(
@@ -86,8 +86,9 @@ class Ledger:
     ) -> None:
         self._db = connection
         self.degraded = degraded
-        # Process-local cooldowns when a durable arm write fails (ADR-0089).
-        self._volatile_cooldowns: dict[tuple[int, str], datetime] = {}
+        # Process-local (deadline, armed_at) when a durable arm write fails
+        # (ADR-0090).
+        self._volatile_cooldowns: dict[tuple[int, str], tuple[datetime, datetime]] = {}
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -147,10 +148,14 @@ class Ledger:
         account_user_id: int,
         request_key: str,
         deadline: datetime,
+        *,
+        now: datetime | None = None,
     ) -> None:
         """Keep a process-local cooldown when durable arm cannot land."""
-        self._volatile_cooldowns[(account_user_id, request_key)] = deadline.astimezone(
-            UTC
+        moment = datetime.now(UTC) if now is None else now
+        self._volatile_cooldowns[(account_user_id, request_key)] = (
+            deadline.astimezone(UTC),
+            moment.astimezone(UTC),
         )
 
     def cooldown_deadline(
@@ -176,7 +181,8 @@ class Ledger:
                 deadline = parsed.astimezone(UTC)
         volatile = self._volatile_cooldowns.get((account_user_id, request_key))
         if volatile is not None:
-            deadline = volatile if deadline is None else max(deadline, volatile)
+            v_deadline = volatile[0]
+            deadline = v_deadline if deadline is None else max(deadline, v_deadline)
         if deadline is None:
             return None
         clamped = min(deadline, moment + timedelta(seconds=MAX_COOLDOWN_S))
@@ -191,24 +197,36 @@ class Ledger:
         the deadline alone cannot say how much of the wait is already over.
         Fails open like every other read, and an unparseable value reads as
         "not yet 50%" — the probe refuses rather than sends into a guess.
+        When a sticky volatile deadline is the active one, its ``armed_at``
+        wins over a stale DB row (ADR-0090).
         """
+        db_armed: datetime | None = None
+        db_deadline: datetime | None = None
         try:
             row = self._db.execute(
-                "SELECT armed_at FROM cooldowns "
+                "SELECT armed_at, deadline FROM cooldowns "
                 "WHERE account_user_id = ? AND request_key = ?",
                 (account_user_id, request_key),
             ).fetchone()
         except sqlite3.Error:
-            return None
-        if row is None:
-            return None
-        try:
-            armed_at = datetime.fromisoformat(row[0])
-        except (TypeError, ValueError):
-            return None
-        if armed_at.tzinfo is None:
-            return None
-        return armed_at.astimezone(UTC)
+            row = None
+        if row is not None:
+            try:
+                parsed_armed = datetime.fromisoformat(row[0])
+                parsed_deadline = datetime.fromisoformat(row[1])
+            except (TypeError, ValueError):
+                parsed_armed = None
+                parsed_deadline = None
+            if parsed_armed is not None and parsed_armed.tzinfo is not None:
+                db_armed = parsed_armed.astimezone(UTC)
+            if parsed_deadline is not None and parsed_deadline.tzinfo is not None:
+                db_deadline = parsed_deadline.astimezone(UTC)
+        volatile = self._volatile_cooldowns.get((account_user_id, request_key))
+        if volatile is not None:
+            v_deadline, v_armed = volatile
+            if db_deadline is None or v_deadline >= db_deadline:
+                return v_armed
+        return db_armed
 
     def arm_cooldown(
         self,
@@ -331,7 +349,7 @@ class Ledger:
         keys.update(request_key for (request_key,) in rows)
         keys.update(
             key
-            for (account, key), deadline in self._volatile_cooldowns.items()
+            for (account, key), (deadline, _armed) in self._volatile_cooldowns.items()
             if account == account_user_id and deadline > moment
         )
         active = {}

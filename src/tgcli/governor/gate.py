@@ -7,8 +7,9 @@ Two things happen around every Telegram request, and the order matters:
   live penalty, so the cheapest correct behaviour is to never send at all.
 * **after a flood** — arm the cooldown for exactly the type that drew it,
   from the server's own ``retry_after``. A failed durable arm keeps a
-  process-local sticky deadline and fails closed with ``PolicyError``
-  (ADR-0090) instead of leaving the next RPC unprotected.
+  process-local sticky deadline and still re-raises the FloodWait so
+  sibling flood handlers keep working (ADR-0090); the next same-type
+  RPC in this process refuses locally.
 
 Installed on the *instance*, not the class. ``downloads.py`` calls ``_call``
 directly on a per-datacentre sender; an instance attribute still shadows the
@@ -36,7 +37,7 @@ from math import ceil
 
 from telethon import errors as telethon_errors
 
-from tgcli.errors import PolicyError, RateLimitError
+from tgcli.errors import RateLimitError
 from tgcli.governor import pacing, probe, registry
 from tgcli.governor.ledger import Ledger
 
@@ -100,16 +101,12 @@ def install(
             result = await original(sender, request, *args, **kwargs)
         except ARMING_ERRORS as exc:
             if account is not None:
-                armed = arm_from_flood(ledger, account, key, exc)
+                arm_from_flood(ledger, account, key, exc)
                 pacing.note_stop(
                     retry_after=exc.seconds,
                     request_type=key,
                     provenance="server",
                 )
-                if not armed:
-                    raise PolicyError(
-                        f"governor could not persist flood cooldown for {key}"
-                    ) from exc
             raise
         if is_probe and account is not None:
             probe.settle(ledger, account, key)
@@ -178,8 +175,10 @@ def arm_from_flood(
     """Record the server's own deadline for the type that drew the flood.
 
     Returns ``True`` when the durable arm landed. On write failure the
-    deadline is kept process-locally (ADR-0089) and ``False`` is returned
-    so the caller can fail closed instead of re-raising FloodWait alone.
+    deadline is kept process-locally (ADR-0090) and ``False`` is returned;
+    the caller still re-raises the live FloodWait so sibling handlers keep
+    working — the sticky map closes the fail-open hole for later RPCs in
+    this process.
 
     The stderr line is the one alert for this cooldown: it fires at
     arming, not on every scheduled wake that finds the type still cooling

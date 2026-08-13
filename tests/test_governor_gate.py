@@ -9,7 +9,7 @@ import pytest
 from telethon import errors as telethon_errors
 from telethon.tl.functions import messages, upload
 
-from tgcli.errors import PolicyError, RateLimitError
+from tgcli.errors import RateLimitError
 from tgcli.governor import gate
 from tgcli.governor.ledger import Ledger
 
@@ -402,36 +402,36 @@ async def test_every_command_family_refuses_locally_on_its_type(
     assert set(ledger.active_cooldowns(ACCOUNT)) == {expected_key}
 
 
-async def test_a_failed_flood_arm_exits_policy_not_fail_open(ledger, monkeypatch):
-    """T02 / ADR-0089: arm write failure must not re-raise FloodWait alone."""
+async def test_a_failed_flood_arm_keeps_sticky_cooldown_and_reraise_flood(
+    ledger, monkeypatch
+):
+    """T02 / ADR-0090: arm write failure still re-raises FloodWait (siblings)."""
     error = telethon_errors.FloodWaitError(request=None)
     error.seconds = 600
     source = FakeClient(raises=error)
     gate.install(source, ledger)
     monkeypatch.setattr(ledger, "arm_cooldown", lambda *a, **k: False)
 
-    with pytest.raises(PolicyError) as armed:
+    with pytest.raises(telethon_errors.FloodWaitError):
         await source._call(None, history())
-    assert armed.value.exit_code == 2
-    assert (
-        "persist" in str(armed.value).lower() or "cooldown" in str(armed.value).lower()
-    )
     assert source.sent
+    assert ledger.cooldown_deadline(ACCOUNT, HISTORY_KEY) is not None
 
 
 async def test_a_failed_flood_arm_still_refuses_the_next_same_type(ledger, monkeypatch):
-    """T02: even without a durable row, the next same-type RPC is refused."""
+    """T02: sticky map refuses the next same-type RPC with RateLimitError."""
     error = telethon_errors.FloodWaitError(request=None)
     error.seconds = 600
     source = FakeClient(raises=error)
     gate.install(source, ledger)
     monkeypatch.setattr(ledger, "arm_cooldown", lambda *a, **k: False)
 
-    with pytest.raises(PolicyError):
+    with pytest.raises(telethon_errors.FloodWaitError):
         await source._call(None, history())
 
     target = FakeClient()
     gate.install(target, ledger)
-    with pytest.raises((PolicyError, RateLimitError)):
+    with pytest.raises(RateLimitError) as caught:
         await target._call(None, history())
+    assert caught.value.details["retry_after"] > 0
     assert target.sent == []
