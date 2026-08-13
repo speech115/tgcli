@@ -15,8 +15,8 @@ SCHEMA_VERSION = 7
 DB_NAME = "archive.db"
 TRANSCRIBABLE_MEDIA_KINDS = ("voice", "video_note")
 NO_TRANSCRIPT_MARKER = "no_transcript no transcript"
-# Match jobs/governor (ADR-0060 / #137): wait briefly on SQLITE_BUSY rather
-# than failing the first contending reader/writer immediately.
+# Explicitly pin archive contention behavior alongside jobs/governor
+# (ADR-0109); do not inherit the driver's timeout default.
 BUSY_TIMEOUT_MS = 5_000
 
 _FTS_TOKENIZER = 'tokenize = "unicode61 remove_diacritics 2"'
