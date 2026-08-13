@@ -19,7 +19,15 @@ import time
 import traceback
 from contextlib import contextmanager
 
-from tgcli import dispatch, invocations, output, preflight, safety, session
+from tgcli import (
+    dispatch,
+    invocations,
+    output,
+    preflight,
+    preview_commit,
+    safety,
+    session,
+)
 from tgcli.commands import (
     accounts as accounts_cmd,
     api as api_cmd,
@@ -284,23 +292,7 @@ def _silence_stdout() -> None:
 
 
 def _audit_before(args, account) -> None:
-    if args.command in ("send", "edit", "delete", "forward") and getattr(
-        args, "commit", None
-    ):
-        details = {"preview_id": args.commit}
-        if "random_id" in args.preview_payload:
-            details["random_id"] = args.preview_payload["random_id"]
-        safety.append_audit(args.command, account.alias, details)
-    if (
-        args.command == "draft"
-        and args.draft_command in ("set", "clear")
-        and getattr(args, "commit", None)
-    ):
-        safety.append_audit(
-            f"draft-{args.draft_command}",
-            account.alias,
-            {"preview_id": args.commit, "chat": args.preview_payload.get("chat")},
-        )
+    preview_commit.audit_before(args, account)
     if args.command == "api" and args.write:
         # audit_details adds what the write touched (ADR-0010/0011): a record
         # naming only the method cannot answer the one question an audit log
@@ -323,34 +315,7 @@ def _audit_before(args, account) -> None:
 
 
 def _audit_after(args, account, data) -> None:
-    if args.command in ("send", "edit", "delete", "forward") and getattr(
-        args, "commit", None
-    ):
-        safety.append_audit(
-            f"{args.command}-result",
-            account.alias,
-            {"preview_id": args.commit, "message_id": data.get("message_id")},
-        )
-        safety.finish_commit(args.commit)
-    if (
-        args.command == "clone"
-        and args.clone_command in ("init", "refresh")
-        and getattr(args, "commit", None)
-    ):
-        # Only a finished commit spends the preview; a flood partway through
-        # leaves it .pending so the same commit can be retried (#170).
-        safety.finish_commit(args.commit)
-    if (
-        args.command == "draft"
-        and args.draft_command in ("set", "clear")
-        and getattr(args, "commit", None)
-    ):
-        safety.append_audit(
-            f"draft-{args.draft_command}-result",
-            account.alias,
-            {"preview_id": args.commit, "chat": data.get("draft", {}).get("chat")},
-        )
-        safety.finish_commit(args.commit)
+    preview_commit.audit_after(args, account, data)
 
 
 def _execute(args) -> tuple[dict, list[tuple]]:

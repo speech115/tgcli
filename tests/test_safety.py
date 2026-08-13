@@ -25,18 +25,19 @@ def test_mutation_kill_switches_raise_policy_error(monkeypatch, readonly, enviro
         safety.enforce_mutation_allowed(readonly)
 
 
-def test_preview_expires_after_five_minutes_and_is_single_use():
+def test_preview_expires_after_five_minutes_and_finished_commit_is_single_use():
     now = datetime(2026, 7, 10, 12, 0, tzinfo=UTC)
     preview = safety.create_preview({"chat": "@alice", "text": "hello"}, now=now)
 
     assert preview["preview_id"].startswith("p_")
     assert preview["expires_at"] == "2026-07-10T12:05:00+00:00"
-    assert safety.consume_preview(preview["preview_id"], now=now) == {
+    assert safety.begin_commit(preview["preview_id"], now=now) == {
         "chat": "@alice",
         "text": "hello",
     }
+    safety.finish_commit(preview["preview_id"])
     with pytest.raises(PolicyError, match="already used or does not exist"):
-        safety.consume_preview(preview["preview_id"], now=now)
+        safety.begin_commit(preview["preview_id"], now=now)
 
 
 def test_create_preview_writes_mode_0600():
@@ -60,7 +61,7 @@ def test_expired_preview_is_blocked():
     preview = safety.create_preview({"chat": "@alice", "text": "hello"}, now=now)
 
     with pytest.raises(PolicyError, match="expired"):
-        safety.consume_preview(preview["preview_id"], now=now + timedelta(seconds=301))
+        safety.begin_commit(preview["preview_id"], now=now + timedelta(seconds=301))
 
 
 def test_begin_commit_allows_retry_until_finished():
@@ -84,7 +85,7 @@ def test_begin_commit_expected_kind_preserves_a_mismatched_preview():
 
     preview_path = safety.previews_dir() / f"{preview['preview_id']}.json"
     assert preview_path.exists()
-    assert safety.consume_preview(preview["preview_id"]) == {
+    assert safety.begin_commit(preview["preview_id"]) == {
         "kind": "clone-init",
         "source": "@source",
     }
@@ -205,20 +206,6 @@ def test_create_preview_directory_is_0700_under_wide_umask(wide_umask):
     safety.create_preview({"chat": "@alice", "text": "hello"})
 
     assert safety.previews_dir().stat().st_mode & 0o777 == 0o700
-
-
-def test_consume_preview_rejects_a_naive_expiry(tmp_path, monkeypatch):
-    """A hand-edited or older-build record must not crash the commit path
-    with a naive-vs-aware TypeError."""
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    directory = safety.previews_dir()
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / "p_naive.json").write_text(
-        json.dumps({"payload": {"kind": "send"}, "expires_at": "2026-07-26T12:00:00"})
-    )
-
-    with pytest.raises(PolicyError):
-        safety.consume_preview("p_naive")
 
 
 def test_begin_commit_rejects_a_naive_expiry(tmp_path, monkeypatch):

@@ -37,14 +37,14 @@ tgcli/
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
 │   ├── thermos-audit-2026-08-13-backlog.md [done] ticket-ready backlog from whole-repo thermos audit (37 items)
 │   ├── thermos-audit-2026-08-13/ [done]   per-ticket bodies for scripts/publish-thermos-backlog.py
-│   ├── decisions/             [done]    ADR-0001…0092 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope; ADR-0079 transcribe readonly gate; ADR-0080 notes trimming; ADR-0081 diagnostics honesty; ADR-0082 per-leg clone sync; ADR-0083 floods keep finished work; ADR-0084 resume identifies its media; ADR-0085 clone reports the bot keyboard it cannot carry; ADR-0086 clone reports durable degradation before a later exit; ADR-0087 foreground persisted jobs; ADR-0088 phone-only authorization; ADR-0089 degraded governor ledger fails closed; ADR-0090 failed flood arm fails closed; ADR-0091 media download completeness; ADR-0092 raw API write wholesale auth/account deny)
+│   ├── decisions/             [done]    ADR-0001…0108 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope; ADR-0079 transcribe readonly gate; ADR-0080 notes trimming; ADR-0081 diagnostics honesty; ADR-0082 per-leg clone sync; ADR-0083 floods keep finished work; ADR-0084 resume identifies its media; ADR-0085 clone reports the bot keyboard it cannot carry; ADR-0086 clone reports durable degradation before a later exit; ADR-0087 foreground persisted jobs; ADR-0088 phone-only authorization; ADR-0089 degraded governor ledger fails closed; ADR-0090 failed flood arm fails closed; ADR-0091 media download completeness; ADR-0092 raw API write wholesale auth/account deny; ADR-0108 table-driven preview→commit)
 │   ├── research/              [done]    read-only investigation notes backing a wayfinder map's closed children
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
 │   ├── __init__.py            [done]    version string only
 │   ├── cli.py                 [done]    process lifecycle: preflight → execute → emit → journal
 │   ├── parser.py              [done]    the argparse subparser tree; grammar only, no behaviour
-│   ├── preflight.py           [done]    pre-session validation, mutation gates, preview load, api policy
+│   ├── preflight.py           [done]    pre-session validation and non-handshake mutation/API policy
 │   ├── dispatch.py            [done]    network routing for one command under one open session
 │   ├── output.py              [done]    emit(data) → stdout as JSON/plain; note()/warn() → stderr
 │   ├── errors.py              [done]    TgcliError hierarchy ↔ exit codes (CONTRACT.md §4)
@@ -53,6 +53,7 @@ tgcli/
 │   ├── session.py             [done]    primary + named-role session paths/locks + TelegramClient factory (ADR-0004/0062)
 │   ├── atomic.py              [done]    atomic state/config file replacement (the only sanctioned writer)
 │   ├── safety.py              [done]    pre-network write gates, preview storage, JSONL audit (phase 4)
+│   ├── preview_commit.py      [done]    registry-driven preview→commit preflight, dispatch, audit, finish (ADR-0108)
 │   ├── invocations.py         [done]    metadata-only JSONL invocation journal + fail-open writer
 │   ├── confirm.py             [done]    fail-closed random_id → message-id confirmation
 │   ├── formatting.py          [done]    outgoing --format {plain,md,html} → entities (ADR-0030); mask_phone (ADR-0042)

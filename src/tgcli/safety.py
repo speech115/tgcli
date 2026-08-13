@@ -60,23 +60,6 @@ def create_preview(payload: dict, *, now: datetime | None = None) -> dict:
     return {"preview_id": preview_id, "expires_at": record["expires_at"], **payload}
 
 
-def consume_preview(preview_id: str, *, now: datetime | None = None) -> dict:
-    if not preview_id.startswith("p_") or "/" in preview_id:
-        raise PolicyError("preview is already used or does not exist")
-    path = previews_dir() / f"{preview_id}.json"
-    try:
-        consumed_path = path.with_suffix(".used")
-        path.replace(consumed_path)
-        os.chmod(consumed_path, 0o600)
-        record = json.loads(consumed_path.read_text())
-    except FileNotFoundError:
-        raise PolicyError("preview is already used or does not exist") from None
-    now = now or datetime.now(UTC)
-    if now >= _expires_at(record):
-        raise PolicyError("preview has expired")
-    return record["payload"]
-
-
 def _expires_at(record: dict) -> datetime:
     """The record's deadline, or a PolicyError.
 
@@ -107,8 +90,8 @@ def begin_commit(
 ) -> dict:
     """Move a preview to .pending and return its payload.
 
-    Unlike consume_preview, a .pending preview may be begun again: the
-    stored random_id makes a retried network send idempotent (ADR-0028).
+    A .pending preview may be begun again: the stored random_id makes a
+    retried network send idempotent (ADR-0028).
     """
     if not preview_id.startswith("p_") or "/" in preview_id:
         raise PolicyError("preview is already used or does not exist")

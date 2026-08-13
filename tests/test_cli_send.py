@@ -699,7 +699,7 @@ def test_send_commit_rejects_a_non_send_preview_before_session(monkeypatch):
     assert not safety.audit_path().exists()
     preview_path = safety.previews_dir() / f"{preview['preview_id']}.json"
     assert preview_path.exists()
-    assert safety.consume_preview(preview["preview_id"])["kind"] == "clone-init"
+    assert safety.begin_commit(preview["preview_id"])["kind"] == "clone-init"
 
 
 def test_send_commit_with_extra_args_returns_usage_error(capsys):
