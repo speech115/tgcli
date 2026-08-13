@@ -95,19 +95,14 @@ def session_label(account: Account, role: str | None = None) -> str:
     return _role_stem(account, role)
 
 
-def lock_held(session_file: Path) -> bool | None:
-    """Probe whether another process holds this session's lock. Side-effect
-    aware: a missing session is never locked and creates no lock file
-    (CONTRACT §5.1), because opening the lock path would create it.
+def lock_file_held(lock_path: Path) -> bool | None:
+    """Probe whether another process holds `lock_path` right now.
 
     Tries LOCK_EX|LOCK_NB and releases immediately on success — never waits,
     never keeps the lock. Returns None when the probe is impossible (the lock
     path cannot be opened): `accounts show` reports that as not locked, while
     `doctor` treats an unprobeable lock as unhealthy — callers decide.
     """
-    if not session_file.is_file():
-        return False
-    lock_path = session_file.with_suffix(".lock")
     try:
         handle = lock_path.open("w")
     except OSError:
@@ -120,6 +115,21 @@ def lock_held(session_file: Path) -> bool | None:
         return True
     finally:
         handle.close()
+
+
+def lock_held(session_file: Path) -> bool | None:
+    """Probe whether another process holds this session's lock. Side-effect
+    aware: a missing session is never locked and creates no lock file
+    (CONTRACT §5.1), because opening the lock path would create it.
+
+    A held flock with no session file at all (a login in flight — see
+    `_attempt_lock_held` in `commands/store.py`) is a different question with
+    a different caller; this one stays scoped to "does this account's
+    session look locked".
+    """
+    if not session_file.is_file():
+        return False
+    return lock_file_held(session_file.with_suffix(".lock"))
 
 
 def client_identity() -> tuple[str, str, str]:

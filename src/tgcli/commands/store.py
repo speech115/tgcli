@@ -378,19 +378,22 @@ def _pending_far_past_ttl(path: Path, *, now: datetime) -> bool:
 def _lock_busy(target: Path) -> bool:
     """Whether another process holds the flock beside `target`.
 
-    Probed exactly the non-blocking way `session.lock_held` does, and only when
-    the lock file already exists — a holder always creates it first, so a
-    read-only inventory never leaves a new lock file behind. Fail-open:
-    anything but a definite "free" counts as busy, because the caller is about
-    to delete state that a running command may still own, and a probe that
-    cannot run must never block the cleanup either.
+    Probed against the `.lock` file directly via `session.lock_file_held`,
+    not `session.lock_held`: that helper treats a missing `target` as never
+    locked (CONTRACT §5.1, right for `accounts show`), but
+    `authclient.unauthorized_client` takes the flock before Telethon creates
+    the staged `.session` — during that window `target` does not exist yet
+    even though the lock is real. Only probed when the lock file already
+    exists — a holder always creates it first, so a read-only inventory
+    never leaves a new lock file behind. Fail-open: anything but a definite
+    "free" counts as busy, because the caller is about to delete state that a
+    running command may still own, and a probe that cannot run must never
+    block the cleanup either.
     """
-    if not target.with_suffix(".lock").exists():
+    lock_path = target.with_suffix(".lock")
+    if not lock_path.exists():
         return False
-    try:
-        return session.lock_held(target) is not False
-    except OSError:
-        return True
+    return session.lock_file_held(lock_path) is not False
 
 
 def _attempt_lock_held(logins_root: Path, login_id: str) -> bool:

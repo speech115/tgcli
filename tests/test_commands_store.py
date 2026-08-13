@@ -751,6 +751,33 @@ def test_cleanup_keeps_expired_login_whose_lock_is_held(tmp_path, monkeypatch):
     assert not (logins / "l_phone.session").exists()
 
 
+def test_cleanup_keeps_expired_login_lock_held_without_session_file(
+    tmp_path, monkeypatch
+):
+    """T11: `authclient.unauthorized_client` takes the staged session's flock
+    before Telethon creates the SQLite `.session` file, so an in-flight login
+    can be held with no `.session` on disk at all. `session.lock_held` treats
+    a missing session file as never locked (CONTRACT §5.1, right for
+    `accounts show`); cleanup must probe the `.lock` directly instead, or it
+    reaps an attempt that is still running.
+    """
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    _write_login(tmp_path, "l_phone", expires_at=NOW - timedelta(minutes=1))
+    logins = tmp_path / "logins"
+    (logins / "l_phone.session").unlink()
+
+    handle = _hold_lock(logins / "l_phone.lock")
+    try:
+        held = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
+    finally:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        handle.close()
+
+    assert held["removed"] == []
+    assert (logins / "l_phone.json").exists()
+    assert not (logins / "l_phone.session").exists()
+
+
 def test_cleanup_keeps_media_cache_while_a_session_lock_is_held(tmp_path, monkeypatch):
     """A long upload-only phase writes nothing, so mtime alone is not liveness.
 
