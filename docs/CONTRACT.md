@@ -1573,11 +1573,14 @@ declined.
 
 FloodWait during preview or commit exits 5 through the same request-governor
 per-type cooldown as `sync` and `init --commit`; there is no retry loop
-inside `refresh` (ADR-0072). After a FloodWait the `.pending` preview stays
-retryable within its TTL (ADR-0083) — re-run the same `--commit PREVIEW_ID`
-once the cooldown lifts. An expired or finished preview needs a **fresh**
-preview scan. Posts already fixed no longer match eligibility, so a second
-successful run is a quiet no-op.
+inside `refresh` (ADR-0072). Distinguish recovery by when the flood hits:
+a FloodWait during the **preview** scan never creates a `.pending` preview
+or preview id — rerun the preview after the cooldown. A FloodWait during
+**commit** leaves the `.pending` preview retryable within its TTL
+(ADR-0083) — re-run the same `--commit PREVIEW_ID` once the cooldown lifts.
+An expired or finished preview needs a **fresh** preview scan. Posts already
+fixed no longer match eligibility, so a second successful run is a quiet
+no-op.
 
 A batch uses download/reupload reconstruction when the source or any message
 has `noforwards`, or when it has a mapped reply. Attributed reuploads prepend
