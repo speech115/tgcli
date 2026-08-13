@@ -1,5 +1,6 @@
 """Media download command helpers (Phase 3; Telethon-only)."""
 
+import contextlib
 import errno
 import hashlib
 import json
@@ -496,8 +497,14 @@ async def download_media(
                     progress(current, target.size)
                     chunks_since_progress = 0
         except BaseException:
+            # Bookkeeping must never replace the exception being unwound: a
+            # FloodWait that leaves as an OSError loses its `retry_after`
+            # (ADR-0091 / ADR-0083 mirror of download_resumable).
             if chunks_since_checkpoint:
-                _checkpoint(handle, state_path, source, destination, target, current)
+                with contextlib.suppress(Exception):
+                    _checkpoint(
+                        handle, state_path, source, destination, target, current
+                    )
             raise
         if chunks_since_checkpoint:
             _checkpoint(handle, state_path, source, destination, target, current)

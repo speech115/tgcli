@@ -207,6 +207,38 @@ async def test_download_never_publishes_a_short_stream(tmp_path):
     assert part_path.read_bytes() == b"only"
 
 
+async def test_a_failing_unwind_checkpoint_never_replaces_the_flood(
+    tmp_path, monkeypatch
+):
+    """ADR-0091: bookkeeping on the failure path must not erase FloodWait."""
+    from telethon import errors as telethon_errors
+
+    from tgcli.commands import media
+
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "out.bin"
+    fake = FakeDownloadTelegram([])
+    fake.message.file.size = 20
+
+    async def flood_after_one_chunk(
+        media_obj, *, offset=0, request_size=None, **kwargs
+    ):
+        yield b"x"
+        raise telethon_errors.FloodWaitError(request=None, capture=7)
+
+    fake.iter_download = flood_after_one_chunk
+    monkeypatch.setattr(
+        media,
+        "_checkpoint",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("ENOSPC")),
+    )
+
+    with pytest.raises(telethon_errors.FloodWaitError) as caught:
+        await download_media(fake, source, "main", output=str(target))
+
+    assert caught.value.seconds == 7
+
+
 async def test_the_serial_part_file_is_synced_before_the_checkpoint_claims_it(
     tmp_path, monkeypatch
 ):
@@ -278,6 +310,38 @@ async def test_parallel_download_uses_disjoint_offsets(tmp_path):
     assert {call["stride"] for call in fake.iter_download_calls} == {2 * 512 * 1024}
     assert target.read_bytes() == b"A" * (512 * 1024) + b"B" * (512 * 1024)
     assert result["parallel"] == 2
+
+
+async def test_parallel_download_maps_a_short_stream_to_policy_error(tmp_path):
+    """CONTRACT: --parallel short stream exits 2 (PolicyError), never publishes."""
+
+    class ShortParallelTelegram(FakeParallelTelegram):
+        async def iter_download(self, media, *, offset=0, request_size=None, **kwargs):
+            self.iter_download_calls.append(
+                {
+                    "media": media,
+                    "offset": offset,
+                    "request_size": request_size,
+                    **kwargs,
+                }
+            )
+            if offset == 0:
+                yield bytes([65]) * (512 * 1024)
+            # Second stripe ends with no bytes and no error.
+
+    fake = ShortParallelTelegram()
+    target = tmp_path / "out.bin"
+
+    with pytest.raises(PolicyError, match=r"ended at .* bytes"):
+        await download_media(
+            fake,
+            MediaSource("@channel", 42, None),
+            "main",
+            output=str(target),
+            parallel=2,
+        )
+
+    assert not target.exists()
 
 
 async def test_parallel_download_refuses_resuming_partial_transfer(tmp_path):
