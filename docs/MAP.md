@@ -37,7 +37,7 @@ tgcli/
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
 │   ├── thermos-audit-2026-08-13-backlog.md [done] ticket-ready backlog from whole-repo thermos audit (37 items)
 │   ├── thermos-audit-2026-08-13/ [done]   per-ticket bodies for scripts/publish-thermos-backlog.py
-│   ├── decisions/             [done]    ADR-0001…0100 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope; ADR-0079 transcribe readonly gate; ADR-0080 notes trimming; ADR-0081 diagnostics honesty; ADR-0082 per-leg clone sync; ADR-0083 floods keep finished work; ADR-0084 resume identifies its media; ADR-0085 clone reports the bot keyboard it cannot carry; ADR-0086 clone reports durable degradation before a later exit; ADR-0087 foreground persisted jobs; ADR-0088 phone-only authorization; ADR-0100 clone id includes source peer class)
+│   ├── decisions/             [done]    ADR-0001…0101 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope; ADR-0079 transcribe readonly gate; ADR-0080 notes trimming; ADR-0081 diagnostics honesty; ADR-0082 per-leg clone sync; ADR-0083 floods keep finished work; ADR-0084 resume identifies its media; ADR-0085 clone reports the bot keyboard it cannot carry; ADR-0086 clone reports durable degradation before a later exit; ADR-0087 foreground persisted jobs; ADR-0088 phone-only authorization; ADR-0100 clone id includes source peer class; ADR-0101 clone lookup uses peer-class tokens)
 │   ├── research/              [done]    read-only investigation notes backing a wayfinder map's closed children
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
@@ -87,7 +87,7 @@ tgcli/
 │   │   └── runner.py          [done]    independent local/Telegram loops, fixed adapters, identity bind, retry/progress, failure notification
 │   ├── clone/                 [done]    clone-owned helpers (ADR-0017/0019/0020/0021/0022/0023/0045/0046/0047/0049/0054/0055)
 │   │   ├── state.py           [done]    CloneState seam + dirty-tracked save/load (SQLite via statedb; ADR-0017/0060); peer-class-aware clone_id + legacy-slot migration (ADR-0100)
-│   │   ├── lookup.py          [done]    finding a clone from a SOURCE argument: id/title match, slot scan, recorded-source peer ref (ADR-0082)
+│   │   ├── lookup.py          [done]    finding a clone from a SOURCE argument: peer-class token/title match, slot scan, recorded-source peer ref (ADR-0082/0101)
 │   │   ├── statedb.py         [done]    per-clone SQLite/WAL backend, import/export helpers (ADR-0060)
 │   │   ├── cooldown.py        [done]    per-clone retry_not_before gate; requests go through the governed seam (ADR-0072)
 │   │   ├── reupload.py        [done]    reupload transfer: still-thumb picker, parallel upload, resumable checkpointed download cache (ADR-0049/0052/0055/0083)

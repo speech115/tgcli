@@ -96,6 +96,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0087](ADR-0087-foreground-persisted-jobs.md) | `tg jobs` persists four typed checkpointed workloads in an account-scoped SQLite registry and runs them through independent foreground Telegram/local lanes with bounded-aging priority, cooperative cancellation, retry state, explicit role/safety gates, and launchd-owned recurrence; replaces `archive refresh` without a daemon | accepted; implementation campaign #146 |
 | [0088](ADR-0088-phone-only-session-authorization.md) | `tg accounts login` starts only with explicit `--phone`; removes QR token/deep-link/wait behavior and `--qr-format` while retaining staged code/password continuation for primary and named-role sessions | accepted; owner request #193 |
 | [0100](ADR-0100-clone-id-includes-source-peer-class.md) | `clone_id` hashes the source's peer class (user/chat/channel), not the bare numeric peer id, so a User/basic-group/Channel collision on one integer no longer shares a clone state slot; a pre-ADR-0100 slot migrates onto its class-aware id lazily on first resolve | accepted; thermos T05 |
+| [0101](ADR-0101-clone-lookup-uses-peer-class-tokens.md) | Numeric clone filters match the canonical token for the recorded source peer class: raw user id, negative basic-group id, or `-100`-marked channel id; cross-class aliases are refused | accepted; thermos T18; depends on ADR-0100 |
 
 Notes on supersessions:
 

@@ -21,8 +21,8 @@ def _seed(
         account_user_id=account_user_id,
         source_peer_id=source_peer_id,
         source_title=title,
+        source_kind=kind,
     )
-    s.source_kind = kind
     s.destination_peer_id = dest
     s.destination_title = dest_title
     s.destination_username = dest_username
@@ -124,35 +124,42 @@ def test_status_empty_when_no_clones(capsys):
     assert json.loads(out) == {"clones": [], "pending_import": 0}
 
 
-def test_status_filters_by_source_id(capsys):
-    _seed(100000001, 111, "Alpha")
-    _seed(100000001, 333, "Beta")
+@pytest.mark.parametrize(
+    ("kind", "source"),
+    [
+        ("broadcast", "-1001234567890"),
+        ("megagroup", "-1001234567890"),
+        ("forum", "-1001234567890"),
+        ("basic", "-1234567890"),
+        ("dialog", "1234567890"),
+    ],
+)
+def test_status_filters_by_kind_aware_source_token(capsys, kind, source):
+    _seed(100000001, 1234567890, "Alpha", kind=kind)
 
-    code, out = _run(capsys, ["clone", "status", "333", "--json"])
+    code, out = _run(capsys, ["clone", "status", source, "--json"])
+
     assert code == 0
-    payload = json.loads(out)
-    assert [c["source"]["title"] for c in payload["clones"]] == ["Beta"]
+    assert [c["source"]["title"] for c in json.loads(out)["clones"]] == ["Alpha"]
 
 
-def test_status_filters_by_marked_channel_source_id(capsys):
-    """CONTRACT-shaped JSON hands out -100 ids; status must accept that form."""
-    _seed(100000001, 3890108644, "Alpha")
-    _seed(100000001, 333, "Beta")
+@pytest.mark.parametrize(
+    ("kind", "wrong_sources"),
+    [
+        ("broadcast", ("1234567890", "-1234567890")),
+        ("megagroup", ("1234567890", "-1234567890")),
+        ("forum", ("1234567890", "-1234567890")),
+        ("basic", ("1234567890", "-1001234567890")),
+        ("dialog", ("-1234567890", "-1001234567890")),
+    ],
+)
+def test_status_filter_rejects_other_peer_class_tokens(capsys, kind, wrong_sources):
+    _seed(100000001, 1234567890, "Alpha", kind=kind)
 
-    code, out = _run(capsys, ["clone", "status", "-1003890108644", "--json"])
-    assert code == 0
-    payload = json.loads(out)
-    assert [c["source"]["title"] for c in payload["clones"]] == ["Alpha"]
-
-
-def test_status_filters_by_raw_source_id(capsys):
-    _seed(100000001, 3890108644, "Alpha")
-    _seed(100000001, 333, "Beta")
-
-    code, out = _run(capsys, ["clone", "status", "3890108644", "--json"])
-    assert code == 0
-    payload = json.loads(out)
-    assert [c["source"]["title"] for c in payload["clones"]] == ["Alpha"]
+    for source in wrong_sources:
+        code, out = _run(capsys, ["clone", "status", source, "--json"])
+        assert code == 0
+        assert json.loads(out)["clones"] == []
 
 
 def test_status_filter_survives_digit_shaped_non_integers():
@@ -269,7 +276,7 @@ def test_status_counts_hidden_slots_even_under_a_source_filter(capsys):
     _seed(100000001, 111, "Alpha", dest=222)
     _write_raw("a" * 64, {"version": 1})
 
-    code, out = _run(capsys, ["clone", "status", "111", "--json"])
+    code, out = _run(capsys, ["clone", "status", "-1000000000111", "--json"])
     assert code == 0
     payload = json.loads(out)
     assert [c["source"]["title"] for c in payload["clones"]] == ["Alpha"]
@@ -341,7 +348,7 @@ def test_status_filter_excludes_unreadable(capsys):
     _seed(100000001, 111, "Alpha")
     _write_raw("d" * 64, {"version": 1})
 
-    code, out = _run(capsys, ["clone", "status", "111", "--json"])
+    code, out = _run(capsys, ["clone", "status", "-1000000000111", "--json"])
     assert code == 0
     payload = json.loads(out)
     assert [c["source"]["title"] for c in payload["clones"]] == ["Alpha"]

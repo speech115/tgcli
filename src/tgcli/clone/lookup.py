@@ -23,7 +23,7 @@ _SOURCE_PEERS = {
 
 
 def matches(s: state.CloneState, source: str | None) -> bool:
-    """SOURCE is a raw or -100-marked peer id, else a title substring.
+    """SOURCE is a kind-marked peer id, else a title substring.
 
     The digit test stays `isdigit()`, not `int()`: int() also accepts `+1`,
     `1_000`, and padded forms, which would steal titles from the substring
@@ -37,10 +37,8 @@ def matches(s: state.CloneState, source: str | None) -> bool:
         wanted = int(source)
     except ValueError:
         return source.casefold() in s.source_title.casefold()
-    return wanted in (
-        s.source_peer_id,
-        telethon_utils.get_peer_id(types.PeerChannel(s.source_peer_id)),
-    )
+    peer = _SOURCE_PEERS.get(s.source_kind, types.PeerChannel)
+    return wanted == telethon_utils.get_peer_id(peer(s.source_peer_id))
 
 
 def slot_ids() -> set[str]:
