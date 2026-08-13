@@ -193,6 +193,55 @@ def test_case_variant_denylisted_api_write_is_blocked_before_network(
     assert "permanently denied" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["api", "auth.importAuthorization", "--params", "{}", "--write"],
+        ["api", "auth.exportAuthorization", "--params", "{}", "--write"],
+        ["api", "account.updateProfile", "--params", "{}", "--write"],
+        ["api", "account.updateUsername", "--params", "{}", "--write"],
+        ["api", "account.registerDevice", "--params", "{}", "--write"],
+    ],
+)
+def test_auth_and_account_namespace_writes_are_blocked_before_network(
+    argv, monkeypatch, capsys
+):
+    """ADR-0092: auth.*/account.* is a wholesale write exclusion, not just the
+    four HARD_DENYLIST methods — mirrors the read path's ADR-0010 rule."""
+    from tgcli import cli
+
+    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
+    monkeypatch.setattr(
+        session, "client", lambda account: pytest.fail("session opened")
+    )
+    monkeypatch.setattr(
+        cli, "_run_network", lambda args, account: pytest.fail("network dispatched")
+    )
+
+    assert main(argv) == 2
+    assert "permanently denied" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "method", ["auth.ImportAuthorization", "account.UpdateProfile"]
+)
+def test_case_variant_auth_and_account_namespace_write_is_blocked_before_network(
+    method, monkeypatch, capsys
+):
+    from tgcli import cli
+
+    monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
+    monkeypatch.setattr(
+        session, "client", lambda account: pytest.fail("session opened")
+    )
+    monkeypatch.setattr(
+        cli, "_run_network", lambda args, account: pytest.fail("network dispatched")
+    )
+
+    assert main(["api", method, "--params", "{}", "--write"]) == 2
+    assert "permanently denied" in capsys.readouterr().err
+
+
 def test_case_variant_confirm_method_still_requires_confirm(monkeypatch, capsys):
     from tgcli import cli
 

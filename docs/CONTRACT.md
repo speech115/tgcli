@@ -876,13 +876,17 @@ tg api <Namespace.method> --params '<json>' [--write] [--confirm <method>]
 - Without `--write`, every method outside the ADR-0010 read allowlist is
   blocked before config loading or session acquisition with exit 2.
 - With `--write`, the same `--readonly`, `TGCLI_READONLY=1`, and
-  `TGCLI_NO_SEND=1` gates run before config/session/network work. Destructive
-  `delete*`, `reset*`, `leave*`, `block*`, `edit*Admin*`, and `edit*Banned*`
-  methods require an exact `--confirm <Namespace.method>`, as do the
-  irreversible one-way conversions `messages.migrateChat` and
-  `channels.convertToGigagroup`, which no prefix rule covers; the permanent
-  denylist `account.deleteAccount`, `auth.logOut`, `auth.resetAuthorizations`,
-  and `account.resetAuthorization` is always exit 2. Authorised raw writes
+  `TGCLI_NO_SEND=1` gates run before config/session/network work. Every
+  `auth.*` and `account.*` method is permanently excluded from writes
+  (ADR-0092), mirroring the read path's ADR-0010 wholesale exclusion — not
+  just the four methods below. Destructive `delete*`, `reset*`, `leave*`,
+  `block*`, `edit*Admin*`, and `edit*Banned*` methods require an exact
+  `--confirm <Namespace.method>`, as do the irreversible one-way conversions
+  `messages.migrateChat` and `channels.convertToGigagroup`, which no prefix
+  rule covers; the permanent denylist `account.deleteAccount`, `auth.logOut`,
+  `auth.resetAuthorizations`, and `account.resetAuthorization` is always exit
+  2 by name even if the wholesale namespace exclusion were ever narrowed.
+  Authorised raw writes
   append one JSONL audit object before dispatch, naming the method **and**
   the target identifiers present in `--params` (`peer`, `channel`, `chat`,
   `chat_id`, `id`, `participant`, `user_id`) so the log answers what a write

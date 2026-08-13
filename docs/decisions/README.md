@@ -97,6 +97,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0088](ADR-0088-phone-only-session-authorization.md) | `tg accounts login` starts only with explicit `--phone`; removes QR token/deep-link/wait behavior and `--qr-format` while retaining staged code/password continuation for primary and named-role sessions | accepted; owner request #193 |
 | [0089](ADR-0089-degraded-governor-ledger-fails-closed.md) | Authenticated governed traffic refuses (`PolicyError`) when `governor.db` cannot be opened; `doctor` sets `ok: false` on `governor_degraded` | accepted; amends ADR-0072 L3; owner request #205 |
 | [0090](ADR-0090-failed-flood-arm-fails-closed.md) | Failed FloodWait cooldown arm keeps a sticky process-local deadline and re-raises FloodWait; next same-type refuses with exit 5 | accepted; thermos T02 / #206 |
+| [0092](ADR-0092-api-write-auth-account-namespace-deny.md) | `tg api --write` wholesale-denies `auth.*`/`account.*` (mirrors ADR-0010's read-path exclusion), not just the four named `HARD_DENYLIST` methods | accepted; thermos audit T04 |
 
 Notes on supersessions:
 

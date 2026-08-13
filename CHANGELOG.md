@@ -11,6 +11,19 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [3.0.3] — 2026-08-13
+
+`tg api --write` now wholesale-denies every `auth.*` and `account.*` method
+before config load or session open, matching the read-path exclusion from
+ADR-0010. The four named `HARD_DENYLIST` methods remain an explicit permanent
+subset. Refusal is exit 2 / `PolicyError`.
+
+Rationale: ADR-0092.
+
+### Changed
+
+- Deny auth.*/account.* on tg api --write (ADR-0092) (#249)
+
 ## [3.0.2] — 2026-08-13
 
 When a FloodWait cooldown cannot be written to `governor.db`, the live

@@ -182,8 +182,9 @@ reported `retry_after` has elapsed.
 Use `tg api` only when no wrapped command covers the task. Prefer a wrapped
 command whenever one exists. Read calls are default-deny and limited to the
 ADR-0010 allowlist. Writes require `--write`; destructive verbs also require
-an exact typed `--confirm METHOD`. The permanent denylist is never callable,
-and authorized writes are audited.
+an exact typed `--confirm METHOD`. `auth.*` and `account.*` writes are never
+callable, whatever the method name (ADR-0092) — session and account
+lifecycle stays with `tg accounts`. Authorized writes are audited.
 
 ## Safety gates
 

@@ -77,6 +77,11 @@ HARD_DENYLIST = frozenset(
         "account.resetAuthorization",
     }
 )
+# ADR-0092: the write path mirrors the read path's ADR-0010 wholesale
+# auth.*/account.* exclusion instead of naming only these four methods.
+# HARD_DENYLIST is a strict subset kept as an explicit, named permanent
+# denylist even if this wholesale rule were ever narrowed.
+WRITE_NAMESPACE_DENYLIST = frozenset({"account", "auth"})
 # Irreversible writes the delete*/reset*/leave*/block*/edit*Admin*/edit*Banned*
 # prefix rule cannot see: both are one-way conversions with no undo.
 IRREVERSIBLE_METHODS = frozenset(
@@ -113,6 +118,11 @@ def is_read_method(name: str) -> bool:
 
 def is_hard_denied(name: str) -> bool:
     return name in HARD_DENYLIST
+
+
+def is_namespace_denied(name: str) -> bool:
+    """Return whether a canonical write method's namespace is wholesale-excluded."""
+    return name.split(".", 1)[0] in WRITE_NAMESPACE_DENYLIST
 
 
 def requires_confirmation(name: str) -> bool:
