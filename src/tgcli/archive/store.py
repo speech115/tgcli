@@ -965,9 +965,7 @@ def write_account_sync(
         existing = read_account_sync(conn)
         now = datetime.now(UTC).isoformat()
         cursor = (
-            changes_cursor
-            if changes_cursor is not None
-            else existing["changes_cursor"]
+            changes_cursor if changes_cursor is not None else existing["changes_cursor"]
         )
         if scope_channels and cursor is not None:
             decoded = cursor_codec.decode(cursor)

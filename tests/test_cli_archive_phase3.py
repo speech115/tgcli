@@ -565,9 +565,7 @@ def test_sync_channel_delete_outside_archive_scope_does_not_tombstone(
         async def __call__(self, request):
             self.call_requests.append(request)
             if isinstance(request, GetDifferenceRequest):
-                return DifferenceEmpty(
-                    date=datetime(2026, 1, 5, tzinfo=UTC), seq=1
-                )
+                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=1)
             if isinstance(request, GetChannelDifferenceRequest):
                 return ChannelDifference(
                     pts=4,
@@ -911,9 +909,7 @@ def test_inflight_sync_cannot_restore_removed_channel_subscription(
                 assert not self.removed
                 await archive_cmd.remove_chat(self, "main", "@news")
                 self.removed = True
-                return DifferenceEmpty(
-                    date=datetime(2026, 1, 5, tzinfo=UTC), seq=1
-                )
+                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=1)
             if isinstance(request, GetChannelDifferenceRequest):
                 return ChannelDifferenceEmpty(pts=4, final=True)
             raise AssertionError(request)
