@@ -1,7 +1,8 @@
 # ADR-0088: Phone-only session authorization
 
 Date: 2026-08-11
-Status: accepted (owner request in #193)
+Status: accepted (owner request in #193; pending-phone persistence amended by
+ADR-0093)
 Amends: [ADR-0042](ADR-0042-accounts-login.md) by removing its QR start path;
 the staged-session, phone/code/password, audit, promotion, account lifecycle,
 and named-role rules remain in force.

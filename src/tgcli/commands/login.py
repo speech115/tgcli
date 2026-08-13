@@ -272,7 +272,6 @@ async def start_login(
         method,
         api_id=resolved_id,
         api_hash=resolved_hash,
-        phone=phone,
         role=role,
     )
     login_id = attempt["login_id"]
@@ -296,6 +295,7 @@ async def _phone_start(client, attempt: dict, *, phone: str) -> dict:
     phone_code_hash = sent.phone_code_hash
     if not isinstance(phone, str) or not isinstance(phone_code_hash, str):
         raise ConfigError("Telegram returned unexpected send_code_request types")
+    login_state.save_phone(attempt["login_id"], phone)
     login_state.update_attempt(attempt["login_id"], phone_code_hash=phone_code_hash)
     note(
         f"confirmation code sent to {mask_phone(phone)}; "
@@ -342,6 +342,7 @@ async def continue_login(
             f"login_id {login_id!r} uses a removed login method; start login again"
         )
     role = attempt.get("role")
+    phone = login_state.load_phone(login_id)
     staged = login_state.staged_session_path(login_id)
     config = load_config()
     dest = _login_destination(config, alias, role)
@@ -361,7 +362,6 @@ async def continue_login(
         else:
             # Submit the phone confirmation code first.
             resolved_code = _collect_code(code=code)
-            phone = attempt["phone"]
             phone_code_hash = attempt["phone_code_hash"]
             if not isinstance(phone, str) or not isinstance(phone_code_hash, str):
                 raise ConfigError("login attempt missing phone state")
@@ -392,7 +392,7 @@ async def continue_login(
             login_id=login_id,
             alias=alias,
             method=method,
-            phone=attempt.get("phone"),
+            phone=phone,
             is_new=is_new,
             api_id=attempt["api_id"],
             api_hash=attempt["api_hash"],

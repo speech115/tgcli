@@ -37,7 +37,7 @@ tgcli/
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
 │   ├── thermos-audit-2026-08-13-backlog.md [done] ticket-ready backlog from whole-repo thermos audit (37 items)
 │   ├── thermos-audit-2026-08-13/ [done]   per-ticket bodies for scripts/publish-thermos-backlog.py
-│   ├── decisions/             [done]    ADR-0001…0092 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope; ADR-0079 transcribe readonly gate; ADR-0080 notes trimming; ADR-0081 diagnostics honesty; ADR-0082 per-leg clone sync; ADR-0083 floods keep finished work; ADR-0084 resume identifies its media; ADR-0085 clone reports the bot keyboard it cannot carry; ADR-0086 clone reports durable degradation before a later exit; ADR-0087 foreground persisted jobs; ADR-0088 phone-only authorization; ADR-0089 degraded governor ledger fails closed; ADR-0090 failed flood arm fails closed; ADR-0091 media download completeness; ADR-0092 raw API write wholesale auth/account deny)
+│   ├── decisions/             [done]    ADR-0001…0093 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope; ADR-0079 transcribe readonly gate; ADR-0080 notes trimming; ADR-0081 diagnostics honesty; ADR-0082 per-leg clone sync; ADR-0083 floods keep finished work; ADR-0084 resume identifies its media; ADR-0085 clone reports the bot keyboard it cannot carry; ADR-0086 clone reports durable degradation before a later exit; ADR-0087 foreground persisted jobs; ADR-0088 phone-only authorization; ADR-0089 degraded governor ledger fails closed; ADR-0090 failed flood arm fails closed; ADR-0091 media download completeness; ADR-0092 raw API write wholesale auth/account deny; ADR-0093 restricted login phone continuation sidecar)
 │   ├── research/              [done]    read-only investigation notes backing a wayfinder map's closed children
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
@@ -61,7 +61,7 @@ tgcli/
 │   ├── desktop.py             [done]    osascript escape hatch for secrets and best-effort notifications (ADR-0042/0087)
 │   ├── authclient.py          [done]    unauthorized Telethon client + auth probe (ADR-0042)
 │   ├── changes_cursor.py      [done]    opaque v1 cursor codec for tg changes (ADR-0063; pure)
-│   ├── login_state.py         [done]    logins/ attempt state and session promotion (ADR-0042)
+│   ├── login_state.py         [done]    logins/ attempt state, restricted phone sidecar, and session promotion (ADR-0042/0093)
 │   ├── transfer.py            [done]    striped download, serial resumable download, parallel Save*FilePart upload, media size/identity helpers, one progress cadence (ADR-0047/0049/0055/0083/0084/0091)
 │   ├── archive/               [done]    local archive store, media acquisition, and transcription (ADR-0068/0069)
 │   │   ├── store.py           [done]    schema v7, WAL, FTS5 text+transcripts, account/peer sync state, tombstones

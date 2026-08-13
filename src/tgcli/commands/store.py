@@ -144,13 +144,14 @@ def _classify_login(path: Path, *, now: datetime) -> str | None:
 
 
 def _login_pair_stats(directory: Path, login_id: str) -> tuple[int, int]:
-    """Return (file_count, bytes) for an attempt's json + staged session files."""
+    """Return (file_count, bytes) for every file owned by one login attempt."""
     count = 0
     total = 0
     for name in (
         f"{login_id}.json",
         f"{login_id}.session",
         f"{login_id}.session-journal",
+        f"{login_id}.phone",
     ):
         path = directory / name
         if path.is_file():
@@ -469,6 +470,7 @@ def _deletable_paths(
                 f"{login_id}.json",
                 f"{login_id}.session",
                 f"{login_id}.session-journal",
+                f"{login_id}.phone",
             ):
                 candidate = logins_root / name
                 if candidate.is_file():

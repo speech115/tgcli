@@ -29,6 +29,13 @@ def _write_attempt(path: Path, record: dict) -> None:
     A mid-write truncate would otherwise be classified as expired by a
     concurrent `store cleanup --confirm` and take the staged session with it.
     """
+    if "phone" in record:
+        # ADR-0042 §5: the attempt json holds alias/phone_code_hash/
+        # created_at, never the phone. A regression here would put the raw
+        # phone back on disk for the whole 30-minute TTL (T08).
+        raise AssertionError(
+            "login attempt record must not persist a raw phone (ADR-0042/0088)"
+        )
     atomic.replace_text(path, json.dumps(record))
 
 
@@ -46,6 +53,11 @@ def _attempt_path(login_id: str) -> Path:
     return logins_dir() / f"{login_id}.json"
 
 
+def _phone_path(login_id: str) -> Path:
+    _validate_id(login_id)
+    return logins_dir() / f"{login_id}.phone"
+
+
 def _validate_id(login_id: str) -> None:
     if "/" in login_id or not _LOGIN_ID_RE.match(login_id):
         raise NotFoundError(f"unknown or invalid login_id: {login_id!r}")
@@ -57,7 +69,6 @@ def create_attempt(
     *,
     api_id: int,
     api_hash: str,
-    phone: str | None = None,
     role: str | None = None,
     now: datetime | None = None,
 ) -> dict:
@@ -69,7 +80,6 @@ def create_attempt(
         "method": method,
         "api_id": api_id,
         "api_hash": api_hash,
-        "phone": phone,
         "phone_code_hash": None,
         "role": role,
         "created_at": now.isoformat(),
@@ -107,6 +117,26 @@ def load_attempt(login_id: str, *, now: datetime | None = None) -> dict:
     return record
 
 
+def save_phone(login_id: str, phone: str) -> None:
+    """Persist the phone only after Telegram accepts the code request."""
+    atomic.replace_text(_phone_path(login_id), phone)
+
+
+def load_phone(login_id: str) -> str | None:
+    """Read the restricted phone sidecar, if any.
+
+    Telegram requires the literal phone again for `auth.SignInRequest`; the
+    staged Telethon session does not retain it (ADR-0093).
+    """
+    path = _phone_path(login_id)
+    if not path.is_file():
+        return None
+    try:
+        return path.read_text()
+    except OSError:
+        return None
+
+
 def update_attempt(login_id: str, *, now: datetime | None = None, **fields) -> dict:
     record = load_attempt(login_id, now=now)
     record.update(fields)
@@ -122,6 +152,7 @@ def discard_attempt(login_id: str) -> None:
         directory / f"{login_id}.json",
         directory / f"{login_id}.session",
         directory / f"{login_id}.session-journal",
+        directory / f"{login_id}.phone",
     ):
         path.unlink(missing_ok=True)
 
@@ -173,6 +204,7 @@ def promote(
         path = _attempt_path(login_id)
         path.unlink(missing_ok=True)
         (logins_dir() / f"{login_id}.session-journal").unlink(missing_ok=True)
+        (logins_dir() / f"{login_id}.phone").unlink(missing_ok=True)
         return backup_path
     finally:
         fcntl.flock(lock, fcntl.LOCK_UN)

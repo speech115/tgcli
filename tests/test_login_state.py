@@ -37,6 +37,30 @@ def test_create_attempt_mode_and_fields(state):
     assert list((state / "logins").glob(".login-*.tmp")) == []
 
 
+def test_phone_sidecar_is_restricted_and_separate_from_attempt_json(state):
+    """ADR-0093: only the restricted sidecar may retain the protocol input."""
+    record = login_state.create_attempt(
+        "main", "phone", api_id=1, api_hash="h", now=NOW
+    )
+    login_id = record["login_id"]
+    login_state.save_phone(login_id, "+79991234589")
+    assert "phone" not in record
+    path = state / "logins" / f"{login_id}.json"
+    raw = path.read_text()
+    assert "+79991234589" not in raw
+    assert "phone" not in json.loads(raw)
+    phone_path = state / "logins" / f"{login_id}.phone"
+    assert oct(phone_path.stat().st_mode & 0o777) == "0o600"
+    assert login_state.load_phone(login_id) == "+79991234589"
+
+
+def test_load_phone_absent_returns_none(state):
+    record = login_state.create_attempt(
+        "main", "phone", api_id=1, api_hash="h", now=NOW
+    )
+    assert login_state.load_phone(record["login_id"]) is None
+
+
 def test_update_attempt_rewrites_atomically(state):
     record = login_state.create_attempt(
         "main", "phone", api_id=1, api_hash="h", now=NOW
@@ -67,7 +91,7 @@ def test_expiry_raises_without_deleting_staged_session(state):
     merely inspecting an attempt threw away what the user was creating.
     """
     record = login_state.create_attempt(
-        "main", "phone", api_id=1, api_hash="h", phone="+1", now=NOW
+        "main", "phone", api_id=1, api_hash="h", now=NOW
     )
     login_id = record["login_id"]
     staged = login_state.staged_session_path(login_id)
@@ -188,8 +212,9 @@ def test_promote_refuses_when_destination_lock_held(state):
 
 def test_update_and_discard(state):
     record = login_state.create_attempt(
-        "main", "phone", api_id=1, api_hash="h", phone="+7999", now=NOW
+        "main", "phone", api_id=1, api_hash="h", now=NOW
     )
+    login_state.save_phone(record["login_id"], "+7999")
     updated = login_state.update_attempt(
         record["login_id"], phone_code_hash="hash123", now=NOW
     )
@@ -199,6 +224,22 @@ def test_update_and_discard(state):
     login_state.discard_attempt(record["login_id"])
     assert not (state / "logins" / f"{record['login_id']}.json").exists()
     assert not staged.exists()
+    assert login_state.load_phone(record["login_id"]) is None
+
+
+def test_promote_discards_phone_sidecar(state):
+    record = login_state.create_attempt(
+        "main", "phone", api_id=1, api_hash="h", now=NOW
+    )
+    login_id = record["login_id"]
+    login_state.save_phone(login_id, "+7999")
+    staged = login_state.staged_session_path(login_id)
+    staged.write_bytes(b"new")
+    dest = state / "sessions" / "main.session"
+    dest.parent.mkdir()
+    login_state.promote(login_id, dest, keep_backup=True)
+    assert login_state.load_phone(login_id) is None
+    assert not (state / "logins" / f"{login_id}.phone").exists()
 
 
 def test_load_attempt_rejects_a_naive_expiry(tmp_path, monkeypatch):

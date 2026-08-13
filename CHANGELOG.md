@@ -11,6 +11,19 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [3.0.6] — 2026-08-13
+
+Pending phone login keeps the raw phone only in an atomic `0600`
+`logins/l_<id>.phone` sidecar; attempt JSON never stores it. Promotion,
+discard, code expiry, and `store cleanup` inventory and delete the sidecar
+(ADR-0093).
+
+Rationale: ADR-0093.
+
+### Changed
+
+- Keep raw phone out of login attempt JSON (ADR-0093) (#248)
+
 ## [3.0.5] — 2026-08-13
 
 `clone refresh --commit` uses the same retryable `begin_commit` /
@@ -946,6 +959,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[3.0.6]: https://github.com/speech115/tgcli/compare/v3.0.5...v3.0.6
 [3.0.5]: https://github.com/speech115/tgcli/compare/v3.0.4...v3.0.5
 [3.0.4]: https://github.com/speech115/tgcli/compare/v3.0.3...v3.0.4
 [3.0.3]: https://github.com/speech115/tgcli/compare/v3.0.2...v3.0.3

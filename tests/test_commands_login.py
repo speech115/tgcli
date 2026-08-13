@@ -128,6 +128,28 @@ def test_mask_phone_shapes():
 
 
 @pytest.mark.asyncio
+async def test_attempt_json_has_no_raw_phone_on_disk(env, fake_client):
+    """T08 / ADR-0042 §5: the attempt json on disk must never carry the raw
+    phone, only the continue path may resolve it (from its own sidecar)."""
+    pending = await login_cmd.start_login(
+        load_config(),
+        "tmp",
+        phone=PHONE,
+        api_id=1,
+        api_hash="h",
+        force=False,
+    )
+    attempt_path = env["state"] / "logins" / f"{pending['login_id']}.json"
+    raw = attempt_path.read_text()
+    assert PHONE not in raw
+    assert "phone" not in json.loads(raw)
+
+    data = await _complete_phone_login(pending)
+    assert data["status"] == "authorized"
+    assert fake_client.sign_in_calls[0]["args"][0] == PHONE
+
+
+@pytest.mark.asyncio
 async def test_login_promotes_to_configured_session_stem(env, fake_client):
     env["config"].write_text(
         env["config"].read_text()
@@ -489,6 +511,7 @@ async def test_flood_wait_exit_5(env, fake_client):
             force=False,
         )
     assert excinfo.value.exit_code == 5
+    assert list((env["state"] / "logins").glob("l_*.phone")) == []
 
 
 @pytest.mark.asyncio
@@ -690,8 +713,8 @@ def test_post_login_get_me_flood_wait_exits_5_without_promotion(
         "phone",
         api_id=1,
         api_hash="h",
-        phone=PHONE,
     )
+    login_state.save_phone(attempt["login_id"], PHONE)
     login_state.update_attempt(attempt["login_id"], phone_code_hash="hash-abc")
     staged = login_state.staged_session_path(attempt["login_id"])
     staged.write_bytes(b"staged-session")
@@ -725,9 +748,7 @@ def test_post_login_get_me_flood_wait_exits_5_without_promotion(
 
 @pytest.mark.asyncio
 async def test_continue_refuses_a_pending_removed_qr_attempt(env, fake_client):
-    record = login_state.create_attempt(
-        "tmp", "qr", api_id=1, api_hash="h", phone=PHONE
-    )
+    record = login_state.create_attempt("tmp", "qr", api_id=1, api_hash="h")
     login_id = record["login_id"]
     login_state.staged_session_path(login_id).write_bytes(b"staged")
     with pytest.raises(Exception) as excinfo:
