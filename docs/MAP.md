@@ -37,7 +37,7 @@ tgcli/
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
 │   ├── thermos-audit-2026-08-13-backlog.md [done] ticket-ready backlog from whole-repo thermos audit (37 items)
 │   ├── thermos-audit-2026-08-13/ [done]   per-ticket bodies for scripts/publish-thermos-backlog.py
-│   ├── decisions/             [done]    ADR-0001…0088 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope; ADR-0079 transcribe readonly gate; ADR-0080 notes trimming; ADR-0081 diagnostics honesty; ADR-0082 per-leg clone sync; ADR-0083 floods keep finished work; ADR-0084 resume identifies its media; ADR-0085 clone reports the bot keyboard it cannot carry; ADR-0086 clone reports durable degradation before a later exit; ADR-0087 foreground persisted jobs; ADR-0088 phone-only authorization)
+│   ├── decisions/             [done]    ADR-0001…0102 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope; ADR-0079 transcribe readonly gate; ADR-0080 notes trimming; ADR-0081 diagnostics honesty; ADR-0082 per-leg clone sync; ADR-0083 floods keep finished work; ADR-0084 resume identifies its media; ADR-0085 clone reports the bot keyboard it cannot carry; ADR-0086 clone reports durable degradation before a later exit; ADR-0087 foreground persisted jobs; ADR-0088 phone-only authorization; ADR-0102 reupload cache clears after save)
 │   ├── research/              [done]    read-only investigation notes backing a wayfinder map's closed children
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
@@ -134,7 +134,7 @@ tgcli/
 │   │   ├── store.py           [done]    tg store stats|cleanup; previews + logins + session_backups + clone media caches + archive inventory (ADR-0040/0042/0052/0068)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (+ incremental messages ADR-0032; broadcast walk ADR-0031)
-│   │   └── clone.py           [done]    clone status/init/sync/refresh/export-state surface (ADR-0017…0025/0045/0046/0047/0048/0052/0054/0055/0060; live gates for clone path)
+│   │   └── clone.py           [done]    clone status/init/sync/refresh/export-state surface (ADR-0017…0025/0045/0046/0047/0048/0052/0054/0055/0060/0102; live gates for clone path)
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/

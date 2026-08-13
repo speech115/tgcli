@@ -600,9 +600,6 @@ async def _reupload_batch(
             peer=destination, multi_media=multi_media, reply_to=reply_to
         )
         response = await _mutate(tg, request)
-    # Only a successful send clears the cache — a FloodWait mid-upload must
-    # leave downloaded bytes for the next invocation (ADR-0052).
-    shutil.rmtree(cache, ignore_errors=True)
     return response
 
 
@@ -753,6 +750,12 @@ async def _forward_batch(
         leg.record_mapping(source_id, destination_id)
     leg.cursor = source_ids[-1]
     state.save(clone_state)
+    if mode == "reuploaded":
+        # Only a confirmed send *and* a durable mapping save may clear the
+        # cache — an incomplete confirmation or a crash before the save
+        # must leave the downloaded bytes for the next run's resume
+        # (ADR-0052; T12).
+        shutil.rmtree(_media_cache_dir(clone_state), ignore_errors=True)
     return len(source_ids), mode, plan.reply_flattened, plan.quote_flattened
 
 

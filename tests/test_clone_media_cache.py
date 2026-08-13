@@ -371,6 +371,46 @@ def test_failed_reupload_leaves_downloaded_media_on_disk(
     assert (cache / "src-2.done").is_file()
 
 
+def test_confirmation_failure_leaves_media_cache_intact(
+    config_env, monkeypatch, capsys
+):
+    """T12: a send Telegram never confirms must not lose the downloaded
+    bytes. The cache clears only after `confirmed_destination_ids` and
+    `state.save` both succeed (ADR-0052 intent)."""
+    clone_state = seed_clone()
+    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
+
+    class UnconfirmedSend(CloneReuploadClient):
+        async def __call__(self, request):
+            if isinstance(request, functions.messages.SendMediaRequest):
+                self.requests.append(request)
+                self.destination_last_id += 1
+                return SimpleNamespace(
+                    updates=[
+                        types.UpdateMessageID(
+                            id=self.destination_last_id,
+                            random_id=request.random_id + 1,
+                        )
+                    ]
+                )
+            return await super().__call__(request)
+
+    client = UnconfirmedSend(
+        [message(2, message="caption", media=photo)], protected=True
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 2
+    capsys.readouterr()
+
+    cache = state.clones_dir() / f"{clone_state.clone_id}-media"
+    assert cache.is_dir()
+    assert client.downloads
+    assert client.downloads[0].read_bytes() == b"payload"
+    reloaded = state.load(clone_state.clone_id)
+    assert reloaded.id_map == {}
+
+
 def test_reupload_uses_persistent_cache_path_not_temp(
     config_env, monkeypatch, capsys, tmp_path
 ):
