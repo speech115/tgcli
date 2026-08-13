@@ -13,6 +13,6 @@ edit: the ticket classifies unchanged CLI/state semantics as a small fix, and
 the existing state JSON shape is preserved. The shared helper's 8-chunk
 checkpoint cadence replaces media's private 16-chunk cadence.
 
-**Learned:** T03 absorbed the corruption risk, not the parallel implementation.
+**Learned:** T03 absorbed the corruption risk, not the duplicate serial loop.
 
 **Next:** independent whole-diff Spec + Standards review before merge.

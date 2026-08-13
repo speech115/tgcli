@@ -196,7 +196,6 @@ async def test_download_throttles_state_writes_and_progress_updates(
     fake.message.file.size = 17
     state_writes = []
     progress_updates = []
-    from tgcli.commands import media
 
     original_write_state = media._write_state
 
@@ -283,7 +282,6 @@ async def test_the_serial_part_file_is_synced_before_the_checkpoint_claims_it(
     monkeypatch.setattr(
         os, "fsync", lambda fd: (order.append("fsync"), real_fsync(fd))[1]
     )
-    from tgcli.commands import media
 
     original_write_state = media._write_state
 
