@@ -123,6 +123,14 @@ def test_mask_phones_in_text_redacts_embedded_phones():
     assert "2025550123" not in masked
 
 
+def test_mask_phones_in_text_redacts_formatted_embedded_phone():
+    text = "PhoneNumberInvalidError for +1 (202) 555-0123"
+    masked = mask_phones_in_text(text)
+    assert masked == "PhoneNumberInvalidError for +1…23"
+    assert "202" not in masked
+    assert "555" not in masked
+
+
 def test_mask_phones_in_text_leaves_non_phone_text_untouched():
     text = "connection to Telegram failed"
     assert mask_phones_in_text(text) == text

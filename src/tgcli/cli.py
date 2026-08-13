@@ -667,7 +667,7 @@ def main(argv: list[str] | None = None) -> int:
         error_code = "RUNTIME"
         exit_code = 1
         if args.verbose:
-            traceback.print_exc()
+            sys.stderr.write(mask_phones_in_text(traceback.format_exc()))
         with _tolerate_hangup():
             output.emit_error(
                 TgcliError(mask_phones_in_text(str(err) or type(err).__name__)),

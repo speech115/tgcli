@@ -158,6 +158,19 @@ def test_untranslated_failure_shows_the_traceback_only_under_verbose(
     assert "ConnectionError: connection to Telegram failed" in captured.err
 
 
+def test_untranslated_failure_masks_phone_in_verbose_traceback(
+    env, monkeypatch, capsys
+):
+    _fails_with(monkeypatch, ConnectionError("failed for +79991234567"))
+
+    assert main(["dialogs", "--json", "--verbose"]) == 1
+
+    captured = capsys.readouterr()
+    assert "Traceback (most recent call last)" in captured.err
+    assert "ConnectionError: failed for +7…67" in captured.err
+    assert "79991234567" not in captured.err
+
+
 def test_emit_failure_is_journaled_as_an_error(env, monkeypatch):
     def boom(data):
         raise RuntimeError("stdout exploded")
