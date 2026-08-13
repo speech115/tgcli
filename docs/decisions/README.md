@@ -106,6 +106,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0097](ADR-0097-archive-scope-cursor-atomicity.md) | Archive remove drops scope and channel subscription in one SQLite write transaction; sync cursor writers re-project onto current scope under the same lock | accepted; thermos T09/T23 |
 | [0098](ADR-0098-session-stem-path-escape-rejection.md) | `load_config` rejects a `session` stem containing `/`, `\`, `..`, a null byte, a leading `-`, `@`, or empty; `session_path` adds an independent resolve-under-`sessions/` check as defense in depth (thermos T07) | accepted |
 | [0099](ADR-0099-session-file-lock.md) | Canonical `session.session_file_lock` for non-blocking `.lock` acquisition; call sites keep ConfigError vs PolicyError via `busy_error` | accepted; thermos debt T26 |
+| [0100](ADR-0100-alias-charset-validated-on-load.md) | `load_config` validates every `[accounts.<alias>]` key against the alias-grade charset (previously enforced only by `accounts login` for a brand-new alias) and rejects `@` in a `session` stem (the role-suffix separator); overlaps T07/ADR-0098, which independently excludes `@` for its own path-escape reason | accepted (ADR-lite) |
 
 Notes on supersessions:
 
