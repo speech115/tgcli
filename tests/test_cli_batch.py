@@ -253,6 +253,51 @@ def test_batch_masks_phones_in_runtime_error_message(config_env, monkeypatch, ca
     assert line["error"] == {"code": "RUNTIME", "message": "failed for +7…67"}
 
 
+def test_batch_search_all_rejects_stringy_false(config_env, monkeypatch, capsys):
+    """T15: a mistyped `"all": "false"` must not fall through to global
+    search — Python truthiness on the string `"false"` used to."""
+    make_session_fake(monkeypatch, FakeClient())
+    line = json.dumps(
+        {"op": "search", "chat": "@chan", "query": "needle", "all": "false"}
+    )
+    monkeypatch.setattr("sys.stdin", type("S", (), {"read": lambda self: line})())
+
+    assert main(["batch"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is False
+    assert result["error"]["code"] == "BLOCKED"
+    assert result["error"]["message"] == "batch search.all must be a JSON boolean"
+
+
+def test_batch_dialogs_rejects_stringy_unread_only(config_env, monkeypatch, capsys):
+    make_session_fake(monkeypatch, FakeClient(dialogs=[make_dialog()]))
+    line = json.dumps({"op": "dialogs", "unread_only": "false"})
+    monkeypatch.setattr("sys.stdin", type("S", (), {"read": lambda self: line})())
+
+    assert main(["batch"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is False
+    assert result["error"]["code"] == "BLOCKED"
+    assert (
+        result["error"]["message"] == "batch dialogs.unread_only must be a JSON boolean"
+    )
+
+
+def test_batch_message_rejects_bool_message_id(config_env, monkeypatch, capsys):
+    """T15: `bool` is an `int` subclass in Python — `True` must not become 1."""
+    make_session_fake(monkeypatch, FakeClient())
+    line = json.dumps({"op": "message", "chat": "@chan", "message_id": True})
+    monkeypatch.setattr("sys.stdin", type("S", (), {"read": lambda self: line})())
+
+    assert main(["batch"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is False
+    assert result["error"]["code"] == "BLOCKED"
+    assert (
+        result["error"]["message"] == "batch message.message_id must be a JSON integer"
+    )
+
+
 def test_batch_maps_flood_wait_to_exit_5(config_env, monkeypatch, capsys):
     from telethon import errors as telethon_errors
 

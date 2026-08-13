@@ -11,6 +11,19 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [3.0.7] — 2026-08-13
+
+`tg batch` bool/int JSONL fields accept only real JSON booleans and integers;
+mistyped values (`"false"`, `true` for an int field, etc.) fail exit 2
+`BLOCKED` before that op's Telegram fetch (ADR-0101). Optional ints treat
+absence and JSON `null` as unset.
+
+Rationale: ADR-0101.
+
+### Changed
+
+- Strict bool/int coercion for batch JSONL fields (ADR-0101) (#253)
+
 ## [3.0.6] — 2026-08-13
 
 Pending phone login keeps the raw phone only in an atomic `0600`
@@ -959,6 +972,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[3.0.7]: https://github.com/speech115/tgcli/compare/v3.0.6...v3.0.7
 [3.0.6]: https://github.com/speech115/tgcli/compare/v3.0.5...v3.0.6
 [3.0.5]: https://github.com/speech115/tgcli/compare/v3.0.4...v3.0.5
 [3.0.4]: https://github.com/speech115/tgcli/compare/v3.0.3...v3.0.4

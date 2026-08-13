@@ -5,6 +5,7 @@ is added to the union without a matching row."""
 from __future__ import annotations
 
 import argparse
+import re
 from typing import get_args
 
 import pytest
@@ -131,3 +132,90 @@ def _cli_choices(argv: list[str], dest: str) -> tuple:
 def test_batch_enums_match_the_cli_choices(argv, dest, choices):
     """The batch adapter rejects exactly what the CLI parser rejects."""
     assert _cli_choices(argv, dest) == tuple(choices)
+
+
+# T15 (thermos audit 2026-08-13): batch bool/int fields must reject anything
+# that is not a real JSON boolean/integer, matching CLI argparse semantics —
+# truthiness on a string like "false" must not silently flip a filter.
+BATCH_BOOL_FIELDS = [
+    ("dialogs", "unread_only"),
+    ("search", "all"),
+    ("info", "full"),
+    ("contacts.search", "global"),
+    ("thread", "replies"),
+]
+
+BATCH_INT_FIELDS = [
+    ("dialogs", "limit"),
+    ("read", "limit"),
+    ("read", "before_id"),
+    ("read", "after_id"),
+    ("read", "topic"),
+    ("search", "limit"),
+    ("message", "message_id"),
+    ("message", "context"),
+    ("thread", "message_id"),
+    ("thread", "depth"),
+    ("thread", "limit"),
+    ("media.manifest", "limit"),
+]
+
+
+@pytest.mark.parametrize("op, field", BATCH_BOOL_FIELDS)
+@pytest.mark.parametrize("bad_value", ["false", "true", 1, 0, []])
+def test_batch_bool_field_rejects_non_boolean(op, field, bad_value):
+    payload = {**BATCH_PAYLOADS[op], field: bad_value}
+    message = f"batch {op}.{field} must be a JSON boolean"
+    with pytest.raises(PolicyError, match=re.escape(message)):
+        read_ops.from_batch(payload)
+
+
+@pytest.mark.parametrize("op, field", BATCH_INT_FIELDS)
+@pytest.mark.parametrize("bad_value", ["20", 20.5, True, False, []])
+def test_batch_int_field_rejects_non_integer(op, field, bad_value):
+    payload = {**BATCH_PAYLOADS[op], field: bad_value}
+    message = f"batch {op}.{field} must be a JSON integer"
+    with pytest.raises(PolicyError, match=re.escape(message)):
+        read_ops.from_batch(payload)
+
+
+@pytest.mark.parametrize("op, field", BATCH_BOOL_FIELDS)
+def test_batch_bool_field_accepts_real_booleans(op, field):
+    for value in (True, False):
+        payload = {**BATCH_PAYLOADS[op], field: value}
+        read_ops.from_batch(payload)  # must not raise
+
+
+@pytest.mark.parametrize("op, field", BATCH_BOOL_FIELDS)
+def test_batch_bool_field_treats_null_as_unset(op, field):
+    """Absent key and JSON null both mean the flag's default (False)."""
+    payload = {**BATCH_PAYLOADS[op], field: None}
+    read_ops.from_batch(payload)  # must not raise
+
+
+@pytest.mark.parametrize("op, field", BATCH_INT_FIELDS)
+def test_batch_int_field_accepts_real_integers(op, field):
+    payload = {**BATCH_PAYLOADS[op], field: 3}
+    read_ops.from_batch(payload)  # must not raise
+
+
+def test_batch_optional_int_field_stays_none_when_absent():
+    op = read_ops.from_batch({"op": "read", "chat": "@chat"})
+    assert op.before_id is None
+    assert op.after_id is None
+    assert op.topic is None
+
+
+def test_batch_optional_int_field_treats_null_as_unset():
+    op = read_ops.from_batch(
+        {
+            "op": "read",
+            "chat": "@chat",
+            "before_id": None,
+            "after_id": None,
+            "topic": None,
+        }
+    )
+    assert op.before_id is None
+    assert op.after_id is None
+    assert op.topic is None

@@ -197,16 +197,49 @@ def _batch_choice(value: Any, field: str, choices: tuple[str, ...]) -> str | Non
     return value
 
 
+def _batch_bool(value: Any, field: str) -> bool:
+    """A batch bool field is a real JSON boolean; nothing else is truthy.
+
+    Every batch bool flag defaults to `False` when absent, so a missing key
+    or an explicit JSON `null` both mean "not set". Truthiness on a string
+    like `"false"` or an int like `1` is exactly the T15 bug: it silently
+    flips a filter instead of failing closed.
+    """
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    raise PolicyError(f"batch {field} must be a JSON boolean")
+
+
+def _batch_int(value: Any, field: str) -> int:
+    """A batch int field is a real JSON integer, matching CLI argparse
+    `type=int` semantics. `bool` is excluded even though it is an `int`
+    subclass in Python — `True` must not silently become `1`.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise PolicyError(f"batch {field} must be a JSON integer")
+    return value
+
+
+def _batch_optional_int(value: Any, field: str) -> int | None:
+    """Like `_batch_int`, but a missing key or JSON `null` means "unset"."""
+    if value is None:
+        return None
+    return _batch_int(value, field)
+
+
 def _batch_search(p: dict[str, Any]) -> Search:
     """A global search carries no chat, sender, or date scope (CONTRACT §3)."""
-    if p.get("all"):
+    if _batch_bool(p.get("all"), "search.all"):
         if p.get("from") is not None or p.get("since") is not None:
             raise PolicyError("search --all only supports QUERY and --limit")
-        return Search(None, p["query"], int(p.get("limit", 20)), True, None, None)
+        limit = _batch_int(p.get("limit", 20), "search.limit")
+        return Search(None, p["query"], limit, True, None, None)
     return Search(
         p["chat"],
         p["query"],
-        int(p.get("limit", 20)),
+        _batch_int(p.get("limit", 20), "search.limit"),
         False,
         p.get("from"),
         _batch_when(p.get("since"), "search.since"),
@@ -254,8 +287,8 @@ _SPECS: dict[str, _Spec] = {
     "dialogs": _Spec(
         cli=lambda a: Dialogs(a.limit, a.unread_only, a.kind),
         batch=lambda p: Dialogs(
-            int(p.get("limit", 50)),
-            bool(p.get("unread_only", False)),
+            _batch_int(p.get("limit", 50), "dialogs.limit"),
+            _batch_bool(p.get("unread_only"), "dialogs.unread_only"),
             _batch_choice(p.get("kind"), "dialogs.kind", DIALOG_KINDS),
         ),
         fetch=lambda tg, op: dialogs_cmd.fetch_dialogs(
@@ -269,12 +302,12 @@ _SPECS: dict[str, _Spec] = {
         ),
         batch=lambda p: Read(
             p["chat"],
-            int(p.get("limit", 20)),
-            p.get("before_id"),
-            p.get("after_id"),
+            _batch_int(p.get("limit", 20), "read.limit"),
+            _batch_optional_int(p.get("before_id"), "read.before_id"),
+            _batch_optional_int(p.get("after_id"), "read.after_id"),
             _batch_when(p.get("since"), "read.since"),
             _batch_when(p.get("until"), "read.until"),
-            p.get("topic"),
+            _batch_optional_int(p.get("topic"), "read.topic"),
         ),
         fetch=lambda tg, op: read_cmd.fetch_messages(
             tg,
@@ -303,7 +336,9 @@ _SPECS: dict[str, _Spec] = {
     "message": _Spec(
         cli=lambda a: Message(a.chat, a.message_id, a.context),
         batch=lambda p: Message(
-            p["chat"], int(p["message_id"]), int(p.get("context", 0))
+            p["chat"],
+            _batch_int(p["message_id"], "message.message_id"),
+            _batch_int(p.get("context", 0), "message.context"),
         ),
         fetch=lambda tg, op: read_cmd.fetch_message(
             tg, op.chat, op.message_id, context=op.context
@@ -312,7 +347,7 @@ _SPECS: dict[str, _Spec] = {
     ),
     "info": _Spec(
         cli=lambda a: Info(a.chat, a.full),
-        batch=lambda p: Info(p["chat"], bool(p.get("full"))),
+        batch=lambda p: Info(p["chat"], _batch_bool(p.get("full"), "info.full")),
         fetch=_fetch_info,
         rows=info_cmd.to_rows,
     ),
@@ -342,7 +377,9 @@ _SPECS: dict[str, _Spec] = {
     ),
     "contacts.search": _Spec(
         cli=lambda a: ContactsSearch(a.query, a.use_global),
-        batch=lambda p: ContactsSearch(p["query"], bool(p.get("global", False))),
+        batch=lambda p: ContactsSearch(
+            p["query"], _batch_bool(p.get("global"), "contacts.search.global")
+        ),
         fetch=lambda tg, op: identity_cmd.contacts_search(
             tg, op.query, use_global=op.use_global
         ),
@@ -354,7 +391,7 @@ _SPECS: dict[str, _Spec] = {
             p["source"],
             _batch_choice(p.get("type"), "media.manifest.type", MEDIA_KINDS),
             _batch_when(p.get("since"), "media.manifest.since"),
-            int(p.get("limit", 100)),
+            _batch_int(p.get("limit", 100), "media.manifest.limit"),
         ),
         fetch=lambda tg, op: media_cmd.manifest(
             tg, op.source, kind=op.kind, since=op.since, limit=op.limit
@@ -365,10 +402,10 @@ _SPECS: dict[str, _Spec] = {
         cli=lambda a: Thread(a.chat, a.message_id, a.depth, a.replies, a.limit),
         batch=lambda p: Thread(
             p["chat"],
-            int(p["message_id"]),
-            int(p.get("depth", 20)),
-            bool(p.get("replies", False)),
-            int(p.get("limit", 50)),
+            _batch_int(p["message_id"], "thread.message_id"),
+            _batch_int(p.get("depth", 20), "thread.depth"),
+            _batch_bool(p.get("replies"), "thread.replies"),
+            _batch_int(p.get("limit", 50), "thread.limit"),
         ),
         fetch=lambda tg, op: thread_cmd.fetch_thread(
             tg,
