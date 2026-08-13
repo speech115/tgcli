@@ -1292,6 +1292,10 @@ Before creation, state with `destination_peer_id:null` and title marker
 `TGCLI_STATE_DIR/clones/<clone_id>.db` (SQLite/WAL; ADR-0060). A legacy
 `<clone_id>.json` is imported once on first `load()` into `.db` and renamed
 to `<clone_id>.json.imported` (kept until manual cleanup; never auto-deleted).
+The import is crash-safe (ADR-0101): the JSON is first renamed to
+`<clone_id>.json.importing` — a private marker, never both-files-ambiguous —
+and only then written to `.db` and renamed to `.imported`; a crash at any
+point mid-import is resumed automatically by the next `load()`.
 Both `.db` and `.json` present for the same id is exit 2 (ambiguous). Recovery
 adopts exactly one matching
 private creator-owned destination of the required kind, creates when none

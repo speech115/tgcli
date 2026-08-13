@@ -1,10 +1,11 @@
 import json
+import os
 import stat
 from datetime import UTC, datetime
 
 import pytest
 
-from tgcli.clone import roster, state
+from tgcli.clone import roster, state, statedb
 from tgcli.errors import PolicyError
 
 
@@ -67,6 +68,78 @@ def test_load_legacy_state_defaults_source_kind_to_broadcast(tmp_path, monkeypat
     state.json_path_for(s.clone_id).write_text(json.dumps(data))
 
     assert state.load(s.clone_id).source_kind == "broadcast"
+
+
+def test_load_resumes_import_crashed_after_persist_before_rename(tmp_path, monkeypatch):
+    """T06: a crash between the SQLite write and the final JSON rename must
+    not leave the clone stuck behind the both-files "manual resolution
+    required" PolicyError; the next load resumes and completes on its own.
+    """
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    s = _fresh()
+    data = s.to_dict()
+    state.clones_dir().mkdir(parents=True)
+    json_path = state.json_path_for(s.clone_id)
+    json_path.write_text(json.dumps(data))
+
+    real_replace = os.replace
+    calls = {"n": 0}
+
+    def flaky(src, dst):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise OSError("simulated crash before final rename")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", flaky)
+    with pytest.raises(OSError, match="simulated crash"):
+        state.load(s.clone_id)
+
+    importing_path = json_path.with_name(json_path.name + ".importing")
+    assert state.path_for(s.clone_id).exists(), "db must be fully written already"
+    assert importing_path.exists()
+    assert not json_path.exists()
+
+    monkeypatch.setattr(os, "replace", real_replace)
+    loaded = state.load(s.clone_id)
+    assert loaded is not None
+    assert loaded.source_title == s.source_title
+    assert not importing_path.exists()
+    imported_path = json_path.with_name(json_path.name + ".imported")
+    assert imported_path.exists()
+
+
+def test_load_resumes_import_crashed_before_persist(tmp_path, monkeypatch):
+    """T06: a crash right after the JSON is renamed to ``.importing`` but
+    before the SQLite write lands must also self-heal on the next load,
+    not just the later crash window covered above."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    s = _fresh()
+    data = s.to_dict()
+    state.clones_dir().mkdir(parents=True)
+    json_path = state.json_path_for(s.clone_id)
+    json_path.write_text(json.dumps(data))
+
+    real_persist = statedb.persist
+
+    def boom(*_args, **_kwargs):
+        raise OSError("simulated crash during persist")
+
+    monkeypatch.setattr(statedb, "persist", boom)
+    with pytest.raises(OSError, match="simulated crash"):
+        state.load(s.clone_id)
+
+    importing_path = json_path.with_name(json_path.name + ".importing")
+    assert importing_path.exists()
+    assert not json_path.exists()
+    assert not state.path_for(s.clone_id).exists()
+
+    monkeypatch.setattr(statedb, "persist", real_persist)
+    loaded = state.load(s.clone_id)
+    assert loaded is not None
+    assert loaded.source_title == s.source_title
+    assert not importing_path.exists()
+    assert state.path_for(s.clone_id).exists()
 
 
 def test_state_accepts_basic_source_kind(tmp_path, monkeypatch):

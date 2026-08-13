@@ -365,6 +365,24 @@ def _hydrate(data: dict, *, path_name: str) -> CloneState:
 def load(clone_id: str) -> CloneState | None:
     db_path = path_for(clone_id)
     json_path = json_path_for(clone_id)
+    importing_path = json_path.with_name(json_path.name + ".importing")
+    if importing_path.exists():
+        # A prior import was interrupted after the JSON was already marked
+        # in-progress (T06). Resume it: re-derive the data from the marker
+        # file and retry the SQLite write + final rename, both idempotent.
+        if json_path.exists():
+            raise PolicyError(
+                f"clone state {clone_id} has both {json_path.name} and "
+                f"{importing_path.name}; manual resolution is required"
+            )
+        data = statedb.read_json_file(importing_path, expected_version=VERSION)
+        loaded = _hydrate(data, path_name=importing_path.name)
+        statedb.finish_json_import(importing_path, db_path, loaded.to_dict())
+        note(
+            f"resumed interrupted clone state import "
+            f"{importing_path.name} → {db_path.name}"
+        )
+        return loaded
     if db_path.exists() and json_path.exists():
         raise PolicyError(
             f"clone state {clone_id} has both {db_path.name} and {json_path.name}; "
@@ -375,7 +393,8 @@ def load(clone_id: str) -> CloneState | None:
     if json_path.exists():
         data = statedb.read_json_file(json_path, expected_version=VERSION)
         loaded = _hydrate(data, path_name=json_path.name)
-        statedb.finish_json_import(json_path, db_path, loaded.to_dict())
+        importing_path = statedb.begin_json_import(json_path)
+        statedb.finish_json_import(importing_path, db_path, loaded.to_dict())
         note(f"imported clone state {json_path.name} → {db_path.name}")
         return loaded
     return None
