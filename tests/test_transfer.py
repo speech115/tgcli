@@ -176,6 +176,40 @@ async def test_download_striped_worker_failure_removes_partial(tmp_path):
     assert not destination.exists()
 
 
+@pytest.mark.asyncio
+async def test_download_striped_short_stream_never_publishes_the_full_size_file(
+    tmp_path,
+):
+    """`truncate(size)` pre-allocates the file, so a stream that stops without
+    raising (no FloodWait, no worker exception — the server just closed the
+    connection early) would otherwise leave a full-size *sparse* file that
+    looks complete (ADR-0083 decision 3, mirrored from clone's reupload
+    download onto the shared striped seam)."""
+
+    class ShortStreamTelegram(FakeStrideTelegram):
+        async def iter_download(
+            self, media, *, offset=0, request_size=None, stride=None
+        ):
+            self.calls.append({"offset": offset, "stride": stride})
+            if offset == 0:
+                yield b"A" * transfer.CHUNK_SIZE
+            # The second stripe's stream ends with no bytes and no error.
+
+    tg = ShortStreamTelegram()
+    destination = tmp_path / "out.bin"
+
+    with pytest.raises(RuntimeError, match=r"ended at .* bytes"):
+        await transfer.download_striped(
+            tg,
+            media=object(),
+            destination=destination,
+            size=2 * transfer.CHUNK_SIZE,
+            parallel=2,
+        )
+
+    assert not destination.exists()
+
+
 class FakeUploadTelegram:
     def __init__(
         self, *, fail_on_part: int | None = None, flood_on_part: int | None = None

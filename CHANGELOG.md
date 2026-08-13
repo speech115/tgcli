@@ -11,6 +11,61 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [3.0.4] — 2026-08-13
+
+`tg media download` no longer publishes a short or sparse file as complete.
+A single-stream transfer that ends before `target.size` exits 2 (`BLOCKED`)
+and keeps its checkpointed partial for resume; `--parallel` exits 2 after
+`download_striped` refuses a short download and restarts from zero next run.
+Part-file checkpoints fsync before writing the sidecar (ADR-0083 mirror).
+
+Rationale: ADR-0091.
+
+### Changed
+
+- Never publish incomplete media download bytes (ADR-0091) (#250)
+
+## [3.0.3] — 2026-08-13
+
+`tg api --write` now wholesale-denies every `auth.*` and `account.*` method
+before config load or session open, matching the read-path exclusion from
+ADR-0010. The four named `HARD_DENYLIST` methods remain an explicit permanent
+subset. Refusal is exit 2 / `PolicyError`.
+
+Rationale: ADR-0092.
+
+### Changed
+
+- Deny auth.*/account.* on tg api --write (ADR-0092) (#249)
+
+## [3.0.2] — 2026-08-13
+
+When a FloodWait cooldown cannot be written to `governor.db`, the live
+`FloodWaitError` is still re-raised so sibling handlers and jobs requeue keep
+working, and a sticky in-process deadline refuses the next same-type RPC with
+exit 5 (`RateLimitError`). Stderr notes `(cooldown not persisted)` on that
+path. No new exit code.
+
+Rationale: ADR-0090.
+
+### Changed
+
+- Fail closed when FloodWait cooldown arm cannot persist (ADR-0090) (#243)
+
+## [3.0.1] — 2026-08-13
+
+A degraded governor ledger no longer fails open for authenticated Telegram
+traffic. When `governor.db` cannot be opened, governed RPCs refuse with
+`PolicyError` (exit 2) and `tg doctor` reports `governor_degraded: true` with
+`ok: false`. Pre-auth traffic and `doctor --connect` stay ungated so the
+failure remains diagnosable.
+
+Rationale: ADR-0089.
+
+### Changed
+
+- Fail closed when the governor ledger is degraded (ADR-0089) (#242)
+
 ## [3.0.0] — 2026-08-11
 
 `tg jobs` now persists four typed workloads — archive backfill, archive sync,
@@ -877,6 +932,10 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[3.0.4]: https://github.com/speech115/tgcli/compare/v3.0.3...v3.0.4
+[3.0.3]: https://github.com/speech115/tgcli/compare/v3.0.2...v3.0.3
+[3.0.2]: https://github.com/speech115/tgcli/compare/v3.0.1...v3.0.2
+[3.0.1]: https://github.com/speech115/tgcli/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/speech115/tgcli/compare/v2.0.7...v3.0.0
 [2.0.7]: https://github.com/speech115/tgcli/compare/v2.0.6...v2.0.7
 [2.0.6]: https://github.com/speech115/tgcli/compare/v2.0.5...v2.0.6

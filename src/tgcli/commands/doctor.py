@@ -136,9 +136,14 @@ def _local_ok(checks: dict) -> bool:
     for key, value in checks.items():
         if key in ("error", "authorized", "state_size"):
             continue
-        if key in ("governor_cooldowns", "governor_degraded"):
-            # A cooldown is reportable state, not a failure; a degraded
-            # ledger is a warning the governor already fails open on.
+        if key == "governor_cooldowns":
+            # A cooldown is reportable state, not a failure.
+            continue
+        if key == "governor_degraded":
+            # ADR-0089: an unopenable ledger fails closed for governed
+            # traffic — doctor must report the account unhealthy.
+            if value is True:
+                return False
             continue
         if value is False:
             return False
@@ -187,8 +192,9 @@ def _governor_check(session_file: Path) -> dict:
 
     Reads the ledger directly, no RPC: `doctor` is the one command that
     must work precisely when everything else is refusing (ADR-0072
-    decision 1). An unreadable ledger reports ``governor_degraded`` rather
-    than failing the check — the governor failing open is the design.
+    decision 1). An unreadable ledger reports ``governor_degraded: true``
+    and sets per-account ``ok: false`` (ADR-0089) — governed traffic
+    fails closed until the ledger is repaired.
     """
     from tgcli.governor.ledger import Ledger
 
@@ -297,6 +303,19 @@ async def run(
     }
 
 
+def _plain_failure_keys(checks: dict) -> list[str]:
+    # governor_degraded uses inverted polarity (True = unhealthy), so it
+    # must be excluded from the generic False-means-failed scan.
+    failures = [
+        key
+        for key, value in checks.items()
+        if key not in ("error", "state_size", "governor_degraded") and value is False
+    ]
+    if checks.get("governor_degraded") is True:
+        failures.append("governor_degraded")
+    return failures
+
+
 def to_rows(data: dict) -> list[tuple]:
     rows = []
     for report in data["accounts"]:
@@ -307,11 +326,7 @@ def to_rows(data: dict) -> list[tuple]:
             status = "unknown"
         else:
             status = "ok"
-        failures = [
-            key
-            for key, value in report["checks"].items()
-            if key not in ("error", "state_size") and value is False
-        ]
+        failures = _plain_failure_keys(report["checks"])
         rows.append(
             (
                 report["alias"],
@@ -328,11 +343,7 @@ def to_rows(data: dict) -> list[tuple]:
                 role_status = "unknown"
             else:
                 role_status = "ok"
-            role_failures = [
-                key
-                for key, value in role["checks"].items()
-                if key not in ("error", "state_size") and value is False
-            ]
+            role_failures = _plain_failure_keys(role["checks"])
             rows.append(
                 (
                     f"{report['alias']}@{role['name']}",

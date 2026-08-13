@@ -418,7 +418,9 @@ def _prepare_api(parser: argparse.ArgumentParser, args) -> None:
     if args.write:
         safety.enforce_mutation_allowed(args.readonly)
         args.method = api_cmd.canonical_method(args.method)
-        if api_cmd.is_hard_denied(args.method):
+        if api_cmd.is_hard_denied(args.method) or api_cmd.is_namespace_denied(
+            args.method
+        ):
             raise PolicyError("raw API method is permanently denied")
         confirm = (
             api_cmd.try_canonical_method(args.confirm) if args.confirm else args.confirm

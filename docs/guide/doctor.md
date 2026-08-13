@@ -64,7 +64,7 @@ than raising.
 | `state_size` | total bytes under the state root (informational, not pass/fail) | inspect with `tg store stats` if unexpectedly large |
 | `authorized` | (only under `--connect`) the session is live and accepted by Telegram | re-authenticate the account |
 | `governor_cooldowns` | active per-request-type Telegram cooldowns from the request governor's ledger, with deadlines (informational; a cooldown is reportable state, not a failure) | see below |
-| `governor_degraded` | the governor's ledger could not be opened (reads fail open) | check permissions/ownership of `~/.local/state/tgcli/governor.db` |
+| `governor_degraded` | the governor's ledger could not be opened; authenticated Telegram traffic refuses with exit 2 until repaired (ADR-0089); sets `ok: false` | fix or remove `~/.local/state/tgcli/governor.db` |
 
 Per-account `ok` reflects only the local checks when `--connect` is absent;
 with `--connect`, `ok` additionally requires `authorized: true`.
@@ -74,10 +74,11 @@ with `--connect`, `ok` additionally requires `authorized: true`.
 When a command refuses with exit 5 and `retry_after`, `tg doctor` is the one
 command that still works: cooldowns are per request type, so a cooling
 account is not one state. `checks.governor_cooldowns` lists each cooling
-request type with its deadline; `governor_degraded: true` means the governor
-cannot persist (protection degrades, reads still answer "nothing is
-cooling"). The governor probes each cooldown once at half the wait, so an
-early-lifted limit clears itself without operator action.
+request type with its deadline; `governor_degraded: true` means the ledger
+could not be opened — governed commands refuse with exit 2 (`BLOCKED`) and
+doctor sets `ok: false` until the file is repaired (ADR-0089). The governor
+probes each cooldown once at half the wait, so an early-lifted limit clears
+itself without operator action.
 
 ## JSON
 
@@ -93,8 +94,8 @@ early-lifted limit clears itself without operator action.
 
 `governor_cooldowns` maps each cooling request type to its deadline (an
 empty object means nothing is cooling); `governor_degraded: true` means the
-governor's ledger could not be opened. When cooldowns are active,
-`governor_cooldowns` looks like:
+governor's ledger could not be opened and fails the account health check.
+When cooldowns are active, `governor_cooldowns` looks like:
 
 ```json
 {"messages.GetHistoryRequest":"2026-08-03T00:00:00+00:00"}

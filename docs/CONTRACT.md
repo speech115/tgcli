@@ -88,7 +88,7 @@ flag.
 | 2 | blocked by safety policy | `--readonly` + mutating command, `TGCLI_NO_SEND` |
 | 3 | config/auth error | missing `--account` / `default_account`, dead session, bad api_id |
 | 4 | not found | unknown dialog, message id, media; unknown alias on `accounts show\|remove` (lookup) |
-| 5 | rate limited | FloodWait longer than threshold; `retry_after` in error JSON |
+| 5 | rate limited | FloodWait longer than threshold; `retry_after` in error JSON; also a sticky in-process cooldown after a FloodWait whose durable arm could not persist (ADR-0090) |
 
 A Telegram jobs lane that meets a rate limit persists the generation as queued
 with `not_before`, exits **0**, and reports
@@ -391,6 +391,13 @@ whose media no longer matches is discarded and re-downloaded from zero with a
 one-line note on **stderr**. `resumed` is then `false`. A source that replaces
 the file behind a message used to have the new file's tail appended to the old
 file's head and published as complete.
+
+A stream that ends before `target.size` (server closed the connection, no
+error raised) never reaches the final name (ADR-0091, mirroring ADR-0083): the
+single-stream path exits 2 (`BLOCKED`) and keeps its checkpointed partial file
+for the next run's resume; `--parallel` exits 2 (`BLOCKED`) after the
+striped transfer refuses a short download and restarts from zero on the
+next run (ADR-0091).
 
 Story links `t.me/<user>/s/<id>` and `t.me/c/<channel_id>/s/<id>` download
 story media via `stories.getStoriesByID` (ADR-0076). A story source is single
@@ -803,11 +810,12 @@ When `--connect` is absent, `checks.authorized` is `null` (unknown), not
 
 `checks.governor_cooldowns` maps each cooling request type to its deadline
 (an empty object when nothing is cooling); `checks.governor_degraded` is
-`true` when the governor's ledger could not be opened (reads fail open, so
-protection degrades without blocking). A cooldown is reportable state, not a
-failure: it does not set `ok: false`. The governor probes each cooldown once
-at half its wait, so an early-lifted limit clears itself without operator
-action.
+`true` when the governor's ledger could not be opened. A degraded ledger
+fails closed for authenticated Telegram traffic (`PolicyError`, exit 2;
+ADR-0089) and sets per-account / top-level `ok: false` in `doctor`. A
+cooldown alone is reportable state, not a failure: it does not set
+`ok: false`. The governor probes each cooldown once at half its wait, so
+an early-lifted limit clears itself without operator action.
 
 The health checks make short-lived local probes: for an existing session they
 may create and acquire its `.lock` file, and they create then remove a
@@ -875,13 +883,17 @@ tg api <Namespace.method> --params '<json>' [--write] [--confirm <method>]
 - Without `--write`, every method outside the ADR-0010 read allowlist is
   blocked before config loading or session acquisition with exit 2.
 - With `--write`, the same `--readonly`, `TGCLI_READONLY=1`, and
-  `TGCLI_NO_SEND=1` gates run before config/session/network work. Destructive
-  `delete*`, `reset*`, `leave*`, `block*`, `edit*Admin*`, and `edit*Banned*`
-  methods require an exact `--confirm <Namespace.method>`, as do the
-  irreversible one-way conversions `messages.migrateChat` and
-  `channels.convertToGigagroup`, which no prefix rule covers; the permanent
-  denylist `account.deleteAccount`, `auth.logOut`, `auth.resetAuthorizations`,
-  and `account.resetAuthorization` is always exit 2. Authorised raw writes
+  `TGCLI_NO_SEND=1` gates run before config/session/network work. Every
+  `auth.*` and `account.*` method is permanently excluded from writes
+  (ADR-0092), mirroring the read path's ADR-0010 wholesale exclusion — not
+  just the four methods below. Destructive `delete*`, `reset*`, `leave*`,
+  `block*`, `edit*Admin*`, and `edit*Banned*` methods require an exact
+  `--confirm <Namespace.method>`, as do the irreversible one-way conversions
+  `messages.migrateChat` and `channels.convertToGigagroup`, which no prefix
+  rule covers; the permanent denylist `account.deleteAccount`, `auth.logOut`,
+  `auth.resetAuthorizations`, and `account.resetAuthorization` is always exit
+  2 by name even if the wholesale namespace exclusion were ever narrowed.
+  Authorised raw writes
   append one JSONL audit object before dispatch, naming the method **and**
   the target identifiers present in `--params` (`peer`, `channel`, `chat`,
   `chat_id`, `id`, `participant`, `user_id`) so the log answers what a write

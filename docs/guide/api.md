@@ -48,10 +48,13 @@ is upgraded, unlike every other field tgcli emits.
 Anything outside the read allowlist is a mutation and requires `--write`.
 The same gates as every other mutation apply first: `--readonly`,
 `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` all block it with exit 2 before
-configuration, session, or network work (see [safety](safety.md)).
+configuration, session, or network work (see [safety](safety.md)). `auth.*`
+and `account.*` are excluded wholesale, so this escape hatch cannot touch
+credentials or account lifecycle even with `--write` — see below.
 
 ```bash
-tg --json api account.updateProfile --params '{"about": "new bio"}' --write
+tg --json api messages.sendMessage \
+  --params '{"peer": "@alice", "message": "hi"}' --write
 ```
 
 ## Confirm a destructive verb
@@ -70,9 +73,16 @@ A missing or mismatched `--confirm` value blocks the call with exit 2.
 
 ## Permanent denylist
 
-Four methods are never callable through `tg api`, `--write` or not: session
-and account lifecycle stays with `tg accounts`, not with an arbitrary raw
-call.
+`auth.*` and `account.*` are excluded wholesale from `tg api --write`
+(ADR-0092), mirroring the read path's own ADR-0010 exclusion of the same two
+namespaces: credential and account-lifecycle surface stays with
+`tg accounts`, never with an arbitrary raw call. `--write` does not lift
+this — session lifecycle and account mutation are simply not reachable
+through `tg api`, whatever the method name.
+
+Four methods carry this denial by name too, even though the namespace rule
+above already covers them, in case that wholesale rule is ever narrowed for
+one of the two namespaces:
 
 | Method | Reason |
 | --- | --- |
@@ -109,5 +119,6 @@ type), so raw pulls are not a byte-exact pipeline.
 - [../../SKILL.md](../../SKILL.md) — "`tg api` — last resort"
 - [../decisions/ADR-0008-raw-api-passthrough.md](../decisions/ADR-0008-raw-api-passthrough.md)
 - [../decisions/ADR-0010-raw-api-read-allowlist.md](../decisions/ADR-0010-raw-api-read-allowlist.md)
+- [../decisions/ADR-0092-api-write-auth-account-namespace-deny.md](../decisions/ADR-0092-api-write-auth-account-namespace-deny.md)
 - [../FEATURES.md](../FEATURES.md) — per-namespace coverage: what has a wrapped
   command vs. `tg api` only
