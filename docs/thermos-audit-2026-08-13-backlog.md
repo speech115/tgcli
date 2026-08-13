@@ -1,3 +1,5 @@
+> Wave E MERGED to main (PRs #272–#280), 2026-08-13.
+
 # Thermos whole-repo audit backlog (2026-08-13)
 
 Whole-module dual-pass audit (security + code quality) across nine
@@ -15,16 +17,17 @@ Bodies live under `docs/thermos-audit-2026-08-13/tickets/`.
 
 ## Status
 
-| Priority | Count | Meaning |
-|----------|------:|---------|
-| P0 | 4 | Safety / account-risk; fix first |
-| P1 | 9 | Data integrity / contract holes |
-| P2 | 12 | Ops hygiene / smaller bugs / spec drift |
-| Debt | 12 | Structural; often needs ADR / owner call |
+| Priority | Count | Meaning | Code status (2026-08-13 Wave E) |
+|----------|------:|---------|----------------------------------|
+| P0 | 4 | Safety / account-risk; fix first | landed on `main` |
+| P1 | 9 | Data integrity / contract holes | landed on `main` |
+| P2 | 12 | Ops hygiene / smaller bugs / spec drift | landed on `main` |
+| Debt | 12 | Structural; often needs ADR / owner call | 4 on `main`; T28–T37 in Wave E PRs |
 
-**Do not treat green CI as closing this list.** Each bug ticket starts with
-a reproducing test; debt tickets need an owner request (+ ADR when
-full-lane).
+Owner request «Доделай все» opened Wave E (plan
+`docs/plans/2026-08-13-thermos-debt-wave-e.md`). Bug tickets T01–T25 are in
+code; remaining conscious engineering work is the debt PR queue plus the
+export `fsync_directory` smell PR.
 
 ## Dependency sketch
 
@@ -114,3 +117,31 @@ Debt-jobs-store-split / Debt-archive-store-split ──► before next feature i
 Parallel thermos passes, 2026-08-13, nine slices: Safety & mutations,
 Session & auth, Governor & jobs, Clone, Archive, Media & transfer,
 Read path, CLI shell, Gates & contract surface.
+
+## Landing (Wave E)
+
+| ID | Branch / PR | ADR | Notes |
+|----|-------------|-----|-------|
+| T26 | merged (session lock) | ADR-0105 / ADR-0099 | on `main` |
+| T27 | merged (preview→commit) | ADR-0111 | on `main` |
+| T28 | `cursor/clone-send-split-a379` (#274) | ADR-0112 | PR open |
+| T29 | `cursor/jobs-store-split-a379` (#275) | ADR-0113 | PR open |
+| T30 | `cursor/archive-store-split-a379` (#278) | ADR-0116 | PR open |
+| T31 | merged (media resumable) | — | on `main` |
+| T32 | `cursor/cli-archive-extract-a379` (#277) | ADR-0115 | PR open |
+| T33 | `cursor/jobkind-registry-a379` (#276) | ADR-0114 | PR open |
+| T34 | merged (gate hardening) | ADR-0110 | on `main` |
+| T35 | `cursor/changes-decompose-a379` (#273) | — | PR open |
+| T36 | `cursor/breadth-atomic-a379` (#279) | ADR-0117 | PR open |
+| T37 | `cursor/private-backfill-cursor-a379` (#280) | ADR-0118 | PR open |
+| smell | `cursor/export-fsync-public-a379` (#272) | — | public `fsync_directory` |
+
+GitHub issue create remains blocked for cloud tokens (`issues:write`); ticket
+bodies stay under `docs/thermos-audit-2026-08-13/tickets/` for
+`scripts/publish-thermos-backlog.py --apply` when available.
+
+## Reviews (Wave E)
+
+Independent Spec+Standards + thermos security/quality completed 2026-08-13.
+See `docs/devlog/2026-08-13-wave-e-reviews.md`. Confirmed blockers fixed on
+#280 tip; #276 dead field removed. GitHub CI red = billing, not gate.
