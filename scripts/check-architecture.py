@@ -125,7 +125,9 @@ CEILINGS = {
     # +29 for ADR-0087: one-window clone quantum and account-scoped progress.
     # +10 Wave D integrator ratchet (strict gate): ADR-0103 resolve_slot and
     # T19 replace cooldown skip in clone init commit.
-    "src/tgcli/commands/clone.py": 1296,
+    # -236 for ADR-0112: forward/reupload batch send execution moved to
+    # clone/send.py.
+    "src/tgcli/commands/clone.py": 1060,
     # +21 for ADR-0055 pinned_dest_id / pin_occupied fields + validation.
     # +8 for id_map / retry_not_before validation on load (fail closed).
     # +48 for ADR-0060: the CloneState seam delegating to clone/statedb.py
@@ -146,6 +148,8 @@ CEILINGS = {
     # +1 for ADR-0061: the ResolveContext destination_group field.
     "src/tgcli/clone/quotes.py": 392,
     "src/tgcli/clone/quote_fallback.py": 127,
+    # ADR-0112: batch send execution split out of commands/clone.py.
+    "src/tgcli/clone/send.py": 290,
     # ADR-0068: the archive package grew across phases 0-4 untracked. Ceilings
     # are seeded at the phase-4 size so further growth is deliberate; store.py
     # is the one to split first if it keeps growing (schema + migrations +
