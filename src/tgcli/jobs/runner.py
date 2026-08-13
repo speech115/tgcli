@@ -69,13 +69,14 @@ def _progress_token(
     config: Config | None,
     user_id: int,
     source_peer_id: int | None,
+    source_kind: str | None,
 ) -> dict:
     if job["kind"] in ("archive-backfill", "archive-sync"):
         return archive_jobs_cmd.progress_token(alias, config)
     if job["kind"] == "clone-sync":
-        if source_peer_id is None:
+        if source_peer_id is None or source_kind is None:
             raise PolicyError("clone progress requires a resolved source identity")
-        return clone_cmd.progress_token(user_id, source_peer_id)
+        return clone_cmd.progress_token(user_id, source_peer_id, source_kind)
     raise PolicyError(f"unsupported telegram job kind: {job['kind']}")
 
 
@@ -216,10 +217,14 @@ async def run_telegram(
             counts["selected"] += 1
             before: dict | None = None
             source_peer_id: int | None = None
+            source_kind: str | None = None
             halt_after = False
             try:
                 if job["kind"] == "clone-sync":
-                    source_peer_id = await clone_cmd.resolve_source_peer_id(
+                    (
+                        source_peer_id,
+                        source_kind,
+                    ) = await clone_cmd.resolve_source_identity(
                         tg,
                         str(job["spec"]["source"]),
                         user_id,
@@ -230,6 +235,7 @@ async def run_telegram(
                     config,
                     user_id,
                     source_peer_id,
+                    source_kind,
                 )
                 result = await _run_telegram_job(
                     tg,
@@ -311,6 +317,7 @@ async def run_telegram(
                         config,
                         user_id,
                         source_peer_id,
+                        source_kind,
                     )
                 except Exception:
                     after = before

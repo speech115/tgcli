@@ -24,7 +24,27 @@ MAX_COOLDOWN_S = 86_400
 VERSION = 2
 
 
-def clone_id(account_user_id: int, source_peer_id: int) -> str:
+# Peer class per source kind (ADR-0100): a User/Chat/Channel can share a
+# bare numeric id; not split further, since a megagroup toggling into a
+# forum keeps its channel_id and must stay one slot.
+_PEER_CLASS = {
+    "dialog": "user",
+    "basic": "chat",
+    "broadcast": "channel",
+    "megagroup": "channel",
+    "forum": "channel",
+}
+
+
+def clone_id(account_user_id: int, source_peer_id: int, source_kind: str) -> str:
+    """Peer-class-aware clone identity (ADR-0100)."""
+    peer_class = _PEER_CLASS[source_kind]
+    identity = f"{account_user_id}:{peer_class}:{source_peer_id}".encode()
+    return hashlib.sha256(identity).hexdigest()
+
+
+def _kind_blind_clone_id(account_user_id: int, source_peer_id: int) -> str:
+    """Pre-ADR-0100 identity; import-only migration lookup."""
     identity = f"{account_user_id}:{source_peer_id}".encode()
     return hashlib.sha256(identity).hexdigest()
 
@@ -141,7 +161,7 @@ class CloneState:
 
     @property
     def clone_id(self) -> str:
-        return clone_id(self.account_user_id, self.source_peer_id)
+        return clone_id(self.account_user_id, self.source_peer_id, self.source_kind)
 
     def record_mapping(self, source_id: int, destination_id: int) -> None:
         key = str(source_id)
@@ -379,6 +399,36 @@ def load(clone_id: str) -> CloneState | None:
         note(f"imported clone state {json_path.name} → {db_path.name}")
         return loaded
     return None
+
+
+def resolve_slot(account_user_id: int, source_peer_id: int, source_kind: str) -> str:
+    """Canonical clone id, migrating a same-class legacy slot onto it once
+    (ADR-0100); a different-class legacy slot is left for its own class."""
+    canonical = clone_id(account_user_id, source_peer_id, source_kind)
+    legacy = _kind_blind_clone_id(account_user_id, source_peer_id)
+    canonical_taken = path_for(canonical).exists() or json_path_for(canonical).exists()
+    legacy_present = path_for(legacy).exists() or json_path_for(legacy).exists()
+    if legacy == canonical or canonical_taken or not legacy_present:
+        return canonical
+    try:
+        legacy_state = load(legacy)
+    except PolicyError:
+        return canonical  # corrupt/ambiguous legacy slot: leave for --all
+    same_class = legacy_state and _PEER_CLASS.get(
+        legacy_state.source_kind
+    ) == _PEER_CLASS.get(source_kind)
+    if not same_class:
+        return canonical
+    # load() above already folded a legacy .json into a .db.
+    legacy_db, canonical_db = path_for(legacy), path_for(canonical)
+    os.replace(legacy_db, canonical_db)
+    for src, dst in zip(
+        statedb.sidecar_paths(legacy_db), statedb.sidecar_paths(canonical_db)
+    ):
+        if src.exists():
+            os.replace(src, dst)
+    note(f"migrated clone state {legacy} -> {canonical} (ADR-0100)")
+    return canonical
 
 
 def probe(clone_id: str) -> dict:

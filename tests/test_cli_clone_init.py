@@ -9,7 +9,7 @@ from telethon.tl import functions, types
 from tests.conftest import make_session_fake
 from tgcli import safety, session
 from tgcli.cli import main
-from tgcli.clone import state
+from tgcli.clone import attribution, state
 from tgcli.errors import PolicyError
 
 SAMPLE = """
@@ -171,7 +171,9 @@ class CloneInitClient:
         if isinstance(request, functions.users.GetFullUserRequest):
             return SimpleNamespace(full_user=SimpleNamespace(about=self.source_about))
         if isinstance(request, functions.channels.CreateChannelRequest):
-            pending = state.load(state.clone_id(42, 123))
+            pending = state.load(
+                state.clone_id(42, 123, attribution.source_kind(self.source))
+            )
             if request.title.endswith("-discussion"):
                 assert pending.discussion_destination_peer_id is None
                 assert request.title == f"{pending.creation_marker}-discussion"
@@ -702,7 +704,7 @@ def test_clone_init_avatar_download_failure_keeps_destination_retryable(
     )
 
     assert "avatar download failed" in capsys.readouterr().err
-    saved = state.load(state.clone_id(42, 123))
+    saved = state.load(state.clone_id(42, 123, "broadcast"))
     assert saved.destination_peer_id == 999
     assert not any(
         isinstance(item, functions.channels.EditPhotoRequest)
@@ -723,7 +725,7 @@ def test_clone_init_rerun_skips_unchanged_avatar(config_env, monkeypatch, capsys
         == 0
     )
     capsys.readouterr()
-    assert state.load(state.clone_id(42, 123)).avatar_for(123) == 555
+    assert state.load(state.clone_id(42, 123, "broadcast")).avatar_for(123) == 555
 
     preview = stored_preview()
     assert (
@@ -768,7 +770,7 @@ def test_clone_init_rerun_recopies_changed_avatar(config_env, monkeypatch, capsy
         if isinstance(item, functions.channels.EditPhotoRequest)
     ]
     assert len(edits) == 2
-    assert state.load(state.clone_id(42, 123)).avatar_for(123) == 556
+    assert state.load(state.clone_id(42, 123, "broadcast")).avatar_for(123) == 556
 
 
 def test_clone_init_commit_adopts_half_created_marker_channel(
@@ -1700,7 +1702,7 @@ def test_clone_init_commit_readonly_blocks_before_config_session_and_preview_use
 
 
 def _write_v1_state(source_title="Old", extra=None):
-    cid = state.clone_id(42, 123)
+    cid = state.clone_id(42, 123, "broadcast")
     path = state.json_path_for(cid)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {
@@ -1841,10 +1843,9 @@ def test_clone_init_replace_without_existing_state_is_plain_init(
         for line in safety.audit_path().read_text().splitlines()
     ]
     assert "clone-init-replace" not in actions
-    saved = state.load(state.clone_id(42, 123))
-    assert saved.creation_marker.startswith(
-        f"tgcli-clone-{state.clone_id(42, 123)[:12]}-"
-    )
+    cid = state.clone_id(42, 123, "broadcast")
+    saved = state.load(cid)
+    assert saved.creation_marker.startswith(f"tgcli-clone-{cid[:12]}-")
 
 
 def test_clone_init_unreachable_source_is_not_found(config_env, monkeypatch, capsys):

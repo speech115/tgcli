@@ -1300,9 +1300,18 @@ destination id is recorded, repeated init resolves and reuses it without
 scanning or creating. Destinations are user-owned and never deleted
 automatically.
 
-Because `clone_id` is deterministic per source, one source maps to one state
-slot forever, and `commit` fail-closes (exit 2) on any slot whose version it
-cannot load — so a stale or legacy clone cannot be re-created by a bare `init`.
+Because `clone_id` is deterministic per account/source/peer-class (ADR-0100:
+a bare numeric peer id is not unique across a User, a basic group, and a
+Channel — the finer broadcast/megagroup/forum split within Channel is not
+part of the id, since a megagroup toggling into a forum keeps its
+`channel_id` and must stay one slot), one source maps to one state slot
+forever, and `commit` fail-closes (exit 2) on any slot whose version it
+cannot load — so a stale or legacy clone cannot be re-created by a bare
+`init`. A slot saved under the pre-ADR-0100 class-blind id is migrated onto
+its class-aware id (the `.db` and its WAL/SHM sidecars renamed in place, and
+a one-line stderr note) the first time that identity is resolved again; a
+legacy slot recorded under a *different* class is left alone for its own
+class's resolution instead of being guessed at.
 `init SOURCE --replace` supersedes it: at commit, before loading state, it
 archives the existing `<clone_id>.db` (plus WAL/SHM sidecars when present)
 and any leftover `<clone_id>.json`, and, if present, the ADR-0024 roster

@@ -38,7 +38,113 @@ def test_new_clone_has_expected_defaults():
     assert s.cursor == 0
     assert s.id_map == {}
     assert s.retry_not_before is None
-    assert s.clone_id == state.clone_id(100000001, 1234567890)
+    assert s.clone_id == state.clone_id(100000001, 1234567890, "broadcast")
+
+
+def test_clone_id_differs_by_peer_class_for_the_same_numeric_id():
+    """ADR-0100: a User, a basic group, and a Channel can share one integer
+    id; the clone identity must not collide just because the numeric peer
+    id matches."""
+    ids = {state.clone_id(1, 2, kind) for kind in ("dialog", "basic", "broadcast")}
+    assert len(ids) == 3
+
+
+def test_clone_id_is_stable_across_a_channel_kind_toggle():
+    """megagroup <-> forum is an in-place Telegram toggle of one channel_id,
+    not a different source; the slot must stay the same one so the existing
+    `source_kind` drift check (not a new clone_id) is what catches it."""
+    assert state.clone_id(1, 2, "megagroup") == state.clone_id(1, 2, "forum")
+    assert state.clone_id(1, 2, "megagroup") == state.clone_id(1, 2, "broadcast")
+
+
+def test_clone_id_still_differs_by_account_and_peer_for_a_fixed_kind():
+    assert state.clone_id(1, 2, "broadcast") != state.clone_id(1, 3, "broadcast")
+    assert state.clone_id(1, 2, "broadcast") != state.clone_id(9, 2, "broadcast")
+
+
+def test_resolve_slot_returns_canonical_id_with_no_slot_on_disk(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    assert state.resolve_slot(1, 2, "broadcast") == state.clone_id(1, 2, "broadcast")
+
+
+def test_resolve_slot_migrates_a_pre_adr_0100_slot_in_place(tmp_path, monkeypatch):
+    """A slot saved under the old kind-blind hash is found and moved onto
+    its new kind-aware id the first time that identity is resolved again."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    legacy_id = state._kind_blind_clone_id(1, 2)
+    saved = state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="Legacy", source_kind="basic"
+    )
+    saved.record_mapping(7, 70)
+    state.statedb.persist(state.path_for(legacy_id), saved.to_dict(), full=True)
+
+    canonical_id = state.resolve_slot(1, 2, "basic")
+
+    assert canonical_id == state.clone_id(1, 2, "basic")
+    assert canonical_id != legacy_id
+    assert not state.path_for(legacy_id).exists()
+    migrated = state.load(canonical_id)
+    assert migrated is not None
+    assert migrated.source_title == "Legacy"
+    assert migrated.dest_for(7) == 70
+    # Resolving again is a no-op: nothing left at the legacy id to migrate.
+    assert state.resolve_slot(1, 2, "basic") == canonical_id
+
+
+def test_resolve_slot_migrates_across_a_channel_kind_toggle(tmp_path, monkeypatch):
+    """A legacy megagroup slot is still found when asked for as its forum
+    toggle: same peer class, same channel_id, same slot."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    legacy_id = state._kind_blind_clone_id(1, 2)
+    saved = state.CloneState.new(
+        account_user_id=1,
+        source_peer_id=2,
+        source_title="Team chat",
+        source_kind="megagroup",
+    )
+    state.statedb.persist(state.path_for(legacy_id), saved.to_dict(), full=True)
+
+    canonical_id = state.resolve_slot(1, 2, "forum")
+
+    assert canonical_id == state.clone_id(1, 2, "forum")
+    assert not state.path_for(legacy_id).exists()
+    assert state.load(canonical_id) is not None
+
+
+def test_resolve_slot_ignores_a_legacy_slot_of_a_different_kind(tmp_path, monkeypatch):
+    """A numeric-id collision across kinds (the bug ADR-0100 fixes) must not
+    make one kind's resolution silently adopt the other kind's slot."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    legacy_id = state._kind_blind_clone_id(1, 2)
+    saved = state.CloneState.new(
+        account_user_id=1,
+        source_peer_id=2,
+        source_title="A dialog",
+        source_kind="dialog",
+    )
+    state.statedb.persist(state.path_for(legacy_id), saved.to_dict(), full=True)
+
+    canonical_id = state.resolve_slot(1, 2, "broadcast")
+
+    assert canonical_id == state.clone_id(1, 2, "broadcast")
+    assert state.load(canonical_id) is None
+    # The dialog's own legacy slot is untouched and still resolvable by it.
+    assert state.path_for(legacy_id).exists()
+
+
+def test_resolve_slot_leaves_a_corrupt_legacy_slot_for_manual_repair(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    legacy_id = state._kind_blind_clone_id(1, 2)
+    state.clones_dir().mkdir(parents=True)
+    state.path_for(legacy_id).write_bytes(b"not a sqlite database")
+
+    canonical_id = state.resolve_slot(1, 2, "broadcast")
+
+    assert canonical_id == state.clone_id(1, 2, "broadcast")
+    assert state.load(canonical_id) is None
+    assert state.path_for(legacy_id).exists()
 
 
 def test_save_then_load_round_trip():
@@ -307,7 +413,7 @@ def test_state_rejects_non_string_topic_key():
 
 
 def test_load_missing_returns_none():
-    assert state.load(state.clone_id(1, 2)) is None
+    assert state.load(state.clone_id(1, 2, "broadcast")) is None
 
 
 def test_save_writes_private_file():

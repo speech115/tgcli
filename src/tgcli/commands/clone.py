@@ -145,9 +145,9 @@ def export_state(source: str) -> dict:
     return matches[0].to_dict()
 
 
-def progress_token(account_user_id: int, source_peer_id: int) -> dict:
-    """Durable cursors for one resolved account/source identity."""
-    found = state.load(state.clone_id(account_user_id, source_peer_id))
+def progress_token(account_user_id: int, source_peer_id: int, source_kind: str) -> dict:
+    """Durable cursors for one resolved account/source/kind identity."""
+    found = state.load(state.resolve_slot(account_user_id, source_peer_id, source_kind))
     return {
         "clone": (
             None
@@ -219,14 +219,16 @@ async def _resolve_source(tg, source: str, *, account_user_id: int | None = None
     return entity, kind, attribution.display_name(entity)
 
 
-async def resolve_source_peer_id(tg, source: str, account_user_id: int) -> int:
+async def resolve_source_identity(
+    tg, source: str, account_user_id: int
+) -> tuple[int, str]:
     """Resolve a job's SOURCE to the identity used by durable clone state."""
-    entity, _, _ = await _resolve_source(
+    entity, source_kind, _ = await _resolve_source(
         tg,
         source,
         account_user_id=account_user_id,
     )
-    return int(entity.id)
+    return int(entity.id), source_kind
 
 
 def _supersede_status(clone_id: str, replace: bool) -> dict:
@@ -246,7 +248,7 @@ async def preview_init(
     entity, source_kind, source_title = await _resolve_source(tg, source)
     me = await tg.get_me()
     total = (await tg.get_messages(entity, limit=0)).total
-    clone_id = state.clone_id(me.id, entity.id)
+    clone_id = state.resolve_slot(me.id, entity.id, source_kind)
     peers_to_create = await _peers_to_create(
         tg,
         entity,
@@ -325,11 +327,14 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
     # already carries account_user_id / source_peer_id.
     account_user_id = payload["account_user_id"]
     source_peer_id = payload["source_peer_id"]
-    early_id = state.clone_id(account_user_id, source_peer_id)
-    try:
-        early_state = state.load(early_id)
-    except PolicyError:
-        early_state = None
+    early_kind = payload.get("source_kind")
+    early_state = None
+    if early_kind is not None:
+        early_id = state.resolve_slot(account_user_id, source_peer_id, early_kind)
+        try:
+            early_state = state.load(early_id)
+        except PolicyError:
+            early_state = None
     if early_state is not None:
         _enforce_cooldown(early_state)
 
@@ -341,7 +346,7 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
         or payload.get("source_kind", source_kind) != source_kind
     ):
         raise PolicyError("clone init preview no longer matches the source or account")
-    clone_id = state.clone_id(me.id, entity.id)
+    clone_id = state.resolve_slot(me.id, entity.id, source_kind)
     replace = bool(payload.get("replace"))
     if replace and (
         archived := state.supersede(clone_id, (roster.path_for(clone_id),))
@@ -767,7 +772,7 @@ async def sync_text(
     source_entity, source_kind, _ = await _resolve_source(
         tg, source, account_user_id=me.id
     )
-    clone_state = state.load(state.clone_id(me.id, source_entity.id))
+    clone_state = state.load(state.resolve_slot(me.id, source_entity.id, source_kind))
     if clone_state is None or clone_state.destination_peer_id is None:
         raise PolicyError("clone is not initialized; run clone init first")
     if clone_state.source_kind != source_kind:
@@ -1111,7 +1116,7 @@ async def _load_refresh_context(tg, source: str):
     source_entity, source_kind, _ = await _resolve_source(
         tg, source, account_user_id=me.id
     )
-    clone_state = state.load(state.clone_id(me.id, source_entity.id))
+    clone_state = state.load(state.resolve_slot(me.id, source_entity.id, source_kind))
     if clone_state is None or clone_state.destination_peer_id is None:
         raise PolicyError("clone is not initialized; run clone init first")
     if clone_state.source_kind != source_kind:
