@@ -10,7 +10,7 @@ and reap the sidecar with the attempt. Added regressions for inventory,
 cleanup, mode, continuation, and failed-start retention. Full gate: 1911
 passed, 9 skipped; ruff, format, architecture, pyright, coverage, and docs
 green.
-**Decided:** ADR-0109 governs the persistent sidecar schema. ADR-0042 §5
+**Decided:** ADR-0114 governs the persistent sidecar schema. ADR-0042 §5
 already excludes the phone from attempt JSON, but Telegram's sign-in request
 requires the literal value across the process boundary; this is full-lane
 state rather than a small-fix implementation detail. CONTRACT §§5/10 and MAP

@@ -1,4 +1,4 @@
-# ADR-0109: Retain a pending login phone only in a restricted sidecar
+# ADR-0114: Retain a pending login phone only in a restricted sidecar
 
 Date: 2026-08-13
 Status: accepted

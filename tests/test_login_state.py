@@ -38,7 +38,7 @@ def test_create_attempt_mode_and_fields(state):
 
 
 def test_phone_sidecar_is_restricted_and_separate_from_attempt_json(state):
-    """ADR-0109: only the restricted sidecar may retain the protocol input."""
+    """ADR-0114: only the restricted sidecar may retain the protocol input."""
     record = login_state.create_attempt(
         "main", "phone", api_id=1, api_hash="h", now=NOW
     )

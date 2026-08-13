@@ -2,7 +2,7 @@
 
 Date: 2026-07-24
 Status: accepted (QR start path removed by ADR-0088; phone continuation
-sidecar governed by ADR-0109)
+sidecar governed by ADR-0114)
 
 ## Context
 

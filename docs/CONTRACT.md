@@ -1105,7 +1105,7 @@ rename is the only writer of `sessions/<alias>.session` (or
 records the role when set. The raw phone is never written to attempt JSON.
 After Telegram accepts the code request, the value required by
 `auth.SignInRequest` is held only in an atomically written `0600`
-`logins/l_<login_id>.phone` sidecar (ADR-0109); promotion, discard, code expiry,
+`logins/l_<login_id>.phone` sidecar (ADR-0114); promotion, discard, code expiry,
 and expired-attempt `store cleanup` delete it with the staged attempt.
 
 There is no QR path, login token output, `tg://login` handoff, or QR-attempt

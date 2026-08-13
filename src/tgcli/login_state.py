@@ -126,7 +126,7 @@ def load_phone(login_id: str) -> str | None:
     """Read the restricted phone sidecar, if any.
 
     Telegram requires the literal phone again for `auth.SignInRequest`; the
-    staged Telethon session does not retain it (ADR-0109).
+    staged Telethon session does not retain it (ADR-0114).
     """
     path = _phone_path(login_id)
     if not path.is_file():
