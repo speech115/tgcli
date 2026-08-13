@@ -112,9 +112,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0103](ADR-0103-clone-id-includes-source-peer-class.md) | `clone_id` hashes the source's peer class (user/chat/channel), not the bare numeric peer id, so a User/basic-group/Channel collision on one integer no longer shares a clone state slot; a pre-ADR-0103 slot migrates onto its class-aware id lazily on first resolve | accepted; thermos T05 |
 | [0104](ADR-0104-clone-lookup-uses-peer-class-tokens.md) | Numeric clone filters match the canonical token for the recorded source peer class: raw user id, negative basic-group id, or `-100`-marked channel id; cross-class aliases are refused | accepted; thermos T18; depends on ADR-0103 |
 | [0105](ADR-0105-clone-json-import-crash-safety.md) | Clone JSON→SQLite import renames the JSON to `.importing` before the SQLite write, not `.imported` after it, so a crash mid-import resumes on the next `load()` instead of fail-closing as an ambiguous both-files conflict | accepted; T06 |
-=======
-| [0102](ADR-0102-reupload-cache-clears-after-save.md) | The clone reupload media cache clears once, after `confirmed_destination_ids` and `state.save` both succeed, instead of right after the send RPC — an unconfirmed or unsaved batch keeps its downloaded bytes | accepted; amends ADR-0052 decision 7 (thermos T12) |
->>>>>>> origin/cursor/reupload-cache-lifetime-1ec8
+| [0106](ADR-0106-reupload-cache-clears-after-save.md) | The clone reupload media cache clears once, after `confirmed_destination_ids` and `state.save` both succeed, instead of right after the send RPC — an unconfirmed or unsaved batch keeps its downloaded bytes | accepted; amends ADR-0052 decision 7 (thermos T12) |
 
 Notes on supersessions:
 
