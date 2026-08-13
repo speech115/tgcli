@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import quote
 
-from tgcli.archive import search as search_mod
+from tgcli.archive import peers as peers_mod, search as search_mod
 from tgcli.errors import NotFoundError, PolicyError
 
 SEARCH_DEFAULT_LIMIT = 20
@@ -149,27 +149,6 @@ def _record(
     return record
 
 
-def _identity(conn: sqlite3.Connection, peer_id: int) -> dict[str, Any]:
-    row = conn.execute(
-        "SELECT chat_ref, title, username, kind FROM scope WHERE peer_id = ?",
-        (peer_id,),
-    ).fetchone()
-    if row is None:
-        row = conn.execute(
-            "SELECT chat_ref, title, username, kind FROM sync_state WHERE peer_id = ?",
-            (peer_id,),
-        ).fetchone()
-    if row is None:
-        return {"chat_ref": str(peer_id), "title": None, "username": None, "kind": None}
-    return {
-        "chat_ref": row["chat_ref"]
-        or (f"@{row['username']}" if row["username"] else str(peer_id)),
-        "title": row["title"],
-        "username": row["username"],
-        "kind": row["kind"],
-    }
-
-
 def _date_parts(
     since: datetime | None, until: datetime | None
 ) -> tuple[str, list[Any]]:
@@ -299,10 +278,9 @@ def search(
     sql = (
         """
         SELECT m.peer_id, m.message_id, m.date, m.from_id, m.text, m.payload,
-               COALESCE(s.chat_ref, ss.chat_ref) AS chat_ref,
-               COALESCE(s.title, ss.title) AS title,
-               COALESCE(s.username, ss.username) AS username,
-               COALESCE(s.kind, ss.kind) AS kind,
+"""
+        + peers_mod.IDENTITY_SELECT
+        + """,
                t.text AS transcript, t.status AS transcript_status,
                bm25(messages_fts) AS score,
                snippet(messages_fts, 0, '[[', ']]', '…', 12) AS text_snippet,
@@ -310,8 +288,9 @@ def search(
         FROM messages_fts
         JOIN messages AS m ON m.peer_id = messages_fts.peer_id
                           AND m.message_id = messages_fts.message_id
-        LEFT JOIN scope AS s ON s.peer_id = m.peer_id
-        LEFT JOIN sync_state AS ss ON ss.peer_id = m.peer_id
+"""
+        + peers_mod.IDENTITY_JOINS
+        + """
         LEFT JOIN transcripts AS t ON t.peer_id = m.peer_id
                                   AND t.message_id = m.message_id
         WHERE messages_fts MATCH ? AND """
@@ -440,7 +419,7 @@ def read(
         limit, default=READ_DEFAULT_LIMIT, maximum=READ_MAX_LIMIT, label="read"
     )
     peer_id = search_mod.resolve_peer_id(conn, chat)
-    identity = _identity(conn, peer_id)
+    identity = peers_mod.resolve(conn, peer_id)
     rows = _read_rows(
         conn,
         peer_id,
@@ -495,7 +474,7 @@ def history(conn: sqlite3.Connection, chat: str, message_id: int) -> dict[str, A
     ).fetchone()
     if current is None and not revisions and tombstone is None:
         raise NotFoundError(f"message not in archive: {chat!r}/{message_id}")
-    identity = _identity(conn, peer_id)
+    identity = peers_mod.resolve(conn, peer_id)
     current_record = None
     if current is not None:
         current_record = _record(

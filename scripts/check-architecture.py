@@ -164,7 +164,12 @@ CEILINGS = {
     # first split candidate if it grows again.
     # ADR-0087 removes the archive-level scheduling streak and rebuilds the
     # released v6 account_sync table into truthful schema v7.
-    "src/tgcli/archive/store.py": 1073,
+    "src/tgcli/archive/store.py": 96,
+    "src/tgcli/archive/schema.py": 430,
+    "src/tgcli/archive/messages.py": 147,
+    "src/tgcli/archive/transcripts.py": 202,
+    "src/tgcli/archive/sync_state.py": 320,
+    "src/tgcli/archive/peers.py": 74,
     # +9 for ADR-0087 cooperative jobs deadline/cancellation boundaries.
     "src/tgcli/archive/sync.py": 615,
     # +6 for ADR-0072: backfill_dialogs/backfill_one/backfill_private thread
@@ -175,10 +180,10 @@ CEILINGS = {
     "src/tgcli/archive/transcribe.py": 251,
     # ADR-0069: read-only query composition split out of store/commands so
     # Phase 5 SQL does not land in the persistence hotspot.
-    "src/tgcli/archive/explore.py": 578,
+    "src/tgcli/archive/explore.py": 557,
     # search.py shrank to MATCH normalization + peer resolution once
     # explore.py superseded its query path (ADR-0069).
-    "src/tgcli/archive/search.py": 78,
+    "src/tgcli/archive/search.py": 67,
     "src/tgcli/archive/media.py": 72,
     # +1 for ADR-0072: cooldown_mod.cooled_account calls swapped for plain
     # tg.get_me(), plus stop_reason/deferred/resume reporting on
