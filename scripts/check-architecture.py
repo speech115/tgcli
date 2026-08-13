@@ -88,6 +88,8 @@ CEILINGS = {
     # job routing and max-runtime threading landed without a prior ratchet.
     "src/tgcli/dispatch.py": 373,
     "src/tgcli/commands/batch.py": 100,
+    # Thermos T35: daemonless change feed poll/wait helpers; seed at reviewed size.
+    "src/tgcli/commands/changes.py": 556,
     # +3 for ADR-0057: isort section blanks.
     # +37 Wave D integrator ratchet (strict gate): ADR-0101 batch bool/int
     # coercion helpers and field validation in read_ops.
