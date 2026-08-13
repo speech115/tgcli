@@ -99,6 +99,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0090](ADR-0090-failed-flood-arm-fails-closed.md) | Failed FloodWait cooldown arm keeps a sticky process-local deadline and re-raises FloodWait; next same-type refuses with exit 5 | accepted; thermos T02 / #206 |
 | [0091](ADR-0091-media-download-completeness.md) | `media download`'s serial loop requires `current == size` before publishing and fsyncs its part file before each checkpoint; `transfer.download_striped` raises and unlinks when its own downloaded-byte counter falls short of `size`, since the pre-allocated file's on-disk size cannot prove completeness — mirrors ADR-0083 decisions 1 and 3 onto the one download path they did not reach | accepted; thermos audit T03 |
 | [0092](ADR-0092-api-write-auth-account-namespace-deny.md) | `tg api --write` wholesale-denies `auth.*`/`account.*` (mirrors ADR-0010's read-path exclusion), not just the four named `HARD_DENYLIST` methods | accepted; thermos audit T04 |
+| [0106](ADR-0106-archive-max-runtime-stop.md) | Archive CLI sync/backfill and job quanta honor `--max-runtime` through `fetch_media`; stop_reason wall_clock_cap | accepted; thermos T10 |
 
 Notes on supersessions:
 

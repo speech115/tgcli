@@ -175,6 +175,7 @@ def test_telegram_adapters_use_fixed_quanta(telegram_registry, monkeypatch):
     calls = []
 
     async def fake_backfill(tg, alias, **kwargs):
+        assert callable(kwargs.pop("should_stop"))
         calls.append(("backfill", tg, alias, kwargs))
         return {"remaining": False}
 

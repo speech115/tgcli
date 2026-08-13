@@ -96,6 +96,7 @@ async def _run_telegram_job(
             private=bool(spec["private"]),
             limit=int(spec["limit"]),
             config=config,
+            should_stop=should_stop,
         )
     if job["kind"] == "archive-sync":
         return await archive_cmd.sync(

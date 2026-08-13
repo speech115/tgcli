@@ -67,6 +67,7 @@ async def backfill_quantum(
     private: bool,
     limit: int,
     config: Config | None = None,
+    should_stop=None,
 ) -> dict:
     """Backfill one incomplete dialog using the archive's own checkpoint."""
     me = await tg.get_me()
@@ -95,13 +96,17 @@ async def backfill_quantum(
                 else:
                     pending.append(chat)
         selected = pending[:1]
-        dialogs, stop_reason = await backfill_mod.backfill_dialogs(
-            tg,
-            conn,
-            selected,
-            limit=limit,
-            account_user_id=int(me.id),
-        )
+        stopped = should_stop is not None and should_stop()
+        if stopped:
+            dialogs, stop_reason = [], None
+        else:
+            dialogs, stop_reason = await backfill_mod.backfill_dialogs(
+                tg,
+                conn,
+                selected,
+                limit=limit,
+                account_user_id=int(me.id),
+            )
         media = await sync_mod.fetch_media(
             tg,
             conn,
@@ -109,9 +114,11 @@ async def backfill_quantum(
             account_user_id=int(me.id),
             account_dir=archive_cmd.account_dir(alias, config),
             limit=archive_cmd.DEFAULT_SYNC_MEDIA,
+            should_stop=should_stop,
         )
         remaining = bool(
-            len(pending) > 1
+            stopped
+            or len(pending) > 1
             or any(item["more"] for item in dialogs)
             or stop_reason is not None
             or media["remaining"]

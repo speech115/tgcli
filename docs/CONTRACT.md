@@ -1947,7 +1947,11 @@ and `video_note` media into the account-local `media/` directory. Backfill
 uses a fixed default budget of **50** media items per run; `sync` exposes
 `--max-media`, which defaults to **50** and accepts at most **500** items.
 The sync flag limits media downloads only, so message events and the sync
-cursor are still applied in full. Downloads are idempotent: a transcript
+cursor are still applied in full. Global `--max-runtime` also bounds this
+media tail (ADR-0106): when the wall clock is exhausted, media acquisition
+stops without starting further downloads, JSON may report
+`stop_reason: "wall_clock_cap"` with media remaining, and exit is **0**.
+ Downloads are idempotent: a transcript
 queue row is marked with its controlled relative `media_path` only after the
 file is published successfully. Media acquisition has an independent fixed
 cap of **3** attempts, separate from transcription attempts. Ordinary
