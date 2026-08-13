@@ -71,7 +71,16 @@ def session_path(account: Account, role: str | None = None) -> Path:
         stem = account.session
     else:
         stem = _role_stem(account, role)
-    return state_dir() / "sessions" / f"{stem}.session"
+    sessions_dir = state_dir() / "sessions"
+    path = sessions_dir / f"{stem}.session"
+    # Defense in depth (T07): load_config already rejects an escaping stem,
+    # but an Account built directly (a future caller, a test double) must
+    # not be able to make this resolve outside sessions/ either.
+    if path.resolve().parent != sessions_dir.resolve():
+        raise ConfigError(
+            f"session {stem!r} would resolve outside the sessions directory"
+        )
+    return path
 
 
 def list_roles(account: Account) -> list[str]:

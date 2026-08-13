@@ -349,6 +349,15 @@ def test_lock_held_taken_lock_is_true(tmp_path):
         holder.close()
 
 
+def test_session_path_rejects_stem_escaping_sessions_dir(state):
+    """T07 defense-in-depth: even an Account built without going through
+    ``load_config`` (e.g. a future caller, or a test double) must not be
+    able to make ``session_path`` resolve outside ``sessions/``."""
+    escaping = Account(alias="t", api_id=1, api_hash="h", session="../escaped")
+    with pytest.raises(ConfigError, match="outside"):
+        session.session_path(escaping)
+
+
 def test_lock_held_unprobeable_lock_is_none(tmp_path):
     """An unopenable lock path is unknown, not free: doctor must flag it,
     accounts show must not invent a held lock."""

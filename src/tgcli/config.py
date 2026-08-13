@@ -31,6 +31,38 @@ class Config:
     archive_root: Path | None = None
 
 
+def validate_session_stem(session: str, alias: str) -> str:
+    """Reject a ``session`` stem that could resolve outside ``sessions/``.
+
+    ``session_path`` joins this stem straight onto
+    ``state_dir()/sessions/<stem>.session``: a stem with a path separator
+    or ``..`` escapes that directory, an absolute path ignores it outright,
+    a leading ``-`` risks being read as a flag by anything that shells out
+    to it, ``@`` collides with the role-suffix separator (T25), and a null
+    byte is rejected by the OS anyway but with a much uglier error (T07).
+    """
+    if not session:
+        raise ConfigError(f"account {alias!r}: session must not be empty")
+    if "\x00" in session:
+        raise ConfigError(f"account {alias!r}: session {session!r} has a null byte")
+    for bad in ("/", "\\", ".."):
+        if bad in session:
+            raise ConfigError(
+                f"account {alias!r}: session {session!r} must not contain {bad!r} "
+                "(would escape the sessions directory)"
+            )
+    if session.startswith("-"):
+        raise ConfigError(
+            f"account {alias!r}: session {session!r} must not start with '-'"
+        )
+    if "@" in session:
+        raise ConfigError(
+            f"account {alias!r}: session {session!r} must not contain '@' "
+            "(reserved for role suffixes)"
+        )
+    return session
+
+
 def validate_role_name(role: str) -> str:
     """Alias-grade role names; ``primary`` is reserved (ADR-0062)."""
     if not role or not _ALIAS_RE.match(role):
@@ -62,11 +94,14 @@ def load_config(path: Path | None = None) -> Config:
                 "with api_id and api_hash"
             )
         try:
+            session_stem = validate_session_stem(
+                str(entry.get("session", alias)), alias
+            )
             accounts[alias] = Account(
                 alias=alias,
                 api_id=int(entry["api_id"]),
                 api_hash=str(entry["api_hash"]),
-                session=str(entry.get("session", alias)),
+                session=session_stem,
             )
         except KeyError as exc:
             raise ConfigError(f"account {alias!r}: missing key {exc}") from exc
