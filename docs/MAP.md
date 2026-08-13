@@ -127,7 +127,7 @@ tgcli/
 │   │   ├── identity.py        [done]    tg resolve / contacts / mutual-chats (ADR-0029/0032)
 │   │   ├── dialog.py          [done]    tg dialog pin/unpin/archive/mute (ADR-0029/0032)
 │   │   ├── thread.py          [done]    tg thread reply-chain read (ADR-0029)
-│   │   ├── media.py           [done]    tg media download|manifest (+ bulk ADR-0032; story links + --codec ADR-0076; complete-publish + fsynced checkpoint ADR-0091)
+│   │   ├── media.py           [done]    tg media download|manifest (+ bulk ADR-0032; story links + --codec ADR-0076; complete-publish + serial download via transfer.download_resumable ADR-0083/0091)
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── draft.py           [done]    tg draft set|show|clear|list (ADR-0039)
 │   │   ├── mutate.py          [done]    tg edit|delete|forward preview / commit; tg mark-read|mark-unread (ADR-0028/0029)
