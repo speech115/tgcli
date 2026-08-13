@@ -544,6 +544,46 @@ def test_private_delete_tombstones_every_peer_sharing_message_id(tmp_path):
         conn.close()
 
 
+def test_channel_delete_outside_archive_scope_does_not_tombstone(tmp_path):
+    conn = store_mod.connect(tmp_path / "archive.db")
+    try:
+        store_mod.ensure_meta(conn, account_user_id=42, account_alias="main")
+        peer = -1001234567890
+        store_mod.upsert_message(
+            conn,
+            peer,
+            {
+                "id": 42,
+                "date": "2026-01-02T00:00:00+00:00",
+                "text": "kept after archive remove",
+                "from": {"id": 1},
+            },
+        )
+        store_mod.upsert_sync_state(
+            conn,
+            peer,
+            oldest_id=42,
+            newest_id=42,
+            more=False,
+            kind="channel",
+            title="Removed channel",
+            chat_ref=str(peer),
+        )
+        conn.commit()
+
+        applied = sync_mod.apply_events(
+            conn,
+            [{"type": "message_delete", "peer": peer, "ids": [42]}],
+        )
+
+        assert applied["events"] == 1
+        assert applied["tombstones"] == 0
+        assert applied["skipped_out_of_scope"] == 1
+        assert store_mod.counts(conn)["tombstones"] == 0
+    finally:
+        conn.close()
+
+
 def test_apply_events_applies_full_batch_without_truncation(tmp_path):
     """Difference events are cheap locally — never drop a tail while syncing."""
     conn = store_mod.connect(tmp_path / "archive.db")
