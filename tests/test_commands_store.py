@@ -68,6 +68,23 @@ def test_scan_classifies_previews_and_reports_relics(tmp_path, monkeypatch):
     assert data["relics"] == [{"name": "labs", "bytes": len(b"relic-bytes")}]
 
 
+def test_scan_file_inventory_is_driven_by_the_registry(tmp_path, monkeypatch):
+    fixtures = tmp_path / "fixtures"
+    fixtures.mkdir()
+    (fixtures / "one.bin").write_bytes(b"one")
+    registry = getattr(store_cmd, "_FILE_SCAN_REGISTRY", ())
+    monkeypatch.setattr(
+        store_cmd,
+        "_FILE_SCAN_REGISTRY",
+        (*registry, (("fixtures",), "fixtures", "*.bin")),
+        raising=False,
+    )
+
+    data = store_cmd.scan(tmp_path, now=NOW)
+
+    assert data.get("fixtures") == {"count": 1, "bytes": 3}
+
+
 def test_store_stats_cli_json(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     _seed_inventory(tmp_path)

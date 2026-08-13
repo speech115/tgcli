@@ -18,6 +18,17 @@ from tgcli.safety import PREVIEW_TTL
 RELIC_NAMES = ("mirrors", "mirror-lab", "labs", "probes")
 _PREVIEW_BUCKETS = ("live", "expired", "spent", "pending")
 _LOGIN_BUCKETS = ("live", "expired")
+_FILE_SCAN_REGISTRY = (
+    (("sessions",), "sessions", "*.session"),
+    (("session_backups",), "sessions", "*.session.bak"),
+    (("clones", "db"), "clones", "*.db"),
+    (("clones", "wal"), "clones", "*.db-wal"),
+    (("clones", "shm"), "clones", "*.db-shm"),
+    (("clones", "imported"), "clones", "*.json.imported"),
+    (("archive", "db"), "archive", "*/archive.db"),
+    (("archive", "wal"), "archive", "*/archive.db-wal"),
+    (("archive", "shm"), "archive", "*/archive.db-shm"),
+)
 # Previews and logins carry `expires_at`, so a live record is never eligible
 # whatever the flags say. A clone media cache (ADR-0052) carries no TTL, so
 # this floor is the whole liveness gate: below it the cache belongs to a
@@ -40,6 +51,34 @@ def _file_bytes(path: Path) -> int:
         return path.stat().st_size
     except OSError:
         return 0
+
+
+def _scan_registered_files(root: Path) -> dict:
+    inventory: dict = {}
+    for keys, directory, pattern in _FILE_SCAN_REGISTRY:
+        scan_root = root / directory
+        files = (
+            [path for path in scan_root.glob(pattern) if path.is_file()]
+            if scan_root.is_dir()
+            else []
+        )
+        target = inventory
+        for key in keys[:-1]:
+            target = target.setdefault(key, {})
+        target[keys[-1]] = {
+            "count": len(files),
+            "bytes": sum(_file_bytes(path) for path in files),
+        }
+    return inventory
+
+
+def _merge_inventory(target: dict, source: dict) -> None:
+    for key, value in source.items():
+        current = target.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            _merge_inventory(current, value)
+        else:
+            target[key] = value
 
 
 def _file_mode(path: Path) -> int | None:
@@ -200,17 +239,6 @@ def scan(root: Path, *, now: datetime | None = None) -> dict:
             logins[bucket]["count"] += file_count
             logins[bucket]["bytes"] += size
 
-    sessions_dir = root / "sessions"
-    session_files = (
-        [p for p in sessions_dir.glob("*.session") if p.is_file()]
-        if sessions_dir.is_dir()
-        else []
-    )
-    bak_files = (
-        [p for p in sessions_dir.glob("*.session.bak") if p.is_file()]
-        if sessions_dir.is_dir()
-        else []
-    )
     relics = []
     for name in RELIC_NAMES:
         path = root / name
@@ -223,101 +251,31 @@ def scan(root: Path, *, now: datetime | None = None) -> dict:
         if clones_root.is_dir()
         else []
     )
-    db_files = (
-        [p for p in clones_root.glob("*.db") if p.is_file()]
-        if clones_root.is_dir()
-        else []
-    )
-    wal_files = (
-        [p for p in clones_root.glob("*.db-wal") if p.is_file()]
-        if clones_root.is_dir()
-        else []
-    )
-    shm_files = (
-        [p for p in clones_root.glob("*.db-shm") if p.is_file()]
-        if clones_root.is_dir()
-        else []
-    )
-    imported_files = (
-        [p for p in clones_root.glob("*.json.imported") if p.is_file()]
-        if clones_root.is_dir()
-        else []
-    )
 
     archive_root = root / "archive"
-    archive_db_files = (
-        [p for p in archive_root.glob("*/archive.db") if p.is_file()]
-        if archive_root.is_dir()
-        else []
-    )
-    archive_wal_files = (
-        [p for p in archive_root.glob("*/archive.db-wal") if p.is_file()]
-        if archive_root.is_dir()
-        else []
-    )
-    archive_shm_files = (
-        [p for p in archive_root.glob("*/archive.db-shm") if p.is_file()]
-        if archive_root.is_dir()
-        else []
-    )
+    file_inventory = _scan_registered_files(root)
     jobs = jobs_store.inventory(root)
 
-    return {
+    inventory = {
         "previews": previews,
         "previews_world_readable": world_readable,
         "logins": logins,
         "audit_log": {"bytes": _file_bytes(root / "audit.jsonl")},
         "invocations": {"bytes": _file_bytes(root / "invocations.jsonl")},
-        "sessions": {
-            "count": len(session_files),
-            "bytes": sum(_file_bytes(path) for path in session_files),
-        },
-        "session_backups": {
-            "count": len(bak_files),
-            "bytes": sum(_file_bytes(path) for path in bak_files),
-        },
-        "clones": {
-            "bytes": _dir_bytes(clones_root),
-            "db": {
-                "count": len(db_files),
-                "bytes": sum(_file_bytes(path) for path in db_files),
-            },
-            "wal": {
-                "count": len(wal_files),
-                "bytes": sum(_file_bytes(path) for path in wal_files),
-            },
-            "shm": {
-                "count": len(shm_files),
-                "bytes": sum(_file_bytes(path) for path in shm_files),
-            },
-            "imported": {
-                "count": len(imported_files),
-                "bytes": sum(_file_bytes(path) for path in imported_files),
-            },
-        },
+        "sessions": {},
+        "session_backups": {},
+        "clones": {"bytes": _dir_bytes(clones_root)},
         "clone_media_cache": {
             "count": len(media_dirs),
             "bytes": sum(_dir_bytes(path) for path in media_dirs),
         },
-        "archive": {
-            "bytes": _dir_bytes(archive_root),
-            "db": {
-                "count": len(archive_db_files),
-                "bytes": sum(_file_bytes(path) for path in archive_db_files),
-            },
-            "wal": {
-                "count": len(archive_wal_files),
-                "bytes": sum(_file_bytes(path) for path in archive_wal_files),
-            },
-            "shm": {
-                "count": len(archive_shm_files),
-                "bytes": sum(_file_bytes(path) for path in archive_shm_files),
-            },
-        },
+        "archive": {"bytes": _dir_bytes(archive_root)},
         "jobs": {"bytes": _dir_bytes(root / "jobs"), **jobs},
         "downloads": {"bytes": _dir_bytes(root / "downloads")},
         "relics": relics,
     }
+    _merge_inventory(inventory, file_inventory)
+    return inventory
 
 
 def stats(root: Path, *, now: datetime | None = None) -> dict:

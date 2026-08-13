@@ -84,11 +84,14 @@ CEILINGS = {
     # grace band had been carrying it since earlier work; the ratchet is
     # the integrator's job and nobody had done it.
     # ADR-0087 routes the Telegram jobs lane through the existing session seam.
-    # The final review moved lane ownership to cli.py; ratchet the shrink.
-    "src/tgcli/dispatch.py": 358,
+    # +15 Wave D integrator ratchet (strict gate): dispatch growth from archive
+    # job routing and max-runtime threading landed without a prior ratchet.
+    "src/tgcli/dispatch.py": 373,
     "src/tgcli/commands/batch.py": 100,
     # +3 for ADR-0057: isort section blanks.
-    "src/tgcli/read_ops.py": 437,
+    # +37 Wave D integrator ratchet (strict gate): ADR-0101 batch bool/int
+    # coercion helpers and field validation in read_ops.
+    "src/tgcli/read_ops.py": 474,
     # +20 for ADR-0049: the progress emitter lives in clone/progress.py, but
     # the reporter still has to be threaded down the sync → batch → transfer
     # call chain that clone.py owns.
@@ -120,7 +123,9 @@ CEILINGS = {
     # +18 for ADR-0085: immediate bot-keyboard loss reporting.
     # +9 for ADR-0086: immediate unsupported/quote degradation reporting.
     # +29 for ADR-0087: one-window clone quantum and account-scoped progress.
-    "src/tgcli/commands/clone.py": 1286,
+    # +10 Wave D integrator ratchet (strict gate): ADR-0103 resolve_slot and
+    # T19 replace cooldown skip in clone init commit.
+    "src/tgcli/commands/clone.py": 1296,
     # +21 for ADR-0055 pinned_dest_id / pin_occupied fields + validation.
     # +8 for id_map / retry_not_before validation on load (fail closed).
     # +48 for ADR-0060: the CloneState seam delegating to clone/statedb.py
@@ -165,10 +170,14 @@ CEILINGS = {
     # +1 for ADR-0072: cooldown_mod.cooled_account calls swapped for plain
     # tg.get_me(), plus stop_reason/deferred/resume reporting on
     # backfill_dialogs's chats-mode result.
-    "src/tgcli/commands/archive.py": 542,
+    # +2 Wave D integrator ratchet (strict gate): ADR-0107 max-runtime stop
+    # threading through archive sync dispatch.
+    "src/tgcli/commands/archive.py": 544,
     # ADR-0087: fixed typed quantum over one archive backfill dialog; +15 review
     # fix hashes complete per-dialog checkpoints into the runtime progress token.
-    "src/tgcli/commands/archive_jobs.py": 133,
+    # +7 Wave D integrator ratchet (strict gate): ADR-0107 max-runtime in jobs
+    # archive backfill quantum.
+    "src/tgcli/commands/archive_jobs.py": 140,
     # ADR-0087: jobs public command seam and typed control-plane routing.
     "src/tgcli/commands/jobs.py": 163,
     # ADR-0087: grammar/model/preflight, persistent WAL registry, and two
@@ -177,7 +186,9 @@ CEILINGS = {
     "src/tgcli/jobs/model.py": 50,
     "src/tgcli/jobs/preflight.py": 108,
     # Final review moved both lane locks to the CLI full-invocation owner.
-    "src/tgcli/jobs/runner.py": 352,
+    # +8 Wave D integrator ratchet (strict gate): ADR-0107 max-runtime through
+    # jobs runner archive/clone quanta.
+    "src/tgcli/jobs/runner.py": 360,
     # Final review splits query-only opens from mutation-time permission repair.
     "src/tgcli/jobs/store.py": 919,
     # ADR-0072: the governor package (account-wide request pacing and
@@ -205,6 +216,9 @@ CEILINGS = {
     # seam.py: the governed seam itself, Telethon's private _call, plus
     # verify_seam's fail-fast check that it still has the expected shape.
     "src/tgcli/governor/seam.py": 66,
+    # ADR-0110: table-driven state inventory; keep the released store surface
+    # under the same strict hotspot ratchet as its persistence siblings.
+    "src/tgcli/commands/store.py": 537,
 }
 
 # Modules that must reach read commands only through the read_ops seam
@@ -226,21 +240,6 @@ EXCLUSIVE_READ_MODULES = {
     "search",
     "thread",
 }
-
-# Modules that write files read back later under the config/state roots must
-# replace them atomically via tgcli.atomic — a bare `write_text` can be seen
-# half-written by a concurrent invocation (the 1.2.0 store-cleanup vs live
-# login race). Exports and probe files (media, doctor) are exempt: nothing
-# re-reads them as state.
-STATE_WRITER_MODULES = (
-    "src/tgcli/safety.py",
-    "src/tgcli/login_state.py",
-    "src/tgcli/resolve_phone.py",
-    "src/tgcli/config.py",
-    "src/tgcli/commands/accounts.py",
-    "src/tgcli/commands/media.py",
-    "src/tgcli/commands/store.py",
-)
 
 
 def _state_write_errors(path: Path, relative: str) -> list[str]:
@@ -351,14 +350,11 @@ def check(root: Path, grace: int = GRACE) -> tuple[list[str], list[str]]:
             continue
         errors.extend(sorted(_read_ownership_errors(path, relative)))
 
-    for relative in STATE_WRITER_MODULES:
-        path = root / relative
-        if not path.exists():
-            errors.append(
-                f"{relative} is missing; STATE_WRITER_MODULES must list real "
-                "modules (renaming one silently drops its write_text ban)"
-            )
-            continue
+    # ADR-0107: deny bare write_text in every production module by default.
+    # A newly added or renamed state writer is covered without registry upkeep.
+    source_root = root / "src/tgcli"
+    for path in sorted(source_root.rglob("*.py")):
+        relative = path.relative_to(root).as_posix()
         errors.extend(_state_write_errors(path, relative))
     return errors, warnings
 

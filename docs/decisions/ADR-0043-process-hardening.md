@@ -1,7 +1,7 @@
 # ADR-0043: Process hardening — shared atomic/lock/TTL primitives, enforced
 
 Date: 2026-07-24
-Status: accepted
+Status: accepted; decision 1 enforcement amended by ADR-0107
 
 ## Context
 

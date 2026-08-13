@@ -10,10 +10,10 @@ CEILINGS = {
     "src/tgcli/cli.py": 749,
     "src/tgcli/parser.py": 726,
     "src/tgcli/preflight.py": 446,
-    "src/tgcli/dispatch.py": 358,
+    "src/tgcli/dispatch.py": 373,
     "src/tgcli/commands/batch.py": 100,
-    "src/tgcli/read_ops.py": 437,
-    "src/tgcli/commands/clone.py": 1286,
+    "src/tgcli/read_ops.py": 474,
+    "src/tgcli/commands/clone.py": 1296,
     "src/tgcli/clone/state.py": 478,
     "src/tgcli/clone/quotes.py": 392,
     "src/tgcli/clone/quote_fallback.py": 127,
@@ -24,13 +24,13 @@ CEILINGS = {
     "src/tgcli/archive/explore.py": 578,
     "src/tgcli/archive/search.py": 78,
     "src/tgcli/archive/media.py": 72,
-    "src/tgcli/commands/archive.py": 542,
-    "src/tgcli/commands/archive_jobs.py": 133,
+    "src/tgcli/commands/archive.py": 544,
+    "src/tgcli/commands/archive_jobs.py": 140,
     "src/tgcli/commands/jobs.py": 163,
     "src/tgcli/jobs/arguments.py": 79,
     "src/tgcli/jobs/model.py": 50,
     "src/tgcli/jobs/preflight.py": 108,
-    "src/tgcli/jobs/runner.py": 352,
+    "src/tgcli/jobs/runner.py": 360,
     "src/tgcli/jobs/store.py": 919,
     "src/tgcli/governor/__init__.py": 14,
     "src/tgcli/governor/gate.py": 227,
@@ -39,16 +39,8 @@ CEILINGS = {
     "src/tgcli/governor/probe.py": 86,
     "src/tgcli/governor/registry.py": 133,
     "src/tgcli/governor/seam.py": 66,
+    "src/tgcli/commands/store.py": 537,
 }
-STATE_WRITER_MODULES = (
-    "src/tgcli/safety.py",
-    "src/tgcli/login_state.py",
-    "src/tgcli/resolve_phone.py",
-    "src/tgcli/config.py",
-    "src/tgcli/commands/accounts.py",
-    "src/tgcli/commands/media.py",
-    "src/tgcli/commands/store.py",
-)
 
 
 def _run(root: Path, *extra: str) -> subprocess.CompletedProcess[str]:
@@ -77,12 +69,6 @@ def _write_minimal_tree(
         prefix_lines = prefix.splitlines()
         padding = ["#"] * (CEILINGS[relative] - len(prefix_lines))
         path.write_text("\n".join([*prefix_lines, *padding]) + "\n")
-    for relative in STATE_WRITER_MODULES:
-        path = root / relative
-        if path.exists():
-            continue
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("from tgcli import atomic\n")
 
 
 def test_architecture_check_rejects_read_dispatch_leaking_into_cli(tmp_path):
@@ -167,7 +153,6 @@ def test_architecture_check_accepts_owned_read_operation_seam(tmp_path):
 def test_fixture_ceilings_match_the_checker():
     checker = runpy.run_path(str(SCRIPT))
     assert CEILINGS == checker["CEILINGS"]
-    assert STATE_WRITER_MODULES == checker["STATE_WRITER_MODULES"]
     assert checker["GRACE"] == 50
 
 
@@ -259,19 +244,15 @@ def test_architecture_check_rejects_write_text_in_state_module(tmp_path):
     assert "tgcli.atomic.replace_text" in result.stdout
 
 
-def test_architecture_check_rejects_a_missing_state_module(tmp_path):
-    """A renamed or deleted listed module must fail, never silently drop its
-    write_text ban."""
+def test_deleted_python_module_needs_no_write_policy_registry_update(tmp_path):
     _write_minimal_tree(tmp_path)
-    (tmp_path / "src/tgcli/login_state.py").unlink()
+    module = tmp_path / "src/tgcli/login_state.py"
+    module.write_text("from tgcli import atomic\n")
+    module.unlink()
 
     result = _run(tmp_path)
 
-    assert result.returncode == 1
-    assert (
-        "src/tgcli/login_state.py is missing; STATE_WRITER_MODULES must list "
-        "real modules" in result.stdout
-    )
+    assert result.returncode == 0, result.stdout
 
 
 def test_architecture_check_accepts_atomic_writer_in_state_module(tmp_path):
@@ -285,3 +266,29 @@ def test_architecture_check_accepts_atomic_writer_in_state_module(tmp_path):
     result = _run(tmp_path)
 
     assert result.returncode == 0, result.stdout
+
+
+def test_new_python_module_is_write_text_denied_by_default(tmp_path):
+    _write_minimal_tree(tmp_path)
+    module = tmp_path / "src/tgcli/new_state.py"
+    module.write_text("def save(path, text):\n    path.write_text(text)\n")
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 1
+    assert "src/tgcli/new_state.py:2 calls write_text" in result.stdout
+
+
+def test_store_module_has_a_reviewed_ceiling():
+    checker = runpy.run_path(str(SCRIPT))
+
+    assert "src/tgcli/commands/store.py" in checker["CEILINGS"]
+
+
+def test_local_and_ci_gates_enable_strict_architecture_checks():
+    root = Path(__file__).parents[1]
+    local_gate = (root / "scripts/gate.sh").read_text()
+    ci = (root / ".github/workflows/ci.yml").read_text()
+
+    assert "scripts/check-architecture.py --strict" in local_gate
+    assert "scripts/check-architecture.py --strict" in ci

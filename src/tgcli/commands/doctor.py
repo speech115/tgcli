@@ -16,7 +16,8 @@ def _writable(directory: Path) -> bool:
     probe = directory / ".doctor-probe"
     try:
         directory.mkdir(parents=True, exist_ok=True)
-        probe.write_text("")
+        with probe.open("w"):
+            pass
     except OSError:
         return False
     finally:
