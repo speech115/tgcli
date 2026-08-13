@@ -165,11 +165,12 @@ CEILINGS = {
     # ADR-0087 removes the archive-level scheduling streak and rebuilds the
     # released v6 account_sync table into truthful schema v7.
     "src/tgcli/archive/store.py": 96,
-    "src/tgcli/archive/schema.py": 430,
+    "src/tgcli/archive/schema.py": 437,
     "src/tgcli/archive/messages.py": 147,
     "src/tgcli/archive/transcripts.py": 202,
-    "src/tgcli/archive/sync_state.py": 320,
+    "src/tgcli/archive/sync_state.py": 350,
     "src/tgcli/archive/peers.py": 74,
+    "src/tgcli/archive/private_enum.py": 170,
     # +9 for ADR-0087 cooperative jobs deadline/cancellation boundaries.
     "src/tgcli/archive/sync.py": 615,
     # +6 for ADR-0072: backfill_dialogs/backfill_one/backfill_private thread

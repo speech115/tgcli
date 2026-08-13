@@ -7,7 +7,7 @@ import json
 
 from tgcli.archive import (
     backfill as backfill_mod,
-    scope as scope_mod,
+    private_enum as private_enum_mod,
     store as store_mod,
     sync as sync_mod,
 )
@@ -74,27 +74,13 @@ async def backfill_quantum(
     conn = _open_existing(alias, config)
     try:
         store_mod.require_bound_user(conn, int(me.id), alias)
-        skipped_complete = 0
-        if private:
-            pending, skipped_complete = await backfill_mod.enumerate_private_dialogs(
-                tg, conn, max_dialogs=2, skip_complete=True
-            )
-        else:
-            pending = []
-            for chat in backfill_mod.validate_dialogs(
-                chats, maximum=archive_cmd.MAX_BACKFILL_DIALOGS
-            ):
-                entity = await backfill_mod.resolve_entity(tg, chat)
-                state = store_mod.get_sync_state(conn, scope_mod.peer_id(entity))
-                complete = (
-                    state is not None
-                    and state.get("last_backfill_at") is not None
-                    and not state.get("more", True)
-                )
-                if complete:
-                    skipped_complete += 1
-                else:
-                    pending.append(chat)
+        pending, skipped_complete, ref_cursors = await backfill_mod.quantum_targets(
+            tg,
+            conn,
+            private=private,
+            chats=chats,
+            max_chat_dialogs=archive_cmd.MAX_BACKFILL_DIALOGS,
+        )
         selected = pending[:1]
         stopped = should_stop is not None and should_stop()
         if stopped:
@@ -107,6 +93,10 @@ async def backfill_quantum(
                 limit=limit,
                 account_user_id=int(me.id),
             )
+            if private and ref_cursors:
+                private_enum_mod.advance_completed(
+                    conn, dialogs, ref_cursors[: len(dialogs)]
+                )
         media = await sync_mod.fetch_media(
             tg,
             conn,

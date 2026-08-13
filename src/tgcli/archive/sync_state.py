@@ -215,6 +215,7 @@ def read_account_sync(conn: sqlite3.Connection) -> dict[str, Any]:
             "last_sync_at": None,
             "last_reconcile_at": None,
             "reconcile": None,
+            "private_enum": None,
         }
     gap = None
     if row["gap_json"]:
@@ -222,12 +223,16 @@ def read_account_sync(conn: sqlite3.Connection) -> dict[str, Any]:
     reconcile = None
     if row["reconcile_json"]:
         reconcile = json.loads(row["reconcile_json"])
+    private_enum = None
+    if row["private_enum_json"]:
+        private_enum = json.loads(row["private_enum_json"])
     return {
         "changes_cursor": row["changes_cursor"],
         "gap": gap,
         "last_sync_at": row["last_sync_at"],
         "last_reconcile_at": row["last_reconcile_at"],
         "reconcile": reconcile,
+        "private_enum": private_enum,
     }
 
 
@@ -240,6 +245,8 @@ def write_account_sync(
     reconcile: dict[str, Any] | None = None,
     clear_gap: bool = False,
     scope_channels: bool = False,
+    private_enum: dict[str, Any] | None = None,
+    clear_private_enum: bool = False,
 ) -> str | None:
     """Update account sync state without a stale read-modify-write window."""
     if not conn.in_transaction:
@@ -294,23 +301,41 @@ def write_account_sync(
                 else None
             )
             last_reconcile = existing["last_reconcile_at"]
+        if clear_private_enum:
+            private_enum_json = None
+        elif private_enum is not None:
+            private_enum_json = json.dumps(
+                private_enum, ensure_ascii=False, separators=(",", ":")
+            )
+        else:
+            private_enum_json = (
+                json.dumps(
+                    existing["private_enum"],
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+                if existing["private_enum"] is not None
+                else None
+            )
         conn.execute(
             "INSERT INTO account_sync("
             "id, changes_cursor, gap_json, last_sync_at, "
-            "last_reconcile_at, reconcile_json"
-            ") VALUES (1, ?, ?, ?, ?, ?) "
+            "last_reconcile_at, reconcile_json, private_enum_json"
+            ") VALUES (1, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET "
             "changes_cursor = excluded.changes_cursor, "
             "gap_json = excluded.gap_json, "
             "last_sync_at = excluded.last_sync_at, "
             "last_reconcile_at = excluded.last_reconcile_at, "
-            "reconcile_json = excluded.reconcile_json",
+            "reconcile_json = excluded.reconcile_json, "
+            "private_enum_json = excluded.private_enum_json",
             (
                 cursor,
                 gap_json,
                 last_sync,
                 last_reconcile,
                 reconcile_json,
+                private_enum_json,
             ),
         )
         conn.commit()
