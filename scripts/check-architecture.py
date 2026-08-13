@@ -192,14 +192,15 @@ CEILINGS = {
     # ADR-0087: grammar/model/preflight, persistent WAL registry, and two
     # independent foreground runners. Seed the new subsystem at release size.
     "src/tgcli/jobs/arguments.py": 79,
-    "src/tgcli/jobs/model.py": 50,
+    "src/tgcli/jobs/model.py": 55,
     "src/tgcli/jobs/preflight.py": 108,
+    "src/tgcli/jobs/db.py": 280,
     # Final review moved both lane locks to the CLI full-invocation owner.
     # +8 Wave D integrator ratchet (strict gate): ADR-0107 max-runtime through
     # jobs runner archive/clone quanta.
     "src/tgcli/jobs/runner.py": 360,
     # Final review splits query-only opens from mutation-time permission repair.
-    "src/tgcli/jobs/store.py": 919,
+    "src/tgcli/jobs/store.py": 665,
     # ADR-0072: the governor package (account-wide request pacing and
     # cooldowns around Telethon's private ``_call``) landed across phases
     # 0-2 with no ceilings at all; seed all seven modules at their current

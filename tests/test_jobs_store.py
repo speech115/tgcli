@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from tgcli.errors import PolicyError
-from tgcli.jobs import store as jobs_store
+from tgcli.jobs import db as jobs_db, model as jobs_model, store as jobs_store
 
 NOW = datetime(2026, 8, 10, 12, 0, tzinfo=UTC)
 
@@ -40,6 +40,21 @@ def _add(
         replace=False,
         now=NOW,
     )["job"]
+
+
+def test_runtime_retry_policy_constants_live_in_model():
+    assert jobs_model.RUNTIME_FAILURE_TERMINAL_STREAK == 3
+    assert jobs_model.RUNTIME_RETRY_DELAY_FIRST == timedelta(minutes=5)
+    assert jobs_model.RUNTIME_RETRY_DELAY_SECOND == timedelta(minutes=30)
+    assert jobs_model.RUNTIME_TERMINAL_NOT_BEFORE == timedelta(hours=2)
+
+
+def test_jobs_db_module_owns_connect_bootstrap():
+    assert jobs_db.SCHEMA_VERSION == 1
+    assert jobs_db.BUSY_TIMEOUT_MS == 5_000
+    assert callable(jobs_db.connect)
+    assert callable(jobs_db.connect_existing)
+    assert callable(jobs_db.connect_mutating)
 
 
 def test_registry_permissions_wal_and_alias_binding(registry):
