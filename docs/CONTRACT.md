@@ -1197,8 +1197,11 @@ tg clone export-state SOURCE
 
 `status` is local and read-only: it never loads config or opens a Telegram
 session. Without `SOURCE` it lists every clone state database; with `SOURCE` it
-filters by exact numeric source id — either the raw peer id or its
-`-100`-marked form — or by case-insensitive title substring. JSON:
+filters by exact canonical numeric source id for the recorded peer class —
+the raw positive id for a user/dialog, `-N` for a basic group, and the
+`-100`-marked id for a channel (broadcast, megagroup, or forum) — or by
+case-insensitive title substring. A token from another peer class does not
+match (ADR-0104). JSON:
 
 ```json
 {"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source","username":null},"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled","discussion_linked":true,"schema_version":2,"integrity":"ok"}],"pending_import":0}

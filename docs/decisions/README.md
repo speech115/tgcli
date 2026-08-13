@@ -110,6 +110,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0101](ADR-0101-batch-jsonl-strict-bool-int-coercion.md) | `tg batch` bool/int JSONL fields accept only a real JSON `true`/`false`/integer (never `bool()`/`int()` truthiness or `int` coercion of a `bool`); a mistyped field is exit 2 `BLOCKED` before that op's Telegram fetch runs | accepted; thermos audit T15 |
 | [0102](ADR-0102-expired-preview-never-sticky-pending.md) | `begin_commit` checks kind and TTL before any rename to `.pending`, and returns an already-`.pending` retry found expired back to `.json`; an expired preview always lands in the plain expired bucket `store cleanup` reaps by default (T13) | accepted |
 | [0103](ADR-0103-clone-id-includes-source-peer-class.md) | `clone_id` hashes the source's peer class (user/chat/channel), not the bare numeric peer id, so a User/basic-group/Channel collision on one integer no longer shares a clone state slot; a pre-ADR-0103 slot migrates onto its class-aware id lazily on first resolve | accepted; thermos T05 |
+| [0104](ADR-0104-clone-lookup-uses-peer-class-tokens.md) | Numeric clone filters match the canonical token for the recorded source peer class: raw user id, negative basic-group id, or `-100`-marked channel id; cross-class aliases are refused | accepted; thermos T18; depends on ADR-0103 |
 
 Notes on supersessions:
 

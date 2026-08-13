@@ -145,7 +145,7 @@ def test_export_state_prints_v2_json(tmp_path, monkeypatch, capsys):
 
     from tgcli.cli import main
 
-    code = main(["clone", "export-state", str(s.source_peer_id), "--json"])
+    code = main(["clone", "export-state", "-1001234567890", "--json"])
     out = capsys.readouterr().out
     assert code == 0
     payload = json.loads(out)

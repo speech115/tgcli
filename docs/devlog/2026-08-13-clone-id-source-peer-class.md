@@ -3,7 +3,7 @@
 `cursor/clone-id-kind-1ec8`. `clone.state.clone_id` now hashes the source's
 peer class (user/chat/channel), not the bare numeric peer id, so a
 User/basic-group/Channel collision on one integer no longer shares a clone
-state slot. Added `state.resolve_slot`, which migrates a pre-ADR-0100
+state slot. Added `state.resolve_slot`, which migrates a pre-ADR-0103
 (class-blind) slot onto its class-aware id in place — `.db` + WAL/SHM
 sidecars renamed, one stderr note — the first time that identity is
 resolved again; a legacy slot of a *different* class is left alone. Every

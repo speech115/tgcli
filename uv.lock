@@ -249,7 +249,7 @@ wheels = [
 
 [[package]]
 name = "tgcli"
-version = "3.0.7"
+version = "3.0.10"
 source = { editable = "." }
 dependencies = [
     { name = "telethon" },
