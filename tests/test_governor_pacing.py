@@ -658,6 +658,36 @@ def test_journal_omits_flood_fields_on_a_survived_flood(
     assert "provenance" not in entry
 
 
+def test_journal_omits_flood_fields_when_final_error_is_not_flood(
+    config_env, monkeypatch, capsys
+):
+    """T16: a survived flood must not pollute a later NOT_FOUND journal row."""
+    from tgcli import dispatch
+    from tgcli.cli import main
+    from tgcli.errors import NotFoundError
+    from tgcli.governor import pacing
+
+    async def flood_then_missing(args, account):
+        pacing.note_stop(
+            retry_after=5,
+            request_type="messages.GetHistoryRequest",
+            provenance="server",
+        )
+        raise NotFoundError("dialog not found")
+
+    monkeypatch.setattr(dispatch, "run_network", flood_then_missing)
+
+    assert main(["dialogs", "--json"]) == 4
+    capsys.readouterr()
+
+    entry = _journal_lines()[-1]
+    assert entry["exit_code"] == 4
+    assert entry.get("error") == "NOT_FOUND"
+    assert "retry_after" not in entry
+    assert "request_type" not in entry
+    assert "provenance" not in entry
+
+
 def test_journal_keeps_flood_fields_on_a_refused_flood(config_env, monkeypatch, capsys):
     """L6-L8: a run that actually ended on a refusal still carries them."""
     from tgcli import dispatch
