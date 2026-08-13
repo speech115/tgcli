@@ -9,19 +9,27 @@ from types import SimpleNamespace
 import pytest
 from telethon import utils
 from telethon.tl.functions.channels import GetFullChannelRequest
-from telethon.tl.functions.updates import GetDifferenceRequest, GetStateRequest
+from telethon.tl.functions.updates import (
+    GetChannelDifferenceRequest,
+    GetDifferenceRequest,
+    GetStateRequest,
+)
 from telethon.tl.types import (
     Channel,
     Message,
     PeerChannel,
     PeerUser,
     UpdateChannelTooLong,
+    UpdateDeleteChannelMessages,
     UpdateDeleteMessages,
     UpdateEditMessage,
     User,
 )
 from telethon.tl.types.updates import (
+    ChannelDifference,
+    ChannelDifferenceEmpty,
     Difference,
+    DifferenceEmpty,
     DifferenceTooLong,
     State,
 )
@@ -539,6 +547,93 @@ def test_private_delete_tombstones_every_peer_sharing_message_id(tmp_path):
         conn.close()
 
 
+def test_sync_channel_delete_outside_archive_scope_does_not_tombstone(
+    config_env, monkeypatch, capsys
+):
+    channel = Channel(
+        id=1234,
+        title="Removed channel",
+        photo=None,
+        date=datetime(2026, 1, 1, tzinfo=UTC),
+        access_hash=99,
+        megagroup=False,
+        username="removed",
+    )
+    peer = utils.get_peer_id(channel)
+
+    class DeleteClient(FakeClient):
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, GetDifferenceRequest):
+                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=1)
+            if isinstance(request, GetChannelDifferenceRequest):
+                return ChannelDifference(
+                    pts=4,
+                    new_messages=[],
+                    other_updates=[
+                        UpdateDeleteChannelMessages(
+                            channel_id=1234,
+                            messages=[42],
+                            pts=4,
+                            pts_count=1,
+                        )
+                    ],
+                    chats=[channel],
+                    users=[],
+                    final=True,
+                )
+            raise AssertionError(request)
+
+    client = DeleteClient(
+        me=_me(), entities={peer: channel, 1234: channel, "@removed": channel}
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    path = archive_cmd.db_path("main")
+    conn = store_mod.connect(path)
+    try:
+        store_mod.upsert_message(
+            conn,
+            peer,
+            {
+                "id": 42,
+                "date": "2026-01-02T00:00:00+00:00",
+                "text": "kept after archive remove",
+                "from": {"id": 1},
+            },
+        )
+        store_mod.upsert_sync_state(
+            conn,
+            peer,
+            oldest_id=42,
+            newest_id=42,
+            more=False,
+            kind="channel",
+            title="Removed channel",
+            chat_ref=str(peer),
+        )
+        cursor = ChangesCursor(
+            pts=5, qts=1, date=1_735_689_600, seq=1, channels={peer: 3}
+        )
+        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert main(["archive", "sync", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["applied"]["events"] == 1
+    assert data["applied"]["tombstones"] == 0
+    assert data["applied"]["skipped_out_of_scope"] == 1
+
+    conn = store_mod.connect(path)
+    try:
+        assert store_mod.counts(conn)["tombstones"] == 0
+    finally:
+        conn.close()
+
+
 def test_apply_events_applies_full_batch_without_truncation(tmp_path):
     """Difference events are cheap locally — never drop a tail while syncing."""
     conn = store_mod.connect(tmp_path / "archive.db")
@@ -674,6 +769,186 @@ def test_sync_channel_activity_catchup_for_scoped_channel(
         ).fetchone()
         assert row is not None
         assert row["text"] == "caught up"
+    finally:
+        conn.close()
+
+
+def test_remove_drops_channel_from_changes_cursor(config_env, monkeypatch, capsys):
+    """T09: remove must unsubscribe the channel from the persisted cursor.
+
+    Otherwise a later `archive sync` keeps polling `GetChannelDifference`
+    for a channel that already left explicit scope.
+    """
+    channel = Channel(
+        id=1234,
+        title="News",
+        photo=None,
+        date=datetime(2026, 1, 1, tzinfo=UTC),
+        access_hash=99,
+        megagroup=False,
+        username="news",
+    )
+    peer = utils.get_peer_id(channel)
+
+    class NoChannelPollClient(FakeClient):
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, GetStateRequest):
+                return _state(pts=5, qts=1, seq=1)
+            if isinstance(request, GetDifferenceRequest):
+                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=1)
+            if isinstance(request, GetChannelDifferenceRequest):
+                raise AssertionError(
+                    "archive sync must not poll a channel dropped by remove"
+                )
+            raise AssertionError(request)
+
+    client = NoChannelPollClient(
+        me=_me(), entities={peer: channel, 1234: channel, "@news": channel}
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    path = archive_cmd.db_path("main")
+    conn = store_mod.connect(path)
+    try:
+        store_mod.add_scope(
+            conn,
+            peer_id=peer,
+            kind="channel",
+            title="News",
+            username="news",
+            chat_ref="@news",
+        )
+        # Simulate an earlier sync that already subscribed this channel.
+        cursor = ChangesCursor(
+            pts=5, qts=1, date=1_735_689_600, seq=1, channels={peer: 3}
+        )
+        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert main(["archive", "remove", "@news", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["removed"]["kind"] == "channel"
+
+    conn = store_mod.connect(path)
+    try:
+        encoded = store_mod.read_account_sync(conn)["changes_cursor"]
+        assert encoded is not None
+        decoded = changes_cursor.decode(encoded)
+        assert peer not in decoded.channels
+    finally:
+        conn.close()
+
+    assert main(["archive", "sync", "--json"]) == 0
+    assert not any(
+        isinstance(request, GetChannelDifferenceRequest)
+        for request in client.call_requests
+    )
+
+
+def test_remove_keeps_scope_when_changes_cursor_is_corrupt(
+    config_env, monkeypatch, capsys
+):
+    channel = Channel(
+        id=1234,
+        title="News",
+        photo=None,
+        date=datetime(2026, 1, 1, tzinfo=UTC),
+        access_hash=99,
+        megagroup=False,
+        username="news",
+    )
+    peer = utils.get_peer_id(channel)
+    client = _client(entities={peer: channel, 1234: channel, "@news": channel})
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    assert main(["archive", "add", "@news", "--json"]) == 0
+    capsys.readouterr()
+    path = archive_cmd.db_path("main")
+    conn = store_mod.connect(path)
+    try:
+        store_mod.write_account_sync(conn, changes_cursor="v1:not-valid")
+    finally:
+        conn.close()
+
+    assert main(["archive", "remove", "@news", "--json"]) == 2
+    assert "cursor is corrupt" in capsys.readouterr().err
+
+    conn = store_mod.connect(path)
+    try:
+        assert store_mod.in_explicit_scope(conn, peer)
+        assert store_mod.read_account_sync(conn)["changes_cursor"] == "v1:not-valid"
+    finally:
+        conn.close()
+
+
+def test_inflight_sync_cannot_restore_removed_channel_subscription(
+    config_env, monkeypatch, capsys
+):
+    channel = Channel(
+        id=1234,
+        title="News",
+        photo=None,
+        date=datetime(2026, 1, 1, tzinfo=UTC),
+        access_hash=99,
+        megagroup=False,
+        username="news",
+    )
+    peer = utils.get_peer_id(channel)
+
+    class ConcurrentRemoveClient(FakeClient):
+        removed = False
+
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, GetDifferenceRequest):
+                assert not self.removed
+                await archive_cmd.remove_chat(self, "main", "@news")
+                self.removed = True
+                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=1)
+            if isinstance(request, GetChannelDifferenceRequest):
+                return ChannelDifferenceEmpty(pts=4, final=True)
+            raise AssertionError(request)
+
+    client = ConcurrentRemoveClient(
+        me=_me(), entities={peer: channel, 1234: channel, "@news": channel}
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    path = archive_cmd.db_path("main")
+    conn = store_mod.connect(path)
+    try:
+        store_mod.add_scope(
+            conn,
+            peer_id=peer,
+            kind="channel",
+            title="News",
+            username="news",
+            chat_ref="@news",
+        )
+        cursor = ChangesCursor(
+            pts=5, qts=1, date=1_735_689_600, seq=1, channels={peer: 3}
+        )
+        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
+    finally:
+        conn.close()
+
+    assert main(["archive", "sync", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert client.removed is True
+    assert peer not in changes_cursor.decode(data["next_cursor"]).channels
+
+    conn = store_mod.connect(path)
+    try:
+        assert not store_mod.in_explicit_scope(conn, peer)
+        encoded = store_mod.read_account_sync(conn)["changes_cursor"]
+        assert encoded is not None
+        assert peer not in changes_cursor.decode(encoded).channels
     finally:
         conn.close()
 

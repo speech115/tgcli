@@ -43,7 +43,7 @@ CEILINGS = {
     # ADR-0087: offline jobs routing plus resolved-lane recurring rearm.
     # +14 final review reset: one CLI-owned lane lock now encloses rearm,
     # local execution, and Telegram session acquisition.
-    "src/tgcli/cli.py": 747,
+    "src/tgcli/cli.py": 749,
     # +2 for ADR-0057: isort section blanks, E501 split in the --format help.
     # +47 for ADR-0062 --session-role / accounts --role flags and the
     # ADR-0063 tg changes subcommand surface.
@@ -86,7 +86,7 @@ CEILINGS = {
     # ADR-0087 routes the Telegram jobs lane through the existing session seam.
     # The final review moved lane ownership to cli.py; ratchet the shrink.
     "src/tgcli/dispatch.py": 358,
-    "src/tgcli/commands/batch.py": 96,
+    "src/tgcli/commands/batch.py": 100,
     # +3 for ADR-0057: isort section blanks.
     "src/tgcli/read_ops.py": 437,
     # +20 for ADR-0049: the progress emitter lives in clone/progress.py, but
@@ -144,9 +144,9 @@ CEILINGS = {
     # first split candidate if it grows again.
     # ADR-0087 removes the archive-level scheduling streak and rebuilds the
     # released v6 account_sync table into truthful schema v7.
-    "src/tgcli/archive/store.py": 1017,
+    "src/tgcli/archive/store.py": 1073,
     # +9 for ADR-0087 cooperative jobs deadline/cancellation boundaries.
-    "src/tgcli/archive/sync.py": 605,
+    "src/tgcli/archive/sync.py": 615,
     # +6 for ADR-0072: backfill_dialogs/backfill_one/backfill_private thread
     # through pacing's rolling breadth budget, wall-clock cap, and
     # sleep_flood instead of clone.flood.WaitBudget, plus the
@@ -163,7 +163,7 @@ CEILINGS = {
     # +1 for ADR-0072: cooldown_mod.cooled_account calls swapped for plain
     # tg.get_me(), plus stop_reason/deferred/resume reporting on
     # backfill_dialogs's chats-mode result.
-    "src/tgcli/commands/archive.py": 541,
+    "src/tgcli/commands/archive.py": 542,
     # ADR-0087: fixed typed quantum over one archive backfill dialog; +15 review
     # fix hashes complete per-dialog checkpoints into the runtime progress token.
     "src/tgcli/commands/archive_jobs.py": 133,
@@ -175,7 +175,7 @@ CEILINGS = {
     "src/tgcli/jobs/model.py": 50,
     "src/tgcli/jobs/preflight.py": 108,
     # Final review moved both lane locks to the CLI full-invocation owner.
-    "src/tgcli/jobs/runner.py": 350,
+    "src/tgcli/jobs/runner.py": 352,
     # Final review splits query-only opens from mutation-time permission repair.
     "src/tgcli/jobs/store.py": 919,
     # ADR-0072: the governor package (account-wide request pacing and

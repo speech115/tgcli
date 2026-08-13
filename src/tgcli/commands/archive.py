@@ -122,7 +122,8 @@ async def remove_chat(tg, alias: str, chat: str, config: Config | None = None) -
     try:
         store_mod.require_bound_user(conn, int(me.id), alias)
         entity = await backfill_mod.resolve_entity(tg, chat)
-        removed = store_mod.remove_scope(conn, scope_mod.peer_id(entity))
+        peer = scope_mod.peer_id(entity)
+        removed = store_mod.remove_scope(conn, peer)
         if removed is None:
             raise NotFoundError(f"chat not in archive scope: {chat!r}")
     finally:

@@ -145,7 +145,12 @@ def apply_events(
             if peer is None:
                 targets = store_mod.find_message_peers(conn, ids, exclude_channels=True)
             else:
-                targets = [(int(peer), mid) for mid in ids]
+                peer_id = int(peer)
+                if not _in_archive_scope(conn, peer_id, None):
+                    applied["skipped_out_of_scope"] += 1
+                    applied["events"] += 1
+                    continue
+                targets = [(peer_id, mid) for mid in ids]
             with conn:
                 for peer_id, mid in targets:
                     if store_mod.insert_tombstone(conn, peer_id, mid):
@@ -508,13 +513,16 @@ async def sync_archive(
 
     gap = doc.get("gap")
     encoded = changes_cursor.encode(cursor)
-    store_mod.write_account_sync(
+    persisted = store_mod.write_account_sync(
         conn,
         changes_cursor=encoded,
         gap=gap,
         touch_sync=True,
         clear_gap=gap is None,
+        scope_channels=True,
     )
+    assert persisted is not None
+    encoded = persisted
     reconcile_data = None
     if reconcile and not stopped:
         reconcile_data = await light_reconcile(tg, conn)
@@ -591,15 +599,17 @@ async def rebaseline(tg, conn: sqlite3.Connection) -> dict[str, Any]:
     ]
     # Prefer marked peer ids for GetFullChannel; chat_ref may be a username.
     doc = await changes_cmd.init_changes(tg, peers=peers)
-    store_mod.write_account_sync(
+    encoded = store_mod.write_account_sync(
         conn,
         changes_cursor=doc["next_cursor"],
         clear_gap=True,
         touch_sync=True,
+        scope_channels=True,
     )
+    assert encoded is not None
     return {
         "rebaselined": True,
-        "next_cursor": doc["next_cursor"],
+        "next_cursor": encoded,
         "gap": None,
         "peers": peers,
     }
