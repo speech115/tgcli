@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -103,10 +104,12 @@ def config_env(tmp_path, monkeypatch):
     config.write_text(
         'default_account = "main"\n\n'
         '[accounts.main]\napi_id = 1\napi_hash = "h"\nsession = "main"\n'
+        '\n[accounts.other]\napi_id = 2\napi_hash = "other-h"\nsession = "other"\n'
     )
     state = tmp_path / "state"
     (state / "sessions").mkdir(parents=True)
     (state / "sessions" / "main.session").write_bytes(b"x")
+    (state / "sessions" / "other.session").write_bytes(b"x")
     monkeypatch.setenv("TGCLI_CONFIG", str(config))
     monkeypatch.setenv("TGCLI_STATE_DIR", str(state))
     return state
@@ -508,6 +511,96 @@ def _fake_session(monkeypatch, tg):
         yield tg
 
     monkeypatch.setattr(session, "client", fake_session)
+
+
+def _forge_channels(cursor: str, channels: dict[int, int]) -> str:
+    prefix, encoded = cursor.split(":", 1)
+    padded = encoded + "=" * (-len(encoded) % 4)
+    payload = json.loads(base64.urlsafe_b64decode(padded).decode())
+    payload["channels"] = {str(peer): pts for peer, pts in channels.items()}
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+    return prefix + ":" + base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def test_cli_init_returns_account_bound_cursor(config_env, monkeypatch, capsys):
+    async def handler(request, tg):
+        if isinstance(request, GetStateRequest):
+            return _state()
+        raise AssertionError(type(request))
+
+    tg = FakeTg(handler)
+    _fake_session(monkeypatch, tg)
+
+    assert main(["changes", "--init", "--json"]) == 0
+    cursor = json.loads(capsys.readouterr().out)["next_cursor"]
+    assert cursor.startswith("v2:")
+
+
+def test_cli_refuses_forged_cursor_channel_map(
+    config_env, monkeypatch, capsys
+):
+    async def handler(request, tg):
+        if isinstance(request, GetStateRequest):
+            return _state()
+        if isinstance(request, GetDifferenceRequest):
+            return DifferenceEmpty(date=datetime(2026, 1, 1, tzinfo=UTC), seq=1)
+        if isinstance(request, GetChannelDifferenceRequest):
+            return ChannelDifferenceEmpty(pts=1, final=True)
+        raise AssertionError(type(request))
+
+    tg = FakeTg(handler)
+    _fake_session(monkeypatch, tg)
+
+    assert main(["changes", "--init", "--json"]) == 0
+    cursor = json.loads(capsys.readouterr().out)["next_cursor"]
+    forged = _forge_channels(cursor, {-1000000000042: 1})
+    tg.requests.clear()
+
+    assert main(["changes", "--cursor", forged, "--json"]) == 2
+    captured = capsys.readouterr()
+    assert "bound to this account" in captured.err
+    assert tg.requests == []
+
+
+def test_cli_refuses_cursor_bound_to_another_account(
+    config_env, monkeypatch, capsys
+):
+    async def handler(request, tg):
+        if isinstance(request, GetStateRequest):
+            return _state()
+        if isinstance(request, GetDifferenceRequest):
+            return DifferenceEmpty(date=datetime(2026, 1, 1, tzinfo=UTC), seq=1)
+        raise AssertionError(type(request))
+
+    tg = FakeTg(handler)
+    _fake_session(monkeypatch, tg)
+
+    assert main(["--account", "main", "changes", "--init", "--json"]) == 0
+    cursor = json.loads(capsys.readouterr().out)["next_cursor"]
+    tg.requests.clear()
+
+    assert (
+        main(["--account", "other", "changes", "--cursor", cursor, "--json"]) == 2
+    )
+    captured = capsys.readouterr()
+    assert "bound to this account" in captured.err
+    assert tg.requests == []
+
+
+def test_cli_refuses_legacy_unbound_cursor(config_env, monkeypatch, capsys):
+    async def handler(request, tg):
+        if isinstance(request, GetDifferenceRequest):
+            return DifferenceEmpty(date=datetime(2026, 1, 1, tzinfo=UTC), seq=1)
+        raise AssertionError(type(request))
+
+    tg = FakeTg(handler)
+    _fake_session(monkeypatch, tg)
+    cursor = changes_cursor.encode(ChangesCursor(pts=1, qts=0, date=0, seq=0))
+
+    assert main(["changes", "--cursor", cursor, "--json"]) == 2
+    captured = capsys.readouterr()
+    assert "bound to this account" in captured.err
+    assert tg.requests == []
 
 
 def test_regular_call_peer_adds_baseline_no_replay(config_env, monkeypatch, capsys):
