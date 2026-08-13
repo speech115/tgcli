@@ -8,6 +8,12 @@ Unvetted owner wishlist ideas that have **not** passed the owner gate
 (ADR-0071) live in [PROPOSALS.md](PROPOSALS.md); an item graduates to this file
 once it has an owner request + ADR (as MSG-001 and FEED-001 already did).
 
+Audit findings from the 2026-08-13 whole-repo thermos pass are tracked as a
+ticket-ready backlog in
+[thermos-audit-2026-08-13-backlog.md](thermos-audit-2026-08-13-backlog.md)
+(37 items: P0–P2 bugs + structural debt). They are not deferred product
+work; publish them as GitHub issues when ready.
+
 ## JOBS-001 — Governed multi-day work scheduler
 
 **Status:** closed by ADR-0087 slices #187–#189 and released in `3.0.0` via
