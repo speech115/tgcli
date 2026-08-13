@@ -1699,7 +1699,7 @@ def test_clone_init_commit_readonly_blocks_before_config_session_and_preview_use
         == 2
     )
 
-    assert safety.consume_preview(preview["preview_id"])["kind"] == "clone-init"
+    assert safety.begin_commit(preview["preview_id"])["kind"] == "clone-init"
 
 
 def _write_v1_state(source_title="Old", extra=None):

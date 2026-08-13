@@ -288,7 +288,7 @@ def test_clone_refresh_preview_json_and_persisted_payload(
         for item in result["refresh"]["eligible"] + result["refresh"]["excluded"]
     )
 
-    stored = safety.consume_preview(result["preview_id"])
+    stored = safety.begin_commit(result["preview_id"])
     assert stored["kind"] == "clone-refresh"
     assert stored["source"] == "@source"
     assert stored["account_user_id"] == 42
@@ -328,7 +328,7 @@ def test_clone_refresh_commit_readonly_blocks_before_preview_use(monkeypatch):
         )
         == 2
     )
-    assert safety.consume_preview(preview["preview_id"])["kind"] == "clone-refresh"
+    assert safety.begin_commit(preview["preview_id"])["kind"] == "clone-refresh"
 
 
 @pytest.mark.parametrize("env_name", ["TGCLI_READONLY", "TGCLI_NO_SEND"])
@@ -348,7 +348,7 @@ def test_clone_refresh_commit_blocked_by_env(monkeypatch, env_name):
     monkeypatch.setattr(cli, "load_config", lambda: pytest.fail("config loaded"))
 
     assert main(["clone", "refresh", "@source", "--commit", preview["preview_id"]]) == 2
-    assert safety.consume_preview(preview["preview_id"])["kind"] == "clone-refresh"
+    assert safety.begin_commit(preview["preview_id"])["kind"] == "clone-refresh"
 
 
 def test_clone_refresh_commit_rejects_wrong_kind(config_env, monkeypatch, capsys):

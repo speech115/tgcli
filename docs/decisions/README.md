@@ -117,6 +117,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0108](ADR-0108-incremental-export-append-atomicity.md) | `export messages --append` / `--resume` stages the existing JSONL plus each new batch in a same-directory temporary file, fsyncs it, and atomically replaces the destination only after the complete batch succeeds | accepted; thermos audit T21 |
 | [0109](ADR-0109-account-bound-changes-cursors.md) | Public `tg changes` emits account-bound HMAC `v2:` cursors and refuses legacy, modified, or wrong-account cursors before polling; trusted internal archive cursors remain `v1:` | accepted; thermos audit T14 |
 | [0110](ADR-0110-strict-and-deny-by-default-gates.md) | Mandatory gates use strict architecture ceilings; API write denials match a machine-readable FEATURES status; bare `write_text` is denied across all production modules; store file inventory is table-driven | accepted; thermos audit T34 |
+| [0111](ADR-0111-table-driven-preview-commit-handshake.md) | One registry owns preview→commit preflight, dispatch, audit, and finish timing for all eight handshakes; dead burn-before-work `consume_preview` is removed | accepted; thermos audit T27 |
 
 Notes on supersessions:
 

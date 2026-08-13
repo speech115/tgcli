@@ -14,16 +14,10 @@ import math
 import sys
 from datetime import datetime
 
-from tgcli import read_ops, safety
+from tgcli import preview_commit, read_ops, safety
 from tgcli.commands import api as api_cmd, batch as batch_cmd, dialog as dialog_cmd
 from tgcli.errors import ConfigError, PolicyError
 from tgcli.jobs import preflight as jobs_preflight
-
-MUTATION_POSITIONALS = {
-    "edit": ("chat", "message_id", "text"),
-    "delete": ("chat", "message_id"),
-    "forward": ("source", "message_id", "destination"),
-}
 
 
 def prepare(parser: argparse.ArgumentParser, args) -> None:
@@ -33,7 +27,7 @@ def prepare(parser: argparse.ArgumentParser, args) -> None:
     _prepare_batch(args)
     _prepare_time_bounds(parser, args)
     _prepare_mutations(args)
-    _prepare_previews(parser, args)
+    preview_commit.prepare(parser, args)
     _prepare_api(parser, args)
     _prepare_changes(args)
     _prepare_archive(args)
@@ -312,104 +306,6 @@ def _prepare_login(args) -> None:
         from tgcli.config import validate_role_name
 
         validate_role_name(login_role)
-
-
-def _prepare_previews(parser: argparse.ArgumentParser, args) -> None:
-    """Enforce the preview → commit handshake and load the committed payload."""
-    if args.command == "send":
-        if args.commit:
-            if (
-                args.preview
-                or args.chat is not None
-                or args.text is not None
-                or args.reply_to is not None
-                or args.file is not None
-                or args.caption is not None
-                or args.topic is not None
-                or args.silent
-            ):
-                parser.error("send --commit accepts only a preview id")
-            safety.enforce_mutation_allowed(args.readonly)
-            args.preview_payload = safety.begin_commit(
-                args.commit, expected_kind="send"
-            )
-        elif not (
-            args.preview
-            and args.chat is not None
-            and (args.text is not None or args.file is not None)
-        ):
-            parser.error(
-                "send requires CHAT (TEXT | --file PATH) --preview "
-                "or --commit PREVIEW_ID"
-            )
-    elif args.command in MUTATION_POSITIONALS:
-        names = MUTATION_POSITIONALS[args.command]
-        values = [getattr(args, name) for name in names]
-        if args.commit:
-            if args.preview or any(value is not None for value in values):
-                parser.error(f"{args.command} --commit accepts only a preview id")
-            safety.enforce_mutation_allowed(args.readonly)
-            args.preview_payload = safety.begin_commit(
-                args.commit, expected_kind=args.command
-            )
-        elif not (args.preview and all(value is not None for value in values)):
-            parser.error(
-                f"{args.command} requires "
-                f"{' '.join(name.upper() for name in names)} --preview "
-                "or --commit PREVIEW_ID"
-            )
-    # A clone commit is many Telegram calls, and a flood partway through used
-    # to spend the preview while leaving real peers behind — the retry was
-    # refused and the operator had to find the half-built clone in
-    # `clone status` (#170). The begin/finish handshake `send` already uses
-    # keeps the preview retryable until the commit actually finishes; every
-    # clone commit step is idempotent (it adopts what it already created).
-    for clone_command in ("init", "refresh"):
-        if (
-            args.command == "clone"
-            and args.clone_command == clone_command
-            and args.commit
-        ):
-            kind = f"clone-{clone_command}"
-            safety.enforce_mutation_allowed(args.readonly)
-            args.preview_payload = safety.begin_commit(args.commit, expected_kind=kind)
-            if args.preview_payload.get("source") != args.source:
-                raise PolicyError(
-                    f"clone {clone_command} preview does not match this source"
-                )
-    if args.command == "draft" and args.draft_command in ("set", "clear"):
-        _prepare_draft_preview(parser, args)
-
-
-def _prepare_draft_preview(parser: argparse.ArgumentParser, args) -> None:
-    kind = f"draft-{args.draft_command}"
-    if args.draft_command == "set":
-        if args.commit:
-            if (
-                args.preview
-                or args.chat is not None
-                or args.text is not None
-                or args.format is not None
-                or args.reply_to is not None
-                or args.topic is not None
-            ):
-                parser.error("draft set --commit accepts only a preview id")
-            safety.enforce_mutation_allowed(args.readonly)
-            args.preview_payload = safety.begin_commit(args.commit, expected_kind=kind)
-        elif not (args.preview and args.chat is not None and args.text is not None):
-            parser.error(
-                "draft set requires CHAT TEXT --preview or --commit PREVIEW_ID"
-            )
-        else:
-            args.format = args.format or "md"
-        return
-    if args.commit:
-        if args.preview or args.chat is not None:
-            parser.error("draft clear --commit accepts only a preview id")
-        safety.enforce_mutation_allowed(args.readonly)
-        args.preview_payload = safety.begin_commit(args.commit, expected_kind=kind)
-    elif not (args.preview and args.chat is not None):
-        parser.error("draft clear requires CHAT --preview or --commit PREVIEW_ID")
 
 
 def _prepare_api(parser: argparse.ArgumentParser, args) -> None:

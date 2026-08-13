@@ -592,7 +592,7 @@ def test_kind_mismatch_is_blocked_without_consuming_preview(monkeypatch):
     )
 
     assert main(["edit", "--commit", preview["preview_id"]]) == 2
-    assert safety.consume_preview(preview["preview_id"])["kind"] == "delete"
+    assert safety.begin_commit(preview["preview_id"])["kind"] == "delete"
 
 
 @pytest.mark.parametrize("argv", [["--readonly", "edit"], ["delete"]])

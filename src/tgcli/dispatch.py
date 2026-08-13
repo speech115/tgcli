@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from telethon import errors as telethon_errors
 
-from tgcli import changes_cursor, output, read_ops, session
+from tgcli import changes_cursor, output, preview_commit, read_ops, session
 from tgcli.commands import (
     api as api_cmd,
     archive as archive_cmd,
@@ -17,12 +17,10 @@ from tgcli.commands import (
     changes as changes_cmd,
     clone as clone_cmd,
     dialog as dialog_cmd,
-    draft as draft_cmd,
     export as export_cmd,
     jobs as jobs_cmd,
     media as media_cmd,
     mutate as mutate_cmd,
-    send as send_cmd,
     transcribe as transcribe_cmd,
 )
 from tgcli.errors import PolicyError, RateLimitError
@@ -36,16 +34,13 @@ def _wall_clock_exhausted() -> bool:
 
 async def run_network(args, account) -> tuple[dict, list[tuple]]:
     mutation_safe = (
-        args.command == "jobs"
-        and args.jobs_command == "run"
-        and args.lane == "telegram"
-    ) or (
-        args.command == "clone"
-        and (
-            args.clone_command == "sync"
-            or (args.clone_command == "init" and args.commit is not None)
-            or (args.clone_command == "refresh" and args.commit is not None)
+        (
+            args.command == "jobs"
+            and args.jobs_command == "run"
+            and args.lane == "telegram"
         )
+        or preview_commit.mutation_safe(args)
+        or (args.command == "clone" and args.clone_command == "sync")
     )
     # cli._execute already holds the audit-role context var for the whole
     # invocation (including this coroutine); only the network session itself
@@ -80,62 +75,9 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
                     tg, args.chat, args.message_id, timeout=args.timeout
                 )
                 return data, transcribe_cmd.to_rows(data)
-            if args.command == "send":
-                if args.preview:
-                    data = await send_cmd.prepare(
-                        tg,
-                        args.chat,
-                        args.text,
-                        reply_to=args.reply_to,
-                        file=args.file,
-                        caption=args.caption,
-                        topic=args.topic,
-                        silent=args.silent,
-                        fmt=args.format,
-                    )
-                else:
-                    data = await send_cmd.commit(
-                        tg,
-                        args.commit,  # type: ignore  # preview load guards None
-                        args.preview_payload,
-                    )
-                return data, send_cmd.to_rows(data)
-            if args.command == "edit":
-                if args.preview:
-                    data = await mutate_cmd.prepare_edit(
-                        tg, args.chat, args.message_id, args.text, args.format
-                    )
-                else:
-                    data = await mutate_cmd.commit_edit(
-                        tg,
-                        args.commit,  # type: ignore  # preview load guards None
-                        args.preview_payload,
-                    )
-                return data, mutate_cmd.to_rows(data)
-            if args.command == "delete":
-                if args.preview:
-                    data = await mutate_cmd.prepare_delete(
-                        tg, args.chat, args.message_id
-                    )
-                else:
-                    data = await mutate_cmd.commit_delete(
-                        tg,
-                        args.commit,  # type: ignore  # preview load guards None
-                        args.preview_payload,
-                    )
-                return data, mutate_cmd.to_rows(data)
-            if args.command == "forward":
-                if args.preview:
-                    data = await mutate_cmd.prepare_forward(
-                        tg, args.source, args.message_id, args.destination
-                    )
-                else:
-                    data = await mutate_cmd.commit_forward(
-                        tg,
-                        args.commit,  # type: ignore  # preview load guards None
-                        args.preview_payload,
-                    )
-                return data, mutate_cmd.to_rows(data)
+            handshake = await preview_commit.dispatch(tg, args, account)
+            if handshake is not None:
+                return handshake
             if args.command == "mark-read":
                 data = await mutate_cmd.mark_read(tg, args.chat)
                 return data, mutate_cmd.to_rows(data)
@@ -179,34 +121,11 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
                         tg, args.channel, args.output, limit=args.limit
                     )
                 return data, export_cmd.to_rows(data)
-            if args.command == "clone" and args.clone_command == "init":
-                if args.commit:
-                    data = await clone_cmd.commit_init(
-                        tg, args.source, account.alias, args.preview_payload
-                    )
-                else:
-                    data = await clone_cmd.preview_init(
-                        tg,
-                        args.source,
-                        replace=args.replace,
-                        no_comments=args.no_comments,
-                    )
-                return data, clone_cmd.init_rows(data)
             if args.command == "clone" and args.clone_command == "sync":
                 data = await clone_cmd.sync_text(
                     tg, args.source, account.alias, limit=args.limit
                 )
                 return data, clone_cmd.sync_rows(data)
-            if args.command == "clone" and args.clone_command == "refresh":
-                if args.commit:
-                    data = await clone_cmd.commit_refresh(
-                        tg, args.source, account.alias, args.preview_payload
-                    )
-                else:
-                    data = await clone_cmd.preview_refresh(tg, args.source)
-                return data, clone_cmd.refresh_rows(data)
-            if args.command == "draft":
-                return await _run_draft(tg, args)
             raise AssertionError(f"unhandled network command: {args.command}")
     except telethon_errors.TakeoutInitDelayError as exc:
         raise RateLimitError(
@@ -258,37 +177,6 @@ async def _run_archive(tg, args, account) -> tuple[dict, list[tuple]]:
         data = await archive_cmd.rebaseline(tg, alias)
         return data, archive_cmd.rebaseline_rows(data)
     raise AssertionError(f"unhandled network archive command: {cmd}")
-
-
-async def _run_draft(tg, args) -> tuple[dict, list[tuple]]:
-    if args.draft_command == "set":
-        if args.preview:
-            data = await draft_cmd.prepare_set(
-                tg,
-                args.chat,
-                args.text,
-                fmt=args.format,
-                reply_to=args.reply_to,
-                topic=args.topic,
-            )
-        else:
-            data = await draft_cmd.commit_set(
-                tg,
-                args.commit,  # type: ignore  # preview load guards None
-                args.preview_payload,
-            )
-        return data, draft_cmd.mutation_to_rows(data)
-    if args.draft_command == "clear":
-        if args.preview:
-            data = await draft_cmd.prepare_clear(tg, args.chat)
-        else:
-            data = await draft_cmd.commit_clear(
-                tg,
-                args.commit,  # type: ignore  # preview load guards None
-                args.preview_payload,
-            )
-        return data, draft_cmd.mutation_to_rows(data)
-    raise AssertionError(f"unhandled draft command: {args.draft_command}")
 
 
 async def _download_media(tg, args, account) -> tuple[dict, list[tuple]]:
