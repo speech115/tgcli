@@ -25,9 +25,7 @@ _SEARCH_REFINE_ALPHABET = (
 
 
 @contextmanager
-def _atomic_text_destination(
-    destination: Path, *, preserve_existing: bool = False
-):
+def _atomic_text_destination(destination: Path, *, preserve_existing: bool = False):
     try:
         fd, temporary_name = tempfile.mkstemp(
             dir=destination.parent,
