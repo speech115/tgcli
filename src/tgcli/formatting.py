@@ -14,6 +14,8 @@ Formats:
               expandable quote, spoiler, code/pre, links, custom emoji.
 """
 
+import re
+
 from telethon.extensions import markdown
 from telethon.extensions.html import HTMLToTelegramParser
 from telethon.helpers import add_surrogate, del_surrogate, strip_text
@@ -139,3 +141,14 @@ def mask_phone(phone: str | None) -> str:
     if len(phone) <= 4:
         return "…" + phone[-2:] if len(phone) >= 2 else "…"
     return f"{phone[:2]}…{phone[-2:]}"
+
+
+# Free-form exception text can echo phones with display punctuation even when
+# the CLI normalized its input. Require a leading `+` and at least four digits,
+# but allow common separators between them; bare numeric ids stay untouched.
+_EMBEDDED_PHONE = re.compile(r"\+\d(?:[ ()\t.-]*\d){3,}")
+
+
+def mask_phones_in_text(text: str) -> str:
+    """Redact `+`-prefixed phone-shaped substrings inside free-form text."""
+    return _EMBEDDED_PHONE.sub(lambda match: mask_phone(match.group()), text)

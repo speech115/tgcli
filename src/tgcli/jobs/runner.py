@@ -23,13 +23,15 @@ from tgcli.errors import (
     PolicyError,
     RateLimitError,
 )
+from tgcli.formatting import mask_phones_in_text
 from tgcli.jobs import store
 
 
 def _error(exc: BaseException) -> dict[str, Any]:
+    message = (str(exc).strip() or type(exc).__name__)[:500]
     return {
         "code": getattr(exc, "code", "RUNTIME"),
-        "message": (str(exc).strip() or type(exc).__name__)[:500],
+        "message": mask_phones_in_text(message),
     }
 
 

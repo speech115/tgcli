@@ -401,6 +401,32 @@ def test_progress_before_runtime_error_requeues_and_resets_streak(
     }
 
 
+def test_runtime_error_message_masks_phones_in_job_state(
+    telegram_registry, monkeypatch
+):
+    conn, config = telegram_registry
+    _add(conn, "clone", "clone-sync", {"source": "-100123"})
+
+    async def broken(*_args, **_kwargs):
+        raise RuntimeError("failed for +79991234567")
+
+    monkeypatch.setattr(clone_cmd, "sync_text", broken)
+    asyncio.run(
+        runner.run_telegram(
+            Telegram(),
+            "main",
+            max_runtime=1,
+            config=config,
+            wall_clock=lambda: NOW,
+        )
+    )
+    job = store.show_job(conn, "clone")["job"]
+    assert job["last_error"] == {
+        "code": "RUNTIME",
+        "message": "failed for +7…67",
+    }
+
+
 def test_unrelated_clone_progress_does_not_reset_failure_streak(
     telegram_registry, monkeypatch
 ):
