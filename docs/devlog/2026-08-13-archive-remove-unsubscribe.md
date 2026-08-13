@@ -1,25 +1,22 @@
 ## 2026-08-13 — archive remove drops the changes cursor subscription (Cursor agent)
 
-**Did:** fixed thermos T09: `tg archive remove` left a channel's pts
-subscription in the persisted `account_sync.changes_cursor` after dropping it
-from explicit scope, so a later `archive sync` kept paying for
-`GetChannelDifference` on a channel the account no longer tracks. Added
-`archive/sync.drop_channel_subscription`, wired into
-`commands/archive.remove_chat`, plus a red→green boundary test asserting
-`GetChannelDifferenceRequest` is never sent for a dropped channel. Also fixed
-two pre-existing `ruff` E501s in `scripts/publish-thermos-backlog.py` that
-blocked the gate.
+**Did:** fixed thermos T09 on PR #255: `tg archive remove` left a channel's
+pts subscription in `account_sync.changes_cursor` after dropping explicit
+scope, so later `archive sync` kept polling `GetChannelDifference` for an
+untracked channel. The initial slice added `drop_channel_subscription`; review
+then required atomic scope/cursor removal and stale-writer protection under
+ADR-0110 (`remove_scope` in one `BEGIN IMMEDIATE` transaction, sync writes
+project subscriptions onto current scope). Also shipped thermos T23 in the
+same PR: peer-scoped delete events now honor `_in_archive_scope` before
+tombstones, with a public `archive sync` CLI regression. Fixed two pre-existing
+`ruff` E501s in `scripts/publish-thermos-backlog.py`.
 
-**Decided initially:** this restored stated intent with no output change.
-Independent review then exposed the cross-table atomicity and stale-writer
-safety requirement; ADR-0110 now governs the final implementation. No
-CONTRACT/JSON shape change — `removed` payload is unchanged.
+**Decided:** ADR-0110 governs persistent-state safety; no CONTRACT/JSON shape
+change — `removed` payload unchanged.
 
-**Learned:** `_ensure_channel_subscriptions` only *adds* missing scope
-channels to the cursor on each sync; nothing mirrored it on the remove path,
-so scope and cursor state silently diverged. Same shape as T23
-(delete-scope) — left unshipped this slice; the ticket suggested pairing them
-but the task scope was T09 only.
+**Learned:** `_ensure_channel_subscriptions` only adds missing scope channels;
+remove had no mirror until scope and cursor diverged. Delete apply was the
+only peer-scoped path that skipped scope checks.
 
-**Next:** T23 (`archive/delete` scope gate for tombstones) remains open per
-its own ticket.
+**Next:** rebase onto `main`, resolve ADR/doc conflicts at integrator merge,
+independent review PASS-WITH-NITS on tip `bf43124`.
