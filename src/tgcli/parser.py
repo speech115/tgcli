@@ -11,6 +11,7 @@ import argparse
 from pathlib import Path
 
 from tgcli import __version__
+from tgcli.archive import arguments as archive_arguments
 from tgcli.commands import media as media_cmd, store as store_cmd
 from tgcli.jobs import arguments as jobs_arguments
 
@@ -184,143 +185,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     jobs_arguments.add_to(sub, global_flags)
-
-    p_archive = sub.add_parser(
-        "archive",
-        help="Local archive store (ADR-0068)",
-        parents=[global_flags],
-    )
-    archive_sub = p_archive.add_subparsers(dest="archive_command", required=True)
-    archive_sub.add_parser(
-        "init", help="Create and bind the account archive store", parents=[global_flags]
-    )
-    p_archive_add = archive_sub.add_parser(
-        "add", help="Opt a group/channel into archive scope", parents=[global_flags]
-    )
-    p_archive_add.add_argument("chat", help="@username, t.me link, or dialog id")
-    p_archive_remove = archive_sub.add_parser(
-        "remove",
-        help="Remove a group/channel from archive scope",
-        parents=[global_flags],
-    )
-    p_archive_remove.add_argument("chat", help="@username, t.me link, or dialog id")
-    archive_sub.add_parser(
-        "list", help="List standing + explicit archive scope", parents=[global_flags]
-    )
-    archive_sub.add_parser(
-        "status", help="Offline archive freshness and counts", parents=[global_flags]
-    )
-    p_archive_search = archive_sub.add_parser(
-        "search", help="Offline FTS5 archive search", parents=[global_flags]
-    )
-    p_archive_search.add_argument("query", help="FTS5 MATCH query")
-    p_archive_search.add_argument("--chat", help="archived peer scope")
-    p_archive_search.add_argument(
-        "--from", dest="from_user", help="sender id, @username, or name"
-    )
-    p_archive_search.add_argument("--since", help="ISO date/datetime lower bound")
-    p_archive_search.add_argument("--until", help="ISO date/datetime upper bound")
-    p_archive_search.add_argument(
-        "--kind",
-        choices=["text", "photo", "video", "video_note", "audio", "voice", "document"],
-        help="message media kind",
-    )
-    p_archive_search.add_argument(
-        "--transcripts-only", action="store_true", help="match transcript text only"
-    )
-    p_archive_search.add_argument(
-        "--sort", choices=["relevance", "date"], help="result order (default relevance)"
-    )
-    p_archive_search.add_argument(
-        "--limit", type=int, help="max hits (default 20, cap 50)"
-    )
-    p_archive_search.add_argument("--page", type=int, help="1-based result page")
-    p_archive_read = archive_sub.add_parser(
-        "read", help="Read the local archive timeline offline", parents=[global_flags]
-    )
-    p_archive_read.add_argument("chat", help="archived peer scope")
-    p_archive_read.add_argument(
-        "--around-id", type=int, help="center timeline on message id"
-    )
-    p_archive_read.add_argument(
-        "--around-date", help="center timeline on ISO date/datetime"
-    )
-    p_archive_read.add_argument("--since", help="ISO date/datetime lower bound")
-    p_archive_read.add_argument("--until", help="ISO date/datetime upper bound")
-    p_archive_read.add_argument(
-        "--limit", type=int, help="timeline rows (default 20, cap 50)"
-    )
-    p_archive_history = archive_sub.add_parser(
-        "history",
-        help="Read local revisions and deletion history offline",
-        parents=[global_flags],
-    )
-    p_archive_history.add_argument("chat", help="archived peer scope")
-    p_archive_history.add_argument("message_id", type=int)
-    p_archive_backfill = archive_sub.add_parser(
-        "backfill",
-        help="Backfill dialogs into the archive (CHAT list or --private)",
-        parents=[global_flags],
-    )
-    p_archive_backfill.add_argument(
-        "chats",
-        nargs="*",
-        metavar="CHAT",
-        help="one or more dialogs (no empty→all sentinel; omit with --private)",
-    )
-    p_archive_backfill.add_argument(
-        "--private",
-        action="store_true",
-        help="enumerate standing private 1:1 dialogs under --max-dialogs",
-    )
-    p_archive_backfill.add_argument(
-        "--limit",
-        type=int,
-        help="messages per dialog (default 100, hard cap 1000)",
-    )
-    p_archive_backfill.add_argument(
-        "--max-dialogs",
-        type=int,
-        help="private enumeration cap (default 20, hard cap 100)",
-    )
-    p_archive_sync = archive_sub.add_parser(
-        "sync",
-        help="Apply tg changes delta into the archive",
-        parents=[global_flags],
-    )
-    p_archive_sync.add_argument(
-        "--max-events",
-        type=int,
-        help="catch-up message budget per run (default 500, hard cap 5000)",
-    )
-    p_archive_sync.add_argument(
-        "--max-dialogs",
-        type=int,
-        help="channel catch-up dialogs per run (default 20, hard cap 50)",
-    )
-    p_archive_sync.add_argument(
-        "--max-media",
-        type=int,
-        help="voice/video-note media downloads per run (default 50, hard cap 500)",
-    )
-    p_archive_transcribe = archive_sub.add_parser(
-        "transcribe",
-        help="Transcribe queued voice/video notes with local Parakeet",
-        parents=[global_flags],
-    )
-    p_archive_transcribe.add_argument(
-        "--limit", type=int, help="media items per run (default 20, hard cap 100)"
-    )
-    p_archive_transcribe.add_argument(
-        "--max-attempts",
-        type=int,
-        help="retryable attempts before no transcript (default 3, hard cap 5)",
-    )
-    archive_sub.add_parser(
-        "rebaseline",
-        help="Explicitly re-init the archive changes cursor (gap recovery)",
-        parents=[global_flags],
-    )
+    archive_arguments.add_to(sub, global_flags)
 
     p_read = sub.add_parser(
         "read", help="Read recent messages from a dialog", parents=[global_flags]

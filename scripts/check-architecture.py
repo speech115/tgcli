@@ -43,7 +43,7 @@ CEILINGS = {
     # ADR-0087: offline jobs routing plus resolved-lane recurring rearm.
     # +14 final review reset: one CLI-owned lane lock now encloses rearm,
     # local execution, and Telegram session acquisition.
-    "src/tgcli/cli.py": 749,
+    "src/tgcli/cli.py": 690,
     # +2 for ADR-0057: isort section blanks, E501 split in the --format help.
     # +47 for ADR-0062 --session-role / accounts --role flags and the
     # ADR-0063 tg changes subcommand surface.
@@ -60,7 +60,7 @@ CEILINGS = {
     # ADR-0087 moved jobs grammar into jobs/arguments.py and removed the old
     # archive scheduling composition.
     # ADR-0088 removes the QR format grammar.
-    "src/tgcli/parser.py": 726,
+    "src/tgcli/parser.py": 620,
     # +40 for ADR-0062 role validation and ADR-0063 changes preflight.
     # +37 for ADR-0068: archive preflight (readonly gates, backfill/search
     # caps).
@@ -74,7 +74,11 @@ CEILINGS = {
     # ADR-0087 delegates jobs validation to jobs/preflight.py and removes the
     # old archive composition gates.
     # +4 for ADR-0088's explicit non-empty phone/password start validation.
-    "src/tgcli/preflight.py": 446,
+    "src/tgcli/preflight.py": 250,
+    # ADR-0115 moved archive grammar into archive/arguments.py (thermos T32).
+    "src/tgcli/archive/arguments.py": 140,
+    "src/tgcli/archive/preflight.py": 170,
+    "src/tgcli/archive/offline.py": 70,
     # +2 for ADR-0057: isort section blanks.
     # +17 for ADR-0062: role lookup threaded into session.client.
     # +23 for ADR-0068: archive network dispatch (init/add/remove/backfill).

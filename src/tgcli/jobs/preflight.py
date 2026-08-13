@@ -1,8 +1,7 @@
 """Fail-closed CLI validation for the `tg jobs` subsystem."""
 
 from tgcli import safety
-from tgcli.archive import backfill as backfill_mod, sync as sync_mod
-from tgcli.commands import archive as archive_cmd
+from tgcli.archive import preflight as archive_preflight
 from tgcli.errors import PolicyError
 from tgcli.jobs import model
 
@@ -32,41 +31,18 @@ def _prepare_add(args) -> None:
         args.job_spec = model.transcribe_spec(args.max_attempts)
         return
     if args.job_kind == "archive-backfill":
-        chats = list(args.chats)
-        private = bool(args.private)
-        backfill_mod.validate_private_mode(private=private, chats=chats)
-        if not private:
-            chats = backfill_mod.validate_dialogs(
-                chats, maximum=archive_cmd.MAX_BACKFILL_DIALOGS
-            )
-        args.job_spec = {
-            "chats": chats,
-            "limit": backfill_mod.validate_limit(
-                args.limit,
-                default=archive_cmd.DEFAULT_BACKFILL_LIMIT,
-                maximum=archive_cmd.MAX_BACKFILL_LIMIT,
-            ),
-            "private": private,
-        }
+        args.job_spec = archive_preflight.backfill_spec(
+            chats=args.chats,
+            private=bool(args.private),
+            limit=args.limit,
+        )
         return
     if args.job_kind == "archive-sync":
-        args.job_spec = {
-            "max_dialogs": sync_mod.validate_max_dialogs(
-                args.max_dialogs,
-                default=archive_cmd.DEFAULT_SYNC_DIALOGS,
-                maximum=archive_cmd.MAX_SYNC_DIALOGS,
-            ),
-            "max_events": sync_mod.validate_max_events(
-                args.max_events,
-                default=archive_cmd.DEFAULT_SYNC_EVENTS,
-                maximum=archive_cmd.MAX_SYNC_EVENTS,
-            ),
-            "max_media": sync_mod.validate_max_media(
-                args.max_media,
-                default=archive_cmd.DEFAULT_SYNC_MEDIA,
-                maximum=archive_cmd.MAX_SYNC_MEDIA,
-            ),
-        }
+        args.job_spec = archive_preflight.sync_spec(
+            max_events=args.max_events,
+            max_dialogs=args.max_dialogs,
+            max_media=args.max_media,
+        )
         return
     args.job_spec = model.clone_spec(args.source)
 
