@@ -120,6 +120,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0111](ADR-0111-table-driven-preview-commit-handshake.md) | One registry owns preview→commit preflight, dispatch, audit, and finish timing for all eight handshakes; dead burn-before-work `consume_preview` is removed | accepted; thermos audit T27 |
 | [0112](ADR-0112-clone-send-execution-split.md) | Clone batch send execution (`forward_batch`, `reupload_batch`) moves to `clone/send.py`; commands keep sync glue | accepted; thermos audit T28 |
 | [0113](ADR-0113-jobs-store-split.md) | Split `jobs/store.py` bootstrap/schema/SQL into `jobs/db.py`; runtime retry policy constants live in `jobs/model.py`; store keeps CRUD, transitions, lane locks | accepted; thermos debt T29 |
+| [0114](ADR-0114-jobkind-registry.md) | JobKind registry and shared lane loop helpers | accepted; thermos debt T33 |
 
 Notes on supersessions:
 

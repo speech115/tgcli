@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import timedelta
 from hashlib import sha256
 
@@ -19,6 +20,27 @@ RUNTIME_FAILURE_TERMINAL_STREAK = 3
 RUNTIME_RETRY_DELAY_FIRST = timedelta(minutes=5)
 RUNTIME_RETRY_DELAY_SECOND = timedelta(minutes=30)
 RUNTIME_TERMINAL_NOT_BEFORE = timedelta(hours=2)
+
+
+@dataclass(frozen=True, slots=True)
+class JobKind:
+    name: str
+    lane: str
+
+
+JOB_KINDS: dict[str, JobKind] = {
+    "archive-transcribe": JobKind("archive-transcribe", "local"),
+    "archive-backfill": JobKind("archive-backfill", "telegram"),
+    "archive-sync": JobKind("archive-sync", "telegram"),
+    "clone-sync": JobKind("clone-sync", "telegram"),
+}
+
+
+def require_kind(value: str) -> JobKind:
+    kind = JOB_KINDS.get(value)
+    if kind is None:
+        raise PolicyError(f"unsupported job kind: {value}")
+    return kind
 
 
 def validate_key(value: str) -> str:

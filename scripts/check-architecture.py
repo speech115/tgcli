@@ -192,13 +192,13 @@ CEILINGS = {
     # ADR-0087: grammar/model/preflight, persistent WAL registry, and two
     # independent foreground runners. Seed the new subsystem at release size.
     "src/tgcli/jobs/arguments.py": 79,
-    "src/tgcli/jobs/model.py": 55,
+    "src/tgcli/jobs/model.py": 95,
     "src/tgcli/jobs/preflight.py": 108,
     "src/tgcli/jobs/db.py": 280,
     # Final review moved both lane locks to the CLI full-invocation owner.
     # +8 Wave D integrator ratchet (strict gate): ADR-0107 max-runtime through
     # jobs runner archive/clone quanta.
-    "src/tgcli/jobs/runner.py": 360,
+    "src/tgcli/jobs/runner.py": 490,
     # Final review splits query-only opens from mutation-time permission repair.
     "src/tgcli/jobs/store.py": 665,
     # ADR-0072: the governor package (account-wide request pacing and

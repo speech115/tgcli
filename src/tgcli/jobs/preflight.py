@@ -26,9 +26,10 @@ def prepare(args) -> None:
 def _prepare_add(args) -> None:
     args.key = model.validate_key(args.key)
     args.priority = model.validate_priority(args.priority)
+    kind = model.require_kind(args.job_kind)
+    args.job_lane = kind.lane
     if args.job_kind == "archive-transcribe":
         args.job_spec = model.transcribe_spec(args.max_attempts)
-        args.job_lane = "local"
         return
     if args.job_kind == "archive-backfill":
         chats = list(args.chats)
@@ -47,7 +48,6 @@ def _prepare_add(args) -> None:
             ),
             "private": private,
         }
-        args.job_lane = "telegram"
         return
     if args.job_kind == "archive-sync":
         args.job_spec = {
@@ -67,10 +67,8 @@ def _prepare_add(args) -> None:
                 maximum=archive_cmd.MAX_SYNC_MEDIA,
             ),
         }
-        args.job_lane = "telegram"
         return
     args.job_spec = model.clone_spec(args.source)
-    args.job_lane = "telegram"
 
 
 def _prepare_run(args) -> None:
