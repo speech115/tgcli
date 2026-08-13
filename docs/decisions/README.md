@@ -124,6 +124,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0115](ADR-0115-archive-cli-extract.md) | Extract archive CLI grammar and offline routing into `archive/arguments.py`, `archive/preflight.py`, and `archive/offline.py` | accepted; thermos debt T32 |
 | [0116](ADR-0116-archive-store-split.md) | Split archive store persistence into schema/messages/transcripts/sync_state/peers modules behind a thin store facade | accepted; thermos debt T30 |
 | [0117](ADR-0117-breadth-atomic-check-and-touch.md) | Breadth budget check-and-touch is one `BEGIN IMMEDIATE` claim; gate still dispatches on refuse | accepted; thermos debt T36 |
+| [0118](ADR-0118-private-backfill-enum-cursor.md) | Private archive-backfill persists a GetDialogs resume token on account_sync (schema v8) | accepted; thermos debt T37 |
 
 Notes on supersessions:
 

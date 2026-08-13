@@ -10,7 +10,7 @@ from typing import Any
 from tgcli.errors import NotFoundError, PolicyError
 from tgcli.session import ensure_state_dir, restrict_file
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 DB_NAME = "archive.db"
 TRANSCRIBABLE_MEDIA_KINDS = ("voice", "video_note")
 NO_TRANSCRIPT_MARKER = "no_transcript no transcript"
@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS account_sync (
     gap_json TEXT,
     last_sync_at TEXT,
     last_reconcile_at TEXT,
-    reconcile_json TEXT
+    reconcile_json TEXT,
+    private_enum_json TEXT
 );
 CREATE TABLE IF NOT EXISTS messages (
     peer_id INTEGER NOT NULL,
@@ -144,29 +145,19 @@ def connect(path: Path) -> sqlite3.Connection:
             conn.executescript(_SCHEMA_SQL)
             conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             conn.commit()
-        elif version == 1:
-            _migrate_v1_to_v2(conn)
-            _migrate_v2_to_v3(conn)
-            _migrate_v3_to_v4(conn)
-            _migrate_v5_to_v6(conn)
-            _migrate_v6_to_v7(conn)
-        elif version == 2:
-            _migrate_v2_to_v3(conn)
-            _migrate_v3_to_v4(conn)
-            _migrate_v5_to_v6(conn)
-            _migrate_v6_to_v7(conn)
-        elif version == 3:
-            _migrate_v3_to_v4(conn)
-            _migrate_v5_to_v6(conn)
-            _migrate_v6_to_v7(conn)
-        elif version == 4:
-            _migrate_v5_to_v6(conn)
-            _migrate_v6_to_v7(conn)
-        elif version == 5:
-            _migrate_v5_to_v6(conn)
-            _migrate_v6_to_v7(conn)
-        elif version == 6:
-            _migrate_v6_to_v7(conn)
+        elif 1 <= version < SCHEMA_VERSION:
+            if version <= 1:
+                _migrate_v1_to_v2(conn)
+            if version <= 2:
+                _migrate_v2_to_v3(conn)
+            if version <= 3:
+                _migrate_v3_to_v4(conn)
+            if version <= 5:
+                _migrate_v5_to_v6(conn)
+            if version <= 6:
+                _migrate_v6_to_v7(conn)
+            if version <= 7:
+                _migrate_v7_to_v8(conn)
         elif version != SCHEMA_VERSION:
             conn.close()
             raise PolicyError(
@@ -309,6 +300,17 @@ def _migrate_v6_to_v7(conn: sqlite3.Connection) -> None:
             "last_reconcile_at, reconcile_json FROM account_sync_v6"
         )
         conn.execute("DROP TABLE account_sync_v6")
+        conn.execute("PRAGMA user_version=7")
+
+
+def _migrate_v7_to_v8(conn: sqlite3.Connection) -> None:
+    """Persist private-dialog enumeration resume token (ADR-0118)."""
+    with conn:
+        cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
+        }
+        if "private_enum_json" not in cols:
+            conn.execute("ALTER TABLE account_sync ADD COLUMN private_enum_json TEXT")
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
 

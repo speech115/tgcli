@@ -8,11 +8,17 @@ from typing import Any
 from telethon import errors as telethon_errors
 
 from tgcli import chatref
-from tgcli.archive import scope as scope_mod, store as store_mod
+from tgcli.archive import (
+    private_enum as private_enum_mod,
+    scope as scope_mod,
+    store as store_mod,
+)
 from tgcli.commands.read import _dialog_name, message_to_dict
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
 from tgcli.governor import pacing
 from tgcli.output import note
+
+enumerate_private_dialogs = private_enum_mod.enumerate_private_dialogs
 
 
 async def resolve_entity(tg, chat: str):
@@ -237,45 +243,34 @@ def validate_private_mode(*, private: bool, chats: list[str]) -> None:
         )
 
 
-async def enumerate_private_dialogs(
+async def quantum_targets(
     tg,
     conn: sqlite3.Connection,
     *,
-    max_dialogs: int,
-    skip_complete: bool = True,
-) -> tuple[list[str], int]:
-    """Return chat refs for private 1:1 dialogs under ``max_dialogs``.
-
-    Skips dialogs whose backfill has actually reached its end when
-    ``skip_complete`` is set. Returns ``(chat_refs, skipped_complete)``.
-    """
-    refs: list[str] = []
+    private: bool,
+    chats: list[str],
+    max_chat_dialogs: int,
+) -> tuple[list[str], int, list[dict[str, Any]]]:
+    """Pick incomplete dialogs for one archive-backfill job quantum."""
+    if private:
+        return await enumerate_private_dialogs(
+            tg, conn, max_dialogs=2, skip_complete=True
+        )
+    pending: list[str] = []
     skipped = 0
-    async for dialog in tg.iter_dialogs():
-        entity = dialog.entity
-        try:
-            kind = scope_mod.classify_entity(entity)
-        except PolicyError:
-            continue
-        if kind != "user":
-            continue
-        peer = scope_mod.peer_id(entity)
-        state = store_mod.get_sync_state(conn, peer)
-        if (
-            skip_complete
-            and state is not None
+    for chat in validate_dialogs(chats, maximum=max_chat_dialogs):
+        entity = await resolve_entity(tg, chat)
+        state = store_mod.get_sync_state(conn, scope_mod.peer_id(entity))
+        complete = (
+            state is not None
             and state.get("last_backfill_at") is not None
             and not state.get("more", True)
-        ):
-            # A delta-only row may have more=false but has never walked history.
+        )
+        if complete:
             skipped += 1
-            continue
-        username = getattr(entity, "username", None)
-        ref = f"@{username}" if username else str(peer)
-        refs.append(ref)
-        if len(refs) >= max_dialogs:
-            break
-    return refs, skipped
+        else:
+            pending.append(chat)
+    return pending, skipped, []
 
 
 async def backfill_private(
@@ -286,7 +281,7 @@ async def backfill_private(
     max_dialogs: int,
     account_user_id: int,
 ) -> dict[str, Any]:
-    refs, skipped = await enumerate_private_dialogs(
+    refs, skipped, ref_cursors = await enumerate_private_dialogs(
         tg, conn, max_dialogs=max_dialogs, skip_complete=True
     )
     if not refs:
@@ -305,6 +300,7 @@ async def backfill_private(
         limit=limit,
         account_user_id=account_user_id,
     )
+    private_enum_mod.advance_completed(conn, dialogs, ref_cursors[: len(dialogs)])
     data: dict[str, Any] = {
         "mode": "private",
         "limit": limit,

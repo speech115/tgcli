@@ -48,6 +48,7 @@ class FakeClient:
         self.session = ns(takeout_id=None)
         self.iter_messages_calls = []
         self.iter_messages_reverse_calls = []
+        self.iter_dialogs_calls = []
         self.get_messages_calls = []
         self.event_handlers = []
         self.iter_participants_calls = []
@@ -56,8 +57,42 @@ class FakeClient:
         self.iter_messages_error = None
         self.call_requests = []
 
-    async def iter_dialogs(self, limit=None):
-        for dialog in self._dialogs[:limit]:
+    async def iter_dialogs(
+        self,
+        limit=None,
+        *,
+        offset_date=None,
+        offset_id=0,
+        offset_peer=None,
+        **_kwargs,
+    ):
+        self.iter_dialogs_calls.append(
+            {
+                "limit": limit,
+                "offset_date": offset_date,
+                "offset_id": offset_id,
+                "offset_peer": offset_peer,
+            }
+        )
+        dialogs = list(self._dialogs)
+        if offset_peer is not None:
+            start = 0
+            target = getattr(offset_peer, "user_id", None)
+            if target is None:
+                target = getattr(offset_peer, "channel_id", None)
+            if target is None:
+                target = getattr(offset_peer, "chat_id", None)
+            if target is None and isinstance(offset_peer, int):
+                target = offset_peer
+            if target is not None:
+                for index, dialog in enumerate(dialogs):
+                    entity = getattr(dialog, "entity", dialog)
+                    entity_id = getattr(entity, "id", None)
+                    if entity_id == target:
+                        start = index + 1
+                        break
+                dialogs = dialogs[start:]
+        for dialog in dialogs[:limit]:
             yield dialog
 
     async def iter_messages(

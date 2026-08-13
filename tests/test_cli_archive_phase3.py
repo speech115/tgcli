@@ -373,7 +373,7 @@ async def test_private_backfill_does_not_skip_delta_only_state(tmp_path):
             chat_ref="@alice",
             touch_sync=True,
         )
-        refs, skipped = await backfill_mod.enumerate_private_dialogs(
+        refs, skipped, _cursors = await backfill_mod.enumerate_private_dialogs(
             client,
             conn,
             max_dialogs=5,
