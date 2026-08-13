@@ -8,6 +8,10 @@ on:
           Optional comma-separated ticket ids (e.g. T01,T04). Leave empty for all 37.
         required: false
         default: ""
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-thermos-backlog.yml
 
 permissions:
   contents: read
