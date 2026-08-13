@@ -161,6 +161,7 @@ async def test_download_throttles_state_writes_and_progress_updates(
     source = MediaSource("@channel", 42, None)
     target = tmp_path / "out.bin"
     fake = FakeDownloadTelegram([b"x"] * 17)
+    fake.message.file.size = 17
     state_writes = []
     progress_updates = []
     from tgcli.commands import media
@@ -183,6 +184,93 @@ async def test_download_throttles_state_writes_and_progress_updates(
 
     assert state_writes == [0, 16, 17]
     assert progress_updates == [16, 17]
+
+
+async def test_download_never_publishes_a_short_stream(tmp_path):
+    """The final name means complete; a stream that ends early is not.
+
+    Mirrors clone reupload's `download_resumable` guard (ADR-0083 decision 3):
+    the serial loop must require `current == size` before `_publish`, not
+    just when an exception unwinds the transfer.
+    """
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "out.bin"
+    fake = FakeDownloadTelegram([b"only"])
+    fake.message.file.size = 20
+
+    with pytest.raises(PolicyError, match=r"stopped at 4/20 bytes"):
+        await download_media(fake, source, "main", output=str(target))
+
+    assert not target.exists()
+    # The bytes that did arrive are kept for the next run's resume.
+    _, part_path = _state_paths(source)
+    assert part_path.read_bytes() == b"only"
+
+
+async def test_a_failing_unwind_checkpoint_never_replaces_the_flood(
+    tmp_path, monkeypatch
+):
+    """ADR-0091: bookkeeping on the failure path must not erase FloodWait."""
+    from telethon import errors as telethon_errors
+
+    from tgcli.commands import media
+
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "out.bin"
+    fake = FakeDownloadTelegram([])
+    fake.message.file.size = 20
+
+    async def flood_after_one_chunk(
+        media_obj, *, offset=0, request_size=None, **kwargs
+    ):
+        yield b"x"
+        raise telethon_errors.FloodWaitError(request=None, capture=7)
+
+    fake.iter_download = flood_after_one_chunk
+    monkeypatch.setattr(
+        media,
+        "_checkpoint",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("ENOSPC")),
+    )
+
+    with pytest.raises(telethon_errors.FloodWaitError) as caught:
+        await download_media(fake, source, "main", output=str(target))
+
+    assert caught.value.seconds == 7
+
+
+async def test_the_serial_part_file_is_synced_before_the_checkpoint_claims_it(
+    tmp_path, monkeypatch
+):
+    """The sidecar fsyncs itself; an unsynced tail would outlive its record."""
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "out.bin"
+    fake = FakeDownloadTelegram([b"x"] * 16)
+    fake.message.file.size = 16
+    order: list[str] = []
+    real_fsync = os.fsync
+    monkeypatch.setattr(
+        os, "fsync", lambda fd: (order.append("fsync"), real_fsync(fd))[1]
+    )
+    from tgcli.commands import media
+
+    original_write_state = media._write_state
+
+    def record_state(*args):
+        order.append(f"checkpoint:{args[-1]}")
+        original_write_state(*args)
+
+    monkeypatch.setattr(media, "_write_state", record_state)
+
+    await download_media(fake, source, "main", output=str(target))
+
+    # order[0] is the initial "checkpoint:0" written before any bytes exist
+    # (nothing to fsync yet, and `atomic.replace_text` fsyncs the state file
+    # and its directory on every write). The part file's own fsync — the one
+    # under test — must land immediately before the data checkpoint claims
+    # the bytes it just made durable.
+    checkpoint_16 = order.index("checkpoint:16")
+    assert order[checkpoint_16 - 1] == "fsync"
 
 
 async def test_download_refuses_existing_final_path(tmp_path):
@@ -222,6 +310,38 @@ async def test_parallel_download_uses_disjoint_offsets(tmp_path):
     assert {call["stride"] for call in fake.iter_download_calls} == {2 * 512 * 1024}
     assert target.read_bytes() == b"A" * (512 * 1024) + b"B" * (512 * 1024)
     assert result["parallel"] == 2
+
+
+async def test_parallel_download_maps_a_short_stream_to_policy_error(tmp_path):
+    """CONTRACT: --parallel short stream exits 2 (PolicyError), never publishes."""
+
+    class ShortParallelTelegram(FakeParallelTelegram):
+        async def iter_download(self, media, *, offset=0, request_size=None, **kwargs):
+            self.iter_download_calls.append(
+                {
+                    "media": media,
+                    "offset": offset,
+                    "request_size": request_size,
+                    **kwargs,
+                }
+            )
+            if offset == 0:
+                yield bytes([65]) * (512 * 1024)
+            # Second stripe ends with no bytes and no error.
+
+    fake = ShortParallelTelegram()
+    target = tmp_path / "out.bin"
+
+    with pytest.raises(PolicyError, match=r"ended at .* bytes"):
+        await download_media(
+            fake,
+            MediaSource("@channel", 42, None),
+            "main",
+            output=str(target),
+            parallel=2,
+        )
+
+    assert not target.exists()
 
 
 async def test_parallel_download_refuses_resuming_partial_transfer(tmp_path):
@@ -469,10 +589,10 @@ async def test_download_restarts_when_partial_has_no_state(tmp_path):
     state_path, part_path = _state_paths(source)
     part_path.parent.mkdir(parents=True, exist_ok=True)
     part_path.write_bytes(b"unproven")
+    fake = FakeDownloadTelegram([b"fresh"])
+    fake.message.file.size = len(b"fresh")
 
-    result = await download_media(
-        FakeDownloadTelegram([b"fresh"]), source, "main", output=str(target)
-    )
+    result = await download_media(fake, source, "main", output=str(target))
 
     assert target.read_bytes() == b"fresh"
     assert result["resumed"] is False
@@ -786,6 +906,7 @@ async def test_resume_refuses_a_partial_file_from_replaced_media(tmp_path):
     assert json.loads(state_path.read_text())["offset"] == 3
 
     replaced = FakeIdentifiedTelegram([b"new"], document_id=222)
+    replaced.message.file.size = len(b"new")
     result = await download_media(replaced, source, "main", output=str(target))
 
     assert replaced.iter_download_calls == [
@@ -806,7 +927,7 @@ async def test_resume_refuses_a_partial_file_whose_size_changed(tmp_path):
         await download_media(interrupted, source, "main", output=str(target))
 
     resized = FakeIdentifiedTelegram([b"new"], document_id=111)
-    resized.message.file.size = 99
+    resized.message.file.size = len(b"new")
 
     result = await download_media(resized, source, "main", output=str(target))
 

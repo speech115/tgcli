@@ -11,6 +11,20 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [3.0.4] — 2026-08-13
+
+`tg media download` no longer publishes a short or sparse file as complete.
+A single-stream transfer that ends before `target.size` exits 2 (`BLOCKED`)
+and keeps its checkpointed partial for resume; `--parallel` exits 2 after
+`download_striped` refuses a short download and restarts from zero next run.
+Part-file checkpoints fsync before writing the sidecar (ADR-0083 mirror).
+
+Rationale: ADR-0091.
+
+### Changed
+
+- Never publish incomplete media download bytes (ADR-0091) (#250)
+
 ## [3.0.3] — 2026-08-13
 
 `tg api --write` now wholesale-denies every `auth.*` and `account.*` method
@@ -918,6 +932,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[3.0.4]: https://github.com/speech115/tgcli/compare/v3.0.3...v3.0.4
 [3.0.3]: https://github.com/speech115/tgcli/compare/v3.0.2...v3.0.3
 [3.0.2]: https://github.com/speech115/tgcli/compare/v3.0.1...v3.0.2
 [3.0.1]: https://github.com/speech115/tgcli/compare/v3.0.0...v3.0.1
