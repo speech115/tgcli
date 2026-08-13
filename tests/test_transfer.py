@@ -10,6 +10,7 @@ from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
 from tgcli import transfer
+from tgcli.commands import media
 
 
 class FakeStrideTelegram:
@@ -447,11 +448,9 @@ async def test_upload_parts_reports_progress_with_uploaded_and_total_bytes(tmp_p
     assert all(current <= len(payload) for current, _ in seen)
 
 
-def test_media_download_shares_the_one_progress_cadence():
-    """ADR-0043/0049: one seam, not a copy of the constant."""
-    from tgcli.commands import media
-
-    assert media.PROGRESS_EVERY_CHUNKS is transfer.PROGRESS_EVERY_CHUNKS
+def test_media_download_shares_the_resumable_transfer_seam():
+    """T31: media delegates progress cadence with the entire serial loop."""
+    assert media.download_resumable is transfer.download_resumable
 
 
 def _photo_media(*, sizes):

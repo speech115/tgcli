@@ -128,6 +128,38 @@ class FakeDownloadTelegram:
                 raise RuntimeError("network dropped")
 
 
+async def test_serial_download_uses_shared_resumable_transfer(tmp_path, monkeypatch):
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "out.bin"
+    fake = FakeDownloadTelegram([])
+    calls = []
+
+    async def fake_download_resumable(
+        tg,
+        media_obj,
+        part_path,
+        *,
+        offset,
+        size,
+        checkpoint,
+        progress,
+    ):
+        calls.append((tg, media_obj, part_path, offset, size, progress))
+        part_path.parent.mkdir(parents=True, exist_ok=True)
+        part_path.write_bytes(b"abcdef")
+        checkpoint(6)
+        return 6
+
+    monkeypatch.setattr(media, "download_resumable", fake_download_resumable)
+
+    result = await download_media(fake, source, "main", output=str(target))
+
+    _, part_path = _state_paths(source)
+    assert calls == [(fake, fake.message.media, part_path, 0, 6, None)]
+    assert target.read_bytes() == b"abcdef"
+    assert result["bytes"] == 6
+
+
 async def test_download_resumes_from_existing_partial_transfer(tmp_path):
     source = MediaSource("@channel", 42, None)
     target = tmp_path / "out.bin"
@@ -164,7 +196,6 @@ async def test_download_throttles_state_writes_and_progress_updates(
     fake.message.file.size = 17
     state_writes = []
     progress_updates = []
-    from tgcli.commands import media
 
     original_write_state = media._write_state
 
@@ -182,7 +213,7 @@ async def test_download_throttles_state_writes_and_progress_updates(
         progress=lambda current, total: progress_updates.append(current),
     )
 
-    assert state_writes == [0, 16, 17]
+    assert state_writes == [0, 8, 16, 17]
     assert progress_updates == [16, 17]
 
 
@@ -211,10 +242,6 @@ async def test_a_failing_unwind_checkpoint_never_replaces_the_flood(
     tmp_path, monkeypatch
 ):
     """ADR-0091: bookkeeping on the failure path must not erase FloodWait."""
-    from telethon import errors as telethon_errors
-
-    from tgcli.commands import media
-
     source = MediaSource("@channel", 42, None)
     target = tmp_path / "out.bin"
     fake = FakeDownloadTelegram([])
@@ -227,11 +254,14 @@ async def test_a_failing_unwind_checkpoint_never_replaces_the_flood(
         raise telethon_errors.FloodWaitError(request=None, capture=7)
 
     fake.iter_download = flood_after_one_chunk
-    monkeypatch.setattr(
-        media,
-        "_checkpoint",
-        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("ENOSPC")),
-    )
+    original_write_state = media._write_state
+
+    def fail_after_initial_state(*args, **kwargs):
+        if args[4] > 0:
+            raise OSError("ENOSPC")
+        return original_write_state(*args, **kwargs)
+
+    monkeypatch.setattr(media, "_write_state", fail_after_initial_state)
 
     with pytest.raises(telethon_errors.FloodWaitError) as caught:
         await download_media(fake, source, "main", output=str(target))
@@ -252,7 +282,6 @@ async def test_the_serial_part_file_is_synced_before_the_checkpoint_claims_it(
     monkeypatch.setattr(
         os, "fsync", lambda fd: (order.append("fsync"), real_fsync(fd))[1]
     )
-    from tgcli.commands import media
 
     original_write_state = media._write_state
 
