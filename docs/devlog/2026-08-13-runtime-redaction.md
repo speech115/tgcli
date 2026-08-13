@@ -9,7 +9,7 @@ accepts common phone separators while still requiring a leading `+`. Fixed two
 pre-existing `E501` failures in `scripts/publish-thermos-backlog.py`.
 
 **Decided:** Full lane under
-[ADR-0109](../decisions/ADR-0109-runtime-error-phone-redaction.md): this changes
+[ADR-0113](../decisions/ADR-0113-runtime-error-phone-redaction.md): this changes
 released diagnostics and persisted job error content. `docs/CONTRACT.md`,
 version files, and `CHANGELOG.md` remain unchanged because flags, JSON shapes,
 and exit codes do not move.

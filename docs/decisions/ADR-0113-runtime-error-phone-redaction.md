@@ -1,4 +1,4 @@
-# ADR-0109: Runtime errors redact phone-shaped text
+# ADR-0113: Runtime errors redact phone-shaped text
 
 Date: 2026-08-13
 Status: accepted
