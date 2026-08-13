@@ -108,6 +108,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0099](ADR-0099-session-file-lock.md) | Canonical `session.session_file_lock` for non-blocking `.lock` acquisition; call sites keep ConfigError vs PolicyError via `busy_error` | accepted; thermos debt T26 |
 | [0100](ADR-0100-alias-charset-validated-on-load.md) | `load_config` validates every `[accounts.<alias>]` key against the alias-grade charset (previously enforced only by `accounts login` for a brand-new alias) and rejects `@` in a `session` stem (the role-suffix separator); overlaps T07/ADR-0098, which independently excludes `@` for its own path-escape reason | accepted (ADR-lite) |
 | [0101](ADR-0101-batch-jsonl-strict-bool-int-coercion.md) | `tg batch` bool/int JSONL fields accept only a real JSON `true`/`false`/integer (never `bool()`/`int()` truthiness or `int` coercion of a `bool`); a mistyped field is exit 2 `BLOCKED` before that op's Telegram fetch runs | accepted; thermos audit T15 |
+| [0102](ADR-0102-expired-preview-never-sticky-pending.md) | `begin_commit` checks kind and TTL before any rename to `.pending`, and returns an already-`.pending` retry found expired back to `.json`; an expired preview always lands in the plain expired bucket `store cleanup` reaps by default (T13) | accepted |
 
 Notes on supersessions:
 

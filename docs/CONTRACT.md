@@ -538,7 +538,10 @@ Previews expire after five minutes. A send commit moves its preview through
 `.json` → `.pending` → `.used`: a failed commit may be re-committed; Telegram
 deduplicates by `random_id` within the preview TTL. Only a confirmed send marks
 the preview used, and only after its result audit record persists. Commit JSON
-is `{"preview_id": "p_9f3a", "message_id": 42}`.
+is `{"preview_id": "p_9f3a", "message_id": 42}`. An expired preview never
+advances to `.pending`, and a `.pending` retry found expired here is moved back
+to `.json`: either way it lands in the plain expired bucket `store cleanup`
+reaps by default, never waiting on `--include-pending` for a second TTL.
 All `--preview` invocations for `send`, `edit`, `delete`, `forward`,
 `draft set`, and `draft clear` are non-mutating:
 they may resolve or read a Telegram target and write a local preview record,

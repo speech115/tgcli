@@ -113,6 +113,39 @@ def test_begin_commit_enforces_ttl_and_id_shape():
         safety.begin_commit("../etc/passwd")
 
 
+def test_begin_commit_leaves_an_expired_fresh_preview_as_json():
+    """An expired preview must never become sticky-pending (T13): default
+    `store cleanup` skips .pending outright, so a preview that was never
+    begun must stay a plain .json to land in the expired bucket cleanup
+    already reaps without --include-pending."""
+    preview = safety.create_preview({"kind": "send"})
+    late = datetime.now(UTC) + timedelta(minutes=6)
+
+    with pytest.raises(PolicyError, match="expired"):
+        safety.begin_commit(preview["preview_id"], now=late)
+
+    previews_dir = safety.previews_dir()
+    assert (previews_dir / f"{preview['preview_id']}.json").exists()
+    assert not (previews_dir / f"{preview['preview_id']}.pending").exists()
+
+
+def test_begin_commit_returns_an_expired_pending_preview_to_json():
+    """A retried begin_commit landing after the TTL must not leave the
+    preview sticky-pending either (T13): it is renamed back to .json so
+    it joins the same expired bucket, instead of waiting on
+    --include-pending for a second full TTL."""
+    preview = safety.create_preview({"kind": "send"})
+    safety.begin_commit(preview["preview_id"])
+    late = datetime.now(UTC) + timedelta(minutes=6)
+
+    with pytest.raises(PolicyError, match="expired"):
+        safety.begin_commit(preview["preview_id"], now=late)
+
+    previews_dir = safety.previews_dir()
+    assert (previews_dir / f"{preview['preview_id']}.json").exists()
+    assert not (previews_dir / f"{preview['preview_id']}.pending").exists()
+
+
 def test_begin_commit_handles_pending_preview_disappearing_during_read(monkeypatch):
     preview = safety.create_preview({"kind": "send"})
     safety.begin_commit(preview["preview_id"])

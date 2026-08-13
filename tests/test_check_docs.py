@@ -321,7 +321,7 @@ def test_map_inventory_counts_must_match_the_tree(tmp_path):
         (ROOT / "docs" / "MAP.md")
         .read_text()
         .replace("task pages, 26 + index", "task pages, 23 + index", 1)
-        .replace("ADR-0001…0101", "ADR-0001…0057", 1)
+        .replace("ADR-0001…0102", "ADR-0001…0057", 1)
     )
     result = run(
         ROOT / "CHANGELOG.md",
@@ -330,7 +330,7 @@ def test_map_inventory_counts_must_match_the_tree(tmp_path):
 
     assert result.returncode == 1
     assert "MAP.md: guide count is 23; tree has 26 task pages" in result.stdout
-    assert "MAP.md: ADR range ends at 0057; tree ends at 0101" in result.stdout
+    assert "MAP.md: ADR range ends at 0057; tree ends at 0102" in result.stdout
 
 
 def test_contributor_docs_must_not_send_sessions_to_closed_devlog(tmp_path):

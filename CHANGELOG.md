@@ -11,6 +11,18 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [3.0.8] — 2026-08-13
+
+An expired preview never advances to `.pending`; a retry found expired on
+an already-`.pending` file is moved back to `.json` so default `store
+cleanup` reaps it on schedule (ADR-0102).
+
+Rationale: ADR-0102.
+
+### Changed
+
+- Prevent expired commit previews from sticking as pending (ADR-0102) (#254)
+
 ## [3.0.7] — 2026-08-13
 
 `tg batch` bool/int JSONL fields accept only real JSON booleans and integers;
@@ -972,6 +984,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[3.0.8]: https://github.com/speech115/tgcli/compare/v3.0.7...v3.0.8
 [3.0.7]: https://github.com/speech115/tgcli/compare/v3.0.6...v3.0.7
 [3.0.6]: https://github.com/speech115/tgcli/compare/v3.0.5...v3.0.6
 [3.0.5]: https://github.com/speech115/tgcli/compare/v3.0.4...v3.0.5
