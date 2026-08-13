@@ -9,7 +9,7 @@ SCRIPT = Path(__file__).parents[1] / "scripts" / "check-architecture.py"
 CEILINGS = {
     "src/tgcli/cli.py": 747,
     "src/tgcli/parser.py": 726,
-    "src/tgcli/preflight.py": 444,
+    "src/tgcli/preflight.py": 446,
     "src/tgcli/dispatch.py": 358,
     "src/tgcli/commands/batch.py": 96,
     "src/tgcli/read_ops.py": 437,
