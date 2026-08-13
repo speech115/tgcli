@@ -1,10 +1,15 @@
 """The governed ``_call`` wrapper: refuse locally, arm from the server.
 
-Two things happen around every Telegram request, and the order matters:
+Three things happen around every authenticated Telegram request, and the
+order matters:
 
-* **before dispatch** — if this request type is cooling, refuse here. No RPC
-  leaves. The incident's cost was not one flood but an agent retrying into a
-  live penalty, so the cheapest correct behaviour is to never send at all.
+* **before dispatch, ledger health** — if the governor ledger is degraded
+  (unopenable on disk), refuse with ``PolicyError`` (ADR-0089). Pre-auth
+  traffic has no account id yet and skips this path.
+* **before dispatch, cooling** — if this request type is still cooling,
+  refuse here. No RPC leaves. The incident's cost was not one flood but an
+  agent retrying into a live penalty, so the cheapest correct behaviour is to
+  never send at all.
 * **after a flood** — arm the cooldown for exactly the type that drew it, from
   the server's own ``retry_after``. Never a guess, never a peer.
 

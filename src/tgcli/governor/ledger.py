@@ -5,7 +5,7 @@ One file per machine, every row keyed by ``account_user_id`` — ADR-0072
 decision 5 makes the budget account-scoped and shared across session roles, so
 a second process must see the first one's clock rather than keep its own.
 
-Three behaviours are load-bearing and each answers a specific past failure:
+Four behaviours are load-bearing and each answers a specific past failure:
 
 * **Ledger open still returns a degraded in-memory store.** A missing or
   corrupt file must not crash ``doctor`` mid-report (ADR-0072 L3 open path,
