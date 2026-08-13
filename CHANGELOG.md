@@ -11,6 +11,20 @@ Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
 lives in [docs/DEVLOG.md](docs/DEVLOG.md).
 
+## [3.0.2] — 2026-08-13
+
+When a FloodWait cooldown cannot be written to `governor.db`, the live
+`FloodWaitError` is still re-raised so sibling handlers and jobs requeue keep
+working, and a sticky in-process deadline refuses the next same-type RPC with
+exit 5 (`RateLimitError`). Stderr notes `(cooldown not persisted)` on that
+path. No new exit code.
+
+Rationale: ADR-0090.
+
+### Changed
+
+- Fail closed when FloodWait cooldown arm cannot persist (ADR-0090) (#243)
+
 ## [3.0.1] — 2026-08-13
 
 A degraded governor ledger no longer fails open for authenticated Telegram
@@ -891,6 +905,7 @@ two-step `send`, media download, export, `tg api` read-only passthrough,
 and `tg clone` for channels, non-forum supergroups, and private dialogs.
 The project entered maintenance mode on the same day (ADR-0026).
 
+[3.0.2]: https://github.com/speech115/tgcli/compare/v3.0.1...v3.0.2
 [3.0.1]: https://github.com/speech115/tgcli/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/speech115/tgcli/compare/v2.0.7...v3.0.0
 [2.0.7]: https://github.com/speech115/tgcli/compare/v2.0.6...v2.0.7

@@ -10,8 +10,11 @@ order matters:
   refuse here. No RPC leaves. The incident's cost was not one flood but an
   agent retrying into a live penalty, so the cheapest correct behaviour is to
   never send at all.
-* **after a flood** — arm the cooldown for exactly the type that drew it, from
-  the server's own ``retry_after``. Never a guess, never a peer.
+* **after a flood** — arm the cooldown for exactly the type that drew it,
+  from the server's own ``retry_after``. A failed durable arm keeps a
+  process-local sticky deadline and still re-raises the FloodWait so
+  sibling flood handlers keep working (ADR-0090); the next same-type
+  RPC in this process refuses locally.
 
 Installed on the *instance*, not the class. ``downloads.py`` calls ``_call``
 directly on a per-datacentre sender; an instance attribute still shadows the
@@ -192,8 +195,14 @@ def arm_from_flood(
     account: int,
     request_key: str,
     exc: BaseException,
-) -> None:
+) -> bool:
     """Record the server's own deadline for the type that drew the flood.
+
+    Returns ``True`` when the durable arm landed. On write failure the
+    deadline is kept process-locally (ADR-0090) and ``False`` is returned;
+    the caller still re-raises the live FloodWait so sibling handlers keep
+    working — the sticky map closes the fail-open hole for later RPCs in
+    this process.
 
     The stderr line is the one alert for this cooldown: it fires at
     arming, not on every scheduled wake that finds the type still cooling
@@ -202,9 +211,17 @@ def arm_from_flood(
     """
     seconds = getattr(exc, "seconds", None)
     if not isinstance(seconds, int | float) or seconds <= 0:
-        return
+        return True
     deadline = datetime.now(UTC) + timedelta(seconds=float(seconds))
-    ledger.arm_cooldown(account, request_key, deadline)
     from tgcli.output import note
 
-    note(f"telegram flood on {request_key}: cooling for {seconds}s")
+    for _ in range(3):
+        if ledger.arm_cooldown(account, request_key, deadline):
+            note(f"telegram flood on {request_key}: cooling for {seconds}s")
+            return True
+    ledger.remember_cooldown(account, request_key, deadline)
+    note(
+        f"telegram flood on {request_key}: cooling for {seconds}s "
+        "(cooldown not persisted)"
+    )
+    return False

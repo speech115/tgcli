@@ -439,3 +439,38 @@ async def test_pre_auth_window_still_runs_on_a_degraded_ledger(tmp_path):
 
         assert await client._call(None, history()) == "result"
         assert len(client.sent) == 1
+
+
+async def test_a_failed_flood_arm_keeps_sticky_cooldown_and_reraise_flood(
+    ledger, monkeypatch
+):
+    """T02 / ADR-0090: arm write failure still re-raises FloodWait (siblings)."""
+    error = telethon_errors.FloodWaitError(request=None)
+    error.seconds = 600
+    source = FakeClient(raises=error)
+    gate.install(source, ledger)
+    monkeypatch.setattr(ledger, "arm_cooldown", lambda *a, **k: False)
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        await source._call(None, history())
+    assert source.sent
+    assert ledger.cooldown_deadline(ACCOUNT, HISTORY_KEY) is not None
+
+
+async def test_a_failed_flood_arm_still_refuses_the_next_same_type(ledger, monkeypatch):
+    """T02: sticky map refuses the next same-type RPC with RateLimitError."""
+    error = telethon_errors.FloodWaitError(request=None)
+    error.seconds = 600
+    source = FakeClient(raises=error)
+    gate.install(source, ledger)
+    monkeypatch.setattr(ledger, "arm_cooldown", lambda *a, **k: False)
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        await source._call(None, history())
+
+    target = FakeClient()
+    gate.install(target, ledger)
+    with pytest.raises(RateLimitError) as caught:
+        await target._call(None, history())
+    assert caught.value.details["retry_after"] > 0
+    assert target.sent == []

@@ -88,7 +88,7 @@ flag.
 | 2 | blocked by safety policy | `--readonly` + mutating command, `TGCLI_NO_SEND` |
 | 3 | config/auth error | missing `--account` / `default_account`, dead session, bad api_id |
 | 4 | not found | unknown dialog, message id, media; unknown alias on `accounts show\|remove` (lookup) |
-| 5 | rate limited | FloodWait longer than threshold; `retry_after` in error JSON |
+| 5 | rate limited | FloodWait longer than threshold; `retry_after` in error JSON; also a sticky in-process cooldown after a FloodWait whose durable arm could not persist (ADR-0090) |
 
 A Telegram jobs lane that meets a rate limit persists the generation as queued
 with `not_before`, exits **0**, and reports
