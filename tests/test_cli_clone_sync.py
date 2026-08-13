@@ -777,7 +777,7 @@ def test_sync_late_comment_on_older_post_picked_up_in_later_window(
     sync = result["sync"]
     assert sync["copied"] == 4  # 3 posts + 1 late comment
     assert group_sends(client)
-    done = state.load(state.clone_id(42, 123))
+    done = state.load(state.clone_id(42, 123, "broadcast"))
     assert done is not None
     assert done.discussion_dest_for(30) is not None
     assert done.discussion_cursor >= 30
@@ -813,7 +813,7 @@ def test_sync_anchor_for_skipped_post_does_not_stall_comments(
     assert main(["clone", "sync", "@source", "--json"]) == 0
     sync = json.loads(capsys.readouterr().out)["sync"]
     assert sync["copied"] >= 1
-    done = state.load(state.clone_id(42, 123))
+    done = state.load(state.clone_id(42, 123, "broadcast"))
     assert done is not None
     assert done.cursor >= 3
     assert done.discussion_cursor >= 12

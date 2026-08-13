@@ -259,7 +259,7 @@ def test_status_all_lists_the_hidden_slots_and_still_counts_them(capsys):
     payload = json.loads(out)
     assert {c["clone_id"] for c in payload["clones"]} == {
         "a" * 64,
-        state.clone_id(100000001, 111),
+        state.clone_id(100000001, 111, "broadcast"),
     }
     assert payload["pending_import"] == 1
 
