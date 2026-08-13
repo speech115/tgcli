@@ -5,17 +5,21 @@ import argparse
 import pkgutil
 import re
 import sys
+from collections.abc import Set
 from pathlib import Path
 
-VALID_STATUSES = {"wrapped", "api", "excluded"}
+from telethon.tl import functions
+
+from tgcli.commands.api import WRITE_NAMESPACE_DENYLIST
+
+RAW_DENIED_STATUS = "raw-denied"
+VALID_STATUSES = {"wrapped", "api", "excluded", RAW_DENIED_STATUS}
 NAMESPACE_RE = re.compile(r"[a-z][a-z0-9]*")
 PLANNED_STATUS_RE = re.compile(r"planned:[1-9][0-9]*")
 DEFAULT_FEATURES = Path(__file__).resolve().parents[1] / "docs" / "FEATURES.md"
 
 
 def discover_namespaces() -> set[str]:
-    from telethon.tl import functions
-
     return {module.name for module in pkgutil.iter_modules(functions.__path__)}
 
 
@@ -35,14 +39,25 @@ def valid_status(status: str) -> bool:
     return status in VALID_STATUSES or bool(PLANNED_STATUS_RE.fullmatch(status))
 
 
-def validate(features_path: Path, namespaces: set[str] | None = None) -> list[str]:
+def validate(
+    features_path: Path,
+    namespaces: set[str] | None = None,
+    write_namespace_denylist: Set[str] | None = None,
+) -> list[str]:
     namespaces = namespaces if namespaces is not None else discover_namespaces()
+    write_namespace_denylist = (
+        WRITE_NAMESPACE_DENYLIST
+        if write_namespace_denylist is None
+        else write_namespace_denylist
+    )
     errors = []
     seen = set()
+    status_by_namespace: dict[str, str] = {}
     for namespace, status, notes in parse_matrix(features_path):
         if namespace in seen:
             errors.append(f"duplicate namespace: {namespace}")
         seen.add(namespace)
+        status_by_namespace.setdefault(namespace, status)
         if namespace not in namespaces:
             errors.append(f"unknown namespace: {namespace}")
         if not valid_status(status):
@@ -51,6 +66,16 @@ def validate(features_path: Path, namespaces: set[str] | None = None) -> list[st
             errors.append(f"excluded namespace {namespace} needs a reason")
     for namespace in sorted(namespaces - seen):
         errors.append(f"missing namespace: {namespace}")
+    matrix_denied = {
+        namespace
+        for namespace, status in status_by_namespace.items()
+        if status == RAW_DENIED_STATUS
+    }
+    for namespace in sorted(write_namespace_denylist - matrix_denied):
+        status = status_by_namespace.get(namespace, "missing")
+        errors.append(f"write policy denies {namespace} but matrix status is {status}")
+    for namespace in sorted(matrix_denied - write_namespace_denylist):
+        errors.append(f"matrix marks {namespace} raw-denied but write policy allows it")
     return errors
 
 

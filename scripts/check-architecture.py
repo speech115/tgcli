@@ -203,6 +203,9 @@ CEILINGS = {
     # seam.py: the governed seam itself, Telethon's private _call, plus
     # verify_seam's fail-fast check that it still has the expected shape.
     "src/tgcli/governor/seam.py": 66,
+    # ADR-0107: table-driven state inventory; keep the released store surface
+    # under the same strict hotspot ratchet as its persistence siblings.
+    "src/tgcli/commands/store.py": 530,
 }
 
 # Modules that must reach read commands only through the read_ops seam
@@ -224,21 +227,6 @@ EXCLUSIVE_READ_MODULES = {
     "search",
     "thread",
 }
-
-# Modules that write files read back later under the config/state roots must
-# replace them atomically via tgcli.atomic — a bare `write_text` can be seen
-# half-written by a concurrent invocation (the 1.2.0 store-cleanup vs live
-# login race). Exports and probe files (media, doctor) are exempt: nothing
-# re-reads them as state.
-STATE_WRITER_MODULES = (
-    "src/tgcli/safety.py",
-    "src/tgcli/login_state.py",
-    "src/tgcli/resolve_phone.py",
-    "src/tgcli/config.py",
-    "src/tgcli/commands/accounts.py",
-    "src/tgcli/commands/media.py",
-    "src/tgcli/commands/store.py",
-)
 
 
 def _state_write_errors(path: Path, relative: str) -> list[str]:
@@ -349,14 +337,11 @@ def check(root: Path, grace: int = GRACE) -> tuple[list[str], list[str]]:
             continue
         errors.extend(sorted(_read_ownership_errors(path, relative)))
 
-    for relative in STATE_WRITER_MODULES:
-        path = root / relative
-        if not path.exists():
-            errors.append(
-                f"{relative} is missing; STATE_WRITER_MODULES must list real "
-                "modules (renaming one silently drops its write_text ban)"
-            )
-            continue
+    # ADR-0107: deny bare write_text in every production module by default.
+    # A newly added or renamed state writer is covered without registry upkeep.
+    source_root = root / "src/tgcli"
+    for path in sorted(source_root.rglob("*.py")):
+        relative = path.relative_to(root).as_posix()
         errors.extend(_state_write_errors(path, relative))
     return errors, warnings
 

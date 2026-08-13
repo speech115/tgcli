@@ -10,13 +10,14 @@ Status values:
 - `wrapped` — dedicated `tg` command(s) exist
 - `api` — reachable via `tg api` passthrough only when explicitly allowlisted (ADR-0010), no wrapper needed yet
 - `planned:<phase>` — wrapper scheduled
+- `raw-denied` — the namespace is wholesale-denied through `tg api`, reads and writes alike
 - `excluded` — deliberately not supported, reason given
 
 | TL namespace | Status | Notes |
 |--------------|--------|-------|
-| account | excluded | Session lifecycle is owned by `tg accounts`; raw account calls are denylisted wholesale, reads and writes alike (ADR-0010/ADR-0092). |
+| account | raw-denied | Session lifecycle is owned by `tg accounts`; raw account calls are denylisted wholesale, reads and writes alike (ADR-0010/ADR-0092). |
 | aicompose | api | No dedicated workflow; use raw TL only after task-specific review. |
-| auth | excluded | Session lifecycle is owned by `tg accounts`; raw auth calls are denylisted. |
+| auth | raw-denied | Session lifecycle is owned by `tg accounts`; raw auth calls are denylisted. |
 | bots | api | User-account tool; bot-management calls are raw TL only. |
 | channels | wrapped | `info`, `count`, media, subscriber export, and `clone init` cover daily work; raw TL covers the long tail. |
 | chatlists | api | No demonstrated daily workflow needs a wrapper. |

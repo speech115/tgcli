@@ -11,7 +11,7 @@ tgcli/
 ├── CONTRIBUTING.md            [done]    human-facing short form of AGENTS.md: gate, TDD, doc duties (ADR-0056)
 ├── SECURITY.md                [done]    private reporting channel, redaction rules, safety scope (ADR-0056)
 ├── LICENSE                    [done]    MIT, © speech115 (ADR-0056)
-├── .github/workflows/ci.yml   [done]    CI: ruff + architecture + pyright + pytest + coverage gates (ADR-0027/0034)
+├── .github/workflows/ci.yml   [done]    CI: ruff + strict architecture + pyright + pytest + coverage gates (ADR-0027/0034/0107)
 ├── .github/workflows/release-tag.yml [done] tags the merged release commit vX.Y.Z on push to main (ADR-0038)
 ├── .github/ISSUE_TEMPLATE/    [done]    bug-report + proposal forms, both labelled needs-triage (ADR-0056)
 ├── .github/PULL_REQUEST_TEMPLATE.md [done] gate evidence + documentation/safety checklist (ADR-0056)
@@ -37,7 +37,7 @@ tgcli/
 │   ├── agents/                [done]    issue tracker, triage labels, domain-doc routing (ADR-0033), release runbook
 │   ├── thermos-audit-2026-08-13-backlog.md [done] ticket-ready backlog from whole-repo thermos audit (37 items)
 │   ├── thermos-audit-2026-08-13/ [done]   per-ticket bodies for scripts/publish-thermos-backlog.py
-│   ├── decisions/             [done]    ADR-0001…0092 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope; ADR-0079 transcribe readonly gate; ADR-0080 notes trimming; ADR-0081 diagnostics honesty; ADR-0082 per-leg clone sync; ADR-0083 floods keep finished work; ADR-0084 resume identifies its media; ADR-0085 clone reports the bot keyboard it cannot carry; ADR-0086 clone reports durable degradation before a later exit; ADR-0087 foreground persisted jobs; ADR-0088 phone-only authorization; ADR-0089 degraded governor ledger fails closed; ADR-0090 failed flood arm fails closed; ADR-0091 media download completeness; ADR-0092 raw API write wholesale auth/account deny)
+│   ├── decisions/             [done]    ADR-0001…0107 + README.md index (ADR-0074 complexity reset + release preparation script; ADR-0077 Release-page publication; ADR-0078 codec scope; ADR-0079 transcribe readonly gate; ADR-0080 notes trimming; ADR-0081 diagnostics honesty; ADR-0082 per-leg clone sync; ADR-0083 floods keep finished work; ADR-0084 resume identifies its media; ADR-0085 clone reports the bot keyboard it cannot carry; ADR-0086 clone reports durable degradation before a later exit; ADR-0087 foreground persisted jobs; ADR-0088 phone-only authorization; ADR-0089 degraded governor ledger fails closed; ADR-0090 failed flood arm fails closed; ADR-0091 media download completeness; ADR-0092 raw API write wholesale auth/account deny; ADR-0107 strict and deny-by-default gates)
 │   ├── research/              [done]    read-only investigation notes backing a wayfinder map's closed children
 │   └── superpowers/           [done]    CLOSED ARCHIVE: completed plans + specs, history only
 ├── src/tgcli/
@@ -131,23 +131,23 @@ tgcli/
 │   │   ├── send.py            [done]    tg send CHAT TEXT --preview / --commit (phase 4)
 │   │   ├── draft.py           [done]    tg draft set|show|clear|list (ADR-0039)
 │   │   ├── mutate.py          [done]    tg edit|delete|forward preview / commit; tg mark-read|mark-unread (ADR-0028/0029)
-│   │   ├── store.py           [done]    tg store stats|cleanup; previews + logins + session_backups + clone media caches + archive inventory (ADR-0040/0042/0052/0068)
+│   │   ├── store.py           [done]    tg store stats|cleanup; table-driven file inventory plus custom previews/logins/cache/archive scans (ADR-0040/0042/0052/0068/0107)
 │   │   ├── api.py             [done]    tg api raw TL passthrough (read allowlist + audited Phase-4 writes, ADR-0010)
 │   │   ├── export.py          [done]    tg export messages|subscribers (+ incremental messages ADR-0032; broadcast walk ADR-0031)
 │   │   └── clone.py           [done]    clone status/init/sync/refresh/export-state surface (ADR-0017…0025/0045/0046/0047/0048/0052/0054/0055/0060; live gates for clone path)
 ├── tests/                     [done]    unit tests, mocked Telethon client
 │   └── live/                  [done]    gated live smoke (TGCLI_LIVE_SMOKE=1)
 └── scripts/
-    ├── gate.sh                [done]    full pre-commit gate: the exact CI steps, one command
+    ├── gate.sh                [done]    full pre-commit gate: exact CI steps with strict architecture ceilings
     ├── install-link.sh        [done]    symlink tg → PATH (phase 6 cutover)
-    ├── check-coverage.py      [done]    fail-closed Telethon namespace matrix gate (phase 7)
+    ├── check-coverage.py      [done]    Telethon namespace matrix + raw API write-denial cross-check (phase 7/ADR-0107)
     ├── check-docs.py          [done]    guide + active-doc drift gate; CHANGELOG release links (ADR-0038/0041/0065)
     ├── prepare-release.py     [done]    integrator-only: version bump, CHANGELOG section, compare link (ADR-0074)
     ├── publish-thermos-backlog.py [done] dry-run/apply publisher for docs/thermos-audit-2026-08-13 tickets
     ├── bench.py               [done]    representative 13-step live smoke benchmark
     ├── bench-clone-state.py   [done]    offline bf-19 benchmark: JSON rewrite vs SQLite/WAL (ADR-0060)
     ├── seed_demo_channel.py   [done]    manual demo-channel seeding for clone visual acceptance
-    └── check-architecture.py  [done]    module ownership + per-file line ceilings (ADR-0034)
+    └── check-architecture.py  [done]    ownership + strict ceilings + production-wide write_text denial (ADR-0034/0107)
 ```
 
 ## Module Ownership Rules
