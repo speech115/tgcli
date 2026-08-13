@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from telethon import errors as telethon_errors, functions
 
 from tgcli import authclient, desktop, login_state, safety
 from tgcli.cli import main
@@ -48,7 +50,11 @@ class FakeAuthClient:
         self._me = SimpleNamespace(id=42, username="u", phone="79991234589")
         self._send_code_error = None
         self._sign_in_error = None
+        self._get_me_error = None
+        self._request_error = None
         self._authorized_probe = False
+        self.requests = []
+        self.connected = False
 
     async def send_code_request(self, phone):
         assert isinstance(phone, str)
@@ -66,38 +72,44 @@ class FakeAuthClient:
         return self._me
 
     async def get_me(self):
+        if self._get_me_error:
+            raise self._get_me_error
         return self._me
 
     async def disconnect(self):
+        self.connected = False
         self.disconnected = True
 
     async def is_user_authorized(self):
         return self._authorized_probe
 
     async def connect(self):
-        return None
+        self.connected = True
+
+    def is_connected(self):
+        return self.connected
+
+    async def __call__(self, request):
+        self.requests.append(request)
+        if self._request_error:
+            raise self._request_error
+        if not self._authorized_probe:
+            raise telethon_errors.AuthKeyUnregisteredError(request=request)
+        return SimpleNamespace()
 
 
 @pytest.fixture
 def fake_client(env, monkeypatch):
     client = FakeAuthClient()
 
-    from contextlib import asynccontextmanager
+    def fake_telegram(path, api_id, api_hash, **kwargs):
+        staged = Path(path)
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        if not staged.exists():
+            staged.write_bytes(b"staged")
+        return client
 
-    @asynccontextmanager
-    async def fake_unauthorized(path, api_id, api_hash):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"staged")
-        yield client
-
-    monkeypatch.setattr(authclient, "unauthorized_client", fake_unauthorized)
-    monkeypatch.setattr(login_cmd.authclient, "unauthorized_client", fake_unauthorized)
-
-    async def fake_probe(account):
-        return client._authorized_probe
-
-    monkeypatch.setattr(authclient, "probe_authorized", fake_probe)
-    monkeypatch.setattr(login_cmd.authclient, "probe_authorized", fake_probe)
+    monkeypatch.setattr(authclient, "TelegramClient", fake_telegram)
     return client
 
 
@@ -158,6 +170,38 @@ async def test_force_required_when_authorized(env, fake_client):
             api_hash=None,
             force=False,
         )
+
+
+def test_probe_flood_wait_exits_5_without_creating_or_promoting(
+    env, monkeypatch, capsys
+):
+    session = env["state"] / "sessions" / "main.session"
+    session.write_bytes(b"authorized-session")
+    client = FakeAuthClient()
+    client._request_error = telethon_errors.FloodWaitError(request=None, capture=30)
+    monkeypatch.setattr(authclient, "TelegramClient", lambda *args, **kwargs: client)
+
+    code = main(
+        [
+            "accounts",
+            "login",
+            "main",
+            "--phone",
+            PHONE,
+            "--json",
+        ]
+    )
+
+    assert code == 5
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "FLOOD_WAIT"
+    assert error["retry_after"] == 30
+    assert len(client.requests) == 1
+    assert isinstance(client.requests[0], functions.updates.GetStateRequest)
+    assert session.read_bytes() == b"authorized-session"
+    assert not session.with_suffix(".session.bak").exists()
+    logins = env["state"] / "logins"
+    assert not logins.exists() or list(logins.iterdir()) == []
 
 
 @pytest.mark.asyncio
@@ -636,6 +680,47 @@ async def test_continue_password_flood_wait_keeps_attempt(
     assert excinfo.value.exit_code == 5
     assert excinfo.value.details["retry_after"] == 45
     assert (env["state"] / "logins" / f"{pending['login_id']}.json").exists()
+
+
+def test_post_login_get_me_flood_wait_exits_5_without_promotion(
+    env, monkeypatch, capsys
+):
+    attempt = login_state.create_attempt(
+        "tmp",
+        "phone",
+        api_id=1,
+        api_hash="h",
+        phone=PHONE,
+    )
+    login_state.update_attempt(attempt["login_id"], phone_code_hash="hash-abc")
+    staged = login_state.staged_session_path(attempt["login_id"])
+    staged.write_bytes(b"staged-session")
+    client = FakeAuthClient()
+    client._get_me_error = telethon_errors.FloodWaitError(request=None, capture=45)
+    monkeypatch.setattr(authclient, "TelegramClient", lambda *args, **kwargs: client)
+
+    code = main(
+        [
+            "accounts",
+            "login",
+            "--continue",
+            attempt["login_id"],
+            "--code",
+            "12345",
+            "--json",
+        ]
+    )
+
+    assert code == 5
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "FLOOD_WAIT"
+    assert error["retry_after"] == 45
+    assert (
+        login_state.load_attempt(attempt["login_id"])["phone_code_hash"] == "hash-abc"
+    )
+    assert staged.read_bytes() == b"staged-session"
+    assert not (env["state"] / "sessions" / "tmp.session").exists()
+    assert client.disconnected
 
 
 @pytest.mark.asyncio

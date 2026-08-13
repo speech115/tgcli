@@ -10,10 +10,10 @@ import fcntl
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from telethon import TelegramClient, errors as telethon_errors
+from telethon import TelegramClient, errors as telethon_errors, functions
 
 from tgcli.config import Account
-from tgcli.errors import ConfigError
+from tgcli.errors import ConfigError, RateLimitError
 from tgcli.session import (
     client_identity,
     ensure_state_dir,
@@ -62,8 +62,14 @@ async def unauthorized_client(path: Path, api_id: int, api_hash: str):
     # before any network use.
     restrict_file(path)
     try:
-        await tg.connect()
-        yield tg
+        try:
+            await tg.connect()
+            yield tg
+        except telethon_errors.FloodWaitError as exc:
+            raise RateLimitError(
+                f"FLOOD_WAIT; retry after {exc.seconds}s",
+                retry_after=exc.seconds,
+            ) from exc
     finally:
         # Login may disconnect before promote so SQLite releases the staged
         # file; a second disconnect would recreate an empty DB at the old path
@@ -77,11 +83,16 @@ async def unauthorized_client(path: Path, api_id: int, api_hash: str):
 async def probe_authorized(account: Account, role: str | None = None) -> bool:
     """Return whether the account's existing session is still authorized.
 
-    `SessionRevokedError` maps to False rather than raising.
+    Authorization errors map to False; transient RPC errors remain visible.
     """
     path = session_path(account, role)
     try:
         async with unauthorized_client(path, account.api_id, account.api_hash) as tg:
-            return bool(await tg.is_user_authorized())
-    except telethon_errors.SessionRevokedError:
+            # Telethon's is_user_authorized catches every RPCError, including
+            # FloodWaitError, and caches False. Probe with its underlying
+            # authorization-required request so transient failures cannot
+            # authorize replacement of a live session.
+            await tg(functions.updates.GetStateRequest())
+            return True
+    except telethon_errors.UnauthorizedError:
         return False

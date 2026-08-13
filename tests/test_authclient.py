@@ -5,6 +5,7 @@ from __future__ import annotations
 import fcntl
 
 import pytest
+from telethon import errors as telethon_errors, functions
 
 from tgcli import authclient
 from tgcli.config import Account
@@ -19,6 +20,7 @@ class _FakeTg:
         self.connected = False
         self.disconnected = False
         self.disconnect_calls = 0
+        self.requests = []
 
     async def connect(self):
         if self.raise_on_connect is not None:
@@ -33,12 +35,13 @@ class _FakeTg:
         self.connected = False
         self.disconnected = True
 
-    async def is_user_authorized(self):
+    async def __call__(self, request):
+        self.requests.append(request)
         if self.revoke:
-            from telethon.errors import SessionRevokedError
-
-            raise SessionRevokedError(request=None)
-        return self.authorized
+            raise telethon_errors.SessionRevokedError(request=request)
+        if not self.authorized:
+            raise telethon_errors.AuthKeyUnregisteredError(request=request)
+        return object()
 
 
 @pytest.mark.asyncio
@@ -208,6 +211,8 @@ async def test_probe_authorized_maps_revoked_to_false(tmp_path, monkeypatch):
     monkeypatch.setattr(authclient, "TelegramClient", lambda *a, **k: fake)
 
     assert await authclient.probe_authorized(account) is False
+    assert len(fake.requests) == 1
+    assert isinstance(fake.requests[0], functions.updates.GetStateRequest)
     assert fake.disconnected
 
 
