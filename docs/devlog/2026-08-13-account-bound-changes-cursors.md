@@ -16,5 +16,7 @@ upgrading caller state would bless the forgery this ticket closes.
 parallel remote branches, so this branch used ADR-0103 rather than colliding in
 the wave's reserved range.
 
-**Next:** Run focused tests and the full gate, then hand off the whole diff for
-independent Spec + Standards review.
+**Next:** Full gate is green (`1911 passed, 9 skipped`; 23 namespaces; 27 guide
+pages; 44 releases; zero docs problems). Hand off the whole diff for
+independent Spec + Standards review; no live smoke is needed for a local
+pre-request refusal with exact RPC-absence assertions.
