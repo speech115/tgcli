@@ -14,13 +14,14 @@ def test_feature_branch_commit_has_one_ci_event() -> None:
     )
 
 
-def test_macos_leg_runs_the_suite_on_pull_requests() -> None:
-    """ADR-0059: macOS is a first-class target (bf-03 was macOS-only) but CI
-    was ubuntu-only. One PR-gated macOS job runs the test suite."""
+def test_ci_runs_on_the_self_hosted_macos_runner() -> None:
+    """ADR-0119: CI moved to a self-hosted macOS runner after the private
+    repo exhausted GitHub-hosted Actions (billing). Both legs run on
+    `[self-hosted, tgcli]`; the PR-gated macOS leg is kept as a second pass."""
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
 
     assert "test-macos:" in workflow
-    assert "runs-on: macos-latest" in workflow
+    assert "runs-on: [self-hosted, tgcli]" in workflow
     assert "if: github.event_name == 'pull_request'" in workflow
 
 

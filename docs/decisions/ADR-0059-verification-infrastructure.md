@@ -1,7 +1,7 @@
 # ADR-0059: Verification infrastructure — macOS CI leg, property tests, parallel suite
 
 Date: 2026-07-26
-Status: accepted
+Status: accepted; decision 2 (GitHub-hosted macOS CI leg) superseded by ADR-0119
 
 ## Context
 
