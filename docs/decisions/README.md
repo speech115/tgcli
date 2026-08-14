@@ -125,6 +125,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0116](ADR-0116-archive-store-split.md) | Split archive store persistence into schema/messages/transcripts/sync_state/peers modules behind a thin store facade | accepted; thermos debt T30 |
 | [0117](ADR-0117-breadth-atomic-check-and-touch.md) | Breadth budget check-and-touch is one `BEGIN IMMEDIATE` claim; gate still dispatches on refuse | accepted; thermos debt T36 |
 | [0118](ADR-0118-private-backfill-enum-cursor.md) | Private archive-backfill persists a GetDialogs resume token on account_sync (schema v8) | accepted; thermos debt T37 |
+| [0119](ADR-0119-self-hosted-macos-ci.md) | CI runs on a self-hosted macOS runner (`[self-hosted, tgcli]`); GitHub-hosted minutes dropped | accepted |
 
 Notes on supersessions:
 
