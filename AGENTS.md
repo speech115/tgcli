@@ -14,6 +14,8 @@ Canonical behavior contract for every AI agent working in this repo.
 5. When using installed engineering flows, read the matching repository
    routing under [docs/agents/](docs/agents/): issue tracker, triage labels,
    and domain-document discovery.
+6. [CODING_STANDARDS.md](CODING_STANDARDS.md) — the active checkable rule
+   list review enforces; add a rule here when the agent does something wrong.
 
 [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md) are the
 outward-facing summaries of these rules (ADR-0056): the first restates this
@@ -178,8 +180,9 @@ needs no superseding ADR.
 - Review on two axes:
   1. **Spec:** every ADR/plan/CONTRACT requirement is implemented, and no
      unapproved behavior was added.
-  2. **Standards:** AGENTS, module ownership, stdout, exit-code, safety,
-     audit, documentation, and code-smell rules are respected.
+  2. **Standards:** AGENTS, `CODING_STANDARDS.md`, module ownership, stdout,
+     exit-code, safety, audit, documentation, and code-smell rules are
+     respected.
 - Adversarial review is mandatory for CLI boundaries: invalid and combined
   flags, empty input, caps, ISO date coercion, partial failures, readonly
   gates, audit timing, and exact external-library types where applicable.
