@@ -19,6 +19,7 @@ tgcli/
 ├── .claude/agents/            [done]    repo-local subagents (reviewer: independent pre-merge diff review)
 ├── AGENTS.md                  [done]    agent contract, doc discipline
 ├── CLAUDE.md                  [done]    Claude adapter → AGENTS.md
+├── CODING_STANDARDS.md        [done]    active checkable rule list the reviewer enforces
 ├── SKILL.md                   [done]    agent command routing and safety contract (phase 6)
 ├── pyproject.toml             [done]    uv-managed; telethon==1.44.0; dev: pytest, ruff, pyright
 ├── docs/

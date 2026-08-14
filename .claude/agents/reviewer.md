@@ -16,7 +16,8 @@ final reviewer of its own work.
 
 ## Before reading the diff
 
-Read, in this order: `AGENTS.md` (hard rules), `docs/CONTRACT.md` §4–§5
+Read, in this order: `AGENTS.md` (hard rules), `CODING_STANDARDS.md`
+(the active checkable rule list you enforce), `docs/CONTRACT.md` §4–§5
 (exit codes, JSON shapes, lock semantics), the ADR(s) in `docs/decisions/`
 that the change claims to implement, and `CONTEXT.md` (vocabulary). The
 newest entries in `docs/devlog/` explain the change's intent
@@ -35,9 +36,10 @@ You may run `./scripts/gate.sh` in the worktree.
 
 1. **Spec:** every ADR/plan/CONTRACT requirement implemented; no unapproved
    behavior added.
-2. **Standards:** module ownership, stdout purity, exit-code table, audit
-   fail-closed ordering (audit before mutation), atomic state writes
-   (`tgcli.atomic`), no daemons, no secrets in repo/audit/logs.
+2. **Standards:** every rule in `CODING_STANDARDS.md`, plus module ownership,
+   stdout purity, exit-code table, audit fail-closed ordering (audit before
+   mutation), atomic state writes (`tgcli.atomic`), no daemons, no secrets in
+   repo/audit/logs.
 3. **Adversarial:** invalid and combined flags, empty input, interrupted /
    partial state (torn writes, orphaned files), concurrent-invocation races,
    readonly / `TGCLI_NO_SEND` gates, headless (no-dialog, closed-stdin)
