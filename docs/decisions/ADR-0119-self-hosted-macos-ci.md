@@ -20,14 +20,15 @@ billing.
    labels `self-hosted,tgcli`, runs the whole CI. It is launched by a
    `LaunchAgent` (`com.github.actions-runner.tgcli`) so it survives login
    and needs no sudo.
-2. Both CI jobs route to `[self-hosted, tgcli]`: the full gate (`test` /
-   `branch-test`, including lint, pyright, and the doc gates, which are
-   platform-independent but now run on macOS) and the PR-gated `test-macos`
-   leg. `test-macos` is now a redundant second pass on the same platform and
-   is kept only to preserve the two-check surface.
-3. `tests/test_repository_config.py` asserts the `[self-hosted, tgcli]`
-   routing, so the runner choice is pinned by the same repo-config guard
-   that pinned the macOS leg before it.
+2. CI is a single job, `pull_request` only: the full gate (`test`, including
+   lint, pyright, and the doc gates, which are platform-independent but now
+   run on macOS) on `[self-hosted, tgcli]`. The `push` trigger and the
+   `test-macos` leg are removed — on a single runner they made every PR run
+   three serialized full gates, and `test-macos` was a redundant second pass
+   on the same platform.
+3. `tests/test_repository_config.py` asserts the PR-only, single-job,
+   `[self-hosted, tgcli]` shape, so the CI topology is pinned by the same
+   repo-config guard that pinned the macOS leg before it.
 
 ## Rejected alternatives
 

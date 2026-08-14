@@ -3,26 +3,18 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 
 
-def test_feature_branch_commit_has_one_ci_event() -> None:
+def test_ci_runs_one_full_gate_on_pull_request_only() -> None:
+    """ADR-0119: CI runs a single full gate on the self-hosted macOS runner,
+    `pull_request` only. No `push` trigger and no second leg, so one runner
+    does one job per PR instead of three serialized ones."""
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
 
-    assert 'push:\n    branches: ["**"]\n  pull_request:' in workflow
-    assert "group: ${{ github.workflow }}-${{ github.ref }}" in workflow
-    assert (
-        "name: ${{ github.event_name == 'pull_request' && 'test' || "
-        "'branch-test' }}" in workflow
-    )
-
-
-def test_ci_runs_on_the_self_hosted_macos_runner() -> None:
-    """ADR-0119: CI moved to a self-hosted macOS runner after the private
-    repo exhausted GitHub-hosted Actions (billing). Both legs run on
-    `[self-hosted, tgcli]`; the PR-gated macOS leg is kept as a second pass."""
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-
-    assert "test-macos:" in workflow
+    assert "on:\n  pull_request:" in workflow
+    assert "push:" not in workflow
+    assert "name: CI\n" in workflow
     assert "runs-on: [self-hosted, tgcli]" in workflow
-    assert "if: github.event_name == 'pull_request'" in workflow
+    assert "group: ${{ github.workflow }}-${{ github.ref }}" in workflow
+    assert "uv run pytest -q -n auto" in workflow
 
 
 def test_ci_interpreter_is_pinned_to_the_project_target() -> None:
