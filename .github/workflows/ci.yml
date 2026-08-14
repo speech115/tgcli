@@ -1,19 +1,18 @@
 name: CI
 
 on:
-  push:
-    branches: ["**"]
   pull_request:
 
-# Push and pull_request runs use distinct refs and check names. This preserves
-# pre-PR branch CI without creating two required "test" checks for one SHA.
+# PR-only, single job: one full gate per PR on the self-hosted macOS runner.
+# No push trigger and no second leg, so a single-runner machine does one job
+# per PR instead of three serialized ones (ADR-0119).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
-    name: ${{ github.event_name == 'pull_request' && 'test' || 'branch-test' }}
+    name: test
     runs-on: [self-hosted, tgcli]
     steps:
       - uses: actions/checkout@v7
@@ -38,21 +37,3 @@ jobs:
         run: uv run python scripts/check-coverage.py
       - name: Check user guide against the CLI surface
         run: uv run python scripts/check-docs.py
-
-  # macOS is a first-class target and has caught platform-only defects
-  # (bf-03: case-insensitive alias collision on APFS). The full gate above
-  # now also runs on the self-hosted macOS runner, so this leg is a plain
-  # second pass on the same platform; kept as a separate check for now.
-  test-macos:
-    name: test-macos
-    if: github.event_name == 'pull_request'
-    runs-on: [self-hosted, tgcli]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9.0.0
-        with:
-          enable-cache: true
-      - name: Install dependencies
-        run: uv sync --frozen
-      - name: Run tests
-        run: uv run pytest -q -n auto
