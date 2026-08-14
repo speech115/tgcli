@@ -14,7 +14,7 @@ concurrency:
 jobs:
   test:
     name: ${{ github.event_name == 'pull_request' && 'test' || 'branch-test' }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, tgcli]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v9.0.0
@@ -40,13 +40,13 @@ jobs:
         run: uv run python scripts/check-docs.py
 
   # macOS is a first-class target and has caught platform-only defects
-  # (bf-03: case-insensitive alias collision on APFS). PR-gated so branch
-  # pushes stay cheap; lint/pyright are platform-independent and stay on
-  # the ubuntu leg (ADR-0059).
+  # (bf-03: case-insensitive alias collision on APFS). The full gate above
+  # now also runs on the self-hosted macOS runner, so this leg is a plain
+  # second pass on the same platform; kept as a separate check for now.
   test-macos:
     name: test-macos
     if: github.event_name == 'pull_request'
-    runs-on: macos-latest
+    runs-on: [self-hosted, tgcli]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v9.0.0
