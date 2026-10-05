@@ -1,4 +1,4 @@
-"""Opaque versioned cursor for `tg changes` (ADR-0063 / ADR-0103).
+"""Opaque versioned update cursor for archive sync (ADR-0063 / ADR-0103).
 
 Pure functions only — no I/O. The caller owns the string between invocations.
 """
@@ -20,6 +20,10 @@ _BOUND_FIELDS = {"pts", "qts", "date", "seq", "channels", _BINDING_FIELD}
 _TOKEN_CHARS = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 )
+
+
+# Archive sync owns the cursor; rebaseline is how an operator resets it.
+REBASELINE = "run: tg archive rebaseline"
 
 
 @dataclass(frozen=True)
@@ -71,7 +75,7 @@ def decode(
     require_bound: bool = False,
 ) -> ChangesCursor:
     if not isinstance(text, str) or not text:
-        raise PolicyError("changes cursor is required; run: tg changes --init")
+        raise PolicyError(f"changes cursor is required; {REBASELINE}")
     if text.startswith(BOUND_CURSOR_PREFIX):
         prefix = BOUND_CURSOR_PREFIX
         is_bound = True
@@ -79,18 +83,16 @@ def decode(
         prefix = CURSOR_PREFIX
         is_bound = False
     else:
-        raise PolicyError(
-            "changes cursor is missing or unsupported; run: tg changes --init"
-        )
+        raise PolicyError(f"changes cursor is missing or unsupported; {REBASELINE}")
     padded = text[len(prefix) :]
     pad = "=" * (-len(padded) % 4)
     try:
         raw = base64.urlsafe_b64decode(padded + pad)
         payload = json.loads(raw.decode("utf-8"))
     except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as exc:
-        raise PolicyError("changes cursor is corrupt; run: tg changes --init") from exc
+        raise PolicyError(f"changes cursor is corrupt; {REBASELINE}") from exc
     if not isinstance(payload, dict):
-        raise PolicyError("changes cursor is corrupt; run: tg changes --init")
+        raise PolicyError(f"changes cursor is corrupt; {REBASELINE}")
     try:
         pts = _nonneg_int(payload["pts"], "pts")
         qts = _nonneg_int(payload["qts"], "qts")
@@ -98,13 +100,13 @@ def decode(
         seq = _nonneg_int(payload["seq"], "seq")
         channels_raw = payload.get("channels", {})
         if not isinstance(channels_raw, dict):
-            raise PolicyError("changes cursor is corrupt; run: tg changes --init")
+            raise PolicyError(f"changes cursor is corrupt; {REBASELINE}")
         channels: dict[int, int] = {}
         for key, value in channels_raw.items():
             peer = _marked_peer(key)
             channels[peer] = _nonneg_int(value, "channel pts")
     except KeyError as exc:
-        raise PolicyError("changes cursor is corrupt; run: tg changes --init") from exc
+        raise PolicyError(f"changes cursor is corrupt; {REBASELINE}") from exc
     cursor = ChangesCursor(pts=pts, qts=qts, date=date, seq=seq, channels=channels)
     if is_bound:
         supplied = payload.get(_BINDING_FIELD)
@@ -114,7 +116,7 @@ def decode(
             or len(supplied) != 43
             or any(char not in _TOKEN_CHARS for char in supplied)
         ):
-            raise PolicyError("changes cursor is corrupt; run: tg changes --init")
+            raise PolicyError(f"changes cursor is corrupt; {REBASELINE}")
         if binding_key is not None and not hmac.compare_digest(
             supplied, _binding(_payload(cursor), binding_key)
         ):
@@ -126,8 +128,7 @@ def decode(
 
 def _bound_error() -> PolicyError:
     return PolicyError(
-        "changes cursor is not bound to this account or was modified; "
-        "run: tg changes --init"
+        f"changes cursor is not bound to this account or was modified; {REBASELINE}"
     )
 
 
@@ -174,7 +175,7 @@ def replace_common(
 
 def _nonneg_int(value, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise PolicyError(f"changes cursor has invalid {label}; run: tg changes --init")
+        raise PolicyError(f"changes cursor has invalid {label}; {REBASELINE}")
     return value
 
 
@@ -184,9 +185,9 @@ def _marked_peer(key) -> int:
     elif isinstance(key, str) and key.lstrip("-").isdigit():
         peer = int(key)
     else:
-        raise PolicyError("changes cursor is corrupt; run: tg changes --init")
+        raise PolicyError(f"changes cursor is corrupt; {REBASELINE}")
     if peer >= 0:
         raise PolicyError(
-            "changes cursor channel ids must be marked (-100…); run: tg changes --init"
+            f"changes cursor channel ids must be marked (-100…); {REBASELINE}"
         )
     return peer

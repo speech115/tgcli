@@ -1,4 +1,4 @@
-"""Archive delta sync via ``tg changes`` cursor (ADR-0068 Phase 3)."""
+"""Archive delta sync through the update cursor engine (ADR-0068 Phase 3)."""
 
 from __future__ import annotations
 

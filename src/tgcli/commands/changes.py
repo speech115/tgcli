@@ -1,4 +1,4 @@
-"""Daemonless change feed: `tg changes` (ADR-0063 / ADR-0103 / FEED-001)."""
+"""Update cursor engine behind archive sync (ADR-0063 / ADR-0103 / FEED-001)."""
 
 from __future__ import annotations
 
@@ -360,7 +360,7 @@ async def once(
 
     When ``private_deletes`` is true, ``UpdateDeleteMessages`` becomes
     ``message_delete`` events with ``peer: null`` (archive resolves peers
-    from the local store). Public ``tg changes`` keeps the default skip.
+    from the local store). Without it they are skipped.
     """
     skipped: dict[str, int] = {}
     events: list[dict] = []

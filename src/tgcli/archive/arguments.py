@@ -94,7 +94,7 @@ def add_to(sub, global_flags) -> None:
     )
     sync = commands.add_parser(
         "sync",
-        help="Apply tg changes delta into the archive",
+        help="Apply new Telegram updates to the archive",
         parents=[global_flags],
     )
     sync.add_argument(
