@@ -17,7 +17,6 @@ from tgcli.commands import (
     search as search_cmd,
     thread as thread_cmd,
 )
-from tgcli.errors import PolicyError
 
 
 @dataclass(frozen=True)
@@ -85,12 +84,6 @@ class Resolve:
 
 
 @dataclass(frozen=True)
-class MutualChats:
-    ref: str
-    name: ClassVar[Literal["mutual-chats"]] = "mutual-chats"
-
-
-@dataclass(frozen=True)
 class ContactsList:
     name: ClassVar[Literal["contacts.list"]] = "contacts.list"
 
@@ -141,7 +134,6 @@ ReadOperation: TypeAlias = (
     | Info
     | Count
     | Resolve
-    | MutualChats
     | ContactsList
     | ContactsSearch
     | MediaManifest
@@ -178,74 +170,6 @@ def parse_when(
     return parsed
 
 
-def _batch_when(value: Any, field: str) -> datetime | None:
-    def invalid() -> NoReturn:
-        raise PolicyError(f"batch {field} must be an ISO 8601 string")
-
-    return parse_when(value, invalid=invalid)
-
-
-# Enumerations the CLI parser offers as `choices`; the batch adapter rejects
-# exactly the same values, so a typo cannot come back as an empty list.
-DIALOG_KINDS = ("user", "group", "channel")
-MEDIA_KINDS = media_cmd.MEDIA_KINDS
-
-
-def _batch_choice(value: Any, field: str, choices: tuple[str, ...]) -> str | None:
-    if value is not None and value not in choices:
-        raise PolicyError(f"batch {field} must be one of: {', '.join(choices)}")
-    return value
-
-
-def _batch_bool(value: Any, field: str) -> bool:
-    """A batch bool field is a real JSON boolean; nothing else is truthy.
-
-    Every batch bool flag defaults to `False` when absent, so a missing key
-    or an explicit JSON `null` both mean "not set". Truthiness on a string
-    like `"false"` or an int like `1` is exactly the T15 bug: it silently
-    flips a filter instead of failing closed.
-    """
-    if value is None:
-        return False
-    if isinstance(value, bool):
-        return value
-    raise PolicyError(f"batch {field} must be a JSON boolean")
-
-
-def _batch_int(value: Any, field: str) -> int:
-    """A batch int field is a real JSON integer, matching CLI argparse
-    `type=int` semantics. `bool` is excluded even though it is an `int`
-    subclass in Python — `True` must not silently become `1`.
-    """
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise PolicyError(f"batch {field} must be a JSON integer")
-    return value
-
-
-def _batch_optional_int(value: Any, field: str) -> int | None:
-    """Like `_batch_int`, but a missing key or JSON `null` means "unset"."""
-    if value is None:
-        return None
-    return _batch_int(value, field)
-
-
-def _batch_search(p: dict[str, Any]) -> Search:
-    """A global search carries no chat, sender, or date scope (CONTRACT §3)."""
-    if _batch_bool(p.get("all"), "search.all"):
-        if p.get("from") is not None or p.get("since") is not None:
-            raise PolicyError("search --all only supports QUERY and --limit")
-        limit = _batch_int(p.get("limit", 20), "search.limit")
-        return Search(None, p["query"], limit, True, None, None)
-    return Search(
-        p["chat"],
-        p["query"],
-        _batch_int(p.get("limit", 20), "search.limit"),
-        False,
-        p.get("from"),
-        _batch_when(p.get("since"), "search.since"),
-    )
-
-
 async def _fetch_search(tg, op: Search) -> dict[str, Any]:
     if op.all:
         return await search_cmd.fetch_search_all(tg, op.query, limit=op.limit)
@@ -269,16 +193,15 @@ async def _fetch_info(tg, op: Info) -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class _Spec:
-    """One operation's four adapters, kept adjacent so they cannot drift apart.
+    """One operation's three adapters, kept adjacent so they cannot drift apart.
 
-    `cli` builds the operation from an argparse namespace, `batch` from a JSONL
-    payload, `fetch` runs it, `rows` renders the `--plain` projection of what it
-    returned. Adding a read operation means adding one row here; the CLI
-    allowlist, the batch allowlist, and dispatch all derive from this table.
+    `cli` builds the operation from an argparse namespace, `fetch` runs it,
+    `rows` renders the `--plain` projection of what it returned. Adding a read
+    operation means adding one row here; the CLI allowlist and dispatch both
+    derive from this table.
     """
 
     cli: Callable[[Any], ReadOperation]
-    batch: Callable[[dict[str, Any]], ReadOperation]
     fetch: Callable[[Any, Any], Awaitable[dict[str, Any]]]
     rows: Callable[[dict[str, Any]], list[tuple]]
 
@@ -286,11 +209,6 @@ class _Spec:
 _SPECS: dict[str, _Spec] = {
     "dialogs": _Spec(
         cli=lambda a: Dialogs(a.limit, a.unread_only, a.kind),
-        batch=lambda p: Dialogs(
-            _batch_int(p.get("limit", 50), "dialogs.limit"),
-            _batch_bool(p.get("unread_only"), "dialogs.unread_only"),
-            _batch_choice(p.get("kind"), "dialogs.kind", DIALOG_KINDS),
-        ),
         fetch=lambda tg, op: dialogs_cmd.fetch_dialogs(
             tg, limit=op.limit, unread_only=op.unread_only, kind=op.kind
         ),
@@ -299,15 +217,6 @@ _SPECS: dict[str, _Spec] = {
     "read": _Spec(
         cli=lambda a: Read(
             a.chat, a.limit, a.before_id, a.after_id, a.since, a.until, a.topic
-        ),
-        batch=lambda p: Read(
-            p["chat"],
-            _batch_int(p.get("limit", 20), "read.limit"),
-            _batch_optional_int(p.get("before_id"), "read.before_id"),
-            _batch_optional_int(p.get("after_id"), "read.after_id"),
-            _batch_when(p.get("since"), "read.since"),
-            _batch_when(p.get("until"), "read.until"),
-            _batch_optional_int(p.get("topic"), "read.topic"),
         ),
         fetch=lambda tg, op: read_cmd.fetch_messages(
             tg,
@@ -323,23 +232,16 @@ _SPECS: dict[str, _Spec] = {
     ),
     "search": _Spec(
         cli=lambda a: Search(a.chat, a.query, a.limit, a.all, a.from_user, a.since),
-        batch=_batch_search,
         fetch=_fetch_search,
         rows=search_cmd.to_rows,
     ),
     "latest": _Spec(
         cli=lambda a: Latest(a.chat),
-        batch=lambda p: Latest(p["chat"]),
         fetch=lambda tg, op: search_cmd.fetch_latest(tg, op.chat),
         rows=search_cmd.to_rows,
     ),
     "message": _Spec(
         cli=lambda a: Message(a.chat, a.message_id, a.context),
-        batch=lambda p: Message(
-            p["chat"],
-            _batch_int(p["message_id"], "message.message_id"),
-            _batch_int(p.get("context", 0), "message.context"),
-        ),
         fetch=lambda tg, op: read_cmd.fetch_message(
             tg, op.chat, op.message_id, context=op.context
         ),
@@ -347,39 +249,26 @@ _SPECS: dict[str, _Spec] = {
     ),
     "info": _Spec(
         cli=lambda a: Info(a.chat, a.full),
-        batch=lambda p: Info(p["chat"], _batch_bool(p.get("full"), "info.full")),
         fetch=_fetch_info,
         rows=info_cmd.to_rows,
     ),
     "count": _Spec(
         cli=lambda a: Count(a.chat),
-        batch=lambda p: Count(p["chat"]),
         fetch=lambda tg, op: info_cmd.fetch_count(tg, op.chat),
         rows=info_cmd.to_rows,
     ),
     "resolve": _Spec(
         cli=lambda a: Resolve(a.ref),
-        batch=lambda p: Resolve(p["ref"]),
         fetch=lambda tg, op: identity_cmd.resolve(tg, op.ref),
         rows=identity_cmd.to_rows,
     ),
-    "mutual-chats": _Spec(
-        cli=lambda a: MutualChats(a.ref),
-        batch=lambda p: MutualChats(p["ref"]),
-        fetch=lambda tg, op: identity_cmd.mutual_chats(tg, op.ref),
-        rows=identity_cmd.mutual_chats_to_rows,
-    ),
     "contacts.list": _Spec(
         cli=lambda a: ContactsList(),
-        batch=lambda p: ContactsList(),
         fetch=lambda tg, op: identity_cmd.contacts_list(tg),
         rows=identity_cmd.contacts_to_rows,
     ),
     "contacts.search": _Spec(
         cli=lambda a: ContactsSearch(a.query, a.use_global),
-        batch=lambda p: ContactsSearch(
-            p["query"], _batch_bool(p.get("global"), "contacts.search.global")
-        ),
         fetch=lambda tg, op: identity_cmd.contacts_search(
             tg, op.query, use_global=op.use_global
         ),
@@ -387,12 +276,6 @@ _SPECS: dict[str, _Spec] = {
     ),
     "media.manifest": _Spec(
         cli=lambda a: MediaManifest(a.source, a.media_type, a.since, a.limit),
-        batch=lambda p: MediaManifest(
-            p["source"],
-            _batch_choice(p.get("type"), "media.manifest.type", MEDIA_KINDS),
-            _batch_when(p.get("since"), "media.manifest.since"),
-            _batch_int(p.get("limit", 100), "media.manifest.limit"),
-        ),
         fetch=lambda tg, op: media_cmd.manifest(
             tg, op.source, kind=op.kind, since=op.since, limit=op.limit
         ),
@@ -400,13 +283,6 @@ _SPECS: dict[str, _Spec] = {
     ),
     "thread": _Spec(
         cli=lambda a: Thread(a.chat, a.message_id, a.depth, a.replies, a.limit),
-        batch=lambda p: Thread(
-            p["chat"],
-            _batch_int(p["message_id"], "thread.message_id"),
-            _batch_int(p.get("depth", 20), "thread.depth"),
-            _batch_bool(p.get("replies"), "thread.replies"),
-            _batch_int(p.get("limit", 50), "thread.limit"),
-        ),
         fetch=lambda tg, op: thread_cmd.fetch_thread(
             tg,
             op.chat,
@@ -419,19 +295,15 @@ _SPECS: dict[str, _Spec] = {
     ),
     "draft.show": _Spec(
         cli=lambda a: Draft(a.chat),
-        batch=lambda p: Draft(p["chat"]),
         fetch=lambda tg, op: draft_cmd.fetch_show(tg, op.chat),
         rows=draft_cmd.show_to_rows,
     ),
     "draft.list": _Spec(
         cli=lambda a: Drafts(),
-        batch=lambda p: Drafts(),
         fetch=lambda tg, op: draft_cmd.fetch_list(tg),
         rows=draft_cmd.list_to_rows,
     ),
 }
-
-BATCH_OP_NAMES = frozenset(_SPECS)
 
 
 def _cli_op_name(args) -> str | None:
@@ -456,14 +328,6 @@ def _cli_op_name(args) -> str | None:
 def from_cli(args) -> ReadOperation | None:
     name = _cli_op_name(args)
     return None if name is None else _SPECS[name].cli(args)
-
-
-def from_batch(payload: dict[str, Any]) -> ReadOperation:
-    op = payload["op"]
-    spec = _SPECS.get(op)
-    if spec is None:
-        raise PolicyError(f"unhandled batch op: {op!r}")
-    return spec.batch(payload)
 
 
 async def execute(tg, operation: ReadOperation) -> Result:

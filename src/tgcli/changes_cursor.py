@@ -32,12 +32,6 @@ class ChangesCursor:
     # channels: marked peer id (-100…) → pts
 
 
-def account_binding_key(*, alias: str, api_id: int, api_hash: str) -> bytes:
-    """Derive a stable per-account key without adding persistent cursor state."""
-    identity = f"{alias}\0{api_id}".encode()
-    return hmac.digest(api_hash.encode(), _BINDING_CONTEXT + b"\0" + identity, "sha256")
-
-
 def _payload(cursor: ChangesCursor) -> dict:
     return {
         "pts": cursor.pts,

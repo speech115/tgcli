@@ -22,12 +22,10 @@ def _write_minimal_tree(
     root: Path,
     *,
     cli_import: str = "",
-    batch_import: str = "from tgcli import read_ops\n",
     dispatch_import: str = "",
 ) -> None:
     modules = {
         "src/tgcli/cli.py": cli_import,
-        "src/tgcli/commands/batch.py": batch_import,
         "src/tgcli/dispatch.py": dispatch_import,
     }
     for relative, source in modules.items():
@@ -64,17 +62,12 @@ def test_architecture_check_rejects_relative_read_symbol_imports(tmp_path):
     _write_minimal_tree(
         tmp_path,
         cli_import="from .commands.dialogs import fetch_dialogs\n",
-        batch_import="from .dialogs import fetch_dialogs\n",
     )
 
     result = _run(tmp_path)
 
     assert result.returncode == 1
     assert "src/tgcli/cli.py imports read command module dialogs" in result.stdout
-    assert (
-        "src/tgcli/commands/batch.py imports read command module dialogs"
-        in result.stdout
-    )
 
 
 def test_architecture_check_rejects_media_manifest_dispatch(tmp_path):
@@ -90,20 +83,6 @@ def test_architecture_check_rejects_media_manifest_dispatch(tmp_path):
 
     assert result.returncode == 1
     assert "src/tgcli/cli.py dispatches shared read media.manifest" in result.stdout
-
-
-def test_architecture_check_rejects_media_module_in_batch(tmp_path):
-    _write_minimal_tree(
-        tmp_path,
-        batch_import="from tgcli.commands import media as media_cmd\n",
-    )
-
-    result = _run(tmp_path)
-
-    assert result.returncode == 1
-    assert (
-        "src/tgcli/commands/batch.py imports read command module media" in result.stdout
-    )
 
 
 def test_architecture_check_accepts_owned_read_operation_seam(tmp_path):

@@ -8,36 +8,36 @@ the script fails if the installed layer has a namespace not listed here.
 
 Status values:
 - `wrapped` — dedicated `tg` command(s) exist
-- `api` — reachable via `tg api` passthrough only when explicitly allowlisted (ADR-0010), no wrapper needed yet
+- `run` — no dedicated command; reachable from a `tg run` script (reads freely, writes with `--write`)
 - `planned:<phase>` — wrapper scheduled
-- `raw-denied` — the namespace is wholesale-denied through `tg api`, reads and writes alike
+- `denied` — `tg run` refuses the namespace, reads and writes alike
 - `excluded` — deliberately not supported, reason given
 
 | TL namespace | Status | Notes |
 |--------------|--------|-------|
-| account | raw-denied | Session lifecycle is owned by `tg accounts`; raw account calls are denylisted wholesale, reads and writes alike (ADR-0010/ADR-0092). |
-| aicompose | api | No dedicated workflow; use raw TL only after task-specific review. |
-| auth | raw-denied | Session lifecycle is owned by `tg accounts`; raw auth calls are denylisted. |
-| bots | api | User-account tool; bot-management calls are raw TL only. |
-| channels | wrapped | `info`, `count`, media, subscriber export, and `clone init` cover daily work; raw TL covers the long tail. |
-| chatlists | api | No demonstrated daily workflow needs a wrapper. |
-| contacts | wrapped | `contacts list` / `search`, `resolve`, and `mutual-chats` cover daily identity work; raw TL covers the long tail (ADR-0010 / ADR-0029). |
-| folders | wrapped | `dialog archive` / `unarchive` covers peer folder moves; other folder/chatlist calls stay on raw TL. |
-| fragment | api | No dedicated workflow; use raw TL only after task-specific review. |
-| help | api | No dedicated workflow; use raw TL only after task-specific review. |
-| langpack | api | No dedicated workflow; use raw TL only after task-specific review. |
-| messages | wrapped | `read`, `search`, `latest`, `message`, `send`, export, `clone sync` (native forward + protected reupload), `archive` backfill/sync/transcribe/search/read/history (ADR-0068), `transcribe` voice notes (ADR-0075), and `changes` cover daily work; raw TL covers the long tail. |
-| payments | api | No dedicated workflow; mutations remain behind raw write safety gates. |
+| account | denied | Session lifecycle is owned by `tg accounts`; `tg run` refuses account calls, reads and writes alike (ADR-0010/ADR-0092). |
+| aicompose | run | No dedicated workflow; reachable from `tg run`. |
+| auth | denied | Session lifecycle is owned by `tg accounts`; `tg run` refuses auth calls except Telethon's cross-DC download export. |
+| bots | run | User-account tool; bot-management calls go through `tg run`. |
+| channels | wrapped | `info`, `count`, media, subscriber export, and `clone init` cover daily work; `tg run` covers the long tail. |
+| chatlists | run | No dedicated workflow; reachable from `tg run`. |
+| contacts | wrapped | `contacts list` / `search` and `resolve` cover daily identity work; `tg run` covers the long tail (ADR-0029). |
+| folders | run | No dedicated workflow; folder and chatlist calls go through `tg run`. |
+| fragment | run | No dedicated workflow; reachable from `tg run`. |
+| help | run | No dedicated workflow; reachable from `tg run`. |
+| langpack | run | No dedicated workflow; reachable from `tg run`. |
+| messages | wrapped | `read`, `search`, `latest`, `message`, `send`, `edit`, `delete`, `forward`, drafts, export, `clone sync` (native forward + protected reupload), `archive` backfill/sync/transcribe/search/read/history (ADR-0068), and `transcribe` voice notes (ADR-0075) cover daily work; `tg run` covers the long tail. |
+| payments | run | No dedicated workflow; reachable from `tg run`, writes with `--write`. |
 | phone | excluded | Voice and video calls need a WebRTC media stack and are out of scope. |
-| photos | api | `getUserPhotos` is an allowlisted read; other calls use raw safety gates. |
-| premium | api | No dedicated workflow; use raw TL only after task-specific review. |
-| smsjobs | api | No dedicated workflow; use raw TL only after task-specific review. |
-| stats | api | Four broadcast, megagroup, and message stats reads are allowlisted (ADR-0010). |
-| stickers | api | No dedicated workflow; use raw TL only after task-specific review. |
-| stories | api | `getPeerStories`, `getStoriesArchive`, `getStoriesByID`, `getStoryViewsList` reads are allowlisted (ADR-0010); `media download` covers story links with optional `--codec` encoding selection (ADR-0076). Story publish/delete stay out. |
-| updates | wrapped | `tg changes` (ADR-0063) plus `archive sync` reuse of the same cursor/GetDifference seam (ADR-0068 Phase 4). |
-| upload | api | `getFile` is an allowlisted read (ADR-0010); raw part-upload remains impractical over JSON, wrapped media/send paths own it, including protected clone reupload. |
-| users | wrapped | `info` covers daily identity inspection; raw TL covers the long tail. |
+| photos | run | No dedicated workflow; `getUserPhotos` is a plain read from `tg run`. |
+| premium | run | No dedicated workflow; reachable from `tg run`. |
+| smsjobs | run | No dedicated workflow; reachable from `tg run`. |
+| stats | run | No dedicated workflow; broadcast, megagroup, and message stats are plain reads from `tg run`. |
+| stickers | run | No dedicated workflow; reachable from `tg run`. |
+| stories | run | `media download` covers story links with optional `--codec` encoding selection (ADR-0076); story reads go through `tg run`. Story publish/delete stay out. |
+| updates | wrapped | `archive sync` keeps the archive current through the GetDifference cursor engine (ADR-0063, ADR-0068). |
+| upload | run | Wrapped media and send paths own file transfer, including protected clone reupload; `getFile` is a plain read from `tg run`. |
+| users | wrapped | `info` covers daily identity inspection; `tg run` covers the long tail. |
 
 ## Non-TL exclusions
 

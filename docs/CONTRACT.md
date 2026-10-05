@@ -131,7 +131,7 @@ Megagroup dialogs are classified as `group` even though Telethon also marks
 them as channels; broadcast channels remain `channel`.
 
 For the entity-scoped shapes below (`read`, `search`, `transcribe`,
-`info`, `count`, manifest, `mark-read`, export), `dialog.id` is the Telethon
+`info`, `count`, manifest, export), `dialog.id` is the Telethon
 `entity.id` — positive; the negative bot-API form appears only in
 `tg dialogs` output.
 
@@ -265,7 +265,7 @@ Telegram admin-right flags; tgcli does not infer ungranted admin capabilities.
 dialog id. A phone ref calls `contacts.resolvePhone` only — it never calls
 `contacts.importContacts` — and maps the returned peer to its entity via the
 response's `users`/`chats` lists; an empty result is exit 4 (not found).
-Phone resolution (and raw `tg api contacts.resolvePhone`) shares a
+Phone resolution shares a
 client-side cooldown of about 3 seconds across `tg` processes; reservation is
 atomic across concurrent processes. A call that arrives too soon exits 5
 (`FLOOD_WAIT`) with `retry_after`. Telegram's `PHONE_NOT_OCCUPIED` is exit 4.
@@ -302,28 +302,6 @@ to `<query>` and returns its `users` mapped the same way, with
 argument); there is no flag to raise it.
 
 ```
-tg mutual-chats <user>
-```
-
-`tg mutual-chats <user> --json`:
-```json
-{"peer": {"id": 111, "type": "user", "username": "alice",
-          "display_name": "Alice Smith", "is_contact": true,
-          "is_bot": false},
- "chats": [{"id": 200, "type": "group", "username": "shared",
-            "display_name": "Shared Group", "is_contact": false,
-            "is_bot": false}],
- "count": 1}
-```
-
-`mutual-chats` resolves `<user>` like `resolve` (non-phone refs) and calls
-`messages.getCommonChats` with `limit` 100. `peer` is the resolved user/bot;
-`chats` are common groups/channels mapped through the same `peer` shape.
-An empty `chats` list is success (`count` 0). A missing user is exit 4. A
-non-user/non-bot peer (group or channel) is exit 2 (`BLOCKED`). Plain rows
-are one TSV line per chat: `id`, `type`, `username`, `display_name`.
-
-```
 tg draft show CHAT
 tg draft list
 tg draft set CHAT TEXT --preview [--format {plain,md,html}] \
@@ -354,7 +332,7 @@ messages (ADR-0030).
 `tg draft list --json` returns `{"drafts":[…]}` — every non-empty draft on
 the account, each in the same object shape. `show` and `list` are typed read
 operations (`draft.show`, `draft.list`) and are available under
-`TGCLI_READONLY` and inside `tg batch`.
+`TGCLI_READONLY`.
 
 `draft set` / `draft clear` use the same preview→commit handshake as `edit`.
 A set preview carries `old_text` (the current draft body that will be
@@ -493,8 +471,7 @@ are `preview_id`, `message_id`, `text`; `forward` preview rows are
 `preview_id`, `chat_id`, `old_text`, `text`, `format`; `draft clear` preview rows
 are `preview_id`, `chat_id`, `old_text`, empty text, empty format. Send, edit, delete, and
 forward commit rows are `preview_id`, `message_id`. Draft set/clear commit rows are
-`preview_id`, `chat_id`, `text`, `is_empty`. `mark-read` rows are
-`dialog_id`, `read`.
+`preview_id`, `chat_id`, `text`, `is_empty`.
 
 ```
 tg send CHAT (TEXT | --file PATH [--caption TEXT]) --preview \
@@ -597,7 +574,6 @@ records are `edit` or `delete`, and successful result records are
 ```
 tg forward SOURCE MESSAGE_ID DESTINATION --preview
 tg forward --commit PREVIEW_ID
-tg mark-read CHAT
 ```
 
 `forward` preview resolves both source and destination, reads the source
@@ -618,54 +594,6 @@ gates, retryable `.json` → `.pending` → `.used` lifecycle, and fail-closed
 `forward` / `forward-result` audit records as send. A native forward does not
 take reply or topic flags and therefore creates no reply header.
 
-`mark-read` is a content-free, idempotent direct mutation: it has no preview,
-but `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block it before
-configuration, session, audit, or Telegram work. On success it returns
-`{"dialog":{"id":3817664407},"marked_read":true}` and writes a fail-closed
-`mark-read` audit record containing the submitted chat reference before the
-Telegram acknowledgement.
-
-```
-tg mark-unread CHAT
-```
-
-`mark-unread` mirrors `mark-read`: same direct gating and audit timing, no
-preview. On success it returns
-`{"dialog":{"id":3817664407},"marked_unread":true}` and writes a fail-closed
-`mark-unread` audit record. Plain rows are `dialog_id`, `unread`.
-
-```
-tg dialog pin CHAT
-tg dialog unpin CHAT
-```
-
-`dialog pin` / `dialog unpin` are content-free, idempotent direct mutations
-(ADR-0029): same `--readonly` / `TGCLI_READONLY` / `TGCLI_NO_SEND` gating as
-`mark-read`, no preview. On success they return
-`{"dialog":{"id":3817664407},"pinned":true|false}` and write a fail-closed
-`dialog-pin` or `dialog-unpin` audit record with the submitted chat reference.
-Plain rows are `dialog_id`, `pinned|unpinned`.
-
-```
-tg dialog archive CHAT
-tg dialog unarchive CHAT
-tg dialog mute CHAT (--until ISO8601 | --forever)
-tg dialog unmute CHAT
-```
-
-`dialog archive` / `unarchive` / `mute` / `unmute` follow the same direct
-gating and audit timing as pin (ADR-0032): no preview. Archive moves the
-dialog into Telegram folder id `1`; unarchive restores folder id `0`. Mute
-requires exactly one of `--until <ISO8601>` or `--forever` (omitting both is
-exit 2 `BLOCKED`; both together is also exit 2). Forever uses Telegram's
-`mute_until = 2**31-1`; `--until` is parsed as ISO 8601 (naive values are
-UTC). Unmute sets `mute_until = 0`. Success JSON:
-`{"dialog":{"id":…},"archived":true|false}` or
-`{"dialog":{"id":…},"muted":true|false,"until":null|<ISO>}` (`until` is
-null for forever mute and for unmute). Audit verbs: `dialog-archive`,
-`dialog-unarchive`, `dialog-mute`, `dialog-unmute`. Plain rows:
-`dialog_id`, `archived|unarchived` or `muted-forever|muted-until:<ISO>|unmuted`.
-
 ```
 tg thread CHAT MESSAGE_ID [--replies] [--depth N] [--limit N]
 ```
@@ -680,38 +608,6 @@ comment/forum thread (`message.replies`); otherwise `replies` stays `[]` and
 `note` is `"no cheap reply thread for this message; replies omitted"`.
 `--limit` caps replies (default 50). Plain rows are the same message TSV as
 `read`, one row per root then ancestors then replies.
-
-## 5.0 Read-only batch (`tg batch`; ADR-0032)
-
-```
-tg batch [--fail-fast] < ops.jsonl
-```
-
-`batch` reads JSONL ops from stdin and writes one JSON result object per
-line to stdout under a **single** account session. Hard cap **100** ops
-(excess → exit 2 before network); blank lines are ignored and do not count as
-ops. ISO date fields use the same parsing as their standalone commands
-(`read` `since`/`until`, `search` `since`, `media.manifest` `since`).
-Allowlisted `op` values:
-`dialogs`, `read`, `search`, `latest`, `message`, `info`, `count`,
-`resolve`, `mutual-chats`, `contacts.list`, `contacts.search`,
-`media.manifest`, `thread`, `draft.show`, `draft.list`. Mutations, `doctor`, `export`, `clone`,
-`media.download`, `api`, and `accounts` are rejected (exit 2).
-
-A bool field (`unread_only`, `all`, `full`, `global`, `replies`) accepts a
-real JSON `true`/`false`, or absence / JSON `null` as unset (same as the
-flag's default `false`). A string (`"false"`), a number, or anything else is
-exit 2 (`BLOCKED`) for that op, never a truthy fallthrough. A required int
-field (`limit`, `message_id`, `context`, `depth`) accepts only a real JSON
-integer; a JSON `true`/`false` (an `int` subclass in Python) or any
-non-integer value is the same exit 2 (`BLOCKED`). An optional int
-(`before_id`, `after_id`, `topic`) also treats absence / JSON `null` as
-unset (ADR-0096).
-
-Each stdout line is `{"ok":true,"op":"…","data":{…}}` or
-`{"ok":false,"op":"…","error":{"code":"…","message":"…"}}`. Process exit is
-**0 only if every op succeeded**; otherwise the first failure's exit code
-(full JSONL still written unless `--fail-fast` stops after the first error).
 
 ## 5.05 Local State (`tg store`; ADR-0040)
 
@@ -888,53 +784,7 @@ per-account `ok` values for health failures. An invalid or unreadable config,
 or an explicitly unknown `--account`, prevents the check from running and
 retains the normal config/auth exit 3.
 
-## 6. Raw API Passthrough (`tg api`, phase 2+; ADR-0010)
-
-```
-tg api <Namespace.method> --params '<json>' [--write] [--confirm <method>]
-```
-
-- `--params` is required and must be a JSON object. In phase 2, only the
-  reviewed explicit allowlist in ADR-0010 may run through the configured
-  session (41 methods as of 2026-08-09; e.g. `users.getFullUser`,
-  `messages.getHistory`, `channels.getParticipants`,
-  `contacts.resolvePhone`, `stories.getPeerStories`, `upload.getFile`).
-- Without `--write`, every method outside the ADR-0010 read allowlist is
-  blocked before config loading or session acquisition with exit 2.
-- With `--write`, the same `--readonly`, `TGCLI_READONLY=1`, and
-  `TGCLI_NO_SEND=1` gates run before config/session/network work. Every
-  `auth.*` and `account.*` method is permanently excluded from writes
-  (ADR-0092), mirroring the read path's ADR-0010 wholesale exclusion — not
-  just the four methods below. Destructive `delete*`, `reset*`, `leave*`,
-  `block*`, `edit*Admin*`, and `edit*Banned*` methods require an exact
-  `--confirm <Namespace.method>`, as do the irreversible one-way conversions
-  `messages.migrateChat` and `channels.convertToGigagroup`, which no prefix
-  rule covers; the permanent denylist `account.deleteAccount`, `auth.logOut`,
-  `auth.resetAuthorizations`, and `account.resetAuthorization` is always exit
-  2 by name even if the wholesale namespace exclusion were ever narrowed.
-  Authorised raw writes
-  append one JSONL audit object before dispatch, naming the method **and**
-  the target identifiers present in `--params` (`peer`, `channel`, `chat`,
-  `chat_id`, `id`, `participant`, `user_id`) so the log answers what a write
-  touched; message bodies and credentials are never recorded (ADR-0011).
-- A parameter for a peer field may be given as a chat reference — `@username`,
-  a `t.me` link, or a numeric id in either the raw or `-100`-marked form — and
-  is resolved to an input peer before dispatch; an unresolvable reference is
-  exit 4. Constructor objects in `--params` must name an `Input*` type, except
-  the `channels.getParticipants` filter union, whose members are accepted by
-  their own names, and the rights objects `ChatAdminRights` /
-  `ChatBannedRights` required by `channels.editAdmin` /
-  `channels.editBanned` (no `Input*` form exists).
-- `--json` output: `{"method": "users.getFullUser", "result": {…}}` where
-  `result` is the TL object as a dict, or a JSON scalar (`true`/`false`,
-  number, `null`) when the RPC returns a bare Bool/int/null instead of a
-  TLObject (e.g. `account.updateStatus`).
-- **Stability exemption:** `result` mirrors the Telegram TL layer of the
-  pinned Telethon version and may change when that pin is upgraded; the §3
-  stability rules do not apply inside `result`. Everything outside `result`
-  follows §3 as usual.
-
-## 6.1 Scripts (`tg run`)
+## 6. Scripts (`tg run`)
 
 ```
 tg [GLOBAL FLAGS] run [--write] SCRIPT|- [ARGS ...]
@@ -1042,15 +892,14 @@ Every successfully parsed command appends one JSON object to
 structured `error` code when applicable, and `duration_ms`. A failed run
 also carries `error_site`, the `module:function` inside tgcli that raised it
 (for example `session:session_file_lock` for a busy session), and an
-untranslated failure carries `error_type`, the exception class name. A
-`tg api` run carries `api_method`, the TL method name. Runs that
+untranslated failure carries `error_type`, the exception class name. Runs that
 actually issued governed requests additionally carry `governed_sleep_ms`
 (total deliberate pacing/flood sleep) and `request_count`. A flood-related
 exit (exit 5) additionally carries `retry_after`, `request_type` (the
 governed key, e.g. `messages.GetHistoryRequest`) and `provenance`
 (`server` | `account_cooldown` | `resolve_phone_cooldown`). A normal stop
 carries `stop_reason` (`wall_clock_cap`). The journal never contains message/search text, chat
-references, raw API parameters, or command output. A journal-write failure
+references, request parameters, or command output. A journal-write failure
 emits a warning to stderr but does not change the command result.
 
 `-v` / `--verbose` enables Python and Telethon debug logs on stderr for the
@@ -1830,80 +1679,7 @@ Plain sync columns are `copied`, `forwarded`, `reuploaded`, `snapshots`,
 `discussion_cursor`, `markup_dropped_count`. The `participants` roster is
 JSON-only; the plain row does not carry it.
 
-## 12. Change Feed (`tg changes`; ADR-0063 / ADR-0109 / FEED-001)
-
-```
-tg changes --init [--peer P …]
-tg changes --cursor C [--peer P …] [--drop-peer P …] [--wait N]
-```
-
-Foreground, daemonless update feed. One JSON document per invocation; no
-state files — the opaque, authenticated `v2:` cursor is the only continuity
-and lives with the caller. Its complete common + channel state is MAC-bound to
-the selected configured account but not to a session role, so it works under
-`--readonly` and across that account's `--session-role` values (ADR-0062 /
-ADR-0109). It mutates nothing and writes no audit mutation rows.
-
-`--init` baselines and binds a new cursor from `updates.getState` (and, for each
-`--peer`, the channel's current `pts` via `channels.getFullChannel`). It
-rejects `--cursor`, `--drop-peer`, and `--wait` (exit 2). A missing or
-corrupt `--cursor` on a regular call is exit 2 — never a silent full-history
-replay. A legacy unsigned `v1:`, a modified `v2:`, or a cursor bound to another
-account is also exit 2 **before any Telegram request**; run `--init` to replace
-it. Cursors are never silently upgraded because that would authenticate
-caller-supplied state.
-
-`--peer P` (repeatable) **adds** a channel/supergroup subscription,
-baselined at the current `pts` with a stderr note and **no history
-replay**. Private dialogs and basic groups ride the common
-`updates.getDifference` tier and cannot be subscribed (exit 2).
-`--drop-peer P` removes a subscription; dropping an unsubscribed peer is
-exit 2. Subscription membership lives **in the authenticated cursor**; a
-channel map inserted directly into the opaque payload fails its account MAC.
-
-`--wait N` (N > 0) long-polls up to N seconds for the first event, then
-waits a fixed **2-second settle** window (bounded by the remaining
-deadline — N is never exceeded) to batch a burst. Without `--wait` the
-command returns immediately with whatever is pending (no settle). When
-`--wait` is set and no explicit `--timeout` is given, there is no
-implicit 60s deadline so the wait budget is not clipped.
-
-`--json` document:
-
-```json
-{"events":[…], "next_cursor":"v2:…", "gap":null,
- "skipped":{"UpdatePinnedMessage":2}}
-```
-
-Event vocabulary (additive forever):
-
-| `type` | Body |
-|--------|------|
-| `message_new` / `message_edit` | `peer` (marked id), `message` in the exact `tg read` shape, `truncated` bool (Telegram short form — never padded) |
-| `message_delete` | `peer`, `ids` (tombstone; body is not delivered) |
-| `channel_activity` | `peer` only — an unsubscribed channel changed (`UpdateChannelTooLong`) |
-
-Unhandled update classes are **counted** in `skipped` (never silently
-discarded). `UpdateDeleteMessages` (private deletes with no peer in the
-TL update) is counted there in v1.
-
-When Telegram returns `differenceTooLong` or `channelDifferenceTooLong`,
-`gap` is set and the cursor is rebased for that scope; exit **0** — a gap
-is data:
-
-```json
-{"gap":{"scope":"common"|-1001234, "reason":"differenceTooLong|channelDifferenceTooLong",
- "recover":{"creation":"… read --after-id hint …", "edits_deletes":"lost"}}}
-```
-
-`--plain` columns: `events_count`, `next_cursor`, `gap_scope`,
-`skipped_total`.
-
-Boundary constants: common `GetDifferenceRequest.pts_total_limit =
-100000`; per-channel `GetChannelDifferenceRequest.limit = 100` with
-`ChannelMessagesFilterEmpty`.
-
-## 13. Local Archive (`tg archive`; ADR-0068 Phase 1–6 + ADR-0069)
+## 12. Local Archive (`tg archive`; ADR-0068 Phase 1–6 + ADR-0069)
 
 ```
 tg archive init
@@ -1933,7 +1709,7 @@ Per-account SQLite/WAL store under `~/.local/state/tgcli/archive/<alias>/`
 (override with `[archive] root = "…"` in `config.toml`). Directory mode
 `0700`; `archive.db` mode `0600`. Schema v7 tables: `messages`, `revisions`,
 `tombstones`, `transcripts`, `scope`, `sync_state` (with peer identity
-columns), `account_sync` (account-level `tg changes` cursor + gap), plus an
+columns), `account_sync` (account-level update cursor + gap), plus an
 FTS5 index over message text and transcript text with
 `tokenize = "unicode61 remove_diacritics 2"` (Cyrillic `ё`/`е` folded at
 FTS write/query time). Opening a v1/v2/v3/v4 store migrates in place. The message
@@ -2017,7 +1793,7 @@ fits the remaining `--max-runtime` cap is slept out once and resumed;
 exhausting the cap is a normal stop (exit 0) with
 `stop_reason: "wall_clock_cap"` and a resume pointer.
 
-**Sync.** `tg archive sync` holds an account-level `tg changes` cursor in
+**Sync.** `tg archive sync` holds an account-level update cursor in
 `account_sync` (not only per-peer). First run initializes the cursor via
 `updates.getState`; later runs call `changes.once` (exact
 `GetDifferenceRequest` / subscribed `GetChannelDifferenceRequest`). Explicit

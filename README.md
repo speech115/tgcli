@@ -28,15 +28,13 @@ Design lineage: [openclaw/gogcli](https://github.com/openclaw/gogcli) (architect
 
 - **Stateless by design** — one entrypoint, one operation per process. Nothing runs between invocations; state is limited to `~/.config/tgcli/` and `~/.local/state/tgcli/`.
 - **Automation contract** — `--json` / `--plain` on stdout, everything human on stderr, documented exit codes, additive-only JSON changes. See [docs/CONTRACT.md](docs/CONTRACT.md).
-- **Reading and search** — dialogs with unread/kind filters, id- and date-paginated reads, per-dialog and global search, reply threads, message context windows, contacts, mutual chats, and a read-only JSONL batch mode.
+- **Reading and search** — dialogs with unread/kind filters, id- and date-paginated reads, per-dialog and global search, reply threads, message context windows, and contacts.
 - **Safe correspondence** — `send`, `edit`, `delete`, `forward`, and draft writes all go through preview → commit with single-use ids, a 5-minute TTL, operation-specific retry checks, and an append-only audit log.
 - **Retry-safe sends and forwards** — `send` and `forward` commits carry a stored Telegram `random_id`, so retrying the same preview confirms the original dispatch instead of creating a duplicate.
 - **Media and export** — manifest before download, bulk filtered downloads, JSONL message export with `--resume`, and CSV subscriber export for broadcast channels.
 - **Chat clone** — copy broadcast channels, megagroup supergroups (forum and non-forum), legacy basic groups, and private dialogs into tool-created destinations, with native forwards plus protected-content reupload.
-- **Daemonless change feed** — `tg changes` returns Telegram updates plus an account-bound caller-held cursor, with authenticated channel subscriptions, deletion tombstones, and loud gap reporting.
-- **Local archive store** — `tg archive` binds a per-account SQLite store, backfills selected/private dialogs, syncs the changes cursor, acquires bounded voice/video-note media with terminal retry state, transcribes locally with Parakeet, and provides filtered/ranked offline search plus timeline/history views.
+- **Local archive store** — `tg archive` binds a per-account SQLite store, backfills selected/private dialogs, syncs new updates through a GetDifference cursor, acquires bounded voice/video-note media with terminal retry state, transcribes locally with Parakeet, and provides filtered/ranked offline search plus timeline/history views.
 - **Scripts** — `tg run SCRIPT` runs Python with the authorized, paced Telethon client for anything without a command; read-only unless `--write`, and every write is audited first.
-- **Raw TL escape hatch** — `tg api` reaches the long tail of the pinned Telethon layer behind a default-deny read allowlist, an explicit `--write` gate, typed confirmations for destructive verbs, and a permanent denylist.
 - **Diagnostics and hygiene** — `tg doctor` reports locally by default (`--connect` for live checks); `tg store stats` / `tg store cleanup` inspect and reclaim local state without ever touching sessions or the audit log.
 
 ## Install
@@ -103,11 +101,7 @@ tg --json media download https://t.me/channel/42 --parallel 4
 tg --json transcribe @user 42          # voice message text (Premium)
 tg --json export messages @channel --output messages.jsonl --resume
 
-# 5. Observe changes — save next_cursor from the first result
-tg --json changes --init
-tg --json changes --cursor "$CURSOR"
-
-# 6. Health and local state
+# 5. Health and local state
 tg --json doctor
 tg --json store stats
 ```
@@ -121,7 +115,7 @@ Chat references accept `@username`, a `t.me/` link, or a numeric dialog id; `tg 
 | [SKILL.md](SKILL.md) | every task mapped to its command, plus recipes for paging, catch-up, and retrying a send |
 | [docs/CONTRACT.md](docs/CONTRACT.md) | flags, JSON shapes, exit codes, and safety behavior |
 | `tg COMMAND --help` | every flag of one command |
-| [docs/FEATURES.md](docs/FEATURES.md) | which Telegram API namespaces are wrapped, reachable via `tg api`, or excluded |
+| [docs/FEATURES.md](docs/FEATURES.md) | which Telegram API namespaces are wrapped, reachable from `tg run`, or excluded |
 | [docs/decisions/](docs/decisions/README.md) | why past decisions were made |
 | [AGENTS.md](AGENTS.md) | the rules for changing this repository |
 
@@ -165,7 +159,7 @@ Sessions, locks, previews, the audit log, and cache live under `~/.local/state/t
 
 ## Preview → commit
 
-Reads are free. Preview-backed mutations — `send`, `edit`, `delete`, `forward`, `draft set|clear`, `clone init`, and `clone refresh` — use two invocations. The first resolves and renders the exact intent into a single-use preview record; the second commits that record by id, without retyping it. State-driven direct mutations (`mark-read`, `mark-unread`, every `dialog` subcommand, and `clone sync`) do not mint a preview, but remain gated by `--readonly` / `TGCLI_READONLY`.
+Reads are free. Preview-backed mutations — `send`, `edit`, `delete`, `forward`, `draft set|clear`, `clone init`, and `clone refresh` — use two invocations. The first resolves and renders the exact intent into a single-use preview record; the second commits that record by id, without retyping it. `clone sync` and `tg run --write` do not mint a preview, but remain gated by `--readonly` / `TGCLI_READONLY` and audited.
 
 ```mermaid
 flowchart LR

@@ -325,30 +325,6 @@ async def test_a_flood_alert_fires_once_at_arming(ledger, capsys):
     assert "cooling for 600s" not in capsys.readouterr().err
 
 
-async def test_the_raw_api_path_refuses_locally_on_a_gated_type(ledger):
-    """G5: `tg api` goes through the governed seam — a cooling type refuses
-    with zero RPCs, not a raw send into the penalty."""
-    from telethon.tl.functions.users import GetFullUserRequest
-
-    from tgcli.commands import api as api_cmd
-
-    error = telethon_errors.FloodWaitError(request=None)
-    error.seconds = 600
-    source = FakeClient(raises=error)
-    gate.install(source, ledger)
-
-    with pytest.raises(telethon_errors.FloodWaitError):
-        await source._call(None, GetFullUserRequest(id=42))
-
-    api = FakeClient()
-    gate.install(api, ledger)
-    # The whole `tg api` path: canonical request built from JSON, dispatched
-    # through the client — not a synthetic _call that could drift from it.
-    with pytest.raises(RateLimitError):
-        await api_cmd.call(api, "users.getFullUser", '{"id": 42}')
-    assert api.sent == []
-
-
 @pytest.mark.parametrize(
     ("rpc_request", "expected_key"),
     [

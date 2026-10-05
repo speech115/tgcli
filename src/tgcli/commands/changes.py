@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -42,88 +41,8 @@ from tgcli.commands.read import message_to_dict
 from tgcli.errors import ConfigError, NotFoundError, PolicyError
 from tgcli.output import note
 
-SETTLE_SECONDS = 2.0
 CHANNEL_DIFF_LIMIT = 100
 PTS_TOTAL_LIMIT = 100_000
-POLL_SLEEP_S = 0.5
-
-# Injectable clock/sleep for --wait tests.
-_monotonic: Callable[[], float] | None = None
-_sleep: Callable[[float], Awaitable[None]] | None = None
-
-
-def _now() -> float:
-    if _monotonic is not None:
-        return float(_monotonic())
-    import time
-
-    return time.monotonic()
-
-
-async def _async_sleep(seconds: float) -> None:
-    if _sleep is not None:
-        await _sleep(seconds)
-        return
-    import asyncio
-
-    await asyncio.sleep(seconds)
-
-
-async def _poll_interval(end: float) -> bool:
-    """Sleep up to ``POLL_SLEEP_S`` or until *end*.
-
-    Return True if still before *end*.
-    """
-    remaining = end - _now()
-    if remaining <= 0:
-        return False
-    await _async_sleep(min(POLL_SLEEP_S, remaining))
-    return _now() < end
-
-
-def _merge_once_doc(doc: dict, more: dict) -> None:
-    doc["events"].extend(more["events"])
-    if more["gap"] is not None and doc["gap"] is None:
-        doc["gap"] = more["gap"]
-    for key, value in (more["skipped"] or {}).items():
-        doc["skipped"][key] = doc["skipped"].get(key, 0) + value
-
-
-async def _wait_poll(
-    tg,
-    cursor: ChangesCursor,
-    doc: dict,
-    *,
-    end: float,
-    while_idle: bool = False,
-    merge: bool = False,
-) -> tuple[dict, ChangesCursor]:
-    """Poll ``once`` until *end* or, when *while_idle*, until events or gap."""
-    while _now() < end:
-        if while_idle and (doc["events"] or doc["gap"] is not None):
-            break
-        if not await _poll_interval(end):
-            break
-        more, cursor, _ = await once(tg, cursor)
-        if merge:
-            _merge_once_doc(doc, more)
-        else:
-            doc = more
-    return doc, cursor
-
-
-def to_rows(data: dict) -> list[tuple]:
-    gap = data.get("gap")
-    gap_scope = None if gap is None else gap.get("scope")
-    skipped = data.get("skipped") or {}
-    return [
-        (
-            len(data.get("events") or []),
-            data.get("next_cursor"),
-            gap_scope,
-            sum(int(v) for v in skipped.values()),
-        )
-    ]
 
 
 def _peer_id(entity_or_peer) -> int:
@@ -495,62 +414,3 @@ async def init_changes(
         cursor,
         binding_key=binding_key,
     )
-
-
-async def run_changes(
-    tg,
-    *,
-    cursor_text: str | None,
-    binding_key: bytes,
-    init: bool = False,
-    peers: list[str] | None = None,
-    drop_peers: list[str] | None = None,
-    wait: float | None = None,
-) -> dict:
-    peers = list(peers or ())
-    drop_peers = list(drop_peers or ())
-    if init:
-        if cursor_text is not None:
-            raise PolicyError("changes --init rejects --cursor; start a new baseline")
-        if drop_peers:
-            raise PolicyError("changes --init rejects --drop-peer")
-        if wait is not None:
-            raise PolicyError("changes --init rejects --wait")
-        return await init_changes(tg, peers, binding_key=binding_key)
-
-    if cursor_text is None:
-        raise PolicyError("changes cursor is required; run: tg changes --init")
-    if wait is not None and wait <= 0:
-        raise PolicyError("--wait must be a positive number of seconds")
-
-    cursor = changes_cursor.decode(
-        cursor_text, binding_key=binding_key, require_bound=True
-    )
-
-    for ref in drop_peers:
-        entity = await _resolve_channel(tg, ref)
-        cursor = changes_cursor.without_channel(cursor, _peer_id(entity))
-
-    for ref in peers:
-        entity = await _resolve_channel(tg, ref)
-        peer = _peer_id(entity)
-        if peer in cursor.channels:
-            continue
-        pts = await _channel_pts(tg, entity)
-        cursor = changes_cursor.with_channel(cursor, peer, pts)
-        note(f"subscribed {peer} at pts {pts} (no history replay)")
-
-    doc, cursor, _ = await once(tg, cursor)
-    if wait is None:
-        return _document(doc, cursor, binding_key=binding_key)
-
-    deadline = _now() + wait
-
-    if not doc["events"] and doc["gap"] is None:
-        doc, cursor = await _wait_poll(tg, cursor, doc, end=deadline, while_idle=True)
-
-    if doc["events"] and _now() < deadline:
-        settle_end = min(_now() + SETTLE_SECONDS, deadline)
-        doc, cursor = await _wait_poll(tg, cursor, doc, end=settle_end, merge=True)
-
-    return _document(doc, cursor, binding_key=binding_key)

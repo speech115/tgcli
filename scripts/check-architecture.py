@@ -22,7 +22,6 @@ READ_OWNERSHIP_MODULES = (
     "src/tgcli/parser.py",
     "src/tgcli/preflight.py",
     "src/tgcli/dispatch.py",
-    "src/tgcli/commands/batch.py",
 )
 
 EXCLUSIVE_READ_MODULES = {
@@ -65,8 +64,7 @@ def _read_ownership_errors(path: Path, relative: str) -> set[str]:
     errors: set[str] = set()
     module_aliases: dict[str, str] = {}
     manifest_aliases: set[str] = set()
-    batch_adapter = relative == "src/tgcli/commands/batch.py"
-    package = ("tgcli", "commands") if batch_adapter else ("tgcli",)
+    package = ("tgcli",)
     for node in ast.walk(tree):
         if not isinstance(node, (ast.ImportFrom, ast.Import)):
             continue
@@ -80,9 +78,7 @@ def _read_ownership_errors(path: Path, relative: str) -> set[str]:
                 module = alias.name
                 local = alias.asname or module
                 module_aliases[local] = module
-                if module in EXCLUSIVE_READ_MODULES or (
-                    batch_adapter and module == "media"
-                ):
+                if module in EXCLUSIVE_READ_MODULES:
                     errors.add(f"{relative} imports read command module {module}")
         elif isinstance(node, ast.ImportFrom) and imported_from.startswith(
             "tgcli.commands."
@@ -100,9 +96,7 @@ def _read_ownership_errors(path: Path, relative: str) -> set[str]:
                     continue
                 module = alias.name.removeprefix(prefix)
                 module_aliases[alias.asname or module] = module
-                if module in EXCLUSIVE_READ_MODULES or (
-                    batch_adapter and module == "media"
-                ):
+                if module in EXCLUSIVE_READ_MODULES:
                     errors.add(f"{relative} imports read command module {module}")
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):

@@ -48,27 +48,12 @@ def test_successful_command_writes_invocation_metadata(tmp_path, monkeypatch):
 
 
 def test_policy_block_writes_the_structured_error_code():
-    assert (
-        main(
-            [
-                "api",
-                "auth.logOut",
-                "--write",
-                "--confirm",
-                "auth.logOut",
-                "--params",
-                "{}",
-            ]
-        )
-        == 2
-    )
+    assert main(["--readonly", "run", "--write", "-"]) == 2
 
     [entry] = read_journal()
-    assert entry["command"] == "api"
+    assert entry["command"] == "run"
     assert entry["exit_code"] == 2
     assert entry["error"] == "BLOCKED"
-    assert entry["api_method"] == "auth.logOut"
-    assert "--params" not in json.dumps(entry)
 
 
 def test_config_error_journals_where_it_was_raised(tmp_path, monkeypatch):
@@ -146,7 +131,7 @@ class BlockingStdin:
 
 
 sys.stdin = BlockingStdin()
-sys.argv = ["tg", "batch"]
+sys.argv = ["tg", "run", "-"]
 cli.entrypoint()
 """
 
@@ -175,7 +160,7 @@ def test_termination_signal_journals_an_honest_row_and_dies_by_signal(
     journal = state_dir() / "invocations.jsonl"
     assert journal.exists(), "the killed run appended no journal object"
     entry = read_journal()[-1]
-    assert entry["command"] == "batch"
+    assert entry["command"] == "run"
     assert entry["exit_code"] == 128 + signum
     assert entry["error"] == "TERMINATED"
 

@@ -38,7 +38,7 @@ is wrong, fix the check.
 | Exit codes come from the `errors.py` hierarchy and match CONTRACT §4 | `tests/test_contract_exit_codes.py` |
 | Every mutation goes through preview → commit and the readonly gates | `src/tgcli/preview_commit.py` registry, `tests/test_preview_commit.py`, `tests/test_safety.py` |
 | Audit is written before the mutation, and an unwritable audit blocks it | `tests/test_safety.py`, `tests/test_cli_mutate.py` |
-| Every Telethon namespace is classified; raw API writes are denied unless wrapped | `scripts/check-coverage.py` with `docs/FEATURES.md` |
+| Every Telethon namespace is classified; `tg run` refuses writes without `--write` and auth/account always | `scripts/check-coverage.py` with `docs/FEATURES.md`, `tests/test_cli_run.py` |
 | README and SKILL.md name only real flags, commands, and links | `scripts/check-docs.py` |
 | Sessions, `.env`, audit and journal files never enter git | `.gitignore` |
 | Merged branches are deleted and history stays linear | GitHub repository settings |
@@ -48,7 +48,7 @@ is wrong, fix the check.
 Nothing fails if you skip these, so they stay few.
 
 - **The live account is real.** Run a Telegram mutation (send, edit, delete,
-  forward, mark-read, clone writes, login) only when the owner asked for it in
+  forward, clone writes, `tg run --write`, login) only when the owner asked for it in
   this session. Read-only checks are fine.
 - **Never open a `.session` file with bare `python3`** or a system Telethon.
   Use `uv run tg` or `.venv/bin/python`: the pinned Telethon writes a schema

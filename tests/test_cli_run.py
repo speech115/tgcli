@@ -216,3 +216,12 @@ def test_cross_dc_download_plumbing_is_allowed(tmp_path, monkeypatch):
 
     assert main(["run", path]) == 0
     assert [type(r) for r in client.sent] == [functions.auth.ExportAuthorizationRequest]
+
+
+def test_a_script_write_on_a_session_role_records_the_role(tmp_path, monkeypatch):
+    _, path = setup(tmp_path, monkeypatch, SEND)
+
+    assert main(["--session-role", "job", "run", "--write", path]) == 0
+
+    [record] = audit_lines()
+    assert (record["method"], record["role"]) == ("messages.sendMessage", "job")

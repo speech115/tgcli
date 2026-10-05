@@ -114,12 +114,17 @@ def test_live_bounded_search_saved_messages_has_json_shape():
         assert_message_shape(message)
 
 
-def test_live_raw_api_get_full_user_has_envelope():
-    result = run_tg("--json", "api", "users.getFullUser", "--params", '{"id":"@self"}')
+def test_live_script_reads_the_full_self_user(tmp_path):
+    script = tmp_path / "me.py"
+    script.write_text(
+        "import json\n"
+        "request = functions.users.GetFullUserRequest(types.InputUserSelf())\n"
+        "full = await client(request)\n"
+        "print(json.dumps({'id': full.full_user.id}))\n"
+    )
+    result = run_tg("run", str(script))
     assert result.returncode == 0, result.stderr
-    data = json.loads(result.stdout)
-    assert data["method"] == "users.getFullUser"
-    assert isinstance(data["result"], dict)
+    assert isinstance(json.loads(result.stdout)["id"], int)
 
 
 @pytest.mark.skipif(not WRITES, reason="writes a draft (TGCLI_LIVE_WRITES=1)")

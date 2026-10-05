@@ -307,7 +307,7 @@ def test_session_role_unknown_exits_3_before_network(config_env, monkeypatch, ca
     assert "accounts login work --role job --phone PHONE" in err["error"]["message"]
 
 
-def test_session_role_accepted_on_api_and_mutation_flags(config_env):
+def test_session_role_accepted_on_script_and_mutation_flags(config_env):
     from tgcli.parser import build_parser
 
     parser = build_parser()
@@ -317,17 +317,8 @@ def test_session_role_accepted_on_api_and_mutation_flags(config_env):
         ["--session-role", "job", "send", "--preview", "@chat", "hi"]
     )
     assert mutate_args.session_role == "job"
-    api_args = parser.parse_args(
-        [
-            "--session-role",
-            "job",
-            "api",
-            "users.getFullUser",
-            "--params",
-            "{}",
-        ]
-    )
-    assert api_args.session_role == "job"
+    run_args = parser.parse_args(["--session-role", "job", "run", "-"])
+    assert run_args.session_role == "job"
 
 
 def test_audit_records_role_on_mutation(config_env, monkeypatch):
@@ -445,43 +436,3 @@ def test_audit_records_role_on_send_commit_through_real_cli_path(
     mutation_rows = [row for row in lines if row["action"] in ("send", "send-result")]
     assert len(mutation_rows) == 2
     assert all(row.get("role") == "job" for row in mutation_rows)
-
-
-def test_audit_records_role_on_api_write_through_real_cli_path(config_env, monkeypatch):
-    """Mirror-fix check (AGENTS.md): the review explicitly named `tg api`
-    writes as also affected. `dispatch.run_network` is stubbed out entirely
-    here so the assertion cannot pass by relying on dispatch's own
-    (too-narrow) role window — it must come from the shared cli-level seam."""
-    import json
-
-    from tgcli import cli, safety
-
-    async def fake_run_network(args, account):
-        return {"method": args.method, "result": {}}, []
-
-    monkeypatch.setattr(cli, "_run_network", fake_run_network)
-
-    assert (
-        cli.main(
-            [
-                "--session-role",
-                "job",
-                "api",
-                "channels.editAdmin",
-                "--params",
-                '{"channel": "@team", "user_id": "@alice", "rank": "mod"}',
-                "--write",
-                "--confirm",
-                "channels.editAdmin",
-                "--json",
-            ]
-        )
-        == 0
-    )
-
-    [row] = [
-        json.loads(line)
-        for line in safety.audit_path().read_text().splitlines()
-        if json.loads(line)["action"] == "api"
-    ]
-    assert row.get("role") == "job"
