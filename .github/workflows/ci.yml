@@ -16,9 +16,8 @@ jobs:
     runs-on: [self-hosted, tgcli]
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9.0.0
-        with:
-          enable-cache: true
+      # The runner is the owner's Mac, with uv on its PATH and a warm cache.
+      # setup-uv only added a version-manifest fetch that kept timing out.
       - name: Install dependencies
         run: uv sync --frozen
       - name: Check the lockfile matches pyproject.toml
