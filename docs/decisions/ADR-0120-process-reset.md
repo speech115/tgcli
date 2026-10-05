@@ -22,7 +22,8 @@ check or goes.
 
 1. Closed history is deleted from the tree; git history keeps it.
    `docs/devlog/`, `DEVLOG*.md`, `PLAN.md`, `CLONE.md`, `superpowers/`, the
-   thermos audit, handoffs, research, and plans go.
+   thermos audit with its publisher (`scripts/publish-thermos-backlog.py` and
+   its `issues:write` workflow), handoffs, research, and plans go.
 2. `docs/MAP.md` goes: a hand-synced inventory of the tree that the tree
    already is.
 3. `docs/ISSUES.md` and `docs/PROPOSALS.md` go. Open items move to GitHub
