@@ -19,7 +19,9 @@ Read, in this order: `AGENTS.md` (both rule lists you enforce),
 `docs/CONTRACT.md` §4–§5
 (exit codes, JSON shapes, lock semantics), the ADR(s) in `docs/decisions/`
 that the change claims to implement, and `CONTEXT.md` (vocabulary). The
-PR description and commit messages explain the change's intent.
+PR description and commit messages explain the change's intent. Older ADRs
+are dated history: a change that contradicts one but matches CONTRACT and
+AGENTS.md is not a finding.
 
 ## Materializing the change
 

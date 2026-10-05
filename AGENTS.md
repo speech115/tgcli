@@ -7,8 +7,9 @@ a daemon-first stack, so staying small and daemonless is the point.
 - Using the CLI: [SKILL.md](SKILL.md) and [docs/guide/](docs/guide/).
 - CLI law (flags, JSON shapes, exit codes): [docs/CONTRACT.md](docs/CONTRACT.md).
 - Vocabulary: [CONTEXT.md](CONTEXT.md).
-- Past decisions: [docs/decisions/](docs/decisions/README.md). Read the ADR
-  before you change what it governs.
+- Why past decisions were made: [docs/decisions/](docs/decisions/README.md).
+  ADRs are dated history, not kept current; CONTRACT and the gate say what
+  holds now.
 - Backlog: GitHub Issues (`gh issue list`).
 
 ## Commands

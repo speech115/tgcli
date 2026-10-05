@@ -1,9 +1,13 @@
 # ADR Index
 
-One row per ADR; this is the canonical index (moved from MAP.md by
-[ADR-0026](ADR-0026-maintenance-mode.md)). Adding an ADR means adding its
-row here in the same commit (AGENTS.md rule, extending
-[ADR-0007](ADR-0007-docs-discipline.md)).
+An ADR records why a decision was made, as of its date. ADRs are not kept
+current: a status below is as of that ADR's last edit, and a later ADR,
+`docs/CONTRACT.md`, or the code may have moved on. What holds now is
+[CONTRACT.md](../CONTRACT.md), [AGENTS.md](../../AGENTS.md), and the gate.
+
+Write an ADR only for a decision that is hard to reverse, and add its row
+here. ADRs none of whose decisions still held were deleted by ADR-0120 (0006,
+0007, 0013, 0014, 0026, 0033, 0058, 0070, 0073); git history keeps them.
 
 | ADR | Decision | Status |
 |-----|----------|--------|
@@ -12,15 +16,15 @@ row here in the same commit (AGENTS.md rule, extending
 | [0003](ADR-0003-output-contract.md) | stdout=data, stderr=human, fixed exit codes | accepted |
 | [0004](ADR-0004-accounts-and-sessions.md) | SQLiteSession per account + file lock; import from old stack | accepted |
 | [0005](ADR-0005-safety-model.md) | Reads free; writes preview→commit + audit; runtime flags not baked profiles | accepted |
-| [0006](ADR-0006-media-tdlib-fallback.md) | TDLib as optional fallback backend | superseded by ADR-0009 |
-| [0007](ADR-0007-docs-discipline.md) | MAP + ADR + DEVLOG as mandatory agent workflow | accepted; the ADR trigger narrowed to the ADR-0073 full-lane list; MAP and DEVLOG duties superseded by ADR-0120 |
+| 0006 | TDLib as optional fallback backend | superseded by ADR-0009 |
+| 0007 | MAP + ADR + DEVLOG as mandatory agent workflow | accepted; the ADR trigger narrowed to the ADR-0073 full-lane list; MAP and DEVLOG duties superseded by ADR-0120 |
 | [0008](ADR-0008-raw-api-passthrough.md) | `tg api` raw TL passthrough and write-path safety | superseded in part by ADR-0010 (read classification only) |
 | [0009](ADR-0009-tdlib-deferred.md) | TDLib deferred: no backend in v1; phase 3 Telethon-only; evidence-gated PoC re-entry | accepted |
 | [0010](ADR-0010-raw-api-read-allowlist.md) | `tg api` phase-2 explicit default-deny read allowlist | accepted |
 | [0011](ADR-0011-audit-write-failure-policy.md) | Audit persistence fails closed before any mutation | accepted |
 | [0012](ADR-0012-invocation-journal-and-verbose-diagnostics.md) | Local invocation journal and opt-in stderr diagnostics | accepted |
-| [0013](ADR-0013-channel-mirror.md) | Crash-safe mirror research design and R0 evidence | superseded by ADR-0014 |
-| [0014](ADR-0014-lean-faithful-mirror.md) | Lean faithful channel mirror | accepted (feature replaced by ADR-0017) |
+| 0013 | Crash-safe mirror research design and R0 evidence | superseded by ADR-0014 |
+| 0014 | Lean faithful channel mirror | accepted (feature replaced by ADR-0017) |
 | [0015](ADR-0015-truthful-persistent-mirror-showcase.md) | Persistent private showcase and topology promotion gates | accepted (retention rules carry into clone) |
 | [0016](ADR-0016-live-mirror-fidelity-corrections.md) | Service-message skip, reply reconstruction fallback, append-only TSV | accepted (fidelity rules carry into clone) |
 | [0017](ADR-0017-clone-supersedes-mirror.md) | Clone rewrite supersedes mirror; JSON state, core-primitive reuse, complexity budgets | accepted |
@@ -32,14 +36,14 @@ row here in the same commit (AGENTS.md rule, extending
 | [0023](ADR-0023-clone-channel-comments.md) | Comments via a linked discussion group; author-identity ladder; `init --replace` | accepted |
 | [0024](ADR-0024-clone-source-roster.md) | Best-effort source-side participant roster snapshot during sync | accepted |
 | [0025](ADR-0025-clone-preserve-reforward-header.md) | Per-batch `drop_author` keeps the native forward header on re-forwarded posts | accepted |
-| [0026](ADR-0026-maintenance-mode.md) | Maintenance mode: fixes need a reproducing test; features need an ADR + scoped plan | accepted; rule 1 (posture) superseded by ADR-0071; rules 2–3 superseded by ADR-0120 |
+| 0026 | Maintenance mode: fixes need a reproducing test; features need an ADR + scoped plan | accepted; rule 1 (posture) superseded by ADR-0071; rules 2–3 superseded by ADR-0120 |
 | [0027](ADR-0027-ci-lint-typecheck.md) | CI enforces ruff lint/format and pyright basic over `src/` | accepted |
 | [0028](ADR-0028-agent-correspondence-scope.md) | v1.1 agent correspondence: richer message JSON, pagination, full mutation set with random_id commits, discovery flags, doctor | accepted |
 | [0029](ADR-0029-discovery-inbox-scope.md) | discovery & inbox quick-wins: resolve (+resolvePhone allowlist), contacts, media manifest, mark-unread/dialog pin, thread | accepted |
 | [0030](ADR-0030-outgoing-formatting.md) | outgoing `--format {plain,md,html}` + additive `custom_emoji` harvest (MSG-001 partial) | accepted |
 | [0031](ADR-0031-broadcast-subscriber-export.md) | full broadcast `export subscribers` via prefix-union; block `--limit > 200` | accepted |
 | [0032](ADR-0032-data-plumbing-inbox-ergonomics.md) | data plumbing & inbox ergonomics: mutual-chats, archive/mute, incremental export, bulk media, RO batch | accepted |
-| [0033](ADR-0033-agent-skills-workflow.md) | GitHub issue flow, triage labels, and single-context agent docs | accepted |
+| 0033 | GitHub issue flow, triage labels, and single-context agent docs | accepted |
 | [0034](ADR-0034-shared-read-operation-seam.md) | Shared typed read-operation seam for interactive CLI and batch | accepted |
 | [0035](ADR-0035-cli-entry-split.md) | CLI entry split into parser/preflight/dispatch; budgets become ceilings | accepted |
 | [0036](ADR-0036-clone-quote-replies.md) | Clone classifies quote replies by target reachability; understood-but-untransferable degrades and reports instead of wedging | accepted |
@@ -64,7 +68,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0055](ADR-0055-clone-pinned-and-photo-fidelity.md) | `clone sync` pins the mapped source pin silently when the posts leg is exhausted (never unpins, never overrides an existing pin, reports status); photo downscaling is measured before it is fixed, and the striped path picks the largest `PhotoSize` explicitly | accepted |
 | [0056](ADR-0056-project-presentation-and-community-health.md) | MIT license; `CONTRIBUTING.md` as the human short form of AGENTS.md; `SECURITY.md` with a private channel, redaction rules, and scope; `needs-triage` issue forms + PR template; README badges, contents, and a dark/light banner pair | accepted; items 4–5 posture wording amended by ADR-0071 |
 | [0057](ADR-0057-lint-policy-expansion.md) | Ruff selection widens from `E4/E7/E9/F` to `E/W/F/I/UP/C4` (`UP040` ignored, `combine-as-imports`); `B`/`SIM`/`PTH`/`ARG`/`RUF` excluded with stated reasons; one-time layout-only cleanup, five architecture ceilings raised by the isort blank-line cost | accepted |
-| [0058](ADR-0058-process-speed-revisions.md) | Integrator assigns version/CHANGELOG at merge; devlog is one file per session under `docs/devlog/`; ceilings get a +50 diagnostic grace band while mandatory gates use `--strict`; waves branch from the integration head; ADR-lite for XS/S | accepted; devlog cadence amended by ADR-0073; rule 1 tooled by ADR-0074; decision 3 (grace band) superseded by ADR-0120; integrator releases and per-session devlog superseded by ADR-0120 |
+| 0058 | Integrator assigns version/CHANGELOG at merge; devlog is one file per session under `docs/devlog/`; ceilings get a +50 diagnostic grace band while mandatory gates use `--strict`; waves branch from the integration head; ADR-lite for XS/S | accepted; devlog cadence amended by ADR-0073; rule 1 tooled by ADR-0074; decision 3 (grace band) superseded by ADR-0120; integrator releases and per-session devlog superseded by ADR-0120 |
 | [0059](ADR-0059-verification-infrastructure.md) | Hypothesis property tests pin the audit's defect classes (derandomized in the gate); PR-gated macOS CI leg runs the suite; pytest-xdist parallelizes gate and CI | accepted |
 | [0060](ADR-0060-clone-state-sqlite-proposal.md) | Clone state moves to per-clone SQLite/WAL (measured: JSON path is quadratic, 168 MB written per 5k messages vs 0.1 MB); single reader, one-time JSON import + `.imported` backup, explicit export-state rollback; small files stay JSON | accepted |
 | [0061](ADR-0061-comments-leg-entity-reuse.md) | Comments leg reuses the run's ResolveContext discussion entities across ADR-0051 windows instead of two GetChannels RPCs per window; verify_tail stays per-window | accepted |
@@ -76,10 +80,10 @@ row here in the same commit (AGENTS.md rule, extending
 | [0067](ADR-0067-pinned-runtime-diagnostics.md) | Supported session runtime boundary plus additive `doctor` runtime fingerprint | accepted |
 | [0068](ADR-0068-local-archive-store.md) | Native `tg archive` SQLite+FTS5 store: private dialogs auto-scoped, append-only history, local transcription; telecrawl sidecar rejected | accepted; refresh scheduling amended by ADR-0087 |
 | [0069](ADR-0069-archive-exploration-module.md) | Keep Phase 5 archive search/read/history queries in a read-only archive module | accepted |
-| [0070](ADR-0070-archive-refresh-scheduling.md) | Compose bounded archive refreshes and notify once after recurring failures | superseded by ADR-0087 |
+| 0070 | Compose bounded archive refreshes and notify once after recurring failures | superseded by ADR-0087 |
 | [0071](ADR-0071-owner-gated-development.md) | Posture renamed to owner-gated development: same gate (owner request + ADR + scoped plan; fixes start from a reproducing test; agents never widen scope), without the retired "feature-complete / do not add features" claim | accepted; rule 1 mechanics amended by ADR-0073 (scoped plan only for campaigns); ADR requirement amended by ADR-0120; decision 2 superseded by ADR-0120 |
 | [0072](ADR-0072-account-request-governor.md) | Account-wide request governor: cooldowns independent per Telegram request type (peer excluded on purpose), a self-verifying probe instead of a bypass flag, a persisted per-type pacing interval plus a windowed peer-breadth budget, the seam wrapping Telethon's `_call`, and the deadline demoted to a hang detector — supersedes ADR-0045 decision 1 and ADR-0052 decisions 1–5 | accepted; decision 3's defaults carry one live demonstration (#140) and both stated assumptions remain open; implemented across #145's phases; L3 authenticated fail-open amended by ADR-0089 |
-| [0073](ADR-0073-risk-tiered-change-process.md) | Risk-tiered change process: a seven-trigger full lane (contract, safety, state, pacing, new dependency/module/abstraction, released behavior, and the enforcement mechanisms plus the agent contract itself) and a small-fix lane with no ADR, plan, index row, status edit, or release bookkeeping; documents ride with their code; plans only for campaigns of 3+ PRs; compatibility begins at a release tag; devlog per landed slice, ~15 lines — amends ADR-0071 rule 1 mechanics, ADR-0058 cadence, and ADR-0007's ADR trigger | superseded by ADR-0120 |
+| 0073 | Risk-tiered change process: a seven-trigger full lane (contract, safety, state, pacing, new dependency/module/abstraction, released behavior, and the enforcement mechanisms plus the agent contract itself) and a small-fix lane with no ADR, plan, index row, status edit, or release bookkeeping; documents ride with their code; plans only for campaigns of 3+ PRs; compatibility begins at a release tag; devlog per landed slice, ~15 lines — amends ADR-0071 rule 1 mechanics, ADR-0058 cadence, and ADR-0007's ADR trigger | superseded by ADR-0120 |
 | [0074](ADR-0074-complexity-reset-and-release-preparation.md) | Complexity reset: a second related review finding on the same abstraction is a design checkpoint, not another patch, and unreleased code is not a sunk cost; `scripts/prepare-release.py` does the mechanical half of a release (version in both files, dated section, PR/ADR list, compare link) while the integrator writes the prose, refusing a version split across the two files rather than compounding it — extends ADR-0058 rule 1 | accepted (ADR-lite); rule 1 (complexity reset) superseded by ADR-0120 |
 | [0075](ADR-0075-transcribe-command.md) | `tg transcribe`: server-side voice transcription over `messages.transcribeAudio` with a race-free wait for the async `updateTranscribedAudio` result bounded by `--timeout`, Premium refusal mapped to the existing blocked class, and `voice_played`/auto-transcribe-in-`read` explicitly out of scope | accepted |
 | [0076](ADR-0076-story-media-download.md) | `tg media download` accepts story links (`/s/<id>`, public and private), resolves via `stories.getStoriesByID`, selects an encoding from `document`/`alt_documents` by the `video_codec` attribute on opt-in `--codec`, and reuses the striped download machinery | accepted |
@@ -127,30 +131,3 @@ row here in the same commit (AGENTS.md rule, extending
 | [0118](ADR-0118-private-backfill-enum-cursor.md) | Private archive-backfill persists a GetDialogs resume token on account_sync (schema v8) | accepted; thermos debt T37 |
 | [0119](ADR-0119-self-hosted-macos-ci.md) | CI runs on a self-hosted macOS runner (`[self-hosted, tgcli]`); GitHub-hosted minutes dropped | accepted |
 | [0120](ADR-0120-process-reset.md) | Process reset: closed history, MAP, ISSUES/PROPOSALS, and devlog leave the tree; the docs gate checks docs against the CLI only | accepted |
-
-Notes on supersessions:
-
-- ADR-0009 supersedes ADR-0006 entirely (no TDLib in v1).
-- ADR-0010 supersedes only ADR-0008's phase-2 read-classification rule;
-  the rest of ADR-0008 (write gating, denylist, audit) remains in force.
-- ADR-0014 supersedes ADR-0013. The mirror feature itself (ADR-0013…0016)
-  was replaced wholesale by clone (ADR-0017); ADR-0015 destination
-  retention and ADR-0016 fidelity rules carry forward into clone, which is
-  why 0014–0016 stay "accepted" as rule sources while the mirror surface
-  is gone.
-- ADR-0072 supersedes ADR-0045 decision 1 (account-scoped cooldown storage,
-  clone-only enforcement) and ADR-0052 decisions 1–5 (the
-  `SHORT_WAIT`/`WAIT_BUDGET` foreground-retry mechanism). Both supersessions
-  are effective: the account-scoped JSON record, the foreground retry,
-  `WaitBudget`/`FloodGate` and the pre-flight account gate are deleted, and
-  the governor's per-request-type ledger plus the governed `_call` seam are
-  what actually runs. ADR-0045 decisions 2–3 (decisions 2 in force;
-  decision 3's `account_flood` preview field removed) and ADR-0052
-  decisions 6–7 (the reupload media cache) carry forward as noted in the
-  ADRs themselves.
-- ADR-0071 supersedes only ADR-0026's rule 1 (the "maintenance mode /
-  feature-complete" posture wording). ADR-0120 supersedes ADR-0026 rules 2–3
-  (scope routing to docs/ISSUES.md, the clone chronicle in docs/CLONE.md);
-  rule 4 (this index) remains in force. ADR-0071 also
-  amends the posture wording ADR-0056 items 4–5 prescribe for the README
-  badge and the proposal form; those surfaces are otherwise untouched.
