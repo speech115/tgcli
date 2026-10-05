@@ -144,7 +144,7 @@ Config lives at `~/.config/tgcli/config.toml`; sessions, locks, previews, the au
 | `TGCLI_ACCOUNT` | Account alias to use when `--account` is absent. |
 | `TGCLI_READONLY` | `1` blocks every mutation before any network work. |
 | `TGCLI_NO_SEND` | `1` blocks message-producing mutations specifically. |
-| `TGCLI_LIVE_SMOKE` | `1` enables the live-account smoke tests in the suite. |
+| `TGCLI_LIVE_SMOKE` | `1` enables the live-account smoke tests in the suite (read-only; `TGCLI_LIVE_ACCOUNT` picks the alias, `TGCLI_LIVE_WRITES=1` adds the draft round-trip). |
 
 **Exit codes:**
 

@@ -3,7 +3,9 @@
     TGCLI_LIVE_SMOKE=1 .venv/bin/pytest tests/live -q
 
 Requires a real ~/.config/tgcli/config.toml and an authorized session.
-Read-only: lists dialogs, reads Saved Messages.
+`TGCLI_LIVE_ACCOUNT` picks the alias (default `main`). Every call runs under
+`TGCLI_READONLY=1`; the draft round-trip writes to Saved Messages and runs only
+with `TGCLI_LIVE_WRITES=1` as well.
 """
 
 import json
@@ -18,16 +20,19 @@ pytestmark = pytest.mark.skipif(
     os.environ.get("TGCLI_LIVE_SMOKE") != "1",
     reason="live smoke is opt-in (TGCLI_LIVE_SMOKE=1)",
 )
+WRITES = os.environ.get("TGCLI_LIVE_WRITES") == "1"
 
 
 def run_tg(*argv):
     environment = os.environ.copy()
     environment.pop("TGCLI_STATE_DIR", None)
+    if not WRITES:
+        environment["TGCLI_READONLY"] = "1"
     return subprocess.run(
         [
             Path(sys.executable).with_name("tg"),
             "--account",
-            "main",
+            os.environ.get("TGCLI_LIVE_ACCOUNT", "main"),
             *argv,
         ],
         capture_output=True,
@@ -52,6 +57,7 @@ def test_live_harness_uses_console_script(monkeypatch):
 
     assert command[0] == Path(sys.executable).with_name("tg")
     assert "TGCLI_STATE_DIR" not in environment
+    assert WRITES or environment["TGCLI_READONLY"] == "1"
 
 
 def test_live_dialogs():
@@ -116,6 +122,7 @@ def test_live_raw_api_get_full_user_has_envelope():
     assert isinstance(data["result"], dict)
 
 
+@pytest.mark.skipif(not WRITES, reason="writes a draft (TGCLI_LIVE_WRITES=1)")
 def test_live_draft_set_show_clear_idempotent():
     """ADR-0039 live gate: markdown draft, reply header, no-op set/clear.
 
