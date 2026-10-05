@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Prepare the release bookkeeping ADR-0038 requires, so the integrator writes prose.
+"""Prepare a release's bookkeeping, so the person releasing writes only prose.
 
-Run at merge time, never on a feature branch (AGENTS.md: feature branches never
-touch the version files, `CHANGELOG.md`, or tags). The script moves the version
-in both files, opens the `CHANGELOG.md` section with the date, lists the ADRs
-and PRs the slice landed, and adds the `[x.y.z]:` compare link. What it cannot
-do is say what the release means to an operator: it leaves a marked line for
-that, and the integrator replaces it.
+Run on a release branch cut from `main` when the owner asks for a release. The
+script moves the version in both files, opens the `CHANGELOG.md` section with
+the date, lists the ADRs and PRs landed since the last release, and adds the
+`[x.y.z]:` compare link. What it cannot do is say what the release means to an
+operator: it leaves a marked line for that to be replaced.
 """
 
 import argparse
@@ -84,7 +83,7 @@ def collect_slice(
     """PRs and ADRs landed since the previous release tag, best effort.
 
     A missing tag or a non-git directory yields empty lists: the section is
-    then a skeleton the integrator fills, which is still better than nothing.
+    then a skeleton to fill by hand, which is still better than nothing.
     """
     span = f"v{previous}..HEAD"
     if not git(repo_root, "rev-parse", "--verify", f"v{previous}^{{commit}}"):

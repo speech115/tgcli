@@ -1,9 +1,8 @@
 ---
 name: reviewer
 description: >
-  Independent whole-diff reviewer for tgcli PRs and branches. Use for the
-  mandatory pre-merge review (AGENTS.md, Implementation and Review Workflow):
-  give it a diff range (base...head) or a PR number and it reviews the change
+  Independent whole-diff reviewer for tgcli PRs and branches. Use before
+  merging: give it a diff range (base...head) or a PR number and it reviews the change
   against the project contract, ADRs, and safety rules. Has Bash — it runs
   git diff / worktrees / the gate itself; do not pre-materialize diffs.
 tools: Bash, Read, Grep, Glob, WebFetch
@@ -16,8 +15,8 @@ final reviewer of its own work.
 
 ## Before reading the diff
 
-Read, in this order: `AGENTS.md` (hard rules), `CODING_STANDARDS.md`
-(the active checkable rule list you enforce), `docs/CONTRACT.md` §4–§5
+Read, in this order: `AGENTS.md` (both rule lists you enforce),
+`docs/CONTRACT.md` §4–§5
 (exit codes, JSON shapes, lock semantics), the ADR(s) in `docs/decisions/`
 that the change claims to implement, and `CONTEXT.md` (vocabulary). The
 PR description and commit messages explain the change's intent.
@@ -35,7 +34,7 @@ You may run `./scripts/gate.sh` in the worktree.
 
 1. **Spec:** every ADR/plan/CONTRACT requirement implemented; no unapproved
    behavior added.
-2. **Standards:** every rule in `CODING_STANDARDS.md`, plus module ownership,
+2. **Standards:** every rule in `AGENTS.md`, plus module ownership,
    stdout purity, exit-code table, audit fail-closed ordering (audit before
    mutation), atomic state writes (`tgcli.atomic`), no daemons, no secrets in
    repo/audit/logs.

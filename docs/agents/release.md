@@ -40,12 +40,8 @@ A stack `main ← A ← B ← C` merges bottom-up, one PR at a time:
   If the run failed after tagging but before publishing, **re-run the
   workflow**: the tag branch is idempotent and the publish step fills in the
   missing Release.
-- Delete merged branches **one at a time** (batch `git push --delete` may be
-  blocked by the approval classifier; fallback:
-  `gh api -X DELETE repos/{owner}/{repo}/git/refs/heads/<branch>`). Prefer
-  `gh pr merge N --squash --delete-branch` so the ref never outlives the
-  merge — the AGENTS.md "Git" rule applies to every merge, release or not.
-  Finish with `git remote prune origin` so stale remote-tracking refs go too.
+- The repository deletes a PR's branch on merge. Locally, finish with
+  `git branch -d <topic>` and `git remote prune origin`.
 - Before force-deleting a local branch, prove it is contained:
   `git cherry main <branch>` must show only `-` lines.
 

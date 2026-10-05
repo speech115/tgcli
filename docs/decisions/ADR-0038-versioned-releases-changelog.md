@@ -3,7 +3,7 @@
 Date: 2026-07-23
 Status: accepted (rule 3 mechanics amended by ADR-0058: the integrator
 assigns the version and CHANGELOG section at merge; feature branches never
-touch them)
+touch them); rule 3 superseded by ADR-0120 (release on owner request)
 
 ## Context
 

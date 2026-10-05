@@ -2,8 +2,11 @@
 
 Date: 2026-10-05
 Status: accepted
-Supersedes: ADR-0007 (MAP and DEVLOG duties), ADR-0058 decision 2 (per-session
-devlog), ADR-0065 (MAP inventory and devlog routing checks)
+Supersedes: ADR-0007 (MAP and DEVLOG duties), ADR-0058 decisions 1–2
+(integrator releases, per-session devlog), ADR-0065 (MAP inventory and devlog
+routing checks), ADR-0038 rule 3 (a release per contract change), ADR-0073
+(change lanes), ADR-0074 rule 1 (complexity reset); amends ADR-0071 (an ADR
+only for decisions that are hard to reverse)
 
 ## Context
 
@@ -37,8 +40,16 @@ check or goes.
    and the PR template shrink to pointers.
 6. Commit messages, PR descriptions, and issues are the session record.
 
-`AGENTS.md` itself is rewritten in a follow-up as a table that pairs each rule
-with what enforces it.
+7. `AGENTS.md` becomes two lists: rules paired with the check that enforces
+   them, and a short list of judgment rules. `CODING_STANDARDS.md` merges
+   into it. When the owner corrects an agent, the fix goes to architecture,
+   then a lint or test, and only last to the judgment list.
+8. Change lanes, the integrator role, and a release per contract change go.
+   A release happens when the owner asks, through `scripts/prepare-release.py`
+   and the `Release tag` workflow. An ADR is written only for a decision that
+   is hard to reverse.
+9. "stdout carries contract data only" gains a check: ruff `T20` bans `print`
+   in `src/`.
 
 ## Rejected alternatives
 

@@ -1,7 +1,7 @@
 # ADR-0058: Process-speed revisions — integrator releases, per-entry devlog, ceiling grace
 
 Date: 2026-07-26
-Status: accepted; decision 3 mandatory-gate grace amended by ADR-0107; decision 2 (per-session devlog) superseded by ADR-0120
+Status: accepted; decision 3 mandatory-gate grace amended by ADR-0107; decisions 1–2 (integrator releases, per-session devlog) superseded by ADR-0120
 
 ## Context
 
