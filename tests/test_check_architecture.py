@@ -166,7 +166,6 @@ def test_architecture_check_accepts_owned_read_operation_seam(tmp_path):
 def test_fixture_ceilings_match_the_checker():
     checker = runpy.run_path(str(SCRIPT))
     assert CEILINGS == checker["CEILINGS"]
-    assert checker["GRACE"] == 50
 
 
 def test_architecture_check_rejects_read_dispatch_leaking_into_dispatch(tmp_path):
@@ -191,49 +190,12 @@ def test_architecture_check_accepts_a_shrunk_file(tmp_path):
     assert result.returncode == 0, result.stdout
 
 
-def test_growth_within_grace_passes_with_warning(tmp_path):
-    """ADR-0058: growth within the grace band passes so feature branches
-    never edit ceilings; the integrator ratchets them at merge."""
+def test_architecture_check_rejects_any_growth_past_the_ceiling(tmp_path):
     _write_minimal_tree(tmp_path)
     cli = tmp_path / "src/tgcli/cli.py"
     cli.write_text(cli.read_text() + "#\n")
 
     result = _run(tmp_path)
-
-    assert result.returncode == 0, result.stdout
-    assert "architecture check passed" in result.stdout
-    assert "src/tgcli/cli.py has 691 lines; over ceiling 690" in result.stderr
-    assert "grace" in result.stderr
-
-
-def test_growth_at_the_grace_boundary_passes(tmp_path):
-    _write_minimal_tree(tmp_path)
-    cli = tmp_path / "src/tgcli/cli.py"
-    cli.write_text(cli.read_text() + "#\n" * 50)
-
-    result = _run(tmp_path)
-
-    assert result.returncode == 0, result.stdout
-
-
-def test_architecture_check_rejects_growth_past_the_grace_band(tmp_path):
-    _write_minimal_tree(tmp_path)
-    cli = tmp_path / "src/tgcli/cli.py"
-    cli.write_text(cli.read_text() + "#\n" * 51)
-
-    result = _run(tmp_path)
-
-    assert result.returncode == 1
-    assert "src/tgcli/cli.py has 741 lines; reviewed ceiling is 690" in result.stdout
-
-
-def test_strict_mode_rejects_any_growth_past_the_ceiling(tmp_path):
-    """--strict is the integrator's merge-time true-up: zero grace."""
-    _write_minimal_tree(tmp_path)
-    cli = tmp_path / "src/tgcli/cli.py"
-    cli.write_text(cli.read_text() + "#\n")
-
-    result = _run(tmp_path, "--strict")
 
     assert result.returncode == 1
     assert "src/tgcli/cli.py has 691 lines; reviewed ceiling is 690" in result.stdout
@@ -298,10 +260,10 @@ def test_store_module_has_a_reviewed_ceiling():
     assert "src/tgcli/commands/store.py" in checker["CEILINGS"]
 
 
-def test_local_and_ci_gates_enable_strict_architecture_checks():
+def test_local_and_ci_gates_run_the_architecture_check():
     root = Path(__file__).parents[1]
     local_gate = (root / "scripts/gate.sh").read_text()
     ci = (root / ".github/workflows/ci.yml").read_text()
 
-    assert "scripts/check-architecture.py --strict" in local_gate
-    assert "scripts/check-architecture.py --strict" in ci
+    assert "scripts/check-architecture.py" in local_gate
+    assert "scripts/check-architecture.py" in ci

@@ -8,15 +8,7 @@ from __future__ import annotations
 
 import argparse
 import ast
-import sys
 from pathlib import Path
-
-# ADR-0058: a file may exceed its reviewed ceiling by up to GRACE lines
-# without failing the gate, so feature branches never edit ceilings and the
-# shared-file conflict class disappears. The integrator trues the ceilings up
-# at merge with --strict (zero grace). Growth past ceiling + GRACE still
-# fails everywhere — the anti-bloat control is a band, not a hole.
-GRACE = 50
 
 # ADR-0057 raised five ceilings by the exact cost of the lint policy, never
 # more: ruff's isort separates stdlib / third-party / first-party import
@@ -344,9 +336,8 @@ def _read_ownership_errors(path: Path, relative: str) -> set[str]:
     return errors
 
 
-def check(root: Path, grace: int = GRACE) -> tuple[list[str], list[str]]:
+def check(root: Path) -> list[str]:
     errors: list[str] = []
-    warnings: list[str] = []
     for relative, budget in CEILINGS.items():
         path = root / relative
         try:
@@ -354,14 +345,9 @@ def check(root: Path, grace: int = GRACE) -> tuple[list[str], list[str]]:
         except FileNotFoundError:
             errors.append(f"{relative} is missing")
             continue
-        if line_count > budget + grace:
+        if line_count > budget:
             errors.append(
                 f"{relative} has {line_count} lines; reviewed ceiling is {budget}"
-            )
-        elif line_count > budget:
-            warnings.append(
-                f"{relative} has {line_count} lines; over ceiling {budget} but "
-                f"within grace +{grace} (the integrator ratchets at merge)"
             )
 
     for relative in READ_OWNERSHIP_MODULES:
@@ -376,22 +362,14 @@ def check(root: Path, grace: int = GRACE) -> tuple[list[str], list[str]]:
     for path in sorted(source_root.rglob("*.py")):
         relative = path.relative_to(root).as_posix()
         errors.extend(_state_write_errors(path, relative))
-    return errors, warnings
+    return errors
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=Path(__file__).parents[1])
-    parser.add_argument(
-        "--strict",
-        action="store_true",
-        help="zero grace: fail on any growth past a ceiling (integrator "
-        "merge-time true-up, ADR-0058)",
-    )
     args = parser.parse_args(argv)
-    errors, warnings = check(args.root, grace=0 if args.strict else GRACE)
-    for warning in warnings:
-        print(warning, file=sys.stderr)
+    errors = check(args.root)
     if errors:
         for error in errors:
             print(error)
