@@ -35,6 +35,7 @@ Design lineage: [openclaw/gogcli](https://github.com/openclaw/gogcli) (architect
 - **Chat clone** — copy broadcast channels, megagroup supergroups (forum and non-forum), legacy basic groups, and private dialogs into tool-created destinations, with native forwards plus protected-content reupload.
 - **Daemonless change feed** — `tg changes` returns Telegram updates plus an account-bound caller-held cursor, with authenticated channel subscriptions, deletion tombstones, and loud gap reporting.
 - **Local archive store** — `tg archive` binds a per-account SQLite store, backfills selected/private dialogs, syncs the changes cursor, acquires bounded voice/video-note media with terminal retry state, transcribes locally with Parakeet, and provides filtered/ranked offline search plus timeline/history views.
+- **Scripts** — `tg run SCRIPT` runs Python with the authorized, paced Telethon client for anything without a command; read-only unless `--write`, and every write is audited first.
 - **Raw TL escape hatch** — `tg api` reaches the long tail of the pinned Telethon layer behind a default-deny read allowlist, an explicit `--write` gate, typed confirmations for destructive verbs, and a permanent denylist.
 - **Diagnostics and hygiene** — `tg doctor` reports locally by default (`--connect` for live checks); `tg store stats` / `tg store cleanup` inspect and reclaim local state without ever touching sessions or the audit log.
 

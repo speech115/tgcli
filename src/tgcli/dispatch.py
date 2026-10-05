@@ -20,6 +20,7 @@ from tgcli.commands import (
     export as export_cmd,
     media as media_cmd,
     mutate as mutate_cmd,
+    run as run_cmd,
     transcribe as transcribe_cmd,
 )
 from tgcli.errors import PolicyError, RateLimitError
@@ -27,8 +28,10 @@ from tgcli.governor import pacing
 
 
 async def run_network(args, account) -> tuple[dict, list[tuple]]:
-    mutation_safe = preview_commit.mutation_safe(args) or (
-        args.command == "clone" and args.clone_command == "sync"
+    mutation_safe = (
+        preview_commit.mutation_safe(args)
+        or (args.command == "clone" and args.clone_command == "sync")
+        or (args.command == "run" and args.write)
     )
     # cli._execute already holds the audit-role context var for the whole
     # invocation (including this coroutine); only the network session itself
@@ -68,6 +71,15 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
                 return await _run_dialog(tg, args)
             if args.command == "api":
                 return await api_cmd.call(tg, args.method, args.params), []
+            if args.command == "run":
+                data = await run_cmd.run(
+                    tg,
+                    args.run_code,
+                    account.alias,
+                    argv=args.script_args,
+                    write=args.write,
+                )
+                return data, []
             if args.command == "changes":
                 data = await changes_cmd.run_changes(
                     tg,

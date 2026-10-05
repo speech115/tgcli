@@ -16,7 +16,12 @@ from datetime import datetime
 
 from tgcli import preview_commit, read_ops, safety
 from tgcli.archive import preflight as archive_preflight
-from tgcli.commands import api as api_cmd, batch as batch_cmd, dialog as dialog_cmd
+from tgcli.commands import (
+    api as api_cmd,
+    batch as batch_cmd,
+    dialog as dialog_cmd,
+    run as run_cmd,
+)
 from tgcli.errors import ConfigError, PolicyError
 
 
@@ -29,6 +34,7 @@ def prepare(parser: argparse.ArgumentParser, args) -> None:
     _prepare_mutations(args)
     preview_commit.prepare(parser, args)
     _prepare_api(parser, args)
+    _prepare_run(args)
     _prepare_changes(args)
     archive_preflight.prepare(args)
 
@@ -43,6 +49,15 @@ def _prepare_max_runtime(args) -> None:
     timeout = getattr(args, "timeout", None)
     if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
         raise PolicyError("--timeout must be a positive finite number of seconds")
+
+
+def _prepare_run(args) -> None:
+    """Compile the script and gate --write before any session work."""
+    if args.command != "run":
+        return
+    if args.write:
+        safety.enforce_mutation_allowed(args.readonly)
+    args.run_code = run_cmd.compile_source(args.script)
 
 
 def _prepare_changes(args) -> None:

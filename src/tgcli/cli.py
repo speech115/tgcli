@@ -526,6 +526,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "batch":
                 output.emit_json_lines(data["_batch_results"])
                 exit_code = data["_batch_exit"] or 0
+            elif args.command == "run":
+                exit_code = 0  # the script owns stdout and already wrote it
             else:
                 _emit(args, data, rows)
                 exit_code = 0

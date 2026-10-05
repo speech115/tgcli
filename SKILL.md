@@ -173,6 +173,29 @@ can confirm the original operation without duplicating it. Do not retry exit 2
 (a safety block) until its intentional cause is removed, or exit 5 until the
 reported `retry_after` has elapsed.
 
+## `tg run` — anything without a command
+
+When no wrapped command covers the task, write a short Python script. It gets
+`client` (Telethon, already authorized and paced), `functions`, `types`,
+`account`, and `msg(message)`, which returns the same JSON object as `tg read`.
+Bundle related calls into one script instead of one process per call.
+
+```bash
+tg run - <<'PY'
+import json
+full = await client(functions.channels.GetFullChannelRequest("@channel"))
+print(json.dumps({"about": full.full_chat.about,
+                  "members": full.full_chat.participants_count}))
+for m in await client.get_messages("@channel", limit=5):
+    print(json.dumps(msg(m), ensure_ascii=False))
+PY
+```
+
+Scripts may only read. A request that changes Telegram is refused (exit 2)
+unless you pass `tg run --write SCRIPT`, which audits every write first; use
+`--write` only when the owner asked for that change. Prefer a wrapped command
+for sends, edits, deletes, and forwards: it shows a preview first.
+
 ## `tg api` — last resort
 
 Use `tg api` only when no wrapped command covers the task. Prefer a wrapped
