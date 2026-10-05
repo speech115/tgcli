@@ -60,6 +60,13 @@ check or goes.
     what holds. An ADR whose decisions all lapsed or now live in the ADR
     index or `AGENTS.md` is deleted:
     0006, 0007, 0013, 0014, 0026, 0033, 0058, 0070, 0073.
+12. Releases go: `CHANGELOG.md`, `scripts/prepare-release.py`, the
+    `Release tag` workflow, and the release runbook. One user runs `main`,
+    and 3.0.1–3.0.14 went untagged for two months without anyone noticing.
+    Per-file line ceilings (45 numbers, 38 within 10 lines of their file)
+    become one 800-line module limit. A JSON rename or removal needs a
+    `Breaking:` PR title instead of an ADR and a major version. Review
+    threads no longer have to be resolved before a merge.
 
 ## Rejected alternatives
 

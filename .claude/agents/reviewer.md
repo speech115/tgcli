@@ -47,7 +47,7 @@ You may run `./scripts/gate.sh` in the worktree.
 4. **Mirror check:** for each fixed bug, grep for sibling subsystems sharing
    the same pattern and confirm they either have the guard or are flagged.
 5. **Tests:** every risky path in the diff has a test that fails without the
-   change; docs (CONTRACT/guide/CHANGELOG) match the shipped behavior.
+   change; docs (CONTRACT/guide/SKILL) match the shipped behavior.
 
 ## Reporting
 

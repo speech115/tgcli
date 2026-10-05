@@ -7,7 +7,6 @@
 # ✈️ tgcli — Telegram CLI: read, search, send
 
 [![CI](https://github.com/speech115/tgcli/actions/workflows/ci.yml/badge.svg)](https://github.com/speech115/tgcli/actions/workflows/ci.yml)
-[![release](https://img.shields.io/github/v/tag/speech115/tgcli?label=release&color=2aabee)](https://github.com/speech115/tgcli/releases)
 [![python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![status](https://img.shields.io/badge/status-owner--gated-informational)](docs/decisions/ADR-0071-owner-gated-development.md)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -126,7 +125,7 @@ Full guide: **[docs/guide/](docs/guide/README.md)**
 | **Writing** | [send](docs/guide/send.md) · [editing](docs/guide/editing.md) · [forward](docs/guide/forward.md) · [drafts](docs/guide/drafts.md) · [formatting](docs/guide/formatting.md) · [inbox](docs/guide/inbox.md) |
 | **Data** | [media](docs/guide/media.md) · [export](docs/guide/export.md) · [clone](docs/guide/clone.md) |
 | **Operations** | [jobs](docs/guide/jobs.md) · [doctor](docs/guide/doctor.md) · [store](docs/guide/store.md) · [safety](docs/guide/safety.md) · [api](docs/guide/api.md) |
-| **Reference** | [CLI contract](docs/CONTRACT.md) · [feature matrix](docs/FEATURES.md) · [ADR index](docs/decisions/README.md) · [changelog](CHANGELOG.md) |
+| **Reference** | [CLI contract](docs/CONTRACT.md) · [feature matrix](docs/FEATURES.md) · [ADR index](docs/decisions/README.md) |
 | **Agents** | [SKILL.md](SKILL.md) — routing table and recipes · [AGENTS.md](AGENTS.md) — the contract every agent follows here |
 
 ## Configuration

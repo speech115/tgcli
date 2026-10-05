@@ -1,8 +1,7 @@
 # CLI Automation Contract
 
-Version: 3.0.0 (tracks the package release; see `CHANGELOG.md` and
-`pyproject.toml`). Any change here lands in the same commit as the code
-change (AGENTS.md / ADR-0038).
+This contract describes `main`. Any change here lands in the same PR as the
+code change.
 
 ## 1. Invocation
 
@@ -68,8 +67,8 @@ flag.
 
 ## 3. Stability Rules
 
-- JSON: adding fields is allowed anytime; renaming/removing/retyping fields
-  is a breaking change → requires ADR + major version bump.
+- JSON: adding fields is allowed anytime. Renaming, removing, or retyping a
+  field is a breaking change: the PR title starts with `Breaking:`.
 - TSV: column order is frozen per command; new columns append at the end.
 - Datetimes: ISO 8601 UTC (`2026-07-06T12:00:00+00:00`). IDs: as integers.
 - Long options must be spelled in full. Option-prefix abbreviations (`--c`

@@ -6,8 +6,8 @@ privately first.
 
 ## Supported versions
 
-Only the latest released version on `main` is supported. Fixes ship as a new
-patch release ([CHANGELOG.md](CHANGELOG.md)); there are no backports.
+Only `main` is supported. Fixes land on `main`; there are no releases or
+backports.
 
 ## Reporting a vulnerability
 

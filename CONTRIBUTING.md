@@ -13,7 +13,7 @@ uv run tg --help
 Requires Python 3.12+ and [`uv`](https://docs.astral.sh/uv/). The test suite
 needs no Telegram account.
 
-Before opening a pull request, run `./scripts/gate.sh` (the same steps CI
-runs) and paste its tail into the description. The working rules are in
+Before opening a pull request, run `./scripts/gate.sh`; CI runs the same
+steps. The working rules are in
 [AGENTS.md](AGENTS.md). Never commit session files or secrets — see
 [SECURITY.md](SECURITY.md).
