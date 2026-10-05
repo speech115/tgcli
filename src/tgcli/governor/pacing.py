@@ -59,6 +59,12 @@ def _note_sleep(seconds: float) -> None:
     _slept_seconds += seconds
 
 
+def sleep_governed(seconds: float) -> None:
+    """Block for ``seconds`` as deliberate waiting `--timeout` does not count."""
+    _note_sleep(seconds)
+    time.sleep(seconds)
+
+
 def note_request() -> None:
     """Count one governed request (called from the seam before dispatch)."""
     global _request_count

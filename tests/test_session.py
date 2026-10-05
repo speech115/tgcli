@@ -144,6 +144,7 @@ async def test_client_session_chmod_failure_is_fail_open(state, monkeypatch):
 
 
 async def test_busy_lock_fails_fast_with_config_error(state, monkeypatch):
+    monkeypatch.setattr(session, "BUSY_WAIT_SECONDS", 0.0)
     fake = FakeTelethonClient()
     monkeypatch.setattr(
         session, "_make_client", lambda path, account, *, mutation_safe=False: fake

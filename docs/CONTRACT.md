@@ -85,9 +85,14 @@ flag.
 | 0 | success | |
 | 1 | runtime error | network, unexpected exception |
 | 2 | blocked by safety policy | `--readonly` + mutating command, `TGCLI_NO_SEND` |
-| 3 | config/auth error | missing `--account` / `default_account`, dead session, bad api_id |
+| 3 | config/auth error | missing `--account` / `default_account`, dead session, bad api_id, a session still busy after the wait below |
 | 4 | not found | unknown dialog, message id, media; unknown alias on `accounts show\|remove` (lookup) |
 | 5 | rate limited | FloodWait longer than threshold; `retry_after` in error JSON; also a sticky in-process cooldown after a FloodWait whose durable arm could not persist (ADR-0090) |
+
+A command whose session another `tg` process holds waits up to **120 s** for
+it, with one stderr note, then exits 3. The wait is governed sleep, so
+`--timeout` does not count it, and it never outlasts `--max-runtime`.
+Account administration (`accounts login|remove|import`) does not wait.
 
 Exit 1 covers several distinguishable error codes in the JSON envelope:
 `TIMEOUT` (the `--timeout` deadline elapsed), `RUNTIME` (an untranslated

@@ -23,9 +23,10 @@ selected account session, does one operation, and exits.
 | 4 | not found |
 | 5 | rate limited; JSON error includes `retry_after` |
 
-- Run one process per account session at a time. Exit 3 can mean a busy
-  session lock; retry in a few seconds. For concurrency, authorize a named
-  role (`accounts login ALIAS --role job --phone PHONE`) and pass `--session-role job`.
+- One process uses an account session at a time. A command whose session is
+  busy waits up to 120 s for it (a stderr note says so), then exits 3; do not
+  retry in a loop. For real concurrency, authorize a named role
+  (`accounts login ALIAS --role job --phone PHONE`) and pass `--session-role job`.
 - Never open a tgcli `.session` file with bare `python3` or a system/user-site
   Telethon. Use the `tg` entrypoint or `./.venv/bin/python` from this checkout;
   `tg doctor` reports the active Python and Telethon runtime under `runtime`.
