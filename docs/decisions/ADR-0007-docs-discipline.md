@@ -1,6 +1,6 @@
 # ADR-0007: MAP + ADR + DEVLOG as mandatory agent workflow
 
-Status: accepted (2026-07-06)
+Status: accepted (2026-07-06); MAP and DEVLOG duties superseded by ADR-0120
 
 ## Context
 This project is developed primarily by AI agents across many sessions.

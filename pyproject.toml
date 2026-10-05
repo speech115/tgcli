@@ -34,7 +34,7 @@ line-length = 88
 src = ["src", "tests"]
 target-version = "py312"
 # Keep Markdown out of format/check: v0.16 formats fenced Python by default,
-# and docs/superpowers/ is closed history that must not be rewritten.
+# and ADRs are history that must not be rewritten.
 extend-exclude = ["**/*.md"]
 
 [tool.ruff.lint]

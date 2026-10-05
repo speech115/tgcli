@@ -1,6 +1,6 @@
 # Clone a chat
 
-`tg clone` copies a supported chat's history into a private, tool-created destination and lets you catch it up later. It replaced an earlier `tg mirror` implementation; **[docs/CLONE.md](../CLONE.md) is a historical chronicle of that development, not current behaviour — this page is the current one** (see [ADR-0017](../decisions/ADR-0017-clone-supersedes-mirror.md)).
+`tg clone` copies a supported chat's history into a private, tool-created destination and lets you catch it up later. It replaced an earlier `tg mirror` implementation (see [ADR-0017](../decisions/ADR-0017-clone-supersedes-mirror.md)).
 
 ## What can be cloned
 
@@ -157,5 +157,4 @@ Bot buttons do not survive a reupload or a snapshot. A keyboard belongs to the b
 
 - [export.md](export.md) — one-shot data extraction instead of a live destination chat
 - [../CONTRACT.md](../CONTRACT.md) — §11 canonical clone contract
-- [../CLONE.md](../CLONE.md) — historical chronicle, not current behaviour
 - [../../SKILL.md](../../SKILL.md) — one-line invocation recipes

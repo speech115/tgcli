@@ -4,17 +4,12 @@ Canonical behavior contract for every AI agent working in this repo.
 
 ## Read First
 
-1. [docs/MAP.md](docs/MAP.md) — where everything lives and what each module owns.
-2. [docs/devlog/](docs/devlog/) — latest session entries: what happened
-   recently and why. [docs/DEVLOG.md](docs/DEVLOG.md) is the closed history
-   and template.
-3. [docs/ISSUES.md](docs/ISSUES.md) — current scope: deferred work and re-entry gates.
-4. Relevant ADRs before touching an area they govern — start from the
+1. Relevant ADRs before touching an area they govern — start from the
    index in [docs/decisions/README.md](docs/decisions/README.md).
-5. When using installed engineering flows, read the matching repository
+2. When using installed engineering flows, read the matching repository
    routing under [docs/agents/](docs/agents/): issue tracker, triage labels,
    and domain-document discovery.
-6. [CODING_STANDARDS.md](CODING_STANDARDS.md) — the active checkable rule
+3. [CODING_STANDARDS.md](CODING_STANDARDS.md) — the active checkable rule
    list review enforces; add a rule here when the agent does something wrong.
 
 [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md) are the
@@ -22,13 +17,6 @@ outward-facing summaries of these rules (ADR-0056): the first restates this
 contract for human contributors, the second owns the private reporting channel
 and the redaction rules. **This file stays canonical** — where either drifts
 from it, the other document is the bug.
-
-[docs/PLAN.md](docs/PLAN.md) (completed master plan),
-[docs/CLONE.md](docs/CLONE.md) (clone chronicle),
-[docs/DEVLOG-v1.md](docs/DEVLOG-v1.md) (sessions up to 1.0.0), and everything
-under [docs/superpowers/](docs/superpowers/) (completed plans and specs) are
-**closed history**. Read them to chase how something came to be; never to
-learn how it behaves now, and never update them when behaviour changes.
 
 ## Agent Skills
 
@@ -46,10 +34,10 @@ The project is in production use and still evolving; what gates it is the
 owner, not a freeze. Default posture:
 
 - **A new feature or behavior change needs an explicit owner request plus
-  an ADR** — never a new phase in PLAN.md. A separate scoped plan is
+  an ADR**. A separate scoped plan is
   required only for a campaign: three or more PRs, or a new subsystem
   (ADR-0073); below that the ADR's decision section is the plan. An unvetted
-  idea waits in docs/PROPOSALS.md; it does not become code.
+  idea waits as a GitHub issue; it does not become code.
 - **A bug fix starts from a reproducing test**, then the minimal fix.
 - **Never widen the scope you were given.** Adjacent improvements you spot
   are reported, not implemented. When in doubt whether something is a fix
@@ -70,20 +58,19 @@ when it touches any of:
 7. the enforcement mechanisms themselves — the logic of `scripts/gate.sh`,
    `check-architecture.py`, `check-docs.py`, `check-coverage.py`, the CI
    workflows, or this contract and its adapters (`AGENTS.md`, `CLAUDE.md`,
-   `.cursor/rules/`, `.claude/agents/`, `CONTRIBUTING.md`, `SKILL.md`). These
+   `.claude/agents/`, `CONTRIBUTING.md`, `SKILL.md`). These
    are what make every other rule bite; a reviewer whose checklist comes from
    the file being weakened cannot catch its weakening. The ceiling *numbers*
    stay integrator-owned under ADR-0058 and are not a trigger by themselves.
 
-Anything else takes the **small-fix lane**: no ADR, no scoped plan, no ADR
-index row, no `docs/PROPOSALS.md` / `docs/ISSUES.md` status edit, no release
-bookkeeping. Ambiguous change — full lane.
+Anything else takes the **small-fix lane**: no ADR, no scoped plan, no
+release bookkeeping. Ambiguous change — full lane.
 
 The small lane keeps, without exception: the reproducing test first, the full
 gate, the independent whole-diff review, the mirror-fix rule, and atomic
 state writes. Those are what protect a live account; they are not ceremony.
 
-**Documents ride with their code.** An ADR, plan, or devlog entry lands in the
+**Documents ride with their code.** An ADR or plan lands in the
 PR that carries its implementation. A document-only PR is for a decision
 deliberately taken before the work is scoped — an ADR proposed for owner
 review, or a campaign plan spanning several PRs — never the default shape.
@@ -94,15 +81,10 @@ needs no superseding ADR.
 
 ## Documentation Discipline (mandatory)
 
-- **Every landed slice** adds one devlog entry as its own file under
-  `docs/devlog/` named `YYYY-MM-DD-slug.md` (template in `docs/DEVLOG.md`;
-  ADR-0058, cadence amended by ADR-0073). Also write one for a session that
-  produced a decision, an incident, or a handoff worth carrying; a session
-  that landed nothing adds none. Target 15 lines — facts, not narrative.
-  `docs/DEVLOG.md` and `docs/DEVLOG-v1.md` are closed: never append to them.
-  Live-acceptance notes may name test-account aliases, but keep incident
-  detail about real accounts impersonal (what broke and the fix — not which
-  live account it happened to); never phone numbers or session material.
+- Commit messages, PR descriptions, and issues are the session record. Keep
+  incident detail about real accounts impersonal (what broke and the fix —
+  not which live account it happened to); never phone numbers or session
+  material.
 - **Every full-lane decision** (the seven triggers above) gets an ADR in
   `docs/decisions/` using the next number: `ADR-NNNN-slug.md`, plus its row in the index
   [docs/decisions/README.md](docs/decisions/README.md) in the same commit.
@@ -112,23 +94,17 @@ needs no superseding ADR.
   behavior, and new dependencies.
   Superseding an old decision:
   new ADR + mark the old one `Status: superseded by ADR-NNNN`.
-- **`docs/MAP.md` must match reality.** Added/moved/removed a module — update
-  the map in the same commit.
 - **Active summaries must close with the code.** A public command, global
   flag, safety guarantee, or guide page updates `README.md` / `SKILL.md` in
-  the same slice. When a proposal or deferred issue graduates or ships,
-  update its status in `docs/PROPOSALS.md` / `docs/ISSUES.md`; release
-  bookkeeping alone is not closure. `scripts/check-docs.py` enforces the
-  mechanically derivable parts (guide discoverability, root global flags,
-  MAP inventory, benchmark claims, and devlog routing).
+  the same slice. `scripts/check-docs.py` enforces the mechanically
+  derivable parts (guide flags, commands and links, root global flags,
+  guide discoverability, and benchmark claims).
 - **A feature or fix that changes `docs/CONTRACT.md` ships as a release**
   (ADR-0038, mechanics amended by ADR-0058): the **integrator** — the
   session that merges — bumps the **patch** version in `pyproject.toml` and
   `src/tgcli/__init__.py` and adds the `CHANGELOG.md` section naming the
-  ADR **and its `[x.y.z]:` compare link**, in the merge that lands the
-  change. Feature branches never touch the version files, `CHANGELOG.md`,
-  or tags. The docs gate refuses a release section without its link; the
-  `Release tag` workflow tags the merge commit `vX.Y.Z` on push to `main`
+  ADR, in the merge that lands the change. Feature branches never touch the
+  version files, `CHANGELOG.md`, or tags. The `Release tag` workflow tags the merge commit `vX.Y.Z` on push to `main`
   whenever the push moved `__version__`, and publishes the GitHub Releases
   page entry from the same CHANGELOG section (ADR-0077). Never let unreleased contract
   changes accumulate. The minor digit is raised only when the owner
@@ -220,8 +196,7 @@ needs no superseding ADR.
   `CHANGELOG.md`, and the version in `pyproject.toml` /
   `src/tgcli/__init__.py` (integrator-only under ADR-0058). An agent
   needing a contract line reports it instead; the integrator lands all of
-  them once. Devlog entries are per-session files under `docs/devlog/` and
-  never conflict.
+  them once.
 - **Parallel waves branch from the integration head**, never from `main`,
   whenever a campaign has its own integration branch (ADR-0058): a wave
   based on `main` cannot see the seams earlier waves already landed.
