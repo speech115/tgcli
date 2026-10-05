@@ -1,7 +1,7 @@
 # ADR-0087: Foreground persisted jobs over typed checkpointed workloads
 
 Date: 2026-08-10
-Status: accepted (2026-08-10; owner grilling for #146)
+Status: accepted (2026-08-10; owner grilling for #146); timer rearm of failed, cancelled, and stale running generations amended 2026-10-05 (see CONTRACT `jobs run --rearm`)
 Supersedes: [ADR-0070](ADR-0070-archive-refresh-scheduling.md) entirely.
 Amends: [ADR-0068](ADR-0068-local-archive-store.md) by replacing `tg archive
 refresh` with independently scheduled archive sync and transcription jobs.

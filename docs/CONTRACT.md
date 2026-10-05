@@ -2174,8 +2174,12 @@ and `show` are offline reads.
 
 `jobs run --rearm KEY` is the recurring-launchd form. A completed latest
 generation is copied into a new queued generation with the same typed spec and
-priority; an already queued generation runs as-is. A failed, cancelled, or
-running generation is exit **2** and is never resurrected by a timer wake.
+priority; an already queued generation runs as-is. A failed generation is
+copied the same way, but the new generation is not eligible until two hours
+after the failure, so a broken recurring job retries every two hours and each
+new failure notifies again. A cancelled generation stays cancelled, and a
+running one is stale under the lane lock and recovered by the run itself; both
+are a no-op, and the run exits 0.
 The resolved lane retains all normal lane and role gates before registry
 mutation, session, or network work.
 

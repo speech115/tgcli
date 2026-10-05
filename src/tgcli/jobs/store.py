@@ -228,7 +228,12 @@ def rearm_job(
     expected_lane: str,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Create the next generation only from completed recurring work."""
+    """Create the next recurring generation after a completed or failed one.
+
+    Runs under the lane lock: a running latest row is stale and the lane run
+    recovers it, so it is left alone like a queued or cancelled one. A failed
+    generation is retried two hours after it failed.
+    """
     model.validate_key(key)
     timestamp = _stamp(now)
     conn.execute("BEGIN IMMEDIATE")
@@ -242,16 +247,18 @@ def rearm_job(
                 f"job {key!r} lane changed from {expected_lane!r} to {lane!r}; retry"
             )
         state = str(latest["state"])
-        if state == "queued":
+        if state in ("queued", "running", "cancelled"):
             conn.commit()
             return {"job": _job(latest), "created": False, "noop": True}
-        if state != "completed":
-            raise PolicyError(f"job {key!r} is {state}; refusing to rearm")
+        not_before = None
+        if state == "failed":
+            failed_at = datetime.fromisoformat(str(latest["updated_at"]))
+            not_before = _stamp(failed_at + model.RUNTIME_TERMINAL_NOT_BEFORE)
         generation = int(latest["generation"]) + 1
         conn.execute(
             "INSERT INTO jobs(key, generation, kind, lane, spec_json, spec_hash, "
-            "priority, state, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)",
+            "priority, state, created_at, updated_at, not_before) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)",
             (
                 key,
                 generation,
@@ -262,6 +269,7 @@ def rearm_job(
                 int(latest["priority"]),
                 timestamp,
                 timestamp,
+                not_before,
             ),
         )
         _event(
