@@ -1,16 +1,11 @@
-"""Sleep-before-dispatch pacing and the rolling breadth budget.
+"""Request pacing inside one process, governed sleep, and the wall-clock cap.
 
-ADR-0072 decision 3, plan phase 4. The incident ran wholly unpaced:
-Telethon's own throttle only arms above a caller's ``limit > 3000``, so
-``--limit 1000`` never engaged it and tgcli added none of its own. This
-module is the gap the incident found: a persisted, cross-process minimum
-interval per request type, enforced *before* dispatch.
-
-The interval is **start-to-start** (ADR-0072 decision 3): the reservation
-stamps the moment the request will actually leave, taken before the RPC
-goes out. Stamping on return would turn a 3 s interval into ~4.8 s once a
-typical 1.8 s request latency is added — the #140 canary measured exactly
-that, which is why the ADR now says it out loud.
+The 2026-07-31 incident (ADR-0072) was one process walking hundreds of dialogs
+with no spacing at all, which drew a 21.5-hour FloodWait. A single command
+sends a handful of requests and needs no spacing, so each request type gets
+``FREE_REQUESTS`` per process; past that, its interval applies start-to-start
+before every request. Loops (backfill, clone, export, bulk media, scripts)
+are paced; interactive commands are not.
 """
 
 from __future__ import annotations
@@ -18,10 +13,10 @@ from __future__ import annotations
 import asyncio
 import time
 
-from telethon import utils as telethon_utils
-
 from tgcli.governor import registry
-from tgcli.governor.ledger import Ledger
+
+# Requests of one type a process may send before pacing starts.
+FREE_REQUESTS = 5
 
 # Process-wide governed sleep and the optional wall-clock cap (plan phase 5).
 # The deadline asks pacing how much it has slept so `--timeout` can count
@@ -36,6 +31,9 @@ _wall_clock_started = 0.0
 # the last flood-family stop.
 _request_count = 0
 _last_stop: dict | None = None
+# Per request type: how many were sent and when the last one left.
+_sent: dict[str, int] = {}
+_last_sent: dict[str, float] = {}
 
 
 def reset_runtime(*, cap: float | None = None) -> None:
@@ -47,6 +45,8 @@ def reset_runtime(*, cap: float | None = None) -> None:
     _wall_clock_started = time.monotonic()
     _request_count = 0
     _last_stop = None
+    _sent.clear()
+    _last_sent.clear()
 
 
 def total_governed_sleep() -> float:
@@ -148,100 +148,23 @@ def _charge(request: object) -> float | None:
 
 
 async def pace_before_dispatch(
-    ledger: Ledger,
-    account: int,
-    request: object,
-    *,
-    now: float | None = None,
-    sleep=asyncio.sleep,
+    request: object, *, sleep=asyncio.sleep, clock=time.monotonic
 ) -> None:
-    """Sleep until the start-to-start floor holds, then reserve.
-
-    The reservation lands *before* the request leaves, at the moment the
-    request will actually be dispatched. Where the request's own latency
-    already exceeds the interval, no sleep is owed — the interval is a
-    floor on spacing, not an added delay.
-    """
+    """Hold the start-to-start interval once this type used its free requests."""
     interval = _charge(request)
     if interval is None:
         return
     key = registry.request_key(request)
-    moment = time.time() if now is None else now
-    last = ledger.clamp_reservation(account, key, moment)
-    wait = interval - (moment - last) if last is not None else 0.0
-    if wait > 0:
-        _note_sleep(wait)  # write-ahead (review fix C1)
-        await sleep(wait)
-        moment += wait
-    # Atomic claim (review fix m1 / blocker 3): if a competitor reserved a
-    # slot at or after ours while we slept, our claim loses. We must not
-    # dispatch with zero spacing from the winner — wait to the later of the
-    # two slots plus the interval and claim that, retrying until the claim
-    # lands.
-    while not ledger.reserve(account, key, moment):
-        newer = ledger.last_reserved(account, key)
-        if newer is None:
-            # The record vanished or the ledger became unreadable (degraded
-            # mode). Retrying here would spin forever with no sleep — losing
-            # a pacing reservation degrades the pace, it must not hang a
-            # command (fail-open contract, ledger.py). Dispatch now.
-            break
-        target = max(newer, moment) + interval
-        wait = target - moment
-        if wait > 0:
-            _note_sleep(wait)
-            await sleep(wait)
-        moment = target
-
-
-def touch_history_peer(
-    ledger: Ledger, account: int, request: object, *, now: float | None = None
-) -> bool:
-    """Claim a history read's peer against the breadth budget.
-
-    Called before dispatch; durable per peer (ADR-0072 decision 5) so a
-    killed process does not hand back budget for peers it really read.
-    Non-HISTORY / unresolvable peer is not a breadth spend (returns True).
-    Atomic check-and-touch (ADR-0117): False only when a *new* peer is
-    refused because the budget is full. Walkers stop via ``budget_ok``;
-    the gate discards False and still dispatches.
-    """
-    if registry.classify(request) is not registry.RequestClass.HISTORY:
-        return True
-    peer = getattr(request, "peer", None)
-    if peer is None:
-        return True
-    try:
-        peer_id = telethon_utils.get_peer_id(peer)
-    except (TypeError, ValueError):
-        return True
-    moment = time.time() if now is None else now
-    return ledger.try_touch_peer(account, peer_id, moment)
-
-
-def budget_ok(ledger: Ledger, account: int, *, now: float | None = None) -> bool:
-    """Whether starting work on a *new* peer fits the rolling budget.
-
-    Commands that walk peers call this before each new one and stop
-    *normally* (exit 0, ``stop_reason``, checkpoint intact) when it
-    returns False. The authoritative spend is ``try_touch_peer`` /
-    ``touch_history_peer`` (ADR-0117); this read is an early-exit hint
-    and is not itself race-free against a concurrent claim.
-    """
-    moment = time.time() if now is None else now
-    return ledger.breadth_remaining(account, moment) > 0
-
-
-def governor_of(tg) -> tuple[Ledger, int] | None:
-    """The ledger and account id attached to this client, if governed.
-
-    Commands reach the governor through the client the session built for
-    them: the seam installs ``_tgcli_governor`` and Telethon restores
-    ``_self_id`` at connect, so no RPC is needed and no second code path
-    exists to drift.
-    """
-    ledger = getattr(tg, "_tgcli_governor", None)
-    account = getattr(tg, "_self_id", None)
-    if ledger is None or not isinstance(account, int):
-        return None
-    return ledger, account
+    _sent[key] = _sent.get(key, 0) + 1
+    free = 0 if registry.classify(request) in registry.ALWAYS_PACED else FREE_REQUESTS
+    now = clock()
+    start = now
+    last = _last_sent.get(key)
+    if _sent[key] > free and last is not None:
+        start = max(now, last + interval)
+    # Reserve the slot before sleeping, so concurrent tasks in this process
+    # queue behind it instead of computing the same wait.
+    _last_sent[key] = start
+    if start > now:
+        _note_sleep(start - now)  # write-ahead: --timeout must not count it
+        await sleep(start - now)

@@ -1,14 +1,12 @@
-"""Pacing and the breadth budget (ADR-0072 decision 3, plan phase 4).
+"""Pacing past the free requests, governed sleep, and the wall-clock cap.
 
-Covers #139's matrix rows P1-P9, C1 and C5. No test sleeps in real time:
-a fake clock and a recording sleep function stand in for both.
+No test sleeps in real time: a fake clock and a recording sleep stand in.
 """
 
-import time
+import asyncio
 
 import pytest
 from telethon.tl.functions import messages, updates, upload
-from telethon.tl.types import InputPeerUser
 
 from tgcli.archive import store as store_mod
 from tgcli.governor import gate, pacing, registry
@@ -118,173 +116,117 @@ def client(ledger, clock, sleeper):
     return fake
 
 
-async def test_two_history_reads_sleep_to_the_three_second_floor(client, sleeper):
-    """P1: the second read waits out the rest of the interval."""
+FREE = pacing.FREE_REQUESTS
+
+
+async def spend_free(client, request):
+    for _ in range(FREE):
+        await client._call(None, request)
+
+
+async def test_a_single_command_sends_its_first_requests_unpaced(client, sleeper):
+    """An interactive read sends a handful of requests; none of them wait."""
+    await spend_free(client, history())
+    await spend_free(client, dialogs_page())
+
+    assert sleeper.calls == []
+
+
+async def test_past_the_free_requests_history_waits_the_interval(client, sleeper):
+    """The 2026-07-31 incident was a loop: a loop pays 3 s per history read."""
+    await spend_free(client, history())
     await client._call(None, history())
     await client._call(None, history())
 
-    assert sleeper.calls == [3.0]
+    assert sleeper.calls == [3.0, 3.0]
 
 
-async def test_pacing_is_start_to_start_not_end_to_start(client, sleeper, clock):
-    """P1b: a 2 s request must not stretch a 3 s interval into 5 s."""
+async def test_pacing_is_start_to_start_not_end_to_start(clock, sleeper, ledger):
+    """A 2 s request must not stretch a 3 s interval into 5 s."""
     slow = FakeClient(latency=2.0, clock=clock, sleep=sleeper)
-    gate.install(slow, client._tgcli_governor, sleep=sleeper, clock=lambda: clock["t"])
+    gate.install(slow, ledger, sleep=sleeper, clock=lambda: clock["t"])
 
+    await spend_free(slow, history())
     await slow._call(None, history())
-    await slow._call(None, history())
 
-    assert slow.dispatched_at == [0.0, 3.0]
-    assert sleeper.calls == [2.0, 1.0, 2.0]
+    assert slow.dispatched_at[-2:] == [8.0, 11.0]
 
 
-async def test_get_messages_by_id_owes_one_ten_second_gap_not_two(client, sleeper):
-    """P2: 600 ids are one 10 s gap, chunked at 300, never two gaps."""
-    big = messages.GetMessagesRequest(id=list(range(600)))
+async def test_get_messages_by_id_pays_ten_seconds_past_the_free_requests(
+    client, sleeper
+):
+    big = messages.GetMessagesRequest(id=list(range(300)))
 
-    await client._call(None, big)
+    await spend_free(client, big)
     await client._call(None, big)
 
     assert sleeper.calls == [10.0]
 
 
 async def test_media_paces_per_file_not_per_chunk(client, sleeper):
-    """P3: three files owe 3 s between files; continuation chunks owe nothing."""
-    file_one_chunks = [
-        upload.GetFileRequest(location=None, offset=0, limit=100),
-        upload.GetFileRequest(location=None, offset=100, limit=100),
-        upload.GetFileRequest(location=None, offset=200, limit=100),
-    ]
-    file_two = upload.GetFileRequest(location=None, offset=0, limit=100)
-    file_three = upload.GetFileRequest(location=None, offset=0, limit=100)
+    """Only a file's first chunk counts; continuation chunks owe nothing."""
+    first_chunk = upload.GetFileRequest(location=None, offset=0, limit=100)
+    next_chunk = upload.GetFileRequest(location=None, offset=100, limit=100)
 
-    for chunk in file_one_chunks + [file_two, file_three]:
-        await client._call(None, chunk)
+    for _ in range(FREE + 2):
+        await client._call(None, first_chunk)
+        await client._call(None, next_chunk)
 
     assert sleeper.calls == [3.0, 3.0]
 
 
-async def test_upload_parts_are_not_paced_per_part(client, sleeper):
-    """Review C2: SaveFilePart has no offset — a multi-part upload must not
-    pay 3 s per part (it is one file, like the download side)."""
-    parts = [
-        upload.SaveFilePartRequest(file_id=1, file_part=0, bytes=b"a" * 100),
-        upload.SaveFilePartRequest(file_id=1, file_part=1, bytes=b"b" * 100),
-        upload.SaveFilePartRequest(file_id=1, file_part=2, bytes=b"c" * 100),
-    ]
-    big = upload.SaveBigFilePartRequest(
-        file_id=2, file_part=0, file_total_parts=3, bytes=b"d" * 100
-    )
+async def test_upload_parts_are_never_paced(client, sleeper):
+    part = upload.SaveFilePartRequest(file_id=1, file_part=0, bytes=b"a")
 
-    for part in parts + [big]:
+    for _ in range(FREE + 3):
         await client._call(None, part)
 
     assert sleeper.calls == []
 
 
-async def test_dialog_pages_are_paced_three_seconds(client, sleeper):
-    """P4: two dialog enumeration pages owe one 3 s gap."""
-    await client._call(None, dialogs_page())
-    await client._call(None, dialogs_page())
-
-    assert sleeper.calls == [3.0]
-
-
-async def test_mutations_are_not_paced(client, sleeper):
-    """P5: two sends back to back owe no sleep."""
+async def test_mutations_and_unlisted_types_are_never_paced(client, sleeper):
     send = messages.SendMessageRequest("peer-a", "hi")
 
-    await client._call(None, send)
-    await client._call(None, send)
+    for _ in range(FREE + 3):
+        await client._call(None, send)
+        await client._call(None, updates.GetStateRequest())
 
     assert sleeper.calls == []
 
 
-async def test_unlisted_request_types_are_not_paced(client, sleeper):
-    """An unlisted type has no interval: the cooldown still gates it."""
-    await client._call(None, history())
-    await client._call(None, updates.GetStateRequest())
-    await client._call(None, history())
+async def test_phone_resolution_is_paced_from_the_first_request(client, sleeper):
+    """Telegram punishes resolvePhone hardest: it gets no free allowance."""
+    from telethon.tl.functions.contacts import ResolvePhoneRequest
 
-    assert sleeper.calls == [3.0]  # only the second history read paced
+    await client._call(None, ResolvePhoneRequest(phone="+100"))
+    await client._call(None, ResolvePhoneRequest(phone="+200"))
 
-
-def test_a_run_with_95_peers_in_window_can_touch_five_more(ledger):
-    """P7: the budget is exhausted only once 100 distinct peers are touched."""
-    now = 1_000_000.0
-    for peer in range(95):
-        ledger.touch_peer(ACCOUNT, peer, now)
-
-    assert pacing.budget_ok(ledger, ACCOUNT, now=now) is True
-    for peer in range(95, 100):
-        ledger.touch_peer(ACCOUNT, peer, now)
-    assert pacing.budget_ok(ledger, ACCOUNT, now=now) is False
+    assert sleeper.calls == [3.0]
 
 
-def test_touch_history_peer_returns_false_only_when_budget_refuses(ledger):
-    """ADR-0117: False means budget-full new peer; non-HISTORY stays True."""
-    now = 1_000_000.0
-    peer_a = InputPeerUser(user_id=101, access_hash=1)
-    peer_b = InputPeerUser(user_id=202, access_hash=1)
-    req_a = history(peer=peer_a)
-    req_b = history(peer=peer_b)
+async def test_each_invocation_starts_with_fresh_free_requests(client, sleeper):
+    await spend_free(client, history())
+    pacing.reset_runtime()
+    await spend_free(client, history())
 
-    assert pacing.touch_history_peer(ledger, ACCOUNT, req_a, now=now) is True
-    # Fill the remaining default budget with distinct peers.
-    while ledger.breadth_remaining(ACCOUNT, now) > 0:
-        next_id = ledger.peers_in_window(ACCOUNT, now) + 10_000
-        assert ledger.touch_peer(ACCOUNT, next_id, now) is True
-    assert pacing.budget_ok(ledger, ACCOUNT, now=now) is False
-    assert pacing.touch_history_peer(ledger, ACCOUNT, req_b, now=now) is False
-    # Non-HISTORY is not a breadth spend — True, not "budget denied".
-    assert (
-        pacing.touch_history_peer(ledger, ACCOUNT, updates.GetStateRequest(), now=now)
-        is True
-    )
-    # Already-counted peer may refresh without spending a new slot.
-    assert pacing.touch_history_peer(ledger, ACCOUNT, req_a, now=now + 1) is True
+    assert sleeper.calls == []
 
 
-def test_killed_after_ten_peers_leaves_ninety_budget(tmp_path):
-    """C5: peer touches survive a reopened ledger; the run did the reading."""
-    now = 1_000_000.0
-    path = tmp_path / "governor.db"
-    with Ledger.open(path) as store:
-        for peer in range(10):
-            store.touch_peer(ACCOUNT, peer, now)
+async def test_concurrent_tasks_queue_behind_each_other(ledger, clock):
+    """A slot is reserved before sleeping, so parallel downloads stay spaced."""
+    waits = []
 
-    with Ledger.open(path) as reopened:
-        assert reopened.breadth_remaining(ACCOUNT, now) == 90
+    async def yielding_sleep(seconds):
+        waits.append(seconds)
+        await asyncio.sleep(0)  # let the other tasks compute their slots
 
+    fake = FakeClient(clock=clock, sleep=yielding_sleep)
+    gate.install(fake, ledger, sleep=yielding_sleep, clock=lambda: clock["t"])
+    await spend_free(fake, history())
 
-async def test_two_ledger_connections_share_one_pacing_clock(tmp_path, clock, sleeper):
-    """C1: the reservation is account-scoped, not per process."""
-    path = tmp_path / "governor.db"
-    with Ledger.open(path) as first, Ledger.open(path) as second:
-        client_a = FakeClient(clock=clock, sleep=sleeper)
-        client_b = FakeClient(clock=clock, sleep=sleeper)
-        gate.install(client_a, first, sleep=sleeper, clock=lambda: clock["t"])
-        gate.install(client_b, second, sleep=sleeper, clock=lambda: clock["t"])
+    await asyncio.gather(*(fake._call(None, history()) for _ in range(3)))
 
-        await client_a._call(None, history())
-        await client_b._call(None, history())
-
-        assert sleeper.calls == [3.0]
-
-
-async def test_a_thousand_message_limit_paces_from_the_governor_store(client, sleeper):
-    """P9: --limit 1000 is ten pages; the governor's interval store fires.
-
-    The assert is on the governor's own reservation records, not on any
-    Telethon `wait_time`: the fake client has no pacing of its own, so the
-    nine sleeps can only have come from the seam's pacing store.
-    """
-    for _ in range(10):
-        await client._call(None, history(limit=100))
-
-    assert sleeper.calls == [3.0] * 9
-    last = client._tgcli_governor.last_reserved(ACCOUNT, HISTORY_KEY)
-    assert last == pytest.approx(27.0)
+    assert waits == [3.0, 6.0, 9.0]
 
 
 def test_the_interval_lookup_charges_per_unit():
@@ -292,65 +234,6 @@ def test_the_interval_lookup_charges_per_unit():
     assert registry.interval_for(messages.GetMessagesRequest(id=[1])) == 10.0
     file_request = upload.GetFileRequest(location=None, offset=0, limit=1)
     assert registry.interval_for(file_request) == 3.0
-
-
-def test_backfill_stops_normally_when_the_breadth_budget_is_exhausted(
-    config_env, monkeypatch, capsys
-):
-    """P8: budget hits 100 -> exit 0, stop_reason, checkpoint intact."""
-    import json
-
-    from telethon.tl.types import PeerUser
-
-    from tests.conftest import FakeClient, make_session_fake
-    from tests.test_cli_archive_phase3 import _dialog, _init, _me, _msg, _user
-    from tgcli.cli import main
-    from tgcli.commands import archive as archive_cmd
-    from tgcli.governor.ledger import Ledger
-
-    ledger = Ledger.open()
-    me = _me(user_id=42)
-    for peer in range(100):
-        ledger.touch_peer(42, peer, time.time())
-
-    alice = _user(user_id=7, username="alice")
-    bob = _user(user_id=8, username="bob", first="Bob")
-    client = FakeClient(
-        me=me,
-        entities={7: alice, 8: bob, "@alice": alice, "@bob": bob},
-        messages=[_msg(mid=1, text="hi", peer=PeerUser(7))],
-        dialogs=[_dialog(alice, name="Alice"), _dialog(bob, name="Bob")],
-    )
-    client._tgcli_governor = ledger
-    client._self_id = 42
-    make_session_fake(monkeypatch, client)
-    _init(monkeypatch, client)
-    capsys.readouterr()
-
-    assert (
-        main(
-            [
-                "archive",
-                "backfill",
-                "--private",
-                "--max-dialogs",
-                "5",
-                "--limit",
-                "10",
-                "--json",
-            ]
-        )
-        == 0
-    )
-    data = json.loads(capsys.readouterr().out)
-    assert data["stop_reason"] == "breadth_budget_exhausted"
-    assert data["dialogs"] == []
-    assert data["deferred"] == 2
-    conn = store_mod.connect(archive_cmd.db_path("main"))
-    try:
-        assert store_mod.list_sync_state(conn) == []
-    finally:
-        conn.close()
 
 
 def test_the_deadline_does_not_count_governed_sleep(monkeypatch):
@@ -827,63 +710,3 @@ def test_timeout_must_be_positive(config_env, capsys):
     assert main(["--timeout", "0", "dialogs", "--json"]) == 2
     assert "positive" in capsys.readouterr().err.lower()
     assert main(["--timeout", "-1", "dialogs", "--json"]) == 2
-
-
-async def test_the_reservation_loser_wait_to_the_next_slot(clock, sleeper, tmp_path):
-    """Review blocker 3: a process that loses the reservation race must not
-    dispatch with zero spacing from the winner — it waits to the winner's
-    slot plus the interval and claims that."""
-    from tgcli.governor import pacing
-    from tgcli.governor.ledger import Ledger
-
-    path = tmp_path / "governor.db"
-    with Ledger.open(path) as ledger:
-        # A competitor already reserved t=2.0; we start at the same instant.
-        ledger.reserve(ACCOUNT, HISTORY_KEY, 2.0)
-        clock["t"] = 2.0
-
-        calls = []
-
-        async def racing_sleep(seconds):
-            calls.append(seconds)
-            if seconds == 3.0 and len(calls) == 1:
-                # While we sleep the interval out, the competitor reaches its
-                # dispatch moment at exactly our moment (t=5.0) — the race.
-                ledger.reserve(ACCOUNT, HISTORY_KEY, clock["t"] + seconds)
-            clock["t"] += seconds
-
-        await pacing.pace_before_dispatch(
-            ledger, ACCOUNT, history(), now=clock["t"], sleep=racing_sleep
-        )
-
-        # We waited to the competitor's slot + the 3 s interval (t=8.0),
-        # not just to the competitor's slot (t=5.0).
-        assert calls == [3.0, 3.0]
-        assert ledger.last_reserved(ACCOUNT, HISTORY_KEY) == 8.0
-
-
-async def test_a_lost_reservation_with_an_unreadable_ledger_dispatches(
-    clock, sleeper, tmp_path
-):
-    """Review major 1: when the reservation loses AND the ledger cannot be
-    read back (degraded mode), the pace must fail open — dispatch now —
-    rather than spin in a retry loop with no sleep. A long-running command
-    without a default deadline would otherwise hang forever."""
-    from tgcli.governor.ledger import Ledger
-
-    path = tmp_path / "governor.db"
-    ledger = Ledger.open(path)
-    # Break the connection from underneath: every read and write now raises,
-    # which is exactly the degraded state `reserve` returning False with
-    # `last_reserved` returning None models.
-    ledger._db.close()
-
-    clock["t"] = 10.0
-    await pacing.pace_before_dispatch(
-        ledger, ACCOUNT, history(), now=clock["t"], sleep=sleeper
-    )
-
-    # Failed open: no sleep was owed, no infinite retry, the caller may
-    # dispatch immediately. The clock is untouched and the sleep log empty.
-    assert clock["t"] == 10.0
-    assert sleeper.calls == []

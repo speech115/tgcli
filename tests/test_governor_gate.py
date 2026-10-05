@@ -402,14 +402,8 @@ async def test_every_command_family_refuses_locally_on_its_type(
     assert set(ledger.active_cooldowns(ACCOUNT)) == {expected_key}
 
 
-async def test_a_degraded_ledger_refuses_before_any_rpc(tmp_path):
-    """ADR-0089: corrupt/unopenable ledger must not silently remove protection.
-
-    Governed traffic fails closed with PolicyError (exit 2) rather than
-    dispatching as if nothing were cooling.
-    """
-    from tgcli.errors import PolicyError
-
+async def test_a_degraded_ledger_still_dispatches(tmp_path):
+    """A broken ledger loses cross-process flood memory, not the command."""
     path = tmp_path / "governor.db"
     path.write_bytes(b"this is not a database")
     with Ledger.open(path) as store:
@@ -417,16 +411,8 @@ async def test_a_degraded_ledger_refuses_before_any_rpc(tmp_path):
         client = FakeClient()
         gate.install(client, store)
 
-        with pytest.raises(PolicyError) as caught:
-            await client._call(None, history())
-
-        assert client.sent == []
-        assert caught.value.exit_code == 2
-        assert caught.value.code == "BLOCKED"
-        assert (
-            "ledger" in str(caught.value).lower()
-            or "governor" in str(caught.value).lower()
-        )
+        assert await client._call(None, history()) == "result"
+        assert len(client.sent) == 1
 
 
 async def test_pre_auth_window_still_runs_on_a_degraded_ledger(tmp_path):

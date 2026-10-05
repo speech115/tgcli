@@ -1,31 +1,17 @@
-"""Persisted governor state: cooldowns, pacing reservations, peer breadth.
+"""Persisted flood cooldowns, shared by every tgcli process on this machine.
 
-SQLite under the state dir, following ADR-0060's `clone/statedb.py` pattern.
-One file per machine, every row keyed by ``account_user_id`` — ADR-0072
-decision 5 makes the budget account-scoped and shared across session roles, so
-a second process must see the first one's clock rather than keep its own.
+SQLite under the state dir. One row per (account, request type) that drew a
+FloodWait, holding the server's own deadline, so the next process refuses
+that type locally instead of sending into a live penalty.
 
-Four behaviours are load-bearing and each answers a specific past failure:
-
-* **Ledger open still returns a degraded in-memory store.** A missing or
-  corrupt file must not crash ``doctor`` mid-report (ADR-0072 L3 open path,
-  amended by ADR-0089). The fallback announces itself through ``degraded``.
-* **Governed traffic fails closed when ``degraded``.** ADR-0089: the gate
-  refuses authenticated RPCs with ``PolicyError`` rather than dispatching
-  unprotected. Pre-auth and ``doctor --connect`` stay ungated.
-* **A failed durable cooldown arm stays sticky in-process.** ADR-0090:
-  ``remember_cooldown`` keeps the deadline so the next same-type RPC still
-  refuses locally while the live FloodWait is re-raised for siblings.
-* **Deadlines are clamped at read time, not at write time.** A host clock that
-  ran ahead when a cooldown was armed persists a deadline no honest FloodWait
-  could produce. Arming stays honest and stores the raw value; reading degrades
-  it to a bounded wait.
-* **``busy_timeout`` is set deliberately.** #137's inventory found none set
-  anywhere today, which leaves concurrent writers to the driver default.
-* **Breadth spend is atomic check-and-touch.** ``try_touch_peer`` holds a
-  ``BEGIN IMMEDIATE`` transaction across the remaining count and the peer
-  insert so concurrent primary and role sessions cannot both spend the last slot
-  (ADR-0117 / thermos T36).
+* **A missing or corrupt file degrades, never crashes.** ``open`` returns a
+  private in-memory ledger with ``degraded=True``; ``doctor`` reports it, and
+  traffic proceeds without cross-process memory.
+* **A failed durable arm stays sticky in-process** (ADR-0090):
+  ``remember_cooldown`` keeps the deadline so the next same-type RPC in this
+  process still refuses.
+* **Deadlines are clamped at read time**, so a deadline armed under a skewed
+  clock degrades to a bounded wait instead of a permanent refusal.
 """
 
 from __future__ import annotations
@@ -36,18 +22,9 @@ from pathlib import Path
 
 from tgcli.session import ensure_state_dir, restrict_file, state_dir
 
-SCHEMA_VERSION = 1
-
 # Telegram's longest realistic FloodWait is on the order of a day; anything
-# further ahead is skew or corruption — the same ceiling the pre-governor
-# clone record used.
+# further ahead is skew or corruption.
 MAX_COOLDOWN_S = 86_400
-
-# ADR-0072 decision 3: 100 distinct peers touched by history reads per rolling
-# 24 hours. A hedge against assumption 2, not a measured limit — #140's canary
-# touched 15% of it and returned no signal either way.
-BREADTH_WINDOW_S = 86_400
-BREADTH_BUDGET = 100
 
 # Concurrent writers park here rather than raising `database is locked`.
 BUSY_TIMEOUT_MS = 5_000
@@ -57,21 +34,8 @@ CREATE TABLE IF NOT EXISTS cooldowns (
     account_user_id INTEGER NOT NULL,
     request_key     TEXT    NOT NULL,
     deadline        TEXT    NOT NULL,
-    probe_spent     INTEGER NOT NULL DEFAULT 0,
     armed_at        TEXT    NOT NULL,
     PRIMARY KEY (account_user_id, request_key)
-);
-CREATE TABLE IF NOT EXISTS pacing (
-    account_user_id INTEGER NOT NULL,
-    request_key     TEXT    NOT NULL,
-    reserved_at     REAL    NOT NULL,
-    PRIMARY KEY (account_user_id, request_key)
-);
-CREATE TABLE IF NOT EXISTS peer_touches (
-    account_user_id INTEGER NOT NULL,
-    peer_id         INTEGER NOT NULL,
-    touched_at      REAL    NOT NULL,
-    PRIMARY KEY (account_user_id, peer_id)
 );
 """
 
@@ -81,38 +45,19 @@ def default_path() -> Path:
 
 
 class Ledger:
-    """Governor state for one machine.
-
-    Opening a corrupt path returns a private in-memory ledger with
-    ``degraded=True`` so ``doctor`` can still report (ADR-0072 L3). Writes on
-    that fallback are best-effort and may return ``False``. Authenticated
-    governed traffic must not use a degraded ledger as if it were healthy —
-    ``gate.refuse_if_degraded`` fails closed (ADR-0089). A cooldown arm that
-    cannot land keeps a process-local sticky deadline via
-    ``remember_cooldown`` (ADR-0090) so the next same-type RPC in this
-    process still refuses locally while the live FloodWait is re-raised.
-    """
+    """Flood cooldowns for one machine; see the module docstring."""
 
     def __init__(
         self, connection: sqlite3.Connection, *, degraded: bool = False
     ) -> None:
         self._db = connection
         self.degraded = degraded
-        # Process-local (deadline, armed_at) when a durable arm write fails
-        # (ADR-0090).
-        self._volatile_cooldowns: dict[tuple[int, str], tuple[datetime, datetime]] = {}
-
-    # -- lifecycle ---------------------------------------------------------
+        # Process-local deadlines for arms that could not be written (ADR-0090).
+        self._volatile_cooldowns: dict[tuple[int, str], datetime] = {}
 
     @classmethod
     def open(cls, path: Path | None = None) -> Ledger:
-        """Open the ledger, or fall back to a private in-memory one.
-
-        A corrupt or unopenable file still yields a real empty ledger marked
-        ``degraded`` so ``doctor`` can report without crashing. Callers that
-        send authenticated Telegram traffic must refuse when ``degraded`` is
-        set (ADR-0089) — the open path itself stays non-raising.
-        """
+        """Open the ledger, or fall back to a private in-memory one."""
         target = default_path() if path is None else path
         try:
             if target.parent == state_dir():
@@ -151,21 +96,12 @@ class Ledger:
     def __exit__(self, *exc_info: object) -> None:
         self.close()
 
-    # -- cooldowns ---------------------------------------------------------
-
     def remember_cooldown(
-        self,
-        account_user_id: int,
-        request_key: str,
-        deadline: datetime,
-        *,
-        now: datetime | None = None,
+        self, account_user_id: int, request_key: str, deadline: datetime
     ) -> None:
-        """Keep a process-local cooldown when durable arm cannot land."""
-        moment = datetime.now(UTC) if now is None else now
-        self._volatile_cooldowns[(account_user_id, request_key)] = (
-            deadline.astimezone(UTC),
-            moment.astimezone(UTC),
+        """Keep a process-local cooldown when the durable arm cannot land."""
+        self._volatile_cooldowns[(account_user_id, request_key)] = deadline.astimezone(
+            UTC
         )
 
     def cooldown_deadline(
@@ -191,52 +127,11 @@ class Ledger:
                 deadline = parsed.astimezone(UTC)
         volatile = self._volatile_cooldowns.get((account_user_id, request_key))
         if volatile is not None:
-            v_deadline = volatile[0]
-            deadline = v_deadline if deadline is None else max(deadline, v_deadline)
+            deadline = volatile if deadline is None else max(deadline, volatile)
         if deadline is None:
             return None
         clamped = min(deadline, moment + timedelta(seconds=MAX_COOLDOWN_S))
         return clamped if clamped > moment else None
-
-    def cooldown_armed_at(
-        self, account_user_id: int, request_key: str
-    ) -> datetime | None:
-        """When the current cooldown record was armed, or ``None``.
-
-        Read for the probe's elapsed-fraction computation (plan phase 3);
-        the deadline alone cannot say how much of the wait is already over.
-        Fails open like every other read, and an unparseable value reads as
-        "not yet 50%" — the probe refuses rather than sends into a guess.
-        When a sticky volatile deadline is the active one, its ``armed_at``
-        wins over a stale DB row (ADR-0090).
-        """
-        db_armed: datetime | None = None
-        db_deadline: datetime | None = None
-        try:
-            row = self._db.execute(
-                "SELECT armed_at, deadline FROM cooldowns "
-                "WHERE account_user_id = ? AND request_key = ?",
-                (account_user_id, request_key),
-            ).fetchone()
-        except sqlite3.Error:
-            row = None
-        if row is not None:
-            try:
-                parsed_armed = datetime.fromisoformat(row[0])
-                parsed_deadline = datetime.fromisoformat(row[1])
-            except (TypeError, ValueError):
-                parsed_armed = None
-                parsed_deadline = None
-            if parsed_armed is not None and parsed_armed.tzinfo is not None:
-                db_armed = parsed_armed.astimezone(UTC)
-            if parsed_deadline is not None and parsed_deadline.tzinfo is not None:
-                db_deadline = parsed_deadline.astimezone(UTC)
-        volatile = self._volatile_cooldowns.get((account_user_id, request_key))
-        if volatile is not None:
-            v_deadline, v_armed = volatile
-            if db_deadline is None or v_deadline >= db_deadline:
-                return v_armed
-        return db_armed
 
     def arm_cooldown(
         self,
@@ -246,28 +141,17 @@ class Ledger:
         *,
         now: datetime | None = None,
     ) -> bool:
-        """Record a server-confirmed deadline, resetting the probe budget.
-
-        A fresh deadline earns a fresh probe: ADR-0072 decision 1 bounds the
-        probe's cost at one request *per confirmed deadline*, which is what
-        makes a wrong assumption 1 cost one extra request rather than a loop.
-        """
+        """Record a server-confirmed deadline; ``False`` when it cannot land."""
         moment = datetime.now(UTC) if now is None else now
         aware = deadline.astimezone(UTC)
         try:
             self._db.execute(
                 "INSERT INTO cooldowns "
-                "(account_user_id, request_key, deadline, probe_spent, armed_at) "
-                "VALUES (?, ?, ?, 0, ?) "
+                "(account_user_id, request_key, deadline, armed_at) "
+                "VALUES (?, ?, ?, ?) "
                 "ON CONFLICT(account_user_id, request_key) DO UPDATE SET "
-                "deadline = excluded.deadline, probe_spent = 0, "
-                "armed_at = excluded.armed_at",
-                (
-                    account_user_id,
-                    request_key,
-                    aware.isoformat(),
-                    moment.isoformat(),
-                ),
+                "deadline = excluded.deadline, armed_at = excluded.armed_at",
+                (account_user_id, request_key, aware.isoformat(), moment.isoformat()),
             )
             self._db.commit()
         except sqlite3.Error:
@@ -275,73 +159,6 @@ class Ledger:
             return False
         self._volatile_cooldowns.pop((account_user_id, request_key), None)
         return True
-
-    def clear_cooldown(self, account_user_id: int, request_key: str) -> bool:
-        try:
-            self._db.execute(
-                "DELETE FROM cooldowns WHERE account_user_id = ? AND request_key = ?",
-                (account_user_id, request_key),
-            )
-            self._db.commit()
-        except sqlite3.Error:
-            return False
-        self._volatile_cooldowns.pop((account_user_id, request_key), None)
-        return True
-
-    def probe_spent(self, account_user_id: int, request_key: str) -> bool:
-        try:
-            row = self._db.execute(
-                "SELECT probe_spent FROM cooldowns "
-                "WHERE account_user_id = ? AND request_key = ?",
-                (account_user_id, request_key),
-            ).fetchone()
-        except sqlite3.Error:
-            # Fail open on reads, but a probe is a request into a live
-            # penalty: treat an unreadable ledger as "already spent" so the
-            # uncertain case costs nothing.
-            return True
-        return bool(row[0]) if row is not None else False
-
-    def spend_probe(
-        self,
-        account_user_id: int,
-        request_key: str,
-        *,
-        expected_deadline: datetime | None = None,
-    ) -> bool:
-        """Mark the probe spent *before* it is attempted (ADR-0072 decision 5).
-
-        Write-ahead is the whole point: a crash between marking and sending
-        must leave the record spent, so the next invocation waits the deadline
-        out instead of probing again.
-
-        ``expected_deadline`` pins the record the probe was decided against:
-        a concurrent re-arm (fresh flood on the other process's own probe)
-        must not be claimed at 0% of its wait — the claim lands only on the
-        exact deadline the 50%-window was computed from (review fix M7).
-        """
-        try:
-            if expected_deadline is None:
-                cursor = self._db.execute(
-                    "UPDATE cooldowns SET probe_spent = 1 "
-                    "WHERE account_user_id = ? AND request_key = ? AND probe_spent = 0",
-                    (account_user_id, request_key),
-                )
-            else:
-                cursor = self._db.execute(
-                    "UPDATE cooldowns SET probe_spent = 1 "
-                    "WHERE account_user_id = ? AND request_key = ? "
-                    "AND probe_spent = 0 AND deadline = ?",
-                    (
-                        account_user_id,
-                        request_key,
-                        expected_deadline.astimezone(UTC).isoformat(),
-                    ),
-                )
-            self._db.commit()
-        except sqlite3.Error:
-            return False
-        return cursor.rowcount == 1
 
     def active_cooldowns(
         self, account_user_id: int, *, now: datetime | None = None
@@ -359,7 +176,7 @@ class Ledger:
         keys.update(request_key for (request_key,) in rows)
         keys.update(
             key
-            for (account, key), (deadline, _armed) in self._volatile_cooldowns.items()
+            for (account, key), deadline in self._volatile_cooldowns.items()
             if account == account_user_id and deadline > moment
         )
         active = {}
@@ -368,158 +185,3 @@ class Ledger:
             if deadline is not None:
                 active[request_key] = deadline
         return active
-
-    # -- pacing ------------------------------------------------------------
-
-    def last_reserved(self, account_user_id: int, request_key: str) -> float | None:
-        try:
-            row = self._db.execute(
-                "SELECT reserved_at FROM pacing "
-                "WHERE account_user_id = ? AND request_key = ?",
-                (account_user_id, request_key),
-            ).fetchone()
-        except sqlite3.Error:
-            return None
-        return float(row[0]) if row is not None else None
-
-    def reserve(self, account_user_id: int, request_key: str, at: float) -> bool:
-        """Claim the next dispatch slot for this request type.
-
-        Called *before* the request leaves (ADR-0072 decision 3): the interval
-        is start-to-start, so a slow request must not add its own latency on
-        top of the pace.
-
-        The claim is atomic against a fresher competitor (review fix m1):
-        a reservation stamped at or before one already on record loses —
-        strictly *before*, so an identical instant is refused rather than
-        overwriting (review blocker 3) — and two processes that both read
-        "nothing reserved" cannot both dispatch back-to-back. The loser
-        re-reads and waits to the winner's slot plus the interval.
-        """
-        try:
-            cursor = self._db.execute(
-                "INSERT INTO pacing (account_user_id, request_key, reserved_at) "
-                "VALUES (?, ?, ?) "
-                "ON CONFLICT(account_user_id, request_key) DO UPDATE SET "
-                "reserved_at = excluded.reserved_at "
-                "WHERE pacing.reserved_at < excluded.reserved_at",
-                (account_user_id, request_key, at),
-            )
-            self._db.commit()
-        except sqlite3.Error:
-            return False
-        return cursor.rowcount == 1
-
-    def clamp_reservation(self, account_user_id: int, request_key: str, now: float):
-        """Repair a reservation stamped in the future by a stepped-back clock.
-
-        Same failure `resolve_phone.py` already guards: without this, one NTP
-        correction wedges a request type until the wall clock catches up.
-        Repairing is not a race — the future stamp is unambiguously wrong —
-        so it overwrites unconditionally rather than going through the
-        atomic `reserve`.
-        """
-        last = self.last_reserved(account_user_id, request_key)
-        if last is not None and last > now:
-            try:
-                self._db.execute(
-                    "UPDATE pacing SET reserved_at = ? "
-                    "WHERE account_user_id = ? AND request_key = ?",
-                    (now, account_user_id, request_key),
-                )
-                self._db.commit()
-            except sqlite3.Error:
-                pass
-            return now
-        return last
-
-    # -- peer breadth ------------------------------------------------------
-
-    def touch_peer(self, account_user_id: int, peer_id: int, at: float) -> bool:
-        """Record that a history read touched this peer.
-
-        Durable per peer rather than per run (ADR-0072 decision 5): a killed
-        process must not hand back budget for peers it really did read.
-        Unconditional: test seeding and already-decided refreshes. Budgeted
-        claims go through ``try_touch_peer`` (ADR-0117).
-        """
-        try:
-            self._db.execute(
-                "INSERT INTO peer_touches (account_user_id, peer_id, touched_at) "
-                "VALUES (?, ?, ?) "
-                "ON CONFLICT(account_user_id, peer_id) DO UPDATE SET "
-                "touched_at = excluded.touched_at",
-                (account_user_id, peer_id, at),
-            )
-            self._db.commit()
-        except sqlite3.Error:
-            return False
-        return True
-
-    def try_touch_peer(
-        self,
-        account_user_id: int,
-        peer_id: int,
-        at: float,
-        *,
-        budget: int = BREADTH_BUDGET,
-        window: float = BREADTH_WINDOW_S,
-    ) -> bool:
-        """Atomically claim a peer against the rolling breadth budget.
-
-        Check and insert share one ``BEGIN IMMEDIATE`` transaction so two
-        processes that both see remaining==1 cannot both insert a new peer
-        (ADR-0117 / thermos T36). A peer already inside the window always
-        succeeds and only refreshes ``touched_at``.
-        """
-        cutoff = at - window
-        try:
-            self._db.execute("BEGIN IMMEDIATE")
-            existing = self._db.execute(
-                "SELECT 1 FROM peer_touches "
-                "WHERE account_user_id = ? AND peer_id = ? AND touched_at >= ?",
-                (account_user_id, peer_id, cutoff),
-            ).fetchone()
-            if existing is None:
-                row = self._db.execute(
-                    "SELECT COUNT(*) FROM peer_touches "
-                    "WHERE account_user_id = ? AND touched_at >= ?",
-                    (account_user_id, cutoff),
-                ).fetchone()
-                count = int(row[0]) if row is not None else 0
-                if count >= budget:
-                    self._db.rollback()
-                    return False
-            self._db.execute(
-                "INSERT INTO peer_touches (account_user_id, peer_id, touched_at) "
-                "VALUES (?, ?, ?) "
-                "ON CONFLICT(account_user_id, peer_id) DO UPDATE SET "
-                "touched_at = excluded.touched_at",
-                (account_user_id, peer_id, at),
-            )
-            self._db.commit()
-        except sqlite3.Error:
-            try:
-                self._db.rollback()
-            except sqlite3.Error:
-                pass
-            return False
-        return True
-
-    def peers_in_window(
-        self, account_user_id: int, now: float, *, window: float = BREADTH_WINDOW_S
-    ) -> int:
-        try:
-            row = self._db.execute(
-                "SELECT COUNT(*) FROM peer_touches "
-                "WHERE account_user_id = ? AND touched_at >= ?",
-                (account_user_id, now - window),
-            ).fetchone()
-        except sqlite3.Error:
-            return 0
-        return int(row[0]) if row is not None else 0
-
-    def breadth_remaining(
-        self, account_user_id: int, now: float, *, budget: int = BREADTH_BUDGET
-    ) -> int:
-        return max(0, budget - self.peers_in_window(account_user_id, now))

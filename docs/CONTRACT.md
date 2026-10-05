@@ -94,6 +94,18 @@ it, with one stderr note, then exits 3. The wait is governed sleep, so
 `--timeout` does not count it, and it never outlasts `--max-runtime`.
 Account administration (`accounts login|remove|import`) does not wait.
 
+**Request governor (ADR-0072).** Within one invocation each request type
+gets five requests unpaced, so a single command is never slowed. Past
+that, history and search reads, dialog and participant enumeration, and
+media file starts wait 3 s start-to-start, and reads by message id 10 s;
+loops (backfill, clone, export, bulk media, `tg run` scripts) are paced,
+interactive commands are not. `contacts.resolvePhone` waits 3 s from its
+first request. A FloodWait records the server's deadline for that request
+type in `governor.db`: until it passes, every tgcli process refuses that
+type locally with exit 5 and `retry_after`, sending nothing. An unreadable
+`governor.db` loses that memory but does not block commands. Governed sleep
+does not count against `--timeout`.
+
 Exit 1 covers several distinguishable error codes in the JSON envelope:
 `TIMEOUT` (the `--timeout` deadline elapsed), `RUNTIME` (an untranslated
 network or RPC failure), and `USAGE` (argument misuse detected after the
@@ -819,11 +831,10 @@ When `--connect` is absent, `checks.authorized` is `null` (unknown), not
 `checks.governor_cooldowns` maps each cooling request type to its deadline
 (an empty object when nothing is cooling); `checks.governor_degraded` is
 `true` when the governor's ledger could not be opened. A degraded ledger
-fails closed for authenticated Telegram traffic (`PolicyError`, exit 2;
-ADR-0089) and sets per-account / top-level `ok: false` in `doctor`. A
-cooldown alone is reportable state, not a failure: it does not set
-`ok: false`. The governor probes each cooldown once at half its wait, so
-an early-lifted limit clears itself without operator action.
+sets per-account / top-level `ok: false` in `doctor`; commands still run,
+without cross-process flood memory. A cooldown alone is reportable state,
+not a failure: it does not set `ok: false`. A cooldown lasts until the
+server's deadline.
 
 The health checks make short-lived local probes: for an existing session they
 may create and acquire its `.lock` file, and they create then remove a
@@ -1038,7 +1049,7 @@ actually issued governed requests additionally carry `governed_sleep_ms`
 exit (exit 5) additionally carries `retry_after`, `request_type` (the
 governed key, e.g. `messages.GetHistoryRequest`) and `provenance`
 (`server` | `account_cooldown` | `resolve_phone_cooldown`). A normal stop
-carries `stop_reason` (`breadth_budget_exhausted` | `wall_clock_cap`). The journal never contains message/search text, chat
+carries `stop_reason` (`wall_clock_cap`). The journal never contains message/search text, chat
 references, raw API parameters, or command output. A journal-write failure
 emits a warning to stderr but does not change the command result.
 
@@ -1726,9 +1737,9 @@ downloads of a `Photo` (files over 512 KB) select the largest `PhotoSize` by
 byte count explicitly rather than trusting Telegram's `sizes` list order
 (ADR-0055). A `FloodWaitError` arms the request-governor's per-type cooldown
 (ADR-0072) and the run exits 5 locally with `retry_after`; there is no
-foreground retry. Download chunks are paced by the governor (3 s per file,
-per request-type key); upload parts owe no pre-emptive interval — their
-floods still gate the type. The run's governed sleep does not
+foreground retry. Past the first five files in a run, downloads are paced
+3 s per file (§4); upload parts owe no pre-emptive interval — their floods
+still gate the type. The run's governed sleep does not
 count against `--timeout` (a hang detector).
 Both `UpdateMessageID` batches and the single-message
 `UpdateShortSentMessage` envelope require exact positive confirmation before
@@ -1998,14 +2009,13 @@ dialogs may be backfilled without `add`. Each run walks recent→older
 history (resuming from the stored oldest id), upserts the universal
 message shape, appends revisions on edit, persists per-dialog identity on
 `sync_state` (`kind`/`title`/`username`/`chat_ref`), and checkpoints
-progress. Dialogs in one invocation are processed sequentially. Requests
-are paced by the governor (3 s between history reads); a
+progress. Dialogs in one invocation are processed sequentially. Past the
+first five history reads in a run, they are paced 3 s apart (§4); a
 `FLOOD_WAIT` during backfill arms the governor's per-type cooldown
 (ADR-0072), persists the dialog checkpoint, and exits **5**. A wait that
 fits the remaining `--max-runtime` cap is slept out once and resumed;
 exhausting the cap is a normal stop (exit 0) with
-`stop_reason: "breadth_budget_exhausted"` / `"wall_clock_cap"` and a
-resume pointer.
+`stop_reason: "wall_clock_cap"` and a resume pointer.
 
 **Sync.** `tg archive sync` holds an account-level `tg changes` cursor in
 `account_sync` (not only per-peer). First run initializes the cursor via

@@ -39,16 +39,12 @@ async def backfill_dialogs(
     """Fetch up to ``limit`` recent messages per chat; resume older pages.
 
     Returns ``(results, stop_reason)``: ``stop_reason`` is set when the
-    rolling peer-breadth budget or the explicit ``--max-runtime`` wall-clock
-    cap ran out mid-sweep and the run stopped normally — the caller turns
-    that into exit 0 with a deferred report, never an error (plan phases
-    4-5).
+    explicit ``--max-runtime`` wall-clock cap ran out mid-sweep and the run
+    stopped normally — the caller turns that into exit 0 with a deferred
+    report, never an error.
     """
     results: list[dict[str, Any]] = []
-    governor = pacing.governor_of(tg)
     for chat in chats:
-        if governor is not None and not pacing.budget_ok(*governor):
-            return results, "breadth_budget_exhausted"
         remaining = pacing.wall_clock_remaining()
         if remaining is not None and remaining <= 0:
             return results, "wall_clock_cap"
