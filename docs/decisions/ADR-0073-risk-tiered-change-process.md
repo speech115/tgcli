@@ -1,7 +1,7 @@
 # ADR-0073: Risk-tiered change process — a small-fix lane and four ceremony subtractions
 
 Date: 2026-08-03
-Status: accepted
+Status: superseded by ADR-0120
 Amends: [ADR-0071](ADR-0071-owner-gated-development.md) rule 1 mechanics
 (the gate itself stands), [ADR-0058](ADR-0058-process-speed-revisions.md)
 documentation cadence, and the ADR trigger from

@@ -1,6 +1,6 @@
 """`scripts/prepare-release.py` builds the release bookkeeping ADR-0038 requires.
 
-The integrator still writes the prose; the script owns the mechanical half —
+A person still writes the prose; the script owns the mechanical half —
 the version in both files, the section heading, the ADR/PR list, and the
 `[x.y.z]:` compare link.
 """

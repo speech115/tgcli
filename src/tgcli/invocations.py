@@ -1,9 +1,9 @@
 """Private metadata-only JSONL journal for completed CLI invocations."""
 
 import json
-import sys
 from datetime import UTC, datetime
 
+from tgcli.output import note
 from tgcli.session import ensure_state_dir, restrict_file, state_dir
 
 
@@ -70,4 +70,4 @@ def log_invocation(
                 + "\n"
             )
     except OSError as exc:
-        print(f"warning: invocation journal not written: {exc}", file=sys.stderr)
+        note(f"warning: invocation journal not written: {exc}")
