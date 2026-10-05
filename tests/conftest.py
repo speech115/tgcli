@@ -316,6 +316,14 @@ def state_dir_env(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
 
 
+@pytest.fixture(autouse=True)
+def fresh_pacing():
+    """Pacing counts requests per process; each test is its own invocation."""
+    from tgcli.governor import pacing
+
+    pacing.reset_runtime()
+
+
 @pytest.fixture
 def wide_umask():
     """Worst-case umask 0o000 so nothing masks state modes for the code."""

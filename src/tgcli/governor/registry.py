@@ -47,6 +47,10 @@ INTERVALS: dict[RequestClass, float | None] = {
     RequestClass.RESOLVE_PHONE: 3.0,
 }
 
+# Classes paced from the first request, with no free allowance: Telegram
+# punishes phone resolution hardest.
+ALWAYS_PACED = frozenset({RequestClass.RESOLVE_PHONE})
+
 # "10 s per 300 ids" — the interval above is charged once per batch of this
 # many ids, not once per id.
 BY_ID_BATCH = 300
