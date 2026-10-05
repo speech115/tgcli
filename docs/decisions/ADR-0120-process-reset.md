@@ -7,7 +7,8 @@ Supersedes: ADR-0007 (MAP and DEVLOG duties), ADR-0058 decisions 1–2
 routing checks), ADR-0038 rule 3 (a release per contract change), ADR-0073
 (change lanes), ADR-0074 rule 1 (complexity reset), ADR-0026 rules 2–3 and
 ADR-0071 decision 2 (ISSUES and CLONE routing), ADR-0065's status-closure
-duty; amends ADR-0071 (an ADR only for decisions that are hard to reverse)
+duty, ADR-0058 decision 3 and ADR-0110 decision 1 (ceiling grace and
+`--strict`); amends ADR-0071 (an ADR only for decisions that are hard to reverse)
 
 ## Context
 
@@ -51,6 +52,9 @@ check or goes.
    is hard to reverse.
 9. "stdout carries contract data only" gains a check: ruff `T20` bans `print`
    in `src/`.
+10. `scripts/check-architecture.py` drops the +50 grace band and `--strict`:
+    with no integrator, a ceiling is a hard limit on every run, and the PR
+    that grows a file past it raises the number.
 
 ## Rejected alternatives
 
