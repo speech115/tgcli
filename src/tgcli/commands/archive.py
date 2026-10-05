@@ -14,7 +14,6 @@ from tgcli.archive import (
 )
 from tgcli.config import Config, load_config, resolve_account
 from tgcli.errors import NotFoundError, PolicyError
-from tgcli.session import state_dir
 
 DEFAULT_BACKFILL_LIMIT = 100
 MAX_BACKFILL_LIMIT = 1000
@@ -537,8 +536,3 @@ def rebaseline_rows(data: dict) -> list[tuple]:
 def resolve_alias(account_flag: str | None, config: Config | None = None) -> str:
     cfg = config if config is not None else load_config()
     return resolve_account(cfg, account_flag).alias
-
-
-# Re-export for store stats callers that only need the default root under state_dir.
-def default_state_archive_root() -> Path:
-    return state_dir() / "archive"

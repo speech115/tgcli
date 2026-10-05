@@ -9,7 +9,7 @@ a daemon-first stack, so staying small and daemonless is the point.
 - Vocabulary: [CONTEXT.md](CONTEXT.md).
 - Past decisions: [docs/decisions/](docs/decisions/README.md). Read the ADR
   before you change what it governs.
-- Backlog: GitHub Issues. Issue-flow routing lives in [docs/agents/](docs/agents/).
+- Backlog: GitHub Issues (`gh issue list`).
 
 ## Commands
 

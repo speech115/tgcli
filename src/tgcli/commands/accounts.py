@@ -26,12 +26,6 @@ def to_rows(data: dict) -> list[tuple]:
     return [(entry["alias"], entry["session"]) for entry in data["accounts"]]
 
 
-def _account_session_path(config: Config, alias: str):
-    if alias not in config.accounts:
-        raise NotFoundError(f"unknown account alias: {alias!r}")
-    return session.session_path(config.accounts[alias])
-
-
 def show_account(config: Config, alias: str) -> dict:
     account = config.accounts.get(alias)
     if account is None:
