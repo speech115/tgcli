@@ -43,7 +43,7 @@ body:
     id: expected
     attributes:
       label: What should have happened
-      description: Point at the rule it breaks — a guide page, CONTRACT.md, or an ADR.
+      description: Point at the rule it breaks — SKILL.md, CONTRACT.md, or an ADR.
     validations:
       required: true
 

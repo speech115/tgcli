@@ -35,5 +35,5 @@ jobs:
         run: uv run pytest -q -n auto
       - name: Check Telethon coverage matrix
         run: uv run python scripts/check-coverage.py
-      - name: Check user guide against the CLI surface
+      - name: Check docs against the CLI surface
         run: uv run python scripts/check-docs.py
