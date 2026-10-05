@@ -31,19 +31,18 @@ sys.path.insert(0, str(REPO / "src"))
 from tgcli.parser import build_parser  # noqa: E402
 
 
-def walk(parser: argparse.ArgumentParser) -> tuple[set[str], set[str]]:
-    """Collect every option string and every command name in the tree."""
+def walk(parser: argparse.ArgumentParser) -> tuple[set[str], dict[str, set[str]]]:
+    """Collect every option string, and each command's subcommand names."""
     flags: set[str] = set()
-    commands: set[str] = set()
+    commands: dict[str, set[str]] = {}
     for action in parser._actions:
         flags.update(opt for opt in action.option_strings if opt.startswith("--"))
         choices = getattr(action, "choices", None)
         if isinstance(choices, dict):
             for name, subparser in choices.items():
-                commands.add(name)
                 sub_flags, sub_commands = walk(subparser)
                 flags |= sub_flags
-                commands |= sub_commands
+                commands[name] = set(sub_commands)
     return flags, commands
 
 
@@ -127,7 +126,9 @@ def readme_clone_retry_problems(readme: Path) -> list[str]:
     return []
 
 
-def page_problems(page: Path, flags: set[str], commands: set[str]) -> list[str]:
+def page_problems(
+    page: Path, flags: set[str], commands: dict[str, set[str]]
+) -> list[str]:
     """Flags, commands, and relative links a page names must all be real."""
     text = page.read_text()
     prose = re.sub(r"\]\([^)]*\)", "]", text)  # a link target is not a flag
@@ -148,10 +149,14 @@ def page_problems(page: Path, flags: set[str], commands: set[str]) -> list[str]:
             prose,
         ),
     )
-    named = set(re.findall(r"\btg (?:--[a-z-]+ )*([a-z][a-z-]*)", stripped))
-    problems += [
-        f"{page.name}: unknown command 'tg {name}'" for name in sorted(named - commands)
-    ]
+    named = re.findall(
+        r"\btg (?:--[a-z-]+ )*([a-z][a-z-]*)(?: ([a-z][a-z-]*))?", stripped
+    )
+    for name, sub in sorted(set(named)):
+        if name not in commands:
+            problems.append(f"{page.name}: unknown command 'tg {name}'")
+        elif sub and commands[name] and sub not in commands[name]:
+            problems.append(f"{page.name}: unknown command 'tg {name} {sub}'")
 
     for target in re.findall(r"\]\(([^)#]+)\)", text):
         if target.startswith(("http://", "https://", "mailto:")):

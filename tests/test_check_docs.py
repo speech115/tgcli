@@ -137,6 +137,7 @@ def test_a_doc_naming_a_fake_flag_command_or_link_fails(tmp_path):
     skill = tmp_path / "SKILL.md"
     skill.write_text(
         "Run `tg clone sync --no-such-flag`, then `tg no-such-command`.\n"
+        "Search with `tg archive searhc QUERY`.\n"
         "See [the old page](missing.md).\n"
     )
 
@@ -145,4 +146,5 @@ def test_a_doc_naming_a_fake_flag_command_or_link_fails(tmp_path):
     assert result.returncode == 1
     assert "SKILL.md: unknown flag --no-such-flag" in result.stdout
     assert "SKILL.md: unknown command 'tg no-such-command'" in result.stdout
+    assert "SKILL.md: unknown command 'tg archive searhc'" in result.stdout
     assert "SKILL.md: dead link -> missing.md" in result.stdout
