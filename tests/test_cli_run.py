@@ -180,3 +180,39 @@ def test_an_empty_or_broken_script_fails_before_any_session(tmp_path, monkeypatc
     (tmp_path / "broken.py").write_text("def (\n")
     assert main(["run", str(tmp_path / "broken.py")]) == 3
     assert client.sent == []
+
+
+def test_reads_that_only_look_like_reads_are_refused(tmp_path, monkeypatch):
+    """ADR-0010: these getters have side effects or touch credentials."""
+    client, path = setup(
+        tmp_path,
+        monkeypatch,
+        "import sys\n"
+        "request = {\n"
+        "  'password': functions.auth.CheckPasswordRequest(\n"
+        "      password=types.InputCheckPasswordEmpty()),\n"
+        "  'inline': functions.messages.GetInlineBotResultsRequest(\n"
+        "      bot=types.InputUserSelf(), peer=types.InputPeerSelf(),\n"
+        "      query='q', offset=''),\n"
+        "  'sponsored': functions.messages.GetSponsoredMessagesRequest(\n"
+        "      peer=types.InputPeerSelf()),\n"
+        "}[sys.argv[1]]\n"
+        "await client(request)\n",
+    )
+
+    assert main(["run", path, "password"]) == 2
+    assert main(["run", "--write", path, "password"]) == 2
+    assert main(["run", path, "inline"]) == 2
+    assert main(["run", path, "sponsored"]) == 2
+    assert client.sent == []
+
+
+def test_cross_dc_download_plumbing_is_allowed(tmp_path, monkeypatch):
+    client, path = setup(
+        tmp_path,
+        monkeypatch,
+        "await client(functions.auth.ExportAuthorizationRequest(dc_id=4))\n",
+    )
+
+    assert main(["run", path]) == 0
+    assert [type(r) for r in client.sent] == [functions.auth.ExportAuthorizationRequest]

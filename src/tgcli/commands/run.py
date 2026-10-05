@@ -24,19 +24,24 @@ from tgcli.formatting import mask_phones_in_text
 from tgcli.output import note
 
 READ_VERBS = ("get", "search", "check", "resolve")
-# Getters with a side effect: pressing a bot button, publishing a location,
-# counting a view.
+# Getters with a side effect (ADR-0010's rejected list): pressing a bot button
+# or querying an inline bot, publishing a location, counting a view, an ad
+# impression.
 SIDE_EFFECT_GETTERS = frozenset(
     {
         "contacts.getLocated",
         "messages.getBotCallbackAnswer",
+        "messages.getInlineBotResults",
         "messages.getMessagesViews",
+        "messages.getSponsoredMessages",
     }
 )
 # Telethon exports this session's authorization to another datacentre to
 # download media stored there. It is session plumbing, not a user write.
 PLUMBING = frozenset({"auth.exportAuthorization"})
-# Session and account lifecycle stays with `tg accounts` (ADR-0092).
+# Credentials and account lifecycle stay with `tg accounts`: refused even to
+# read, since auth.checkPassword and account.getTmpPassword only look like
+# reads (ADR-0010, ADR-0092).
 DENIED_NAMESPACES = frozenset({"account", "auth"})
 
 
@@ -52,8 +57,6 @@ def method_name(request) -> str:
 
 
 def is_read(name: str) -> bool:
-    if name in PLUMBING:
-        return True
     namespace, _, method = name.partition(".")
     if namespace == "functions":
         return method in ("ping", "pingDelayDisconnect")
@@ -68,14 +71,16 @@ def install_write_gate(client, account: str, *, write: bool) -> None:
         requests = request if isinstance(request, list) else [request]
         for item in requests:
             name = method_name(item)
+            if name in PLUMBING:
+                continue
+            if name.partition(".")[0] in DENIED_NAMESPACES:
+                raise PolicyError(f"{name} is never allowed in tg run; use tg accounts")
             if is_read(name):
                 continue
             if not write:
                 raise PolicyError(
                     f"tg run is read-only: {name} writes; re-run with --write"
                 )
-            if name.partition(".")[0] in DENIED_NAMESPACES:
-                raise PolicyError(f"{name} is never allowed; use tg accounts")
             safety.append_audit("run-write", account, {"method": name})
         return await inner(sender, request, *args, **kwargs)
 

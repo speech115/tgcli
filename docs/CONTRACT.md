@@ -940,16 +940,17 @@ do not apply to its output. Errors still follow §2–§4.
 
 **Read-only unless `--write`.** Every request the client sends is checked
 before it leaves. A method whose name starts with `get`, `search`, `check`, or
-`resolve` is a read, except `contacts.getLocated`,
-`messages.getBotCallbackAnswer`, and `messages.getMessagesViews`, which have
-side effects. `auth.exportAuthorization` (Telethon's cross-datacentre media
-download) is allowed. Any other request is a write. Invoke wrappers are
-unwrapped first.
+`resolve` is a read, except the getters ADR-0010 rejects for side effects:
+`contacts.getLocated`, `messages.getBotCallbackAnswer`,
+`messages.getInlineBotResults`, `messages.getMessagesViews`, and
+`messages.getSponsoredMessages`. Any other request is a write. Invoke wrappers
+are unwrapped first. `auth.*` and `account.*` are refused outright, reads
+included, except `auth.exportAuthorization`, which Telethon sends to download
+media from another datacentre.
 
 - Without `--write`, a write is refused with exit 2 and never sent.
 - With `--write`, each write appends `{"action": "run-write", "method": …}` to
   the audit log before it is sent; an unwritable audit refuses it (exit 2).
-  `auth.*` and `account.*` writes are refused even with `--write`.
 - `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` refuse `--write`
   with exit 2 before any session work.
 - A script that is empty, unreadable, or does not compile exits 3 before any
