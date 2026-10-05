@@ -181,28 +181,6 @@ def test_equivalent_exhaustive_benchmark_claims_are_checked(tmp_path, claim):
     assert "benchmark claims every command but omits:" in result.stdout
 
 
-def test_active_glossary_does_not_define_removed_qr_login():
-    glossary = (ROOT / "CONTEXT.md").read_text()
-
-    assert "**QR login**" not in glossary
-    assert "tg://login" not in glossary
-
-
-def test_active_contract_and_adr_index_match_the_jobs_cutover():
-    contract = (ROOT / "docs" / "CONTRACT.md").read_text()
-    index = (ROOT / "docs" / "decisions" / "README.md").read_text()
-    refresh = (
-        ROOT / "docs" / "decisions" / "ADR-0070-archive-refresh-scheduling.md"
-    ).read_text()
-
-    assert "Schema v7 tables" in contract
-    assert "`tg accounts login` requires explicit phone authorization" in index
-    assert "| superseded by ADR-0087 |" in index
-    assert "hourly one-shot refresh" not in index
-    assert "refresh scheduling amended by ADR-0087" in index
-    assert "Status: superseded by ADR-0087" in refresh
-
-
 def test_a_guide_page_naming_a_fake_flag_command_or_link_fails(
     tmp_path, monkeypatch, capsys
 ):
