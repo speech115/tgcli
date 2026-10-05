@@ -4,9 +4,9 @@
 Run at merge time, never on a feature branch (AGENTS.md: feature branches never
 touch the version files, `CHANGELOG.md`, or tags). The script moves the version
 in both files, opens the `CHANGELOG.md` section with the date, lists the ADRs
-and PRs the slice landed, and adds the `[x.y.z]:` compare link the docs gate
-refuses a release without. What it cannot do is say what the release means to
-an operator: it leaves a marked line for that, and the integrator replaces it.
+and PRs the slice landed, and adds the `[x.y.z]:` compare link. What it cannot
+do is say what the release means to an operator: it leaves a marked line for
+that, and the integrator replaces it.
 """
 
 import argparse

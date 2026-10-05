@@ -9,7 +9,7 @@ the owner declares minor milestones.
 
 Rationale for each entry lives in the ADR it names
 ([docs/decisions/README.md](docs/decisions/README.md)); session-level detail
-lives in [docs/DEVLOG.md](docs/DEVLOG.md).
+lives in git history.
 
 ## [3.0.14] — 2026-08-13
 

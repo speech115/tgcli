@@ -1,6 +1,6 @@
 # Release Runbook — stacked PRs, merge, tag
 
-Distilled from the 1.1.x and 1.2.0 releases (see DEVLOG 2026-07-23/24).
+Distilled from the 1.1.x and 1.2.0 releases.
 Follow it literally; every rule here was paid for by a real failure.
 
 ## Merging a stacked PR chain
@@ -40,9 +40,6 @@ A stack `main ← A ← B ← C` merges bottom-up, one PR at a time:
   If the run failed after tagging but before publishing, **re-run the
   workflow**: the tag branch is idempotent and the publish step fills in the
   missing Release.
-- The CHANGELOG compare link must already be in the release commit; the docs
-  gate refuses a release section without it, so it cannot be forgotten and
-  then fixed after the tag.
 - Delete merged branches **one at a time** (batch `git push --delete` may be
   blocked by the approval classifier; fallback:
   `gh api -X DELETE repos/{owner}/{repo}/git/refs/heads/<branch>`). Prefer
@@ -51,8 +48,6 @@ A stack `main ← A ← B ← C` merges bottom-up, one PR at a time:
   Finish with `git remote prune origin` so stale remote-tracking refs go too.
 - Before force-deleting a local branch, prove it is contained:
   `git cherry main <branch>` must show only `-` lines.
-- Append the release session to DEVLOG (merge order, tag sha, anything that
-  fought back).
 
 ## Review fixes during a release
 

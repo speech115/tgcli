@@ -20,8 +20,7 @@ Read, in this order: `AGENTS.md` (hard rules), `CODING_STANDARDS.md`
 (the active checkable rule list you enforce), `docs/CONTRACT.md` §4–§5
 (exit codes, JSON shapes, lock semantics), the ADR(s) in `docs/decisions/`
 that the change claims to implement, and `CONTEXT.md` (vocabulary). The
-newest entries in `docs/devlog/` explain the change's intent
-(`docs/DEVLOG.md` is closed history).
+PR description and commit messages explain the change's intent.
 
 ## Materializing the change
 
@@ -47,7 +46,7 @@ You may run `./scripts/gate.sh` in the worktree.
 4. **Mirror check:** for each fixed bug, grep for sibling subsystems sharing
    the same pattern and confirm they either have the guard or are flagged.
 5. **Tests:** every risky path in the diff has a test that fails without the
-   change; docs (CONTRACT/MAP/guide/CHANGELOG) match the shipped behavior.
+   change; docs (CONTRACT/guide/CHANGELOG) match the shipped behavior.
 
 ## Reporting
 

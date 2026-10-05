@@ -9,7 +9,7 @@ Read:
 - root `CONTEXT.md`, if it exists;
 - relevant accepted decisions under `docs/decisions/`, starting from
   `docs/decisions/README.md`;
-- `docs/CONTRACT.md` for CLI behavior and `docs/MAP.md` for module ownership.
+- `docs/CONTRACT.md` for CLI behavior.
 
 `docs/decisions/` is the repository's only ADR directory. Do not create a
 parallel `docs/adr/` tree.

@@ -13,7 +13,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0004](ADR-0004-accounts-and-sessions.md) | SQLiteSession per account + file lock; import from old stack | accepted |
 | [0005](ADR-0005-safety-model.md) | Reads free; writes preview→commit + audit; runtime flags not baked profiles | accepted |
 | [0006](ADR-0006-media-tdlib-fallback.md) | TDLib as optional fallback backend | superseded by ADR-0009 |
-| [0007](ADR-0007-docs-discipline.md) | MAP + ADR + DEVLOG as mandatory agent workflow | accepted; the ADR trigger narrowed to the ADR-0073 full-lane list |
+| [0007](ADR-0007-docs-discipline.md) | MAP + ADR + DEVLOG as mandatory agent workflow | accepted; the ADR trigger narrowed to the ADR-0073 full-lane list; MAP and DEVLOG duties superseded by ADR-0120 |
 | [0008](ADR-0008-raw-api-passthrough.md) | `tg api` raw TL passthrough and write-path safety | superseded in part by ADR-0010 (read classification only) |
 | [0009](ADR-0009-tdlib-deferred.md) | TDLib deferred: no backend in v1; phase 3 Telethon-only; evidence-gated PoC re-entry | accepted |
 | [0010](ADR-0010-raw-api-read-allowlist.md) | `tg api` phase-2 explicit default-deny read allowlist | accepted |
@@ -64,14 +64,14 @@ row here in the same commit (AGENTS.md rule, extending
 | [0055](ADR-0055-clone-pinned-and-photo-fidelity.md) | `clone sync` pins the mapped source pin silently when the posts leg is exhausted (never unpins, never overrides an existing pin, reports status); photo downscaling is measured before it is fixed, and the striped path picks the largest `PhotoSize` explicitly | accepted |
 | [0056](ADR-0056-project-presentation-and-community-health.md) | MIT license; `CONTRIBUTING.md` as the human short form of AGENTS.md; `SECURITY.md` with a private channel, redaction rules, and scope; `needs-triage` issue forms + PR template; README badges, contents, and a dark/light banner pair | accepted; items 4–5 posture wording amended by ADR-0071 |
 | [0057](ADR-0057-lint-policy-expansion.md) | Ruff selection widens from `E4/E7/E9/F` to `E/W/F/I/UP/C4` (`UP040` ignored, `combine-as-imports`); `B`/`SIM`/`PTH`/`ARG`/`RUF` excluded with stated reasons; one-time layout-only cleanup, five architecture ceilings raised by the isort blank-line cost | accepted |
-| [0058](ADR-0058-process-speed-revisions.md) | Integrator assigns version/CHANGELOG at merge; devlog is one file per session under `docs/devlog/`; ceilings get a +50 diagnostic grace band while mandatory gates use `--strict`; waves branch from the integration head; ADR-lite for XS/S | accepted; devlog cadence amended by ADR-0073; rule 1 tooled by ADR-0074; decision 3 mandatory-gate grace amended by ADR-0107 |
+| [0058](ADR-0058-process-speed-revisions.md) | Integrator assigns version/CHANGELOG at merge; devlog is one file per session under `docs/devlog/`; ceilings get a +50 diagnostic grace band while mandatory gates use `--strict`; waves branch from the integration head; ADR-lite for XS/S | accepted; devlog cadence amended by ADR-0073; rule 1 tooled by ADR-0074; decision 3 mandatory-gate grace amended by ADR-0107; per-session devlog superseded by ADR-0120 |
 | [0059](ADR-0059-verification-infrastructure.md) | Hypothesis property tests pin the audit's defect classes (derandomized in the gate); PR-gated macOS CI leg runs the suite; pytest-xdist parallelizes gate and CI | accepted |
 | [0060](ADR-0060-clone-state-sqlite-proposal.md) | Clone state moves to per-clone SQLite/WAL (measured: JSON path is quadratic, 168 MB written per 5k messages vs 0.1 MB); single reader, one-time JSON import + `.imported` backup, explicit export-state rollback; small files stay JSON | accepted |
 | [0061](ADR-0061-comments-leg-entity-reuse.md) | Comments leg reuses the run's ResolveContext discussion entities across ADR-0051 windows instead of two GetChannels RPCs per window; verify_tail stays per-window | accepted |
 | [0062](ADR-0062-job-session-role.md) | Named session roles (arbitrary names, `primary` reserved): `accounts login --role NAME` authorizes another device whose lock frees the primary during long jobs; global `--session-role` flag; no implicit fallback between roles | accepted |
 | [0063](ADR-0063-tg-changes-design.md) | `tg changes --cursor` foreground feed, hybrid coverage: cursor-held channel subscriptions with full `read`-shape events, `channel_activity` signals elsewhere, per-scope loud gaps, deletion tombstones, `--wait` with 2 s settle, no state files | accepted |
 | [0064](ADR-0064-forward-origin-from-message-chat.md) | Forward-origin `from_id` labels use `message.forward.get_chat()` / `get_sender()` when standalone `get_entity` refuses (issue #80) | accepted |
-| [0065](ADR-0065-active-documentation-drift-gates.md) | Active-doc gate covers README discoverability/global flags/safety summaries, benchmark claims, MAP inventory, and devlog routing; shipped status closure becomes an explicit workflow duty | accepted |
+| [0065](ADR-0065-active-documentation-drift-gates.md) | Active-doc gate covers README discoverability/global flags/safety summaries, benchmark claims, MAP inventory, and devlog routing; shipped status closure becomes an explicit workflow duty | accepted; MAP inventory and devlog routing checks superseded by ADR-0120 |
 | [0066](ADR-0066-voice-played-json-field.md) | Additive `voice_played` field exposes Telegram voice playback state without mutation | accepted |
 | [0067](ADR-0067-pinned-runtime-diagnostics.md) | Supported session runtime boundary plus additive `doctor` runtime fingerprint | accepted |
 | [0068](ADR-0068-local-archive-store.md) | Native `tg archive` SQLite+FTS5 store: private dialogs auto-scoped, append-only history, local transcription; telecrawl sidecar rejected | accepted; refresh scheduling amended by ADR-0087 |
@@ -126,6 +126,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0117](ADR-0117-breadth-atomic-check-and-touch.md) | Breadth budget check-and-touch is one `BEGIN IMMEDIATE` claim; gate still dispatches on refuse | accepted; thermos debt T36 |
 | [0118](ADR-0118-private-backfill-enum-cursor.md) | Private archive-backfill persists a GetDialogs resume token on account_sync (schema v8) | accepted; thermos debt T37 |
 | [0119](ADR-0119-self-hosted-macos-ci.md) | CI runs on a self-hosted macOS runner (`[self-hosted, tgcli]`); GitHub-hosted minutes dropped | accepted |
+| [0120](ADR-0120-process-reset.md) | Process reset: closed history, MAP, ISSUES/PROPOSALS, and devlog leave the tree; the docs gate checks docs against the CLI only | accepted |
 
 Notes on supersessions:
 

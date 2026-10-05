@@ -2,7 +2,7 @@
 
 The integrator still writes the prose; the script owns the mechanical half —
 the version in both files, the section heading, the ADR/PR list, and the
-`[x.y.z]:` compare link the docs gate refuses a release without.
+`[x.y.z]:` compare link.
 """
 
 import importlib.util
@@ -14,7 +14,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "prepare-release.py"
-CHECK_DOCS = ROOT / "scripts" / "check-docs.py"
 
 CHANGELOG_HEAD = """# Changelog
 
@@ -132,16 +131,6 @@ def test_the_section_lands_above_the_previous_release_and_the_link_with_the_othe
     assert changelog.index("## [1.2.4]") < changelog.index("## [1.2.3]")
     assert changelog.index("[1.2.4]: https://") < changelog.index("[1.2.3]: https://")
     assert changelog.count("[1.2.4]: https://") == 1
-
-
-def test_the_result_satisfies_the_docs_gate_release_rule(repo):
-    run(repo, "--version", "1.2.4")
-
-    check_docs = load(CHECK_DOCS, "check_docs")
-    problems, checked = check_docs.release_problems(repo / "CHANGELOG.md")
-
-    assert problems == []
-    assert checked == 2
 
 
 def test_repository_sources_keep_their_permissions(repo):
