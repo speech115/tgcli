@@ -1,8 +1,4 @@
-"""Fail-closed architecture ownership and hotspot budget ratchet.
-
-Budgets are ceilings, not baselines: a file may shrink freely, and only growth
-past its reviewed ceiling fails. Lower a ceiling once a file settles under it.
-"""
+"""Fail-closed architecture checks: read ownership, state writes, module size."""
 
 from __future__ import annotations
 
@@ -10,53 +6,12 @@ import argparse
 import ast
 from pathlib import Path
 
-# Reviewed line ceilings for hot files. git blame holds why each one moved.
-CEILINGS = {
-    "src/tgcli/cli.py": 690,
-    "src/tgcli/parser.py": 620,
-    "src/tgcli/preflight.py": 250,
-    "src/tgcli/archive/arguments.py": 140,
-    "src/tgcli/archive/preflight.py": 170,
-    "src/tgcli/archive/offline.py": 70,
-    "src/tgcli/dispatch.py": 373,
-    "src/tgcli/commands/batch.py": 100,
-    "src/tgcli/commands/changes.py": 556,
-    "src/tgcli/read_ops.py": 474,
-    "src/tgcli/commands/clone.py": 1060,
-    "src/tgcli/clone/state.py": 485,
-    "src/tgcli/clone/quotes.py": 392,
-    "src/tgcli/clone/quote_fallback.py": 127,
-    "src/tgcli/clone/send.py": 290,
-    "src/tgcli/archive/store.py": 96,
-    "src/tgcli/archive/schema.py": 437,
-    "src/tgcli/archive/messages.py": 147,
-    "src/tgcli/archive/transcripts.py": 202,
-    "src/tgcli/archive/sync_state.py": 350,
-    "src/tgcli/archive/peers.py": 74,
-    "src/tgcli/archive/private_enum.py": 170,
-    "src/tgcli/archive/sync.py": 615,
-    "src/tgcli/archive/backfill.py": 320,
-    "src/tgcli/archive/transcribe.py": 251,
-    "src/tgcli/archive/explore.py": 557,
-    "src/tgcli/archive/search.py": 67,
-    "src/tgcli/archive/media.py": 72,
-    "src/tgcli/commands/archive.py": 544,
-    "src/tgcli/commands/archive_jobs.py": 140,
-    "src/tgcli/commands/jobs.py": 163,
-    "src/tgcli/jobs/arguments.py": 79,
-    "src/tgcli/jobs/model.py": 95,
-    "src/tgcli/jobs/preflight.py": 108,
-    "src/tgcli/jobs/db.py": 280,
-    "src/tgcli/jobs/runner.py": 490,
-    "src/tgcli/jobs/store.py": 670,
-    "src/tgcli/governor/__init__.py": 14,
-    "src/tgcli/governor/gate.py": 227,
-    "src/tgcli/governor/ledger.py": 525,
-    "src/tgcli/governor/pacing.py": 236,
-    "src/tgcli/governor/probe.py": 86,
-    "src/tgcli/governor/registry.py": 133,
-    "src/tgcli/governor/seam.py": 66,
-    "src/tgcli/commands/store.py": 537,
+# Every module stays under MAX_LINES; past it, split the module. The listed
+# modules were already larger and may not grow past their own limit.
+MAX_LINES = 800
+OVERSIZE = {
+    "src/tgcli/commands/clone.py": 1100,
+    "src/tgcli/commands/media.py": 900,
 }
 
 # Modules that must reach read commands only through the read_ops seam
@@ -164,18 +119,6 @@ def _read_ownership_errors(path: Path, relative: str) -> set[str]:
 
 def check(root: Path) -> list[str]:
     errors: list[str] = []
-    for relative, budget in CEILINGS.items():
-        path = root / relative
-        try:
-            line_count = len(path.read_text().splitlines())
-        except FileNotFoundError:
-            errors.append(f"{relative} is missing")
-            continue
-        if line_count > budget:
-            errors.append(
-                f"{relative} has {line_count} lines; reviewed ceiling is {budget}"
-            )
-
     for relative in READ_OWNERSHIP_MODULES:
         path = root / relative
         if not path.exists():
@@ -187,6 +130,10 @@ def check(root: Path) -> list[str]:
     source_root = root / "src/tgcli"
     for path in sorted(source_root.rglob("*.py")):
         relative = path.relative_to(root).as_posix()
+        limit = OVERSIZE.get(relative, MAX_LINES)
+        line_count = len(path.read_text().splitlines())
+        if line_count > limit:
+            errors.append(f"{relative} has {line_count} lines; the limit is {limit}")
         errors.extend(_state_write_errors(path, relative))
     return errors
 

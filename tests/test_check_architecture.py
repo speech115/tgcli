@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "check-architecture.py"
-CEILINGS = runpy.run_path(str(SCRIPT))["CEILINGS"]
+MAX_LINES = runpy.run_path(str(SCRIPT))["MAX_LINES"]
 
 
 def _run(root: Path, *extra: str) -> subprocess.CompletedProcess[str]:
@@ -25,16 +25,15 @@ def _write_minimal_tree(
     batch_import: str = "from tgcli import read_ops\n",
     dispatch_import: str = "",
 ) -> None:
-    prefixes = dict.fromkeys(CEILINGS, "")
-    prefixes["src/tgcli/cli.py"] = cli_import
-    prefixes["src/tgcli/commands/batch.py"] = batch_import
-    prefixes["src/tgcli/dispatch.py"] = dispatch_import
-    for relative, prefix in prefixes.items():
+    modules = {
+        "src/tgcli/cli.py": cli_import,
+        "src/tgcli/commands/batch.py": batch_import,
+        "src/tgcli/dispatch.py": dispatch_import,
+    }
+    for relative, source in modules.items():
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        prefix_lines = prefix.splitlines()
-        padding = ["#"] * (CEILINGS[relative] - len(prefix_lines))
-        path.write_text("\n".join([*prefix_lines, *padding]) + "\n")
+        path.write_text(source)
 
 
 def test_architecture_check_rejects_read_dispatch_leaking_into_cli(tmp_path):
@@ -128,25 +127,18 @@ def test_architecture_check_rejects_read_dispatch_leaking_into_dispatch(tmp_path
     assert "src/tgcli/dispatch.py imports read command module search" in result.stdout
 
 
-def test_architecture_check_accepts_a_shrunk_file(tmp_path):
+def test_architecture_check_rejects_a_module_past_the_line_limit(tmp_path):
     _write_minimal_tree(tmp_path)
-    cli = tmp_path / "src/tgcli/cli.py"
-    cli.write_text("\n".join(cli.read_text().splitlines()[:-1]) + "\n")
+    module = tmp_path / "src/tgcli/big.py"
+    module.write_text("#\n" * MAX_LINES)
+    assert _run(tmp_path).returncode == 0
 
-    result = _run(tmp_path)
-
-    assert result.returncode == 0, result.stdout
-
-
-def test_architecture_check_rejects_any_growth_past_the_ceiling(tmp_path):
-    _write_minimal_tree(tmp_path)
-    cli = tmp_path / "src/tgcli/cli.py"
-    cli.write_text(cli.read_text() + "#\n")
-
+    module.write_text("#\n" * (MAX_LINES + 1))
     result = _run(tmp_path)
 
     assert result.returncode == 1
-    assert "src/tgcli/cli.py has 691 lines; reviewed ceiling is 690" in result.stdout
+    expected = f"big.py has {MAX_LINES + 1} lines; the limit is {MAX_LINES}"
+    assert expected in result.stdout
 
 
 def test_repository_passes_architecture_check():
