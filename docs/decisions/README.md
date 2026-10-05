@@ -32,7 +32,7 @@ row here in the same commit (AGENTS.md rule, extending
 | [0023](ADR-0023-clone-channel-comments.md) | Comments via a linked discussion group; author-identity ladder; `init --replace` | accepted |
 | [0024](ADR-0024-clone-source-roster.md) | Best-effort source-side participant roster snapshot during sync | accepted |
 | [0025](ADR-0025-clone-preserve-reforward-header.md) | Per-batch `drop_author` keeps the native forward header on re-forwarded posts | accepted |
-| [0026](ADR-0026-maintenance-mode.md) | Maintenance mode: fixes need a reproducing test; features need an ADR + scoped plan | accepted; rule 1 (posture) superseded by ADR-0071 |
+| [0026](ADR-0026-maintenance-mode.md) | Maintenance mode: fixes need a reproducing test; features need an ADR + scoped plan | accepted; rule 1 (posture) superseded by ADR-0071; rules 2–3 superseded by ADR-0120 |
 | [0027](ADR-0027-ci-lint-typecheck.md) | CI enforces ruff lint/format and pyright basic over `src/` | accepted |
 | [0028](ADR-0028-agent-correspondence-scope.md) | v1.1 agent correspondence: richer message JSON, pagination, full mutation set with random_id commits, discovery flags, doctor | accepted |
 | [0029](ADR-0029-discovery-inbox-scope.md) | discovery & inbox quick-wins: resolve (+resolvePhone allowlist), contacts, media manifest, mark-unread/dialog pin, thread | accepted |
@@ -71,13 +71,13 @@ row here in the same commit (AGENTS.md rule, extending
 | [0062](ADR-0062-job-session-role.md) | Named session roles (arbitrary names, `primary` reserved): `accounts login --role NAME` authorizes another device whose lock frees the primary during long jobs; global `--session-role` flag; no implicit fallback between roles | accepted |
 | [0063](ADR-0063-tg-changes-design.md) | `tg changes --cursor` foreground feed, hybrid coverage: cursor-held channel subscriptions with full `read`-shape events, `channel_activity` signals elsewhere, per-scope loud gaps, deletion tombstones, `--wait` with 2 s settle, no state files | accepted |
 | [0064](ADR-0064-forward-origin-from-message-chat.md) | Forward-origin `from_id` labels use `message.forward.get_chat()` / `get_sender()` when standalone `get_entity` refuses (issue #80) | accepted |
-| [0065](ADR-0065-active-documentation-drift-gates.md) | Active-doc gate covers README discoverability/global flags/safety summaries, benchmark claims, MAP inventory, and devlog routing; shipped status closure becomes an explicit workflow duty | accepted; MAP inventory and devlog routing checks superseded by ADR-0120 |
+| [0065](ADR-0065-active-documentation-drift-gates.md) | Active-doc gate covers README discoverability/global flags/safety summaries, benchmark claims, MAP inventory, and devlog routing; shipped status closure becomes an explicit workflow duty | accepted; MAP inventory and devlog routing checks, and the status-closure duty, superseded by ADR-0120 |
 | [0066](ADR-0066-voice-played-json-field.md) | Additive `voice_played` field exposes Telegram voice playback state without mutation | accepted |
 | [0067](ADR-0067-pinned-runtime-diagnostics.md) | Supported session runtime boundary plus additive `doctor` runtime fingerprint | accepted |
 | [0068](ADR-0068-local-archive-store.md) | Native `tg archive` SQLite+FTS5 store: private dialogs auto-scoped, append-only history, local transcription; telecrawl sidecar rejected | accepted; refresh scheduling amended by ADR-0087 |
 | [0069](ADR-0069-archive-exploration-module.md) | Keep Phase 5 archive search/read/history queries in a read-only archive module | accepted |
 | [0070](ADR-0070-archive-refresh-scheduling.md) | Compose bounded archive refreshes and notify once after recurring failures | superseded by ADR-0087 |
-| [0071](ADR-0071-owner-gated-development.md) | Posture renamed to owner-gated development: same gate (owner request + ADR + scoped plan; fixes start from a reproducing test; agents never widen scope), without the retired "feature-complete / do not add features" claim | accepted; rule 1 mechanics amended by ADR-0073 (scoped plan only for campaigns); ADR requirement amended by ADR-0120 |
+| [0071](ADR-0071-owner-gated-development.md) | Posture renamed to owner-gated development: same gate (owner request + ADR + scoped plan; fixes start from a reproducing test; agents never widen scope), without the retired "feature-complete / do not add features" claim | accepted; rule 1 mechanics amended by ADR-0073 (scoped plan only for campaigns); ADR requirement amended by ADR-0120; decision 2 superseded by ADR-0120 |
 | [0072](ADR-0072-account-request-governor.md) | Account-wide request governor: cooldowns independent per Telegram request type (peer excluded on purpose), a self-verifying probe instead of a bypass flag, a persisted per-type pacing interval plus a windowed peer-breadth budget, the seam wrapping Telethon's `_call`, and the deadline demoted to a hang detector — supersedes ADR-0045 decision 1 and ADR-0052 decisions 1–5 | accepted; decision 3's defaults carry one live demonstration (#140) and both stated assumptions remain open; implemented across #145's phases; L3 authenticated fail-open amended by ADR-0089 |
 | [0073](ADR-0073-risk-tiered-change-process.md) | Risk-tiered change process: a seven-trigger full lane (contract, safety, state, pacing, new dependency/module/abstraction, released behavior, and the enforcement mechanisms plus the agent contract itself) and a small-fix lane with no ADR, plan, index row, status edit, or release bookkeeping; documents ride with their code; plans only for campaigns of 3+ PRs; compatibility begins at a release tag; devlog per landed slice, ~15 lines — amends ADR-0071 rule 1 mechanics, ADR-0058 cadence, and ADR-0007's ADR trigger | superseded by ADR-0120 |
 | [0074](ADR-0074-complexity-reset-and-release-preparation.md) | Complexity reset: a second related review finding on the same abstraction is a design checkpoint, not another patch, and unreleased code is not a sunk cost; `scripts/prepare-release.py` does the mechanical half of a release (version in both files, dated section, PR/ADR list, compare link) while the integrator writes the prose, refusing a version split across the two files rather than compounding it — extends ADR-0058 rule 1 | accepted (ADR-lite); rule 1 (complexity reset) superseded by ADR-0120 |
@@ -149,8 +149,8 @@ Notes on supersessions:
   decisions 6–7 (the reupload media cache) carry forward as noted in the
   ADRs themselves.
 - ADR-0071 supersedes only ADR-0026's rule 1 (the "maintenance mode /
-  feature-complete" posture wording). ADR-0026 rules 2–4 — scope routing to
-  docs/ISSUES.md, the clone chronicle in docs/CLONE.md, and this index —
-  remain in force, which is why 0026 stays a live rule source. ADR-0071 also
+  feature-complete" posture wording). ADR-0120 supersedes ADR-0026 rules 2–3
+  (scope routing to docs/ISSUES.md, the clone chronicle in docs/CLONE.md);
+  rule 4 (this index) remains in force. ADR-0071 also
   amends the posture wording ADR-0056 items 4–5 prescribe for the README
   badge and the proposal form; those surfaces are otherwise untouched.
