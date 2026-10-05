@@ -1,11 +1,11 @@
 blank_issues_enabled: true
 contact_links:
   - name: How do I do X with tg?
-    url: https://github.com/speech115/tgcli/tree/main/docs/guide
-    about: The user guide has a task-shaped page per command area, with worked examples.
+    url: https://github.com/speech115/tgcli/blob/main/SKILL.md
+    about: Every task mapped to its command, with recipes.
   - name: Flags, JSON shapes, exit codes
     url: https://github.com/speech115/tgcli/blob/main/docs/CONTRACT.md
-    about: The automation contract — where the guide and the contract disagree, the contract is right.
+    about: The automation contract.
   - name: Security or privacy issue
     url: https://github.com/speech115/tgcli/security/advisories/new
     about: Report privately. Never paste session material, credentials, or real message content into an issue.

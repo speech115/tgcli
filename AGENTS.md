@@ -4,7 +4,7 @@ tgcli is a stateless Telegram CLI over Telethon, for humans and agents: JSON
 on stdout, fixed exit codes, and preview → commit for every write. It replaced
 a daemon-first stack, so staying small and daemonless is the point.
 
-- Using the CLI: [SKILL.md](SKILL.md) and [docs/guide/](docs/guide/).
+- Using the CLI: [SKILL.md](SKILL.md) and `tg COMMAND --help`.
 - CLI law (flags, JSON shapes, exit codes): [docs/CONTRACT.md](docs/CONTRACT.md).
 - Vocabulary: [CONTEXT.md](CONTEXT.md).
 - Why past decisions were made: [docs/decisions/](docs/decisions/README.md).
@@ -39,7 +39,7 @@ is wrong, fix the check.
 | Every mutation goes through preview → commit and the readonly gates | `src/tgcli/preview_commit.py` registry, `tests/test_preview_commit.py`, `tests/test_safety.py` |
 | Audit is written before the mutation, and an unwritable audit blocks it | `tests/test_safety.py`, `tests/test_cli_mutate.py` |
 | Every Telethon namespace is classified; raw API writes are denied unless wrapped | `scripts/check-coverage.py` with `docs/FEATURES.md` |
-| The guide and README name only real flags, commands, and links | `scripts/check-docs.py` |
+| README and SKILL.md name only real flags, commands, and links | `scripts/check-docs.py` |
 | Sessions, `.env`, audit and journal files never enter git | `.gitignore` |
 | Merged branches are deleted and history stays linear | GitHub repository settings |
 

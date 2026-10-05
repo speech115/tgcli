@@ -32,10 +32,10 @@ Design lineage: [openclaw/gogcli](https://github.com/openclaw/gogcli) (architect
 - **Safe correspondence** — `send`, `edit`, `delete`, `forward`, and draft writes all go through preview → commit with single-use ids, a 5-minute TTL, operation-specific retry checks, and an append-only audit log.
 - **Retry-safe sends and forwards** — `send` and `forward` commits carry a stored Telegram `random_id`, so retrying the same preview confirms the original dispatch instead of creating a duplicate.
 - **Media and export** — manifest before download, bulk filtered downloads, JSONL message export with `--resume`, and CSV subscriber export for broadcast channels.
-- **Chat clone** — copy broadcast channels, megagroup supergroups (forum and non-forum), legacy basic groups, and private dialogs into tool-created destinations, with native forwards plus protected-content reupload. See [docs/guide/clone.md](docs/guide/clone.md).
-- **Daemonless change feed** — `tg changes` returns Telegram updates plus an account-bound caller-held cursor, with authenticated channel subscriptions, deletion tombstones, and loud gap reporting. See [docs/guide/changes.md](docs/guide/changes.md).
-- **Local archive store** — `tg archive` binds a per-account SQLite store, backfills selected/private dialogs, syncs the changes cursor, acquires bounded voice/video-note media with terminal retry state, transcribes locally with Parakeet, and provides filtered/ranked offline search plus timeline/history views. See [docs/guide/archive.md](docs/guide/archive.md).
-- **Foreground persisted jobs** — `tg jobs` runs four typed checkpointed workloads across independent Telegram/local lanes, with immutable generations, bounded-aging priority, cooperative cancellation, retry/recovery state, safe recurring rearm, failure notifications, explicit role isolation, and a required wall-clock cap; launchd remains the only scheduler. See [docs/guide/jobs.md](docs/guide/jobs.md).
+- **Chat clone** — copy broadcast channels, megagroup supergroups (forum and non-forum), legacy basic groups, and private dialogs into tool-created destinations, with native forwards plus protected-content reupload.
+- **Daemonless change feed** — `tg changes` returns Telegram updates plus an account-bound caller-held cursor, with authenticated channel subscriptions, deletion tombstones, and loud gap reporting.
+- **Local archive store** — `tg archive` binds a per-account SQLite store, backfills selected/private dialogs, syncs the changes cursor, acquires bounded voice/video-note media with terminal retry state, transcribes locally with Parakeet, and provides filtered/ranked offline search plus timeline/history views.
+- **Foreground persisted jobs** — `tg jobs` runs four typed checkpointed workloads across independent Telegram/local lanes, with immutable generations, bounded-aging priority, cooperative cancellation, retry/recovery state, safe recurring rearm, failure notifications, explicit role isolation, and a required wall-clock cap; launchd remains the only scheduler.
 - **Raw TL escape hatch** — `tg api` reaches the long tail of the pinned Telethon layer behind a default-deny read allowlist, an explicit `--write` gate, typed confirmations for destructive verbs, and a permanent denylist.
 - **Diagnostics and hygiene** — `tg doctor` reports locally by default (`--connect` for live checks); `tg store stats` / `tg store cleanup` inspect and reclaim local state without ever touching sessions or the audit log.
 
@@ -116,21 +116,28 @@ Chat references accept `@username`, a `t.me/` link, or a numeric dialog id; `tg 
 
 ## Documentation
 
-Full guide: **[docs/guide/](docs/guide/README.md)**
-
-| Area | Pages |
+| Document | Job |
 | --- | --- |
-| **Start** | [overview](docs/guide/overview.md) · [install](docs/guide/install.md) · [quickstart](docs/guide/quickstart.md) · [accounts](docs/guide/accounts.md) |
-| **Reading** | [dialogs](docs/guide/dialogs.md) · [read](docs/guide/read.md) · [search](docs/guide/search.md) · [contacts](docs/guide/contacts.md) · [batch](docs/guide/batch.md) · [changes](docs/guide/changes.md) · [archive](docs/guide/archive.md) · [transcribe](docs/guide/transcribe.md) |
-| **Writing** | [send](docs/guide/send.md) · [editing](docs/guide/editing.md) · [forward](docs/guide/forward.md) · [drafts](docs/guide/drafts.md) · [formatting](docs/guide/formatting.md) · [inbox](docs/guide/inbox.md) |
-| **Data** | [media](docs/guide/media.md) · [export](docs/guide/export.md) · [clone](docs/guide/clone.md) |
-| **Operations** | [jobs](docs/guide/jobs.md) · [doctor](docs/guide/doctor.md) · [store](docs/guide/store.md) · [safety](docs/guide/safety.md) · [api](docs/guide/api.md) |
-| **Reference** | [CLI contract](docs/CONTRACT.md) · [feature matrix](docs/FEATURES.md) · [ADR index](docs/decisions/README.md) |
-| **Agents** | [SKILL.md](SKILL.md) — routing table and recipes · [AGENTS.md](AGENTS.md) — the contract every agent follows here |
+| [SKILL.md](SKILL.md) | every task mapped to its command, plus recipes for paging, catch-up, and retrying a send |
+| [docs/CONTRACT.md](docs/CONTRACT.md) | flags, JSON shapes, exit codes, and safety behavior |
+| `tg COMMAND --help` | every flag of one command |
+| [docs/FEATURES.md](docs/FEATURES.md) | which Telegram API namespaces are wrapped, reachable via `tg api`, or excluded |
+| [docs/decisions/](docs/decisions/README.md) | why past decisions were made |
+| [AGENTS.md](AGENTS.md) | the rules for changing this repository |
 
 ## Configuration
 
-Config lives at `~/.config/tgcli/config.toml`; sessions, locks, previews, the audit log, and cache live under `~/.local/state/tgcli/` (mode `0700`). Account selection order is `--account` > `TGCLI_ACCOUNT` > `default_account`.
+Config lives at `~/.config/tgcli/config.toml`:
+
+| Key | Required | Meaning |
+| --- | --- | --- |
+| `default_account` | no | Alias used when `--account` and `TGCLI_ACCOUNT` are absent. |
+| `accounts.<alias>.api_id` | yes | Telegram API id (integer) from my.telegram.org. |
+| `accounts.<alias>.api_hash` | yes | Telegram API hash (string) from my.telegram.org. |
+| `accounts.<alias>.session` | no | Session file base name under `~/.local/state/tgcli/sessions/`. Defaults to the alias. |
+| `archive.root` | no | Archive store root. Defaults to `~/.local/state/tgcli/archive/`. |
+
+Sessions, locks, previews, the audit log, and cache live under `~/.local/state/tgcli/` (mode `0700`). Account selection order is `--account` > `TGCLI_ACCOUNT` > `default_account`.
 
 **Global flags:** `--account NAME`, `--session-role NAME`, `--json`, `--plain`, `--readonly`, `--timeout SEC` (deadline; governed sleep does not count — see [CONTRACT §1](docs/CONTRACT.md#1-invocation)), `--max-runtime SEC` (wall-clock cap for long runs: normal stop with a resume pointer), `-v/--verbose`, `--version`.
 
@@ -193,7 +200,7 @@ tg --json send --commit p_9f3a
 
 In production use and owner-gated (ADR-0071): new behavior starts from an owner request, and a bug fix starts from a reproducing test.
 
-CI runs `pytest`, `ruff`, `pyright`, and a fail-closed TL coverage gate on every PR ([.github/workflows/ci.yml](.github/workflows/ci.yml)). `scripts/bench.py` is a representative 13-step live smoke benchmark of core read, write, media, and export paths.
+CI runs `pytest`, `ruff`, `pyright`, and a fail-closed TL coverage gate on every PR ([.github/workflows/ci.yml](.github/workflows/ci.yml)).
 
 ## Contributing
 

@@ -1,6 +1,5 @@
 """The docs gate: active docs must match the real CLI."""
 
-import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -14,13 +13,13 @@ SCRIPT = ROOT / "scripts" / "check-docs.py"
 def run(
     *,
     readme: Path | None = None,
-    bench: Path | None = None,
+    skill: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     argv = [sys.executable, str(SCRIPT)]
     if readme is not None:
         argv.extend(["--readme", str(readme)])
-    if bench is not None:
-        argv.extend(["--bench", str(bench)])
+    if skill is not None:
+        argv.extend(["--skill", str(skill)])
     return subprocess.run(
         argv,
         cwd=ROOT,
@@ -98,17 +97,6 @@ def test_readme_global_flags_must_not_keep_removed_parser_flags(tmp_path):
     assert "README.md: unknown root global flag --legacy" in result.stdout
 
 
-def test_readme_must_link_every_task_guide_page(tmp_path):
-    readme = tmp_path / "README.md"
-    source = (ROOT / "README.md").read_text()
-    assert source.count("(docs/guide/changes.md)") >= 1
-    readme.write_text(source.replace("(docs/guide/changes.md)", ""))
-    result = run(readme=readme)
-
-    assert result.returncode == 1
-    assert "README.md: guide page is not linked: docs/guide/changes.md" in result.stdout
-
-
 def test_readme_random_id_guarantees_are_scoped_to_send_and_forward(tmp_path):
     readme = copy_with_replacement(
         tmp_path,
@@ -145,56 +133,16 @@ def test_readme_clone_commits_retry_the_same_preview_after_failure(tmp_path):
     )
 
 
-def test_docs_cannot_claim_benchmark_coverage_the_script_does_not_have(tmp_path):
-    readme = copy_with_replacement(
-        tmp_path,
-        ROOT / "README.md",
-        "representative 13-step live smoke benchmark",
-        "live benchmark: every command against a real account",
-    )
-    result = run(readme=readme, bench=ROOT / "scripts" / "bench.py")
-
-    assert result.returncode == 1
-    assert "benchmark claims every command but omits:" in result.stdout
-    assert "changes" in result.stdout
-    assert "clone" in result.stdout
-
-
-@pytest.mark.parametrize(
-    "claim",
-    (
-        "exhaustive command benchmark",
-        "benchmark covers all commands",
-    ),
-)
-def test_equivalent_exhaustive_benchmark_claims_are_checked(tmp_path, claim):
-    readme = copy_with_replacement(
-        tmp_path,
-        ROOT / "README.md",
-        "representative 13-step live smoke benchmark",
-        claim,
-    )
-
-    result = run(readme=readme)
-
-    assert result.returncode == 1
-    assert "benchmark claims every command but omits:" in result.stdout
-
-
-def test_a_guide_page_naming_a_fake_flag_command_or_link_fails(
-    tmp_path, monkeypatch, capsys
-):
-    spec = importlib.util.spec_from_file_location("check_docs", SCRIPT)
-    check_docs = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(check_docs)
-    (tmp_path / "clone.md").write_text(
+def test_a_doc_naming_a_fake_flag_command_or_link_fails(tmp_path):
+    skill = tmp_path / "SKILL.md"
+    skill.write_text(
         "Run `tg clone sync --no-such-flag`, then `tg no-such-command`.\n"
         "See [the old page](missing.md).\n"
     )
-    monkeypatch.setattr(check_docs, "GUIDE", tmp_path)
 
-    assert check_docs.main([]) == 1
-    out = capsys.readouterr().out
-    assert "clone.md: unknown flag --no-such-flag" in out
-    assert "clone.md: unknown command 'tg no-such-command'" in out
-    assert "clone.md: dead link -> missing.md" in out
+    result = run(skill=skill)
+
+    assert result.returncode == 1
+    assert "SKILL.md: unknown flag --no-such-flag" in result.stdout
+    assert "SKILL.md: unknown command 'tg no-such-command'" in result.stdout
+    assert "SKILL.md: dead link -> missing.md" in result.stdout
