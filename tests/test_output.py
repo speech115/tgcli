@@ -12,15 +12,6 @@ def test_emit_json_writes_one_document_to_stdout(capsys):
     assert captured.err == ""
 
 
-def test_emit_json_lines_writes_one_document_per_line(capsys):
-    output.emit_json_lines([{"ok": True}, {"ok": False, "message": "привет"}])
-
-    assert [json.loads(line) for line in capsys.readouterr().out.splitlines()] == [
-        {"ok": True},
-        {"ok": False, "message": "привет"},
-    ]
-
-
 def test_emit_plain_writes_tsv_with_empty_for_none(capsys):
     output.emit_plain([(1, "x", None), (2, "y", "z")])
     assert capsys.readouterr().out == "1\tx\t\n2\ty\tz\n"

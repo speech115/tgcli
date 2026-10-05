@@ -70,12 +70,12 @@ def test_raw_denied_matrix_status_matches_the_api_write_policy(tmp_path):
     assert result.returncode == 0, result.stderr
 
 
-def test_checker_rejects_a_write_policy_namespace_without_raw_denied_status(tmp_path):
+def test_checker_rejects_a_denied_namespace_without_denied_status(tmp_path):
     features = tmp_path / "FEATURES.md"
     features.write_text(
         (ROOT / "docs" / "FEATURES.md")
         .read_text()
-        .replace("| account | raw-denied |", "| account | excluded |", 1)
+        .replace("| account | denied |", "| account | excluded |", 1)
     )
 
     result = subprocess.run(
@@ -86,15 +86,15 @@ def test_checker_rejects_a_write_policy_namespace_without_raw_denied_status(tmp_
     )
 
     assert result.returncode == 1
-    assert "write policy denies account but matrix status is excluded" in result.stderr
+    assert "tg run denies account but matrix status is excluded" in result.stderr
 
 
-def test_checker_rejects_raw_denied_status_without_write_policy(tmp_path):
+def test_checker_rejects_denied_status_tg_run_allows(tmp_path):
     features = tmp_path / "FEATURES.md"
     features.write_text(
         (ROOT / "docs" / "FEATURES.md")
         .read_text()
-        .replace("| phone | excluded |", "| phone | raw-denied |", 1)
+        .replace("| phone | excluded |", "| phone | denied |", 1)
     )
 
     result = subprocess.run(
@@ -105,4 +105,4 @@ def test_checker_rejects_raw_denied_status_without_write_policy(tmp_path):
     )
 
     assert result.returncode == 1
-    assert "matrix marks phone raw-denied but write policy allows it" in result.stderr
+    assert "matrix marks phone denied but tg run allows it" in result.stderr

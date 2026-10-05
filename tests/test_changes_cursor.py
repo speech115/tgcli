@@ -1,4 +1,4 @@
-"""Cursor codec tests for `tg changes` (ADR-0063)."""
+"""Cursor codec tests for the archive sync update cursor (ADR-0063)."""
 
 from __future__ import annotations
 
@@ -94,3 +94,9 @@ def test_property_tampered_payload_is_policy_error(noise):
         return
     with pytest.raises(PolicyError):
         decode(tampered)
+
+
+def test_a_broken_cursor_points_at_archive_rebaseline():
+    """`tg changes` is gone; the remedy must name a command that exists."""
+    with pytest.raises(PolicyError, match="run: tg archive rebaseline"):
+        decode("v1:not-base64!")

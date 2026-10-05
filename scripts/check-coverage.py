@@ -10,10 +10,10 @@ from pathlib import Path
 
 from telethon.tl import functions
 
-from tgcli.commands.api import WRITE_NAMESPACE_DENYLIST
+from tgcli.commands.run import DENIED_NAMESPACES
 
-RAW_DENIED_STATUS = "raw-denied"
-VALID_STATUSES = {"wrapped", "api", "excluded", RAW_DENIED_STATUS}
+DENIED_STATUS = "denied"
+VALID_STATUSES = {"wrapped", "run", "excluded", DENIED_STATUS}
 NAMESPACE_RE = re.compile(r"[a-z][a-z0-9]*")
 PLANNED_STATUS_RE = re.compile(r"planned:[1-9][0-9]*")
 DEFAULT_FEATURES = Path(__file__).resolve().parents[1] / "docs" / "FEATURES.md"
@@ -42,13 +42,11 @@ def valid_status(status: str) -> bool:
 def validate(
     features_path: Path,
     namespaces: set[str] | None = None,
-    write_namespace_denylist: Set[str] | None = None,
+    denied_namespaces: Set[str] | None = None,
 ) -> list[str]:
     namespaces = namespaces if namespaces is not None else discover_namespaces()
-    write_namespace_denylist = (
-        WRITE_NAMESPACE_DENYLIST
-        if write_namespace_denylist is None
-        else write_namespace_denylist
+    denied_namespaces = (
+        DENIED_NAMESPACES if denied_namespaces is None else denied_namespaces
     )
     errors = []
     seen = set()
@@ -69,13 +67,13 @@ def validate(
     matrix_denied = {
         namespace
         for namespace, status in status_by_namespace.items()
-        if status == RAW_DENIED_STATUS
+        if status == DENIED_STATUS
     }
-    for namespace in sorted(write_namespace_denylist - matrix_denied):
+    for namespace in sorted(denied_namespaces - matrix_denied):
         status = status_by_namespace.get(namespace, "missing")
-        errors.append(f"write policy denies {namespace} but matrix status is {status}")
-    for namespace in sorted(matrix_denied - write_namespace_denylist):
-        errors.append(f"matrix marks {namespace} raw-denied but write policy allows it")
+        errors.append(f"tg run denies {namespace} but matrix status is {status}")
+    for namespace in sorted(matrix_denied - denied_namespaces):
+        errors.append(f"matrix marks {namespace} denied but tg run allows it")
     return errors
 
 

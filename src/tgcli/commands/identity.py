@@ -5,7 +5,7 @@ from telethon.tl import functions, types
 
 from tgcli import chatref
 from tgcli.commands.read import sanitize_plain_text
-from tgcli.errors import NotFoundError, PolicyError
+from tgcli.errors import NotFoundError
 
 
 def _is_phone(stripped_ref: str) -> bool:
@@ -138,40 +138,4 @@ def contacts_to_rows(data: dict) -> list[tuple]:
             sanitize_plain_text(contact["display_name"]),
         )
         for contact in data["contacts"]
-    ]
-
-
-MUTUAL_CHATS_LIMIT = 100
-
-
-async def mutual_chats(tg, ref: str) -> dict:
-    """List chats shared with a user (ADR-0032)."""
-    try:
-        entity = await tg.get_entity(chatref.parse(ref))
-    except ValueError:
-        raise NotFoundError(f"dialog not found: {ref!r}") from None
-    peer = peer_to_dict(entity)
-    if peer["type"] not in ("user", "bot"):
-        raise PolicyError("mutual-chats requires a user or bot peer")
-    input_user = await tg.get_input_entity(chatref.parse(ref))
-    response = await tg(
-        functions.messages.GetCommonChatsRequest(
-            user_id=input_user,
-            max_id=0,
-            limit=MUTUAL_CHATS_LIMIT,
-        )
-    )
-    chats = [peer_to_dict(chat) for chat in response.chats]
-    return {"peer": peer, "chats": chats, "count": len(chats)}
-
-
-def mutual_chats_to_rows(data: dict) -> list[tuple]:
-    return [
-        (
-            chat["id"],
-            chat["type"],
-            sanitize_plain_text(chat["username"]),
-            sanitize_plain_text(chat["display_name"]),
-        )
-        for chat in data["chats"]
     ]

@@ -39,15 +39,14 @@ selected account session, does one operation, and exits.
 | Show offline account / session status | `tg --json accounts show ALIAS` |
 | Authorize / re-authorize a session | `tg --json accounts login ALIAS --phone PHONE`, then `--continue LOGIN_ID --code …` |
 | Authorize a named session role | `tg --json accounts login ALIAS --role job --phone PHONE` |
-| Poll a daemonless change feed | `tg --json changes --init` then `tg --json changes --cursor C [--wait N]` (the `v2:` cursor is account-bound; never edit or reuse it under another account) |
 | Init local archive store | `tg --json archive init` |
 | Opt a group/channel into archive scope | `tg --json archive add CHAT` / `remove CHAT` / `list` |
 | Backfill selected dialogs into archive | `tg --json archive backfill CHAT [CHAT …] [--limit N]` |
 | Backfill standing private dialogs | `tg --json archive backfill --private [--max-dialogs N] [--limit N]` |
-| Sync archive from changes cursor | `tg --json archive sync [--max-events N] [--max-dialogs N] [--max-media N]` (applies full difference; caps catch-up RPCs and media downloads) |
+| Sync the archive with Telegram | `tg --json archive sync [--max-events N] [--max-dialogs N] [--max-media N]` (applies full difference; caps catch-up RPCs and media downloads) |
 | Transcribe archived voice/video notes | `tg --json archive transcribe [--limit N] [--max-attempts N]` (offline local FluidAudio/Parakeet queue) |
 | Keep the archive current on a schedule | launchd or cron: `tg --session-role job --max-runtime 3000 --json archive sync` and `tg --max-runtime 3000 --json archive transcribe` |
-| Rebaseline archive changes cursor | `tg --json archive rebaseline` |
+| Rebaseline the archive's update cursor | `tg --json archive rebaseline` |
 | Offline archive status | `tg --json archive status` |
 | Offline archive search | `tg --json archive search QUERY [--chat CHAT] [--from SENDER] [--since ISO] [--until ISO] [--kind KIND] [--transcripts-only] [--sort {relevance,date}] [--limit N] [--page N]` |
 | Offline archive timeline | `tg --json archive read CHAT [--around-id ID | --around-date ISO] [--since ISO] [--until ISO] [--limit N]` |
@@ -73,8 +72,6 @@ selected account session, does one operation, and exits.
 | Count messages | `tg --json count @channel` |
 | Resolve a peer | `tg --json resolve @user` / `tg --json resolve +995…` |
 | List / search contacts | `tg --json contacts list` / `tg --json contacts search "query"` |
-| Mutual chats with a user | `tg --json mutual-chats @user` |
-| Read-only batch (JSONL) | `tg batch <<'EOF'` / pipe JSONL ops (max 100; no doctor/mutations) |
 | Media inventory (no download) | `tg --json media manifest @channel --type photo --limit 50` |
 | Reply chain | `tg --json thread CHAT MESSAGE_ID [--replies] [--depth 20]` |
 | Download media | `tg --json media download https://t.me/channel/42 --parallel 4` |
@@ -97,11 +94,6 @@ selected account session, does one operation, and exits.
 | Commit a deletion | `tg --json delete --commit p_9f3a` |
 | Preview a forward | `tg --json forward @source 42 @destination --preview` |
 | Commit a forward | `tg --json forward --commit p_9f3a` |
-| Mark a dialog read | `tg --json mark-read @channel` |
-| Mark a dialog unread | `tg --json mark-unread @channel` |
-| Pin / unpin a dialog | `tg --json dialog pin @channel` / `tg --json dialog unpin @channel` |
-| Archive / unarchive a dialog | `tg --json dialog archive @channel` / `tg --json dialog unarchive @channel` |
-| Mute / unmute a dialog | `tg --json dialog mute @channel --until ISO` / `--forever` / `unmute` |
 | Check local health | `tg --json doctor` |
 | Export messages | `tg --json export messages @channel --output messages.jsonl [--after-id ID] [--append|--resume]` |
 | Export subscribers | `tg --json export subscribers @channel --output subscribers.csv` |
@@ -196,15 +188,6 @@ unless you pass `tg run --write SCRIPT`, which audits every write first; use
 `--write` only when the owner asked for that change. Prefer a wrapped command
 for sends, edits, deletes, and forwards: it shows a preview first.
 
-## `tg api` — last resort
-
-Use `tg api` only when no wrapped command covers the task. Prefer a wrapped
-command whenever one exists. Read calls are default-deny and limited to the
-ADR-0010 allowlist. Writes require `--write`; destructive verbs also require
-an exact typed `--confirm METHOD`. `auth.*` and `account.*` writes are never
-callable, whatever the method name (ADR-0092) — session and account
-lifecycle stays with `tg accounts`. Authorized writes are audited.
-
 ## Safety gates
 
 `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block mutations before
@@ -231,9 +214,7 @@ day. Check the preview's `peers_to_create` before `--commit`. Use
 `--no-comments` when a posts-only clone is enough.
 
 `edit`, `delete`, and `forward` follow the same preview → commit rule as
-`send`. `mark-read`, `mark-unread`, and `dialog pin`/`unpin` are content-free
-direct mutations, but they remain audited and subject to those same safety
-gates. `doctor` is read-only: it reports configured-account session presence,
+`send`. `doctor` is read-only: it reports configured-account session presence,
 lock availability, local state writability, Telegram authorization, and a
 top-level `ok` result.
 

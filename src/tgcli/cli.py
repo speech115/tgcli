@@ -12,7 +12,6 @@ import io
 import logging
 import math
 import os
-import re
 import signal
 import sys
 import threading
@@ -32,7 +31,6 @@ from tgcli import (
 from tgcli.archive import offline as archive_offline
 from tgcli.commands import (
     accounts as accounts_cmd,
-    api as api_cmd,
     clone as clone_cmd,
     doctor as doctor_cmd,
     login as login_cmd,
@@ -44,7 +42,6 @@ from tgcli.formatting import mask_phones_in_text
 from tgcli.parser import build_parser
 
 LOGGER = logging.getLogger(__name__)
-TL_METHOD = re.compile(r"[A-Za-z]\w*(\.\w+)?")
 
 
 def _error_site(err: BaseException) -> str | None:
@@ -128,8 +125,6 @@ def _default_timeout(args) -> float | None:
         return None
     if args.command == "transcribe":
         return 120.0
-    if args.command == "changes" and getattr(args, "changes_wait", None) is not None:
-        return None
     if _long_running_command(args):
         return None
     return 60.0
@@ -310,24 +305,11 @@ def _silence_stdout() -> None:
 
 def _audit_before(args, account) -> None:
     preview_commit.audit_before(args, account)
-    if args.command == "api" and args.write:
-        # audit_details adds what the write touched (ADR-0010/0011): a record
-        # naming only the method cannot answer the one question an audit log
-        # exists for.
-        safety.append_audit(
-            "api", account.alias, api_cmd.audit_details(args.method, args.params)
-        )
-    if args.command in ("mark-read", "mark-unread"):
-        safety.append_audit(args.command, account.alias, {"chat": args.chat})
     if args.command == "transcribe":
         safety.append_audit(
             args.command,
             account.alias,
             {"chat": args.chat, "message_id": args.message_id},
-        )
-    if args.command == "dialog":
-        safety.append_audit(
-            f"dialog-{args.dialog_command}", account.alias, {"chat": args.chat}
         )
 
 
@@ -523,10 +505,7 @@ def main(argv: list[str] | None = None) -> int:
             result_data = data
             # Emitting is part of the invocation: a failure here is journaled,
             # not reported as a success.
-            if args.command == "batch":
-                output.emit_json_lines(data["_batch_results"])
-                exit_code = data["_batch_exit"] or 0
-            elif args.command == "run":
+            if args.command == "run":
                 exit_code = 0  # the script owns stdout and already wrote it
             else:
                 _emit(args, data, rows)
@@ -623,8 +602,6 @@ def main(argv: list[str] | None = None) -> int:
         # requests (review fix m1): offline commands carry neither field.
         slept_ms = int(pacing.total_governed_sleep() * 1000)
         requests = pacing.request_count()
-        method = getattr(args, "method", None) if args.command == "api" else None
-        api_method = method if method and TL_METHOD.fullmatch(method) else None
         invocations.log_invocation(
             command=args.command,
             account=args.account,
@@ -633,7 +610,6 @@ def main(argv: list[str] | None = None) -> int:
             error=error_code,
             error_site=error_site,
             error_type=error_type,
-            api_method=api_method,
             duration_ms=duration_ms,
             governed_sleep_ms=slept_ms if requests else None,
             request_count=requests or None,

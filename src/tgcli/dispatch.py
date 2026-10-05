@@ -9,17 +9,12 @@ from __future__ import annotations
 
 from telethon import errors as telethon_errors
 
-from tgcli import changes_cursor, output, preview_commit, read_ops, session
+from tgcli import output, preview_commit, read_ops, session
 from tgcli.commands import (
-    api as api_cmd,
     archive as archive_cmd,
-    batch as batch_cmd,
-    changes as changes_cmd,
     clone as clone_cmd,
-    dialog as dialog_cmd,
     export as export_cmd,
     media as media_cmd,
-    mutate as mutate_cmd,
     run as run_cmd,
     transcribe as transcribe_cmd,
 )
@@ -45,12 +40,6 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
             if read_operation is not None:
                 result = await read_ops.execute(tg, read_operation)
                 return result.data, result.rows
-            if args.command == "batch":
-                ops = batch_cmd.parse_ops(args.batch_lines)
-                results, first_exit = await batch_cmd.run_batch(
-                    tg, ops, fail_fast=bool(getattr(args, "fail_fast", False))
-                )
-                return {"_batch_results": results, "_batch_exit": first_exit}, []
             if args.command == "media" and args.media_command == "download":
                 return await _download_media(tg, args, account)
             if args.command == "transcribe":
@@ -61,16 +50,6 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
             handshake = await preview_commit.dispatch(tg, args, account)
             if handshake is not None:
                 return handshake
-            if args.command == "mark-read":
-                data = await mutate_cmd.mark_read(tg, args.chat)
-                return data, mutate_cmd.to_rows(data)
-            if args.command == "mark-unread":
-                data = await mutate_cmd.mark_unread(tg, args.chat)
-                return data, mutate_cmd.to_rows(data)
-            if args.command == "dialog":
-                return await _run_dialog(tg, args)
-            if args.command == "api":
-                return await api_cmd.call(tg, args.method, args.params), []
             if args.command == "run":
                 data = await run_cmd.run(
                     tg,
@@ -80,21 +59,6 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
                     write=args.write,
                 )
                 return data, []
-            if args.command == "changes":
-                data = await changes_cmd.run_changes(
-                    tg,
-                    cursor_text=getattr(args, "changes_cursor", None),
-                    binding_key=changes_cursor.account_binding_key(
-                        alias=account.alias,
-                        api_id=account.api_id,
-                        api_hash=account.api_hash,
-                    ),
-                    init=bool(getattr(args, "init", False)),
-                    peers=getattr(args, "changes_peers", None),
-                    drop_peers=getattr(args, "changes_drop_peers", None),
-                    wait=getattr(args, "changes_wait", None),
-                )
-                return data, changes_cmd.to_rows(data)
             if args.command == "archive":
                 return await _run_archive(tg, args, account)
             if args.command == "export":
@@ -230,24 +194,3 @@ async def _download_media(tg, args, account) -> tuple[dict, list[tuple]]:
         progress=progress,
     )
     return data, media_cmd.to_rows(data)
-
-
-async def _run_dialog(tg, args) -> tuple[dict, list[tuple]]:
-    cmd = args.dialog_command
-    if cmd in ("pin", "unpin"):
-        data = await dialog_cmd.set_pinned(tg, args.chat, pinned=cmd == "pin")
-    elif cmd in ("archive", "unarchive"):
-        data = await dialog_cmd.set_archived(tg, args.chat, archived=cmd == "archive")
-    elif cmd == "mute":
-        data = await dialog_cmd.set_muted(
-            tg,
-            args.chat,
-            muted=True,
-            until=getattr(args, "until", None),
-            forever=bool(getattr(args, "forever", False)),
-        )
-    elif cmd == "unmute":
-        data = await dialog_cmd.set_muted(tg, args.chat, muted=False)
-    else:
-        raise AssertionError(f"unhandled dialog command: {cmd}")
-    return data, dialog_cmd.to_rows(data)

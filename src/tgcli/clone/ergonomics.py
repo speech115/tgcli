@@ -6,8 +6,10 @@ from datetime import UTC, datetime
 
 from telethon.tl import functions, types
 
-from tgcli.commands.dialog import MUTE_FOREVER_UNTIL
 from tgcli.output import note
+
+# Telegram's "muted forever" sentinel: the largest signed 32-bit timestamp.
+MUTE_FOREVER_UNTIL = 2**31 - 1
 
 FOLDER_TITLE = "Clone"
 _MAX_FILTERS = 10

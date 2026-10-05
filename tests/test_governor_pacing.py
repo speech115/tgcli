@@ -406,7 +406,6 @@ def test_deadline_defaults_match_the_contract(monkeypatch):
 
     # Short commands: uniform 60 s default.
     assert default_timeout_for(["dialogs"]) == 60.0
-    assert default_timeout_for(["changes"]) == 60.0
     assert default_timeout_for(["send", "@x", "hi", "--preview"]) == 60.0
     # Long-running commands keep no implicit deadline (CONTRACT §1): an
     # implicit 60 s would kill them mid-run.
@@ -421,7 +420,6 @@ def test_deadline_defaults_match_the_contract(monkeypatch):
     assert default_timeout_for(["media", "download", "@c", "1"]) is None
     # CONTRACT §10/§12: phone start uses the ordinary detector; long-poll and
     # interactive continuation own their operator-time boundary.
-    assert default_timeout_for(["changes", "--wait", "300"]) is None
     assert default_timeout_for(["accounts", "login", "main", "--phone", "+1"]) == 60.0
     assert default_timeout_for(["accounts", "login", "main", "--continue", "c"]) is None
     # The exemption list is data, not deadline logic: the detector itself
@@ -478,7 +476,7 @@ def test_journal_carries_governor_fields_on_a_flood_stop(
 
 
 def test_journal_carries_stop_reason_on_a_normal_stop(config_env, monkeypatch, capsys):
-    """L9: breadth and wall-clock stops are distinguishable in the journal."""
+    """L9: a wall-clock stop is journaled as a normal stop with its reason."""
 
     from telethon.tl.types import PeerUser
 

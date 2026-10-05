@@ -236,24 +236,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_resolve.add_argument("ref", help="+phone, @username, t.me link, or dialog id")
 
-    p_mutual = sub.add_parser(
-        "mutual-chats",
-        help="List chats shared with a user",
-        parents=[global_flags],
-    )
-    p_mutual.add_argument("ref", help="@username, t.me link, or user id")
-
-    p_batch = sub.add_parser(
-        "batch",
-        help="Run read-only ops from JSONL stdin (ADR-0032)",
-        parents=[global_flags],
-    )
-    p_batch.add_argument(
-        "--fail-fast",
-        action="store_true",
-        help="stop after the first failed op",
-    )
-
     p_thread = sub.add_parser(
         "thread",
         help="Read a reply chain (ancestors; optional replies)",
@@ -402,61 +384,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_forward.add_argument("--preview", action="store_true")
     p_forward.add_argument("--commit", metavar="PREVIEW_ID")
 
-    p_mark_read = sub.add_parser(
-        "mark-read", help="Mark a dialog as read", parents=[global_flags]
-    )
-    p_mark_read.add_argument("chat")
-
-    p_mark_unread = sub.add_parser(
-        "mark-unread", help="Mark a dialog as unread", parents=[global_flags]
-    )
-    p_mark_unread.add_argument("chat")
-
-    p_dialog = sub.add_parser(
-        "dialog", help="Change inbox dialog state", parents=[global_flags]
-    )
-    dialog_sub = p_dialog.add_subparsers(dest="dialog_command", required=True)
-    p_dialog_pin = dialog_sub.add_parser(
-        "pin", help="Pin a dialog", parents=[global_flags]
-    )
-    p_dialog_pin.add_argument("chat")
-    p_dialog_unpin = dialog_sub.add_parser(
-        "unpin", help="Unpin a dialog", parents=[global_flags]
-    )
-    p_dialog_unpin.add_argument("chat")
-    p_dialog_archive = dialog_sub.add_parser(
-        "archive", help="Archive a dialog", parents=[global_flags]
-    )
-    p_dialog_archive.add_argument("chat")
-    p_dialog_unarchive = dialog_sub.add_parser(
-        "unarchive", help="Unarchive a dialog", parents=[global_flags]
-    )
-    p_dialog_unarchive.add_argument("chat")
-    p_dialog_mute = dialog_sub.add_parser(
-        "mute", help="Mute a dialog", parents=[global_flags]
-    )
-    p_dialog_mute.add_argument("chat")
-    p_dialog_mute.add_argument(
-        "--until", help="unmute at this ISO 8601 timestamp (UTC if naive)"
-    )
-    p_dialog_mute.add_argument(
-        "--forever",
-        action="store_true",
-        help="mute indefinitely (explicit; omit is not forever)",
-    )
-    p_dialog_unmute = dialog_sub.add_parser(
-        "unmute", help="Unmute a dialog", parents=[global_flags]
-    )
-    p_dialog_unmute.add_argument("chat")
-
-    p_api = sub.add_parser(
-        "api", help="Call an allowlisted raw TL method", parents=[global_flags]
-    )
-    p_api.add_argument("method", metavar="METHOD")
-    p_api.add_argument("--params", metavar="JSON")
-    p_api.add_argument("--write", action="store_true")
-    p_api.add_argument("--confirm", metavar="METHOD")
-
     p_run = sub.add_parser(
         "run",
         help="Run a Python script with the authenticated client",
@@ -467,27 +394,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_run.add_argument("script", metavar="SCRIPT", help="script path, or - for stdin")
     p_run.add_argument("script_args", nargs=argparse.REMAINDER, metavar="ARGS")
-
-    p_changes = sub.add_parser(
-        "changes", help="Daemonless change feed (ADR-0063)", parents=[global_flags]
-    )
-    p_changes.add_argument("--init", action="store_true", help="baseline a new cursor")
-    p_changes.add_argument(
-        "--cursor", dest="changes_cursor", metavar="C", help="opaque cursor"
-    )
-    p_changes.add_argument(
-        "--peer", action="append", dest="changes_peers", metavar="P", help="subscribe"
-    )
-    p_changes.add_argument(
-        "--drop-peer",
-        action="append",
-        dest="changes_drop_peers",
-        metavar="P",
-        help="unsubscribe",
-    )
-    p_changes.add_argument(
-        "--wait", type=float, dest="changes_wait", metavar="N", help="long-poll seconds"
-    )
 
     p_transcribe = sub.add_parser(
         "transcribe",

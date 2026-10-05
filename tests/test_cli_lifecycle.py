@@ -50,12 +50,12 @@ class NeverEofStdin:
         return ""
 
 
-def test_batch_stdin_that_never_eofs_hits_the_timeout(config_env, monkeypatch, capsys):
+def test_script_stdin_that_never_eofs_hits_the_timeout(config_env, monkeypatch, capsys):
     make_session_fake(monkeypatch, FakeClient(dialogs=[]))
     monkeypatch.setattr("sys.stdin", NeverEofStdin())
 
     started = time.monotonic()
-    assert main(["batch", "--timeout", "0.3", "--json"]) == 1
+    assert main(["--timeout", "0.3", "--json", "run", "-"]) == 1
     elapsed = time.monotonic() - started
 
     assert elapsed < NeverEofStdin.LIMIT

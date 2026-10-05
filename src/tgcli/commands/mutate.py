@@ -3,7 +3,7 @@
 import secrets
 
 from telethon.errors import MessageNotModifiedError
-from telethon.tl import functions, types
+from telethon.tl import functions
 
 from tgcli import chatref, formatting, safety
 from tgcli.commands.read import sanitize_plain_text
@@ -139,29 +139,7 @@ async def commit_forward(tg, preview_id: str, payload: dict) -> dict:
     return {"preview_id": preview_id, "message_id": message_id}
 
 
-async def mark_read(tg, chat: str) -> dict:
-    entity = await _entity(tg, chat)
-    await tg.send_read_acknowledge(entity)
-    return {"dialog": {"id": entity.id}, "marked_read": True}
-
-
-async def mark_unread(tg, chat: str) -> dict:
-    entity = await _entity(tg, chat)
-    input_peer = await tg.get_input_entity(chatref.parse(chat))
-    await tg(
-        functions.messages.MarkDialogUnreadRequest(
-            peer=types.InputDialogPeer(peer=input_peer),
-            unread=True,
-        )
-    )
-    return {"dialog": {"id": entity.id}, "marked_unread": True}
-
-
 def to_rows(data: dict) -> list[tuple]:
-    if "marked_read" in data:
-        return [(data["dialog"]["id"], "read")]
-    if "marked_unread" in data:
-        return [(data["dialog"]["id"], "unread")]
     if "destination" in data:
         return [
             (

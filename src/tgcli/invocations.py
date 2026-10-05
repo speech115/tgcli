@@ -16,7 +16,6 @@ def log_invocation(
     error: str | None = None,
     error_site: str | None = None,
     error_type: str | None = None,
-    api_method: str | None = None,
     role: str | None = None,
     retry_after: int | None = None,
     request_type: str | None = None,
@@ -30,10 +29,10 @@ def log_invocation(
     ``retry_after``, ``request_type``, ``provenance``, ``stop_reason``,
     ``governed_sleep_ms`` and ``request_count`` come from the governor's
     per-invocation accounting (ADR-0072 decision 4, plan phase 6).
-    ``error_site`` (``module:function``), ``error_type`` (an exception class
-    name) and ``api_method`` (a TL method name) tell failures apart without
-    their text. No message text, no chat
-    refs, no raw API parameters — a request *type* is not a chat reference.
+    ``error_site`` (``module:function``) and ``error_type`` (an exception
+    class name) tell failures apart without their text. No message text, no
+    chat refs, no request parameters — a request *type* is not a chat
+    reference.
     """
     entry = {
         "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -44,7 +43,6 @@ def log_invocation(
         "error": error,
         "error_site": error_site,
         "error_type": error_type,
-        "api_method": api_method,
         "duration_ms": duration_ms,
         "retry_after": retry_after,
         "request_type": request_type,

@@ -1203,7 +1203,7 @@ def test_init_marks_unreadable_discussion_group_unavailable(
 
 
 def test_clone_init_mutes_created_peers_forever(config_env, monkeypatch, capsys):
-    from tgcli.commands.dialog import MUTE_FOREVER_UNTIL
+    from tgcli.clone.ergonomics import MUTE_FOREVER_UNTIL
 
     client = CloneInitClient()
     client.linked = linked_group()
@@ -1296,7 +1296,7 @@ def test_clone_init_flood_during_mute_exits_rate_limited(
 
 
 def test_clone_init_skips_mute_when_already_forever(config_env, monkeypatch, capsys):
-    from tgcli.commands.dialog import MUTE_FOREVER_UNTIL
+    from tgcli.clone.ergonomics import MUTE_FOREVER_UNTIL
 
     client = CloneInitClient()
     client.notify_mute_until = {999: MUTE_FOREVER_UNTIL}

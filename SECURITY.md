@@ -41,7 +41,7 @@ In scope — anything that lets a local process or a crafted server response:
 
 - read or exfiltrate session material, config credentials, or the audit log;
 - bypass the safety gates: `--readonly` / `TGCLI_READONLY`, `TGCLI_NO_SEND`,
-  the preview → commit two-step, the `tg api` write gate and denylist;
+  the preview → commit two-step, the `tg run` write gate and auth/account denial;
 - send, edit, delete, or forward a message that the user never committed;
 - cause a committed preview to be silently replayed or duplicated;
 - write outside `~/.config/tgcli/` and `~/.local/state/tgcli/`, or leave those
