@@ -476,7 +476,7 @@ def test_journal_carries_governor_fields_on_a_flood_stop(
 
 
 def test_journal_carries_stop_reason_on_a_normal_stop(config_env, monkeypatch, capsys):
-    """L9: breadth and wall-clock stops are distinguishable in the journal."""
+    """L9: a wall-clock stop is journaled as a normal stop with its reason."""
 
     from telethon.tl.types import PeerUser
 
