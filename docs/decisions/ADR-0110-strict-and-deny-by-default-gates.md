@@ -1,7 +1,7 @@
 # ADR-0110: Strict and deny-by-default repository gates
 
 Date: 2026-08-13
-Status: accepted
+Status: accepted; decision 1 (`--strict` in mandatory gates) superseded by ADR-0120, which removes the grace band
 Amends: [ADR-0043](ADR-0043-process-hardening.md) decision 1 and
 [ADR-0058](ADR-0058-process-speed-revisions.md) decision 3.
 

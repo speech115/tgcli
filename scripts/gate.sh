@@ -12,7 +12,7 @@ run() {
 run uv lock --check
 run uv run ruff check .
 run uv run ruff format --check .
-run uv run python scripts/check-architecture.py --strict
+run uv run python scripts/check-architecture.py
 run uv run pyright
 run uv run pytest -q -n auto
 run uv run python scripts/check-coverage.py
