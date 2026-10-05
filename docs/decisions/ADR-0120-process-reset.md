@@ -5,8 +5,9 @@ Status: accepted
 Supersedes: ADR-0007 (MAP and DEVLOG duties), ADR-0058 decisions 1–2
 (integrator releases, per-session devlog), ADR-0065 (MAP inventory and devlog
 routing checks), ADR-0038 rule 3 (a release per contract change), ADR-0073
-(change lanes), ADR-0074 rule 1 (complexity reset); amends ADR-0071 (an ADR
-only for decisions that are hard to reverse)
+(change lanes), ADR-0074 rule 1 (complexity reset), ADR-0026 rules 2–3 and
+ADR-0071 decision 2 (ISSUES and CLONE routing), ADR-0065's status-closure
+duty; amends ADR-0071 (an ADR only for decisions that are hard to reverse)
 
 ## Context
 

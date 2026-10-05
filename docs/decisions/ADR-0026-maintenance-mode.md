@@ -4,7 +4,8 @@ Date: 2026-07-17
 Status: accepted; rule 1 superseded by
 [ADR-0071](ADR-0071-owner-gated-development.md) (the posture keeps the same
 mechanics under the name *owner-gated development*; the "feature-complete,
-do not add features" framing is retired). Rules 2–4 remain in force.
+do not add features" framing is retired). Rules 2–3 (ISSUES routing, CLONE.md) superseded by
+[ADR-0120](ADR-0120-process-reset.md). Rule 4 remains in force.
 
 ## Context
 

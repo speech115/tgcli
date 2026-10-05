@@ -1,7 +1,7 @@
 # ADR-0065: Active documentation drift gates
 
 Date: 2026-07-29
-Status: accepted; MAP inventory and devlog routing checks superseded by ADR-0120
+Status: accepted; MAP inventory and devlog routing checks, and the status-closure duty, superseded by ADR-0120
 
 ## Context
 

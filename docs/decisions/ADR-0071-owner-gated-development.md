@@ -1,7 +1,7 @@
 # ADR-0071: Owner-gated development replaces the "maintenance mode" label
 
 Date: 2026-07-31
-Status: accepted; ADR requirement amended by ADR-0120 (only for decisions that are hard to reverse)
+Status: accepted; ADR requirement amended by ADR-0120 (only for decisions that are hard to reverse); decision 2 superseded by ADR-0120
 Supersedes: [ADR-0026](ADR-0026-maintenance-mode.md) rule 1 only
 (rules 2–4 — document routing, the clone chronicle, and the ADR index —
 stay in force).
