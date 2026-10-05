@@ -457,6 +457,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_api.add_argument("--write", action="store_true")
     p_api.add_argument("--confirm", metavar="METHOD")
 
+    p_run = sub.add_parser(
+        "run",
+        help="Run a Python script with the authenticated client",
+        parents=[global_flags],
+    )
+    p_run.add_argument(
+        "--write", action="store_true", help="allow requests that change Telegram"
+    )
+    p_run.add_argument("script", metavar="SCRIPT", help="script path, or - for stdin")
+    p_run.add_argument("script_args", nargs=argparse.REMAINDER, metavar="ARGS")
+
     p_changes = sub.add_parser(
         "changes", help="Daemonless change feed (ADR-0063)", parents=[global_flags]
     )

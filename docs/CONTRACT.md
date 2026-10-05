@@ -923,6 +923,43 @@ tg api <Namespace.method> --params '<json>' [--write] [--confirm <method>]
   stability rules do not apply inside `result`. Everything outside `result`
   follows §3 as usual.
 
+## 6.1 Scripts (`tg run`)
+
+```
+tg [GLOBAL FLAGS] run [--write] SCRIPT|- [ARGS ...]
+```
+
+Runs a Python script (a path, or `-` for stdin) with top-level `await`. The
+script gets `client` (the same governed Telethon client every command uses,
+so pacing, flood cooldowns, and the busy-session wait apply), `functions` and
+`types` (Telethon TL), `account` (the resolved alias), and `msg(message)`,
+which returns the `tg read` message object. `sys.argv[1:]` is `ARGS`.
+
+The script owns stdout: tgcli writes nothing there, and `--json` / `--plain`
+do not apply to its output. Errors still follow §2–§4.
+
+**Read-only unless `--write`.** Every request the client sends is checked
+before it leaves. A method whose name starts with `get`, `search`, `check`, or
+`resolve` is a read, except `contacts.getLocated`,
+`messages.getBotCallbackAnswer`, and `messages.getMessagesViews`, which have
+side effects. `auth.exportAuthorization` (Telethon's cross-datacentre media
+download) is allowed. Any other request is a write. Invoke wrappers are
+unwrapped first.
+
+- Without `--write`, a write is refused with exit 2 and never sent.
+- With `--write`, each write appends `{"action": "run-write", "method": …}` to
+  the audit log before it is sent; an unwritable audit refuses it (exit 2).
+  `auth.*` and `account.*` writes are refused even with `--write`.
+- `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` refuse `--write`
+  with exit 2 before any session work.
+- A script that is empty, unreadable, or does not compile exits 3 before any
+  session work.
+
+A script exception prints its traceback to stderr and exits 1; a Telethon
+FloodWait exits 5 as in §4. `sys.exit(0)` ends a script normally; any other
+status exits 1. The default `--timeout` (60 s, a hang detector) applies; pass
+a larger one for long scripts.
+
 ## 7. Export (phase 5)
 
 ```
