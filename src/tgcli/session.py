@@ -4,6 +4,7 @@ import fcntl
 import os
 import platform
 import sqlite3
+import time
 from collections.abc import Iterator
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
@@ -143,29 +144,59 @@ def lock_held(session_file: Path) -> bool | None:
     return lock_file_held(session_file.with_suffix(".lock"))
 
 
+# How long a command waits for a session another tg process holds. Agents run
+# in parallel; failing at once only made them retry (618 exit 3s in 30 days).
+BUSY_WAIT_SECONDS = 120.0
+_BUSY_POLL_SECONDS = 0.1
+
+
 @contextmanager
 def session_file_lock(
     session_file: Path,
     *,
     label: str | None = None,
     busy_error: type[BaseException] = ConfigError,
+    wait: float = 0.0,
 ) -> Iterator[IO[str]]:
     """Acquire the ``.lock`` beside ``session_file`` (ADR-0099).
 
-    Non-blocking ``LOCK_EX``. On contention raises ``busy_error`` (default
-    ``ConfigError``; mutation paths pass ``PolicyError``) with the standard
-    busy remediation. Callers must not open the flock themselves.
+    ``LOCK_EX``, polling up to ``wait`` seconds while another process holds
+    it. The wait is governed sleep, so the `--timeout` hang detector does not
+    count it, and it never outlasts `--max-runtime`. Past it, raises
+    ``busy_error`` (default ``ConfigError``; mutation paths pass
+    ``PolicyError``). Callers must not open the flock themselves.
     """
+    from tgcli.governor import pacing
+    from tgcli.output import note
+
     name = label if label is not None else session_file.stem
+    remaining_runtime = pacing.wall_clock_remaining()
+    if remaining_runtime is not None:
+        wait = min(wait, max(remaining_runtime, 0.0))
+    deadline = time.monotonic() + wait
+    announced = False
     handle = session_file.with_suffix(".lock").open("w")
     try:
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise busy_error(
-                f"session {name!r} is busy (another tg process is using it); "
-                "retry in a few seconds"
-            ) from exc
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError as exc:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    remedy = (
+                        f"still busy after {wait:g}s"
+                        if wait
+                        else "retry in a few seconds"
+                    )
+                    raise busy_error(
+                        f"session {name!r} is busy (another tg process is using "
+                        f"it); {remedy}"
+                    ) from exc
+            if not announced:
+                note(f"session {name!r} is busy; waiting up to {wait:g}s")
+                announced = True
+            pacing.sleep_governed(min(_BUSY_POLL_SECONDS, left))
         yield handle
     finally:
         try:
@@ -260,7 +291,7 @@ async def client(
             f"run: tg accounts login {account.alias} --role {role} --phone PHONE"
         )
     ensure_state_dir("sessions")
-    with session_file_lock(path, label=label):
+    with session_file_lock(path, label=label, wait=BUSY_WAIT_SECONDS):
         tg = _make_client(path, account, mutation_safe=mutation_safe)
         # Telethon creates the SQLite session during client construction; tighten it
         # before any network use.

@@ -102,6 +102,7 @@ async def test_client_role_unauthorized_file_is_config_error(state, monkeypatch)
 
 
 async def test_client_role_busy_names_alias_at_role(state, monkeypatch):
+    monkeypatch.setattr(session, "BUSY_WAIT_SECONDS", 0.0)
     path = session.session_path(ACCOUNT, role="job")
     path.parent.mkdir(parents=True)
     path.write_bytes(b"x")
@@ -131,6 +132,7 @@ async def test_client_primary_path_byte_identical_when_role_none(state, monkeypa
 
 
 async def test_client_primary_still_busy_with_classic_message(state, monkeypatch):
+    monkeypatch.setattr(session, "BUSY_WAIT_SECONDS", 0.0)
     path = session.session_path(ACCOUNT)
     path.parent.mkdir(parents=True)
     path.write_bytes(b"x")
