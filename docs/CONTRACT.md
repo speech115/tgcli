@@ -1870,8 +1870,8 @@ tg archive transcribe [--limit N] [--max-attempts N]
 tg archive rebaseline
 ```
 
-To keep the archive current, run `archive sync` (on a `--session-role`, with
-`--max-runtime`) and `archive transcribe` from launchd or cron. Each run is
+To keep the archive current, run `archive sync` (on a `--session-role`) and
+`archive transcribe` from launchd or cron, both with `--max-runtime`. Each run is
 bounded and the next run continues where it stopped; during a flood cooldown
 the governor refuses locally with exit 5 and no request.
 
@@ -2012,7 +2012,11 @@ arms the governor's per-type cooldown (ADR-0072), and exits **5**.
 `tg archive transcribe` is foreground-only and offline. It drains the
 newest ready media rows first through the local `transcribe` CLI
 (FluidAudio/Parakeet), with `--limit` default **20** and hard cap **100**.
-`--max-attempts` defaults to **3** and hard cap **5**. Successful rows store
+`--max-attempts` defaults to **3** and hard cap **5**. `--max-runtime` is
+checked between rows: exhausting it stops the run (exit 0) with
+`stop_reason: "wall_clock_cap"` and `remaining: true`. One run per account at
+a time: a second concurrent `archive transcribe` exits **3** without
+transcribing anything. Successful rows store
 transcript text, engine, and model version in `transcripts` and refresh the
 FTS row. Retryable engine failures remain queued until the attempt cap;
 terminal or exhausted failures become `no_transcript` with the last error,

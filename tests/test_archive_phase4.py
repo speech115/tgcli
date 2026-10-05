@@ -573,6 +573,50 @@ def test_transcribe_retryable_failure_becomes_terminal_at_cap(tmp_path, monkeypa
         conn.close()
 
 
+def test_transcribe_stops_between_rows_at_the_wall_clock_cap(tmp_path, monkeypatch):
+    conn = _connection(tmp_path)
+    media_dir = tmp_path / "account" / "media" / "7"
+    media_dir.mkdir(parents=True)
+    try:
+        for message_id in (1, 2):
+            (media_dir / f"{message_id}.ogg").write_bytes(b"voice")
+            store.upsert_message(conn, 7, _payload(message_id, "caption"))
+            media_module.set_media_path(
+                conn,
+                7,
+                message_id,
+                path=f"media/7/{message_id}.ogg",
+                media_kind="voice",
+            )
+        conn.commit()
+        monkeypatch.setattr(
+            transcribe_module.shutil, "which", lambda _: "/bin/transcribe"
+        )
+        runs = []
+
+        def fake_run(argv, **_kwargs):
+            runs.append(argv)
+            output_dir = Path(argv[argv.index("--out") + 1])
+            (output_dir / "manifest.json").write_text('{"engine": "parakeet-v3"}')
+            (output_dir / "transcript.json").write_text('{"turns": [{"text": "t"}]}')
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(transcribe_module.subprocess, "run", fake_run)
+        result = transcribe_module.run_queue(
+            conn,
+            tmp_path / "account",
+            limit=20,
+            max_attempts=3,
+            should_stop=lambda: len(runs) >= 1,
+        )
+        assert len(runs) == 1
+        assert result["transcribed"] == 1
+        assert result["remaining"] is True
+        assert result["stop_reason"] == "wall_clock_cap"
+    finally:
+        conn.close()
+
+
 def test_transcribe_missing_media_returns_item_to_media_queue(tmp_path, monkeypatch):
     conn = _connection(tmp_path)
     account_dir = tmp_path / "account"

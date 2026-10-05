@@ -45,7 +45,7 @@ selected account session, does one operation, and exits.
 | Backfill standing private dialogs | `tg --json archive backfill --private [--max-dialogs N] [--limit N]` |
 | Sync archive from changes cursor | `tg --json archive sync [--max-events N] [--max-dialogs N] [--max-media N]` (applies full difference; caps catch-up RPCs and media downloads) |
 | Transcribe archived voice/video notes | `tg --json archive transcribe [--limit N] [--max-attempts N]` (offline local FluidAudio/Parakeet queue) |
-| Keep the archive current on a schedule | launchd or cron: `tg --session-role job --max-runtime 3000 --json archive sync` and `tg --json archive transcribe` |
+| Keep the archive current on a schedule | launchd or cron: `tg --session-role job --max-runtime 3000 --json archive sync` and `tg --max-runtime 3000 --json archive transcribe` |
 | Rebaseline archive changes cursor | `tg --json archive rebaseline` |
 | Offline archive status | `tg --json archive status` |
 | Offline archive search | `tg --json archive search QUERY [--chat CHAT] [--from SENDER] [--since ISO] [--until ISO] [--kind KIND] [--transcripts-only] [--sort {relevance,date}] [--limit N] [--page N]` |
