@@ -2,7 +2,7 @@
 
 Date: 2026-08-10
 Status: accepted (2026-08-10; owner grilling for #146); timer rearm of failed, cancelled, and stale running generations amended 2026-10-05 (see CONTRACT `jobs run --rearm`)
-Supersedes: [ADR-0070](ADR-0070-archive-refresh-scheduling.md) entirely.
+Supersedes: ADR-0070 entirely.
 Amends: [ADR-0068](ADR-0068-local-archive-store.md) by replacing `tg archive
 refresh` with independently scheduled archive sync and transcription jobs.
 ADR-0002's no-daemon rule, ADR-0062's explicit session roles, and ADR-0072's

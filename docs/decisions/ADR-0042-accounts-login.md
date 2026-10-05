@@ -7,7 +7,7 @@ sidecar governed by ADR-0093)
 ## Context
 
 Owner request (2026-07-24), closing the last deferred item of
-[ISSUES.md](../ISSUES.md) ACCOUNTS-001. Per [ADR-0026](ADR-0026-maintenance-mode.md)
+[ISSUES.md](../ISSUES.md) ACCOUNTS-001. Per ADR-0026
 a feature needs an owner request plus an ADR; ACCOUNTS-001 was pre-approved as
 maintenance-mode work, and this ADR is that gate.
 

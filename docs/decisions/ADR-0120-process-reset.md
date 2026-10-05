@@ -55,6 +55,11 @@ check or goes.
 10. `scripts/check-architecture.py` drops the +50 grace band and `--strict`:
     with no integrator, a ceiling is a hard limit on every run, and the PR
     that grows a file past it raises the number.
+11. ADRs are dated history, not law kept current: their statuses are no
+    longer maintained, and `docs/CONTRACT.md`, `AGENTS.md`, and the gate say
+    what holds. An ADR whose decisions all lapsed or now live in the ADR
+    index or `AGENTS.md` is deleted:
+    0006, 0007, 0013, 0014, 0026, 0033, 0058, 0070, 0073.
 
 ## Rejected alternatives
 

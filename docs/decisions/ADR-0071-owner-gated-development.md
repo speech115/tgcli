@@ -2,13 +2,13 @@
 
 Date: 2026-07-31
 Status: accepted; ADR requirement amended by ADR-0120 (only for decisions that are hard to reverse); decision 2 superseded by ADR-0120
-Supersedes: [ADR-0026](ADR-0026-maintenance-mode.md) rule 1 only
+Supersedes: ADR-0026 rule 1 only
 (rules 2–4 — document routing, the clone chronicle, and the ADR index —
 stay in force).
 
 ## Context
 
-[ADR-0026](ADR-0026-maintenance-mode.md) declared the project
+ADR-0026 declared the project
 feature-complete and in "maintenance mode" on 2026-07-17, the day the clone
 feature passed its live gates at v1.0.0. Its rule 1 reads "do not add
 features"; two weeks later the repository is at v1.2.25 with ADRs up to
@@ -18,7 +18,7 @@ features"; two weeks later the repository is at v1.2.25 with ADRs up to
 [ADR-0063](ADR-0063-tg-changes-design.md), landed in the same campaign as
 the clone-state rewrite [ADR-0060](ADR-0060-clone-state-sqlite-proposal.md)),
 and the local archive
-([ADR-0068](ADR-0068-local-archive-store.md)–[ADR-0070](ADR-0070-archive-refresh-scheduling.md)).
+([ADR-0068](ADR-0068-local-archive-store.md)–ADR-0070).
 
 What actually held was never the freeze — it was the gate: nothing reached
 code without an explicit owner request plus an ADR plus a scoped plan, and
