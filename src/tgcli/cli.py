@@ -12,6 +12,7 @@ import io
 import logging
 import math
 import os
+import re
 import signal
 import sys
 import threading
@@ -45,6 +46,20 @@ from tgcli.jobs import preflight as jobs_preflight, store as jobs_store
 from tgcli.parser import build_parser
 
 LOGGER = logging.getLogger(__name__)
+TL_METHOD = re.compile(r"[A-Za-z]\w*(\.\w+)?")
+
+
+def _error_site(err: BaseException) -> str | None:
+    """`module:function` of the innermost tgcli frame that raised `err`."""
+    site = None
+    frame = err.__traceback__
+    while frame is not None:
+        module = frame.tb_frame.f_globals.get("__name__", "")
+        if module.startswith("tgcli."):
+            site = f"{module.removeprefix('tgcli.')}:{frame.tb_frame.f_code.co_name}"
+        frame = frame.tb_next
+    return site
+
 
 __all__ = ["build_parser", "main", "entrypoint"]
 
@@ -515,6 +530,7 @@ def main(argv: list[str] | None = None) -> int:
     started = time.monotonic()
     exit_code = 1
     error_code = None
+    error_site = error_type = None
     result_data: dict | None = None
     try:
         with _honest_termination():
@@ -573,6 +589,7 @@ def main(argv: list[str] | None = None) -> int:
         raise
     except TgcliError as err:
         error_code = err.code
+        error_site = _error_site(err)
         exit_code = err.exit_code
         with _tolerate_hangup():
             output.emit_error(err, as_json=args.json)
@@ -580,6 +597,7 @@ def main(argv: list[str] | None = None) -> int:
         # Untranslated failure (network, RPC, bug): still one envelope, and a
         # traceback only when the caller asked for diagnostics.
         error_code = "RUNTIME"
+        error_site, error_type = _error_site(err), type(err).__name__
         exit_code = 1
         if args.verbose:
             sys.stderr.write(mask_phones_in_text(traceback.format_exc()))
@@ -634,12 +652,17 @@ def main(argv: list[str] | None = None) -> int:
                 "failed": result_data["failed"],
                 "cancelled": result_data["cancelled"],
             }
+        method = getattr(args, "method", None) if args.command == "api" else None
+        api_method = method if method and TL_METHOD.fullmatch(method) else None
         invocations.log_invocation(
             command=args.command,
             account=args.account,
             role=getattr(args, "session_role", None),
             exit_code=exit_code,
             error=error_code,
+            error_site=error_site,
+            error_type=error_type,
+            api_method=api_method,
             duration_ms=duration_ms,
             governed_sleep_ms=slept_ms if requests else None,
             request_count=requests or None,
