@@ -1,5 +1,6 @@
 """The docs gate: active docs must match the real CLI."""
 
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -200,3 +201,22 @@ def test_active_contract_and_adr_index_match_the_jobs_cutover():
     assert "hourly one-shot refresh" not in index
     assert "refresh scheduling amended by ADR-0087" in index
     assert "Status: superseded by ADR-0087" in refresh
+
+
+def test_a_guide_page_naming_a_fake_flag_command_or_link_fails(
+    tmp_path, monkeypatch, capsys
+):
+    spec = importlib.util.spec_from_file_location("check_docs", SCRIPT)
+    check_docs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(check_docs)
+    (tmp_path / "clone.md").write_text(
+        "Run `tg clone sync --no-such-flag`, then `tg no-such-command`.\n"
+        "See [the old page](missing.md).\n"
+    )
+    monkeypatch.setattr(check_docs, "GUIDE", tmp_path)
+
+    assert check_docs.main([]) == 1
+    out = capsys.readouterr().out
+    assert "clone.md: unknown flag --no-such-flag" in out
+    assert "clone.md: unknown command 'tg no-such-command'" in out
+    assert "clone.md: dead link -> missing.md" in out
