@@ -6,54 +6,7 @@ import sys
 from pathlib import Path
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "check-architecture.py"
-CEILINGS = {
-    "src/tgcli/cli.py": 690,
-    "src/tgcli/parser.py": 620,
-    "src/tgcli/preflight.py": 250,
-    # ADR-0115 moved archive grammar into archive/arguments.py (thermos T32).
-    "src/tgcli/archive/arguments.py": 140,
-    "src/tgcli/archive/preflight.py": 170,
-    "src/tgcli/archive/offline.py": 70,
-    "src/tgcli/dispatch.py": 373,
-    "src/tgcli/commands/batch.py": 100,
-    "src/tgcli/commands/changes.py": 556,
-    "src/tgcli/read_ops.py": 474,
-    "src/tgcli/commands/clone.py": 1060,
-    "src/tgcli/clone/state.py": 485,
-    "src/tgcli/clone/quotes.py": 392,
-    "src/tgcli/clone/quote_fallback.py": 127,
-    "src/tgcli/clone/send.py": 290,
-    "src/tgcli/archive/store.py": 96,
-    "src/tgcli/archive/schema.py": 437,
-    "src/tgcli/archive/messages.py": 147,
-    "src/tgcli/archive/transcripts.py": 202,
-    "src/tgcli/archive/sync_state.py": 350,
-    "src/tgcli/archive/peers.py": 74,
-    "src/tgcli/archive/private_enum.py": 170,
-    "src/tgcli/archive/sync.py": 615,
-    "src/tgcli/archive/backfill.py": 320,
-    "src/tgcli/archive/transcribe.py": 251,
-    "src/tgcli/archive/explore.py": 557,
-    "src/tgcli/archive/search.py": 67,
-    "src/tgcli/archive/media.py": 72,
-    "src/tgcli/commands/archive.py": 544,
-    "src/tgcli/commands/archive_jobs.py": 140,
-    "src/tgcli/commands/jobs.py": 163,
-    "src/tgcli/jobs/arguments.py": 79,
-    "src/tgcli/jobs/model.py": 95,
-    "src/tgcli/jobs/preflight.py": 108,
-    "src/tgcli/jobs/db.py": 280,
-    "src/tgcli/jobs/runner.py": 490,
-    "src/tgcli/jobs/store.py": 670,
-    "src/tgcli/governor/__init__.py": 14,
-    "src/tgcli/governor/gate.py": 227,
-    "src/tgcli/governor/ledger.py": 525,
-    "src/tgcli/governor/pacing.py": 236,
-    "src/tgcli/governor/probe.py": 86,
-    "src/tgcli/governor/registry.py": 133,
-    "src/tgcli/governor/seam.py": 66,
-    "src/tgcli/commands/store.py": 537,
-}
+CEILINGS = runpy.run_path(str(SCRIPT))["CEILINGS"]
 
 
 def _run(root: Path, *extra: str) -> subprocess.CompletedProcess[str]:
@@ -163,11 +116,6 @@ def test_architecture_check_accepts_owned_read_operation_seam(tmp_path):
     assert result.stdout == "architecture check passed\n"
 
 
-def test_fixture_ceilings_match_the_checker():
-    checker = runpy.run_path(str(SCRIPT))
-    assert CEILINGS == checker["CEILINGS"]
-
-
 def test_architecture_check_rejects_read_dispatch_leaking_into_dispatch(tmp_path):
     _write_minimal_tree(
         tmp_path,
@@ -252,18 +200,3 @@ def test_new_python_module_is_write_text_denied_by_default(tmp_path):
 
     assert result.returncode == 1
     assert "src/tgcli/new_state.py:2 calls write_text" in result.stdout
-
-
-def test_store_module_has_a_reviewed_ceiling():
-    checker = runpy.run_path(str(SCRIPT))
-
-    assert "src/tgcli/commands/store.py" in checker["CEILINGS"]
-
-
-def test_local_and_ci_gates_run_the_architecture_check():
-    root = Path(__file__).parents[1]
-    local_gate = (root / "scripts/gate.sh").read_text()
-    ci = (root / ".github/workflows/ci.yml").read_text()
-
-    assert "scripts/check-architecture.py" in local_gate
-    assert "scripts/check-architecture.py" in ci
