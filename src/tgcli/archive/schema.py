@@ -14,7 +14,7 @@ SCHEMA_VERSION = 8
 DB_NAME = "archive.db"
 TRANSCRIBABLE_MEDIA_KINDS = ("voice", "video_note")
 NO_TRANSCRIPT_MARKER = "no_transcript no transcript"
-# Explicitly pin archive contention behavior alongside jobs/governor
+# Explicitly pin archive contention behavior alongside the governor
 # (ADR-0096); do not inherit the driver's timeout default.
 BUSY_TIMEOUT_MS = 5_000
 

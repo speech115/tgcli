@@ -18,7 +18,6 @@ from tgcli import preview_commit, read_ops, safety
 from tgcli.archive import preflight as archive_preflight
 from tgcli.commands import api as api_cmd, batch as batch_cmd, dialog as dialog_cmd
 from tgcli.errors import ConfigError, PolicyError
-from tgcli.jobs import preflight as jobs_preflight
 
 
 def prepare(parser: argparse.ArgumentParser, args) -> None:
@@ -32,7 +31,6 @@ def prepare(parser: argparse.ArgumentParser, args) -> None:
     _prepare_api(parser, args)
     _prepare_changes(args)
     archive_preflight.prepare(args)
-    jobs_preflight.prepare(args)
 
 
 def _prepare_max_runtime(args) -> None:

@@ -35,14 +35,12 @@ from tgcli.commands import (
     api as api_cmd,
     clone as clone_cmd,
     doctor as doctor_cmd,
-    jobs as jobs_cmd,
     login as login_cmd,
     store as store_cmd,
 )
 from tgcli.config import load_config, resolve_account
 from tgcli.errors import CommandTimeoutError, PartialFailure, TgcliError
 from tgcli.formatting import mask_phones_in_text
-from tgcli.jobs import preflight as jobs_preflight, store as jobs_store
 from tgcli.parser import build_parser
 
 LOGGER = logging.getLogger(__name__)
@@ -146,7 +144,10 @@ def _long_running_command(args) -> bool:
             args.command == "clone"
             and args.clone_command in ("init", "sync", "refresh")
         )
-        or (args.command == "jobs" and args.jobs_command == "run")
+        or (
+            args.command == "archive"
+            and args.archive_command in ("backfill", "sync", "transcribe")
+        )
     )
 
 
@@ -374,24 +375,6 @@ def _execute(args) -> tuple[dict, list[tuple]]:
         return data, store_cmd.cleanup_rows(data)
 
     config = load_config()
-    if args.command == "jobs":
-        if args.jobs_command == "run":
-            alias = jobs_cmd.resolve_alias(args.account, config)
-            args.account = alias
-            rearm = getattr(args, "rearm", None)
-            if rearm is not None:
-                current = jobs_cmd.show(alias, rearm)["job"]
-                jobs_preflight.prepare_resolved_run(args, current["lane"])
-            with jobs_store.lane_lock(alias, args.lane):
-                if rearm is not None:
-                    jobs_cmd.rearm(alias, rearm, expected_lane=args.lane)
-                offline = jobs_cmd.execute_offline(args, config)
-                if offline is not None:
-                    return offline
-                return _execute_network(args, config)
-        offline = jobs_cmd.execute_offline(args, config)
-        if offline is not None:
-            return offline
     offline = archive_offline.execute(args, config)
     if offline is not None:
         return offline
@@ -638,20 +621,6 @@ def main(argv: list[str] | None = None) -> int:
         # requests (review fix m1): offline commands carry neither field.
         slept_ms = int(pacing.total_governed_sleep() * 1000)
         requests = pacing.request_count()
-        jobs_fields = {}
-        if (
-            args.command == "jobs"
-            and args.jobs_command == "run"
-            and isinstance(result_data, dict)
-        ):
-            jobs_fields = {
-                "lane": result_data["lane"],
-                "selected": result_data["selected"],
-                "completed": result_data["completed"],
-                "deferred": result_data["queued"],
-                "failed": result_data["failed"],
-                "cancelled": result_data["cancelled"],
-            }
         method = getattr(args, "method", None) if args.command == "api" else None
         api_method = method if method and TL_METHOD.fullmatch(method) else None
         invocations.log_invocation(
@@ -667,7 +636,6 @@ def main(argv: list[str] | None = None) -> int:
             governed_sleep_ms=slept_ms if requests else None,
             request_count=requests or None,
             **stop_fields,
-            **jobs_fields,
         )
         _restore_diagnostics(verbose_diagnostics)
     return exit_code

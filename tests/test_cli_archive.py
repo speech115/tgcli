@@ -145,6 +145,22 @@ def test_transcribe_is_offline_and_empty_queue_is_a_noop(
     assert data["transcribed"] == 0
 
 
+def test_transcribe_refuses_while_another_run_holds_the_account(
+    config_env, monkeypatch, capsys
+):
+    import fcntl
+
+    make_session_fake(monkeypatch, _client())
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    lock = archive_cmd.account_dir("main") / "transcribe.lock"
+    with lock.open("w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert main(["archive", "transcribe", "--json"]) == 3
+    assert "already running" in json.loads(capsys.readouterr().out)["error"]["message"]
+    assert main(["archive", "transcribe", "--json"]) == 0
+
+
 def test_init_creates_store_and_binds_account(config_env, monkeypatch, capsys):
     client = _client()
     make_session_fake(monkeypatch, client)

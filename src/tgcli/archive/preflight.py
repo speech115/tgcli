@@ -23,7 +23,7 @@ def uses_time_bounds(args) -> bool:
 
 
 def backfill_spec(*, chats, private: bool, limit) -> dict:
-    """Normalized archive-backfill payload shared by CLI and jobs."""
+    """Normalized archive-backfill arguments."""
     chat_list = list(chats)
     backfill_mod.validate_private_mode(private=private, chats=chat_list)
     if not private:
@@ -42,7 +42,7 @@ def backfill_spec(*, chats, private: bool, limit) -> dict:
 
 
 def sync_spec(*, max_events, max_dialogs, max_media) -> dict:
-    """Normalized archive-sync payload shared by CLI and jobs."""
+    """Normalized archive-sync arguments."""
     return {
         "max_dialogs": sync_mod.validate_max_dialogs(
             max_dialogs,

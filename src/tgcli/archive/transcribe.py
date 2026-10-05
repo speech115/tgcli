@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from tgcli.archive import media as media_mod, store as store_mod
-from tgcli.errors import PolicyError
+from tgcli.errors import ConfigError, PolicyError
 
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
@@ -160,14 +163,32 @@ def _base_result(limit: int, max_attempts: int) -> dict[str, Any]:
     }
 
 
+@contextmanager
+def queue_lock(account_dir: Path) -> Iterator[None]:
+    """One drain per account at a time: two would transcribe the same rows."""
+    with (account_dir / "transcribe.lock").open("w") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ConfigError(
+                "archive transcribe is already running for this account; "
+                "retry when it finishes"
+            ) from None
+        yield
+
+
 def run_queue(
     conn,
     account_dir: Path,
     *,
     limit: int,
     max_attempts: int,
+    should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
-    """Drain the newest ready queue rows through the local Parakeet CLI."""
+    """Drain the newest ready queue rows through the local Parakeet CLI.
+
+    ``should_stop`` is the `--max-runtime` cap, checked between rows.
+    """
     result = _base_result(limit, max_attempts)
     rows = store_mod.list_transcript_queue(conn, limit=limit, max_attempts=max_attempts)
     result["queued"] = len(rows)
@@ -175,6 +196,9 @@ def run_queue(
         return result
     command = _engine_path()
     for row in rows:
+        if should_stop is not None and should_stop():
+            result["stop_reason"] = "wall_clock_cap"
+            break
         peer_id = int(row["peer_id"])
         message_id = int(row["message_id"])
         try:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from tgcli.commands import archive as archive_cmd
 from tgcli.config import Config
+from tgcli.governor import pacing
 
 _OFFLINE_COMMANDS = frozenset(
     {"list", "status", "search", "read", "history", "transcribe"}
@@ -30,6 +31,7 @@ def execute(args, config: Config) -> tuple[dict, list[tuple]] | None:
             limit=getattr(args, "limit", None),
             max_attempts=getattr(args, "max_attempts", None),
             config=config,
+            should_stop=pacing.wall_clock_exhausted,
         )
         return data, archive_cmd.transcribe_rows(data)
     if cmd == "read":

@@ -379,18 +379,21 @@ def transcribe(
     limit: int | None = None,
     max_attempts: int | None = None,
     config: Config | None = None,
+    should_stop=None,
 ) -> dict:
     limit = transcribe_mod.validate_limit(limit)
     max_attempts = transcribe_mod.validate_max_attempts(max_attempts)
     conn = _open_existing(alias, config)
     try:
         store_mod.require_bound_alias(conn, alias)
-        data = transcribe_mod.run_queue(
-            conn,
-            account_dir(alias, config),
-            limit=limit,
-            max_attempts=max_attempts,
-        )
+        with transcribe_mod.queue_lock(account_dir(alias, config)):
+            data = transcribe_mod.run_queue(
+                conn,
+                account_dir(alias, config),
+                limit=limit,
+                max_attempts=max_attempts,
+                should_stop=should_stop,
+            )
     finally:
         conn.close()
     data["account"] = {"alias": alias}

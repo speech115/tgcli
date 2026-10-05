@@ -54,24 +54,3 @@ def _ask_osascript(title: str, prompt: str, *, hidden: bool) -> str:
         value = text.split(marker, 1)[1]
         return value.rstrip("\r\n")
     return text.rstrip("\r\n")
-
-
-def notify(title: str, message: str) -> bool:
-    """Show one best-effort macOS notification; return whether it was sent."""
-    if not dialog_available():
-        return False
-
-    def esc(value: str) -> str:
-        return value.replace("\\", "\\\\").replace('"', '\\"')
-
-    script = f'display notification "{esc(message)}" with title "{esc(title)}"'
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", script],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    except OSError:
-        return False
-    return result.returncode == 0

@@ -92,6 +92,12 @@ def wall_clock_remaining() -> float | None:
     return _wall_clock_cap - (time.monotonic() - _wall_clock_started)
 
 
+def wall_clock_exhausted() -> bool:
+    """Whether `--max-runtime` was set and has run out."""
+    remaining = wall_clock_remaining()
+    return remaining is not None and remaining <= 0
+
+
 async def sleep_flood(seconds: float, *, sleep=asyncio.sleep) -> bool:
     """Sleep a FloodWait out if it fits the remaining wall-clock cap.
 

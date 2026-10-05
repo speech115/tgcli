@@ -24,7 +24,7 @@ Four behaviours are load-bearing and each answers a specific past failure:
   anywhere today, which leaves concurrent writers to the driver default.
 * **Breadth spend is atomic check-and-touch.** ``try_touch_peer`` holds a
   ``BEGIN IMMEDIATE`` transaction across the remaining count and the peer
-  insert so concurrent primary + role jobs cannot both spend the last slot
+  insert so concurrent primary and role sessions cannot both spend the last slot
   (ADR-0117 / thermos T36).
 """
 
