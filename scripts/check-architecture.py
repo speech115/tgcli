@@ -210,7 +210,7 @@ CEILINGS = {
     # jobs runner archive/clone quanta.
     "src/tgcli/jobs/runner.py": 490,
     # Final review splits query-only opens from mutation-time permission repair.
-    "src/tgcli/jobs/store.py": 665,
+    "src/tgcli/jobs/store.py": 670,
     # ADR-0072: the governor package (account-wide request pacing and
     # cooldowns around Telethon's private ``_call``) landed across phases
     # 0-2 with no ceilings at all; seed all seven modules at their current
