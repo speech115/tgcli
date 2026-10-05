@@ -64,9 +64,11 @@ tg jobs run --rearm archive-sync --session-role job \
 ```
 
 A completed generation becomes a new identical queued generation and runs.
-An already queued generation runs as-is. Failed, cancelled, and running
-generations are refused, so a timer cannot silently revive an outage or an
-operator cancellation. The resolved lane still enforces its normal role and
+An already queued generation runs as-is. A failed generation is retried two
+hours after it failed, and each new failure sends another notification, so an
+outage neither hides nor hammers Telegram. A cancelled generation stays
+cancelled until you `jobs add` it again, and a running row left by a killed
+process is recovered and finished. The resolved lane still enforces its normal role and
 safety gates before registry mutation or session work.
 
 The checked-in templates are

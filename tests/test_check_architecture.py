@@ -44,7 +44,7 @@ CEILINGS = {
     "src/tgcli/jobs/preflight.py": 108,
     "src/tgcli/jobs/db.py": 280,
     "src/tgcli/jobs/runner.py": 490,
-    "src/tgcli/jobs/store.py": 665,
+    "src/tgcli/jobs/store.py": 670,
     "src/tgcli/governor/__init__.py": 14,
     "src/tgcli/governor/gate.py": 227,
     "src/tgcli/governor/ledger.py": 525,

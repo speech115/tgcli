@@ -179,34 +179,45 @@ def test_rearm_completed_only_and_reuses_an_existing_queue(registry):
     assert queued["job"]["generation"] == 2
 
 
-@pytest.mark.parametrize("terminal", ["failed", "cancelled"])
-def test_rearm_refuses_failed_and_cancelled_generations(registry, terminal):
-    _add(registry, "stopped")
-    if terminal == "cancelled":
-        jobs_store.cancel_job(registry, "stopped", now=NOW)
+@pytest.mark.parametrize("state", ["cancelled", "running"])
+def test_rearm_leaves_cancelled_and_running_generations_alone(registry, state):
+    """A cancel is the owner's stop; a running row under the lane lock is
+    stale and the lane run itself recovers it. Neither is a timer error."""
+    _add(registry, "held")
+    if state == "cancelled":
+        jobs_store.cancel_job(registry, "held", now=NOW)
     else:
-        running = jobs_store.claim_next(registry, "local", now=NOW)
-        jobs_store.fail_terminal(
-            registry,
-            running,
-            {"code": "BLOCKED"},
-            now=NOW + timedelta(seconds=1),
-        )
+        jobs_store.claim_next(registry, "local", now=NOW)
 
-    with pytest.raises(PolicyError, match=terminal):
-        jobs_store.rearm_job(
-            registry,
-            "stopped",
-            expected_lane="local",
-            now=NOW + timedelta(seconds=2),
-        )
+    result = jobs_store.rearm_job(
+        registry, "held", expected_lane="local", now=NOW + timedelta(seconds=2)
+    )
+
+    assert (result["created"], result["noop"]) == (False, True)
+    assert (result["job"]["generation"], result["job"]["state"]) == (1, state)
 
 
-def test_rearm_refuses_running_or_changed_lane(registry):
+def test_rearm_retries_a_failed_generation_two_hours_after_it_failed(registry):
+    _add(registry, "flaky")
+    running = jobs_store.claim_next(registry, "local", now=NOW)
+    failed_at = NOW + timedelta(seconds=1)
+    jobs_store.fail_terminal(registry, running, {"code": "BLOCKED"}, now=failed_at)
+
+    result = jobs_store.rearm_job(
+        registry, "flaky", expected_lane="local", now=NOW + timedelta(seconds=2)
+    )
+
+    retry_at = failed_at + timedelta(hours=2)
+    assert result["created"] is True
+    assert (result["job"]["generation"], result["job"]["state"]) == (2, "queued")
+    assert result["job"]["not_before"] == retry_at.isoformat()
+    early = retry_at - timedelta(seconds=1)
+    assert jobs_store.claim_next(registry, "local", now=early) is None
+    assert jobs_store.claim_next(registry, "local", now=retry_at)["generation"] == 2
+
+
+def test_rearm_refuses_a_changed_lane(registry):
     _add(registry, "active")
-    jobs_store.claim_next(registry, "local", now=NOW)
-    with pytest.raises(PolicyError, match="running"):
-        jobs_store.rearm_job(registry, "active", expected_lane="local", now=NOW)
     with pytest.raises(PolicyError, match="lane"):
         jobs_store.rearm_job(registry, "active", expected_lane="telegram", now=NOW)
 

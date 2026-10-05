@@ -274,6 +274,24 @@ def test_rearm_completed_local_job_and_allow_no_send(jobs_env, monkeypatch, caps
     assert data["outcomes"][0]["generation"] == 2
 
 
+def test_rearm_recovers_a_stale_running_row_and_runs_it(jobs_env, capsys):
+    """A process killed mid-quantum leaves `running` behind; the next timer
+    wake must finish the work instead of refusing every hour."""
+    _init_archive()
+    assert main(_add_args()) == 0
+    capsys.readouterr()
+    conn = jobs_store.connect("main")
+    try:
+        assert jobs_store.claim_next(conn, "local")["state"] == "running"
+    finally:
+        conn.close()
+
+    argv = ["--max-runtime", "1", "jobs", "run", "--rearm", "nightly", "--json"]
+    assert main(argv) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert (data["completed"], data["outcomes"][0]["generation"]) == (1, 1)
+
+
 def test_rearm_does_not_mutate_when_the_lane_is_already_running(jobs_env, capsys):
     _init_archive()
     assert main(_add_args()) == 0
@@ -322,21 +340,13 @@ def test_rearm_cancelled_job_is_not_resurrected(jobs_env, capsys):
     capsys.readouterr()
     assert main(["jobs", "cancel", "nightly"]) == 0
     capsys.readouterr()
-    assert (
-        main(
-            [
-                "--max-runtime",
-                "1",
-                "jobs",
-                "run",
-                "--rearm",
-                "nightly",
-                "--json",
-            ]
-        )
-        == 2
-    )
-    assert "cancelled" in capsys.readouterr().err.lower()
+    argv = ["--max-runtime", "1", "jobs", "run", "--rearm", "nightly", "--json"]
+    assert main(argv) == 0
+    capsys.readouterr()
+
+    assert main(["jobs", "show", "nightly", "--json"]) == 0
+    job = json.loads(capsys.readouterr().out)["job"]
+    assert (job["generation"], job["state"]) == (1, "cancelled")
 
 
 def test_telegram_rearm_obeys_no_send_before_session(jobs_env, monkeypatch, capsys):
