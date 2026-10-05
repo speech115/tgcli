@@ -22,8 +22,8 @@ Global flags (available on every command):
 | `--json` | machine output: one JSON document to stdout |
 | `--plain` | stable TSV to stdout (no colors, no alignment) |
 | `--readonly` | hard-block any mutating call in this invocation |
-| `--timeout <sec>` | overall invocation **hang detector** covering preflight and execution (default 60; governed sleep does not count against it; no default deadline for media, exports, `clone init\|sync\|refresh`, or `jobs run`, which own bounded work; `accounts login --continue` takes none; `tg transcribe` defaults to 120, the transcription wait) |
-| `--max-runtime <sec>` | explicit wall-clock cap for long runs: governed sleep counts against it; exhausting it is a normal stop (exit 0), with `stop_reason` and a resume pointer where the command keeps a cursor; every `jobs run` requires it and caps it at 3000 seconds |
+| `--timeout <sec>` | overall invocation **hang detector** covering preflight and execution (default 60; governed sleep does not count against it; no default deadline for media, exports, `clone init\|sync\|refresh`, or `archive backfill\|sync\|transcribe`, which own bounded work; `accounts login --continue` takes none; `tg transcribe` defaults to 120, the transcription wait) |
+| `--max-runtime <sec>` | explicit wall-clock cap for long runs: governed sleep counts against it; exhausting it is a normal stop (exit 0), with `stop_reason` and a resume pointer where the command keeps a cursor |
 | `-v/--verbose` | Python and Telethon debug diagnostics on stderr for this invocation |
 
 Env equivalents: `TGCLI_ACCOUNT`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`.
@@ -88,11 +88,6 @@ flag.
 | 3 | config/auth error | missing `--account` / `default_account`, dead session, bad api_id |
 | 4 | not found | unknown dialog, message id, media; unknown alias on `accounts show\|remove` (lookup) |
 | 5 | rate limited | FloodWait longer than threshold; `retry_after` in error JSON; also a sticky in-process cooldown after a FloodWait whose durable arm could not persist (ADR-0090) |
-
-A Telegram jobs lane that meets a rate limit persists the generation as queued
-with `not_before`, exits **0**, and reports
-`stop_reason: "cooldown_deferred"`. The scheduled wake did its job by
-deferring durable work; inspect `jobs show KEY` for the retry time.
 
 Exit 1 covers several distinguishable error codes in the JSON envelope:
 `TIMEOUT` (the `--timeout` deadline elapsed), `RUNTIME` (an untranslated
@@ -723,8 +718,6 @@ No config and no Telegram session. `--json` emits:
  "clone_media_cache":{"count":0,"bytes":0},
  "archive":{"bytes":0,"db":{"count":0,"bytes":0},"wal":{"count":0,"bytes":0},
             "shm":{"count":0,"bytes":0}},
- "jobs":{"bytes":0,"db":{"count":0,"bytes":0},"wal":{"count":0,"bytes":0},
-         "shm":{"count":0,"bytes":0},"states":{},"unreadable":0},
  "downloads":{"bytes":0},
  "relics":[{"name":"labs","bytes":11}]}
 ```
@@ -747,11 +740,9 @@ reports abandoned `clones/<clone_id>-media/` directories left by a failed
 aggregate `clones` figure. `archive` reports
 `archive/<account>/` under the state root (ADR-0068): aggregate bytes plus
 `archive.db` / WAL / SHM counts; never auto-deleted. A custom
-`[archive] root` outside the state root is not inventoried here. `jobs`
-reports account registries under `jobs/<alias>/`: DB/WAL/SHM bytes, the latest
-generation count by state, and unreadable DB count; cleanup never removes it.
-Relic directories
-(`mirrors`, `mirror-lab`, `labs`, `probes`) are reported when present and never
+`[archive] root` outside the state root is not inventoried here. Relic
+directories (`mirrors`, `mirror-lab`, `labs`, `probes`, and `jobs`, left by
+the removed `tg jobs`) are reported when present and never
 auto-deleted. New previews are written mode `0600`; `store cleanup` also
 tightens surviving preview modes to `0600`.
 
@@ -771,7 +762,6 @@ deleted. Never touches `audit.jsonl`, `sessions/` (including `.bak`), live
 login attempts, live `.json` within TTL, clone state JSON, a media cache
 younger than one hour (`MEDIA_CACHE_MIN_AGE`, the running-sync guard), the
 archive store under `archive/` (ADR-0068), or relic directories.
-The jobs registry under `jobs/` (ADR-0087) is also never removed.
 `.pending` files are
 protected (ADR-0028 `random_id`) and are eligible only with `--include-pending`
 and only when far past TTL (`expires_at + PREVIEW_TTL`). Staged sessions are
@@ -794,7 +784,7 @@ guard is for Telegram sends, and cleanup reaches no network.
 ```json
 {"removed":[],"would_remove":["p_spent0.used","p_expired.json"],"bytes":130,
  "confirmed":false,"kept":{"audit_log":true,"sessions":true,
- "session_backups":true,"archive":true,"jobs":true,"relics":["labs"]}}
+ "session_backups":true,"archive":true,"relics":["labs"]}}
 ```
 
 With `--confirm`, `removed` is populated and `would_remove` is empty.
@@ -1005,8 +995,7 @@ actually issued governed requests additionally carry `governed_sleep_ms`
 exit (exit 5) additionally carries `retry_after`, `request_type` (the
 governed key, e.g. `messages.GetHistoryRequest`) and `provenance`
 (`server` | `account_cooldown` | `resolve_phone_cooldown`). A normal stop
-carries `stop_reason` (`breadth_budget_exhausted` | `wall_clock_cap` |
-`cooldown_deferred` | `idle`). The journal never contains message/search text, chat
+carries `stop_reason` (`breadth_budget_exhausted` | `wall_clock_cap`). The journal never contains message/search text, chat
 references, raw API parameters, or command output. A journal-write failure
 emits a warning to stderr but does not change the command result.
 
@@ -1881,6 +1870,11 @@ tg archive transcribe [--limit N] [--max-attempts N]
 tg archive rebaseline
 ```
 
+To keep the archive current, run `archive sync` (on a `--session-role`, with
+`--max-runtime`) and `archive transcribe` from launchd or cron. Each run is
+bounded and the next run continues where it stopped; during a flood cooldown
+the governor refuses locally with exit 5 and no request.
+
 Per-account SQLite/WAL store under `~/.local/state/tgcli/archive/<alias>/`
 (override with `[archive] root = "…"` in `config.toml`). Directory mode
 `0700`; `archive.db` mode `0600`. Schema v7 tables: `messages`, `revisions`,
@@ -2144,127 +2138,3 @@ message id, current text, revision count, and deletion date;
 per-dialog `chat,stored,inserted,updated,more` plus media counters; `sync` →
 applied and media counters; `transcribe` → queue counters;
 `rebaseline` → `rebaselined,peers,gap`.
-
-## 14. Foreground Jobs (`tg jobs`; ADR-0087)
-
-The typed workload surface is:
-
-```text
-tg jobs add archive-backfill --key KEY (CHAT ... | --private) [--limit N]
-  [--priority {low,normal,high}] [--replace]
-tg jobs add archive-sync --key KEY [--max-events N] [--max-dialogs N]
-  [--max-media N] [--priority {low,normal,high}] [--replace]
-tg jobs add clone-sync --key KEY SOURCE
-  [--priority {low,normal,high}] [--replace]
-tg jobs add archive-transcribe --key KEY [--max-attempts N]
-  [--priority {low,normal,high}] [--replace]
-tg jobs list
-tg jobs show KEY
-tg jobs cancel KEY
-tg jobs run --lane {telegram,local}
-tg jobs run --rearm KEY
-```
-
-Every `jobs run` requires global `--max-runtime N`, positive and at most
-**3000** seconds. The cap is cooperative: the current workload quantum may
-finish after it. The local lane rejects `--session-role` and never opens
-Telegram. The Telegram lane requires an explicit named role and never falls
-back to primary; all of `--readonly`, `TGCLI_READONLY=1`, and
-`TGCLI_NO_SEND=1` block it before config, registry, session, or network work.
-`jobs add`, `cancel`, and the local runner are local mutations blocked by the
-readonly gates, while `TGCLI_NO_SEND=1` still permits the local lane. `list`
-and `show` are offline reads.
-
-`jobs run --rearm KEY` is the recurring-launchd form. A completed latest
-generation is copied into a new queued generation with the same typed spec and
-priority; an already queued generation runs as-is. A failed generation is
-copied the same way, but the new generation is not eligible until two hours
-after the failure, so a broken recurring job retries every two hours and each
-new failure notifies again. A cancelled generation stays cancelled, and a
-running one is stale under the lane lock and recovered by the run itself; both
-are a no-op, and the run exits 0.
-The resolved lane retains all normal lane and role gates before registry
-mutation, session, or network work.
-
-The account alias owns `TGCLI_STATE_DIR/jobs/<alias>/jobs.db`, SQLite/WAL in a
-`0700` directory with DB/WAL/SHM files restricted to `0600`. The registry
-stores immutable generations and retains only the newest 200 detailed events
-per key. `store stats` reports jobs DB/WAL/SHM bytes plus latest-generation
-state counts; `store cleanup` never removes the registry. The first Telegram
-run binds nullable registry metadata to `get_me().id`; every later Telegram
-run verifies it before recovering or selecting work. A mismatch is exit 2.
-
-Fixed quanta are one incomplete archive backfill dialog, one complete changes
-difference/replay plus bounded catch-up/media work, one existing 50-batch clone
-window, and one local transcription item. The ordinary `archive backfill`,
-`archive sync`, and `clone sync` results now expose the same top-level
-`remaining` completion signal as transcription. Archive sync checks the
-scheduler deadline/cancellation callback between its durable catch-up and
-media boundaries; clone and backfill retain their own cursor checkpoints.
-
-Priority defaults to `normal` and is ordered `high=2`, `normal=1`, `low=0`;
-an eligible job gains at most two aging points while other quanta run. Ties
-prefer never-run/oldest-run work, then key. One process holds the account/lane
-`flock` for the run. A second runner for that lane is exit 2; Telegram and
-local lanes use independent locks and may overlap.
-
-Adding an exact queued/running spec is an idempotent no-op. A terminal exact
-spec creates the next generation. Any spec/priority change requires
-`--replace`; replacement cancels queued work and refuses running work.
-`cancel` immediately cancels queued work or durably requests cancellation of a
-running quantum. At its next checkpoint cancellation wins atomically; the
-subprocess is never killed. A runner holding the lane lock recovers stale
-`running` rows to `queued`, or to `cancelled` when a request was already set.
-
-A successful quantum with `remaining: false` completes the generation;
-`remaining: true` queues another quantum. Normal governor stops remain queued;
-a rate limit records `not_before` from `retry_after` and ends the invocation as
-`cooldown_deferred`, without increasing the failure streak. Durable command
-progress before a later runtime error resets the streak and defers the next
-attempt. A no-progress runtime failure queues retries after 5 then 30 minutes;
-the third enters `failed` and records a two-hour recommendation/inherited
-earliest time for an explicit next generation. Policy/config/auth/not-found
-failures enter `failed` immediately. A job failure is data, not failure of the
-scheduler invocation: `jobs run` itself exits 0 after persisting the state.
-
-When a generation first enters `failed`, tgcli sends one best-effort macOS
-notification containing only the stable key and `tg jobs show KEY`. It never
-contains the account target, typed spec, error text, or raw argv. Notification
-failure cannot change the persisted state or runner result. The checked-in
-`docs/assets/tgcli-jobs-telegram.plist` and
-`docs/assets/tgcli-jobs-local.plist` are separate manual launchd templates;
-they call `jobs run --rearm archive-sync` and
-`jobs run --rearm archive-transcribe` respectively, use a 3600-second
-interval, contain explicit path placeholders, and are never installed or
-loaded automatically.
-
-The global invocation journal records only `command: "jobs"`, the runner
-`lane`, and aggregate `selected,completed,deferred,failed,cancelled` counts.
-It never stores a key, target, spec, per-job result, or per-job error.
-
-Representative JSON:
-
-```json
-{"created":true,"noop":false,
- "job":{"key":"archive-hourly","generation":1,
-        "kind":"archive-sync","lane":"telegram",
-        "spec":{"max_events":500,"max_dialogs":20,"max_media":50},
-        "priority":"normal","state":"queued"}}
-```
-
-```json
-{"account":{"alias":"main"},"jobs":[{"key":"nightly","generation":1,
- "kind":"archive-transcribe","lane":"local","state":"queued",…}]}
-```
-
-```json
-{"account":{"alias":"main"},"lane":"local","selected":1,
- "completed":1,"queued":0,"failed":0,"cancelled":0,
- "recovered":{"queued":0,"cancelled":0},"stop_reason":"idle",
- "outcomes":[{"key":"nightly","generation":1,"state":"completed",
-              "result":{"remaining":false},"error":null,"not_before":null}]}
-```
-
-`--plain` columns: add/show/cancel →
-`key,generation,kind,lane,priority,state`; list appends `not_before`; run →
-`lane,selected,completed,queued,failed,cancelled,stop_reason`.

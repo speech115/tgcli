@@ -243,36 +243,6 @@ def validate_private_mode(*, private: bool, chats: list[str]) -> None:
         )
 
 
-async def quantum_targets(
-    tg,
-    conn: sqlite3.Connection,
-    *,
-    private: bool,
-    chats: list[str],
-    max_chat_dialogs: int,
-) -> tuple[list[str], int, list[dict[str, Any]]]:
-    """Pick incomplete dialogs for one archive-backfill job quantum."""
-    if private:
-        return await enumerate_private_dialogs(
-            tg, conn, max_dialogs=2, skip_complete=True
-        )
-    pending: list[str] = []
-    skipped = 0
-    for chat in validate_dialogs(chats, maximum=max_chat_dialogs):
-        entity = await resolve_entity(tg, chat)
-        state = store_mod.get_sync_state(conn, scope_mod.peer_id(entity))
-        complete = (
-            state is not None
-            and state.get("last_backfill_at") is not None
-            and not state.get("more", True)
-        )
-        if complete:
-            skipped += 1
-        else:
-            pending.append(chat)
-    return pending, skipped, []
-
-
 async def backfill_private(
     tg,
     conn: sqlite3.Connection,

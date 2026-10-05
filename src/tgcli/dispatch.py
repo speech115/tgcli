@@ -18,7 +18,6 @@ from tgcli.commands import (
     clone as clone_cmd,
     dialog as dialog_cmd,
     export as export_cmd,
-    jobs as jobs_cmd,
     media as media_cmd,
     mutate as mutate_cmd,
     transcribe as transcribe_cmd,
@@ -33,14 +32,8 @@ def _wall_clock_exhausted() -> bool:
 
 
 async def run_network(args, account) -> tuple[dict, list[tuple]]:
-    mutation_safe = (
-        (
-            args.command == "jobs"
-            and args.jobs_command == "run"
-            and args.lane == "telegram"
-        )
-        or preview_commit.mutation_safe(args)
-        or (args.command == "clone" and args.clone_command == "sync")
+    mutation_safe = preview_commit.mutation_safe(args) or (
+        args.command == "clone" and args.clone_command == "sync"
     )
     # cli._execute already holds the audit-role context var for the whole
     # invocation (including this coroutine); only the network session itself
@@ -50,14 +43,6 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
         async with session.client(
             account, mutation_safe=mutation_safe, role=role
         ) as tg:
-            if args.command == "jobs" and args.jobs_command == "run":
-                data = await jobs_cmd.run_telegram(
-                    tg,
-                    account.alias,
-                    max_runtime=args.max_runtime,
-                    config=None,
-                )
-                return data, jobs_cmd.run_rows(data)
             read_operation = read_ops.from_cli(args)
             if read_operation is not None:
                 result = await read_ops.execute(tg, read_operation)

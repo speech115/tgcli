@@ -4,8 +4,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "check-docs.py"
 
@@ -34,32 +32,6 @@ def copy_with_replacement(tmp_path: Path, source: Path, old: str, new: str) -> P
     assert old in text
     path.write_text(text.replace(old, new, 1))
     return path
-
-
-@pytest.mark.parametrize(
-    ("name", "lane", "key", "role"),
-    [
-        ("tgcli-jobs-telegram.plist", "telegram", "archive-sync", "job"),
-        ("tgcli-jobs-local.plist", "local", "archive-transcribe", None),
-    ],
-)
-def test_jobs_plist_argv_stays_parseable(name, lane, key, role):
-    """The checked-in launchd templates must keep parsing as bounded rearm."""
-    import plistlib
-
-    from tgcli.parser import build_parser
-
-    plist_path = ROOT / "docs" / "assets" / name
-    with plist_path.open("rb") as handle:
-        plist = plistlib.load(handle)
-    argv = plist["ProgramArguments"][1:]  # drop the absolute tg path
-    args = build_parser().parse_args(argv)
-    assert args.command == "jobs"
-    assert args.jobs_command == "run"
-    assert args.rearm == key
-    assert args.lane is None
-    assert getattr(args, "session_role", None) == role
-    assert args.max_runtime == 3000
 
 
 def test_the_repository_docs_are_consistent():

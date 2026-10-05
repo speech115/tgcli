@@ -13,7 +13,6 @@ from pathlib import Path
 from tgcli import __version__
 from tgcli.archive import arguments as archive_arguments
 from tgcli.commands import media as media_cmd, store as store_cmd
-from tgcli.jobs import arguments as jobs_arguments
 
 
 class _Parser(argparse.ArgumentParser):
@@ -184,7 +183,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="actually delete; without this, dry-run only",
     )
 
-    jobs_arguments.add_to(sub, global_flags)
     archive_arguments.add_to(sub, global_flags)
 
     p_read = sub.add_parser(

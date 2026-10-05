@@ -44,13 +44,8 @@ selected account session, does one operation, and exits.
 | Backfill selected dialogs into archive | `tg --json archive backfill CHAT [CHAT …] [--limit N]` |
 | Backfill standing private dialogs | `tg --json archive backfill --private [--max-dialogs N] [--limit N]` |
 | Sync archive from changes cursor | `tg --json archive sync [--max-events N] [--max-dialogs N] [--max-media N]` (applies full difference; caps catch-up RPCs and media downloads) |
-| Run or safely rearm one jobs lane | `tg --max-runtime N --json jobs run --lane telegram`, `tg --max-runtime N --json jobs run --lane local`, or `tg --max-runtime N --json jobs run --rearm KEY` |
 | Transcribe archived voice/video notes | `tg --json archive transcribe [--limit N] [--max-attempts N]` (offline local FluidAudio/Parakeet queue) |
-| Add a durable local transcription job | `tg --json jobs add archive-transcribe --key KEY [--max-attempts N] [--priority low\|normal\|high]` |
-| Add durable Telegram jobs | `tg --json jobs add archive-backfill --key KEY (CHAT ... \| --private) [--limit N]`; `archive-sync --key KEY [--max-events N] [--max-dialogs N] [--max-media N]`; `clone-sync --key KEY SOURCE` |
-| Inspect or cancel a job | `tg --json jobs list` / `tg --json jobs show KEY` / `tg --json jobs cancel KEY` |
-| Run the local jobs lane | `tg --max-runtime N --json jobs run --lane local` (foreground, offline, one-item quanta) |
-| Run the Telegram jobs lane | `tg --session-role job --max-runtime N --json jobs run --lane telegram` (foreground; explicit non-primary role; readonly and no-send gates apply) |
+| Keep the archive current on a schedule | launchd or cron: `tg --session-role job --max-runtime 3000 --json archive sync` and `tg --json archive transcribe` |
 | Rebaseline archive changes cursor | `tg --json archive rebaseline` |
 | Offline archive status | `tg --json archive status` |
 | Offline archive search | `tg --json archive search QUERY [--chat CHAT] [--from SENDER] [--since ISO] [--until ISO] [--kind KIND] [--transcripts-only] [--sort {relevance,date}] [--limit N] [--page N]` |
@@ -201,9 +196,7 @@ and a flood arms a per-type cooldown that refuses locally (exit 5,
 ledger health — it is the one command that works while everything else
 refuses. A degraded governor ledger (`governor_degraded: true`) marks the
 account unhealthy and makes governed commands fail closed (exit 2,
-`BLOCKED`) until the ledger file is repaired. A Telegram jobs
-lane reaching a cooldown leaves the job queued and exits 0 with
-`stop_reason: "cooldown_deferred"`. The default `--timeout` is a
+`BLOCKED`) until the ledger file is repaired. The default `--timeout` is a
 hang detector that ignores governed sleep; `--max-runtime` bounds a long
 run as a normal stop. Exit 5 means wait out `retry_after` — never retry
 FloodWait in a tight loop; the governor probes once at half the wait and

@@ -47,7 +47,7 @@ deleted.
 ## When it can't run
 
 - **Exit 3:** no authorized session for the alias, or the session is busy
-  because another `tg` (for example a `tg jobs` run) holds its lock. Say which,
+  because another `tg` holds its lock. Say which,
   and stop. Never run `accounts login` yourself.
 - **Exit 5:** FloodWait. Report `retry_after` and don't retry in a loop.
 
