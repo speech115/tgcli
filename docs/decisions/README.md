@@ -6,8 +6,9 @@ current: a status below is as of that ADR's last edit, and a later ADR,
 [CONTRACT.md](../CONTRACT.md), [AGENTS.md](../../AGENTS.md), and the gate.
 
 Write an ADR only for a decision that is hard to reverse, and add its row
-here. ADRs none of whose decisions still held were deleted by ADR-0120 (0006,
-0007, 0013, 0014, 0026, 0033, 0058, 0070, 0073); git history keeps them.
+here. ADR-0120 deleted the ADRs whose decisions had all lapsed or now live
+here or in AGENTS.md (0006, 0007, 0013, 0014, 0026, 0033, 0058, 0070, 0073);
+git history keeps them.
 
 | ADR | Decision | Status |
 |-----|----------|--------|

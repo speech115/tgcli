@@ -57,7 +57,8 @@ check or goes.
     that grows a file past it raises the number.
 11. ADRs are dated history, not law kept current: their statuses are no
     longer maintained, and `docs/CONTRACT.md`, `AGENTS.md`, and the gate say
-    what holds. An ADR none of whose decisions still holds is deleted:
+    what holds. An ADR whose decisions all lapsed or now live in the ADR
+    index or `AGENTS.md` is deleted:
     0006, 0007, 0013, 0014, 0026, 0033, 0058, 0070, 0073.
 
 ## Rejected alternatives
