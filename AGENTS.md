@@ -1,220 +1,88 @@
-# Agent Contract — tgcli
+# tgcli — agent contract
 
-Canonical behavior contract for every AI agent working in this repo.
+tgcli is a stateless Telegram CLI over Telethon, for humans and agents: JSON
+on stdout, fixed exit codes, and preview → commit for every write. It replaced
+a daemon-first stack, so staying small and daemonless is the point.
 
-## Read First
+- Using the CLI: [SKILL.md](SKILL.md) and [docs/guide/](docs/guide/).
+- CLI law (flags, JSON shapes, exit codes): [docs/CONTRACT.md](docs/CONTRACT.md).
+- Vocabulary: [CONTEXT.md](CONTEXT.md).
+- Past decisions: [docs/decisions/](docs/decisions/README.md). Read the ADR
+  before you change what it governs.
+- Backlog: GitHub Issues. Issue-flow routing lives in [docs/agents/](docs/agents/).
 
-1. Relevant ADRs before touching an area they govern — start from the
-   index in [docs/decisions/README.md](docs/decisions/README.md).
-2. When using installed engineering flows, read the matching repository
-   routing under [docs/agents/](docs/agents/): issue tracker, triage labels,
-   and domain-document discovery.
-3. [CODING_STANDARDS.md](CODING_STANDARDS.md) — the active checkable rule
-   list review enforces; add a rule here when the agent does something wrong.
+## Commands
 
-[CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md) are the
-outward-facing summaries of these rules (ADR-0056): the first restates this
-contract for human contributors, the second owns the private reporting channel
-and the redaction rules. **This file stays canonical** — where either drifts
-from it, the other document is the bug.
+```bash
+uv sync
+./scripts/gate.sh   # exactly what CI runs, about 15 s
+uv run tg --help
+```
 
-## Agent Skills
+## Rules a check enforces
 
-- Work items live in GitHub Issues; pull requests are not an incoming triage
-  surface. See [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md).
-- Triage flows use the canonical label mapping in
-  [docs/agents/triage-labels.md](docs/agents/triage-labels.md).
-- This is a single-context repository. `docs/decisions/` is the only ADR
-  directory; do not create `docs/adr/`. See
-  [docs/agents/domain.md](docs/agents/domain.md).
+Breaking one of these fails the gate. Don't restate them elsewhere. If a check
+is wrong, fix the check.
 
-## Owner-Gated Development (ADR-0071, replacing ADR-0026's posture)
+| Rule | Enforced by |
+|---|---|
+| stdout carries contract data only; diagnostics go to stderr through `output.note()` | ruff `T20` (no `print`), `tests/test_output.py` |
+| State that is read back later is written with `tgcli.atomic.replace_text`, never `write_text` | `scripts/check-architecture.py` |
+| Read commands are reachable only through `read_ops` | `scripts/check-architecture.py` |
+| Hot files stay under their reviewed line ceilings | `scripts/check-architecture.py` (`CEILINGS`) |
+| Exit codes come from the `errors.py` hierarchy and match CONTRACT §4 | `tests/test_contract_exit_codes.py` |
+| Every mutation goes through preview → commit and the readonly gates | `src/tgcli/preview_commit.py` registry, `tests/test_preview_commit.py`, `tests/test_safety.py` |
+| Audit is written before the mutation, and an unwritable audit blocks it | `tests/test_safety.py`, `tests/test_cli_mutate.py` |
+| Every Telethon namespace is classified; raw API writes are denied unless wrapped | `scripts/check-coverage.py` with `docs/FEATURES.md` |
+| The guide and README name only real flags, commands, and links | `scripts/check-docs.py` |
+| Sessions, `.env`, audit and journal files never enter git | `.gitignore` |
+| Merged branches are deleted and history stays linear | GitHub repository settings |
 
-The project is in production use and still evolving; what gates it is the
-owner, not a freeze. Default posture:
+## Rules that need judgment
 
-- **A new feature or behavior change needs an explicit owner request plus
-  an ADR**. A separate scoped plan is
-  required only for a campaign: three or more PRs, or a new subsystem
-  (ADR-0073); below that the ADR's decision section is the plan. An unvetted
-  idea waits as a GitHub issue; it does not become code.
-- **A bug fix starts from a reproducing test**, then the minimal fix.
-- **Never widen the scope you were given.** Adjacent improvements you spot
-  are reported, not implemented. When in doubt whether something is a fix
-  or a feature, ask the owner.
+Nothing fails if you skip these, so they stay few.
 
-## Change Lanes (ADR-0073)
+- **The live account is real.** Run a Telegram mutation (send, edit, delete,
+  forward, mark-read, clone writes, login) only when the owner asked for it in
+  this session. Read-only checks are fine.
+- **Never open a `.session` file with bare `python3`** or a system Telethon.
+  Use `uv run tg` or `.venv/bin/python`: the pinned Telethon writes a schema
+  older versions crash on.
+- **A bug fix starts with a reproducing test**, then the smallest fix. Grep for
+  sibling code with the same pattern and fix it in the same PR.
+- **Test behavior at public seams**: CLI arguments in; stdout, stderr, JSON,
+  and exit code out. Mock only the Telegram client, time, and the filesystem.
+  A test for a new or changed RPC asserts the exact `functions.*Request` and
+  `types.Input*` it sends.
+- **A CLI contract change** (flags, JSON, exit codes) updates
+  `docs/CONTRACT.md` in the same PR. JSON changes are additive; a rename or
+  removal needs an ADR.
+- **Ask the owner first** for new behavior, a new dependency, or a new
+  subsystem. Never add a daemon or state outside `~/.config/tgcli/` and
+  `~/.local/state/tgcli/`. Write an ADR only for a decision that is hard to
+  reverse.
+- **Don't widen scope.** Report adjacent problems instead of fixing them in the
+  same PR.
 
-Ceremony follows risk, not size of ambition. A change takes the **full lane**
-when it touches any of:
+## When the owner corrects you
 
-1. `docs/CONTRACT.md` semantics — CLI flags, JSON shapes, exit codes;
-2. safety behavior — preview→commit, readonly gates, audit records, or any
-   mutation path (send, edit, delete, forward, mark-read, clone writes);
-3. session, config, or persistent state files, including their schemas;
-4. request pacing and FloodWait handling (ADR-0072);
-5. a new dependency, a new module, or a new abstraction;
-6. what a **released** command does, as reachable from a release tag;
-7. the enforcement mechanisms themselves — the logic of `scripts/gate.sh`,
-   `check-architecture.py`, `check-docs.py`, `check-coverage.py`, the CI
-   workflows, or this contract and its adapters (`AGENTS.md`, `CLAUDE.md`,
-   `.claude/agents/`, `CONTRIBUTING.md`, `SKILL.md`). These
-   are what make every other rule bite; a reviewer whose checklist comes from
-   the file being weakened cannot catch its weakening. The ceiling *numbers*
-   stay integrator-owned under ADR-0058 and are not a trigger by themselves.
-
-Anything else takes the **small-fix lane**: no ADR, no scoped plan, no
-release bookkeeping. Ambiguous change — full lane.
-
-The small lane keeps, without exception: the reproducing test first, the full
-gate, the independent whole-diff review, the mirror-fix rule, and atomic
-state writes. Those are what protect a live account; they are not ceremony.
-
-**Documents ride with their code.** An ADR or plan lands in the
-PR that carries its implementation. A document-only PR is for a decision
-deliberately taken before the work is scoped — an ADR proposed for owner
-review, or a campaign plan spanning several PRs — never the default shape.
-
-**Compatibility begins at a release tag.** Unreleased implementations are
-replaceable and are not a sunk cost: reworking code that has not shipped
-needs no superseding ADR.
-
-## Documentation Discipline (mandatory)
-
-- Commit messages, PR descriptions, and issues are the session record. Keep
-  incident detail about real accounts impersonal (what broke and the fix —
-  not which live account it happened to); never phone numbers or session
-  material.
-- **Every full-lane decision** (the seven triggers above) gets an ADR in
-  `docs/decisions/` using the next number: `ADR-NNNN-slug.md`, plus its row in the index
-  [docs/decisions/README.md](docs/decisions/README.md) in the same commit.
-  XS/S changes may use the one-page ADR-lite form (ADR-0058): Context in
-  one paragraph, Decision, Rejected alternatives, Contract impact. The
-  full form stays mandatory for `docs/CONTRACT.md` semantics, safety
-  behavior, and new dependencies.
-  Superseding an old decision:
-  new ADR + mark the old one `Status: superseded by ADR-NNNN`.
-- **Active summaries must close with the code.** A public command, global
-  flag, safety guarantee, or guide page updates `README.md` / `SKILL.md` in
-  the same slice. `scripts/check-docs.py` enforces the mechanically
-  derivable parts (guide flags, commands and links, root global flags,
-  guide discoverability, and benchmark claims).
-- **A feature or fix that changes `docs/CONTRACT.md` ships as a release**
-  (ADR-0038, mechanics amended by ADR-0058): the **integrator** — the
-  session that merges — bumps the **patch** version in `pyproject.toml` and
-  `src/tgcli/__init__.py` and adds the `CHANGELOG.md` section naming the
-  ADR, in the merge that lands the change. Feature branches never touch the
-  version files, `CHANGELOG.md`, or tags. The `Release tag` workflow tags the merge commit `vX.Y.Z` on push to `main`
-  whenever the push moved `__version__`, and publishes the GitHub Releases
-  page entry from the same CHANGELOG section (ADR-0077). Never let unreleased contract
-  changes accumulate. The minor digit is raised only when the owner
-  declares a milestone.
-- **`docs/CONTRACT.md` is versioned law.** Any change to CLI flags, JSON
-  shapes, or exit codes updates CONTRACT.md in the same commit. Breaking
-  changes require an ADR.
-
-## Engineering Rules
-
-- TDD: failing test → minimal code → green → commit. No production code
-  without a test that demanded it.
-- Test behavior at public seams. CLI work is verified through arguments,
-  stdout/stderr, JSON, and exit codes. A new or changed Telegram RPC also
-  needs a boundary test that asserts the exact Telethon request and input
-  types; permissive fakes are not proof that Telegram will accept a request.
-- YAGNI aggressively. This project replaces a 200k-LOC stack; the whole
-  point is staying small. New abstraction needs an ADR.
-- Stateless: no background processes, no state outside
-  `~/.config/tgcli/` (config) and `~/.local/state/tgcli/` (sessions,
-  locks, audit, cache).
-- Runtime boundary: never open a tgcli `.session` file with bare `python3` or
-  a system/user-site Telethon. Use the `tg` entrypoint or `.venv/bin/python`
-  from this checkout; `tg doctor` reports the active runtime for diagnosis.
-- stdout is sacred: only contract data. Debug/progress/warnings → stderr.
-- State files that are read back later are replaced atomically via
-  `tgcli.atomic.replace_text`, never `write_text`
-  (`scripts/check-architecture.py` enforces this for state-writing modules).
-- **Mirror-fix rule:** fixed a bug class in one subsystem — grep for the
-  sibling subsystems that share the pattern and port the fix plus its
-  regression test in the same commit. (The preview mtime-fallback existed
-  while logins shipped without it; that gap became the 1.2.0 critical.)
-- Never commit: `.env`, `*.session`, audit logs, downloaded media,
-  anything under `~/.local/state/tgcli/`.
-- Run `./scripts/gate.sh` (ruff check + format, architecture, pyright,
-  pytest, coverage matrix, docs gate — the exact CI steps) before every
-  commit. Quote real output in PRs, never "tests pass".
-
-## Implementation and Review Workflow
-
-- Keep a PR to one coherent slice, or two tightly coupled slices. Unrelated
-  onboarding, tooling, cleanup, and product behavior belong in separate PRs.
-- The implementation agent owns the red → green loop and the focused tests.
-  Green focused tests or green CI are necessary, not sufficient evidence that
-  the PR is ready.
-- Before merge, perform an independent whole-diff review from the merge-base.
-  Prefer a different agent or a fresh review context; the implementation
-  agent must not be the only final reviewer of its own work.
-- Review on two axes:
-  1. **Spec:** every ADR/plan/CONTRACT requirement is implemented, and no
-     unapproved behavior was added.
-  2. **Standards:** AGENTS, `CODING_STANDARDS.md`, module ownership, stdout,
-     exit-code, safety, audit, documentation, and code-smell rules are
-     respected.
-- Adversarial review is mandatory for CLI boundaries: invalid and combined
-  flags, empty input, caps, ISO date coercion, partial failures, readonly
-  gates, audit timing, and exact external-library types where applicable.
-- **Complexity reset (ADR-0074).** A second related review finding that would
-  add another condition, parameter, or compatibility mode to the same
-  abstraction is a checkpoint, not another item to patch: stop, and reconsider
-  where the boundary belongs. Unreleased code and its tests are not a sunk
-  cost — ADR-0073 already says compatibility begins at a release tag.
-- Every confirmed review defect starts with a permanent reproducing test,
-  then the minimal fix. Rerun the full gate after all review fixes; do not
-  present focused checks as final proof.
-- If mocked tests cannot prove external behavior, add a safe live smoke.
-  Telegram mutations remain owner-gated and must never be inferred from a
-  review or verification request.
+Fix the mistake, then make it impossible to repeat. Prefer architecture, then a
+lint or test in the gate, and add a line to the judgment list only as a last
+resort. A rule that gains a check moves to the table above. A rule whose
+mistake can no longer happen is deleted.
 
 ## Git
 
-- Branch: `claude/<topic>` or `codex/<topic>`.
-- Commit: single-line imperative summary (`Add dialogs command`).
-- After a requested slice/task passes the full gate and docs are updated,
-  **commit and push the feature branch** in the same turn — do not wait for
-  a separate "commit" / "push" ask. Still never push to `main` without an
-  explicit current-session request.
-- Never push to `main` without an explicit current-session request.
-- Never merge a PR while its head-SHA checks are pending or red — wait with
-  `gh pr checks N --watch`. The repo has no enforced branch protection;
-  this rule is the protection.
-- Review-fix commits go onto the head of the PR under review, not onto a
-  new branch. One branch per slice, not per review round.
-- **Shared files belong to the integrator.** When several agents work in
-  parallel (a worktree per slice), the files every slice touches are not
-  theirs to edit: `scripts/check-architecture.py` line ceilings and their
-  `tests/test_check_architecture.py` mirror (the ADR-0058 grace band means
-  a slice rarely needs a ceiling touched at all), `docs/CONTRACT.md`,
-  `CHANGELOG.md`, and the version in `pyproject.toml` /
-  `src/tgcli/__init__.py` (integrator-only under ADR-0058). An agent
-  needing a contract line reports it instead; the integrator lands all of
-  them once.
-- **Parallel waves branch from the integration head**, never from `main`,
-  whenever a campaign has its own integration branch (ADR-0058): a wave
-  based on `main` cannot see the seams earlier waves already landed.
-- **A merged branch does not survive the session that merged it.** Delete it
-  as part of the merge, never "later": `gh pr merge N --squash
-  --delete-branch` (the ruleset enforces linear history, so `--merge` is
-  rejected), then clean the local side with `git branch -d <topic>`
-  and `git remote prune origin`. This applies to every merge, not only
-  releases.
-- Before ending a session that merged anything, `git branch -a` must show
-  nothing but `main` and branches with a still-open PR. Verify with
-  `git branch --merged main` — anything it lists besides `main` is garbage
-  and goes. Use `git branch -d` (never `-D`) so git refuses when a branch is
-  not actually contained.
-- Releases and stacked-PR merges follow
-  [docs/agents/release.md](docs/agents/release.md) literally.
+- Branch `claude/<topic>` or `codex/<topic>`, one coherent change per PR to
+  `main`. Never push to `main` unless asked in this session.
+- Run the gate before pushing and paste its tail into the PR.
+- Merge with `gh pr merge N --squash` only after CI is green.
+- Release when the owner asks: `scripts/prepare-release.py` opens the
+  version bump and `CHANGELOG.md` section in a PR, and the `Release tag`
+  workflow tags and publishes after merge. Stacked PRs and tag recovery:
+  [docs/agents/release.md](docs/agents/release.md).
 
 ## Language
 
-User-facing conversation: Russian. Code, comments, docs in this repo,
-commits, CLI output: English.
+Talk to the owner in Russian. Code, comments, docs, commits, and CLI output are
+English.

@@ -192,13 +192,13 @@ tg --json send --commit p_9f3a
 
 ## Status
 
-v1.2, in production use and owner-gated (ADR-0071): the project still ships features, but new behavior needs an explicit owner request plus an ADR (a scoped plan only for a campaign of three or more PRs, ADR-0073), and a bug fix starts from a reproducing test.
+In production use and owner-gated (ADR-0071): new behavior starts from an owner request, and a bug fix starts from a reproducing test.
 
-CI runs `pytest`, `ruff`, `pyright`, and a fail-closed TL coverage gate on every push and PR ([.github/workflows/ci.yml](.github/workflows/ci.yml)). `scripts/bench.py` is a representative 13-step live smoke benchmark of core read, write, media, and export paths.
+CI runs `pytest`, `ruff`, `pyright`, and a fail-closed TL coverage gate on every PR ([.github/workflows/ci.yml](.github/workflows/ci.yml)). `scripts/bench.py` is a representative 13-step live smoke benchmark of core read, write, media, and export paths.
 
 ## Contributing
 
-The owner gate shapes what lands here: a bug fix starts from a reproducing test, and new behavior needs an owner request plus an ADR before any code. [CONTRIBUTING.md](CONTRIBUTING.md) has the working rules — branch names, the one-command gate, documentation duties — and [AGENTS.md](AGENTS.md) is the full contract every agent follows in this repo. Report a security or privacy issue privately via [SECURITY.md](SECURITY.md); never paste session material or phone numbers into an issue.
+The owner gate shapes what lands here: a bug fix starts from a reproducing test, and new behavior needs an owner request plus an ADR before any code. [CONTRIBUTING.md](CONTRIBUTING.md) covers setup and the one-command gate, and [AGENTS.md](AGENTS.md) is the contract every agent follows in this repo. Report a security or privacy issue privately via [SECURITY.md](SECURITY.md); never paste session material or phone numbers into an issue.
 
 ## Credits
 

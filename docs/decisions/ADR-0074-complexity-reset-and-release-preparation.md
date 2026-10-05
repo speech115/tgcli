@@ -1,7 +1,7 @@
 # ADR-0074: Complexity reset, and a script for the mechanical half of a release
 
 Date: 2026-08-03
-Status: accepted
+Status: accepted; rule 1 (complexity reset) superseded by ADR-0120
 Form: ADR-lite (ADR-0058)
 Extends: [ADR-0058](ADR-0058-process-speed-revisions.md) rule 1, which already
 holds ADR-0038's mechanics. Nothing about ownership moves — the integrator

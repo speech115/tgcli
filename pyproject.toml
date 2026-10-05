@@ -43,11 +43,16 @@ extend-exclude = ["**/*.md"]
 # comprehensions (C4). Deliberately out: rule families whose fixes rewrite
 # logic rather than layout (B, SIM, PTH), unused-argument noise from the
 # Telethon fakes in tests (ARG), and RUF ambiguous-unicode, which fires on
-# the Cyrillic strings ADR-0050 requires.
-select = ["E", "W", "F", "I", "UP", "C4"]
+# the Cyrillic strings ADR-0050 requires. T20 bans `print` in src/: stdout
+# carries contract data only, and diagnostics go through `output`.
+select = ["E", "W", "F", "I", "UP", "C4", "T20"]
 # PEP 695 `type X = ...` builds a TypeAliasType: get_args() on it returns ()
 # and the read-operation registry test introspects that union.
 ignore = ["UP040"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/**" = ["T20"]
+"tests/**" = ["T20"]
 
 [tool.ruff.lint.isort]
 # `from x import a as b, c as d` stays one statement; splitting aliased members
