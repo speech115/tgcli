@@ -19,6 +19,10 @@ uv sync
 uv run tg --help
 ```
 
+A green gate proves the code matches the fakes. To prove a behavior change
+against real Telegram, read-only, follow
+[.claude/skills/verify/SKILL.md](.claude/skills/verify/SKILL.md).
+
 ## Rules a check enforces
 
 Breaking one of these fails the gate. Don't restate them elsewhere. If a check
