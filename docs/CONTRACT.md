@@ -996,7 +996,11 @@ Every successfully parsed command appends one JSON object to
 `~/.local/state/tgcli/invocations.jsonl` (or `TGCLI_STATE_DIR/invocations.jsonl`):
 `timestamp`, `command`, resolved `account` when applicable, `role` when
 `--session-role` was set (ADR-0062; omitted for the primary), `exit_code`,
-structured `error` code when applicable, and `duration_ms`. Runs that
+structured `error` code when applicable, and `duration_ms`. A failed run
+also carries `error_site`, the `module:function` inside tgcli that raised it
+(for example `session:session_file_lock` for a busy session), and an
+untranslated failure carries `error_type`, the exception class name. A
+`tg api` run carries `api_method`, the TL method name. Runs that
 actually issued governed requests additionally carry `governed_sleep_ms`
 (total deliberate pacing/flood sleep) and `request_count`. A flood-related
 exit (exit 5) additionally carries `retry_after`, `request_type` (the
