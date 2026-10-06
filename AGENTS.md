@@ -82,8 +82,9 @@ mistake can no longer happen is deleted.
   `main`. Never push to `main` unless asked in this session.
 - Run the gate before pushing; CI runs the same gate.
 - Merge with `gh pr merge N --squash` only after CI is green.
-- There are no releases, tags, or changelog: `main` is what runs, and git log
-  is the history.
+- `main` is what runs, and git log is the history; there is no changelog.
+  Release only when the owner asks: bump the version in a PR, then tag
+  `vX.Y.Z` on `main` and publish notes with `gh release create`.
 
 ## Language
 
