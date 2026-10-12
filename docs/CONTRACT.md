@@ -102,7 +102,10 @@ loops (backfill, clone, export, bulk media, `tg run` scripts) are paced,
 interactive commands are not. `contacts.resolvePhone` waits 3 s from its
 first request. A FloodWait records the server's deadline for that request
 type in `governor.db`: until it passes, every tgcli process refuses that
-type locally with exit 5 and `retry_after`, sending nothing. An unreadable
+type locally with exit 5 and `retry_after`, sending nothing. Under
+`--max-runtime`, a wait that fits the remaining cap — a fresh FloodWait or
+a recorded one — is slept out instead, and a flooded request is sent once
+more; a second flood on it exits 5. An unreadable
 `governor.db` loses that memory but does not block commands. Governed sleep
 does not count against `--timeout`.
 
