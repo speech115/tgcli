@@ -177,7 +177,9 @@ async def commit(tg, preview_id: str, payload: dict) -> dict:
         snapshot_dir = tempfile.TemporaryDirectory(prefix="tgcli-send-")
         try:
             snapshot = _verified_file_snapshot(payload, snapshot_dir.name)
-            uploaded = await tg.upload_file(str(snapshot))
+            uploaded = await tg.upload_file(
+                str(snapshot), file_name=Path(original_path).name
+            )
             request = functions.messages.SendMediaRequest(
                 **common, media=_uploaded_media(uploaded, original_path)
             )
