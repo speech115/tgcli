@@ -94,13 +94,17 @@ async def uploaded_media(tg, message, path, progress=None):
         invoke=invoke,
         progress=clone_progress.transfer_of(progress, message, "upload"),
     )
+    # A blur the source put on purpose is content: dropping it publishes the
+    # media uncovered.
+    spoiler = getattr(message.media, "spoiler", None) or None
     if isinstance(message.media, types.MessageMediaPhoto):
-        return types.InputMediaUploadedPhoto(file=input_file)
+        return types.InputMediaUploadedPhoto(file=input_file, spoiler=spoiler)
     document = message.media.document
     return types.InputMediaUploadedDocument(
         file=input_file,
         mime_type=getattr(document, "mime_type", None) or "application/octet-stream",
         attributes=list(getattr(document, "attributes", None) or ()),
+        spoiler=spoiler,
         thumb=await uploaded_thumb(
             tg, message, document, Path(path).with_name(f"thumb-{message.id}"), invoke
         ),

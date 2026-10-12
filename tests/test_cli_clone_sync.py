@@ -3427,6 +3427,58 @@ def test_clone_sync_reuploads_protected_photo_with_caption_and_cleans_tempfile(
     assert state.load(clone_state.clone_id).dest_for(2) == 2
 
 
+@pytest.mark.parametrize(
+    "media",
+    [
+        types.MessageMediaPhoto(spoiler=True, photo=types.PhotoEmpty(id=7)),
+        types.MessageMediaDocument(
+            spoiler=True,
+            document=SimpleNamespace(mime_type="video/mp4", attributes=[]),
+        ),
+    ],
+)
+def test_clone_sync_reupload_keeps_source_spoiler(
+    config_env, monkeypatch, capsys, media
+):
+    """A blurred source media must not be republished uncovered."""
+    seed_clone()
+    client = CloneReuploadClient([message(2, media=media)], protected=True)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMediaRequest)
+    assert request.media.spoiler is True
+
+
+def test_clone_sync_reupload_album_keeps_source_spoiler(
+    config_env, monkeypatch, capsys
+):
+    seed_clone()
+    covered = types.MessageMediaPhoto(spoiler=True, photo=types.PhotoEmpty(id=7))
+    plain = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=8))
+    client = CloneReuploadClient(
+        [
+            message(2, media=covered, grouped_id=5),
+            message(3, media=plain, grouped_id=5),
+        ],
+        protected=True,
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    [multi] = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.messages.SendMultiMediaRequest)
+    ]
+    assert [item.media.spoiler for item in multi.multi_media] == [True, None]
+
+
 def test_clone_sync_download_failure_keeps_protected_batch_retryable(
     config_env, monkeypatch, capsys
 ):
