@@ -1285,6 +1285,111 @@ def test_sync_defers_cross_leg_comment_beyond_posts_cursor(
     assert done.discussion_cursor >= 12
 
 
+def test_sync_points_channel_post_at_copied_group_comment(
+    config_env, monkeypatch, capsys
+):
+    """A channel post replying to a comment already copied into the destination
+    group sends the reply into that group, never at the channel's own message
+    with the group's id."""
+    from tgcli.clone import legs
+
+    monkeypatch.setattr(legs, "WINDOW", 2)
+    seed_comments_clone()
+
+    class GroupInputClient(CloneCommentsClient):
+        async def get_input_entity(self, ref):
+            if ref is self.destination_group:
+                return types.InputPeerChannel(channel_id=888, access_hash=1)
+            return await super().get_input_entity(ref)
+
+    # Window 1 copies posts 2,3 and comment 12 (→ 501); window 2 copies post 4.
+    client = GroupInputClient(
+        [
+            message(2),
+            message(3),
+            message(
+                4,
+                message="answer",
+                reply_to=types.MessageReplyHeader(
+                    reply_to_msg_id=12, reply_to_peer_id=types.PeerChannel(55)
+                ),
+            ),
+        ],
+        [
+            anchor(10, 2),
+            message(
+                12,
+                message="question",
+                reply_to=types.MessageReplyHeader(reply_to_msg_id=10),
+            ),
+        ],
+    )
+    client.anchor_ids = {2: 500, 3: 600}
+    client.group_last_id = 500
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] == 4
+    assert sync["reply_flattened"] == 0
+    [post] = [
+        item
+        for item in client.requests
+        if getattr(item, "peer", None) is client.destination
+        and getattr(item, "reply_to", None) is not None
+    ]
+    assert (
+        post.reply_to.to_dict()
+        == types.InputReplyToMessage(
+            reply_to_msg_id=501,
+            reply_to_peer_id=types.InputPeerChannel(channel_id=888, access_hash=1),
+        ).to_dict()
+    )
+
+
+def test_sync_flattens_channel_post_quoting_comment_before_group_resolves(
+    config_env, monkeypatch, capsys
+):
+    """On a later run the posts window runs before the comments leg resolves
+    the destination group: the reply flattens instead of pointing at a channel
+    message that merely shares the group comment's id."""
+    clone_state = seed_comments_clone(discussion_cursor=12)
+    clone_state.record_mapping(2, 2)
+    clone_state.record_discussion_mapping(12, 3)
+    clone_state.cursor = 2
+    state.save(clone_state)
+    client = CloneCommentsClient(
+        [
+            message(2),
+            message(
+                4,
+                message="answer",
+                reply_to=types.MessageReplyHeader(
+                    reply_to_msg_id=12, reply_to_peer_id=types.PeerChannel(55)
+                ),
+            ),
+        ],
+        [anchor(10, 2), message(12)],
+    )
+    client.destination_last_id = 2
+    client.group_last_id = 3
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] == 1
+    assert sync["reply_flattened"] == 1
+    [post] = [
+        item
+        for item in client.requests
+        if getattr(item, "peer", None) is client.destination
+        or getattr(item, "to_peer", None) is client.destination
+    ]
+    assert getattr(post, "reply_to", None) is None
+
+
 def test_sync_copies_off_thread_group_messages(config_env, monkeypatch, capsys):
     """A plain group message with no reply header clones into the destination
     group through the megagroup transport rules, keeping its author header."""

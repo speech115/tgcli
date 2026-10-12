@@ -137,6 +137,7 @@ async def _cross_leg_reply(
     destination_post_id = _other_dest(leg, classified.parent_id)
     if destination_post_id is None:
         return None
+    reply_to_peer_id = None
     # Discussion leg quotes a channel post: point at the destination's
     # discussion anchor for that post (same walk as thread-root remap).
     if leg.map_field == "discussion_id_map":
@@ -145,13 +146,19 @@ async def _cross_leg_reply(
             return None
         reply_to_msg_id = found
     else:
+        # Posts leg quotes a group comment: the id lives in the destination
+        # group, so the reply must name it; unresolved yet → flatten.
+        if ctx.destination_group is None:
+            return None
         reply_to_msg_id = destination_post_id
+        reply_to_peer_id = await ctx.tg.get_input_entity(ctx.destination_group)
     quote_text, quote_entities, quote_offset = _quote_fields(classified)
     top_destination_id = None
     if classified.top_id is not None:
         top_destination_id = leg.dest_for(classified.top_id)
     return types.InputReplyToMessage(
         reply_to_msg_id=reply_to_msg_id,
+        reply_to_peer_id=reply_to_peer_id,
         top_msg_id=top_destination_id,
         quote_text=quote_text,
         quote_entities=quote_entities,
