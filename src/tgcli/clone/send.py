@@ -78,6 +78,8 @@ async def reupload_batch(
             return await _send(
                 tg,
                 destination,
+                clone_state,
+                account_alias,
                 messages,
                 random_ids,
                 reply_to,
@@ -118,7 +120,16 @@ async def reupload_batch(
         return input_media
 
     return await _send(
-        tg, destination, messages, random_ids, reply_to, author, plan, uploaded
+        tg,
+        destination,
+        clone_state,
+        account_alias,
+        messages,
+        random_ids,
+        reply_to,
+        author,
+        plan,
+        uploaded,
     )
 
 
@@ -132,7 +143,16 @@ async def _referenced(message):
 
 
 async def _send(
-    tg, destination, messages, random_ids, reply_to, author, plan, media_for
+    tg,
+    destination,
+    clone_state,
+    account_alias,
+    messages,
+    random_ids,
+    reply_to,
+    author,
+    plan,
+    media_for,
 ):
     """One SendMessage/SendMedia/SendMultiMedia for the batch; ``media_for``
     turns a source message into the InputMedia this send carries."""
@@ -155,7 +175,9 @@ async def _send(
             request = functions.messages.SendMediaRequest(
                 **common, media=await media_for(message, False)
             )
-        return await tg(request)
+        return await _send_without_unavailable_emoji(
+            tg, request, messages, clone_state, account_alias
+        )
     multi_media = []
     for index, (message, random_id) in enumerate(
         zip(messages, random_ids, strict=True)
@@ -171,11 +193,88 @@ async def _send(
                 entities=entities,
             )
         )
-    return await tg(
-        functions.messages.SendMultiMediaRequest(
-            peer=destination, multi_media=multi_media, reply_to=reply_to
+    request = functions.messages.SendMultiMediaRequest(
+        peer=destination, multi_media=multi_media, reply_to=reply_to
+    )
+    return await _send_without_unavailable_emoji(
+        tg, request, messages, clone_state, account_alias
+    )
+
+
+async def _send_without_unavailable_emoji(
+    tg, request, messages, clone_state, account_alias
+):
+    """Send ``request``; on DOCUMENT_INVALID drop the custom emoji Telegram can
+    no longer resolve and retry once. Their Unicode text stays, so the copy
+    loses only the custom look. If none proves unavailable, the error stands."""
+    bodies = getattr(request, "multi_media", None) or [request]
+    try:
+        return await tg(request)
+    except telethon_errors.DocumentInvalidError:
+        wanted = {
+            entity.document_id
+            for body in bodies
+            for entity in body.entities or ()
+            if isinstance(entity, types.MessageEntityCustomEmoji)
+        }
+        unavailable = await _unavailable_emoji(tg, wanted) if wanted else set()
+        if not unavailable:
+            raise
+    dropped = {}
+    for message, body in zip(messages, bodies, strict=True):
+        kept = [
+            entity
+            for entity in body.entities or ()
+            if not isinstance(entity, types.MessageEntityCustomEmoji)
+            or entity.document_id not in unavailable
+        ]
+        if len(kept) != len(body.entities or ()):
+            dropped[message.id] = len(body.entities) - len(kept)
+        body.entities = kept
+    safety.append_audit(
+        "clone-sync-emoji-fallback",
+        account_alias,
+        {
+            "clone_id": clone_state.clone_id,
+            "source_message_ids": list(dropped),
+            "document_ids": sorted(unavailable),
+        },
+    )
+    response = await tg(request)
+    for message_id, count in dropped.items():
+        note(
+            f"warning: clone source message {message_id}: {count} unavailable "
+            "custom emoji sent as plain text"
+        )
+    return response
+
+
+async def _unavailable_emoji(tg, document_ids) -> set[int]:
+    """Emoji whose document is gone or whose set answers STICKERSET_INVALID."""
+    documents = await tg(
+        functions.messages.GetCustomEmojiDocumentsRequest(
+            document_id=sorted(document_ids)
         )
     )
+    # Telegram answers a gone emoji with DocumentEmpty, not by omitting it.
+    unavailable = set(document_ids) - {
+        document.id for document in documents if isinstance(document, types.Document)
+    }
+    sets = {}  # set id -> (InputStickerSetID, its emoji document ids)
+    for document in documents:
+        for attribute in getattr(document, "attributes", ()):
+            if not isinstance(attribute, types.DocumentAttributeCustomEmoji):
+                continue
+            stickerset = attribute.stickerset
+            if isinstance(stickerset, types.InputStickerSetID):
+                _, members = sets.setdefault(stickerset.id, (stickerset, []))
+                members.append(document.id)
+    for stickerset, members in sets.values():
+        try:
+            await tg(functions.messages.GetStickerSetRequest(stickerset, hash=0))
+        except telethon_errors.StickersetInvalidError:
+            unavailable.update(members)
+    return unavailable
 
 
 async def forward_batch(
@@ -264,7 +363,8 @@ async def forward_batch(
             account_alias,
             {"clone_id": clone_state.clone_id, "source_message_ids": source_ids},
         )
-        response = await tg(
+        response = await _send_without_unavailable_emoji(
+            tg,
             functions.messages.SendMessageRequest(
                 peer=destination,
                 message=text,
@@ -273,6 +373,9 @@ async def forward_batch(
                 no_webpage=True,
                 entities=entities,
             ),
+            messages,
+            clone_state,
+            account_alias,
         )
     elif plan.mode == "forwarded":
         safety.append_audit(
