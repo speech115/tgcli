@@ -10,7 +10,6 @@ from pathlib import Path
 # modules were already larger and may not grow past their own limit.
 MAX_LINES = 800
 OVERSIZE = {
-    "src/tgcli/commands/clone.py": 1100,
     "src/tgcli/commands/media.py": 900,
 }
 

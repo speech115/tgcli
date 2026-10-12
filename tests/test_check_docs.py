@@ -100,8 +100,7 @@ def test_readme_clone_commits_retry_the_same_preview_after_failure(tmp_path):
 
     assert result.returncode == 1
     assert (
-        "README.md: clone init/refresh retries must reuse the same preview id"
-        in result.stdout
+        "README.md: clone init retries must reuse the same preview id" in result.stdout
     )
 
 

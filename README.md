@@ -159,7 +159,7 @@ Sessions, locks, previews, the audit log, and cache live under `~/.local/state/t
 
 ## Preview → commit
 
-Reads are free. Preview-backed mutations — `send`, `edit`, `delete`, `forward`, `draft set|clear`, `clone init`, and `clone refresh` — use two invocations. The first resolves and renders the exact intent into a single-use preview record; the second commits that record by id, without retyping it. `clone sync` and `tg run --write` do not mint a preview, but remain gated by `--readonly` / `TGCLI_READONLY` and audited.
+Reads are free. Preview-backed mutations — `send`, `edit`, `delete`, `forward`, `draft set|clear`, and `clone init` — use two invocations. The first resolves and renders the exact intent into a single-use preview record; the second commits that record by id, without retyping it. `clone sync` and `tg run --write` do not mint a preview, but remain gated by `--readonly` / `TGCLI_READONLY` and audited.
 
 ```mermaid
 flowchart LR
@@ -181,7 +181,7 @@ tg --json send --commit p_9f3a
 
 - Previews expire after 5 minutes and are consumed on commit.
 - `send`, `edit`, `delete`, `forward`, and draft commits use the retryable preview lifecycle: after a network/runtime failure, retry the same preview id; never create a second preview. `send` and `forward` additionally use their stored Telegram `random_id` for network-level deduplication.
-- `clone init` and `clone refresh` commits use the same retryable
+- `clone init` commits use the same retryable
   `begin_commit` / `finish_commit` handshake as `send`/`edit` (ADR-0083):
   after a mid-commit failure, retry the same preview id within its TTL;
   never create a second preview for that attempt. Already-applied work is

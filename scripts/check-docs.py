@@ -9,8 +9,8 @@ SKILL.md make about the CLI surface is checked against the parser itself:
   3. every relative markdown link resolves on disk;
   4. README names exactly the root global flags;
   5. README scopes ``random_id`` confirmation to send/forward and requires
-     retrying the same preview id after a failed ``clone init`` /
-     ``clone refresh`` commit (ADR-0083).
+     retrying the same preview id after a failed ``clone init`` commit
+     (ADR-0083).
 
 Run from the repo root: ``uv run python scripts/check-docs.py``.
 """
@@ -107,12 +107,10 @@ def readme_clone_retry_problems(readme: Path) -> list[str]:
         start = next(
             i
             for i, line in enumerate(lines)
-            if line.lstrip().startswith("- `clone init`") and "`clone refresh`" in line
+            if line.lstrip().startswith("- `clone init`")
         )
     except StopIteration:
-        return [
-            f"{readme.name}: clone init/refresh retries must reuse the same preview id"
-        ]
+        return [f"{readme.name}: clone init retries must reuse the same preview id"]
     block = [lines[start]]
     for line in lines[start + 1 :]:
         if line.startswith("- ") or (line.strip() and not line.startswith((" ", "\t"))):
@@ -120,9 +118,7 @@ def readme_clone_retry_problems(readme: Path) -> list[str]:
         block.append(line)
     block_text = "\n".join(block)
     if "fresh preview" in block_text or "same preview id" not in block_text:
-        return [
-            f"{readme.name}: clone init/refresh retries must reuse the same preview id"
-        ]
+        return [f"{readme.name}: clone init retries must reuse the same preview id"]
     return []
 
 

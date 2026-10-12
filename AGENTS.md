@@ -34,7 +34,7 @@ is wrong, fix the check.
 | stdout carries contract data only; diagnostics go to stderr through `output.note()` | ruff `T20` (no `print`), `tests/test_output.py` |
 | State that is read back later is written with `tgcli.atomic.replace_text`, never `write_text` | `scripts/check-architecture.py` |
 | Read commands are reachable only through `read_ops` | `scripts/check-architecture.py` |
-| No module passes 800 lines; split it instead (two listed exceptions) | `scripts/check-architecture.py` (`MAX_LINES`) |
+| No module passes 800 lines; split it instead (one listed exception) | `scripts/check-architecture.py` (`MAX_LINES`) |
 | Exit codes come from the `errors.py` hierarchy and match CONTRACT §4 | `tests/test_contract_exit_codes.py` |
 | Every mutation goes through preview → commit and the readonly gates | `src/tgcli/preview_commit.py` registry, `tests/test_preview_commit.py`, `tests/test_safety.py` |
 | Audit is written before the mutation, and an unwritable audit blocks it | `tests/test_safety.py`, `tests/test_cli_mutate.py` |

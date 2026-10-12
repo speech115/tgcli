@@ -410,7 +410,6 @@ def test_deadline_defaults_match_the_contract(monkeypatch):
     # implicit 60 s would kill them mid-run.
     assert default_timeout_for(["clone", "init", "@s"]) is None
     assert default_timeout_for(["clone", "sync", "@s"]) is None
-    assert default_timeout_for(["clone", "refresh", "@s"]) is None
     assert default_timeout_for(["archive", "backfill", "--private"]) is None
     assert default_timeout_for(["archive", "sync"]) is None
     assert default_timeout_for(["archive", "transcribe"]) is None

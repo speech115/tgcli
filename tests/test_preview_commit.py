@@ -10,7 +10,6 @@ def test_preview_commit_registry_covers_every_handshake():
         ("delete", None): "delete",
         ("forward", None): "forward",
         ("clone", "init"): "clone-init",
-        ("clone", "refresh"): "clone-refresh",
         ("draft", "set"): "draft-set",
         ("draft", "clear"): "draft-clear",
     }
