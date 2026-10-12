@@ -696,6 +696,38 @@ def test_sync_flood_mid_window_keeps_prior_window_comments(
     assert saved.discussion_cursor >= 12
 
 
+def test_sync_post_reply_after_a_comments_window_keeps_its_channel_target(
+    config_env, monkeypatch, capsys
+):
+    """A post in a later window replying to an earlier post points at that
+    post's destination copy. The group message sharing the parent's numeric id
+    anchors another post; the posts leg must not read it as a thread root."""
+    from tgcli.clone import legs
+
+    monkeypatch.setattr(legs, "WINDOW", 2)
+    seed_comments_clone()
+    client = CloneCommentsClient(
+        [
+            message(2),
+            message(3),
+            message(4, reply_to=types.MessageReplyHeader(reply_to_msg_id=2)),
+        ],
+        [anchor(1, 2), anchor(2, 3), anchor(3, 4)],
+    )
+    client.anchor_ids = {2: 500, 3: 600, 4: 700}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    capsys.readouterr()
+    [reply] = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.messages.SendMessageRequest)
+        and item.peer is client.destination
+    ]
+    assert reply.reply_to.reply_to_msg_id == 2
+
+
 def test_sync_comments_phase_stops_at_anchor_beyond_posts_cursor(
     config_env, monkeypatch, capsys
 ):
