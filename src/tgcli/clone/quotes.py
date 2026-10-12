@@ -198,6 +198,10 @@ async def _place_thread(
 
     Folded from ``comments._remap`` so both legs share one resolution walk.
     """
+    # Only a comment has a thread root: a post's parent id names the channel,
+    # and the group's own message under that id may anchor an unrelated post.
+    if leg.map_field != "discussion_id_map":
+        return plan
     if ctx.source_group is None or ctx.source_channel_id is None:
         return plan
     header = getattr(messages[0], "reply_to", None)
