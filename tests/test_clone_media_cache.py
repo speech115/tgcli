@@ -16,8 +16,7 @@ from tests.test_cli_clone_sync import (
     seed_clone,
 )
 from tgcli.cli import main
-from tgcli.clone import state
-from tgcli.commands import clone as clone_cmd
+from tgcli.clone import reupload, state
 from tgcli.errors import PolicyError
 from tgcli.transfer import CHUNK_SIZE, media_byte_size
 
@@ -41,7 +40,7 @@ def test_media_cache_dir_is_under_clones_state(state_dir_env):
         account_user_id=1, source_peer_id=2, source_title="S"
     )
     expected = state.clones_dir() / f"{clone_state.clone_id}-media"
-    assert clone_cmd._media_cache_dir(clone_state) == expected
+    assert reupload.cache_dir(clone_state) == expected
 
 
 @pytest.mark.asyncio
@@ -51,21 +50,19 @@ async def test_download_reuses_matching_name_and_size(state_dir_env, monkeypatch
     )
     clone_state.destination_peer_id = 9
     state.save(clone_state)
-    cache = clone_cmd._media_cache_dir(clone_state)
+    cache = reupload.cache_dir(clone_state)
     cache.mkdir(parents=True)
     target = cache / "src-2"
     payload = b"cached-bytes-here"
     target.write_bytes(payload)
-    clone_cmd._complete_marker(target).touch()
+    reupload.complete_marker(target).touch()
     msg = _photo_message(2, size=len(payload))
 
     class NoDownloadTg:
         async def download_media(self, message, file=None):
             raise AssertionError("matching cache must not download")
 
-    path = await clone_cmd._download_for_reupload(
-        NoDownloadTg(), msg, cache, clone_state
-    )
+    path = await reupload.download_for_reupload(NoDownloadTg(), msg, cache, clone_state)
     assert path == target
     assert path.read_bytes() == payload
 
@@ -79,7 +76,7 @@ async def test_unmarked_full_size_cache_file_is_redownloaded(state_dir_env):
     )
     clone_state.destination_peer_id = 9
     state.save(clone_state)
-    cache = clone_cmd._media_cache_dir(clone_state)
+    cache = reupload.cache_dir(clone_state)
     cache.mkdir(parents=True)
     target = cache / "src-2"
     size = 32
@@ -95,11 +92,11 @@ async def test_unmarked_full_size_cache_file_is_redownloaded(state_dir_env):
             downloads.append(path)
             return str(path)
 
-    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state)
+    path = await reupload.download_for_reupload(Tg(), msg, cache, clone_state)
 
     assert len(downloads) == 1
     assert path.read_bytes() == b"R" * size
-    assert clone_cmd._complete_marker(path).is_file()
+    assert reupload.complete_marker(path).is_file()
 
 
 @pytest.mark.asyncio
@@ -109,7 +106,7 @@ async def test_download_rejects_stale_size_and_redownloads(state_dir_env):
     )
     clone_state.destination_peer_id = 9
     state.save(clone_state)
-    cache = clone_cmd._media_cache_dir(clone_state)
+    cache = reupload.cache_dir(clone_state)
     cache.mkdir(parents=True)
     target = cache / "src-2"
     target.write_bytes(b"stale")
@@ -123,7 +120,7 @@ async def test_download_rejects_stale_size_and_redownloads(state_dir_env):
             downloads.append(path)
             return str(path)
 
-    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state)
+    path = await reupload.download_for_reupload(Tg(), msg, cache, clone_state)
     assert path.read_bytes() == b"x" * 20
     assert len(downloads) == 1
 
@@ -136,7 +133,7 @@ async def test_stale_large_cache_redownloads_without_file_exists_error(state_dir
     )
     clone_state.destination_peer_id = 9
     state.save(clone_state)
-    cache = clone_cmd._media_cache_dir(clone_state)
+    cache = reupload.cache_dir(clone_state)
     cache.mkdir(parents=True)
     target = cache / "src-2"
     size = CHUNK_SIZE + 1
@@ -157,7 +154,7 @@ async def test_stale_large_cache_redownloads_without_file_exists_error(state_dir
                 position += len(chunk)
                 yield chunk
 
-    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state)
+    path = await reupload.download_for_reupload(Tg(), msg, cache, clone_state)
     assert path == target
     assert path.stat().st_size == size
     assert path.read_bytes()[:13] != b"stale-partial"
@@ -177,7 +174,7 @@ def _striped_clone_state():
 async def test_streamed_download_publishes_final_name_only_when_complete(state_dir_env):
     """A killed download must not leave a full-size file to be reused."""
     clone_state = _striped_clone_state()
-    cache = clone_cmd._media_cache_dir(clone_state)
+    cache = reupload.cache_dir(clone_state)
     cache.mkdir(parents=True)
     target = cache / "src-2"
     size = CHUNK_SIZE + 1
@@ -196,7 +193,7 @@ async def test_streamed_download_publishes_final_name_only_when_complete(state_d
                 position += len(chunk)
                 yield chunk
 
-    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state)
+    path = await reupload.download_for_reupload(Tg(), msg, cache, clone_state)
     assert final_seen and not any(final_seen)
     assert path == target
     assert target.stat().st_size == size
@@ -206,7 +203,7 @@ async def test_streamed_download_publishes_final_name_only_when_complete(state_d
 @pytest.mark.asyncio
 async def test_interrupted_download_leaves_no_final_file(state_dir_env):
     clone_state = _striped_clone_state()
-    cache = clone_cmd._media_cache_dir(clone_state)
+    cache = reupload.cache_dir(clone_state)
     cache.mkdir(parents=True)
     size = CHUNK_SIZE + 1
     msg = _photo_message(2, size=size)
@@ -222,7 +219,7 @@ async def test_interrupted_download_leaves_no_final_file(state_dir_env):
             yield b""  # pragma: no cover - generator marker
 
     with pytest.raises(telethon_errors.RPCError):
-        await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state)
+        await reupload.download_for_reupload(Tg(), msg, cache, clone_state)
     assert not (cache / "src-2").exists()
 
 
@@ -230,7 +227,7 @@ async def test_interrupted_download_leaves_no_final_file(state_dir_env):
 async def test_abandoned_part_file_is_not_reused_and_redownloads(state_dir_env):
     """A kill mid-stripe leaves the pre-allocated .part; the next run replaces it."""
     clone_state = _striped_clone_state()
-    cache = clone_cmd._media_cache_dir(clone_state)
+    cache = reupload.cache_dir(clone_state)
     cache.mkdir(parents=True)
     size = CHUNK_SIZE + 1
     part = cache / "src-2.part"
@@ -249,7 +246,7 @@ async def test_abandoned_part_file_is_not_reused_and_redownloads(state_dir_env):
                 position += len(chunk)
                 yield chunk
 
-    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state)
+    path = await reupload.download_for_reupload(Tg(), msg, cache, clone_state)
     assert path == cache / "src-2"
     assert path.read_bytes()[:1] == b"N"
     assert not part.exists()
@@ -258,7 +255,7 @@ async def test_abandoned_part_file_is_not_reused_and_redownloads(state_dir_env):
 @pytest.mark.asyncio
 async def test_streamed_download_result_is_reused_without_rpcs(state_dir_env):
     clone_state = _striped_clone_state()
-    cache = clone_cmd._media_cache_dir(clone_state)
+    cache = reupload.cache_dir(clone_state)
     cache.mkdir(parents=True)
     size = CHUNK_SIZE + 1
     msg = _photo_message(2, size=size)
@@ -282,8 +279,8 @@ async def test_streamed_download_result_is_reused_without_rpcs(state_dir_env):
             raise AssertionError("complete cache must not download")
             yield b""  # pragma: no cover - generator marker
 
-    first = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state)
-    again = await clone_cmd._download_for_reupload(NoRpcTg(), msg, cache, clone_state)
+    first = await reupload.download_for_reupload(Tg(), msg, cache, clone_state)
+    again = await reupload.download_for_reupload(NoRpcTg(), msg, cache, clone_state)
     assert again == first
     assert again.stat().st_size == size
 
@@ -295,7 +292,7 @@ async def test_download_without_predictable_size_never_reuses(state_dir_env):
     )
     clone_state.destination_peer_id = 9
     state.save(clone_state)
-    cache = clone_cmd._media_cache_dir(clone_state)
+    cache = reupload.cache_dir(clone_state)
     cache.mkdir(parents=True)
     target = cache / "src-2"
     target.write_bytes(b"whatever")
@@ -315,7 +312,7 @@ async def test_download_without_predictable_size_never_reuses(state_dir_env):
             downloads.append(path)
             return str(path)
 
-    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state)
+    path = await reupload.download_for_reupload(Tg(), msg, cache, clone_state)
     assert path.read_bytes() == b"fresh"
     assert len(downloads) == 1
 
@@ -451,7 +448,7 @@ async def test_flood_mid_download_resumes_on_the_next_run(state_dir_env):
     protected file larger than one run's flood budget could never finish.
     """
     clone_state = _striped_clone_state()
-    cache = clone_cmd._media_cache_dir(clone_state)
+    cache = reupload.cache_dir(clone_state)
     cache.mkdir(parents=True)
     size = 4 * CHUNK_SIZE
     msg = _photo_message(2, size=size)
@@ -477,13 +474,13 @@ async def test_flood_mid_download_resumes_on_the_next_run(state_dir_env):
 
     tg = FloodOnceTg()
     with pytest.raises(telethon_errors.FloodWaitError):
-        await clone_cmd._download_for_reupload(tg, msg, cache, clone_state)
+        await reupload.download_for_reupload(tg, msg, cache, clone_state)
 
     part = cache / "src-2.part"
     assert part.stat().st_size == 2 * CHUNK_SIZE
     assert not (cache / "src-2").exists()
 
-    path = await clone_cmd._download_for_reupload(tg, msg, cache, clone_state)
+    path = await reupload.download_for_reupload(tg, msg, cache, clone_state)
 
     # Second run picked up where the first stopped, not at zero.
     assert offsets == [0, 2 * CHUNK_SIZE]
@@ -499,7 +496,7 @@ async def test_resumed_download_reports_absolute_progress(state_dir_env, monkeyp
 
     monkeypatch.setattr(transfer, "PROGRESS_EVERY_CHUNKS", 1)
     clone_state = _striped_clone_state()
-    cache = clone_cmd._media_cache_dir(clone_state)
+    cache = reupload.cache_dir(clone_state)
     cache.mkdir(parents=True)
     size = 4 * CHUNK_SIZE
     msg = _photo_message(2, size=size)
@@ -528,10 +525,10 @@ async def test_resumed_download_reports_absolute_progress(state_dir_env, monkeyp
 
     tg = Tg()
     with pytest.raises(telethon_errors.FloodWaitError):
-        await clone_cmd._download_for_reupload(
+        await reupload.download_for_reupload(
             tg, msg, cache, clone_state, progress=Progress()
         )
-    await clone_cmd._download_for_reupload(
+    await reupload.download_for_reupload(
         tg, msg, cache, clone_state, progress=Progress()
     )
 
@@ -548,11 +545,11 @@ async def test_resumed_download_reports_absolute_progress(state_dir_env, monkeyp
 async def test_partial_download_for_a_different_size_is_discarded(state_dir_env):
     """The cached bytes belong to one media revision, not to the name."""
     clone_state = _striped_clone_state()
-    cache = clone_cmd._media_cache_dir(clone_state)
+    cache = reupload.cache_dir(clone_state)
     cache.mkdir(parents=True)
     part = cache / "src-2.part"
     part.write_bytes(b"O" * CHUNK_SIZE)
-    clone_cmd._download_checkpoint(part).write_text(
+    reupload.download_checkpoint(part).write_text(
         json.dumps({"size": 999999, "offset": CHUNK_SIZE})
     )
     size = 2 * CHUNK_SIZE
@@ -571,7 +568,7 @@ async def test_partial_download_for_a_different_size_is_discarded(state_dir_env)
                 position += len(chunk)
                 yield chunk
 
-    path = await clone_cmd._download_for_reupload(Tg(), msg, cache, clone_state)
+    path = await reupload.download_for_reupload(Tg(), msg, cache, clone_state)
 
     assert offsets == [0]
     assert path.read_bytes() == b"N" * size
@@ -585,7 +582,7 @@ async def test_short_stream_never_publishes_the_final_name(state_dir_env):
     full-size *sparse* file the reuse check would have uploaded as media.
     """
     clone_state = _striped_clone_state()
-    cache = clone_cmd._media_cache_dir(clone_state)
+    cache = reupload.cache_dir(clone_state)
     cache.mkdir(parents=True)
     size = 4 * CHUNK_SIZE
     msg = _photo_message(2, size=size)
@@ -598,7 +595,7 @@ async def test_short_stream_never_publishes_the_final_name(state_dir_env):
             yield b"N" * CHUNK_SIZE
 
     with pytest.raises(PolicyError, match="stopped at"):
-        await clone_cmd._download_for_reupload(ShortTg(), msg, cache, clone_state)
+        await reupload.download_for_reupload(ShortTg(), msg, cache, clone_state)
 
     assert not (cache / "src-2").exists()
     # The bytes that did arrive are kept for the next run.
@@ -626,12 +623,12 @@ async def test_partial_download_of_a_replaced_media_is_discarded(state_dir_env):
     copy (review finding).
     """
     clone_state = _striped_clone_state()
-    cache = clone_cmd._media_cache_dir(clone_state)
+    cache = reupload.cache_dir(clone_state)
     cache.mkdir(parents=True)
     size = 4 * CHUNK_SIZE
     part = cache / "src-2.part"
     part.write_bytes(b"O" * (2 * CHUNK_SIZE))
-    clone_cmd._download_checkpoint(part).write_text(
+    reupload.download_checkpoint(part).write_text(
         json.dumps({"size": size, "media_id": 111, "offset": 2 * CHUNK_SIZE})
     )
     offsets: list[int] = []
@@ -648,7 +645,7 @@ async def test_partial_download_of_a_replaced_media_is_discarded(state_dir_env):
                 position += len(chunk)
                 yield chunk
 
-    path = await clone_cmd._download_for_reupload(
+    path = await reupload.download_for_reupload(
         Tg(), _sized_video(2, size=size, document_id=222), cache, clone_state
     )
 
@@ -659,12 +656,12 @@ async def test_partial_download_of_a_replaced_media_is_discarded(state_dir_env):
 @pytest.mark.asyncio
 async def test_partial_download_of_the_same_media_still_resumes(state_dir_env):
     clone_state = _striped_clone_state()
-    cache = clone_cmd._media_cache_dir(clone_state)
+    cache = reupload.cache_dir(clone_state)
     cache.mkdir(parents=True)
     size = 4 * CHUNK_SIZE
     part = cache / "src-2.part"
     part.write_bytes(b"O" * (2 * CHUNK_SIZE))
-    clone_cmd._download_checkpoint(part).write_text(
+    reupload.download_checkpoint(part).write_text(
         json.dumps({"size": size, "media_id": 222, "offset": 2 * CHUNK_SIZE})
     )
     offsets: list[int] = []
@@ -681,7 +678,7 @@ async def test_partial_download_of_the_same_media_still_resumes(state_dir_env):
                 position += len(chunk)
                 yield chunk
 
-    await clone_cmd._download_for_reupload(
+    await reupload.download_for_reupload(
         Tg(), _sized_video(2, size=size, document_id=222), cache, clone_state
     )
 

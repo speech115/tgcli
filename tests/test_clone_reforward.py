@@ -57,10 +57,6 @@ def _photo(photo_id=7, spoiler=False):
     return types.MessageMediaPhoto(photo=types.PhotoEmpty(id=photo_id), spoiler=spoiler)
 
 
-async def _invoke(make_awaitable):
-    return await make_awaitable()
-
-
 class FakeTg:
     def __init__(self, *, group=None, get_entity_error=None, search_results=()):
         self.group = group
@@ -178,9 +174,7 @@ def test_locate_happy_path_returns_group_and_message_id():
     tg = FakeTg(group=group, search_results=[candidate])
     cache: dict = {}
 
-    result = asyncio.run(
-        reforward.locate(tg, _clone_state(), post, cache, invoke=_invoke)
-    )
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
 
     assert result == (group, 321)
     [call] = tg.get_messages_calls
@@ -202,7 +196,6 @@ def test_locate_none_without_discussion_source_peer_issues_no_rpc():
             _clone_state(discussion_source_peer_id=None),
             post,
             cache,
-            invoke=_invoke,
         )
     )
 
@@ -218,9 +211,7 @@ def test_locate_none_when_group_is_protected_issues_no_search():
     tg = FakeTg(group=group)
     cache: dict = {}
 
-    result = asyncio.run(
-        reforward.locate(tg, _clone_state(), post, cache, invoke=_invoke)
-    )
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
 
     assert result is None
     assert tg.get_messages_calls == []
@@ -232,9 +223,7 @@ def test_locate_none_when_group_unreachable():
     tg = FakeTg(get_entity_error=ValueError("not joined"))
     cache: dict = {}
 
-    result = asyncio.run(
-        reforward.locate(tg, _clone_state(), post, cache, invoke=_invoke)
-    )
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
 
     assert result is None
     assert tg.get_messages_calls == []
@@ -253,9 +242,7 @@ def test_locate_none_when_two_candidates_match_sender_and_date():
     )
     cache: dict = {}
 
-    result = asyncio.run(
-        reforward.locate(tg, _clone_state(), post, cache, invoke=_invoke)
-    )
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
 
     assert result is None
 
@@ -269,9 +256,7 @@ def test_locate_none_when_candidate_text_was_edited_after_repost():
     tg = FakeTg(group=group, search_results=[_candidate(1, message="original body")])
     cache: dict = {}
 
-    result = asyncio.run(
-        reforward.locate(tg, _clone_state(), post, cache, invoke=_invoke)
-    )
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
 
     assert result is None
 
@@ -283,9 +268,7 @@ def test_locate_none_when_candidate_is_missing_media_the_post_has():
     tg = FakeTg(group=group, search_results=[_candidate(1, message="body", media=None)])
     cache: dict = {}
 
-    result = asyncio.run(
-        reforward.locate(tg, _clone_state(), post, cache, invoke=_invoke)
-    )
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
 
     assert result is None
 
@@ -299,9 +282,7 @@ def test_locate_none_when_post_is_missing_media_the_candidate_has():
     )
     cache: dict = {}
 
-    result = asyncio.run(
-        reforward.locate(tg, _clone_state(), post, cache, invoke=_invoke)
-    )
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
 
     assert result is None
 
@@ -319,9 +300,7 @@ def test_locate_none_when_the_post_hides_media_the_candidate_shows():
     )
     cache: dict = {}
 
-    result = asyncio.run(
-        reforward.locate(tg, _clone_state(), post, cache, invoke=_invoke)
-    )
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
 
     assert result is None
 
@@ -336,9 +315,7 @@ def test_locate_matches_when_the_spoiler_flag_agrees():
     )
     cache: dict = {}
 
-    result = asyncio.run(
-        reforward.locate(tg, _clone_state(), post, cache, invoke=_invoke)
-    )
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
 
     assert result == (group, 1)
 
@@ -356,9 +333,7 @@ def test_locate_none_when_candidate_entities_differ_from_post():
     )
     cache: dict = {}
 
-    result = asyncio.run(
-        reforward.locate(tg, _clone_state(), post, cache, invoke=_invoke)
-    )
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
 
     assert result is None
 
@@ -375,9 +350,7 @@ def test_locate_matches_when_candidate_entities_are_identical():
     tg = FakeTg(group=group, search_results=[candidate])
     cache: dict = {}
 
-    result = asyncio.run(
-        reforward.locate(tg, _clone_state(), post, cache, invoke=_invoke)
-    )
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
 
     assert result == (group, 321)
 
@@ -392,9 +365,7 @@ def test_locate_none_when_candidate_date_outside_window_is_ignored():
     )
     cache: dict = {}
 
-    result = asyncio.run(
-        reforward.locate(tg, _clone_state(), post, cache, invoke=_invoke)
-    )
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
 
     assert result is None
 
@@ -409,8 +380,8 @@ def test_source_group_resolved_once_per_run_across_locate_calls():
         fwd_from=_fwd(from_id=types.PeerUser(user_id=10)), message="body"
     )
 
-    asyncio.run(reforward.locate(tg, clone_state, first_post, cache, invoke=_invoke))
-    asyncio.run(reforward.locate(tg, clone_state, second_post, cache, invoke=_invoke))
+    asyncio.run(reforward.locate(tg, clone_state, first_post, cache))
+    asyncio.run(reforward.locate(tg, clone_state, second_post, cache))
 
     assert len(tg.get_entity_calls) == 1
 
@@ -428,7 +399,7 @@ def test_locate_propagates_flood_wait():
     cache: dict = {}
 
     with pytest.raises(telethon_errors.FloodWaitError):
-        asyncio.run(reforward.locate(tg, _clone_state(), post, cache, invoke=_invoke))
+        asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
 
 
 def _keyboard(*, url="https://example.com", text="Open"):
@@ -455,7 +426,7 @@ def test_locate_none_when_the_candidate_carries_a_different_keyboard():
     candidate.reply_markup = _keyboard(url="https://other.example")
     tg = FakeTg(group=group, search_results=[candidate])
 
-    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}, invoke=_invoke))
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}))
 
     assert result is None
 
@@ -467,7 +438,7 @@ def test_locate_none_when_only_the_post_carries_a_keyboard():
     group = SimpleNamespace(id=55, noforwards=False)
     tg = FakeTg(group=group, search_results=[_candidate(1, message="body")])
 
-    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}, invoke=_invoke))
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}))
 
     assert result is None
 
@@ -483,9 +454,7 @@ def test_locate_matches_when_the_keyboards_are_identical():
     candidate.reply_markup = _keyboard()
     tg = FakeTg(group=group, search_results=[candidate])
 
-    assert asyncio.run(
-        reforward.locate(tg, _clone_state(), post, {}, invoke=_invoke)
-    ) == (group, 1)
+    assert asyncio.run(reforward.locate(tg, _clone_state(), post, {})) == (group, 1)
 
 
 def test_locate_none_when_a_button_payload_differs_under_the_same_label():
@@ -512,7 +481,7 @@ def test_locate_none_when_a_button_payload_differs_under_the_same_label():
     )
     tg = FakeTg(group=group, search_results=[candidate])
 
-    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}, invoke=_invoke))
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}))
 
     assert result is None
 
@@ -529,7 +498,7 @@ def test_locate_none_when_the_markup_class_differs_with_equal_rows():
     candidate.reply_markup = types.ReplyKeyboardMarkup(rows=[row])
     tg = FakeTg(group=group, search_results=[candidate])
 
-    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}, invoke=_invoke))
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}))
 
     assert result is None
 
@@ -544,7 +513,7 @@ def test_locate_none_when_only_the_candidate_hides_a_keyboard():
     candidate.reply_markup = types.ReplyKeyboardHide()
     tg = FakeTg(group=group, search_results=[candidate])
 
-    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}, invoke=_invoke))
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}))
 
     assert result is None
 
@@ -570,6 +539,6 @@ def test_locate_none_when_only_an_entity_detail_differs():
         ],
     )
 
-    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}, invoke=_invoke))
+    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}))
 
     assert result is None

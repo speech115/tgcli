@@ -1,7 +1,6 @@
 import json
 import os
 import stat
-from datetime import UTC, datetime
 
 import pytest
 
@@ -606,31 +605,6 @@ def test_incomplete_state_is_policy_error(tmp_path, monkeypatch):
         state.load(s.clone_id)
 
 
-def test_cooldown_round_trip():
-    s = _fresh()
-    deadline = datetime(2026, 7, 15, 12, 0, tzinfo=UTC)
-    s.set_cooldown(deadline)
-    state.save(s)
-
-    loaded = state.load(s.clone_id)
-    assert loaded.cooldown_deadline() == deadline
-
-
-def test_set_cooldown_requires_timezone_aware():
-    s = _fresh()
-    with pytest.raises(ValueError):
-        s.set_cooldown(datetime(2026, 7, 15, 12, 0))
-
-
-def test_set_cooldown_keeps_later_deadline():
-    s = _fresh()
-    longer = datetime(2026, 7, 15, 12, 30, tzinfo=UTC)
-    shorter = datetime(2026, 7, 15, 12, 5, tzinfo=UTC)
-    s.set_cooldown(longer)
-    s.set_cooldown(shorter)
-    assert s.cooldown_deadline() == longer
-
-
 def test_record_mapping_and_dest_for():
     s = _fresh()
     s.record_mapping(12, 5)
@@ -846,23 +820,6 @@ def test_supersede_preserves_unreadable_v1_file(tmp_path, monkeypatch):
     assert len(archived) == 1
     assert not path.exists()
     assert json.loads(archived[0].read_text())["version"] == 1
-
-
-def test_cooldown_deadline_clamps_a_clock_skewed_arm():
-    """A deadline armed while the host clock ran ahead must not brick this
-    clone slot forever — same ceiling the account-scoped record uses."""
-    from datetime import timedelta
-
-    from tgcli.clone import state as state_mod
-
-    s = _fresh()
-    s.retry_not_before = (datetime.now(UTC) + timedelta(days=400)).isoformat()
-
-    deadline = s.cooldown_deadline()
-
-    assert deadline is not None
-    ceiling = datetime.now(UTC) + timedelta(seconds=state_mod.MAX_COOLDOWN_S + 5)
-    assert deadline <= ceiling
 
 
 def test_save_writes_sqlite_database(tmp_path, monkeypatch):

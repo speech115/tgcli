@@ -118,7 +118,7 @@ def test_author_of_uses_me_for_own_messages():
     me = types.User(id=1, first_name="Me")
     message = SimpleNamespace(from_id=types.PeerUser(user_id=1), sender_id=1, out=True)
     author = asyncio.run(
-        attribution.author_of(None, SimpleNamespace(id=2), message, me, {}, None)
+        attribution.author_of(None, SimpleNamespace(id=2), message, me, {})
     )
     assert author == attribution.Author(text="Me", mention_user_id=1)
 
@@ -131,21 +131,14 @@ def test_author_of_caches_entity_lookups():
             calls.append(peer)
             return SimpleNamespace(title="Chan")
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     cache = {}
     me = SimpleNamespace(id=1)
     message = SimpleNamespace(
         from_id=types.PeerChannel(channel_id=9), sender_id=9, out=False
     )
     source = SimpleNamespace(id=2)
-    first = asyncio.run(
-        attribution.author_of(Client(), source, message, me, cache, cooldown)
-    )
-    second = asyncio.run(
-        attribution.author_of(Client(), source, message, me, cache, cooldown)
-    )
+    first = asyncio.run(attribution.author_of(Client(), source, message, me, cache))
+    second = asyncio.run(attribution.author_of(Client(), source, message, me, cache))
     assert first == second == attribution.Author(text="Chan")
     assert len(calls) == 1
 
@@ -155,9 +148,6 @@ def test_author_of_prefers_username():
         async def get_entity(self, peer):
             return types.User(id=9, first_name="Ivan", username="ivan")
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     author = asyncio.run(
         attribution.author_of(
             Client(),
@@ -165,7 +155,6 @@ def test_author_of_prefers_username():
             SimpleNamespace(from_id=types.PeerUser(user_id=9), sender_id=9, out=False),
             SimpleNamespace(id=1),
             {},
-            cooldown,
         )
     )
     assert author == attribution.Author(text="Ivan (@ivan)")
@@ -184,9 +173,6 @@ def test_author_of_prefers_active_username_from_usernames():
                 ],
             )
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     author = asyncio.run(
         attribution.author_of(
             Client(),
@@ -194,7 +180,6 @@ def test_author_of_prefers_active_username_from_usernames():
             SimpleNamespace(from_id=types.PeerUser(user_id=9), sender_id=9, out=False),
             SimpleNamespace(id=1),
             {},
-            cooldown,
         )
     )
     assert author == attribution.Author(text="Ivan (@ivan)")
@@ -205,9 +190,6 @@ def test_author_of_mentions_user_without_username():
         async def get_entity(self, peer):
             return types.User(id=9, first_name="Ivan", username=None)
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     author = asyncio.run(
         attribution.author_of(
             Client(),
@@ -215,7 +197,6 @@ def test_author_of_mentions_user_without_username():
             SimpleNamespace(from_id=types.PeerUser(user_id=9), sender_id=9, out=False),
             SimpleNamespace(id=1),
             {},
-            cooldown,
         )
     )
     assert author == attribution.Author(text="Ivan", mention_user_id=9)
@@ -226,9 +207,6 @@ def test_author_of_does_not_mention_non_user_senders():
         async def get_entity(self, peer):
             return SimpleNamespace(id=9, title="Chan", username=None, usernames=[])
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     author = asyncio.run(
         attribution.author_of(
             Client(),
@@ -238,7 +216,6 @@ def test_author_of_does_not_mention_non_user_senders():
             ),
             SimpleNamespace(id=1),
             {},
-            cooldown,
         )
     )
     assert author == attribution.Author(text="Chan")
@@ -249,9 +226,6 @@ def test_author_of_falls_back_to_id_for_unresolvable_peer():
         async def get_entity(self, peer):
             raise ValueError("no such peer")
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     author = asyncio.run(
         attribution.author_of(
             Client(),
@@ -259,7 +233,6 @@ def test_author_of_falls_back_to_id_for_unresolvable_peer():
             SimpleNamespace(from_id=types.PeerUser(user_id=9), sender_id=9, out=False),
             SimpleNamespace(id=1),
             {},
-            cooldown,
         )
     )
     assert author == attribution.Author(text="id 9")
@@ -273,9 +246,6 @@ def test_author_of_falls_back_to_id_when_get_entity_raises_rpc_error():
         async def get_entity(self, peer):
             raise telethon_errors.ChannelPrivateError(request=None)
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     author = asyncio.run(
         attribution.author_of(
             Client(),
@@ -283,7 +253,6 @@ def test_author_of_falls_back_to_id_when_get_entity_raises_rpc_error():
             SimpleNamespace(from_id=types.PeerUser(user_id=9), sender_id=9, out=False),
             SimpleNamespace(id=1),
             {},
-            cooldown,
         )
     )
     assert author == attribution.Author(text="id 9")
@@ -293,9 +262,6 @@ def test_author_of_propagates_flood_wait():
     class Client:
         async def get_entity(self, peer):
             raise telethon_errors.FloodWaitError(request=None, capture=30)
-
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
 
     with pytest.raises(telethon_errors.FloodWaitError):
         asyncio.run(
@@ -307,7 +273,6 @@ def test_author_of_propagates_flood_wait():
                 ),
                 SimpleNamespace(id=1),
                 {},
-                cooldown,
             )
         )
 
@@ -322,7 +287,6 @@ def test_author_of_uses_post_author_when_sender_is_absent():
             ),
             SimpleNamespace(id=1),
             {},
-            None,
         )
     )
     assert author == attribution.Author(text="Editor")
@@ -336,7 +300,6 @@ def test_author_of_falls_back_to_id_unknown_without_sender_or_signature():
             SimpleNamespace(from_id=None, sender_id=None, out=False, post_author=None),
             SimpleNamespace(id=1),
             {},
-            None,
         )
     )
     assert author == attribution.Author(text="id unknown")
@@ -357,12 +320,7 @@ def test_author_of_names_the_group_for_an_anonymous_as_group_comment():
     `post_author`; every client labels it with the group's own title (#81)."""
     author = asyncio.run(
         attribution.author_of(
-            None,
-            ANONYMOUS_GROUP,
-            _anonymous_comment(),
-            SimpleNamespace(id=1),
-            {},
-            None,
+            None, ANONYMOUS_GROUP, _anonymous_comment(), SimpleNamespace(id=1), {}
         )
     )
     assert author == attribution.Author(text="Режим")
@@ -377,7 +335,6 @@ def test_author_of_prefers_post_author_over_the_group_title():
             _anonymous_comment(post_author="Editor"),
             SimpleNamespace(id=1),
             {},
-            None,
         )
     )
     assert author == attribution.Author(text="Editor")
@@ -391,9 +348,6 @@ def test_author_of_keeps_the_channel_for_a_channel_as_author_comment():
             assert peer == types.PeerChannel(channel_id=3740847993)
             return SimpleNamespace(id=3740847993, title="Пылесос")
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     author = asyncio.run(
         attribution.author_of(
             Client(),
@@ -406,7 +360,6 @@ def test_author_of_keeps_the_channel_for_a_channel_as_author_comment():
             ),
             SimpleNamespace(id=1),
             {},
-            cooldown,
         )
     )
     assert author == attribution.Author(text="Пылесос")
@@ -416,9 +369,6 @@ def test_author_of_keeps_the_user_ladder_for_an_ordinary_comment():
     class Client:
         async def get_entity(self, peer):
             return types.User(id=828831254, first_name="Филипп", last_name="Козлов")
-
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
 
     author = asyncio.run(
         attribution.author_of(
@@ -432,7 +382,6 @@ def test_author_of_keeps_the_user_ladder_for_an_ordinary_comment():
             ),
             SimpleNamespace(id=1),
             {},
-            cooldown,
         )
     )
     assert author == attribution.Author(text="Филипп Козлов", mention_user_id=828831254)
@@ -441,7 +390,7 @@ def test_author_of_keeps_the_user_ladder_for_an_ordinary_comment():
 def test_author_of_falls_back_to_id_unknown_without_peer_or_ambient_chat():
     author = asyncio.run(
         attribution.author_of(
-            None, None, _anonymous_comment(), SimpleNamespace(id=1), {}, None
+            None, None, _anonymous_comment(), SimpleNamespace(id=1), {}
         )
     )
     assert author == attribution.Author(text="id unknown")
@@ -464,12 +413,9 @@ def test_forwarded_author_of_resolves_peer_user_like_identify():
             assert peer == types.PeerUser(user_id=9)
             return types.User(id=9, first_name="Ivan", username="ivan")
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     author = asyncio.run(
         attribution.forwarded_author_of(
-            Client(), _fwd_message(from_id=types.PeerUser(user_id=9)), {}, cooldown
+            Client(), _fwd_message(from_id=types.PeerUser(user_id=9)), {}
         )
     )
     assert author == attribution.Author(text="Ivan (@ivan)", lead=FORWARD_LEAD)
@@ -480,12 +426,9 @@ def test_forwarded_author_of_mentions_user_without_username():
         async def get_entity(self, peer):
             return types.User(id=9, first_name="Ivan", username=None)
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     author = asyncio.run(
         attribution.forwarded_author_of(
-            Client(), _fwd_message(from_id=types.PeerUser(user_id=9)), {}, cooldown
+            Client(), _fwd_message(from_id=types.PeerUser(user_id=9)), {}
         )
     )
     assert author == attribution.Author(
@@ -498,15 +441,11 @@ def test_forwarded_author_of_uses_channel_title_without_mention():
         async def get_entity(self, peer):
             return SimpleNamespace(id=9, title="News", username=None, usernames=[])
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     author = asyncio.run(
         attribution.forwarded_author_of(
             Client(),
             _fwd_message(from_id=types.PeerChannel(channel_id=9)),
             {},
-            cooldown,
         )
     )
     assert author == attribution.Author(text="News", lead=FORWARD_LEAD)
@@ -518,9 +457,7 @@ def test_forwarded_author_of_uses_channel_title_without_mention():
 def test_forwarded_author_of_from_name_is_verbatim_without_mention():
     """Privacy rung: hidden account → from_name only; never re-link."""
     author = asyncio.run(
-        attribution.forwarded_author_of(
-            None, _fwd_message(from_name="Кто-то"), {}, None
-        )
+        attribution.forwarded_author_of(None, _fwd_message(from_name="Кто-то"), {})
     )
     assert author == attribution.Author(text="Кто-то", lead=FORWARD_LEAD)
     assert author.mention_user_id is None
@@ -535,17 +472,13 @@ def test_forwarded_author_of_from_name_is_verbatim_without_mention():
 
 def test_forwarded_author_of_uses_post_author_signature():
     author = asyncio.run(
-        attribution.forwarded_author_of(
-            None, _fwd_message(post_author="Редакция"), {}, None
-        )
+        attribution.forwarded_author_of(None, _fwd_message(post_author="Редакция"), {})
     )
     assert author == attribution.Author(text="Редакция", lead=FORWARD_LEAD)
 
 
 def test_forwarded_author_of_bare_word_when_nothing_resolvable():
-    author = asyncio.run(
-        attribution.forwarded_author_of(None, _fwd_message(), {}, None)
-    )
+    author = asyncio.run(attribution.forwarded_author_of(None, _fwd_message(), {}))
     assert author == attribution.Author(text="", lead="Переслано")
     text, entities = attribution.prefixed("body", None, author)
     assert text == "Переслано\n\nbody"
@@ -557,15 +490,11 @@ def test_forwarded_author_of_falls_back_when_get_entity_raises_value_error():
         async def get_entity(self, peer):
             raise ValueError("no such peer")
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     author = asyncio.run(
         attribution.forwarded_author_of(
             Client(),
             _fwd_message(from_id=types.PeerUser(user_id=9), from_name="Кто-то"),
             {},
-            cooldown,
         )
     )
     assert author == attribution.Author(text="Кто-то", lead=FORWARD_LEAD)
@@ -580,9 +509,6 @@ def test_forwarded_author_of_falls_back_to_from_name_when_get_entity_raises_rpc_
         async def get_entity(self, peer):
             raise telethon_errors.ChannelPrivateError(request=None)
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     author = asyncio.run(
         attribution.forwarded_author_of(
             Client(),
@@ -590,7 +516,6 @@ def test_forwarded_author_of_falls_back_to_from_name_when_get_entity_raises_rpc_
                 from_id=types.PeerChannel(channel_id=1987061209), from_name="Кто-то"
             ),
             {},
-            cooldown,
         )
     )
     assert author == attribution.Author(text="Кто-то", lead=FORWARD_LEAD)
@@ -601,15 +526,11 @@ def test_forwarded_author_of_falls_back_to_bare_word_when_get_entity_raises_rpc_
         async def get_entity(self, peer):
             raise telethon_errors.ChannelPrivateError(request=None)
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     author = asyncio.run(
         attribution.forwarded_author_of(
             Client(),
             _fwd_message(from_id=types.PeerChannel(channel_id=1987061209)),
             {},
-            cooldown,
         )
     )
     assert author == attribution.Author(text="", lead="Переслано")
@@ -637,12 +558,9 @@ def test_forwarded_author_of_uses_message_forward_chat_when_get_entity_refuses()
         async def get_sender(self):
             return None
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     msg = _fwd_message(from_id=types.PeerChannel(channel_id=1629147115))
     msg.forward = Forward()
-    author = asyncio.run(attribution.forwarded_author_of(Client(), msg, {}, cooldown))
+    author = asyncio.run(attribution.forwarded_author_of(Client(), msg, {}))
     assert author == attribution.Author(
         text="Комьюнити Арсена Маркаряна", lead=FORWARD_LEAD
     )
@@ -658,14 +576,11 @@ def test_forwarded_author_of_caches_rpc_error_refusal():
             calls.append(peer)
             raise telethon_errors.ChannelPrivateError(request=None)
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     cache = {}
     client = Client()
     msg = _fwd_message(from_id=types.PeerChannel(channel_id=1987061209))
-    first = asyncio.run(attribution.forwarded_author_of(client, msg, cache, cooldown))
-    second = asyncio.run(attribution.forwarded_author_of(client, msg, cache, cooldown))
+    first = asyncio.run(attribution.forwarded_author_of(client, msg, cache))
+    second = asyncio.run(attribution.forwarded_author_of(client, msg, cache))
     assert first == second == attribution.Author(text="", lead="Переслано")
     assert len(calls) == 1
 
@@ -678,15 +593,10 @@ def test_forwarded_author_of_reuses_author_cache():
             calls.append(peer)
             return types.User(id=9, first_name="Ivan", username=None)
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     cache = {}
     msg = _fwd_message(from_id=types.PeerUser(user_id=9))
-    first = asyncio.run(attribution.forwarded_author_of(Client(), msg, cache, cooldown))
-    second = asyncio.run(
-        attribution.forwarded_author_of(Client(), msg, cache, cooldown)
-    )
+    first = asyncio.run(attribution.forwarded_author_of(Client(), msg, cache))
+    second = asyncio.run(attribution.forwarded_author_of(Client(), msg, cache))
     assert (
         first
         == second
@@ -700,15 +610,11 @@ def test_forwarded_author_of_propagates_flood_wait():
         async def get_entity(self, peer):
             raise telethon_errors.FloodWaitError(request=None, capture=30)
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     with pytest.raises(telethon_errors.FloodWaitError):
         asyncio.run(
             attribution.forwarded_author_of(
                 Client(),
                 _fwd_message(from_id=types.PeerUser(user_id=9)),
                 {},
-                cooldown,
             )
         )

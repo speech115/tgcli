@@ -106,7 +106,6 @@ async def _capture_breakdown(
     *,
     peer,
     account_alias: str,
-    invoke,
 ) -> tuple[types.MessageMediaPoll, bytes | None, dict[str, Any]]:
     option = bytes(media.poll.answers[0].option)  # type: ignore[arg-type]
     cast = functions.messages.SendVoteRequest(
@@ -117,7 +116,7 @@ async def _capture_breakdown(
         account_alias,
         {"message_id": message.id, "option": option.hex()},
     )
-    updates = await invoke(lambda: tg(cast))
+    updates = await tg(cast)
     retract = functions.messages.SendVoteRequest(
         peer=peer, msg_id=message.id, options=[]
     )
@@ -133,7 +132,7 @@ async def _capture_breakdown(
         # (ADR-0048 decisions 2/4). The governor's seam already armed the
         # per-type cooldown, so nothing is lost by disclosing instead.
         try:
-            await invoke(lambda: tg(retract))
+            await tg(retract)
         except (telethon_errors.RPCError, OSError) as exc:
             safety.append_audit(
                 "clone-sync-poll-retract-result",
@@ -192,7 +191,6 @@ async def render(
     *,
     peer=None,
     account_alias: str | None = None,
-    invoke=None,
 ) -> tuple[str, list, dict[str, Any] | None]:
     media = getattr(message, "media", None)
     if isinstance(media, types.MessageMediaPoll):
@@ -206,7 +204,6 @@ async def render(
             if (
                 peer is not None
                 and account_alias is not None
-                and invoke is not None
                 and _vote_capture_allowed()
                 and _poll_eligible_for_vote(media.poll)
             ):
@@ -216,7 +213,6 @@ async def render(
                     media,
                     peer=peer,
                     account_alias=account_alias,
-                    invoke=invoke,
                 )
             else:
                 if not _vote_capture_allowed():

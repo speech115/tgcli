@@ -8,8 +8,7 @@ correctly in a terminal, a log file, `tail -f`, and an agent transcript.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from typing import Any
+from collections.abc import Callable
 
 from telethon import errors as telethon_errors
 
@@ -20,18 +19,15 @@ MEGABYTE = 1024 * 1024
 # stuck, rare enough that a long sync does not flood a transcript.
 PROGRESS_EVERY_BYTES = 5 * MEGABYTE
 
-# Zero-arg thunk → fresh awaitable (ADR-0052 task 1); matches transfer.Invoke.
-Invoke = Callable[[Callable[[], Awaitable[Any]]], Awaitable[Any]]
 
-
-async def approximate_total(tg, entity, invoke: Invoke) -> int | None:
+async def approximate_total(tg, entity) -> int | None:
     """Best-effort source size for the `~total`; never fails a sync.
 
-    FloodWait still propagates through ``invoke`` so a hot account keeps the
-    ADR-0045 exit-5 posture instead of syncing on a rate-limited session.
+    FloodWait still propagates, so a hot account keeps the exit-5 posture
+    instead of syncing on a rate-limited session.
     """
     try:
-        return (await invoke(lambda: tg.get_messages(entity, limit=0))).total
+        return (await tg.get_messages(entity, limit=0)).total
     except telethon_errors.FloodWaitError:
         raise
     except (telethon_errors.RPCError, AttributeError, ValueError):
@@ -97,7 +93,7 @@ class SyncProgress:
         self._total_resolved = total is not None
         self._known: dict[int, int | None] = {}
 
-    async def resolve_total(self, tg, entity, invoke: Invoke) -> None:
+    async def resolve_total(self, tg, entity) -> None:
         """Fetch `~total` once per entity, lazily, on the first batch reported.
 
         A sync with nothing to copy spends no RPC on a cosmetic number — the
@@ -113,7 +109,7 @@ class SyncProgress:
         marker = getattr(entity, "id", None)
         key = marker if type(marker) is int else id(entity)
         if key not in self._known:
-            self._known[key] = await approximate_total(tg, entity, invoke)
+            self._known[key] = await approximate_total(tg, entity)
         self._total = self._known[key]
 
     def _prefix(self) -> str:

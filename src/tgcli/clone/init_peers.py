@@ -18,7 +18,6 @@ from telethon.tl import functions, types
 from tgcli import safety
 from tgcli.clone import (
     attribution,
-    cooldown as cooldown_mod,
     discussion,
     state,
 )
@@ -51,7 +50,7 @@ async def marker_candidates(tg, marker: str, shape_ok) -> tuple[list[Any], list[
     return valid, wrong_shape
 
 
-async def copy_profile(tg, source, destination, account_alias, clone_state, cooldown):
+async def copy_profile(tg, source, destination, account_alias, clone_state):
     """Copies about/avatar onto destination; returns the source's full chat.
 
     The avatar copy is idempotent: the copied source photo id is recorded in
@@ -60,19 +59,13 @@ async def copy_profile(tg, source, destination, account_alias, clone_state, cool
     """
     clone_id = clone_state.clone_id
     if isinstance(source, types.User):
-        full = await cooldown(
-            lambda: tg(functions.users.GetFullUserRequest(source))  # type: ignore  # Telethon resolves the entity
-        )
+        full = await tg(functions.users.GetFullUserRequest(source))  # type: ignore  # Telethon resolves the entity
         about = getattr(full.full_user, "about", None) or ""
     elif isinstance(source, types.Chat):
-        full = await cooldown(
-            lambda: tg(functions.messages.GetFullChatRequest(chat_id=source.id))
-        )
+        full = await tg(functions.messages.GetFullChatRequest(chat_id=source.id))
         about = getattr(full.full_chat, "about", None) or ""
     else:
-        full = await cooldown(
-            lambda: tg(functions.channels.GetFullChannelRequest(source))
-        )
+        full = await tg(functions.channels.GetFullChannelRequest(source))
         about = getattr(full.full_chat, "about", None) or ""
     if about:
         safety.append_audit(
@@ -84,12 +77,8 @@ async def copy_profile(tg, source, destination, account_alias, clone_state, cool
             },
         )
         try:
-            await cooldown(
-                lambda: tg(
-                    functions.messages.EditChatAboutRequest(
-                        peer=destination, about=about
-                    )
-                )
+            await tg(
+                functions.messages.EditChatAboutRequest(peer=destination, about=about)
             )
         except telethon_errors.ChatAboutNotModifiedError:
             pass
@@ -103,12 +92,12 @@ async def copy_profile(tg, source, destination, account_alias, clone_state, cool
     if photo_id is not None and clone_state.avatar_for(source.id) == photo_id:
         return full_chat
     with tempfile.TemporaryDirectory(prefix="tgcli-clone-avatar-") as workdir:
-        downloaded = await cooldown(
-            lambda: tg.download_profile_photo(source, file=Path(workdir) / "avatar")
+        downloaded = await tg.download_profile_photo(
+            source, file=Path(workdir) / "avatar"
         )
         if downloaded is None:
             raise PolicyError("clone source avatar download failed")
-        uploaded = await cooldown(lambda: tg.upload_file(downloaded))
+        uploaded = await tg.upload_file(downloaded)
         safety.append_audit(
             "clone-init-avatar",
             account_alias,
@@ -117,12 +106,10 @@ async def copy_profile(tg, source, destination, account_alias, clone_state, cool
                 "source_peer_id": source.id,
             },
         )
-        await cooldown(
-            lambda: tg(
-                functions.channels.EditPhotoRequest(
-                    channel=destination,
-                    photo=types.InputChatUploadedPhoto(file=uploaded),
-                )
+        await tg(
+            functions.channels.EditPhotoRequest(
+                channel=destination,
+                photo=types.InputChatUploadedPhoto(file=uploaded),
             )
         )
         if photo_id is not None:
@@ -145,15 +132,9 @@ async def init_discussion(
         return state.save(clone_state)
     clone_state.discussion_source_peer_id = linked
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
-    def mutate(request):
-        return cooldown_mod.mutate(tg, request)
-
     try:
         source_group = await tg.get_entity(types.PeerChannel(linked))
-        await cooldown(lambda: tg.get_messages(source_group, limit=1))
+        await tg.get_messages(source_group, limit=1)
     except (
         ValueError,
         telethon_errors.ChannelPrivateError,
@@ -165,7 +146,7 @@ async def init_discussion(
     state.save(clone_state)
     group = await discussion.adopt(
         tg,
-        mutate,
+        tg,
         lambda marker, shape_ok: marker_candidates(tg, marker, shape_ok),
         f"{clone_state.creation_marker}-discussion",
         clone_state.discussion_destination_peer_id,
@@ -179,12 +160,12 @@ async def init_discussion(
     state.save(clone_state)
     title = attribution.destination_title(attribution.display_name(source_group))
     if getattr(group, "title", None) != title:
-        await mutate(functions.channels.EditTitleRequest(channel=group, title=title))
+        await tg(functions.channels.EditTitleRequest(channel=group, title=title))
         group.title = title
-    await copy_profile(tg, source_group, group, account_alias, clone_state, cooldown)
+    await copy_profile(tg, source_group, group, account_alias, clone_state)
     safety.append_audit(
         "clone-init-discussion-link", account_alias, {"clone_id": clone_id}
     )
-    await discussion.ensure_linked(mutate, destination, group)
+    await discussion.ensure_linked(tg, destination, group)
     clone_state.discussion_linked = True
     state.save(clone_state)

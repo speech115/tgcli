@@ -12,7 +12,6 @@ from tgcli.clone import (
     attribution,
     batching,
     comments,
-    cooldown as cooldown_mod,
     discussion,
     ergonomics,
     fidelity,
@@ -23,7 +22,6 @@ from tgcli.clone import (
     progress as clone_progress,
     quotes,
     refresh as clone_refresh,
-    reupload,
     roster,
     send as clone_send,
     state,
@@ -274,40 +272,8 @@ async def _peers_to_create(
     return 2 if discussion.linked_chat_id(full.full_chat) is not None else 1
 
 
-# The cooldown gate and the RPC seam now live in clone/cooldown.py; these
-# names stay as the command surface's local vocabulary.
-_enforce_cooldown = cooldown_mod.enforce
-_mutate = cooldown_mod.mutate
-
-
-# Destination shape, marker adoption and profile copy now live in
-# clone/init_peers.py; these names stay as the command surface's vocabulary.
-_is_private_owned_broadcast = init_peers.is_private_owned_broadcast
-_marker_candidates = init_peers.marker_candidates
-_copy_profile = init_peers.copy_profile
-_init_discussion = init_peers.init_discussion
-
-
 async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dict:
-    # Local cooldown gate first — CONTRACT/ADR-0045: no Telegram traffic while
-    # an existing per-clone deadline is active. Preview payload already
-    # carries account_user_id / source_peer_id. `--replace` abandons that
-    # slot outright, so its legacy deadline must not block superseding it
-    # (T19); the governor's account-wide gate still covers every RPC below.
-    account_user_id = payload["account_user_id"]
-    source_peer_id = payload["source_peer_id"]
     replace = bool(payload.get("replace"))
-    early_kind = payload.get("source_kind")
-    early_state = None
-    if early_kind is not None:
-        early_id = state.resolve_slot(account_user_id, source_peer_id, early_kind)
-        try:
-            early_state = state.load(early_id)
-        except PolicyError:
-            early_state = None
-    if early_state is not None and not replace:
-        _enforce_cooldown(early_state)
-
     entity, source_kind, _ = await _resolve_source(tg, source)
     me = await tg.get_me()
     if (
@@ -350,16 +316,17 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
         clone_state.creation_marker = f"tgcli-clone-{clone_id[:12]}{nonce}"
     marker = clone_state.creation_marker
     state.save(clone_state)
-    _enforce_cooldown(clone_state)
     forum = clone_state.destination_kind == "forum"
-    shape_ok = topics.is_forum_destination if forum else _is_private_owned_broadcast
+    shape_ok = (
+        topics.is_forum_destination if forum else init_peers.is_private_owned_broadcast
+    )
     kind_name = "forum megagroup" if forum else "broadcast channel"
     if clone_state.destination_peer_id is not None:
         destination = await _resolve_destination(tg, clone_state.destination_peer_id)
         if not shape_ok(destination):
             raise PolicyError(f"clone destination is not a private owned {kind_name}")
     else:
-        valid, wrong_shape = await _marker_candidates(tg, marker, shape_ok)
+        valid, wrong_shape = await init_peers.marker_candidates(tg, marker, shape_ok)
         if len(valid) + len(wrong_shape) > 1:
             raise PolicyError("clone destination marker matched multiple channels")
         if wrong_shape:
@@ -372,8 +339,7 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
             safety.append_audit(
                 "clone-init-create", account_alias, {"clone_id": clone_id}
             )
-            update = await _mutate(
-                tg,
+            update = await tg(
                 topics.create_request(marker)
                 if forum
                 else functions.channels.CreateChannelRequest(
@@ -393,30 +359,28 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
     if forum and not getattr(destination, "forum", False):
         safety.append_audit("clone-init-forum", account_alias, {"clone_id": clone_id})
     if forum:
-        await topics.ensure_forum(lambda request: _mutate(tg, request), destination)
+        await topics.ensure_forum(lambda request: tg(request), destination)
     titled = attribution.destination_title(clone_state.source_title)
     if getattr(destination, "title", None) != titled:
         safety.append_audit("clone-init-title", account_alias, {"clone_id": clone_id})
-        await _mutate(
-            tg,
+        await tg(
             functions.channels.EditTitleRequest(channel=destination, title=titled),
         )
         destination.title = titled
     _record_destination_name(clone_state, destination)
     state.save(clone_state)
-    full_chat = await _copy_profile(
+    full_chat = await init_peers.copy_profile(
         tg,
         entity,
         destination,
         account_alias,
         clone_state,
-        lambda make_awaitable: make_awaitable(),
     )
     if no_comments:
         clone_state.comments = "disabled"
         state.save(clone_state)
     else:
-        await _init_discussion(
+        await init_peers.init_discussion(
             tg, destination, clone_state, full_chat, account_alias, clone_id
         )
     peers = [destination]
@@ -474,24 +438,9 @@ def init_rows(data: dict) -> list[tuple]:
     ]
 
 
-# The reupload transfer mechanics now live in clone/reupload.py; these names
-# stay as the command surface's local vocabulary.
-_document_thumb = reupload.document_thumb
-_uploaded_thumb = reupload.uploaded_thumb
-_uploaded_media = reupload.uploaded_media
-_media_cache_dir = reupload.cache_dir
-_complete_marker = reupload.complete_marker
-_download_checkpoint = reupload.download_checkpoint
-_download_for_reupload = reupload.download_for_reupload
-
-
 async def sync_text(
     tg, source: str, account_alias: str, *, limit: int | None = None
 ) -> dict:
-    # Account identity is local-session-bound; enforce the account cooldown
-    # before the get_me RPC and the username/entity resolve so a hot account
-    # never hits Telegram at all (ADR-0045). Per-clone deadline is checked
-    # after state load below.
     me = await tg.get_me()
     source_entity, source_kind, _ = await _resolve_source(
         tg, source, account_user_id=me.id
@@ -506,7 +455,6 @@ async def sync_text(
             "clone discussion group is not linked yet; finish the clone with: "
             f"tg clone init {source} (then --commit the preview it prints)"
         )
-    _enforce_cooldown(clone_state)
     # Warn before the work, not only after it: a run killed by FloodWait never
     # reaches the tail, so the resume is where the operator sees this.
     warned_unstarted = clone_progress.comments_unstarted(clone_state)
@@ -520,7 +468,7 @@ async def sync_text(
             and getattr(destination, "forum", False)
         )
         if forum
-        else _is_private_owned_broadcast(destination)
+        else init_peers.is_private_owned_broadcast(destination)
     )
     if not valid_destination:
         kind_name = "forum megagroup" if forum else "broadcast channel"
@@ -544,9 +492,6 @@ async def sync_text(
     transport_counts = {"forwarded": 0, "reuploaded": 0, "snapshots": 0}
     counters = {"topics_created": 0, "skipped_service": 0, "skipped_autoforward": 0}
 
-    def mutate(request):
-        return _mutate(tg, request)
-
     def cap_exhausted() -> bool:
         """--max-runtime hit: stop normally, keep the cursor for resume."""
         remaining = pacing.wall_clock_remaining()
@@ -560,7 +505,7 @@ async def sync_text(
     reforward_cache: dict = {}
     more = False
     posts_leg = legs.posts(clone_state)
-    resolve_ctx = quotes.ResolveContext(tg=tg, mutate=mutate, destination=destination)
+    resolve_ctx = quotes.ResolveContext(tg=tg, mutate=tg, destination=destination)
     progress = clone_progress.SyncProgress(
         source_entity.id, copied=len(clone_state.id_map)
     )
@@ -586,11 +531,7 @@ async def sync_text(
         # `source` is this leg's own entity — the channel for posts, the
         # discussion group for comments — so the ~total describes the work
         # the leg's counter is counting (#174).
-        await progress.resolve_total(
-            tg,
-            source,
-            lambda make_awaitable: make_awaitable(),
-        )
+        await progress.resolve_total(tg, source)
         plan = transport.decide(
             messages,
             leg,
@@ -612,7 +553,7 @@ async def sync_text(
         topic_dest = None
         if forum:
             topic_dest = await topics.ensure_topic(
-                mutate,
+                tg,
                 source,
                 dest,
                 clone_state,
@@ -691,7 +632,7 @@ async def sync_text(
                 ):
                     if clone_state.topic_dest_for(source_message.id) is None:
                         await topics.create_topic(
-                            mutate,
+                            tg,
                             destination,
                             clone_state,
                             source_message.id,
@@ -734,7 +675,7 @@ async def sync_text(
                 clone_state,
                 source_entity,
                 destination,
-                mutate,
+                tg,
                 copy_batch,
                 counters,
                 lambda: limit is not None and copied_batches >= limit,
@@ -755,8 +696,7 @@ async def sync_text(
                 clone_state,
                 source_entity,
                 destination,
-                mutate,
-                lambda make: make(),
+                tg,
                 account_alias,
             )
         else:
@@ -845,7 +785,6 @@ async def _load_refresh_context(tg, source: str):
         raise PolicyError("clone is not initialized; run clone init first")
     if clone_state.source_kind != source_kind:
         raise PolicyError("clone source kind no longer matches initialized state")
-    _enforce_cooldown(clone_state)
     destination = await _resolve_destination(tg, clone_state.destination_peer_id)
     return me, source_entity, destination, clone_state
 
@@ -855,11 +794,8 @@ async def preview_refresh(tg, source: str) -> dict:
         tg, source
     )
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     eligible, excluded = await clone_refresh.candidates(
-        tg, clone_state, source_entity, destination, me, cooldown
+        tg, clone_state, source_entity, destination, me
     )
     pairs = [
         {"source_id": item.source_id, "destination_id": item.destination_id}
@@ -914,21 +850,14 @@ async def commit_refresh(tg, source: str, account_alias: str, payload: dict) -> 
             )
     input_peer = await tg.get_input_entity(destination)
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     author_cache: dict = {}
     edited: list[dict] = []
     skipped: list[dict] = []
     for pair in eligible:
         source_id = pair["source_id"]
         destination_id = pair["destination_id"]
-        source_msgs = await cooldown(
-            lambda: tg.get_messages(source_entity, ids=[source_id])
-        )
-        dest_msgs = await cooldown(
-            lambda: tg.get_messages(destination, ids=[destination_id])
-        )
+        source_msgs = await tg.get_messages(source_entity, ids=[source_id])
+        dest_msgs = await tg.get_messages(destination, ids=[destination_id])
         message = source_msgs[0] if source_msgs else None
         dest = dest_msgs[0] if dest_msgs else None
         if message is None or dest is None:
@@ -944,7 +873,6 @@ async def commit_refresh(tg, source: str, account_alias: str, payload: dict) -> 
             me,
             clone_state.source_kind,
             author_cache,
-            cooldown,
         )
         dest_text = getattr(dest, "message", None) or ""
         dest_entities = getattr(dest, "entities", None)
@@ -963,8 +891,7 @@ async def commit_refresh(tg, source: str, account_alias: str, payload: dict) -> 
             },
         )
         try:
-            await _mutate(
-                tg,
+            await tg(
                 functions.messages.EditMessageRequest(
                     peer=input_peer,
                     id=destination_id,

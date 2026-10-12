@@ -15,7 +15,6 @@ from telethon.tl import functions, types
 from tgcli import safety
 from tgcli.clone import (
     attribution,
-    cooldown,
     quote_fallback,
     reforward,
     reupload,
@@ -25,8 +24,6 @@ from tgcli.clone import (
     transport,
 )
 from tgcli.errors import PolicyError
-
-_mutate = cooldown.mutate
 
 
 def _body_text(message, author, plan) -> tuple[str, list | None]:
@@ -98,7 +95,7 @@ async def reupload_batch(
                     tg, message, downloads[message.id], progress
                 ),
             )
-        response = await _mutate(tg, request)
+        response = await tg(request)
     else:
         multi_media = []
         for index, (message, random_id) in enumerate(
@@ -111,8 +108,7 @@ async def reupload_batch(
             uploaded = await reupload.uploaded_media(
                 tg, message, downloads[message.id], progress
             )
-            stored = await _mutate(
-                tg,
+            stored = await tg(
                 functions.messages.UploadMediaRequest(peer=destination, media=uploaded),
             )
             text, entities = _body_text(message, author if index == 0 else None, plan)
@@ -130,7 +126,7 @@ async def reupload_batch(
         request = functions.messages.SendMultiMediaRequest(
             peer=destination, multi_media=multi_media, reply_to=reply_to
         )
-        response = await _mutate(tg, request)
+        response = await tg(request)
     return response
 
 
@@ -158,16 +154,11 @@ async def forward_batch(
         reply_to = topics.place(reply_to, topic_dest)
     top_msg_id = None if topic_dest in (None, topics.GENERAL_TOPIC_ID) else topic_dest
 
-    async def cooldown(make_awaitable):
-        return await make_awaitable()
-
     # ADR-0050 Part B: a proven original outranks the Part A prefix, because
     # forwarding it carries Telegram's own header instead of describing one.
     proven = None
     if reforward_cache is not None and reforward.eligible(leg, messages, plan):
-        proven = await reforward.locate(
-            tg, clone_state, messages[0], reforward_cache, invoke=cooldown
-        )
+        proven = await reforward.locate(tg, clone_state, messages[0], reforward_cache)
     author = None
     if plan.needs_author and proven is None:
         if (
@@ -175,11 +166,11 @@ async def forward_batch(
             and getattr(messages[0], "fwd_from", None) is not None
         ):
             author = await attribution.forwarded_author_of(
-                tg, messages[0], author_cache, cooldown
+                tg, messages[0], author_cache
             )
         else:
             author = await attribution.author_of(
-                tg, source, messages[0], me, author_cache, cooldown
+                tg, source, messages[0], me, author_cache
             )
     mode = plan.mode
     if proven is not None:
@@ -194,8 +185,7 @@ async def forward_batch(
                 "group_message_ids": [group_message_id],
             },
         )
-        response = await _mutate(
-            tg,
+        response = await tg(
             functions.messages.ForwardMessagesRequest(
                 from_peer=group,
                 id=[group_message_id],
@@ -211,7 +201,6 @@ async def forward_batch(
             messages[0],
             peer=source,
             account_alias=account_alias,
-            invoke=lambda make_awaitable: make_awaitable(),
         )
         if poll_marker is not None and poll_votes is not None:
             poll_votes.append(poll_marker)
@@ -227,8 +216,7 @@ async def forward_batch(
             account_alias,
             {"clone_id": clone_state.clone_id, "source_message_ids": source_ids},
         )
-        response = await _mutate(
-            tg,
+        response = await tg(
             functions.messages.SendMessageRequest(
                 peer=destination,
                 message=text,
@@ -252,7 +240,7 @@ async def forward_batch(
             drop_author=_drops_author(leg, messages),
             top_msg_id=top_msg_id,
         )
-        response = await _mutate(tg, request)
+        response = await tg(request)
     else:
         response = await reupload_batch(
             tg,

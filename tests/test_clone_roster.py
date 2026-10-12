@@ -131,7 +131,6 @@ def test_collect_defers_on_floodwait_and_discards_partial():
     assert result["source"]["count"] == 0
     assert read_lines(clone_state) == []
     # a roster flood must not arm the per-clone cooldown
-    assert clone_state.cooldown_deadline() is None
     # nor anything in the governor's ledger: roster RPCs do not run under
     # the governed seam, so no type is armed (ADR-0072)
     with Ledger.open() as ledger:
@@ -190,7 +189,6 @@ def test_collect_defers_discussion_when_entity_resolve_floods():
     assert result["discussion"]["status"] == "deferred"
     assert result["discussion"]["reason"] == "flood_wait"
     # a roster flood must not arm the per-clone cooldown (ADR-0024)
-    assert clone_state.cooldown_deadline() is None
     # nor the governor's ledger (roster RPCs are not governed)
     with Ledger.open() as ledger:
         assert ledger.active_cooldowns(clone_state.account_user_id) == {}

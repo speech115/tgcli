@@ -211,9 +211,6 @@ async def test_render_casts_and_retracts_vote_for_anonymous_open_poll(monkeypatc
         lambda kind, alias, payload: audits.append((kind, alias, payload)),
     )
 
-    async def invoke(make_awaitable):
-        return await make_awaitable()
-
     client = VoteClient()
     message = _anonymous_open_poll_message()
     text, _, marker = await snapshot.render(
@@ -221,7 +218,6 @@ async def test_render_casts_and_retracts_vote_for_anonymous_open_poll(monkeypatc
         message,
         peer=object(),
         account_alias="main",
-        invoke=invoke,
     )
     votes = [
         req
@@ -299,9 +295,6 @@ async def test_render_retract_failure_marks_loud_outcome(monkeypatch):
     )
     monkeypatch.setattr(snapshot.safety, "append_audit", lambda *a, **k: None)
 
-    async def invoke(make_awaitable):
-        return await make_awaitable()
-
     client = VoteClient(retract_ok=False)
     message = _anonymous_open_poll_message()
     text, _, marker = await snapshot.render(
@@ -309,7 +302,6 @@ async def test_render_retract_failure_marks_loud_outcome(monkeypatch):
         message,
         peer=object(),
         account_alias="main",
-        invoke=invoke,
     )
     assert "40% · 4 голоса" in text
     assert marker["status"] == "retract_failed"
@@ -331,9 +323,6 @@ async def test_render_retracts_even_when_cast_updates_lack_breakdown(monkeypatch
         lambda kind, alias, payload: audits.append((kind, alias, payload)),
     )
 
-    async def invoke(make_awaitable):
-        return await make_awaitable()
-
     client = VoteClient(cast_updates=SimpleNamespace(updates=[]))
     message = _anonymous_open_poll_message()
     text, _, marker = await snapshot.render(
@@ -341,7 +330,6 @@ async def test_render_retracts_even_when_cast_updates_lack_breakdown(monkeypatch
         message,
         peer=object(),
         account_alias="main",
-        invoke=invoke,
     )
     votes = [
         req
@@ -377,9 +365,6 @@ async def test_render_retract_flood_wait_is_disclosed_not_propagated(monkeypatch
         lambda kind, alias, payload: audits.append((kind, alias, payload)),
     )
 
-    async def invoke(make_awaitable):
-        return await make_awaitable()
-
     client = VoteClient(flood_on_retract=True)
     message = _anonymous_open_poll_message()
     text, _, marker = await snapshot.render(
@@ -387,7 +372,6 @@ async def test_render_retract_flood_wait_is_disclosed_not_propagated(monkeypatch
         message,
         peer=object(),
         account_alias="main",
-        invoke=invoke,
     )
     assert "40% · 4 голоса" in text
     assert marker["message_id"] == 31

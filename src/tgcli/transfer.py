@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import hashlib
 import os
-from collections.abc import Awaitable, Callable, Coroutine, Iterable
+from collections.abc import Callable, Coroutine, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -18,10 +18,6 @@ CLONE_TRANSFER_PARALLEL = 4
 # One chunk cadence for every transfer that reports progress (ADR-0043/0049):
 # `media download`, the striped download, and the clone reupload legs.
 PROGRESS_EVERY_CHUNKS = 16
-
-# Zero-arg thunk → fresh awaitable. A coroutine object is single-use; callers
-# that may retry (ADR-0052) must rebuild it, so invoke never receives one.
-Invoke = Callable[[Callable[[], Awaitable[Any]]], Awaitable[Any]]
 
 
 def _photo_with_largest_size_last(media):
@@ -233,7 +229,6 @@ async def upload_parts(
     *,
     parallel: int = CLONE_TRANSFER_PARALLEL,
     file_name: str | None = None,
-    invoke: Invoke | None = None,
     progress: Callable[[int, int], None] | None = None,
 ) -> types.TypeInputFile:
     """Upload ``path`` with up to ``parallel`` concurrent Save*FilePart RPCs.
@@ -254,11 +249,6 @@ async def upload_parts(
     if not is_big:
         hash_md5.update(path.read_bytes())
 
-    async def run(make_awaitable):
-        if invoke is None:
-            return await make_awaitable()
-        return await invoke(make_awaitable)
-
     uploaded = 0
     parts_since_progress = 0
 
@@ -276,7 +266,7 @@ async def upload_parts(
                     request = functions.upload.SaveFilePartRequest(
                         file_id, part_index, part
                     )
-                result = await run(lambda: tg(request))
+                result = await tg(request)
                 if not result:
                     raise RuntimeError(f"Failed to upload file part {part_index}")
                 uploaded += len(part)
