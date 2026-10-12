@@ -16,7 +16,6 @@ from tgcli.archive import (
 from tgcli.commands.read import _dialog_name, message_to_dict
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
 from tgcli.governor import pacing
-from tgcli.output import note
 
 enumerate_private_dialogs = private_enum_mod.enumerate_private_dialogs
 
@@ -87,7 +86,6 @@ async def backfill_one(
     *,
     limit: int,
     account_user_id: int,
-    _flood_slept: bool = False,
 ) -> dict[str, Any]:
     entity = None
     peer: int | None = None
@@ -121,21 +119,9 @@ async def backfill_one(
         more = stored >= limit and limit > 0
     except telethon_errors.FloodWaitError as exc:
         seconds = int(exc.seconds)
+        # The governed seam already slept out a wait that fit the cap and
+        # resent the page; a flood that reaches here ends the run.
         _checkpoint_flood(conn, peer, ids, state, seconds)
-        # iter_messages is an async generator, so the governor's per-type
-        # reservation cannot wrap each page RPC. A wait that fits the
-        # explicit wall-clock cap is slept out once and resumed; one that
-        # does not exits 5 immediately without sleeping (ADR-0072 decision 6).
-        if not _flood_slept and await pacing.sleep_flood(seconds):
-            note(f"flood wait: retrying in {seconds}s")
-            return await backfill_one(
-                tg,
-                conn,
-                chat,
-                limit=limit,
-                account_user_id=account_user_id,
-                _flood_slept=True,
-            )
         raise RateLimitError(
             f"rate limited during archive backfill of {chat!r}",
             retry_after=seconds,

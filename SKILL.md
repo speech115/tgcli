@@ -102,7 +102,7 @@ selected account session, does one operation, and exits.
 | Preview a chat clone | `tg --json clone init SOURCE` |
 | Preview posts-only clone | `tg --json clone init SOURCE --no-comments` |
 | Commit clone destination creation | `tg --json clone init SOURCE --commit p_9f3a` |
-| Copy or catch up a chat | `tg --json clone sync SOURCE` |
+| Copy or catch up a chat | `tg --max-runtime 3600 --json clone sync SOURCE` |
 | Backfill missing forward prefixes on an existing clone | `tg --json clone refresh SOURCE` |
 
 Send is deliberately two-step: preview first, then commit its single-use ID.
@@ -204,7 +204,9 @@ locally (exit 5, `retry_after`) without sending anything. `tg doctor`
 reports active cooldowns and works even while they refuse. Exit 5 means
 wait out `retry_after`; never retry FloodWait in a loop. The default
 `--timeout` is a hang detector that ignores governed sleep; `--max-runtime`
-bounds a long run as a normal stop.
+bounds a long run as a normal stop, and a FloodWait that fits it is slept
+out instead of exiting 5 — give long runs (`clone sync`, bulk media,
+`tg run` loops) a `--max-runtime`.
 
 ### Clone peer budget (ADR-0045)
 

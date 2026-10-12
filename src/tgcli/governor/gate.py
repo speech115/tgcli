@@ -3,12 +3,14 @@
 Around every authenticated Telegram request:
 
 * **before dispatch, cooling** — if this request type is still cooling from
-  a FloodWait, refuse here with exit 5. No RPC leaves: the costly mistake is
-  an agent retrying into a live penalty.
+  a FloodWait, sleep it out when it fits the ``--max-runtime`` cap, else
+  refuse here with exit 5. No RPC leaves: the costly mistake is an agent
+  retrying into a live penalty.
 * **before dispatch, pacing** — past its free requests in this process, a
   type waits its start-to-start interval (``pacing``).
 * **after a flood** — arm the cooldown for exactly the type that drew it,
-  from the server's own ``retry_after``. A failed durable arm keeps a
+  from the server's own ``retry_after``, then sleep it out and send the
+  request once more when the wait fits the cap. A failed durable arm keeps a
   process-local sticky deadline and still re-raises the FloodWait (ADR-0090).
 
 Installed on the *instance*: ``downloads.py`` calls ``_call`` directly on a
@@ -77,21 +79,31 @@ def install(
         account = resolve()
         key = registry.request_key(request)
         if account is not None:
-            refuse_if_cooling(ledger, account, key)
+            # ADR-0072 decision 6: a recorded wait that fits the --max-runtime
+            # cap is slept out; otherwise the type refuses locally.
+            wait = cooling_seconds(ledger, account, key)
+            if not (wait and await pacing.sleep_flood(wait, sleep=sleep)):
+                refuse_if_cooling(ledger, account, key)
             await pacing.pace_before_dispatch(request, sleep=sleep, clock=clock)
             pacing.note_request()
-        try:
-            result = await original(sender, request, *args, **kwargs)
-        except ARMING_ERRORS as exc:
-            if account is not None:
+        retried = False
+        while True:
+            try:
+                return await original(sender, request, *args, **kwargs)
+            except ARMING_ERRORS as exc:
+                if account is None:
+                    raise
                 arm_from_flood(ledger, account, key, exc)
                 pacing.note_stop(
                     retry_after=exc.seconds,
                     request_type=key,
                     provenance="server",
                 )
-            raise
-        return result
+                # Same rule for a live flood, once per request: Telegram
+                # refused it unexecuted, so sending it again is safe.
+                if retried or not await pacing.sleep_flood(exc.seconds, sleep=sleep):
+                    raise
+                retried = True
 
     client._call = types.MethodType(governed, client)
     _govern_cdn_children(client, ledger, resolve)
@@ -114,12 +126,17 @@ def _govern_cdn_children(client, ledger: Ledger, resolve) -> None:
     client._get_cdn_client = types.MethodType(governed_factory, client)
 
 
-def refuse_if_cooling(ledger: Ledger, account: int, request_key: str) -> None:
-    """Refuse before any RPC while this request type is still cooling."""
+def cooling_seconds(ledger: Ledger, account: int, request_key: str) -> int:
+    """Whole seconds this request type still cools, 0 when it is free."""
     deadline = ledger.cooldown_deadline(account, request_key)
     if deadline is None:
-        return
-    retry_after = ceil((deadline - datetime.now(UTC)).total_seconds())
+        return 0
+    return max(0, ceil((deadline - datetime.now(UTC)).total_seconds()))
+
+
+def refuse_if_cooling(ledger: Ledger, account: int, request_key: str) -> None:
+    """Refuse before any RPC while this request type is still cooling."""
+    retry_after = cooling_seconds(ledger, account, request_key)
     if retry_after <= 0:
         return
     pacing.note_stop(

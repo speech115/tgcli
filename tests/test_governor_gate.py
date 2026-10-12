@@ -10,7 +10,7 @@ from telethon import errors as telethon_errors
 from telethon.tl.functions import messages, upload
 
 from tgcli.errors import RateLimitError
-from tgcli.governor import gate
+from tgcli.governor import gate, pacing
 from tgcli.governor.ledger import Ledger
 
 ACCOUNT = 7091037467
@@ -436,3 +436,87 @@ async def test_a_failed_flood_arm_still_refuses_the_next_same_type(ledger, monke
         await target._call(None, history())
     assert caught.value.details["retry_after"] > 0
     assert target.sent == []
+
+
+class FloodingClient(FakeClient):
+    """Floods its first ``floods`` requests for ``seconds`` each, then answers."""
+
+    def __init__(self, *, floods, seconds=3):
+        super().__init__()
+        self.floods = floods
+        self.seconds = seconds
+
+    async def _call(self, sender, request, *args, **kwargs):
+        self.sent.append(request)
+        if self.floods:
+            self.floods -= 1
+            error = telethon_errors.FloodWaitError(request=None)
+            error.seconds = self.seconds
+            raise error
+        return "result"
+
+
+def recording_sleep():
+    slept = []
+
+    async def sleep(seconds):
+        slept.append(seconds)
+
+    return slept, sleep
+
+
+async def test_a_flood_that_fits_the_cap_is_slept_out_and_sent_again(ledger):
+    """ADR-0072 decision 6, in the one place every request passes: a three
+    second flood under --max-runtime is a pause, not the end of the run."""
+    pacing.reset_runtime(cap=3600)
+    slept, sleep = recording_sleep()
+    client = FloodingClient(floods=1)
+    gate.install(client, ledger, sleep=sleep)
+
+    assert await client._call(None, history()) == "result"
+
+    assert slept == [3]
+    assert len(client.sent) == 2
+
+
+async def test_a_second_flood_on_the_retry_raises(ledger):
+    """One sleep per request: the retry flooding again is never a loop."""
+    pacing.reset_runtime(cap=3600)
+    slept, sleep = recording_sleep()
+    client = FloodingClient(floods=2)
+    gate.install(client, ledger, sleep=sleep)
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        await client._call(None, history())
+
+    assert slept == [3]
+    assert len(client.sent) == 2
+    assert ledger.cooldown_deadline(ACCOUNT, HISTORY_KEY) is not None
+
+
+async def test_a_flood_longer_than_the_cap_raises_without_sleeping(ledger):
+    pacing.reset_runtime(cap=10)
+    slept, sleep = recording_sleep()
+    client = FloodingClient(floods=1, seconds=600)
+    gate.install(client, ledger, sleep=sleep)
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        await client._call(None, history())
+
+    assert slept == []
+    assert len(client.sent) == 1
+
+
+async def test_a_recorded_cooldown_that_fits_the_cap_is_slept_out(ledger):
+    """A sibling worker or the next run waits a short recorded deadline out
+    instead of refusing, the same rule as a live flood."""
+    pacing.reset_runtime(cap=3600)
+    slept, sleep = recording_sleep()
+    arm(ledger, seconds=5)
+    client = FakeClient()
+    gate.install(client, ledger, sleep=sleep)
+
+    assert await client._call(None, history()) == "result"
+
+    assert len(slept) == 1 and 0 < slept[0] <= 5
+    assert len(client.sent) == 1
