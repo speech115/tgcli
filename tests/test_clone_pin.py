@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -172,18 +171,13 @@ class _ChatSourceClient:
         raise AssertionError(f"unexpected request: {request!r}")
 
 
-async def _identity_cooldown(make):
-    """ADR-0052: the cooldown seam takes a zero-arg thunk, not an awaitable."""
-    return await make()
-
-
 @pytest.mark.asyncio
 async def test_source_pinned_msg_id_user_branch_uses_get_full_user():
     """User sources must hit GetFullUserRequest with a resolved InputUser."""
     source = types.User(id=123, access_hash=555, first_name="Alice")
     client = _UserSourceClient()
 
-    result = await pin._source_pinned_msg_id(client, source, _identity_cooldown)
+    result = await pin._source_pinned_msg_id(client, source)
 
     assert result == 44
     assert len(client.requests) == 1
@@ -207,7 +201,7 @@ async def test_source_pinned_msg_id_chat_branch_uses_get_full_chat():
     )
     client = _ChatSourceClient()
 
-    result = await pin._source_pinned_msg_id(client, source, _identity_cooldown)
+    result = await pin._source_pinned_msg_id(client, source)
 
     assert result == 77
     assert len(client.requests) == 1
@@ -280,16 +274,12 @@ async def test_sync_phase_pins_mapped_source_when_destination_empty(monkeypatch)
     async def mutate(request):
         return await client(request)
 
-    async def cooldown(make):
-        return await make()
-
     result = await pin.sync_phase(
         client,
         clone_state,
         client.source,
         client.destination,
         mutate,
-        cooldown,
         "main",
     )
 
@@ -342,16 +332,12 @@ async def test_sync_phase_occupied_when_destination_already_pins(monkeypatch):
     async def mutate(request):
         return await client(request)
 
-    async def cooldown(make):
-        return await make()
-
     result = await pin.sync_phase(
         client,
         clone_state,
         client.source,
         client.destination,
         mutate,
-        cooldown,
         "main",
     )
 
@@ -387,16 +373,12 @@ async def test_sync_phase_recovers_own_pin_after_crash_before_save(monkeypatch):
     async def mutate(request):
         return await client(request)
 
-    async def cooldown(make):
-        return await make()
-
     result = await pin.sync_phase(
         client,
         clone_state,
         client.source,
         client.destination,
         mutate,
-        cooldown,
         "main",
     )
 
@@ -443,16 +425,12 @@ async def test_sync_phase_occupied_when_destination_pins_other_cloned_post(
     async def mutate(request):
         return await client(request)
 
-    async def cooldown(make):
-        return await make()
-
     result = await pin.sync_phase(
         client,
         clone_state,
         client.source,
         client.destination,
         mutate,
-        cooldown,
         "main",
     )
 
@@ -482,16 +460,12 @@ async def test_sync_phase_second_run_uses_state_only_zero_rpcs(monkeypatch):
     async def mutate(request):
         return await client(request)
 
-    async def cooldown(make):
-        return await make()
-
     result = await pin.sync_phase(
         client,
         clone_state,
         client.source,
         client.destination,
         mutate,
-        cooldown,
         "main",
     )
 
@@ -514,16 +488,12 @@ async def test_sync_phase_unmapped_when_source_has_no_pin(monkeypatch):
     async def mutate(request):
         return await client(request)
 
-    async def cooldown(make):
-        return await make()
-
     result = await pin.sync_phase(
         client,
         clone_state,
         client.source,
         client.destination,
         mutate,
-        cooldown,
         "main",
     )
 
@@ -543,17 +513,7 @@ async def test_sync_phase_floodwait_on_pin_leaves_state_unset(monkeypatch):
     clone_state = _ready_clone()
 
     async def mutate(request):
-        # Mirror commands.clone._mutate / _with_cooldown: persist then re-raise.
-        try:
-            return await client(request)
-        except telethon_errors.FloodWaitError as exc:
-            deadline = datetime.now(UTC) + timedelta(seconds=exc.seconds)
-            clone_state.set_cooldown(deadline)
-            state.save(clone_state)
-            raise
-
-    async def cooldown(make):
-        return await make()
+        return await client(request)
 
     with pytest.raises(telethon_errors.FloodWaitError):
         await pin.sync_phase(
@@ -562,12 +522,10 @@ async def test_sync_phase_floodwait_on_pin_leaves_state_unset(monkeypatch):
             client.source,
             client.destination,
             mutate,
-            cooldown,
             "main",
         )
 
     assert clone_state.pinned_dest_id is None
-    assert clone_state.cooldown_deadline() is not None
 
 
 @pytest.mark.asyncio
@@ -581,9 +539,6 @@ async def test_sync_phase_no_audit_on_unmapped_occupied_unchanged(monkeypatch):
 
     async def mutate(request):
         return await client(request)
-
-    async def cooldown(make):
-        return await make()
 
     for kwargs, setup in (
         ({"source_pinned": None}, lambda s: None),
@@ -599,7 +554,6 @@ async def test_sync_phase_no_audit_on_unmapped_occupied_unchanged(monkeypatch):
             client.source,
             client.destination,
             mutate,
-            cooldown,
             "main",
         )
     assert audits == []

@@ -58,7 +58,7 @@ def document_thumb(document):
     return max(stills, key=thumb_weight) if stills else None
 
 
-async def uploaded_thumb(tg, message, document, path: Path, invoke):
+async def uploaded_thumb(tg, message, document, path: Path):
     """Upload the source document's still preview, or None.
 
     Telegram will not regenerate a document preview (a PDF page, a sticker
@@ -70,12 +70,10 @@ async def uploaded_thumb(tg, message, document, path: Path, invoke):
     if thumb is None:
         return None
     try:
-        downloaded = await invoke(
-            lambda: tg.download_media(message, file=path, thumb=thumb)
-        )
+        downloaded = await tg.download_media(message, file=path, thumb=thumb)
         if downloaded is None:
             return None
-        return await invoke(lambda: tg.upload_file(downloaded))
+        return await tg.upload_file(downloaded)
     except telethon_errors.FloodWaitError:
         raise
     except Exception as exc:
@@ -84,14 +82,10 @@ async def uploaded_thumb(tg, message, document, path: Path, invoke):
 
 
 async def uploaded_media(tg, message, path, progress=None):
-    async def invoke(make_awaitable):
-        return await make_awaitable()
-
     input_file = await upload_parts(
         tg,
         path,
         parallel=CLONE_TRANSFER_PARALLEL,
-        invoke=invoke,
         progress=clone_progress.transfer_of(progress, message, "upload"),
     )
     # A blur the source put on purpose is content: dropping it publishes the
@@ -106,7 +100,7 @@ async def uploaded_media(tg, message, path, progress=None):
         attributes=list(getattr(document, "attributes", None) or ()),
         spoiler=spoiler,
         thumb=await uploaded_thumb(
-            tg, message, document, Path(path).with_name(f"thumb-{message.id}"), invoke
+            tg, message, document, Path(path).with_name(f"thumb-{message.id}")
         ),
     )
 

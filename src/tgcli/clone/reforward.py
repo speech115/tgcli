@@ -43,7 +43,7 @@ def eligible(leg, messages, plan) -> bool:
     return _searchable(getattr(messages[0], "fwd_from", None)) is not None
 
 
-async def locate(tg, clone_state, message, cache: dict, *, invoke):
+async def locate(tg, clone_state, message, cache: dict):
     """``(group, message_id)`` to forward natively, or None to keep the prefix.
 
     Fallback-first: every condition that fails to hold answers None, and the
@@ -53,17 +53,16 @@ async def locate(tg, clone_state, message, cache: dict, *, invoke):
     if searchable is None:
         return None
     peer, date = searchable
-    group = await source_group(tg, clone_state, cache, invoke=invoke)
+    group = await source_group(tg, clone_state, cache)
     if group is None:
         return None
     found = await _guarded(
-        invoke,
-        lambda: tg.get_messages(
+        tg.get_messages(
             group,
             from_user=peer,
             offset_date=date + timedelta(seconds=1),
             limit=SEARCH_LIMIT,
-        ),
+        )
     )
     dated = [item for item in (found or ()) if getattr(item, "date", None) == date]
     if len(dated) != 1:
@@ -74,7 +73,7 @@ async def locate(tg, clone_state, message, cache: dict, *, invoke):
     return group, candidate.id
 
 
-async def source_group(tg, clone_state, cache: dict, *, invoke):
+async def source_group(tg, clone_state, cache: dict):
     """The source discussion group entity, resolved once per sync run.
 
     None when the clone has no linked source group, when it is unreachable
@@ -86,9 +85,7 @@ async def source_group(tg, clone_state, cache: dict, *, invoke):
     peer_id = getattr(clone_state, "discussion_source_peer_id", None)
     group = None
     if peer_id is not None:
-        group = await _guarded(
-            invoke, lambda: tg.get_entity(types.PeerChannel(peer_id))
-        )
+        group = await _guarded(tg.get_entity(types.PeerChannel(peer_id)))
         if group is not None and getattr(group, "noforwards", False):
             group = None
     cache[_GROUP_KEY] = group
@@ -194,11 +191,11 @@ def _media_key(message):
     return type(media).__name__, None, None, spoiler
 
 
-async def _guarded(invoke, make_awaitable):
-    """Fall back on any refusal, but never swallow a FloodWait: ADR-0045 needs
-    it to arm the cooldown and stop the run."""
+async def _guarded(awaitable):
+    """Fall back on any refusal, but never swallow a FloodWait: the governor
+    needs it to arm the cooldown and stop the run."""
     try:
-        return await invoke(make_awaitable)
+        return await awaitable
     except telethon_errors.FloodWaitError:
         raise
     except (ValueError, telethon_errors.RPCError):

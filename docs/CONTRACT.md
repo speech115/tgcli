@@ -1286,15 +1286,15 @@ fail-closed shared audit record before dispatch. A profile-copy failure exits 2
 while retaining the recorded destination for a new-preview retry; it never
 creates a second destination. A Telegram FloodWait during profile reads,
 downloads, uploads, or edits arms the request-governor's per-type cooldown
-(ADR-0072); the legacy per-clone `retry_not_before` deadline (ADR-0045) is
-only read back for old clones, never written anew. Later
+(ADR-0072); the legacy per-clone `retry_not_before` field (ADR-0045) is only
+reported, as `cooldown_until`, and nothing writes or enforces it. Later
 `clone init --commit`, `clone sync`, and `clone refresh` for **any** clone of
 that account refuse locally (no network) while the gated request type is
 cooling — `retry_after` comes from the governor's ledger. Read-only surfaces
 (`clone status`, init preview, refresh preview) are never blocked by
 readonly gates; refresh preview still respects an active FloodWait cooldown
 because the scan is real network work. A roster FloodWait
-(ADR-0024) still arms neither cooldown. `clone init`, `clone sync`, and
+(ADR-0024) arms only the participant-listing cooldown, never message sync. `clone init`, `clone sync`, and
 `clone refresh` keep no implicit deadline (CONTRACT §1); `clone sync` may be
 bounded with `--max-runtime` (exhausting it is a normal stop, exit 0, with
 a resume pointer) — `clone refresh`'s passes are short and bounded by their
@@ -1669,7 +1669,7 @@ channel/chat, `discussion` = its linked comment group when
 `comments == "enabled"`), a `status` of `"collected"`, `"unavailable"`
 (Telegram refused — a broadcast channel you do not administer always refuses),
 `"deferred"` (FloodWait; retried next run, partial results discarded, and the
-main clone cooldown is left unset so it never blocks message sync), or `"none"`
+cooldown it arms covers participant listing only, never message sync), or `"none"`
 (no discussion group). Collected participants are rewritten atomically to the
 JSONL sidecar at `participants.path` (one object per line, tagged `peer` plus
 the `export subscribers` columns). This snapshot is source-side only; the

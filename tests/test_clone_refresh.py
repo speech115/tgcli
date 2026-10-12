@@ -80,10 +80,9 @@ async def test_render_with_fwd_from_calls_forwarded_author_once(monkeypatch):
         fwd_from=types.MessageFwdHeader(date=None, from_name="Имя", imported=False),
     )
     cache: dict = {}
-    cooldown = AsyncMock(side_effect=lambda awaitable: awaitable)
 
     text, entities = await refresh.render_with_current_rules(
-        object(), object(), message, _ME, "broadcast", cache, cooldown
+        object(), object(), message, _ME, "broadcast", cache
     )
 
     forwarded.assert_awaited_once()
@@ -108,7 +107,7 @@ async def test_render_without_fwd_from_skips_forwarded_author(monkeypatch):
     monkeypatch.setattr(refresh.attribution, "author_of", author_of)
     message = _message("тело", entities=[types.MessageEntityBold(offset=0, length=4)])
     text, entities = await refresh.render_with_current_rules(
-        object(), object(), message, _ME, "broadcast", {}, AsyncMock()
+        object(), object(), message, _ME, "broadcast", {}
     )
     forwarded.assert_not_awaited()
     author_of.assert_not_awaited()
@@ -130,10 +129,9 @@ async def test_render_megagroup_forward_uses_author_of_like_sync(monkeypatch):
         fwd_from=types.MessageFwdHeader(date=None, from_name="Имя", imported=False),
     )
     source = object()
-    cooldown = AsyncMock()
 
     text, entities = await refresh.render_with_current_rules(
-        object(), source, message, _ME, "megagroup", {}, cooldown
+        object(), source, message, _ME, "megagroup", {}
     )
 
     forwarded.assert_not_awaited()
@@ -196,32 +194,6 @@ class _ScanClient:
         raise AssertionError(f"unexpected RPC: {type(request).__name__}")
 
 
-async def _passthrough(make):
-    """ADR-0052: the cooldown seam takes a zero-arg thunk, not an awaitable."""
-    return await make()
-
-
-@pytest.mark.asyncio
-async def test_candidates_routes_get_messages_through_cooldown():
-    """Scan RPCs must go through cooldown so FloodWait arms retry_not_before."""
-    source = _message(id=10, text="тело", fwd_from=_fwd())
-    dest = _message(id=100, text="тело")
-    client = _ScanClient([source], [dest])
-    clone_state = _clone_state(id_map={10: 100})
-    wrapped: list[object] = []
-
-    async def tracking_cooldown(make):
-        wrapped.append(make)
-        return await make()
-
-    await refresh.candidates(
-        client, clone_state, client.source, client.destination, _ME, tracking_cooldown
-    )
-
-    assert len(wrapped) >= 2
-    assert len(client.get_messages_calls) == 2
-
-
 @pytest.mark.asyncio
 async def test_poll_snapshot_excluded_before_render(monkeypatch):
     render = AsyncMock()
@@ -245,7 +217,7 @@ async def test_poll_snapshot_excluded_before_render(monkeypatch):
     clone_state = _clone_state(id_map={10: 100})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, _ME, _passthrough
+        client, clone_state, client.source, client.destination, _ME
     )
 
     assert eligible == []
@@ -266,7 +238,7 @@ async def test_story_snapshot_excluded_before_render(monkeypatch):
     clone_state = _clone_state(id_map={11: 110})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, _ME, _passthrough
+        client, clone_state, client.source, client.destination, _ME
     )
 
     assert eligible == []
@@ -284,7 +256,7 @@ async def test_native_reforward_excluded_without_render(monkeypatch):
     clone_state = _clone_state(id_map={12: 120})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, _ME, _passthrough
+        client, clone_state, client.source, client.destination, _ME
     )
 
     assert eligible == []
@@ -307,7 +279,7 @@ async def test_discussion_id_map_never_scanned(monkeypatch):
     clone_state = _clone_state(id_map={10: 100}, discussion_id_map={50: 500})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, _ME, _passthrough
+        client, clone_state, client.source, client.destination, _ME
     )
 
     assert eligible == []
@@ -328,7 +300,7 @@ async def test_album_non_lead_excluded_even_if_eligible_alone(monkeypatch):
     clone_state = _clone_state(id_map={20: 200, 21: 201})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, _ME, _passthrough
+        client, clone_state, client.source, client.destination, _ME
     )
 
     assert [c.source_id for c in eligible] == [20]
@@ -345,7 +317,7 @@ async def test_album_lead_is_scanned_normally(monkeypatch):
     clone_state = _clone_state(id_map={30: 300})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, _ME, _passthrough
+        client, clone_state, client.source, client.destination, _ME
     )
 
     assert len(eligible) == 1
@@ -365,7 +337,7 @@ async def test_candidates_megagroup_forward_not_rewritten_broadcast_style():
     clone_state = _clone_state(id_map={10: 100}, source_kind="megagroup")
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, _ME, _passthrough
+        client, clone_state, client.source, client.destination, _ME
     )
 
     assert [c.source_id for c in eligible] == [10]
@@ -386,7 +358,7 @@ async def test_album_follower_excluded_when_lead_deleted(monkeypatch):
     clone_state = _clone_state(id_map={20: 200, 21: 201})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, _ME, _passthrough
+        client, clone_state, client.source, client.destination, _ME
     )
 
     assert eligible == []
@@ -409,7 +381,7 @@ async def test_album_survivor_excluded_when_lead_is_not_the_adjacent_id(monkeypa
     clone_state = _clone_state(id_map={20: 200, 22: 202, 23: 203})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, _ME, _passthrough
+        client, clone_state, client.source, client.destination, _ME
     )
 
     assert eligible == []
@@ -434,7 +406,7 @@ async def test_album_lead_blocked_by_deleted_prior_mapped_post(monkeypatch):
     clone_state = _clone_state(id_map={19: 190, 20: 200, 21: 201})
 
     eligible, excluded = await refresh.candidates(
-        client, clone_state, client.source, client.destination, _ME, _passthrough
+        client, clone_state, client.source, client.destination, _ME
     )
 
     assert eligible == []

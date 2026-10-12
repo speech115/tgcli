@@ -77,8 +77,7 @@ async def sync_phase(
                 types.PeerChannel(clone_state.discussion_source_peer_id)
             )
         except telethon_errors.FloodWaitError:
-            # Still arm ADR-0045 via the caller's cooldown wrapper — never
-            # swallow.
+            # A flood is not a refusal: it must reach exit 5, never degrade.
             raise
         except (ValueError, telethon_errors.RPCError):
             degrade()
@@ -119,7 +118,7 @@ async def sync_phase(
         except StopAsyncIteration:
             break
         except telethon_errors.FloodWaitError:
-            # Still arm ADR-0045 via the caller's cooldown wrapper.
+            # A flood is not a refusal: it must reach exit 5, never degrade.
             raise
         except (ValueError, telethon_errors.RPCError):
             # The window's own reads are where a mid-run privatized source

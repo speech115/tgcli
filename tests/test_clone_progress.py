@@ -101,16 +101,13 @@ async def test_resolve_total_requeries_after_phase_reset():
             calls.append((entity, limit))
             return SimpleNamespace(total=totals[len(calls) - 1])
 
-    async def invoke(make):
-        return await make()
-
     tg = FakeTg()
     posts = object()
     comments = object()
-    await reporter.resolve_total(tg, posts, invoke)
+    await reporter.resolve_total(tg, posts)
     reporter.batch(1, "forwarded")
     reporter.phase("comments")
-    await reporter.resolve_total(tg, comments, invoke)
+    await reporter.resolve_total(tg, comments)
     reporter.batch(1, "forwarded")
 
     # Each leg asks its own source for its own total (#174).
@@ -227,18 +224,15 @@ async def test_a_leg_resolves_its_total_once_per_run_not_once_per_window():
             calls.append(entity)
             return SimpleNamespace(total=50 if entity is posts else 7)
 
-    async def invoke(make):
-        return await make()
-
     tg = FakeTg()
     posts = SimpleNamespace(id=1)
     comments = SimpleNamespace(id=2)
     for _ in range(3):
         reporter.phase("posts")
-        await reporter.resolve_total(tg, posts, invoke)
+        await reporter.resolve_total(tg, posts)
         reporter.batch(1, "forwarded")
         reporter.phase("comments")
-        await reporter.resolve_total(tg, comments, invoke)
+        await reporter.resolve_total(tg, comments)
         reporter.batch(1, "forwarded")
 
     assert calls == [posts, comments]

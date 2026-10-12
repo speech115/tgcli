@@ -1,7 +1,6 @@
 """CLI tests for `tg clone refresh` (ADR-0054)."""
 
 import json
-from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -151,21 +150,6 @@ def test_clone_refresh_requires_initialized_clone(config_env, monkeypatch, capsy
 
     assert main(["clone", "refresh", "@source", "--json"]) == 2
     assert "clone is not initialized" in capsys.readouterr().err
-
-
-def test_clone_refresh_preview_exits_5_when_cooldown_active(
-    config_env, monkeypatch, capsys
-):
-    clone_state = seed_clone()
-    clone_state.set_cooldown(datetime.now(UTC) + timedelta(minutes=10))
-    state.save(clone_state)
-    src, dst = _eligible_pair()
-    client = RefreshClient([src], [dst])
-    make_session_fake(monkeypatch, client)
-
-    assert main(["clone", "refresh", "@source", "--json"]) == 5
-    assert client.requests == []
-    assert "rate limited" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(

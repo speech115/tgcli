@@ -101,7 +101,7 @@ def _names_itself(source) -> bool:
     return isinstance(source, types.Chat) or bool(getattr(source, "megagroup", False))
 
 
-async def author_of(tg, source, message, me, cache: dict, cooldown) -> Author:
+async def author_of(tg, source, message, me, cache: dict) -> Author:
     peer = getattr(message, "from_id", None)
     if (
         isinstance(peer, types.PeerUser)
@@ -124,11 +124,11 @@ async def author_of(tg, source, message, me, cache: dict, cooldown) -> Author:
             return _identify(None, getattr(message, "sender_id", None))
         entity = source
     else:
-        entity = await _resolve(tg, peer, cache, cooldown)
+        entity = await _resolve(tg, peer, cache)
     return _identify(entity, getattr(message, "sender_id", None))
 
 
-async def _resolve(tg, peer, cache: dict, cooldown):
+async def _resolve(tg, peer, cache: dict):
     """The entity behind a peer, or None when Telegram refuses to name it.
 
     A post can name a peer this account cannot resolve — a private channel
@@ -139,7 +139,7 @@ async def _resolve(tg, peer, cache: dict, cooldown):
     key = peer_key(peer)
     if key not in cache:
         try:
-            cache[key] = await cooldown(lambda: tg.get_entity(peer))
+            cache[key] = await tg.get_entity(peer)
         except telethon_errors.FloodWaitError:
             raise
         except (ValueError, telethon_errors.RPCError):
@@ -193,7 +193,7 @@ def _with_forward_lead(author: Author) -> Author:
     )
 
 
-async def forwarded_author_of(tg, message, cache: dict, cooldown) -> Author:
+async def forwarded_author_of(tg, message, cache: dict) -> Author:
     """Label for a posts-leg reupload/snapshot whose source post is itself a forward.
 
     Sibling of ``author_of``: that answers who sent the message; this answers
@@ -205,7 +205,7 @@ async def forwarded_author_of(tg, message, cache: dict, cooldown) -> Author:
         return Author(text="", lead="Переслано")
     peer = getattr(fwd, "from_id", None)
     if peer is not None:
-        entity = await _resolve(tg, peer, cache, cooldown)
+        entity = await _resolve(tg, peer, cache)
         if entity is None:
             entity = await _entity_from_message_forward(message, peer)
             if entity is not None:

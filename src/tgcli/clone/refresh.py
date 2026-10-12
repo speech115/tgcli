@@ -34,7 +34,7 @@ def eligible_for_backfill(
 
 
 async def render_with_current_rules(
-    tg, source, message, me, source_kind: str, cache: dict, cooldown
+    tg, source, message, me, source_kind: str, cache: dict
 ):
     """Reuse sync's body renderer: source_kind-branched attribution + apply_body.
 
@@ -45,9 +45,9 @@ async def render_with_current_rules(
     author = None
     if source_kind == "broadcast":
         if getattr(message, "fwd_from", None) is not None:
-            author = await attribution.forwarded_author_of(tg, message, cache, cooldown)
+            author = await attribution.forwarded_author_of(tg, message, cache)
     else:
-        author = await attribution.author_of(tg, source, message, me, cache, cooldown)
+        author = await attribution.author_of(tg, source, message, me, cache)
     plan = transport.TransportPlan(
         mode="reuploaded",
         reply_to=None,
@@ -92,7 +92,7 @@ def _album_lead_status(source_id, message, ordered_ids, source_by_id) -> str:
 
 
 async def candidates(
-    tg, clone_state, source_entity, destination_entity, me, cooldown
+    tg, clone_state, source_entity, destination_entity, me
 ) -> tuple[list[Candidate], list[Excluded]]:
     """Scan posts-leg id_map for prefix-backfill candidates (ADR-0054)."""
     mapping = [
@@ -103,10 +103,8 @@ async def candidates(
         return [], []
     source_ids = [source_id for source_id, _ in mapping]
     dest_ids = [destination_id for _, destination_id in mapping]
-    source_msgs = await cooldown(lambda: tg.get_messages(source_entity, ids=source_ids))
-    dest_msgs = await cooldown(
-        lambda: tg.get_messages(destination_entity, ids=dest_ids)
-    )
+    source_msgs = await tg.get_messages(source_entity, ids=source_ids)
+    dest_msgs = await tg.get_messages(destination_entity, ids=dest_ids)
     source_by_id = {
         source_id: message
         for source_id, message in zip(source_ids, source_msgs, strict=True)
@@ -153,7 +151,6 @@ async def candidates(
             me,
             clone_state.source_kind,
             author_cache,
-            cooldown,
         )
         dest_text = getattr(dest, "message", None) or ""
         dest_entities = getattr(dest, "entities", None)

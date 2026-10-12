@@ -2,8 +2,9 @@
 
 Runs at the end of `sync`, after message copying, and records who is in the
 source channel and its linked discussion group where Telegram permits. Access
-refusals are honest markers, never errors; a FloodWait defers a peer without
-arming the main clone cooldown, so it can never block the next message sync.
+refusals are honest markers, never errors; a FloodWait defers a peer, and the
+cooldown it arms covers participant listing only, so it never blocks the next
+message sync.
 """
 
 import json
