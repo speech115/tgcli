@@ -831,7 +831,7 @@ a larger one for long scripts.
 ```
 tg export messages <chat> --output <path> [--limit <n>]
     [--after-id <id>] [--append] [--resume]
-tg export subscribers <channel> --output <path> [--limit <n>]
+tg export subscribers <channel> --output <path> [--limit <n>] [--usernames-only]
 ```
 
 - `--output` is required. It is the only destination for the export records.
@@ -863,7 +863,14 @@ tg export subscribers <channel> --output <path> [--limit <n>]
   (`BLOCKED`): it must not run a full-channel crawl and then take an arbitrary
   post-dedupe slice. Megagroups and `--limit` ≤ 200 keep a single
   `iter_participants` pass. Emoji/CJK-only display names with no searchable
-  character may leave a member unreachable.
+  character may leave a member unreachable. A full page identical to the page
+  of the prefix it refines is not refined further: Telegram ignores some
+  characters, so the longer prefix repeats the same search. The crawl prints
+  one progress line per query to stderr
+  (`export subscribers: 412/5000 seen, 380 with username, 37 queries, prefix 'ab'`).
+- `--usernames-only` writes the single header `username` and skips members
+  without one, so `count` counts usernames. On a broadcast crawl it refines
+  prefixes with username characters only (`a-z`, `0-9`, `_`).
 - Success on `--json` is one completion document:
   `{"export":{"kind":"messages|subscribers","format":"jsonl|csv",
   "path":"<path>","count":42,"dialog":{"id":3817664407,"name":"Channel"}}}`.

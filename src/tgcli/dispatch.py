@@ -74,7 +74,11 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
                     )
                 else:
                     data = await export_cmd.export_subscribers(
-                        tg, args.channel, args.output, limit=args.limit
+                        tg,
+                        args.channel,
+                        args.output,
+                        limit=args.limit,
+                        usernames_only=args.usernames_only,
                     )
                 return data, export_cmd.to_rows(data)
             if args.command == "clone" and args.clone_command == "sync":

@@ -433,6 +433,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_export_subscribers.add_argument("--output", required=True, type=Path)
     p_export_subscribers.add_argument("--limit", type=int)
+    p_export_subscribers.add_argument(
+        "--usernames-only",
+        action="store_true",
+        help="write one username column; skip members without a username",
+    )
 
     p_clone = sub.add_parser(
         "clone", help="Copy a supported chat", parents=[global_flags]

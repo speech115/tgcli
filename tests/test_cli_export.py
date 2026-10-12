@@ -334,6 +334,122 @@ def test_export_broadcast_subscribers_unions_prefix_searches(
     )
 
 
+def test_export_broadcast_stops_refining_a_page_its_parent_returned(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    """Telegram ignores some characters, so the refined search repeats its parent."""
+    from telethon.tl import functions
+
+    from tgcli.commands import export as export_mod
+
+    monkeypatch.setattr(export_mod, "_PARTICIPANTS_PAGE", 2)
+    monkeypatch.setattr(export_mod, "_SEARCH_REFINE_ALPHABET", "x")
+    members = [ns(id=1, username="alice"), ns(id=2, username=None)]
+    entity = ns(id=-1001234, title="Channel", broadcast=True)
+    fake = FakeClient(
+        entities={"@chan": entity},
+        participants_count=3,
+        participant_search={"": members, "x": members},
+    )
+    make_session_fake(monkeypatch, fake)
+
+    assert (
+        main(
+            [
+                "export",
+                "subscribers",
+                "@chan",
+                "--output",
+                str(tmp_path / "subscribers.csv"),
+            ]
+        )
+        == 0
+    )
+
+    assert [
+        request.filter.q
+        for request in fake.call_requests
+        if isinstance(request, functions.channels.GetParticipantsRequest)
+    ] == ["", "x"]
+    assert capsys.readouterr().err.splitlines()[-1] == (
+        "export subscribers: 2/3 seen, 1 with username, 2 queries, prefix 'x'"
+    )
+
+
+def test_export_broadcast_usernames_only_crawls_username_prefixes(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    from telethon.tl import functions
+
+    from tgcli.commands import export as export_mod
+
+    monkeypatch.setattr(export_mod, "_PARTICIPANTS_PAGE", 2)
+    monkeypatch.setattr(export_mod, "_USERNAME_ALPHABET", "ab_")
+    alice = ns(id=1, username="alice")
+    bob = ns(id=2, username="bob")
+    unnamed = ns(id=3, username=None, first_name="Ivan")
+    entity = ns(id=-1001234, title="Channel", broadcast=True)
+    fake = FakeClient(
+        entities={"@chan": entity},
+        participants_count=4,
+        participant_search={"": [alice, unnamed], "a": [alice], "b": [bob]},
+    )
+    make_session_fake(monkeypatch, fake)
+    destination = tmp_path / "usernames.csv"
+
+    assert (
+        main(
+            [
+                "--json",
+                "export",
+                "subscribers",
+                "@chan",
+                "--output",
+                str(destination),
+                "--usernames-only",
+            ]
+        )
+        == 0
+    )
+
+    export = json.loads(capsys.readouterr().out)["export"]
+    assert (export["kind"], export["count"]) == ("subscribers", 2)
+    assert destination.read_text() == "username\nalice\nbob\n"
+    assert sorted(
+        request.filter.q
+        for request in fake.call_requests
+        if isinstance(request, functions.channels.GetParticipantsRequest)
+    ) == ["", "_", "a", "b"]
+
+
+def test_export_megagroup_usernames_only_skips_members_without_one(
+    config_env, monkeypatch, tmp_path
+):
+    entity = ns(id=-1001234, title="Group", broadcast=False)
+    fake = FakeClient(
+        entities={"@group": entity},
+        participants=[ns(id=1, username=None), ns(id=2, username="bob")],
+    )
+    make_session_fake(monkeypatch, fake)
+    destination = tmp_path / "usernames.csv"
+
+    assert (
+        main(
+            [
+                "export",
+                "subscribers",
+                "@group",
+                "--output",
+                str(destination),
+                "--usernames-only",
+            ]
+        )
+        == 0
+    )
+
+    assert destination.read_text() == "username\nbob\n"
+
+
 def test_export_broadcast_rejects_limit_above_page(
     config_env, monkeypatch, tmp_path, capsys
 ):

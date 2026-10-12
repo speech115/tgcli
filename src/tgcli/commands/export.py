@@ -11,6 +11,7 @@ from telethon import errors as telethon_errors
 from tgcli import atomic, chatref
 from tgcli.commands.read import _dialog_name, message_to_dict
 from tgcli.errors import ExportError, NotFoundError
+from tgcli.output import note
 
 SUBSCRIBER_COLUMNS = ("id", "username", "first_name", "last_name", "phone", "is_bot")
 TAKEOUT_MESSAGE_KWARGS = {"chats": True, "megagroups": True, "channels": True}
@@ -22,6 +23,8 @@ _PARTICIPANTS_PAGE = 200
 _SEARCH_REFINE_ALPHABET = (
     "abcdefghijklmnopqrstuvwxyz0123456789абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
 )
+# A username is Latin letters, digits, and underscores.
+_USERNAME_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789_"
 
 
 @contextmanager
@@ -197,7 +200,7 @@ async def _channel_member_total(tg, entity) -> int | None:
         return None
 
 
-async def _iter_all_channel_members(tg, entity):
+async def _iter_all_channel_members(tg, entity, alphabet):
     """Return every participant of a broadcast channel.
 
     Telegram caps ``channels.getParticipants`` at 200 rows per query for
@@ -227,21 +230,38 @@ async def _iter_all_channel_members(tg, entity):
         )
         return result.users
 
-    pending = [""]
+    named = queries = 0
+    pending: list[tuple[str, set[int] | None]] = [("", None)]
     while pending:
-        prefix = pending.pop()
+        prefix, parent_ids = pending.pop()
         users = await query(prefix)
+        queries += 1
         for user in users:
+            if user.id not in seen and getattr(user, "username", None):
+                named += 1
             seen[user.id] = user
-        if len(users) >= _PARTICIPANTS_PAGE:
-            pending.extend(prefix + ch for ch in _SEARCH_REFINE_ALPHABET)
+        page_ids = {user.id for user in users}
+        # Telegram ignores some characters (a soft sign, say), so a full page
+        # equal to its parent's is the same search again: refining it would
+        # only repeat it.
+        if len(users) >= _PARTICIPANTS_PAGE and page_ids != parent_ids:
+            pending.extend((prefix + ch, page_ids) for ch in alphabet)
+        note(
+            f"export subscribers: {len(seen)}/{'?' if total is None else total} "
+            f"seen, {named} with username, {queries} queries, prefix {prefix!r}"
+        )
         if total is not None and len(seen) >= total:
             break
     return list(seen.values())
 
 
 async def export_subscribers(
-    tg, channel: str, destination: Path, limit: int | None = None
+    tg,
+    channel: str,
+    destination: Path,
+    limit: int | None = None,
+    *,
+    usernames_only: bool = False,
 ) -> dict:
     from tgcli.errors import PolicyError
 
@@ -258,19 +278,33 @@ async def export_subscribers(
     # enumerate the whole channel then take an arbitrary dict-order slice.
     aggressive = is_broadcast and limit is None
     with _atomic_text_destination(destination) as handle:
-        writer = csv.DictWriter(
-            handle, fieldnames=SUBSCRIBER_COLUMNS, lineterminator="\n"
+        writer: csv.DictWriter[str] = csv.DictWriter(
+            handle,
+            fieldnames=("username",) if usernames_only else SUBSCRIBER_COLUMNS,
+            lineterminator="\n",
         )
         writer.writeheader()
+
+        def write(subscriber) -> int:
+            row = _subscriber_to_row(subscriber)
+            if usernames_only:
+                if not row["username"]:
+                    return 0
+                row = {"username": row["username"]}
+            writer.writerow(row)
+            return 1
+
         if aggressive:
-            members = await _iter_all_channel_members(tg, entity)
+            members = await _iter_all_channel_members(
+                tg,
+                entity,
+                _USERNAME_ALPHABET if usernames_only else _SEARCH_REFINE_ALPHABET,
+            )
             for subscriber in members:
-                writer.writerow(_subscriber_to_row(subscriber))
-                count += 1
+                count += write(subscriber)
         else:
             async for subscriber in tg.iter_participants(entity, limit=limit):
-                writer.writerow(_subscriber_to_row(subscriber))
-                count += 1
+                count += write(subscriber)
     return _summary("subscribers", "csv", destination, count, entity, channel)
 
 
