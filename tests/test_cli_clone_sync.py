@@ -1058,6 +1058,51 @@ def test_sync_attaches_a_comment_to_its_post_thread(config_env, monkeypatch, cap
     assert state.load(clone_state.clone_id).discussion_dest_for(12) == 501
 
 
+def test_sync_remembers_thread_anchors_across_runs(config_env, monkeypatch, capsys):
+    """A later run attaches a comment to a thread an earlier run resolved
+    without re-reading the source anchor or asking for the destination one."""
+    seed_comments_clone()
+    thread = [
+        anchor(10, 2),
+        message(
+            12, message="first", reply_to=types.MessageReplyHeader(reply_to_msg_id=10)
+        ),
+    ]
+    first = CloneCommentsClient([message(2)], thread)
+    first.anchor_ids = {2: 500}
+    first.group_last_id = 500
+    make_session_fake(monkeypatch, first)
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    capsys.readouterr()
+
+    class CountingClient(CloneCommentsClient):
+        by_id = 0
+
+        async def get_messages(self, entity, limit=None, ids=None):
+            if ids is not None:
+                self.by_id += 1
+            return await super().get_messages(entity, limit=limit, ids=ids)
+
+    later = message(
+        13, message="second", reply_to=types.MessageReplyHeader(reply_to_msg_id=10)
+    )
+    second = CountingClient([message(2)], [*thread, later])
+    second.anchor_ids = {2: 500}
+    second.destination_last_id = first.destination_last_id
+    second.group_last_id = first.group_last_id
+    make_session_fake(monkeypatch, second)
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    capsys.readouterr()
+
+    [send] = group_sends(second)
+    assert send.reply_to.reply_to_msg_id == 500
+    assert second.by_id == 0
+    assert not any(
+        isinstance(item, functions.messages.GetDiscussionMessageRequest)
+        for item in second.requests
+    )
+
+
 def test_sync_maps_comment_on_comment_replies(config_env, monkeypatch, capsys):
     """Nested comment: reply_to_msg_id maps through discussion_id_map,
     top_msg_id through the anchor path."""

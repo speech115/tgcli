@@ -121,6 +121,33 @@ def test_migrated_database_records_a_destination_name(tmp_path, monkeypatch):
     assert reloaded.destination_username == "example_clone"
 
 
+def test_schema_2_database_gains_an_anchor_map_that_round_trips(tmp_path, monkeypatch):
+    """v3 adds the thread-anchor memory; a v2 clone migrates in place and
+    keeps its mappings. An album post's anchors share one destination thread,
+    so destination ids may repeat."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    s = _fresh()
+    s.destination_peer_id = 99
+    s.record_mapping(2, 20)
+    state.save(s)
+    conn = sqlite3.connect(state.path_for(s.clone_id))
+    conn.execute("DROP TABLE anchor_map")
+    conn.execute("PRAGMA user_version=2")
+    conn.commit()
+    conn.close()
+
+    migrated = state.load(s.clone_id)
+    assert migrated is not None and migrated.dest_for(2) == 20
+    migrated.record_anchor(10, 500)
+    migrated.record_anchor(11, 500)
+    state.save(migrated)
+
+    reloaded = state.load(s.clone_id)
+    assert reloaded is not None
+    assert [reloaded.anchor_dest_for(10), reloaded.anchor_dest_for(11)] == [500, 500]
+    assert state.probe(s.clone_id)["schema_version"] == statedb.SCHEMA_VERSION == 3
+
+
 def test_newer_schema_version_is_refused(tmp_path, monkeypatch):
     """Downgrade is not a migration: a future db must not be silently read."""
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))

@@ -1104,7 +1104,7 @@ case-insensitive title substring. A token from another peer class does not
 match (ADR-0104). JSON:
 
 ```json
-{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source","username":null},"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled","discussion_linked":true,"schema_version":2,"integrity":"ok"}],"pending_import":0}
+{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source","username":null},"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled","discussion_linked":true,"schema_version":3,"integrity":"ok"}],"pending_import":0}
 ```
 
 `discussion_linked` is whether the clone's discussion group was actually
@@ -1396,10 +1396,12 @@ source channel and post) are read-only anchors, never copied, and counted in
 mixed batch (some anchors, some not) exits 2 before any copy. A comment's
 thread parent is remapped from the source anchor through the source post
 (`id_map`) to the destination anchor
-(`messages.GetDiscussionMessageRequest`, cached per run) so it lands as a
+(`messages.GetDiscussionMessageRequest`) so it lands as a
 reply in the right destination thread, including its quote; comment-on-
 comment parents remap through the discussion group's own `id_map`
-(`discussion_id_map`). An unmappable parent flattens on the same
+(`discussion_id_map`). A resolved source anchor → destination anchor pair is
+kept in the clone's `anchor_map` (schema 3), so later runs place a thread's
+comments without reading either anchor again. An unmappable parent flattens on the same
 `reply_flattened` rule as any other clone. Off-thread discussion-group
 messages clone as ordinary attributed megagroup content. The discussion
 group has its own tail verification, tolerating Telegram's own anchors in

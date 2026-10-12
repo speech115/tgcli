@@ -214,26 +214,35 @@ async def _place_thread(
         root = header.reply_to_msg_id
     if root is None:
         return plan
-    post_id = await _source_post(ctx, root)
-    destination_post_id = None if post_id is None else leg.clone_state.dest_for(post_id)
-    if destination_post_id is None:
-        # Fallback / foreign with a mapped discussion top: place under it.
-        if (
-            plan.body_prefix is not None
-            and top is not None
-            and (mapped_top := leg.dest_for(top)) is not None
-            and plan.reply_to is None
-        ):
-            return transport.as_reuploaded(
-                replace(
-                    plan,
-                    reply_to=types.InputReplyToMessage(reply_to_msg_id=mapped_top),
-                )
-            )
-        return plan
-    found = await _destination_anchor(ctx, destination_post_id)
+    # Only the comments leg's roots are anchors; a resolved one is remembered
+    # in clone state, so later runs skip both anchor reads.
+    remembered = leg.map_field == "discussion_id_map"
+    found = leg.clone_state.anchor_dest_for(root) if remembered else None
     if found is None:
-        return plan
+        post_id = await _source_post(ctx, root)
+        destination_post_id = (
+            None if post_id is None else leg.clone_state.dest_for(post_id)
+        )
+        if destination_post_id is None:
+            # Fallback / foreign with a mapped discussion top: place under it.
+            if (
+                plan.body_prefix is not None
+                and top is not None
+                and (mapped_top := leg.dest_for(top)) is not None
+                and plan.reply_to is None
+            ):
+                return transport.as_reuploaded(
+                    replace(
+                        plan,
+                        reply_to=types.InputReplyToMessage(reply_to_msg_id=mapped_top),
+                    )
+                )
+            return plan
+        found = await _destination_anchor(ctx, destination_post_id)
+        if found is None:
+            return plan
+        if remembered:
+            leg.clone_state.record_anchor(root, found)
     if top is None:
         reply_to = types.InputReplyToMessage(
             reply_to_msg_id=found,
