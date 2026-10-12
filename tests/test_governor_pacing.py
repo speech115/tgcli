@@ -152,15 +152,14 @@ async def test_pacing_is_start_to_start_not_end_to_start(clock, sleeper, ledger)
     assert slow.dispatched_at[-2:] == [8.0, 11.0]
 
 
-async def test_get_messages_by_id_pays_ten_seconds_past_the_free_requests(
-    client, sleeper
-):
-    big = messages.GetMessagesRequest(id=list(range(300)))
+async def test_get_messages_by_id_pays_ten_seconds_per_300_ids(client, sleeper):
+    """ADR-0072's budget, at the 100-id chunk Telethon actually sends."""
+    chunk = messages.GetMessagesRequest(id=list(range(100)))
 
-    await spend_free(client, big)
-    await client._call(None, big)
+    await spend_free(client, chunk)
+    await client._call(None, chunk)
 
-    assert sleeper.calls == [10.0]
+    assert sleeper.calls == [pytest.approx(10.0 / 3)]
 
 
 async def test_media_paces_per_file_not_per_chunk(client, sleeper):
@@ -231,7 +230,7 @@ async def test_concurrent_tasks_queue_behind_each_other(ledger, clock):
 
 def test_the_interval_lookup_charges_per_unit():
     """BY_ID and MEDIA adjustments live at the charge, not in the registry."""
-    assert registry.interval_for(messages.GetMessagesRequest(id=[1])) == 10.0
+    assert registry.interval_for(messages.GetMessagesRequest(id=[1])) == 10.0 / 3
     file_request = upload.GetFileRequest(location=None, offset=0, limit=1)
     assert registry.interval_for(file_request) == 3.0
 

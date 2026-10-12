@@ -35,11 +35,12 @@ class RequestClass(StrEnum):
 
 
 # ADR-0072 decision 3. `None` means no pre-emptive interval; the class is still
-# gated on its cooldown. BY_ID and MEDIA are per-unit rather than per-request —
-# see `BY_ID_BATCH` and the media transfer's per-file accounting.
+# gated on its cooldown. MEDIA is charged per file, not per request (see
+# `pacing._charge`).
 INTERVALS: dict[RequestClass, float | None] = {
     RequestClass.HISTORY: 3.0,
-    RequestClass.BY_ID: 10.0,
+    # "10 s per 300 ids", and Telethon sends 100 ids per request.
+    RequestClass.BY_ID: 10.0 / 3,
     RequestClass.ENUMERATION: 3.0,
     RequestClass.MEDIA: 3.0,
     RequestClass.MUTATION: None,
@@ -50,10 +51,6 @@ INTERVALS: dict[RequestClass, float | None] = {
 # Classes paced from the first request, with no free allowance: Telegram
 # punishes phone resolution hardest.
 ALWAYS_PACED = frozenset({RequestClass.RESOLVE_PHONE})
-
-# "10 s per 300 ids" — the interval above is charged once per batch of this
-# many ids, not once per id.
-BY_ID_BATCH = 300
 
 # Keyed by "<namespace>.<TypeName>" so two namespaces that share a type name
 # (channels.GetMessagesRequest vs messages.GetMessagesRequest, and likewise
@@ -66,7 +63,7 @@ _CLASSES: dict[str, RequestClass] = {
     "messages.GetRepliesRequest": RequestClass.HISTORY,
     "updates.GetDifferenceRequest": RequestClass.HISTORY,
     "updates.GetChannelDifferenceRequest": RequestClass.HISTORY,
-    # get_messages by id — its own interval, charged per BY_ID_BATCH ids.
+    # get_messages by id — its own interval, charged per request.
     "messages.GetMessagesRequest": RequestClass.BY_ID,
     "channels.GetMessagesRequest": RequestClass.BY_ID,
     # Dialog and participant enumeration.

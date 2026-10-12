@@ -97,7 +97,8 @@ Account administration (`accounts login|remove|import`) does not wait.
 **Request governor (ADR-0072).** Within one invocation each request type
 gets five requests unpaced, so a single command is never slowed. Past
 that, history and search reads, dialog and participant enumeration, and
-media file starts wait 3 s start-to-start, and reads by message id 10 s;
+media file starts wait 3 s start-to-start, and reads by message id
+10 s per 300 ids (Telethon sends 100 per request, so about 3.3 s each);
 loops (backfill, clone, export, bulk media, `tg run` scripts) are paced,
 interactive commands are not. `contacts.resolvePhone` waits 3 s from its
 first request. A FloodWait records the server's deadline for that request
