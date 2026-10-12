@@ -218,10 +218,9 @@ async def _place_thread(
         root = header.reply_to_msg_id
     if root is None:
         return plan
-    # Only the comments leg's roots are anchors; a resolved one is remembered
-    # in clone state, so later runs skip both anchor reads.
-    remembered = leg.map_field == "discussion_id_map"
-    found = leg.clone_state.anchor_dest_for(root) if remembered else None
+    # A resolved root is remembered in clone state, so later runs skip both
+    # anchor reads.
+    found = leg.clone_state.anchor_dest_for(root)
     if found is None:
         post_id = await _source_post(ctx, root)
         destination_post_id = (
@@ -245,8 +244,7 @@ async def _place_thread(
         found = await _destination_anchor(ctx, destination_post_id)
         if found is None:
             return plan
-        if remembered:
-            leg.clone_state.record_anchor(root, found)
+        leg.clone_state.record_anchor(root, found)
     if top is None:
         reply_to = types.InputReplyToMessage(
             reply_to_msg_id=found,
