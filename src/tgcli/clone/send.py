@@ -116,9 +116,12 @@ async def reupload_batch(
                 functions.messages.UploadMediaRequest(peer=destination, media=uploaded),
             )
             text, entities = _body_text(message, author if index == 0 else None, plan)
+            input_media = telethon_utils.get_input_media(stored)
+            # The send carries the blur; UploadMedia's echo need not keep it.
+            input_media.spoiler = uploaded.spoiler
             multi_media.append(
                 types.InputSingleMedia(
-                    media=telethon_utils.get_input_media(stored),
+                    media=input_media,
                     random_id=random_id,
                     message=text,
                     entities=entities,
