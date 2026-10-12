@@ -69,9 +69,10 @@ def _require_aware(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
-def _valid_id_map(mapping: object, minimum: int) -> bool:
+def _valid_id_map(mapping: object, minimum: int, *, unique: bool = True) -> bool:
     """A canonical decimal-string source id → TL-int destination id table, with
-    both sides at least ``minimum`` and no destination reused across sources."""
+    both sides at least ``minimum`` and, when ``unique``, no destination reused
+    across sources."""
     return (
         type(mapping) is dict
         and not any(
@@ -84,7 +85,7 @@ def _valid_id_map(mapping: object, minimum: int) -> bool:
             or not minimum <= v <= 2_147_483_647
             for k, v in mapping.items()
         )
-        and len(set(mapping.values())) == len(mapping)
+        and (not unique or len(set(mapping.values())) == len(mapping))
     )
 
 
@@ -118,6 +119,9 @@ class CloneState:
     discussion_id_map: dict[str, int] = field(default_factory=dict)
     comments: str = "none"
     avatar_photo_ids: dict[str, int] = field(default_factory=dict)
+    # Source discussion anchor id -> destination anchor id, so a later run
+    # places a comment without re-reading either anchor.
+    anchor_map: dict[str, int] = field(default_factory=dict)
     pinned_dest_id: int | None = None
     pin_occupied: bool = False
     _persisted: bool = field(default=False, init=False, repr=False, compare=False)
@@ -131,6 +135,9 @@ class CloneState:
         default_factory=set, init=False, repr=False, compare=False
     )
     _dirty_avatar_photo_ids: set[str] = field(
+        default_factory=set, init=False, repr=False, compare=False
+    )
+    _dirty_anchor_map: set[str] = field(
         default_factory=set, init=False, repr=False, compare=False
     )
     _deleted_discussion_id_map: set[str] = field(
@@ -171,6 +178,14 @@ class CloneState:
 
     def avatar_for(self, source_peer_id: int) -> int | None:
         return self.avatar_photo_ids.get(str(source_peer_id))
+
+    def record_anchor(self, source_anchor_id: int, destination_anchor_id: int) -> None:
+        key = str(source_anchor_id)
+        self.anchor_map[key] = destination_anchor_id
+        self._dirty_anchor_map.add(key)
+
+    def anchor_dest_for(self, source_anchor_id: int) -> int | None:
+        return self.anchor_map.get(str(source_anchor_id))
 
     def dest_for(self, source_id: int) -> int | None:
         return self.id_map.get(str(source_id))
@@ -239,6 +254,7 @@ class CloneState:
             "discussion_id_map": self.discussion_id_map,
             "comments": self.comments,
             "avatar_photo_ids": self.avatar_photo_ids,
+            "anchor_map": self.anchor_map,
             "pinned_dest_id": self.pinned_dest_id,
             "pin_occupied": self.pin_occupied,
         }
@@ -248,6 +264,7 @@ class CloneState:
         self._dirty_discussion_id_map.clear()
         self._dirty_topic_map.clear()
         self._dirty_avatar_photo_ids.clear()
+        self._dirty_anchor_map.clear()
         self._deleted_discussion_id_map.clear()
         self._persisted = True
 
@@ -309,6 +326,9 @@ class CloneState:
         id_map = data.get("id_map", {})
         if not _valid_id_map(id_map, 1):
             raise ValueError("invalid id map")
+        anchor_map = data.get("anchor_map", {})
+        if not _valid_id_map(anchor_map, 1, unique=False):
+            raise ValueError("invalid anchor map")
         retry_not_before = data.get("retry_not_before")
         if retry_not_before is not None:
             try:
@@ -339,6 +359,7 @@ class CloneState:
             discussion_id_map=dict(discussion_id_map),
             comments=comments,
             avatar_photo_ids=dict(data.get("avatar_photo_ids", {})),
+            anchor_map=dict(anchor_map),
             pinned_dest_id=pinned_dest_id,
             pin_occupied=pin_occupied,
         )
@@ -454,5 +475,6 @@ def save(state: CloneState) -> None:
         dirty_topic_map=set(state._dirty_topic_map),
         dirty_avatar_photo_ids=set(state._dirty_avatar_photo_ids),
         deleted_discussion_id_map=set(state._deleted_discussion_id_map),
+        dirty_anchor_map=set(state._dirty_anchor_map),
     )
     state._clear_dirty()

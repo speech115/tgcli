@@ -39,6 +39,15 @@ deleted.
    commit needs the owner's request in this session, and under
    `TGCLI_READONLY=1` it exits 2 anyway.
 
+   `TGCLI_READONLY=1` guards Telegram, not local state: the first read of a
+   clone database migrates it in place, and an older `tg` then refuses it.
+   For a change that bumps a state schema, run against a copy:
+
+   ```bash
+   cp -Rp ~/.local/state/tgcli/clones "$SCRATCH/clones"
+   TGCLI_READONLY=1 TGCLI_STATE_DIR="$SCRATCH" uv run tg --json clone status
+   ```
+
 4. Report what you ran and what came back: commands, exit codes, and the JSON
    keys and values that prove the change. Don't paste message text, names, or
    phone numbers from a real account into chat or a PR. Show keys, counts, and

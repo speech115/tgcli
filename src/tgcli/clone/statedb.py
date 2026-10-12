@@ -17,7 +17,7 @@ from typing import Any
 from tgcli.errors import PolicyError
 from tgcli.session import restrict_file
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _META_FIELDS = (
     "version",
@@ -48,6 +48,7 @@ _MAP_TABLES = (
     "discussion_id_map",
     "topic_map",
     "avatar_photo_ids",
+    "anchor_map",
 )
 
 _SCHEMA_SQL = """
@@ -91,6 +92,10 @@ CREATE TABLE IF NOT EXISTS avatar_photo_ids (
     source INTEGER PRIMARY KEY,
     dest INTEGER NOT NULL UNIQUE
 );
+CREATE TABLE IF NOT EXISTS anchor_map (
+    source INTEGER PRIMARY KEY,
+    dest INTEGER NOT NULL
+);
 """
 
 # Forward-only, one entry per schema version above 1. A clone database holds
@@ -101,6 +106,12 @@ _MIGRATIONS: dict[int, tuple[str, ...]] = {
     2: (
         "ALTER TABLE meta ADD COLUMN destination_title TEXT",
         "ALTER TABLE meta ADD COLUMN destination_username TEXT",
+    ),
+    # Source discussion anchor -> destination anchor. Not UNIQUE on dest: an
+    # album post's anchors all lead to the one destination thread.
+    3: (
+        "CREATE TABLE IF NOT EXISTS anchor_map "
+        "(source INTEGER PRIMARY KEY, dest INTEGER NOT NULL)",
     ),
 }
 
@@ -185,13 +196,8 @@ def read_dict(conn: sqlite3.Connection) -> dict[str, Any]:
     data: dict[str, Any] = {name: row[name] for name in _META_FIELDS}
     data["discussion_linked"] = bool(data["discussion_linked"])
     data["pin_occupied"] = bool(data["pin_occupied"])
-    for table, key in (
-        ("id_map", "id_map"),
-        ("discussion_id_map", "discussion_id_map"),
-        ("topic_map", "topic_map"),
-        ("avatar_photo_ids", "avatar_photo_ids"),
-    ):
-        data[key] = {
+    for table in _MAP_TABLES:
+        data[table] = {
             str(source): int(dest)
             for source, dest in conn.execute(f"SELECT source, dest FROM {table}")
         }
@@ -205,13 +211,8 @@ def write_full(conn: sqlite3.Connection, data: dict[str, Any]) -> None:
             conn.execute(f"DELETE FROM {table}")
         conn.execute("DELETE FROM meta")
         _upsert_meta(conn, data)
-        for table, key in (
-            ("id_map", "id_map"),
-            ("discussion_id_map", "discussion_id_map"),
-            ("topic_map", "topic_map"),
-            ("avatar_photo_ids", "avatar_photo_ids"),
-        ):
-            rows = [(int(k), int(v)) for k, v in data.get(key, {}).items()]
+        for table in _MAP_TABLES:
+            rows = [(int(k), int(v)) for k, v in data.get(table, {}).items()]
             conn.executemany(f"INSERT INTO {table}(source, dest) VALUES (?, ?)", rows)
 
 
@@ -224,6 +225,7 @@ def write_dirty(
     dirty_topic_map: set[str],
     dirty_avatar_photo_ids: set[str],
     deleted_discussion_id_map: set[str] | None = None,
+    dirty_anchor_map: set[str] | None = None,
 ) -> None:
     """Commit meta + only the dirty map keys in one transaction."""
     with conn:
@@ -246,6 +248,9 @@ def write_dirty(
             "avatar_photo_ids",
             data.get("avatar_photo_ids", {}),
             dirty_avatar_photo_ids,
+        )
+        _upsert_map_keys(
+            conn, "anchor_map", data.get("anchor_map", {}), dirty_anchor_map or set()
         )
 
 
@@ -335,6 +340,7 @@ def persist(
     dirty_topic_map: set[str] | None = None,
     dirty_avatar_photo_ids: set[str] | None = None,
     deleted_discussion_id_map: set[str] | None = None,
+    dirty_anchor_map: set[str] | None = None,
 ) -> None:
     conn = connect(db_path)
     try:
@@ -349,6 +355,7 @@ def persist(
                 dirty_topic_map=dirty_topic_map or set(),
                 dirty_avatar_photo_ids=dirty_avatar_photo_ids or set(),
                 deleted_discussion_id_map=deleted_discussion_id_map or set(),
+                dirty_anchor_map=dirty_anchor_map or set(),
             )
     finally:
         conn.close()
