@@ -127,14 +127,12 @@ def _charge(request: object) -> float | None:
     """The interval this request owes, after per-unit adjustment.
 
     ``None`` means the class is unpaced: no pre-emptive interval, still
-    fully gated on its cooldown. BY_ID pays one interval per request (the
-    "10 s per 300 ids" default covers a batch; commands chunk at
-    ``BY_ID_BATCH`` themselves, and a 600-id call must not pay two gaps).
-    MEDIA pays per *file*, not per chunk: a large file is many
-    ``upload.GetFileRequest`` calls, and the first chunk (offset 0) of a
-    file is what opens the gap. Upload parts (``SaveFilePartRequest`` /
-    ``SaveBigFilePartRequest``) have no ``offset`` — they are one file, so
-    they owe nothing pre-emptively; their floods still gate the type.
+    fully gated on its cooldown. MEDIA pays per *file*, not per chunk: a
+    large file is many ``upload.GetFileRequest`` calls, and the first chunk
+    (offset 0) of a file is what opens the gap. Upload parts
+    (``SaveFilePartRequest`` / ``SaveBigFilePartRequest``) have no
+    ``offset`` — they are one file, so they owe nothing pre-emptively; their
+    floods still gate the type.
     """
     request_class = registry.classify(request)
     interval = registry.INTERVALS[request_class]

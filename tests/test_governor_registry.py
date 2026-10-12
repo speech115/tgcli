@@ -89,9 +89,8 @@ def test_mutations_are_gated_but_unpaced():
     assert registry.request_key(send) == "messages.SendMessageRequest"
 
 
-def test_get_messages_by_id_is_charged_per_batch_of_300():
-    assert registry.BY_ID_BATCH == 300
-    assert registry.interval_for(messages.GetMessagesRequest(id=[1])) == 10.0
+def test_get_messages_by_id_is_charged_10_s_per_300_ids_of_telethon_chunks():
+    assert registry.interval_for(messages.GetMessagesRequest(id=[1])) == 10.0 / 3
 
 
 def test_the_real_telethon_call_seam_matches_what_the_wrapper_expects():
