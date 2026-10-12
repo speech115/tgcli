@@ -179,6 +179,7 @@ async def forward_batch(
                 tg, source, messages[0], me, author_cache, cooldown
             )
     mode = plan.mode
+    poll_marker = None
     if proven is not None:
         group, group_message_id = proven
         mode = "forwarded"
@@ -210,8 +211,6 @@ async def forward_batch(
             account_alias=account_alias,
             invoke=lambda make_awaitable: make_awaitable(),
         )
-        if poll_marker is not None and poll_votes is not None:
-            poll_votes.append(poll_marker)
         text, entities = attribution.with_prefix(
             rendered_text,
             rendered_entities,
@@ -268,6 +267,10 @@ async def forward_batch(
         leg.record_mapping(source_id, destination_id)
     leg.cursor = source_ids[-1]
     state.save(clone_state)
+    # Reported only once the send is confirmed: a flood retry re-renders the
+    # snapshot, and the tail must list each poll once.
+    if poll_marker is not None and poll_votes is not None:
+        poll_votes.append(poll_marker)
     if mode == "reuploaded":
         # Only a confirmed send *and* a durable mapping save may clear the
         # cache — an incomplete confirmation or a crash before the save

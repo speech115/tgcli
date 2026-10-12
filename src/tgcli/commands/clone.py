@@ -567,6 +567,18 @@ async def sync_text(
     posts_exhausted = False
 
     async def copy_batch(messages, leg, source, dest) -> None:
+        # ADR-0072 decision 6: a flood whose wait fits the --max-runtime cap
+        # is slept out and the batch retried once; nothing is mapped before a
+        # confirmed send, so the retry starts clean. Otherwise exit 5.
+        try:
+            await copy_batch_once(messages, leg, source, dest)
+        except telethon_errors.FloodWaitError as exc:
+            if not await pacing.sleep_flood(exc.seconds):
+                raise
+            note(f"flood wait: slept {exc.seconds}s, retrying the batch")
+            await copy_batch_once(messages, leg, source, dest)
+
+    async def copy_batch_once(messages, leg, source, dest) -> None:
         nonlocal copied, copied_batches, reply_flattened
         unsupported = [
             {"id": message.id, "kind": kind}

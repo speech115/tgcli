@@ -1620,7 +1620,9 @@ saved cursor. Sync has no implicit overall timeout (CONTRACT §1), uses a
 mutation-safe session, and is blocked by all readonly gates before
 config/session work. `--max-runtime` bounds the whole run: exhausting it is
 a normal stop (exit 0) with `stop_reason: "wall_clock_cap"` and a resume
-pointer. A flood exits 5 without advancing the current message. JSON:
+pointer. A flood whose wait fits the remaining `--max-runtime` cap is
+slept out once per batch and the batch retried (ADR-0072 decision 6);
+any other flood exits 5 without advancing the current message. JSON:
 
 ```json
 {"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"markup_dropped":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"pinned":{"source_id":12,"destination_id":9,"status":"set"},"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}},"remaining":false}

@@ -4722,8 +4722,8 @@ def test_forum_sync_omits_pinned_key(config_env, monkeypatch, capsys):
 def test_sync_short_flood_wait_exits_5_without_foreground_retry(
     config_env, monkeypatch, capsys
 ):
-    """ADR-0072 decision 6: no foreground short-wait retry — the governor arms
-    the cooldown and the run exits 5; the schedule resumes it later."""
+    """ADR-0072 decision 6: without --max-runtime no wait fits a cap, so even a
+    short flood arms the cooldown and exits 5 with no foreground retry."""
     seed_clone()
 
     class FloodClient(CloneSyncClient):
@@ -4742,6 +4742,101 @@ def test_sync_short_flood_wait_exits_5_without_foreground_retry(
     payload = json.loads(captured.out)
     assert payload["error"]["retry_after"] == 3
     assert "flood wait: retrying" not in captured.err
+
+
+class FloodingForwardClient(CloneSyncClient):
+    """Raises a 3 s FloodWait on the first ``floods`` forward requests."""
+
+    def __init__(self, messages, *, floods):
+        super().__init__(messages)
+        self.floods = floods
+
+    async def __call__(self, request):
+        if (
+            isinstance(request, functions.messages.ForwardMessagesRequest)
+            and self.floods
+        ):
+            self.floods -= 1
+            raise telethon_errors.FloodWaitError(request=request, capture=3)
+        return await super().__call__(request)
+
+
+def fake_flood_sleep(monkeypatch) -> list:
+    from tgcli.governor import pacing
+
+    slept = []
+
+    async def sleep(seconds):
+        slept.append(seconds)
+
+    monkeypatch.setitem(pacing.sleep_flood.__kwdefaults__, "sleep", sleep)
+    return slept
+
+
+def test_sync_sleeps_out_a_flood_that_fits_max_runtime_and_retries_the_batch(
+    config_env, monkeypatch, capsys
+):
+    """ADR-0072 decision 6: a wait that fits the cap is slept out and the batch
+    retried, instead of a three-second flood ending the whole run."""
+    slept = fake_flood_sleep(monkeypatch)
+    clone_state = seed_clone()
+    client = FloodingForwardClient([message(2)], floods=1)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--max-runtime", "3600", "--json"]) == 0
+
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["sync"]["copied"] == 1
+    assert slept == [3]
+    assert "flood wait" in captured.err
+    assert len(client.requests) == 1
+    assert state.load(clone_state.clone_id).dest_for(2) == 2
+
+
+def test_sync_flood_retry_reports_one_poll_vote_per_snapshot(
+    config_env, monkeypatch, capsys
+):
+    """The retry re-renders the snapshot; only the confirmed send's capture is
+    reported, so the tail never lists one poll twice."""
+    fake_flood_sleep(monkeypatch)
+    seed_clone()
+    media = poll_media(results=[], total_voters=10, public_voters=False, quiz=False)
+
+    class FloodingSnapshotClient(CloneReuploadClient):
+        floods = 1
+
+        async def __call__(self, request):
+            if isinstance(request, functions.messages.SendMessageRequest) and (
+                self.floods
+            ):
+                self.floods -= 1
+                raise telethon_errors.FloodWaitError(request=request, capture=3)
+            return await super().__call__(request)
+
+    client = FloodingSnapshotClient([message(2, media=media)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--max-runtime", "3600", "--json"]) == 0
+
+    out = json.loads(capsys.readouterr().out)
+    assert out["sync"]["poll_votes"] == [{"message_id": 2, "status": "captured"}]
+
+
+def test_sync_exits_5_when_the_retried_batch_floods_again(
+    config_env, monkeypatch, capsys
+):
+    """One sleep per batch: a second flood on the retry is never a loop."""
+    slept = fake_flood_sleep(monkeypatch)
+    clone_state = seed_clone()
+    client = FloodingForwardClient([message(2)], floods=2)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--max-runtime", "3600", "--json"]) == 5
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["retry_after"] == 3
+    assert slept == [3]
+    assert state.load(clone_state.clone_id).dest_for(2) is None
 
 
 def test_clone_sync_max_runtime_stops_normally_with_resume(
