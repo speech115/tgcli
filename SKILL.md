@@ -97,6 +97,7 @@ selected account session, does one operation, and exits.
 | Check local health | `tg --json doctor` |
 | Export messages | `tg --json export messages @channel --output messages.jsonl [--after-id ID] [--append|--resume]` |
 | Export subscribers | `tg --json export subscribers @channel --output subscribers.csv` |
+| Export subscriber usernames | `tg --json export subscribers @channel --output usernames.csv --usernames-only` |
 | List channel clones | `tg --json clone status` |
 | Export clone state as v2 JSON | `tg clone export-state SOURCE` |
 | Preview a chat clone | `tg --json clone init SOURCE` |
