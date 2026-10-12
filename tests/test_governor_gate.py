@@ -3,11 +3,13 @@
 Covers #139's matrix rows G1, G2, G9, S5 and S7.
 """
 
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from telethon import errors as telethon_errors
-from telethon.tl.functions import messages, upload
+from telethon import TelegramClient, errors as telethon_errors
+from telethon.sessions import StringSession
+from telethon.tl.functions import messages, updates, upload
 
 from tgcli.errors import RateLimitError
 from tgcli.governor import gate, pacing
@@ -45,8 +47,8 @@ class FakeClient:
         return "result"
 
     async def __call__(self, request, *args, **kwargs):
-        # What Telethon's `client(request)` resolves to; the `tg api` path
-        # dispatches through here (api.py), so the seam must sit on `_call`.
+        # What Telethon's `client(request)` resolves to, so the seam must
+        # sit on `_call` to see every request.
         return await self._call(self, request, *args, **kwargs)
 
 
@@ -403,10 +405,8 @@ async def test_pre_auth_window_still_runs_on_a_degraded_ledger(tmp_path):
         assert len(client.sent) == 1
 
 
-async def test_a_failed_flood_arm_keeps_sticky_cooldown_and_reraise_flood(
-    ledger, monkeypatch
-):
-    """T02 / ADR-0090: arm write failure still re-raises FloodWait (siblings)."""
+async def test_a_failed_flood_arm_still_reraises_and_warns(ledger, monkeypatch, capsys):
+    """T02 / ADR-0090: an unwritable ledger never swallows the flood."""
     error = telethon_errors.FloodWaitError(request=None)
     error.seconds = 600
     source = FakeClient(raises=error)
@@ -415,27 +415,24 @@ async def test_a_failed_flood_arm_keeps_sticky_cooldown_and_reraise_flood(
 
     with pytest.raises(telethon_errors.FloodWaitError):
         await source._call(None, history())
-    assert source.sent
-    assert ledger.cooldown_deadline(ACCOUNT, HISTORY_KEY) is not None
+    assert "cooldown not persisted" in capsys.readouterr().err
 
 
-async def test_a_failed_flood_arm_still_refuses_the_next_same_type(ledger, monkeypatch):
-    """T02: sticky map refuses the next same-type RPC with RateLimitError."""
-    error = telethon_errors.FloodWaitError(request=None)
-    error.seconds = 600
-    source = FakeClient(raises=error)
-    gate.install(source, ledger)
-    monkeypatch.setattr(ledger, "arm_cooldown", lambda *a, **k: False)
+async def test_telethon_itself_refuses_a_flooded_type_for_the_rest_of_the_process():
+    """Why an unwritable ledger needs no sticky map of ours (ADR-0090's hole).
 
-    with pytest.raises(telethon_errors.FloodWaitError):
-        await source._call(None, history())
+    With ``flood_sleep_threshold=0``, the pinned Telethon remembers a flood
+    per request type and refuses that type locally, before any sender is
+    touched, until the deadline passes.
+    """
+    request = updates.GetStateRequest()
+    client = TelegramClient(StringSession(), 1, "hash", flood_sleep_threshold=0)
+    client._flood_waited_requests[request.CONSTRUCTOR_ID] = time.time() + 600
 
-    target = FakeClient()
-    gate.install(target, ledger)
-    with pytest.raises(RateLimitError) as caught:
-        await target._call(None, history())
-    assert caught.value.details["retry_after"] > 0
-    assert target.sent == []
+    with pytest.raises(telethon_errors.FloodWaitError) as caught:
+        await client._call(None, request)
+
+    assert caught.value.seconds > 3
 
 
 class FloodingClient(FakeClient):

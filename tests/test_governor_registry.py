@@ -1,16 +1,17 @@
-"""Request-type registry and seam pin (ADR-0072, plan phase 0).
+"""Request-type registry and the Telethon ``_call`` shape (ADR-0072).
 
-Covers #139's matrix rows S3 and S4, plus the registry's own contract: the
+Covers #139's matrix row S3, plus the registry's own contract: the
 cooldown key is derived from the request type so it covers types nobody
 listed, while the paced class is a lookup that may legitimately miss.
 """
+
+import inspect
 
 import pytest
 from telethon.client.users import UserMethods
 from telethon.tl.functions import channels, contacts, messages, updates, upload
 
-from tgcli.errors import ConfigError
-from tgcli.governor import registry, seam
+from tgcli.governor import registry
 
 
 def _history(*, limit: int):
@@ -47,7 +48,7 @@ def test_request_key_is_namespaced_by_telethon_module():
 
 
 def test_an_unlisted_request_type_still_gets_its_own_cooldown_key():
-    """The gate must cover requests nobody enumerated, including `tg api`."""
+    """The gate must cover requests nobody enumerated, as `tg run` sends."""
 
     class SomeFutureRequest:
         pass
@@ -93,34 +94,12 @@ def test_get_messages_by_id_is_charged_10_s_per_300_ids_of_telethon_chunks():
     assert registry.interval_for(messages.GetMessagesRequest(id=[1])) == 10.0 / 3
 
 
-def test_the_real_telethon_call_seam_matches_what_the_wrapper_expects():
-    """Matrix S3: the private-API pin itself, against the real install."""
-    seam.verify_seam(UserMethods)
+def test_the_real_telethon_call_is_the_shape_the_gate_wraps():
+    """Matrix S3: the gate wraps Telethon's private ``_call(sender, request)``.
 
-
-def test_a_missing_call_seam_refuses_at_construction(monkeypatch):
-    """Matrix S4: never silently run ungoverned."""
-
-    class Clientless:
-        pass
-
-    with pytest.raises(ConfigError, match="cannot govern"):
-        seam.verify_seam(Clientless)
-
-
-def test_a_reshaped_call_seam_refuses_at_construction():
-    class Reshaped:
-        async def _call(self, request, sender):  # parameters swapped
-            return None
-
-    with pytest.raises(ConfigError, match="signature changed"):
-        seam.verify_seam(Reshaped)
-
-
-def test_a_synchronous_call_seam_refuses_at_construction():
-    class Synchronous:
-        def _call(self, sender, request):
-            return None
-
-    with pytest.raises(ConfigError, match="not a coroutine"):
-        seam.verify_seam(Synchronous)
+    ``telethon`` is pinned exactly, so only a pin bump can reshape it, and this
+    test is what fails on that bump — a runtime check could never fire.
+    """
+    call = UserMethods._call
+    assert inspect.iscoroutinefunction(call)
+    assert list(inspect.signature(call).parameters)[1:3] == ["sender", "request"]
