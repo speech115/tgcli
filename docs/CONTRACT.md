@@ -1538,6 +1538,17 @@ never revisited, so a run that later stops on a flood (exit 5, no result
 document) still leaves a complete account of what it lost. Native forwards
 contribute nothing to the list. Already-synced messages are never revisited.
 
+A reupload or snapshot send that Telegram refuses with `DOCUMENT_INVALID` is
+checked for custom emoji Telegram can no longer resolve: a document
+`messages.getCustomEmojiDocuments` no longer returns, or one whose set answers
+`STICKERSET_INVALID`. Only those entities are dropped; their Unicode text,
+the other entities, media, reply target, and `random_id` stay, and the send
+is retried once after a fail-closed `clone-sync-emoji-fallback` audit row
+(`source_message_ids`, `document_ids`). Each affected message prints
+`warning: clone source message N: K unavailable custom emoji sent as plain
+text` to stderr, and the exit code stays 0. When no emoji proves unavailable,
+the original error stands.
+
 `--limit N` must be positive and copies at most N message batches. If another
 source row remains, JSON reports `"more":true`; the next run resumes at the
 saved cursor. Sync has no implicit overall timeout (CONTRACT §1), uses a
