@@ -22,7 +22,7 @@ Global flags (available on every command):
 | `--json` | machine output: one JSON document to stdout |
 | `--plain` | stable TSV to stdout (no colors, no alignment) |
 | `--readonly` | hard-block any mutating call in this invocation |
-| `--timeout <sec>` | overall invocation **hang detector** covering preflight and execution (default 60; governed sleep does not count against it; no default deadline for media, exports, `clone init\|sync\|refresh`, or `archive backfill\|sync\|transcribe`, which own bounded work; `accounts login --continue` takes none; `tg transcribe` defaults to 120, the transcription wait) |
+| `--timeout <sec>` | overall invocation **hang detector** covering preflight and execution (default 60; governed sleep does not count against it; no default deadline for media, exports, `clone init\|sync`, or `archive backfill\|sync\|transcribe`, which own bounded work; `accounts login --continue` takes none; `tg transcribe` defaults to 120, the transcription wait) |
 | `--max-runtime <sec>` | explicit wall-clock cap for long runs: governed sleep counts against it; exhausting it is a normal stop (exit 0), with `stop_reason` and a resume pointer where the command keeps a cursor |
 | `-v/--verbose` | Python and Telethon debug diagnostics on stderr for this invocation |
 
@@ -1058,7 +1058,7 @@ invalid cloud password / banned or invalid number / missing api credentials;
 `retry_after`. Phones in JSON, `--plain`, stderr, and audit are masked
 (`+7…89`); codes and passwords never appear there.
 
-## 11. Chat Clone (ADR-0017, ADR-0021, ADR-0022, ADR-0023, ADR-0051, ADR-0054)
+## 11. Chat Clone (ADR-0017, ADR-0021, ADR-0022, ADR-0023, ADR-0051)
 
 `tg clone` is the canonical chat-copy surface. It accepts broadcast channels,
 megagroup supergroups (forum and non-forum), live legacy basic groups, and
@@ -1092,8 +1092,6 @@ tg clone init SOURCE --replace
 tg clone init SOURCE --no-comments
 tg clone init SOURCE --commit PREVIEW_ID
 tg clone sync SOURCE [--limit N]
-tg clone refresh SOURCE
-tg clone refresh SOURCE --commit PREVIEW_ID
 tg clone export-state SOURCE
 ```
 
@@ -1183,7 +1181,7 @@ preview. The preview is spent when the commit **succeeds**, not when it is
 accepted (ADR-0083): a commit that stops partway — a flood on the discussion
 link, say — leaves it retryable, and re-running the same `--commit
 PREVIEW_ID` while it is unexpired resumes rather than demanding a fresh
-preview. `refresh --commit` behaves the same way. `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block before
+preview. `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block before
 preview consumption, config, session, audit, or Telegram work. The commit uses
 a mutation-safe session, verifies that the resolved account id, source id, and
 source kind still match the preview, then creates or recovers one private
@@ -1288,19 +1286,16 @@ creates a second destination. A Telegram FloodWait during profile reads,
 downloads, uploads, or edits arms the request-governor's per-type cooldown
 (ADR-0072); the legacy per-clone `retry_not_before` field (ADR-0045) is only
 reported, as `cooldown_until`, and nothing writes or enforces it. Later
-`clone init --commit`, `clone sync`, and `clone refresh` for **any** clone of
+`clone init --commit` and `clone sync` for **any** clone of
 that account refuse locally (no network) while the gated request type is
 cooling — `retry_after` comes from the governor's ledger. Read-only surfaces
-(`clone status`, init preview, refresh preview) are never blocked by
-readonly gates; refresh preview still respects an active FloodWait cooldown
-because the scan is real network work. A roster FloodWait
-(ADR-0024) arms only the participant-listing cooldown, never message sync. `clone init`, `clone sync`, and
-`clone refresh` keep no implicit deadline (CONTRACT §1); `clone sync` may be
-bounded with `--max-runtime` (exhausting it is a normal stop, exit 0, with
-a resume pointer) — `clone refresh`'s passes are short and bounded by their
-own caps, and read no wall clock.
+(`clone status`, init preview) are never blocked by readonly gates. A roster
+FloodWait (ADR-0024) arms only the participant-listing cooldown, never message
+sync. `clone init` and `clone sync` keep no implicit deadline (CONTRACT §1);
+`clone sync` may be bounded with `--max-runtime` (exhausting it is a normal
+stop, exit 0, with a resume pointer).
 
-`sync SOURCE` and `refresh SOURCE` accept the same references as every other
+`sync SOURCE` accepts the same references as every other
 command plus, for an already-initialized clone, a **title** (ADR-0082): a
 `SOURCE` that is neither an id nor a username/invite link is matched against
 the recorded clone titles of the active account with the `status` matcher, and
@@ -1450,86 +1445,6 @@ attributed megagroup, forum, basic-group, and dialog sources, the
 same batch uses native forwarding with `drop_author=False`, retaining
 Telegram's author header.
 
-### Prefix backfill (`tg clone refresh`; ADR-0054)
-
-ADR-0054 adds a separate mutation path onto the existing ADR-0050 prefix rule;
-it amends nothing already in this section. A clone copied before a prefix rule
-shipped can be repaired without recopying:
-
-```text
-tg clone refresh SOURCE
-tg clone refresh SOURCE --commit PREVIEW_ID
-```
-
-A bare `tg clone refresh SOURCE` *is* the preview (same grammar as `clone
-init`, no separate `--preview` flag). It walks the posts-leg `id_map`, applies
-the eligibility rule, and mints a five-minute single-use preview. A post is
-eligible only when the destination body is **byte identical to the source body
-with no prefix at all** and today's renderer would produce a prefix. That
-single test proves the copy predates the improvement and that nobody edited
-the destination by hand. Three exclusions are reported in the preview's
-`excluded` list and never edited: poll/story snapshots (`poll-snapshot`),
-native re-forwards that already carry a destination `fwd_from`
-(`native-reforward`), and the discussion leg (never scanned — only
-`id_map` is walked). Album followers (non-lead items of a `grouped_id`) are
-also excluded (`album-non-lead`): sync only ever attached the author prefix to
-the lead item. When an album's lead cannot be *proven* — the nearest lower
-mapped source id was not returned by Telegram, so the deleted-lead case is
-indistinguishable from a healthy follower — the candidate is excluded as
-`album-lead-unknown` rather than promoted: a skipped message is harmless, a
-prefix written onto the wrong live message is not. Bodies that fail eligibility for any other reason appear as
-`not-eligible` and are skipped without alarm — the steady state of an already-
-fixed or hand-edited clone.
-
-Preview JSON:
-
-```json
-{"preview_id":"p_…","expires_at":"…","clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"}},"refresh":{"eligible":[{"source_id":54,"destination_id":154}],"excluded":[{"source_id":60,"reason":"poll-snapshot"}]}}
-```
-
-The persisted preview stores `kind: "clone-refresh"`, `source`,
-`account_user_id`, `source_peer_id`, and the `eligible` id pairs only — never
-the rendered text (recomputed fresh at commit). `--readonly` /
-`TGCLI_READONLY` / `TGCLI_NO_SEND` gate the commit only, not the preview scan
-(identical rule to `clone init`).
-
-`--commit PREVIEW_ID` takes the preview via `safety.begin_commit`
-(`expected_kind="clone-refresh"`) and `finish_commit` after a successful
-run (ADR-0083) — the same retryable `.pending` handshake as
-`clone init --commit` and `send`/`edit`. A mid-flight failure leaves the
-preview retryable within its TTL; recovery is the same `--commit
-PREVIEW_ID`, not a fresh preview. Commit fail-closes (exit 2) if
-the live account/`source` peer no longer match the preview's
-`account_user_id` / `source_peer_id`, or if any eligible
-`{source_id,destination_id}` pair no longer matches the current posts-leg
-`id_map` (e.g. after `clone init --replace`). It re-checks each surviving
-candidate against a fresh destination read, and issues
-`messages.EditMessageRequest` with text
-and entities only — `media` is never set, so existing media stays untouched;
-`id_map` and both cursors are unchanged. Each surviving edit writes a
-`clone-refresh-prefix` audit record before its RPC. A candidate that no longer
-matches eligibility is skipped, not forced. `MessageNotModifiedError` on an
-individual edit is swallowed and the run continues. Commit JSON:
-
-```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"Source"}},"refresh":{"edited":[{"source_id":54,"destination_id":154}],"skipped":[{"source_id":60,"reason":"not-eligible"}],"count":1}}
-```
-
-`--plain` columns: `source_id`, `destination_id`, `status` (`edited` or an
-exclusion reason). Exit 0 when every candidate was either edited or correctly
-declined.
-
-FloodWait during preview or commit exits 5 through the same request-governor
-per-type cooldown as `sync` and `init --commit`; there is no retry loop
-inside `refresh` (ADR-0072). Distinguish recovery by when the flood hits:
-a FloodWait during the **preview** scan never creates a `.pending` preview
-or preview id — rerun the preview after the cooldown. A FloodWait during
-**commit** leaves the `.pending` preview retryable within its TTL
-(ADR-0083) — re-run the same `--commit PREVIEW_ID` once the cooldown lifts.
-An expired or finished preview needs a **fresh** preview scan. Posts already
-fixed no longer match eligibility, so a second successful run is a quiet
-no-op.
-
 A batch uses download/reupload reconstruction when the source or any message
 has `noforwards`, or when it has a mapped reply. Attributed reuploads prepend
 `<display name>: ` followed by a blank line to text or the leading album
@@ -1615,8 +1530,7 @@ failed run. Each such message also prints one
 moment it is copied rather than in the run's tail: the copy is permanent and
 never revisited, so a run that later stops on a flood (exit 5, no result
 document) still leaves a complete account of what it lost. Native forwards
-contribute nothing to the list. Already-synced messages are never revisited;
-`clone refresh` does not backfill buttons.
+contribute nothing to the list. Already-synced messages are never revisited.
 
 `--limit N` must be positive and copies at most N message batches. If another
 source row remains, JSON reports `"more":true`; the next run resumes at the

@@ -132,18 +132,3 @@ def test_clone_init_still_honours_an_explicit_timeout(config_env, monkeypatch, c
     make_session_fake(monkeypatch, CloneInitClient())
 
     assert main(["clone", "init", "@source", "--timeout", "30", "--json"]) == 0
-
-
-def test_clone_refresh_runs_without_an_implicit_deadline(
-    config_env, monkeypatch, capsys
-):
-    from tests.test_cli_clone_refresh import RefreshClient, _eligible_pair, seed_clone
-    from tgcli.clone import state
-
-    clone_state = seed_clone()
-    clone_state.record_mapping(54, 154)
-    state.save(clone_state)
-    src, dst = _eligible_pair()
-    make_session_fake(monkeypatch, RefreshClient([src], [dst]))
-
-    assert main(["clone", "refresh", "@source", "--json"]) == 0

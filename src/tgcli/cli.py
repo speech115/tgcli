@@ -135,10 +135,7 @@ def _long_running_command(args) -> bool:
     return (
         args.command == "media"
         or args.command == "export"
-        or (
-            args.command == "clone"
-            and args.clone_command in ("init", "sync", "refresh")
-        )
+        or (args.command == "clone" and args.clone_command in ("init", "sync"))
         or (
             args.command == "archive"
             and args.archive_command in ("backfill", "sync", "transcribe")

@@ -195,23 +195,6 @@ HANDSHAKES = {
         source_binding="source",
         mutation_safe=True,
     ),
-    ("clone", "refresh"): Handshake(
-        kind="clone-refresh",
-        preview_call=lambda tg, args, _account: clone_cmd.preview_refresh(
-            tg,
-            args.source,
-        ),
-        commit_call=lambda tg, args, account: clone_cmd.commit_refresh(
-            tg,
-            args.source,
-            account.alias,
-            args.preview_payload,
-        ),
-        rows=clone_cmd.refresh_rows,
-        requires_preview_flag=False,
-        source_binding="source",
-        mutation_safe=True,
-    ),
     ("draft", "set"): Handshake(
         kind="draft-set",
         preview_call=lambda tg, args, _account: draft_cmd.prepare_set(
