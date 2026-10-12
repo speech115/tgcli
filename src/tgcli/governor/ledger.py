@@ -7,9 +7,6 @@ that type locally instead of sending into a live penalty.
 * **A missing or corrupt file degrades, never crashes.** ``open`` returns a
   private in-memory ledger with ``degraded=True``; ``doctor`` reports it, and
   traffic proceeds without cross-process memory.
-* **A failed durable arm stays sticky in-process** (ADR-0090):
-  ``remember_cooldown`` keeps the deadline so the next same-type RPC in this
-  process still refuses.
 * **Deadlines are clamped at read time**, so a deadline armed under a skewed
   clock degrades to a bounded wait instead of a permanent refusal.
 """
@@ -52,8 +49,6 @@ class Ledger:
     ) -> None:
         self._db = connection
         self.degraded = degraded
-        # Process-local deadlines for arms that could not be written (ADR-0090).
-        self._volatile_cooldowns: dict[tuple[int, str], datetime] = {}
 
     @classmethod
     def open(cls, path: Path | None = None) -> Ledger:
@@ -96,14 +91,6 @@ class Ledger:
     def __exit__(self, *exc_info: object) -> None:
         self.close()
 
-    def remember_cooldown(
-        self, account_user_id: int, request_key: str, deadline: datetime
-    ) -> None:
-        """Keep a process-local cooldown when the durable arm cannot land."""
-        self._volatile_cooldowns[(account_user_id, request_key)] = deadline.astimezone(
-            UTC
-        )
-
     def cooldown_deadline(
         self, account_user_id: int, request_key: str, *, now: datetime | None = None
     ) -> datetime | None:
@@ -125,9 +112,6 @@ class Ledger:
                 parsed = None
             if parsed is not None and parsed.tzinfo is not None:
                 deadline = parsed.astimezone(UTC)
-        volatile = self._volatile_cooldowns.get((account_user_id, request_key))
-        if volatile is not None:
-            deadline = volatile if deadline is None else max(deadline, volatile)
         if deadline is None:
             return None
         clamped = min(deadline, moment + timedelta(seconds=MAX_COOLDOWN_S))
@@ -155,9 +139,7 @@ class Ledger:
             )
             self._db.commit()
         except sqlite3.Error:
-            self.remember_cooldown(account_user_id, request_key, aware)
             return False
-        self._volatile_cooldowns.pop((account_user_id, request_key), None)
         return True
 
     def active_cooldowns(
@@ -165,7 +147,6 @@ class Ledger:
     ) -> dict[str, datetime]:
         """Every request type currently cooling, for ``doctor`` to report."""
         moment = datetime.now(UTC) if now is None else now
-        keys: set[str] = set()
         try:
             rows = self._db.execute(
                 "SELECT request_key FROM cooldowns WHERE account_user_id = ?",
@@ -173,14 +154,8 @@ class Ledger:
             ).fetchall()
         except sqlite3.Error:
             rows = ()
-        keys.update(request_key for (request_key,) in rows)
-        keys.update(
-            key
-            for (account, key), deadline in self._volatile_cooldowns.items()
-            if account == account_user_id and deadline > moment
-        )
         active = {}
-        for request_key in keys:
+        for (request_key,) in rows:
             deadline = self.cooldown_deadline(account_user_id, request_key, now=moment)
             if deadline is not None:
                 active[request_key] = deadline

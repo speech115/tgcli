@@ -6,7 +6,7 @@ exists to prevent:
 * the **cooldown key** is the request type itself (``request_key``). A
   ``FLOOD_WAIT`` arms a record for exactly the type that drew it, so the gate
   works for every request tgcli can ever issue — including ones nobody
-  enumerated, and including whatever an operator sends through ``tg api``.
+  enumerated, and whatever a ``tg run`` script sends.
 * the **paced class** (``classify``) decides only the *interval* between
   requests, because ADR-0072 decision 3 states its defaults per class rather
   than per type.

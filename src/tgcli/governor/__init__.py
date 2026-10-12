@@ -5,9 +5,8 @@ ledger. It keys everything on the **Telegram request type**, never on the peer:
 the incident that produced it ran unpaced across 791 peers because every guard
 the project had was scoped to something narrower than the account.
 
-Modules land in dependency order:
-
-* ``registry`` — which request type belongs to which paced class (phase 0);
-* ``seam`` — the ``_call`` wrapper and its fail-fast pin (phases 0 and 2);
-* ``probe`` — the self-verifying probe for recorded cooldowns (phase 3).
+* ``registry`` — which request type belongs to which paced class;
+* ``gate`` — the ``_call`` wrapper: refuse or sleep while cooling, pace, arm;
+* ``ledger`` — the persisted cooldowns every process reads;
+* ``pacing`` — per-process intervals, governed sleep, the wall-clock cap.
 """

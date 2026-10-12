@@ -248,11 +248,6 @@ def _make_client(
     # incident invisible — it engages only above `limit > 3000` and silently
     # absorbs shorter waits, so the governor could never see the flood it is
     # supposed to record. Retries stay at Telethon's default for reads.
-    # Imported here, not at module scope: the governor's ledger needs this
-    # module's state-dir helpers, so a top-level import would be circular.
-    from tgcli.governor.seam import verify_seam
-
-    verify_seam()
     if mutation_safe:
         return TelegramClient(
             str(path),

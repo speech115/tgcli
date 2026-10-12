@@ -100,15 +100,11 @@ def test_a_healthy_ledger_is_not_degraded(ledger):
     assert ledger.degraded is False
 
 
-def test_arm_cooldown_sqlite_failure_keeps_a_sticky_deadline(ledger):
-    """ADR-0090: a real sqlite3.Error path remembers the deadline in-process."""
-    deadline = datetime.now(UTC) + timedelta(hours=1)
+def test_arm_cooldown_sqlite_failure_reports_false(ledger):
+    """A real sqlite3.Error path answers False instead of raising."""
     ledger._db.close()
 
-    assert ledger.arm_cooldown(ACCOUNT, HISTORY, deadline) is False
-    sticky = ledger.cooldown_deadline(ACCOUNT, HISTORY)
-    assert sticky is not None
-    assert sticky <= deadline + timedelta(seconds=1)
+    assert ledger.arm_cooldown(ACCOUNT, HISTORY, datetime.now(UTC)) is False
 
 
 def test_a_corrupt_row_fails_open(ledger):
