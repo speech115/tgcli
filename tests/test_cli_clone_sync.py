@@ -3751,6 +3751,103 @@ def test_clone_sync_reuploads_open_reply_album_to_mapped_parent(
     assert [saved.dest_for(2), saved.dest_for(3)] == [1002, 1003]
 
 
+def real_photo(photo_id):
+    return types.MessageMediaPhoto(
+        photo=types.Photo(
+            id=photo_id,
+            access_hash=photo_id * 7,
+            file_reference=b"ref",
+            date=None,
+            sizes=[],
+            dc_id=2,
+        )
+    )
+
+
+def test_clone_sync_sends_open_reply_media_by_reference(
+    config_env, monkeypatch, capsys
+):
+    """An unprotected source lets Telegram reuse its file: no download, no
+    upload, and the reply still lands on the mapped parent."""
+    clone_state = seed_clone()
+    clone_state.record_mapping(1, 1001)
+    clone_state.cursor = 1
+    state.save(clone_state)
+    reply = types.MessageReplyHeader(reply_to_msg_id=1)
+    client = CloneReuploadClient([message(2, media=real_photo(70), reply_to=reply)])
+    client.destination_last_id = 1001
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMediaRequest)
+    assert request.media == types.InputMediaPhoto(
+        id=types.InputPhoto(id=70, access_hash=490, file_reference=b"ref")
+    )
+    assert request.reply_to.reply_to_msg_id == 1001
+    assert client.downloads == [] and client.uploads == []
+    assert state.load(clone_state.clone_id).dest_for(2) == 1002
+
+
+def test_clone_sync_sends_open_reply_album_by_reference(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    clone_state.record_mapping(1, 1001)
+    clone_state.cursor = 1
+    state.save(clone_state)
+    reply = types.MessageReplyHeader(reply_to_msg_id=1)
+    client = CloneReuploadClient(
+        [
+            message(2, media=real_photo(70), grouped_id=44, reply_to=reply),
+            message(3, media=real_photo(71), grouped_id=44),
+        ]
+    )
+    client.destination_last_id = 1001
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMultiMediaRequest)
+    assert [item.media.id.id for item in request.multi_media] == [70, 71]
+    assert client.downloads == [] and client.uploads == []
+
+
+def test_clone_sync_falls_back_to_reupload_when_reference_is_refused(
+    config_env, monkeypatch, capsys
+):
+    clone_state = seed_clone()
+    clone_state.record_mapping(1, 1001)
+    clone_state.cursor = 1
+    state.save(clone_state)
+
+    class RefusingReferenceClient(CloneReuploadClient):
+        async def __call__(self, request):
+            if isinstance(request, functions.messages.SendMediaRequest) and (
+                isinstance(request.media, types.InputMediaPhoto)
+            ):
+                raise telethon_errors.MediaEmptyError(request=request)
+            return await super().__call__(request)
+
+    reply = types.MessageReplyHeader(reply_to_msg_id=1)
+    client = RefusingReferenceClient([message(2, media=real_photo(70), reply_to=reply)])
+    client.destination_last_id = 1001
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    captured = capsys.readouterr()
+    assert "media by reference refused" in captured.err
+    [request] = client.requests
+    assert isinstance(request.media, types.InputMediaUploadedPhoto)
+    assert len(client.downloads) == 1
+    assert state.load(clone_state.clone_id).dest_for(2) == 1002
+
+
 def test_clone_sync_prefixes_attributed_reply_album_caption_once(
     config_env, monkeypatch, capsys
 ):

@@ -1446,7 +1446,11 @@ same batch uses native forwarding with `drop_author=False`, retaining
 Telegram's author header.
 
 A batch uses download/reupload reconstruction when the source or any message
-has `noforwards`, or when it has a mapped reply. Attributed reuploads prepend
+has `noforwards`, or when it has a mapped reply. When neither the source nor
+any message is protected, the rebuilt message carries the source's own photo
+or document by reference, so no bytes are downloaded or uploaded; a reference
+Telegram refuses (anything but a FloodWait) falls back to the byte copy with a
+stderr warning. Attributed reuploads prepend
 `<display name>: ` followed by a blank line to text or the leading album
 caption, so the author header sits on its own line above the message body.
 Original entity
