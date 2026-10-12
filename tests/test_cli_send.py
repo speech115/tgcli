@@ -32,6 +32,7 @@ class SendClient:
     def __init__(self):
         self.requests = []
         self.uploaded = []
+        self.file_names = []
 
     async def get_entity(self, chat):
         assert chat == "@alice"
@@ -40,8 +41,9 @@ class SendClient:
     async def get_input_entity(self, chat):
         return f"input:{chat}"
 
-    async def upload_file(self, path):
+    async def upload_file(self, path, file_name=None):
         self.uploaded.append(path)
+        self.file_names.append(file_name)
         return SimpleNamespace(name=path)
 
     async def _parse_message_text(self, message, parse_mode):
@@ -78,13 +80,13 @@ class SnapshotClient(SendClient):
         self.snapshot_path = None
         self.uploaded_bytes = None
 
-    async def upload_file(self, path):
+    async def upload_file(self, path, file_name=None):
         self.snapshot_path = Path(path)
         self.original.write_bytes(b"swap")
         self.uploaded_bytes = self.snapshot_path.read_bytes()
         if self.failure == "upload":
             raise OSError("upload failed")
-        return await super().upload_file(path)
+        return await super().upload_file(path, file_name)
 
     async def __call__(self, request):
         if self.failure == "request":
@@ -485,6 +487,8 @@ def test_send_commit_sends_raw_media(config_env, monkeypatch, capsys, tmp_path):
     [uploaded_path] = client.uploaded
     assert Path(uploaded_path) != photo
     assert not Path(uploaded_path).exists()
+    # The snapshot has no extension; Telegram rejects a photo upload without one.
+    assert client.file_names == ["pic.jpg"]
 
 
 def test_send_commit_uploads_verified_snapshot_when_original_changes(
