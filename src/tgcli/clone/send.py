@@ -9,7 +9,7 @@ from __future__ import annotations
 import secrets
 import shutil
 
-from telethon import utils as telethon_utils
+from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
 
 from tgcli import safety
@@ -24,6 +24,7 @@ from tgcli.clone import (
     transport,
 )
 from tgcli.errors import PolicyError
+from tgcli.output import note
 
 
 def _body_text(message, author, plan) -> tuple[str, list | None]:
@@ -51,28 +52,90 @@ async def reupload_batch(
     author=None,
     plan=None,
     progress=None,
+    *,
+    by_reference=False,
 ):
     plan = plan or transport.TransportPlan(
         mode="reuploaded", reply_to=reply_to, reply_flattened=False, needs_author=False
     )
+
+    def audit() -> None:
+        safety.append_audit(
+            "clone-sync-reupload",
+            account_alias,
+            {
+                "clone_id": clone_state.clone_id,
+                "source_message_ids": [m.id for m in messages],
+            },
+        )
+
+    if by_reference:
+        audit()
+        # An unprotected source lets Telegram reuse its own file: no bytes
+        # move, and a sticker stays a sticker. Any refusal but a flood falls
+        # back to the byte copy below.
+        try:
+            return await _send(
+                tg,
+                destination,
+                messages,
+                random_ids,
+                reply_to,
+                author,
+                plan,
+                lambda message, album: _referenced(message),
+            )
+        except telethon_errors.FloodWaitError:
+            raise
+        except telethon_errors.RPCError as exc:
+            note(
+                f"warning: clone media by reference refused ({exc}); reuploading "
+                f"source message(s) {[m.id for m in messages]}"
+            )
     cache = reupload.cache_dir(clone_state)
     cache.mkdir(parents=True, exist_ok=True)
     downloads = {}
     for message in messages:
-        media = getattr(message, "media", None)
-        if media is None or isinstance(media, types.MessageMediaWebPage):
-            continue
-        downloads[message.id] = await reupload.download_for_reupload(
-            tg, message, cache, clone_state, progress
+        if _has_media(message):
+            downloads[message.id] = await reupload.download_for_reupload(
+                tg, message, cache, clone_state, progress
+            )
+    if not by_reference:
+        audit()
+
+    async def uploaded(message, album):
+        media = await reupload.uploaded_media(
+            tg, message, downloads[message.id], progress
         )
-    safety.append_audit(
-        "clone-sync-reupload",
-        account_alias,
-        {
-            "clone_id": clone_state.clone_id,
-            "source_message_ids": [m.id for m in messages],
-        },
+        if not album:
+            return media
+        stored = await tg(
+            functions.messages.UploadMediaRequest(peer=destination, media=media)
+        )
+        input_media = telethon_utils.get_input_media(stored)
+        # The send carries the blur; UploadMedia's echo need not keep it.
+        input_media.spoiler = media.spoiler
+        return input_media
+
+    return await _send(
+        tg, destination, messages, random_ids, reply_to, author, plan, uploaded
     )
+
+
+def _has_media(message) -> bool:
+    media = getattr(message, "media", None)
+    return media is not None and not isinstance(media, types.MessageMediaWebPage)
+
+
+async def _referenced(message):
+    return telethon_utils.get_input_media(message.media)
+
+
+async def _send(
+    tg, destination, messages, random_ids, reply_to, author, plan, media_for
+):
+    """One SendMessage/SendMedia/SendMultiMedia for the batch; ``media_for``
+    turns a source message into the InputMedia this send carries."""
     if len(messages) == 1:
         message = messages[0]
         media = getattr(message, "media", None)
@@ -84,50 +147,35 @@ async def reupload_batch(
             "reply_to": reply_to,
             "entities": entities,
         }
-        if media is None or isinstance(media, types.MessageMediaWebPage):
+        if not _has_media(message):
             request = functions.messages.SendMessageRequest(
                 **common, no_webpage=media is None
             )
         else:
             request = functions.messages.SendMediaRequest(
-                **common,
-                media=await reupload.uploaded_media(
-                    tg, message, downloads[message.id], progress
-                ),
+                **common, media=await media_for(message, False)
             )
-        response = await tg(request)
-    else:
-        multi_media = []
-        for index, (message, random_id) in enumerate(
-            zip(messages, random_ids, strict=True)
-        ):
-            if message.id not in downloads:
-                raise PolicyError(
-                    f"clone album item is not reconstructable: {message.id}"
-                )
-            uploaded = await reupload.uploaded_media(
-                tg, message, downloads[message.id], progress
+        return await tg(request)
+    multi_media = []
+    for index, (message, random_id) in enumerate(
+        zip(messages, random_ids, strict=True)
+    ):
+        if not _has_media(message):
+            raise PolicyError(f"clone album item is not reconstructable: {message.id}")
+        text, entities = _body_text(message, author if index == 0 else None, plan)
+        multi_media.append(
+            types.InputSingleMedia(
+                media=await media_for(message, True),
+                random_id=random_id,
+                message=text,
+                entities=entities,
             )
-            stored = await tg(
-                functions.messages.UploadMediaRequest(peer=destination, media=uploaded),
-            )
-            text, entities = _body_text(message, author if index == 0 else None, plan)
-            input_media = telethon_utils.get_input_media(stored)
-            # The send carries the blur; UploadMedia's echo need not keep it.
-            input_media.spoiler = uploaded.spoiler
-            multi_media.append(
-                types.InputSingleMedia(
-                    media=input_media,
-                    random_id=random_id,
-                    message=text,
-                    entities=entities,
-                )
-            )
-        request = functions.messages.SendMultiMediaRequest(
+        )
+    return await tg(
+        functions.messages.SendMultiMediaRequest(
             peer=destination, multi_media=multi_media, reply_to=reply_to
         )
-        response = await tg(request)
-    return response
+    )
 
 
 async def forward_batch(
@@ -253,6 +301,9 @@ async def forward_batch(
             author,
             plan,
             progress,
+            # Protected content is refused by reference, so only bytes copy it.
+            by_reference=not getattr(source, "noforwards", False)
+            and not any(getattr(m, "noforwards", False) for m in messages),
         )
     destination_ids = topics.confirmed_destination_ids(response, random_ids)
     for source_id, destination_id in zip(source_ids, destination_ids, strict=True):
