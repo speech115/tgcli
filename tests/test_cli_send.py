@@ -298,6 +298,45 @@ def test_send_commit_reports_unknown_dialog_as_not_found(
     assert client.requests == []
 
 
+@pytest.mark.parametrize(
+    ("reply_to", "topic", "header"),
+    [
+        (5, None, types.InputReplyToMessage(reply_to_msg_id=5)),
+        (None, 9, types.InputReplyToMessage(reply_to_msg_id=9)),
+        (5, 9, types.InputReplyToMessage(reply_to_msg_id=5, top_msg_id=9)),
+        (None, None, None),
+    ],
+    ids=["reply", "topic", "reply-in-topic", "neither"],
+)
+def test_send_commit_places_the_message_by_reply_and_topic(
+    config_env, monkeypatch, capsys, reply_to, topic, header
+):
+    """A reply inside a forum topic needs both ids: without `top_msg_id` it
+    lands outside the topic. Only the reply id was ever asserted, so the
+    topic could be dropped with every test green."""
+    preview = safety.create_preview(
+        {
+            "kind": "send",
+            "chat": "@alice",
+            "text": "hello",
+            "file": None,
+            "file_size": None,
+            "reply_to": reply_to,
+            "topic": topic,
+            "silent": False,
+            "random_id": 777,
+            "to": {"id": 7, "name": "Alice"},
+        }
+    )
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 0
+
+    [request] = client.requests
+    assert request.reply_to == header
+
+
 def test_send_commit_sends_raw_with_stored_random_id(config_env, monkeypatch, capsys):
     preview = safety.create_preview(
         {
