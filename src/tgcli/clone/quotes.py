@@ -260,10 +260,14 @@ async def _place_thread(
             quote_offset=header.quote_offset,
         )
     elif plan.reply_to is None:
-        if plan.body_prefix is not None:
-            reply_to = types.InputReplyToMessage(reply_to_msg_id=found)
-        else:
-            return plan
+        # The parent is lost (fallback or flattened), but the thread is known:
+        # keep the comment under its post, and keep counting the lost reply.
+        placed = replace(
+            plan, reply_to=types.InputReplyToMessage(reply_to_msg_id=found)
+        )
+        return replace(
+            transport.as_reuploaded(placed), reply_flattened=plan.reply_flattened
+        )
     else:
         reply_to = cast(types.InputReplyToMessage, copy(plan.reply_to))
         reply_to.top_msg_id = found

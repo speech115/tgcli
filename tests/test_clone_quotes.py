@@ -633,3 +633,22 @@ def test_send_with_degrade_reraises_unrelated_bad_requests():
                 send, messages, plan, leg, DISCUSSION_SOURCE, _ctx(FakeClient())
             )
         )
+
+
+def test_flattened_reply_kind_keeps_its_post_thread():
+    """A poll-option reply flattens by kind, yet its thread is known."""
+    header = types.MessageReplyHeader(
+        reply_to_msg_id=2379, reply_to_top_id=2377, poll_option=b"0"
+    )
+    messages = [_msg(2380, reply_to=header)]
+    leg = _discussion(id_map={789: 773})
+    plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
+    ctx = _threaded_ctx(FakeClient())
+    ctx.anchors[2377] = 789
+    ctx.anchor_cache[773] = 550
+
+    resolved = asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
+
+    assert resolved.reply_to == types.InputReplyToMessage(reply_to_msg_id=550)
+    assert resolved.mode == "reuploaded"
+    assert resolved.reply_flattened is True

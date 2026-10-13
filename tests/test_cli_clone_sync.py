@@ -1197,6 +1197,40 @@ def test_sync_flattens_comments_with_unmapped_anchors(config_env, monkeypatch, c
     assert state.load(clone_state.clone_id).discussion_dest_for(12) is not None
 
 
+def test_sync_keeps_a_comment_with_a_lost_parent_in_its_post_thread(
+    config_env, monkeypatch, capsys
+):
+    """A comment whose parent comment never reached the clone (deleted, or
+    skipped as unsupported) still belongs to a known post thread: it lands
+    under the destination anchor, never as loose group chatter, and the lost
+    parent is still counted in reply_flattened."""
+    seed_comments_clone()
+    client = CloneCommentsClient(
+        [message(2)],
+        [
+            anchor(10, 2),
+            message(
+                13,
+                message="answer to a deleted comment",
+                reply_to=types.MessageReplyHeader(
+                    reply_to_msg_id=11, reply_to_top_id=10
+                ),
+            ),
+        ],
+    )
+    client.anchor_ids = {2: 500}
+    client.group_last_id = 500
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["reply_flattened"] == 1
+    [send] = group_sends(client)
+    assert isinstance(send, functions.messages.SendMessageRequest)
+    assert send.reply_to == types.InputReplyToMessage(reply_to_msg_id=500)
+
+
 def test_sync_defers_cross_leg_comment_beyond_posts_cursor(
     config_env, monkeypatch, capsys
 ):
