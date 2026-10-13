@@ -73,6 +73,19 @@ async def verify_tail(tg, destination, recorded_last_id, label, expected) -> Non
         )
 
 
+async def destination_group(tg, peer_id: int):
+    """The clone's recorded discussion group, checked for the owned shape."""
+    try:
+        group = await tg.get_entity(types.PeerChannel(peer_id))
+    except PEER_UNAVAILABLE:
+        raise PolicyError("clone discussion destination is unavailable") from None
+    if not is_discussion_destination(group):
+        raise PolicyError(
+            "clone discussion destination is not a private owned megagroup"
+        )
+    return group
+
+
 async def adopt(tg, mutate, marker_candidates, marker, recorded_peer_id, on_create):
     """The recorded peer, else the single marker-matched group, else a fresh
     one. Same marker discipline as the destination channel."""
