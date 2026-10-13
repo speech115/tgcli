@@ -34,6 +34,15 @@ RECONCILE_SAMPLE = 5
 CHANNEL_PEER_CEILING = -(10**12)
 
 
+def has_own_updates(entry: dict[str, Any]) -> bool:
+    """A scoped channel or supergroup: the peers with their own update stream.
+
+    A basic group is a `group` in scope too, but its updates arrive through
+    the common difference; subscribing it fails.
+    """
+    return int(entry["peer_id"]) <= CHANNEL_PEER_CEILING
+
+
 def validate_max_events(value: int | None, *, default: int, maximum: int) -> int:
     """Validate ``--max-events`` as the catch-up message budget (not apply)."""
     if value is None:
@@ -376,7 +385,7 @@ async def _ensure_channel_subscriptions(
     tg, conn: sqlite3.Connection, cursor: ChangesCursor
 ) -> ChangesCursor:
     for entry in store_mod.list_scope(conn):
-        if entry["kind"] not in ("channel", "group"):
+        if not has_own_updates(entry):
             continue
         peer = int(entry["peer_id"])
         if peer in cursor.channels:
@@ -595,9 +604,8 @@ async def rebaseline(tg, conn: sqlite3.Connection) -> dict[str, Any]:
     peers = [
         entry.get("chat_ref") or str(entry["peer_id"])
         for entry in store_mod.list_scope(conn)
-        if entry["kind"] in ("channel", "group")
+        if has_own_updates(entry)
     ]
-    # Prefer marked peer ids for GetFullChannel; chat_ref may be a username.
     doc = await changes_cmd.init_changes(tg, peers=peers)
     encoded = store_mod.write_account_sync(
         conn,
