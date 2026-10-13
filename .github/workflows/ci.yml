@@ -34,7 +34,8 @@ jobs:
       - name: Type check
         run: uv run pyright
       - name: Run tests
-        run: uv run pytest -q -n auto
+        # Same hostile values as scripts/gate.sh: tests set their own env.
+        run: env TGCLI_READONLY=1 TGCLI_ACCOUNT=gate-isolation uv run pytest -q -n auto
       - name: Check Telethon coverage matrix
         run: uv run python scripts/check-coverage.py
       - name: Check docs against the CLI surface
