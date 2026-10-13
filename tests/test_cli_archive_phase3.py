@@ -695,6 +695,52 @@ def test_rebaseline_and_sync_leave_a_scoped_basic_group_to_the_common_tier(
     assert "skip channel subscribe" not in capsys.readouterr().err
 
 
+def test_a_recorded_gap_survives_later_clean_syncs_until_rebaseline(
+    config_env, monkeypatch, capsys
+):
+    """CONTRACT: the gap is stored loudly and rebaseline is what clears it.
+    The next clean sync used to erase it, so a scheduled run that missed the
+    one gapped JSON never learned edits and deletes were lost."""
+
+    class OnceTooLongClient(FakeClient):
+        too_long = True
+
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, GetStateRequest):
+                return _state(pts=50, qts=2, seq=9)
+            if isinstance(request, GetDifferenceRequest):
+                if self.too_long:
+                    self.too_long = False
+                    return DifferenceTooLong(pts=50)
+                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=9)
+            raise AssertionError(request)
+
+    client = OnceTooLongClient(me=_me())
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert main(["archive", "sync", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["gap"]["reason"] == "differenceTooLong"
+    assert main(["archive", "sync", "--json"]) == 0
+    capsys.readouterr()
+    assert main(["archive", "status", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["gap"]["reason"] == "differenceTooLong"
+
+    assert main(["archive", "rebaseline", "--json"]) == 0
+    capsys.readouterr()
+    assert main(["archive", "status", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["gap"] is None
+
+
 def test_sync_and_rebaseline_readonly_blocked(config_env, monkeypatch, capsys):
     make_session_fake(monkeypatch, _client())
     assert main(["archive", "init", "--json"]) == 0

@@ -522,12 +522,13 @@ async def sync_archive(
 
     gap = doc.get("gap")
     encoded = changes_cursor.encode(cursor)
+    # A clean pass does not bring lost edits back: the stored gap stays until
+    # `rebaseline` clears it.
     persisted = store_mod.write_account_sync(
         conn,
         changes_cursor=encoded,
         gap=gap,
         touch_sync=True,
-        clear_gap=gap is None,
         scope_channels=True,
     )
     assert persisted is not None
