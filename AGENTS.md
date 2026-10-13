@@ -36,7 +36,7 @@ is wrong, fix the check.
 | Read commands are reachable only through `read_ops` | `scripts/check-architecture.py` |
 | No module passes 800 lines; split it instead (one listed exception) | `scripts/check-architecture.py` (`MAX_LINES`) |
 | Exit codes come from the `errors.py` hierarchy and match CONTRACT §4 | `tests/test_contract_exit_codes.py` |
-| Every mutation goes through preview → commit and the readonly gates | `src/tgcli/preview_commit.py` registry, `tests/test_preview_commit.py`, `tests/test_safety.py` |
+| Every mutation goes through preview → commit and the readonly gates; every command is classified | `src/tgcli/preview_commit.py` registry, `tests/test_command_classes.py`, `tests/test_preview_commit.py`, `tests/test_safety.py` |
 | Audit is written before the mutation, and an unwritable audit blocks it | `tests/test_safety.py`, `tests/test_cli_mutate.py` |
 | Every Telethon namespace is classified; `tg run` refuses writes without `--write` and auth/account always | `scripts/check-coverage.py` with `docs/FEATURES.md`, `tests/test_cli_run.py` |
 | README and SKILL.md name only real flags, commands, and links | `scripts/check-docs.py` |
