@@ -564,7 +564,7 @@ def main(argv: list[str] | None = None) -> int:
             sys.stderr.write(mask_phones_in_text(traceback.format_exc()))
         with _tolerate_hangup():
             output.emit_error(
-                TgcliError(mask_phones_in_text(str(err) or type(err).__name__)),
+                TgcliError(str(err) or type(err).__name__),
                 as_json=args.json,
             )
     except BaseException as err:
