@@ -135,14 +135,78 @@ def _reply_header(payload: dict):
     )
 
 
-def _uploaded_media(uploaded, file: str):
+def _boxes(stream, end: int):
+    """Yield (type, payload offset, payload end) for ISO media boxes."""
+    while stream.tell() + 8 <= end:
+        start = stream.tell()
+        header = stream.read(8)
+        size, kind = int.from_bytes(header[:4], "big"), header[4:]
+        if size == 1:
+            size = int.from_bytes(stream.read(8), "big")
+        elif size == 0:
+            size = end - start
+        if size < stream.tell() - start or start + size > end:
+            return
+        yield kind, stream.tell(), start + size
+        stream.seek(start + size)
+
+
+def _video_info(path: Path) -> tuple[float, int, int] | None:
+    """Duration in seconds and the first visual track's size, read from the
+    `mvhd` and `tkhd` boxes of an MP4/QuickTime file; None when absent."""
+    duration, size = None, None
+    with path.open("rb") as stream:
+        file_end = stream.seek(0, 2)
+        stream.seek(0)
+        for kind, start, end in _boxes(stream, file_end):
+            if kind != b"moov":
+                continue
+            for child, child_start, child_end in _boxes(stream, end):
+                header = stream.read(min(child_end - child_start, 120))
+                if child == b"mvhd" and duration is None:
+                    wide = header[:1] == b"\x01"
+                    at = 20 if wide else 12
+                    timescale = int.from_bytes(header[at : at + 4], "big")
+                    length = header[at + 4 : at + (12 if wide else 8)]
+                    if timescale:
+                        duration = int.from_bytes(length, "big") / timescale
+                elif child == b"trak" and size is None:
+                    stream.seek(child_start)
+                    for leaf, leaf_start, leaf_end in _boxes(stream, child_end):
+                        if leaf != b"tkhd":
+                            continue
+                        tkhd = stream.read(min(leaf_end - leaf_start, 104))
+                        at = 88 if tkhd[:1] == b"\x01" else 76
+                        w = int.from_bytes(tkhd[at : at + 4], "big") >> 16
+                        h = int.from_bytes(tkhd[at + 4 : at + 8], "big") >> 16
+                        # A zero `a` in the display matrix means a quarter turn.
+                        if int.from_bytes(tkhd[at - 36 : at - 32], "big") == 0:
+                            w, h = h, w
+                        if w and h:
+                            size = (w, h)
+                        break
+            break
+    if duration is None or size is None:
+        return None
+    return duration, *size
+
+
+def _uploaded_media(uploaded, file: str, snapshot: Path):
     mime = mimetypes.guess_type(file)[0] or "application/octet-stream"
     if mime in ("image/jpeg", "image/png"):
         return types.InputMediaUploadedPhoto(file=uploaded)
+    attributes: list = [types.DocumentAttributeFilename(Path(file).name)]
+    if mime.startswith("video/"):
+        # #285: without this attribute Telegram shows a video as a file row.
+        duration, w, h = _video_info(snapshot) or (0, 1, 1)
+        attributes.insert(
+            0,
+            types.DocumentAttributeVideo(
+                duration=duration, w=w, h=h, supports_streaming=True
+            ),
+        )
     return types.InputMediaUploadedDocument(
-        file=uploaded,
-        mime_type=mime,
-        attributes=[types.DocumentAttributeFilename(Path(file).name)],
+        file=uploaded, mime_type=mime, attributes=attributes
     )
 
 
@@ -181,7 +245,7 @@ async def commit(tg, preview_id: str, payload: dict) -> dict:
                 str(snapshot), file_name=Path(original_path).name
             )
             request = functions.messages.SendMediaRequest(
-                **common, media=_uploaded_media(uploaded, original_path)
+                **common, media=_uploaded_media(uploaded, original_path, snapshot)
             )
             response = await tg(request)
             [message_id] = confirmed_ids(response, [random_id])
