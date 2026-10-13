@@ -2,22 +2,25 @@ name: CI
 
 on:
   pull_request:
+  push:
+    branches: [main]
 
-# PR-only, single job: one full gate per PR on the self-hosted macOS runner.
-# No push trigger and no second leg, so a single-runner machine does one job
-# per PR instead of three serialized ones (ADR-0119).
+# One full gate per PR, and again on main after a squash merge, so the merged
+# combination of PRs is checked too. GitHub-hosted macOS: the target platform,
+# and a public repository's fork PRs must not run on the owner's Mac (ADR-0121).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
     name: test
-    runs-on: [self-hosted, tgcli]
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
-      # The runner is the owner's Mac, with uv on its PATH and a warm cache.
-      # setup-uv only added a version-manifest fetch that kept timing out.
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
       - name: Install dependencies
         run: uv sync --frozen
       - name: Check the lockfile matches pyproject.toml
