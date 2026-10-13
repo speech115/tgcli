@@ -8,6 +8,7 @@ import pytest
 from telethon import errors as telethon_errors
 from telethon.tl import types
 
+from tests.conftest import TRANSIENT_ERRORS
 from tgcli.clone import attribution
 
 
@@ -258,12 +259,15 @@ def test_author_of_falls_back_to_id_when_get_entity_raises_rpc_error():
     assert author == attribution.Author(text="id 9")
 
 
-def test_author_of_propagates_flood_wait():
+@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
+def test_author_of_propagates_a_transient_error(make_error):
+    error = make_error()
+
     class Client:
         async def get_entity(self, peer):
-            raise telethon_errors.FloodWaitError(request=None, capture=30)
+            raise error
 
-    with pytest.raises(telethon_errors.FloodWaitError):
+    with pytest.raises(type(error)):
         asyncio.run(
             attribution.author_of(
                 Client(),
@@ -605,12 +609,15 @@ def test_forwarded_author_of_reuses_author_cache():
     assert len(calls) == 1
 
 
-def test_forwarded_author_of_propagates_flood_wait():
+@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
+def test_forwarded_author_of_propagates_a_transient_error(make_error):
+    error = make_error()
+
     class Client:
         async def get_entity(self, peer):
-            raise telethon_errors.FloodWaitError(request=None, capture=30)
+            raise error
 
-    with pytest.raises(telethon_errors.FloodWaitError):
+    with pytest.raises(type(error)):
         asyncio.run(
             attribution.forwarded_author_of(
                 Client(),

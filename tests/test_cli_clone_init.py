@@ -7,7 +7,7 @@ import pytest
 from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
-from tests.conftest import make_session_fake
+from tests.conftest import TRANSIENT_ERRORS, make_session_fake, transient_exit_code
 from tgcli import safety, session
 from tgcli.cli import main
 from tgcli.clone import attribution, state
@@ -1268,11 +1268,14 @@ def test_clone_init_unresolved_discussion_marks_muted_false(
     assert "warning: clone mute skipped for discussion peer" in captured.err
 
 
-def test_clone_init_flood_during_mute_exits_rate_limited(
-    config_env, monkeypatch, capsys
+@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
+def test_clone_init_transient_error_during_mute_is_not_an_unresolved_peer(
+    config_env, monkeypatch, capsys, make_error
 ):
     """A flood while resolving the discussion peer is a live rate limit, not
-    an unresolved peer: CONTRACT §4 wants exit 5, never a quiet muted:false."""
+    an unresolved peer: CONTRACT §4 wants exit 5, never a quiet muted:false.
+    A Telegram 500 is the same kind of "ask again later"."""
+    error = make_error()
     client = CloneInitClient()
     client.linked = linked_group()
     make_session_fake(monkeypatch, client)
@@ -1282,15 +1285,14 @@ def test_clone_init_flood_during_mute_exits_rate_limited(
 
     async def flooding_get_entity(ref):
         if isinstance(ref, types.PeerChannel) and ref.channel_id == 1001:
-            raise telethon_errors.FloodWaitError(request=None)
+            raise error
         return await original_get_entity(ref)
 
     client.get_entity = flooding_get_entity  # type: ignore[method-assign]
 
-    assert (
-        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
-        == 5
-    )
+    assert main(
+        ["clone", "init", "@source", "--commit", preview["preview_id"], "--json"]
+    ) == transient_exit_code(error)
 
 
 def test_clone_init_skips_mute_when_already_forever(config_env, monkeypatch, capsys):

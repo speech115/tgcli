@@ -10,6 +10,7 @@ from telethon.tl import functions, types
 
 from tgcli import safety
 from tgcli.output import note
+from tgcli.session import TRANSIENT_ERRORS
 
 BREAKDOWN_UNAVAILABLE = "распределение по вариантам недоступно"
 
@@ -231,9 +232,9 @@ async def render(
     )
     try:
         peer_entity = await tg.get_entity(media.peer)
-    except telethon_errors.FloodWaitError:
-        # A flood is a live rate limit, not a missing label: swallowing it
-        # here would hide it from the ADR-0045 cooldown and report success.
+    except TRANSIENT_ERRORS:
+        # A flood or a 500 is not a missing label: swallowing it here would
+        # hide it from the ADR-0045 cooldown and report success.
         raise
     except (ValueError, telethon_errors.RPCError):
         # Same refusal shape as attribution._resolve: a private/deleted peer

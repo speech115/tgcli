@@ -12,13 +12,13 @@ import json
 import os
 from pathlib import Path
 
-from telethon import errors as telethon_errors
 from telethon.tl import types
 
 from tgcli import atomic
 from tgcli.clone import progress as clone_progress, state
 from tgcli.errors import PolicyError
 from tgcli.output import note
+from tgcli.session import TRANSIENT_ERRORS
 from tgcli.transfer import (
     CHUNK_SIZE,
     CLONE_TRANSFER_PARALLEL,
@@ -74,7 +74,8 @@ async def uploaded_thumb(tg, message, document, path: Path):
         if downloaded is None:
             return None
         return await tg.upload_file(downloaded)
-    except telethon_errors.FloodWaitError:
+    except TRANSIENT_ERRORS:
+        # Not a refused thumb: dropping it would lose the preview for good.
         raise
     except Exception as exc:
         note(f"warning: clone thumb skipped for source message {message.id}: {exc}")

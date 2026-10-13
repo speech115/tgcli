@@ -15,6 +15,7 @@ from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
 from tgcli.clone import attribution, discussion, quote_fallback, replies, transport
+from tgcli.session import TRANSIENT_ERRORS
 
 
 @dataclass
@@ -96,7 +97,7 @@ async def _peer_title(ctx: ResolveContext, peer, message) -> str | None:
                 hash=0,
             )
         )
-    except telethon_errors.FloodWaitError:
+    except TRANSIENT_ERRORS:
         # An RPCError subclass meaning "ask again later", not "no title": caching
         # that miss degrades every later quote and hides the wait (ADR-0045).
         raise

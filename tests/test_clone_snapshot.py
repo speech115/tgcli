@@ -9,6 +9,7 @@ import pytest
 from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
+from tests.conftest import TRANSIENT_ERRORS
 from tgcli.clone import snapshot
 
 
@@ -107,18 +108,20 @@ def test_story_render_links_known_username():
     assert marker is None
 
 
-def test_story_render_propagates_a_flood_wait():
-    """FloodWaitError is an RPCError subclass, so the private-peer catch would
-    swallow a live rate limit: the snapshot would render an unknown author,
-    ADR-0045 would never arm a cooldown, and the sync would report success."""
+@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
+def test_story_render_propagates_a_transient_error(make_error):
+    """FloodWaitError and ServerError are RPCError subclasses, so the
+    private-peer catch would swallow them: the snapshot would render an
+    unknown author for good, and the sync would report success."""
+    error = make_error()
 
     class Client:
         async def get_entity(self, peer):
-            raise telethon_errors.FloodWaitError(request=None)
+            raise error
 
     media = types.MessageMediaStory(peer=types.PeerChannel(channel_id=9), id=3)
     message = SimpleNamespace(media=media)
-    with pytest.raises(telethon_errors.FloodWaitError):
+    with pytest.raises(type(error)):
         asyncio.run(snapshot.render(Client(), message))
 
 

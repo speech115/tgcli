@@ -25,6 +25,7 @@ from tgcli.clone import (
 )
 from tgcli.errors import PolicyError
 from tgcli.output import note
+from tgcli.session import TRANSIENT_ERRORS
 
 
 def _body_text(message, author, plan) -> tuple[str, list | None]:
@@ -87,7 +88,9 @@ async def reupload_batch(
                 plan,
                 lambda message, album: _referenced(message),
             )
-        except telethon_errors.FloodWaitError:
+        except TRANSIENT_ERRORS:
+            # A timeout or 500 leaves the send's outcome unknown: reuploading
+            # could post the message twice.
             raise
         except telethon_errors.RPCError as exc:
             note(

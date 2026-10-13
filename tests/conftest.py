@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
+from telethon import errors as telethon_errors
 
 
 class FakeClient:
@@ -348,3 +349,27 @@ def make_session_fake(monkeypatch, fake_client):
 
 def ns(**kwargs) -> SimpleNamespace:
     return SimpleNamespace(**kwargs)
+
+
+# "Ask again later", never "Telegram refused": one of each family the client
+# boundary surfaces (session.TRANSIENT_ERRORS). Factories, so each test gets a
+# fresh error; FloodWait is exit 5, the others are an untranslated exit 1.
+TRANSIENT_ERRORS = [
+    pytest.param(
+        lambda: telethon_errors.FloodWaitError(request=None, capture=30), id="flood"
+    ),
+    pytest.param(
+        lambda: telethon_errors.ServerError(request=None, message="INTERNAL", code=500),
+        id="internal",
+    ),
+    pytest.param(
+        lambda: telethon_errors.TimedOutError(
+            request=None, message="TIMEOUT", code=-503
+        ),
+        id="timeout",
+    ),
+]
+
+
+def transient_exit_code(error: Exception) -> int:
+    return 5 if isinstance(error, telethon_errors.FloodWaitError) else 1

@@ -6,9 +6,9 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from telethon import errors as telethon_errors
 from telethon.tl import types
 
+from tests.conftest import TRANSIENT_ERRORS
 from tgcli.clone import legs, reforward, state, transport
 
 DATE = datetime(2026, 7, 25, 13, 55, tzinfo=UTC)
@@ -386,19 +386,21 @@ def test_source_group_resolved_once_per_run_across_locate_calls():
     assert len(tg.get_entity_calls) == 1
 
 
-def test_locate_propagates_flood_wait():
+@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
+def test_locate_propagates_a_transient_error(make_error):
+    error = make_error()
     fwd = _fwd(from_id=types.PeerUser(user_id=9))
     post = _post(fwd_from=fwd)
     group = SimpleNamespace(id=55, noforwards=False)
 
-    class FloodTg(FakeTg):
+    class FailingTg(FakeTg):
         async def get_messages(self, group, **kwargs):
-            raise telethon_errors.FloodWaitError(request=None)
+            raise error
 
-    tg = FloodTg(group=group)
+    tg = FailingTg(group=group)
     cache: dict = {}
 
-    with pytest.raises(telethon_errors.FloodWaitError):
+    with pytest.raises(type(error)):
         asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
 
 

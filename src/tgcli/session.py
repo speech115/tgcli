@@ -239,6 +239,18 @@ def session_user_id(session_file: Path) -> int | None:
     return value if isinstance(value, int) else None
 
 
+# "Ask again later", never "Telegram refused". `raise_last_call_error=True`
+# makes a call whose retries ran out raise its own error; without it Telethon
+# raises ValueError, the same type `get_entity` uses for "no such peer", and
+# callers turned one 500 into permanent state. Code that maps refusals to a
+# lasting outcome (a marker, a fallback, a cached miss) re-raises these first.
+TRANSIENT_ERRORS = (
+    telethon_errors.FloodWaitError,
+    telethon_errors.ServerError,
+    telethon_errors.TimedOutError,
+)
+
+
 def _make_client(
     path: Path, account: Account, *, mutation_safe: bool = False
 ) -> TelegramClient:
@@ -255,6 +267,7 @@ def _make_client(
             account.api_hash,
             request_retries=0,
             flood_sleep_threshold=0,
+            raise_last_call_error=True,
             device_model=device_model,
             system_version=system_version,
             app_version=app_version,
@@ -264,6 +277,7 @@ def _make_client(
         account.api_id,
         account.api_hash,
         flood_sleep_threshold=0,
+        raise_last_call_error=True,
         device_model=device_model,
         system_version=system_version,
         app_version=app_version,
