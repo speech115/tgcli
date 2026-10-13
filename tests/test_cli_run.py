@@ -225,3 +225,44 @@ def test_a_script_write_on_a_session_role_records_the_role(tmp_path, monkeypatch
 
     [record] = audit_lines()
     assert (record["method"], record["role"]) == ("messages.sendMessage", "job")
+
+
+def test_getters_that_take_a_write_argument_need_the_write_flag(tmp_path, monkeypatch):
+    """`get*`/`resolve*` by name, writes by argument: rotating a stream key,
+    accepting or declining a gift offer, a cloud-password check. They ran
+    without --write and without an audit row."""
+    client, path = setup(
+        tmp_path,
+        monkeypatch,
+        "import sys\n"
+        "request = {\n"
+        "  'revoke': functions.phone.GetGroupCallStreamRtmpUrlRequest(\n"
+        "      peer=types.InputPeerSelf(), revoke=True),\n"
+        "  'decline': functions.payments.ResolveStarGiftOfferRequest(\n"
+        "      offer_msg_id=1, decline=True),\n"
+        "  'password': functions.payments.GetStarsRevenueWithdrawalUrlRequest(\n"
+        "      peer=types.InputPeerSelf(), password=types.InputCheckPasswordEmpty()),\n"
+        "}[sys.argv[1]]\n"
+        "await client(request)\n",
+    )
+
+    for case in ("revoke", "decline", "password"):
+        assert main(["run", path, case]) == 2
+    assert client.sent == []
+    client, path = setup(tmp_path, monkeypatch, open(path).read())
+    assert main(["run", "--write", path, "revoke"]) == 0
+    assert [line["method"] for line in audit_lines()] == [
+        "phone.getGroupCallStreamRtmpUrl"
+    ]
+
+
+def test_every_method_tg_run_lets_through_as_a_read_was_reviewed():
+    """The read classification is a heuristic over names. A Telethon bump
+    that adds a getter with a side effect must fail here until a person
+    reviews it: add it to the list, or to SIDE_EFFECT_GETTERS."""
+    from pathlib import Path
+
+    from tgcli.commands import run
+
+    reviewed = Path(__file__).with_name("run_read_methods.txt").read_text()
+    assert run.read_methods() == reviewed.split()

@@ -16,6 +16,7 @@ from pathlib import Path
 
 from telethon import errors as telethon_errors, types
 from telethon.tl import functions
+from telethon.tl.tlobject import TLRequest
 
 from tgcli import safety
 from tgcli.commands.read import message_to_dict
@@ -45,22 +46,61 @@ PLUMBING = frozenset({"auth.exportAuthorization"})
 DENIED_NAMESPACES = frozenset({"account", "auth"})
 
 
-def method_name(request) -> str:
-    """`namespace.method` for a Telethon request, unwrapping invoke wrappers."""
+# A getter that takes one of these acts on it: rotating a stream key
+# (`revoke`), accepting or declining an offer (`decline`), a cloud-password
+# check (`password`). It is a write whatever its name says.
+WRITE_ARGUMENTS = frozenset({"decline", "password", "revoke"})
+
+
+def _unwrapped(request):
     while type(request).__module__ == "telethon.tl.functions" and hasattr(
         request, "query"
     ):
         request = request.query
-    namespace = type(request).__module__.rsplit(".", 1)[-1]
-    stem = type(request).__name__.removesuffix("Request")
+    return request
+
+
+def _name(request_type: type) -> str:
+    namespace = request_type.__module__.rsplit(".", 1)[-1]
+    stem = request_type.__name__.removesuffix("Request")
     return f"{namespace}.{stem[:1].lower()}{stem[1:]}"
 
 
-def is_read(name: str) -> bool:
+def method_name(request) -> str:
+    """`namespace.method` for a Telethon request, unwrapping invoke wrappers."""
+    return _name(type(_unwrapped(request)))
+
+
+def is_read(request_type: type) -> bool:
+    name = _name(request_type)
     namespace, _, method = name.partition(".")
     if namespace == "functions":
         return method in ("ping", "pingDelayDisconnect")
+    if WRITE_ARGUMENTS & set(inspect.signature(request_type.__init__).parameters):
+        return False
     return method.startswith(READ_VERBS) and name not in SIDE_EFFECT_GETTERS
+
+
+def read_methods() -> list[str]:
+    """Every pinned-Telethon method `tg run` lets through without --write."""
+    found: set[str] = set()
+    pending = [functions]
+    while pending:
+        module = pending.pop()
+        for value in vars(module).values():
+            if inspect.ismodule(value) and value.__name__.startswith(
+                f"{functions.__name__}."
+            ):
+                pending.append(value)
+            elif (
+                inspect.isclass(value)
+                and issubclass(value, TLRequest)
+                and value is not TLRequest
+                and _name(value).partition(".")[0] not in DENIED_NAMESPACES
+                and is_read(value)
+            ):
+                found.add(_name(value))
+    return sorted(found)
 
 
 def install_write_gate(client, account: str, *, write: bool) -> None:
@@ -75,7 +115,7 @@ def install_write_gate(client, account: str, *, write: bool) -> None:
                 continue
             if name.partition(".")[0] in DENIED_NAMESPACES:
                 raise PolicyError(f"{name} is never allowed in tg run; use tg accounts")
-            if is_read(name):
+            if is_read(type(_unwrapped(item))):
                 continue
             if not write:
                 raise PolicyError(
