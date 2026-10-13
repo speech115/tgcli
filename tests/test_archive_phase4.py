@@ -665,3 +665,65 @@ def test_transcribe_missing_media_returns_item_to_media_queue(tmp_path, monkeypa
         assert sync_module._media_candidates(conn, account_dir, 1)[0]["message_id"] == 1
     finally:
         conn.close()
+
+
+@pytest.mark.asyncio
+async def test_catch_up_fills_a_backlog_larger_than_one_page_without_holes(tmp_path):
+    """Catch-up read newest-first and advanced `newest_id` to the newest
+    message, so with 100 new messages it kept 151-200 and never fetched
+    101-150. Oldest-first pages leave no hole, and the result says more is
+    pending."""
+    from datetime import UTC, datetime, timedelta
+
+    from telethon.tl.types import Channel, Message, PeerChannel
+
+    from tests.conftest import FakeClient
+
+    conn = _connection(tmp_path)
+    try:
+        channel = Channel(
+            id=1234, title="News", photo=None, date=None, access_hash=5, megagroup=False
+        )
+        peer = -1000000001234
+        with conn:
+            store.upsert_sync_state(
+                conn,
+                peer,
+                oldest_id=1,
+                newest_id=100,
+                more=False,
+                kind="channel",
+                chat_ref="@news",
+                touch_sync=True,
+            )
+        newest_first = [
+            Message(
+                id=message_id,
+                peer_id=PeerChannel(1234),
+                message=f"m{message_id}",
+                date=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(minutes=message_id),
+            )
+            for message_id in range(200, 0, -1)
+        ]
+        client = FakeClient(messages=newest_first, entities={peer: channel})
+
+        first = await sync_module._catch_up_peer(
+            client, conn, peer, account_user_id=42, message_budget=500
+        )
+        assert first["stored"] == sync_module.CATCHUP_LIMIT
+        second = await sync_module._catch_up_peer(
+            client, conn, peer, account_user_id=42, message_budget=500
+        )
+        assert second["stored"] == sync_module.CATCHUP_LIMIT
+
+        stored = {
+            int(row[0])
+            for row in conn.execute(
+                "SELECT message_id FROM messages WHERE peer_id = ?", (peer,)
+            )
+        }
+        assert stored == set(range(101, 201))
+        assert store.get_sync_state(conn, peer)["newest_id"] == 200
+        assert first["more"] is True
+    finally:
+        conn.close()

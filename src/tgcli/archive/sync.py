@@ -201,7 +201,12 @@ async def _catch_up_peer(
     ids: list[int] = []
     limit = min(CATCHUP_LIMIT, message_budget)
     try:
-        async for message in tg.iter_messages(entity, limit=limit, min_id=min_id):
+        # Oldest first: a page cut short by the limit or a flood ends at a
+        # message whose predecessors are all stored, so `newest_id` never
+        # skips past a hole.
+        async for message in tg.iter_messages(
+            entity, limit=limit, min_id=min_id, reverse=True
+        ):
             payload = message_to_dict(message, entity)
             with conn:
                 store_mod.upsert_message(conn, peer_id, payload)
@@ -238,7 +243,7 @@ async def _catch_up_peer(
             username=getattr(entity, "username", None),
             chat_ref=chat,
         )
-    return {"peer_id": peer_id, "stored": stored}
+    return {"peer_id": peer_id, "stored": stored, "more": stored >= limit}
 
 
 def _media_candidates(
@@ -542,7 +547,7 @@ async def sync_archive(
         reconcile_data = await light_reconcile(tg, conn)
 
     pending_catchups = len(applied.get("activity_peers") or []) > len(catchups) or any(
-        item.get("skipped_budget") for item in catchups
+        item.get("skipped_budget") or item.get("more") for item in catchups
     )
     return {
         "initialized": initialized,
