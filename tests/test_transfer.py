@@ -352,7 +352,7 @@ async def test_download_striped_reports_progress_on_the_shared_cadence(tmp_path)
             self, media, *, offset=0, request_size=None, stride=None
         ):
             self.calls.append({"offset": offset, "stride": stride})
-            for index in range(transfer.PROGRESS_EVERY_CHUNKS + 1):
+            for _ in range(transfer.PROGRESS_EVERY_CHUNKS + 1):
                 yield b"q" * transfer.CHUNK_SIZE
 
     tg = MultiChunkTelegram()
