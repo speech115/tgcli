@@ -181,6 +181,7 @@ def test_remove_confirm_deletes_block_and_files(env, capsys):
         "config": "removed",
         "session": "deleted",
         "backup": "deleted",
+        "roles": {},
     }
     assert not path.exists()
     assert not bak.exists()
@@ -195,6 +196,87 @@ def test_remove_confirm_deletes_block_and_files(env, capsys):
     assert "# keep me" in text
     assert config.default_account == "main"
     assert oct(env["config"].stat().st_mode & 0o777) == "0o600"
+
+
+def test_remove_deletes_the_accounts_role_sessions_too(env, capsys):
+    """A role session is a full-access key. Removing the account left it on
+    disk, unreported, and `--role` removal was unreachable once the config
+    block was gone."""
+    _session(env, "work")
+    role = _session(env, "work@bot")
+    role_bak = Path(str(role) + ".bak")
+    role_bak.write_bytes(b"bak")
+    other = _session(env, "main@bot")
+
+    assert main(["accounts", "remove", "work", "--confirm", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["roles"] == {"bot": "deleted"}
+    assert not role.exists()
+    assert not role_bak.exists()
+    assert other.exists()
+    [record] = [
+        json.loads(line)
+        for line in audit_path().read_text().splitlines()
+        if json.loads(line)["action"] == "accounts-remove"
+    ]
+    assert record["roles"] == {"bot": "deleted"}
+
+
+def test_remove_keep_session_keeps_role_sessions(env, capsys):
+    _session(env, "work")
+    role = _session(env, "work@bot")
+
+    assert (
+        main(["accounts", "remove", "work", "--confirm", "--keep-session", "--json"])
+        == 0
+    )
+
+    assert json.loads(capsys.readouterr().out)["roles"] == {"bot": "kept"}
+    assert role.exists()
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "[accounts.work] # second phone",
+        '[accounts."work"]',
+        "[ accounts.work ]",
+    ],
+)
+def test_remove_finds_any_toml_spelling_of_the_block(env, capsys, header):
+    """The block was matched by exact header text. Any other valid spelling
+    survived, while the session was deleted and the JSON said removed."""
+    env["config"].write_text(SAMPLE.replace("[accounts.work]", header))
+    path = _session(env, "work")
+
+    assert main(["accounts", "remove", "work", "--confirm", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["config"] == "removed"
+    assert "work" not in load_config().accounts
+    assert "main" in load_config().accounts
+    assert not path.exists()
+
+
+def test_remove_refuses_before_deleting_when_the_block_cannot_be_removed(env, capsys):
+    """A dotted-key spelling is not a table header to drop. The command must
+    refuse with the session intact, not delete it and claim success."""
+    env["config"].write_text(
+        'default_account = "main"\n'
+        'accounts.work = { api_id = 67890, api_hash = "h", session = "work" }\n'
+        "\n"
+        "[accounts.main]\n"
+        "api_id = 1\n"
+        'api_hash = "h"\n'
+        'session = "main"\n'
+    )
+    before = env["config"].read_text()
+    path = _session(env, "work")
+
+    assert main(["accounts", "remove", "work", "--confirm", "--json"]) == 3
+
+    assert path.exists()
+    assert env["config"].read_text() == before
+    assert "work" in load_config().accounts
 
 
 def test_remove_confirm_with_missing_state_tree(env):
