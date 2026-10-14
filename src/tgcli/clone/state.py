@@ -335,7 +335,12 @@ class CloneState:
             or (
                 (discussion_id_map or discussion_cursor)
                 and comments != "enabled"
-                and not (comments == "none" and discussion_linked)
+                and not (
+                    comments == "none"
+                    and discussion_linked
+                    and discussion_source_peer_id is not None
+                    and source_kind == "broadcast"
+                )
             )
             or (discussion_linked and discussion_destination_peer_id is None)
         ):
