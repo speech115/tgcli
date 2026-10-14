@@ -21,7 +21,8 @@ uv run tg --help
 ```
 
 The pyright-lsp plugin runs a bare `pyright-langserver`, so put it on PATH:
-`uv tool install pyright`, or start Claude from an activated `.venv`.
+`uv tool install pyright` (then `uv tool update-shell` if uv's tool bin is not
+on PATH yet, and restart the shell), or start Claude from an activated `.venv`.
 
 ## Where code lives
 
