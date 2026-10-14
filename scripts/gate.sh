@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# The full pre-commit gate — the same steps CI runs, in the same order.
+# The full pre-commit gate — the same steps CI runs (there split into two
+# parallel jobs, static checks and tests).
 # AGENTS.md: run this before every commit; quote real output in PRs.
 set -euo pipefail
 cd "$(dirname "$0")/.."

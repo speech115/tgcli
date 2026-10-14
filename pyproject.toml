@@ -64,3 +64,5 @@ combine-as-imports = true
 [tool.pyright]
 include = ["src"]
 typeCheckingMode = "standard"
+# CI type-checks on Linux; check the macOS branches the tool runs on.
+pythonPlatform = "Darwin"
