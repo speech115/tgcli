@@ -14,6 +14,7 @@ from telethon.tl import types
 from tgcli.clone import batching, discussion, legs, replies, state
 from tgcli.clone.ids import SourceCommentId, SourcePostId
 from tgcli.errors import PolicyError
+from tgcli.governor import pacing
 from tgcli.session import TRANSIENT_ERRORS
 
 
@@ -129,6 +130,10 @@ async def sync_phase(
             return False
         if limited():
             return True
+        if pacing.wall_clock_exhausted():
+            # --max-runtime bounds this leg as it bounds the posts leg: stop
+            # normally, the cursor stays where the next run resumes.
+            return False
         if isinstance(event, batching.ServiceSkip):
             counters["skipped_service"] += 1
             leg.cursor = event.message_id

@@ -1266,7 +1266,8 @@ sets `comments: "unavailable"`; a source with no linked group at all sets
 or `"none"` and that has already copied posts keeps that marker even when
 the linked group is now readable, unless a `"none"` clone was already linked to that
 same source group (the source unlinked it for a while; its posts have
-anchors, so the link is restored): it creates and links nothing, notes on
+anchors, so the link is restored and the comments resume from the recorded
+comment cursor): it creates and links nothing, notes on
 stderr that `--replace` is the way to a clone with comments, and exits 0
 (those posts have no anchors; ADR-0023). Non-broadcast sources never attempt
 this and always report `comments: "none"`. Init's live ~15h FLOOD_WAIT window on rapid peer

@@ -187,6 +187,64 @@ def test_clone_sync_reuploads_protected_document_preserving_metadata(
     assert state.load(clone_state.clone_id).dest_for(2) == 2
 
 
+def _video_document(*extra):
+    return types.MessageMediaDocument(
+        document=SimpleNamespace(
+            mime_type="video/mp4",
+            attributes=[
+                types.DocumentAttributeVideo(
+                    duration=12.5, w=1280, h=720, supports_streaming=True
+                ),
+                types.DocumentAttributeFilename("clip.mp4"),
+                *extra,
+            ],
+        )
+    )
+
+
+def test_clone_sync_reuploaded_video_stays_a_video(config_env, monkeypatch, capsys):
+    """Unset, Telegram may turn a reuploaded video without sound into a GIF;
+    `tg send --file` already marks a video `nosound_video`, and so does the
+    clone reupload."""
+    seed_clone()
+    client = CloneReuploadClient(
+        [message(2, message="clip", media=_video_document())], protected=True
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMediaRequest)
+    assert isinstance(request.media, types.InputMediaUploadedDocument)
+    assert request.media.nosound_video is True
+    assert request.media.attributes == [
+        types.DocumentAttributeVideo(
+            duration=12.5, w=1280, h=720, supports_streaming=True
+        ),
+        types.DocumentAttributeFilename("clip.mp4"),
+    ]
+
+
+def test_clone_sync_reuploaded_gif_stays_a_gif(config_env, monkeypatch, capsys):
+    """A source GIF is an MPEG-4 video marked animated: it must not be forced
+    into a video."""
+    seed_clone()
+    client = CloneReuploadClient(
+        [message(2, media=_video_document(types.DocumentAttributeAnimated()))],
+        protected=True,
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    capsys.readouterr()
+    [request] = client.requests
+    assert request.media.nosound_video is None
+    assert types.DocumentAttributeAnimated() in request.media.attributes
+
+
 def document_media(*, thumbs, mime_type="application/pdf", name="paper.pdf"):
     return types.MessageMediaDocument(
         document=SimpleNamespace(

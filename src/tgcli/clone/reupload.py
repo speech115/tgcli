@@ -82,6 +82,15 @@ async def uploaded_thumb(tg, message, document, path: Path):
         return None
 
 
+def _plain_video(attributes) -> bool:
+    """A video that is not a GIF: Telegram must keep showing it as a video."""
+    return any(
+        isinstance(item, types.DocumentAttributeVideo) for item in attributes
+    ) and not any(
+        isinstance(item, types.DocumentAttributeAnimated) for item in attributes
+    )
+
+
 async def uploaded_media(tg, message, path, progress=None):
     input_file = await upload_parts(
         tg,
@@ -95,10 +104,14 @@ async def uploaded_media(tg, message, path, progress=None):
     if isinstance(message.media, types.MessageMediaPhoto):
         return types.InputMediaUploadedPhoto(file=input_file, spoiler=spoiler)
     document = message.media.document
+    attributes: list = list(getattr(document, "attributes", None) or ())
     return types.InputMediaUploadedDocument(
         file=input_file,
         mime_type=getattr(document, "mime_type", None) or "application/octet-stream",
-        attributes=list(getattr(document, "attributes", None) or ()),
+        attributes=attributes,
+        # Unset, Telegram may turn a video without sound into a GIF (as in
+        # `tg send --file`); a source GIF carries its own Animated attribute.
+        nosound_video=_plain_video(attributes) or None,
         spoiler=spoiler,
         thumb=await uploaded_thumb(
             tg, message, document, Path(path).with_name(f"thumb-{message.id}")

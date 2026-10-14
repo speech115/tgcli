@@ -329,7 +329,19 @@ class CloneState:
                 comments == "enabled"
                 and (discussion_source_peer_id is None or source_kind != "broadcast")
             )
-            or (comments != "enabled" and (discussion_id_map or discussion_cursor))
+            # Phase-2 progress lives only on an enabled clone, or on a linked
+            # one whose source unlinked its group for a while ("none"): a
+            # relink of that group resumes the comments where they stopped.
+            or (
+                (discussion_id_map or discussion_cursor)
+                and comments != "enabled"
+                and not (
+                    comments == "none"
+                    and discussion_linked
+                    and discussion_source_peer_id is not None
+                    and source_kind == "broadcast"
+                )
+            )
             or (discussion_linked and discussion_destination_peer_id is None)
         ):
             raise ValueError("inconsistent discussion state")

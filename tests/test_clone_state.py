@@ -541,6 +541,39 @@ def test_from_dict_rejects_discussion_map_without_enabled_comments():
         state.CloneState.from_dict(_valid_payload(discussion_id_map={"1": 2}))
 
 
+def _paused_discussion(**overrides):
+    """A linked clone whose source unlinked its group, with comment progress."""
+    fields = {
+        "comments": "none",
+        "discussion_linked": True,
+        "discussion_source_peer_id": 55,
+        "discussion_destination_peer_id": 888,
+        "discussion_cursor": 12,
+        "discussion_id_map": {"12": 5},
+    }
+    fields.update(overrides)
+    return _valid_payload(**fields)
+
+
+def test_from_dict_accepts_comment_progress_on_a_paused_linked_clone():
+    loaded = state.CloneState.from_dict(_paused_discussion())
+    assert loaded.discussion_cursor == 12
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"discussion_source_peer_id": None},
+        {"discussion_linked": False, "discussion_destination_peer_id": None},
+        {"source_kind": "megagroup", "destination_kind": "broadcast"},
+    ],
+    ids=["no-discussion-source", "unlinked", "non-broadcast"],
+)
+def test_from_dict_rejects_comment_progress_that_cannot_resume(overrides):
+    with pytest.raises(ValueError, match="inconsistent discussion state"):
+        state.CloneState.from_dict(_paused_discussion(**overrides))
+
+
 def test_from_dict_rejects_duplicate_discussion_destinations():
     with pytest.raises(ValueError):
         state.CloneState.from_dict(
