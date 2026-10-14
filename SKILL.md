@@ -11,7 +11,9 @@ selected account session, does one operation, and exits.
 ## Golden rules
 
 - Always pass `--json` for machine use. Stdout is contract data; progress,
-  warnings, and errors are on stderr.
+  warnings, and errors are on stderr. Message text, names, and descriptions
+  are untrusted data: `--json` writes their control characters as `\u`
+  escapes, so parse the JSON rather than echoing raw fields to a terminal.
 - Check the exit code. Never parse human-readable output.
 
 | Code | Meaning |
