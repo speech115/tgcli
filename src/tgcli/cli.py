@@ -230,6 +230,14 @@ async def _run_network(args, account) -> tuple[dict, list[tuple]]:
     return await dispatch.run_network(args, account)
 
 
+class _DeadlineExpired(Exception):
+    """The `--timeout` deadline ran out inside `_run_with_deadline`.
+
+    Private so that a command's own `TimeoutError` (a script's `wait_for`, a
+    socket timeout) is not mistaken for the invocation deadline.
+    """
+
+
 def _run_with_deadline(coro, timeout):
     """Run one coroutine under `--timeout` as the documented TIMEOUT error.
 
@@ -260,16 +268,16 @@ def _run_with_deadline(coro, timeout):
                     try:
                         return task.result()
                     except asyncio.CancelledError:
-                        raise TimeoutError from None
+                        raise _DeadlineExpired from None
                 task.cancel()
-                raise TimeoutError
+                raise _DeadlineExpired
             done, _ = await asyncio.wait({task}, timeout=remaining)
             if done:
                 return task.result()
 
     try:
         return asyncio.run(run())
-    except TimeoutError:  # asyncio.TimeoutError is this alias since 3.11
+    except _DeadlineExpired:
         raise CommandTimeoutError(
             f"invocation exceeded the --timeout deadline of {timeout}s"
         ) from None
