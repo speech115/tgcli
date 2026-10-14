@@ -20,6 +20,9 @@ uv sync
 uv run tg --help
 ```
 
+The pyright-lsp plugin runs a bare `pyright-langserver`, so put it on PATH:
+`uv tool install pyright`, or start Claude from an activated `.venv`.
+
 ## Where code lives
 
 - `cli.py` runs one invocation: `parser.py` (grammar), then `preflight.py`
