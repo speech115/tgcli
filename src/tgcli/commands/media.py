@@ -346,6 +346,28 @@ def _publish(part_path: Path, destination: Path) -> None:
     part_path.unlink(missing_ok=True)
 
 
+def _adopt_checkpoint(source: MediaSource, olds: list[Path], new: Path) -> None:
+    """Point a checkpoint recorded under an older default name at ``new``.
+
+    Default names changed (bulk took a `<message_id>-` prefix, unnamed media
+    took their type's extension instead of `.bin`). An interrupted run kept
+    the old path; the bytes are the same message's, so resume them rather
+    than refuse every later run on a destination mismatch.
+    """
+    state_path, _ = _state_paths(source)
+    try:
+        state = json.loads(state_path.read_text())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return
+    if not isinstance(state, dict):
+        return
+    destination = state.get("destination")
+    # Anything else is left for _resume_offset to refuse as a mismatch.
+    if isinstance(destination, str) and destination in [str(p) for p in olds]:
+        state["destination"] = str(new)
+        atomic.replace_text(state_path, json.dumps(state))
+
+
 def _resume_offset(
     state_path: Path,
     part_path: Path,
@@ -433,6 +455,14 @@ async def download_media(
         raise NotFoundError(f"invalid media source: {_source_label(source)}")
     destination = destination_for(safe_filename(target.filename, fallback_id), output)
     state_path, part_path = _state_paths(source)
+    # Only the default name changed; an explicit --output keeps its own check.
+    if (
+        output is None
+        and source.story_id is None
+        and destination.name.startswith(f"media-{fallback_id}.")
+    ):
+        untyped = destination.with_name(f"media-{fallback_id}.bin")
+        _adopt_checkpoint(source, [untyped], destination)
     offset = _resume_offset(state_path, part_path, source, destination, target)
     resumed = offset > 0
 
@@ -626,10 +656,11 @@ async def download_media_bulk(
             continue
         # The id prefix keeps two media of this chat with one name apart (ids
         # are per chat, so another chat sharing the directory can still collide).
-        name = f"{fallback_id}-{safe_filename(target.filename, fallback_id)}"
-        _adopt_unprefixed_checkpoint(
+        unprefixed = safe_filename(target.filename, fallback_id)
+        name = f"{fallback_id}-{unprefixed}"
+        _adopt_checkpoint(
             source,
-            output_dir / safe_filename(target.filename, fallback_id),
+            [output_dir / unprefixed, output_dir / f"media-{fallback_id}.bin"],
             output_dir / name,
         )
         try:
@@ -694,25 +725,6 @@ async def download_media_bulk(
             rows=bulk_to_rows(data),
         )
     return data
-
-
-def _adopt_unprefixed_checkpoint(
-    source: MediaSource, unprefixed: Path, destination: Path
-) -> None:
-    """Point a checkpoint from before the bulk id prefix at the new name.
-
-    Bulk files were once saved without `<message_id>-`, and an interrupted
-    run recorded that path. The bytes are the same message's, so resume them
-    rather than refuse every later run on a destination mismatch.
-    """
-    state_path, _ = _state_paths(source)
-    try:
-        state = json.loads(state_path.read_text())
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return
-    if isinstance(state, dict) and state.get("destination") == str(unprefixed):
-        state["destination"] = str(destination)
-        atomic.replace_text(state_path, json.dumps(state))
 
 
 async def _iter_bulk_candidates(
