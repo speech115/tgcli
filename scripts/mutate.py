@@ -11,7 +11,8 @@ review.
     uv run python scripts/mutate.py --base 73945c3~1 src/tgcli/commands/send.py
 
 Exit 0 when every mutant was killed, 1 when one survived, 2 when the
-unmutated suite already fails in the scratch copy.
+unmutated suite already fails in the scratch copy, 3 when none survived but
+--limit left some mutants unrun.
 """
 
 from __future__ import annotations
@@ -69,36 +70,59 @@ def changed_lines(base: str, paths: list[str]) -> dict[str, set[int]]:
         elif path and path.endswith(".py") and (match := HUNK.match(row)):
             start, count = int(match[1]), int(match[2] or 1)
             lines.setdefault(path, set()).update(range(start, start + count))
+    # git diff never shows an untracked file: every line of one is new.
+    untracked = subprocess.run(
+        ["git", "ls-files", "-z", "--others", "--exclude-standard", "--", *paths],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout.decode()
+    for name in filter(None, untracked.split("\0")):
+        if name.endswith(".py") and (ROOT / name).is_file():
+            count = len((ROOT / name).read_text().splitlines())
+            lines.setdefault(name, set()).update(range(1, count + 1))
     return lines
 
 
 def mutants(path: str, source: str, lines: set[int]) -> list[Mutant]:
-    """One mutant per single-line comparison or `and`/`or` on LINES."""
+    """One mutant per comparison operator or `and`/`or` on single LINES.
+
+    A chained comparison (`0 < x <= n`) yields one mutant per operator.
+    """
     found = []
     rows = source.splitlines(keepends=True)
     for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.Compare) and len(node.ops) == 1:
-            swap = SWAP.get(type(node.ops[0]))
-            if swap is None:
-                continue
-            flipped: ast.expr = ast.Compare(node.left, [swap()], node.comparators)
-        elif isinstance(node, ast.BoolOp):
-            op = ast.And() if isinstance(node.op, ast.Or) else ast.Or()
-            flipped = ast.BoolOp(op, node.values)
-        else:
+        if not isinstance(node, ast.Compare | ast.BoolOp):
             continue
         if node.lineno not in lines or node.lineno != node.end_lineno:
             continue
-        row = rows[node.lineno - 1]
-        assert node.end_col_offset is not None
-        before = row[node.col_offset : node.end_col_offset]
-        after = f"({ast.unparse(flipped)})"
-        rows[node.lineno - 1] = (
-            row[: node.col_offset] + after + row[node.end_col_offset :]
-        )
-        found.append(Mutant(path, node.lineno, before, after, "".join(rows)))
-        rows[node.lineno - 1] = row
-    return sorted(found, key=lambda mutant: (mutant.line, mutant.before))
+        for flipped in flips(node):
+            row = rows[node.lineno - 1]
+            # AST columns are UTF-8 byte offsets; slice bytes, not characters.
+            raw = row.encode()
+            assert node.end_col_offset is not None
+            before = raw[node.col_offset : node.end_col_offset].decode()
+            after = f"({ast.unparse(flipped)})"
+            mutated = raw[: node.col_offset].decode() + after
+            mutated += raw[node.end_col_offset :].decode()
+            rows[node.lineno - 1] = mutated
+            found.append(Mutant(path, node.lineno, before, after, "".join(rows)))
+            rows[node.lineno - 1] = row
+    return sorted(found, key=lambda mutant: (mutant.line, mutant.after))
+
+
+def flips(node: ast.Compare | ast.BoolOp) -> list[ast.expr]:
+    """Each single-operator flip of a comparison or `and`/`or` node."""
+    if isinstance(node, ast.BoolOp):
+        op = ast.And() if isinstance(node.op, ast.Or) else ast.Or()
+        return [ast.BoolOp(op, node.values)]
+    result: list[ast.expr] = []
+    for index, operator in enumerate(node.ops):
+        swap = SWAP.get(type(operator))
+        if swap is not None:
+            ops = [*node.ops[:index], swap(), *node.ops[index + 1 :]]
+            result.append(ast.Compare(node.left, ops, node.comparators))
+    return result
 
 
 def run_suite(tree: Path, timeout: float) -> int:
@@ -172,7 +196,9 @@ def main() -> int:
     skipped = len(candidates) - min(len(candidates), args.limit)
     tail = f", {skipped} not run (--limit)" if skipped else ""
     print(f"{survived} of {min(len(candidates), args.limit)} survived{tail}")
-    return 1 if survived else 0
+    if survived:
+        return 1
+    return 3 if skipped else 0
 
 
 if __name__ == "__main__":
