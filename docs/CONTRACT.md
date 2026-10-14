@@ -810,7 +810,8 @@ before it leaves. A method whose name starts with `get`, `search`, `check`, or
 `resolve` is a read, except the getters ADR-0010 rejects for side effects:
 `contacts.getLocated`, `messages.getBotCallbackAnswer`,
 `messages.getInlineBotResults`, `messages.getMessagesViews`, and
-`messages.getSponsoredMessages`. Any other request is a write. Invoke wrappers
+`messages.getSponsoredMessages`, and any method that takes a `password`,
+`revoke`, or `decline` argument. Any other request is a write. Invoke wrappers
 are unwrapped first. `auth.*` and `account.*` are refused outright, reads
 included, except `auth.exportAuthorization`, which Telethon sends to download
 media from another datacentre.
