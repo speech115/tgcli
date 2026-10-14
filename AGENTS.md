@@ -30,7 +30,9 @@ uv run tg --help
   audit).
 - Features: `commands/` (one module per command group), `clone/`, `archive/`
   (local store, sync, changes), `governor/` (per-account flood pacing).
-- Tests: `tests/fakes/` is the shared fake Telegram; `tests/live/` is opt-in.
+- Tests: `FakeClient` in `tests/conftest.py` is the shared fake Telegram;
+  `tests/fakes/` holds message factories and clone fakes; `tests/live/` is
+  opt-in.
 
 A green gate proves the code matches the fakes. To prove a behavior change
 against real Telegram, read-only, follow
