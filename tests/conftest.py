@@ -313,8 +313,21 @@ class FakeClient:
 
 
 @pytest.fixture(autouse=True)
-def state_dir_env(tmp_path, monkeypatch):
+def state_dir_env(request, tmp_path, monkeypatch):
+    """Each test sees only the tgcli environment it sets itself.
+
+    A `TGCLI_READONLY=1` or `TGCLI_ACCOUNT` exported in the developer's shell
+    turned hundreds of tests red, and a test without `TGCLI_CONFIG` read the
+    real `~/.config/tgcli/config.toml`. Live smoke is the exception: it runs
+    against the real config on purpose.
+    """
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
+    if request.node.path.parent.name == "live":
+        return
+    for name in list(os.environ):
+        if name.startswith("TGCLI_") and name != "TGCLI_STATE_DIR":
+            monkeypatch.delenv(name)
+    monkeypatch.setenv("TGCLI_CONFIG", str(tmp_path / "no-config.toml"))
 
 
 @pytest.fixture(autouse=True)
