@@ -139,6 +139,57 @@ def test_doctor_reports_runtime_fingerprint(config_env, capsys):
     assert data["runtime"]["telethon"] == telethon.__version__
 
 
+@pytest.mark.parametrize(
+    ("cryptg", "libssl", "expected"),
+    [(object(), None, "cryptg"), (None, len, "libssl"), (None, None, "pyaes")],
+)
+def test_doctor_reports_the_aes_backend(
+    config_env, capsys, monkeypatch, cryptg, libssl, expected
+):
+    """Telethon picks cryptg, then OpenSSL, then pure-Python pyaes (~150x slower
+    than cryptg); the report says which one transfers will use."""
+    from telethon.crypto import aes
+
+    monkeypatch.setattr(aes, "cryptg", cryptg)
+    monkeypatch.setattr(aes.libssl, "decrypt_ige", libssl)
+    _touch_session("main")
+
+    assert main(["doctor", "--account", "main", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["runtime"]["aes"] == expected
+
+
+def test_doctor_lists_legacy_json_clone_slots(config_env, capsys):
+    """Clone state moved to SQLite (ADR-0060); a JSON slot still on disk is
+    what blocks deleting the import path, so doctor names it without loading
+    or importing it."""
+    from tgcli.clone import state
+
+    _touch_session("main")
+    clones = state.ensure_clones_dir()
+    (clones / "aaa.json").write_text("{}")
+    (clones / "bbb.json.importing").write_text("{}")
+    (clones / "ccc.db").write_bytes(b"")
+    (clones / "ddd.json.imported").write_text("{}")
+    (clones / "account-1.json").write_text("{}")
+
+    assert main(["doctor", "--account", "main", "--json"]) == 0
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert data["legacy_clone_slots"] == ["aaa.json", "bbb.json.importing"]
+    assert data["ok"] is True
+    assert "legacy JSON clone" in captured.err
+    assert (clones / "aaa.json").exists()
+    assert not (clones / "aaa.db").exists()
+
+
+def test_doctor_reports_no_legacy_slots_without_clones(config_env, capsys):
+    _touch_session("main")
+
+    assert main(["doctor", "--account", "main", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["legacy_clone_slots"] == []
+
+
 def _loose_preview():
     from tgcli import safety
 

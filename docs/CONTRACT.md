@@ -785,7 +785,8 @@ skips it — the check then reports `preview_perms_ok: false` as before.
 `--json` emits:
 
 ```json
-{"runtime":{"python":"/home/me/tgcli/.venv/bin/python","python_version":"3.12.9","telethon":"1.44.0"},
+{"runtime":{"python":"/home/me/tgcli/.venv/bin/python","python_version":"3.12.9","telethon":"1.44.0","aes":"libssl"},
+"legacy_clone_slots":[],
 "accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
 "checks":{"session_file":true,"lock_free":true,"state_writable":true,
 "preview_perms_ok":true,"preview_perms_repaired":0,"audit_perms_ok":true,
@@ -800,8 +801,16 @@ per-account), repeated identically in every account report. Role reports
 carry only the session/lock/permission probes and never this key.
 
 The top-level `runtime` object identifies the interpreter and Telethon build
-that produced the report. It is diagnostic only and does not change health
+that produced the report, and `aes` names the AES backend Telethon uses for
+MTProto and media: `cryptg` (installed by `uv sync --extra fast`), `libssl`,
+or the pure-Python `pyaes`. It is diagnostic only and does not change health
 status or exit codes.
+
+`legacy_clone_slots` lists clone state files still in the pre-SQLite JSON form
+(`<id>.json`, or `<id>.json.importing` from a crashed import), by file name,
+with one stderr note when it is not empty. `doctor` neither loads nor imports
+them; a readable one is imported by the next `tg clone status` outside
+readonly. It does not change `ok`.
 
 With `--connect`, `authorized` is a boolean and `user` is populated on success.
 Any ordinary online exception, including a session/configuration failure, is

@@ -55,6 +55,24 @@ def slot_ids() -> set[str]:
     return found
 
 
+def legacy_json_slots() -> list[str]:
+    """Clone state files still in the pre-SQLite JSON form (ADR-0060), by name.
+
+    A plain `.json` slot waits for its import on the next load; a
+    `.json.importing` one is an import that crashed (ADR-0105). Archived
+    `.json.imported` files and `account-*.json` documents are not slots.
+    """
+    directory = state.clones_dir()
+    if not directory.exists():
+        return []
+    return sorted(
+        path.name
+        for pattern in ("*.json", "*.json.importing")
+        for path in directory.glob(pattern)
+        if not path.name.startswith("account-")
+    )
+
+
 def loaded_states(*, read_only: bool = False) -> list[state.CloneState]:
     """Every clone state that loads; unreadable slots are skipped, not raised."""
     loaded = []
