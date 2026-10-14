@@ -101,22 +101,31 @@ def list_roles(account: Account) -> list[str]:
     return roles
 
 
-def role_session_files(account: Account) -> dict[str, Path]:
-    """Every role's `.session` path, including a role left with only its
+def role_session_files(account: Account) -> dict[str, list[Path]]:
+    """Every role's `.session` paths, including a role left with only its
     `.session.bak`: a promote interrupted between moving the old session to
     the backup and installing the new one leaves just the backup, which is
-    still a full-access key."""
+    still a full-access key. A case-sensitive filesystem can hold one logical
+    role under several spellings of the account or the role; each is a key,
+    so a role maps to all of them, keyed by its first spelling."""
     directory = state_dir() / "sessions"
     if not directory.is_dir():
         return {}
     prefix = f"{account.session}@".casefold()
-    found: dict[str, Path] = {}
-    for pattern in ("*.session", "*.session.bak"):
-        for path in directory.glob(pattern):
-            name = path.name.removesuffix(".bak")
-            stem = name.removesuffix(".session")
-            if stem.casefold().startswith(prefix):
-                found.setdefault(stem.split("@", 1)[1], directory / name)
+    spelling: dict[str, str] = {}
+    found: dict[str, list[Path]] = {}
+    files = [*directory.glob("*.session"), *directory.glob("*.session.bak")]
+    for path in sorted(files):
+        name = path.name.removesuffix(".bak")
+        stem = name.removesuffix(".session")
+        if not stem.casefold().startswith(prefix):
+            continue
+        role = spelling.setdefault(
+            stem.split("@", 1)[1].casefold(), stem.split("@", 1)[1]
+        )
+        paths = found.setdefault(role, [])
+        if directory / name not in paths:
+            paths.append(directory / name)
     return dict(sorted(found.items(), key=lambda item: item[0].casefold()))
 
 

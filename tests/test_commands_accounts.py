@@ -236,6 +236,23 @@ def test_remove_deletes_a_role_left_with_only_its_backup(env, capsys):
     assert not orphan.exists()
 
 
+def test_remove_deletes_every_spelling_of_a_role(env, capsys):
+    """On a case-sensitive filesystem a leftover `WORK@bot.session.bak` and a
+    fresh `work@bot.session` are two keys of one role; discovery kept one path
+    per role name, so remove reported success and left the other."""
+    _session(env, "work")
+    sessions = env["state"] / "sessions"
+    old = sessions / "WORK@bot.session.bak"
+    old.write_bytes(b"old-key")
+    new = _session(env, "work@bot")
+
+    assert main(["accounts", "remove", "work", "--confirm", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["roles"] == {"bot": "deleted"}
+    assert not old.exists()
+    assert not new.exists()
+
+
 def test_remove_deletes_a_role_promoted_while_the_config_was_rewritten(
     env, monkeypatch, capsys
 ):

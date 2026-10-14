@@ -3,6 +3,7 @@ import tomllib
 from collections.abc import Iterable, Iterator
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
+from itertools import chain
 from pathlib import Path
 
 from tgcli import atomic, safety, session
@@ -167,7 +168,7 @@ def remove_account(
     # since `--role` removal is unreachable once the config block is gone.
     role_paths = session.role_session_files(account)
     session.ensure_state_dir("sessions")
-    with _lock_sessions((path, *role_paths.values())):
+    with _lock_sessions((path, *chain.from_iterable(role_paths.values()))):
         session_existed = path.is_file()
         backup_existed = bak.is_file()
 
@@ -194,7 +195,7 @@ def remove_account(
         config_path = default_config_path()
         _remove_config_block(config_path, alias)
         if not keep_session:
-            for removed in (path, *role_paths.values()):
+            for removed in (path, *chain.from_iterable(role_paths.values())):
                 _unlink_with_backup(removed)
         role_status.update(
             _remove_late_roles(alias, account, role_paths, keep_session=keep_session)
@@ -215,16 +216,17 @@ def _unlink_with_backup(path: Path) -> None:
 
 
 def _remove_late_roles(
-    alias: str, account: Account, known: dict[str, Path], *, keep_session: bool
+    alias: str, account: Account, known: dict[str, list[Path]], *, keep_session: bool
 ) -> dict[str, str]:
     """Roles a concurrent login promoted after the first scan. Scanning again
     once the config block is gone pairs with the login's own config re-check
     after it promotes: whichever runs second sees the other's write."""
+    known_paths = set(chain.from_iterable(known.values()))
     late = {
-        role: role_path
-        for role, role_path in session.role_session_files(account).items()
-        if role not in known
+        role: [role_path for role_path in role_paths if role_path not in known_paths]
+        for role, role_paths in session.role_session_files(account).items()
     }
+    late = {role: role_paths for role, role_paths in late.items() if role_paths}
     if not late:
         return {}
     status = "kept" if keep_session else "deleted"
@@ -234,7 +236,7 @@ def _remove_late_roles(
     safety.append_audit(
         "accounts-remove", alias, {"roles": late_status, "keep_session": False}
     )
-    for role_path in late.values():
+    for role_path in chain.from_iterable(late.values()):
         # A login promoting this role holds its lock only briefly; failing
         # here would leave a live key after the config block is gone.
         with session.session_file_lock(
@@ -269,8 +271,9 @@ def _remove_role(
     # spellings; each is a live key, so every one of them goes.
     paths = [
         role_path
-        for name, role_path in session.role_session_files(account).items()
+        for name, role_paths in session.role_session_files(account).items()
         if name.casefold() == role.casefold()
+        for role_path in role_paths
     ]
     if not paths:
         raise NotFoundError(
