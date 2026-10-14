@@ -191,7 +191,9 @@ def test_mapping_and_cursor_share_one_transaction(tmp_path, monkeypatch):
         def __getattr__(self, name: str):
             return getattr(self._conn, name)
 
-    monkeypatch.setattr(statedb, "connect", lambda path, **kw: BoomConn(real_connect(path, **kw)))
+    monkeypatch.setattr(
+        statedb, "connect", lambda path, **kw: BoomConn(real_connect(path, **kw))
+    )
     with pytest.raises(OSError, match="simulated crash"):
         state.save(loaded)
     monkeypatch.setattr(statedb, "connect", real_connect)
@@ -388,7 +390,9 @@ def test_persist_restricts_wal_and_shm_sidecars_before_close(tmp_path, monkeypat
         def __getattr__(self, name: str):
             return getattr(self._conn, name)
 
-    monkeypatch.setattr(statedb, "connect", lambda p, **kw: SnapshotConn(real_connect(p, **kw), p))
+    monkeypatch.setattr(
+        statedb, "connect", lambda p, **kw: SnapshotConn(real_connect(p, **kw), p)
+    )
 
     old_umask = os.umask(0o022)
     try:
