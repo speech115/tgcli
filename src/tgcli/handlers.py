@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 
 from tgcli import output, preview_commit, read_ops, safety, session
+from tgcli.clone import sync as sync_clone
 from tgcli.commands import (
     accounts as accounts_cmd,
     archive as archive_cmd,
@@ -197,8 +198,8 @@ async def export_subscribers(tg, args, account) -> tuple[dict, list[tuple]]:
 
 
 async def clone_sync(tg, args, account) -> tuple[dict, list[tuple]]:
-    data = await clone_cmd.sync_text(tg, args.source, account.alias, limit=args.limit)
-    return data, clone_cmd.sync_rows(data)
+    data = await sync_clone.sync_text(tg, args.source, account.alias, limit=args.limit)
+    return data, sync_clone.sync_rows(data)
 
 
 async def archive_init(tg, args, account) -> tuple[dict, list[tuple]]:
