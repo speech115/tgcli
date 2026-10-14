@@ -130,5 +130,6 @@ git history keeps them.
 | [0116](ADR-0116-archive-store-split.md) | Split archive store persistence into schema/messages/transcripts/sync_state/peers modules behind a thin store facade | accepted; thermos debt T30 |
 | [0117](ADR-0117-breadth-atomic-check-and-touch.md) | Breadth budget check-and-touch is one `BEGIN IMMEDIATE` claim; gate still dispatches on refuse | accepted; thermos debt T36 |
 | [0118](ADR-0118-private-backfill-enum-cursor.md) | Private archive-backfill persists a GetDialogs resume token on account_sync (schema v8) | accepted; thermos debt T37 |
-| [0119](ADR-0119-self-hosted-macos-ci.md) | CI runs on a self-hosted macOS runner (`[self-hosted, tgcli]`); GitHub-hosted minutes dropped | accepted |
+| [0119](ADR-0119-self-hosted-macos-ci.md) | CI runs on a self-hosted macOS runner (`[self-hosted, tgcli]`); GitHub-hosted minutes dropped | superseded by ADR-0121 |
 | [0120](ADR-0120-process-reset.md) | Process reset: closed history, MAP, ISSUES/PROPOSALS, and devlog leave the tree; the docs gate checks docs against the CLI only | accepted |
+| [0121](ADR-0121-github-hosted-ci-for-public-repo.md) | CI runs on GitHub-hosted `macos-latest`, on every PR and on push to `main`; the self-hosted runner leaves CI | accepted |

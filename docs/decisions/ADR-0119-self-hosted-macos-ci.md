@@ -1,7 +1,7 @@
 # ADR-0119: Self-hosted macOS CI runner
 
 Date: 2026-08-14
-Status: accepted
+Status: superseded by ADR-0121
 
 Supersedes: ADR-0059 (decision 2 — the GitHub-hosted macOS CI leg).
 
