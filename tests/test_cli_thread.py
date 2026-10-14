@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime
 
 import pytest
+from telethon import types
 
 from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli.cli import main
@@ -131,3 +132,46 @@ def test_thread_depth_hard_cap_limits_parent_fetches(config_env, monkeypatch, ca
         if call[1] is not None and call[3] is None and call[1] != 151
     ]
     assert len(parent_fetches) == 100
+
+
+def _cross_chat(message, channel_id):
+    message.reply_to = types.MessageReplyHeader(
+        reply_to_msg_id=message.reply_to_msg_id,
+        reply_to_peer_id=types.PeerChannel(channel_id),
+    )
+    return message
+
+
+def test_thread_root_reply_into_another_chat_has_no_local_ancestor(
+    config_env, monkeypatch, capsys
+):
+    entity = ns(id=-1001, title="Chan")
+    messages = [
+        _msg(10, text="unrelated local msg 10"),
+        _cross_chat(_msg(50, reply_to=10), 999),
+    ]
+    client = FakeClient(messages=messages, entities={"@chan": entity})
+    make_session_fake(monkeypatch, client)
+
+    assert main(["--json", "thread", "@chan", "50"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["root"]["reply_to"] == {"id": 10, "peer": -1000000000999}
+    assert payload["ancestors"] == []
+
+
+def test_thread_walk_stops_at_an_ancestor_replying_into_another_chat(
+    config_env, monkeypatch, capsys
+):
+    entity = ns(id=-1001, title="Chan")
+    messages = [
+        _msg(1, text="unrelated local msg 1"),
+        _cross_chat(_msg(2, reply_to=1), 999),
+        _msg(3, reply_to=2),
+    ]
+    client = FakeClient(messages=messages, entities={"@chan": entity})
+    make_session_fake(monkeypatch, client)
+
+    assert main(["--json", "thread", "@chan", "3"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert [m["id"] for m in payload["ancestors"]] == [2]
+    assert payload["ancestors"][0]["reply_to"] == {"id": 1, "peer": -1000000000999}

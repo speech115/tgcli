@@ -1,7 +1,7 @@
 """Reply-chain discovery read (ADR-0029): ancestors always, replies opt-in."""
 
 from tgcli import chatref
-from tgcli.commands.read import _dialog_name, message_to_dict
+from tgcli.commands.read import _dialog_name, _reply_to, message_to_dict
 from tgcli.errors import NotFoundError
 
 DEPTH_CAP = 100
@@ -38,8 +38,9 @@ async def fetch_thread(
     steps = max(0, min(depth, DEPTH_CAP))
     ancestors_newest_first = []
     seen = {root.id}
-    parent_id = root.reply_to_msg_id
-    while parent_id is not None and len(ancestors_newest_first) < steps:
+    # A reply into another chat names its peer; that id is not a local message.
+    parent_id = _reply_to(root, entity)
+    while isinstance(parent_id, int) and len(ancestors_newest_first) < steps:
         if parent_id in seen:
             break
         parent = await tg.get_messages(entity, ids=parent_id)
@@ -47,7 +48,7 @@ async def fetch_thread(
             break
         seen.add(parent.id)
         ancestors_newest_first.append(parent)
-        parent_id = parent.reply_to_msg_id
+        parent_id = _reply_to(parent, entity)
     ancestors = list(reversed(ancestors_newest_first))
 
     note = None
