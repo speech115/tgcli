@@ -1,5 +1,6 @@
 import json
 import tomllib
+from collections.abc import Iterable
 from contextlib import ExitStack
 from datetime import UTC, datetime
 from pathlib import Path
@@ -268,25 +269,33 @@ def _remove_role(
             "without --confirm"
         )
     account = config.accounts[alias]
-    found = {
-        name.casefold(): role_path
+    # A case-sensitive filesystem can hold one logical role under several
+    # spellings; each is a live key, so every one of them goes.
+    paths = [
+        role_path
         for name, role_path in session.role_session_files(account).items()
-    }
-    path = found.get(role.casefold())
-    if path is None:
+        if name.casefold() == role.casefold()
+    ]
+    if not paths:
         raise NotFoundError(
             f"session role {role!r} for account {alias!r} does not exist"
         )
-    bak = Path(str(path) + ".bak")
     session.ensure_state_dir("sessions")
-    with session.session_file_lock(path, busy_error=PolicyError):
+    with ExitStack() as locks:
+        for path in paths:
+            locks.enter_context(session.session_file_lock(path, busy_error=PolicyError))
         statuses = {
-            "session": "deleted" if path.is_file() else "absent",
-            "backup": "deleted" if bak.is_file() else "absent",
+            "session": _any_status(paths),
+            "backup": _any_status(Path(str(path) + ".bak") for path in paths),
         }
         safety.append_audit("accounts-remove-role", alias, {"role": role, **statuses})
-        _unlink_with_backup(path)
+        for path in paths:
+            _unlink_with_backup(path)
         return {"alias": alias, "role": role, "config": "unchanged", **statuses}
+
+
+def _any_status(paths: Iterable[Path]) -> str:
+    return "deleted" if any(path.is_file() for path in paths) else "absent"
 
 
 def remove_rows(data: dict) -> list[tuple]:
