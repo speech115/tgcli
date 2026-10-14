@@ -1469,8 +1469,8 @@ headers that carry scheduled/ephemeral/todo/poll-option targets, flatten the
 reply relation and continue (ADR-0036). In a comments leg, losing the direct
 parent (by any of these rules) still counts in `reply_flattened`, but a
 comment whose thread post is known stays placed under that post's destination
-anchor: it is reuploaded with `reply_to` set to the anchor rather than copied
-without a reply relation. A quote text fallback in such a thread is placed the
+anchor: it is sent (reuploaded, or as a poll/story snapshot) with `reply_to`
+set to the anchor rather than copied without a reply relation. A quote text fallback in such a thread is placed the
 same way and counts in `quote_flattened` only. Cross-chat quote replies are resolved by
 target reachability (ADR-0036): a mapped target (same leg or the other leg's
 post→anchor path) keeps a native `InputReplyToMessage` with quote text/entities/
