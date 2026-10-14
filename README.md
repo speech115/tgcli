@@ -34,7 +34,7 @@ Design lineage: [openclaw/gogcli](https://github.com/openclaw/gogcli) (architect
 - **Media and export** — manifest before download, bulk filtered downloads, JSONL message export with `--resume`, and CSV subscriber export for broadcast channels.
 - **Chat clone** — copy broadcast channels, megagroup supergroups (forum and non-forum), legacy basic groups, and private dialogs into tool-created destinations, with native forwards plus protected-content reupload.
 - **Local archive store** — `tg archive` binds a per-account SQLite store, backfills selected/private dialogs, syncs new updates through a GetDifference cursor, acquires bounded voice/video-note media with terminal retry state, transcribes locally with Parakeet, and provides filtered/ranked offline search plus timeline/history views.
-- **Scripts** — `tg run SCRIPT` runs Python with the authorized, paced Telethon client for anything without a command; read-only unless `--write`, and every write is audited first.
+- **Scripts** — `tg run SCRIPT` runs Python with the authorized, paced Telethon client for anything without a command; read-only unless `--write`, every write is audited first, and readonly mode refuses scripts entirely.
 - **Diagnostics and hygiene** — `tg doctor` reports locally by default (`--connect` for live checks); `tg store stats` / `tg store cleanup` inspect and reclaim local state without ever touching sessions or the audit log.
 
 ## Install

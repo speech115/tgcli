@@ -61,7 +61,17 @@ def _prepare_max_runtime(args) -> None:
 
 
 def prepare_run(parser: argparse.ArgumentParser, args) -> None:
-    """Compile the script before any session work; `--write` is gated first."""
+    """Compile the script before any session work; `--write` is gated first.
+
+    Readonly refuses every script, not only `--write` ones: the script holds
+    the authorized client, so it can undo the write gate or read the session
+    key. The gate catches mistakes, not a hostile script.
+    """
+    if args.readonly or safety.readonly_env():
+        raise PolicyError(
+            "tg run is refused in readonly mode: a script holds the account's "
+            "authorized client"
+        )
     args.run_code = run_cmd.compile_source(args.script)
 
 

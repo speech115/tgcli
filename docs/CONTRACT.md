@@ -855,8 +855,14 @@ outright too, with or without `--write`; only `PingRequest` and
 - Without `--write`, a write is refused with exit 2 and never sent.
 - With `--write`, each write appends `{"action": "run-write", "method": …}` to
   the audit log before it is sent; an unwritable audit refuses it (exit 2).
-- `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` refuse `--write`
-  with exit 2 before any session work.
+- `--readonly` and `TGCLI_READONLY=1` refuse every script, with or without
+  `--write`, with exit 2 before any session work. `TGCLI_NO_SEND=1` refuses
+  `--write` the same way.
+
+The write check catches a script's mistakes, not a hostile script: a script
+holds the account's authorized client and can undo the check or read the
+session key. That is why readonly refuses `tg run` outright; run only scripts
+you trust.
 - A script that is empty, unreadable, or does not compile exits 3 before any
   session work.
 
