@@ -1224,8 +1224,14 @@ set to `[Clone] ` + the source group's display name (ADR-0044), then
 strictly before `sync` sends the first post. A linked source group that
 cannot be read (private, not a member) skips group creation entirely and
 sets `comments: "unavailable"`; a source with no linked group at all sets
-`comments: "none"`. Non-broadcast sources never attempt this and always
-report `comments: "none"`. Init's live ~15h FLOOD_WAIT window on rapid peer
+`comments: "none"`. A re-run of a clone whose `comments` is `"unavailable"`
+or `"none"` and that has already copied posts keeps that marker even when
+the linked group is now readable, unless a `"none"` clone was already linked to that
+same source group (the source unlinked it for a while; its posts have
+anchors, so the link is restored): it creates and links nothing, notes on
+stderr that `--replace` is the way to a clone with comments, and exits 0
+(those posts have no anchors; ADR-0023). Non-broadcast sources never attempt
+this and always report `comments: "none"`. Init's live ~15h FLOOD_WAIT window on rapid peer
 creation applies to up to two peers per run instead of one.
 
 Before creation, state with `destination_peer_id:null` and title marker

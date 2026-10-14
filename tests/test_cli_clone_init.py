@@ -1200,6 +1200,178 @@ def test_init_marks_unreadable_discussion_group_unavailable(
     )
 
 
+@pytest.mark.parametrize("marker", ["unavailable", "none"])
+def test_plain_reinit_keeps_posts_only_clone_with_copied_posts(
+    marker, config_env, monkeypatch, capsys
+):
+    """ADR-0023: posts copied before a link have no anchors, so a posts-only
+    clone with copied posts is never upgraded in place. A plain re-init once
+    the linked group reads fine keeps the marker, links nothing, and points
+    to --replace."""
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel"
+    )
+    clone_state.creation_marker = f"tgcli-clone-{clone_state.clone_id[:12]}"
+    clone_state.destination_peer_id = 999
+    clone_state.comments = marker
+    if marker == "unavailable":
+        clone_state.discussion_source_peer_id = 777
+    for source_id in range(1, 51):
+        clone_state.record_mapping(source_id, source_id + 1000)
+    state.save(clone_state)
+    client = CloneInitClient()
+    client.destination = channel(999, "[Clone] Source channel", creator=True)
+    client.linked = linked_group()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert result["clone"]["comments"] == marker
+    assert "--replace" in captured.err
+    saved = state.load(result["clone"]["id"])
+    assert saved.comments == marker
+    assert saved.discussion_destination_peer_id is None
+    assert saved.discussion_linked is False
+    assert len(saved.id_map) == 50
+    assert client.discussion is None
+    assert not any(
+        isinstance(item, functions.channels.SetDiscussionGroupRequest)
+        for item in client.requests
+    )
+
+
+def test_plain_reinit_restores_comments_when_source_relinks_same_group(
+    config_env, monkeypatch, capsys
+):
+    """A clone that was linked when its posts copied has their anchors. If the
+    source unlinks its group for a while (init records "none") and then links
+    the same group again, a plain re-init restores "enabled"."""
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel"
+    )
+    clone_state.creation_marker = f"tgcli-clone-{clone_state.clone_id[:12]}"
+    clone_state.destination_peer_id = 999
+    clone_state.comments = "enabled"
+    clone_state.discussion_source_peer_id = 777
+    clone_state.discussion_destination_peer_id = 1001
+    clone_state.discussion_linked = True
+    for source_id in range(1, 51):
+        clone_state.record_mapping(source_id, source_id + 1000)
+    state.save(clone_state)
+    client = CloneInitClient()
+    client.destination = channel(999, "[Clone] Source channel", creator=True)
+    client.discussion = channel(
+        1001,
+        "[Clone] Source chat",
+        creator=True,
+        broadcast=False,
+        megagroup=True,
+        forum=False,
+    )
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["clone"]["comments"] == "none"
+
+    client.linked = linked_group()
+    preview = stored_preview()
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["comments"] == "enabled"
+    saved = state.load(result["clone"]["id"])
+    assert saved.discussion_destination_peer_id == 1001
+    assert saved.discussion_linked is True
+
+
+def test_plain_reinit_keeps_clone_degraded_by_sync_unavailable(
+    config_env, monkeypatch, capsys
+):
+    """A sync that degraded comments to "unavailable" cleared the comment
+    cursor and map but left the link. Re-enabling it would re-copy comments
+    onto a group that already holds them, so a plain re-init keeps the
+    marker even when the same group reads fine again."""
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel"
+    )
+    clone_state.creation_marker = f"tgcli-clone-{clone_state.clone_id[:12]}"
+    clone_state.destination_peer_id = 999
+    clone_state.comments = "unavailable"
+    clone_state.discussion_source_peer_id = 777
+    clone_state.discussion_destination_peer_id = 1001
+    clone_state.discussion_linked = True
+    for source_id in range(1, 51):
+        clone_state.record_mapping(source_id, source_id + 1000)
+    state.save(clone_state)
+    client = CloneInitClient()
+    client.destination = channel(999, "[Clone] Source channel", creator=True)
+    client.discussion = channel(
+        1001,
+        "[Clone] Source chat",
+        creator=True,
+        broadcast=False,
+        megagroup=True,
+        forum=False,
+    )
+    client.linked = linked_group()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["clone"]["comments"] == "unavailable"
+    assert "--replace" in captured.err
+    assert state.load(clone_state.clone_id).comments == "unavailable"
+    assert not any(
+        isinstance(item, functions.channels.SetDiscussionGroupRequest)
+        for item in client.requests
+    )
+
+
+def test_plain_reinit_upgrades_unavailable_clone_with_no_copied_posts(
+    config_env, monkeypatch, capsys
+):
+    """Nothing copied yet means no anchor is missing: a re-init once the
+    linked group reads fine links it and reports comments == "enabled"."""
+    client = CloneInitClient()
+    client.linked = linked_group()
+    client.linked_history_error = telethon_errors.ChannelPrivateError(request=None)
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["clone"]["comments"] == "unavailable"
+
+    client.linked_history_error = None
+    preview = stored_preview()
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["comments"] == "enabled"
+    assert state.load(result["clone"]["id"]).discussion_linked is True
+
+
 def test_clone_init_mutes_created_peers_forever(config_env, monkeypatch, capsys):
     from tgcli.clone.ergonomics import MUTE_FOREVER_UNTIL
 
