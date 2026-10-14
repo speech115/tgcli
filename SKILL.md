@@ -191,6 +191,8 @@ unless you pass `tg run --write SCRIPT`, which audits every write first; use
 for sends, edits, deletes, and forwards: it shows a preview first.
 `auth.*`, `account.*`, and root MTProto requests such as
 `DestroyAuthKeyRequest` are refused even with `--write`; use `tg accounts`.
+Under `--readonly` or `TGCLI_READONLY=1`, `tg run` is refused entirely
+(exit 2): a script holds the authorized client, so it cannot be made read-only.
 
 ## Safety gates
 

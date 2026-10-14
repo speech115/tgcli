@@ -154,6 +154,18 @@ def test_readonly_and_no_send_refuse_the_write_flag(tmp_path, monkeypatch):
     assert main(["run", "--write", path]) == 2
 
 
+def test_readonly_refuses_any_script(tmp_path, monkeypatch, capsys):
+    """A script holds the authorized client: it can undo the write gate or read
+    the session key, so no script is read-only and readonly refuses them all."""
+    client, path = setup(tmp_path, monkeypatch, "await client.get_messages(1)\n")
+
+    assert main(["--readonly", "run", path]) == 2
+    monkeypatch.setenv("TGCLI_READONLY", "1")
+    assert main(["run", path]) == 2
+    assert client.sent == []
+    assert "tg run" in capsys.readouterr().err
+
+
 def test_a_script_bug_prints_its_traceback_and_exits_1(tmp_path, monkeypatch, capsys):
     _, path = setup(tmp_path, monkeypatch, "x = 1\nraise ValueError('boom')\n")
 
