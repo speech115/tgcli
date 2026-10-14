@@ -72,3 +72,8 @@ include = ["src"]
 typeCheckingMode = "standard"
 # CI type-checks on Linux; check the macOS branches the tool runs on.
 pythonPlatform = "Darwin"
+# Editor language servers run outside `uv run`; point them at the project venv
+# and Python instead of whatever python3 is on PATH.
+pythonVersion = "3.12"
+venvPath = "."
+venv = ".venv"
