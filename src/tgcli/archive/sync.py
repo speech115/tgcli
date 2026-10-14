@@ -500,22 +500,36 @@ async def sync_archive(
     events = list(doc.get("events") or [])
     applied = apply_events(conn, events)
     await _enrich_private_identity(tg, conn, events)
+    # Catch-ups an earlier run left unfinished go first, then this pass's
+    # activity; whatever does not finish is persisted for the next run, so
+    # `remaining: true` stays true until every scoped channel is caught up.
+    queue: list[int] = []
+    for peer in [*account["pending_catchups"], *applied["activity_peers"]]:
+        if peer not in queue and store_mod.in_explicit_scope(conn, peer):
+            queue.append(int(peer))
     catchups: list[dict[str, Any]] = []
-    remaining = max_events
+    unfinished: list[int] = []
+    budget = max_events
     stopped = False
-    for peer in (applied.get("activity_peers") or [])[:max_dialogs]:
+    for index, peer in enumerate(queue):
+        if index >= max_dialogs:
+            unfinished.extend(queue[index:])
+            break
         if should_stop is not None and should_stop():
             stopped = True
+            unfinished.extend(queue[index:])
             break
         result = await _catch_up_peer(
             tg,
             conn,
             peer,
             account_user_id=account_user_id,
-            message_budget=remaining,
+            message_budget=budget,
         )
         catchups.append(result)
-        remaining = max(0, remaining - int(result.get("stored") or 0))
+        budget = max(0, budget - int(result.get("stored") or 0))
+        if result.get("skipped_budget") or result.get("more"):
+            unfinished.append(peer)
 
     if should_stop is not None and should_stop():
         stopped = True
@@ -532,6 +546,7 @@ async def sync_archive(
         gap=gap,
         touch_sync=True,
         scope_channels=True,
+        pending_catchups=unfinished,
     )
     assert persisted is not None
     encoded = persisted
@@ -550,9 +565,6 @@ async def sync_archive(
     if reconcile and not stopped:
         reconcile_data = await light_reconcile(tg, conn)
 
-    pending_catchups = len(applied.get("activity_peers") or []) > len(catchups) or any(
-        item.get("skipped_budget") or item.get("more") for item in catchups
-    )
     return {
         "initialized": initialized,
         "applied": {
@@ -572,7 +584,7 @@ async def sync_archive(
         "next_cursor": encoded,
         "reconcile": reconcile_data,
         "requests": len(requests),
-        "remaining": bool(stopped or pending_catchups or media["remaining"]),
+        "remaining": bool(stopped or unfinished or media["remaining"]),
     }
 
 

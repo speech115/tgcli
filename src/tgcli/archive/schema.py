@@ -10,7 +10,7 @@ from typing import Any
 from tgcli.errors import NotFoundError, PolicyError
 from tgcli.session import ensure_state_dir, restrict_file
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 DB_NAME = "archive.db"
 TRANSCRIBABLE_MEDIA_KINDS = ("voice", "video_note")
 NO_TRANSCRIPT_MARKER = "no_transcript no transcript"
@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS account_sync (
     last_sync_at TEXT,
     last_reconcile_at TEXT,
     reconcile_json TEXT,
-    private_enum_json TEXT
+    private_enum_json TEXT,
+    pending_catchups_json TEXT
 );
 CREATE TABLE IF NOT EXISTS messages (
     peer_id INTEGER NOT NULL,
@@ -158,6 +159,8 @@ def connect(path: Path) -> sqlite3.Connection:
                 _migrate_v6_to_v7(conn)
             if version <= 7:
                 _migrate_v7_to_v8(conn)
+            if version <= 8:
+                _migrate_v8_to_v9(conn)
         elif version != SCHEMA_VERSION:
             conn.close()
             raise PolicyError(
@@ -311,6 +314,19 @@ def _migrate_v7_to_v8(conn: sqlite3.Connection) -> None:
         }
         if "private_enum_json" not in cols:
             conn.execute("ALTER TABLE account_sync ADD COLUMN private_enum_json TEXT")
+        conn.execute("PRAGMA user_version=8")
+
+
+def _migrate_v8_to_v9(conn: sqlite3.Connection) -> None:
+    """Persist channel catch-ups that a sync left unfinished."""
+    with conn:
+        cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
+        }
+        if "pending_catchups_json" not in cols:
+            conn.execute(
+                "ALTER TABLE account_sync ADD COLUMN pending_catchups_json TEXT"
+            )
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
 

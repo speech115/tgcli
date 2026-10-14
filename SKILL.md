@@ -44,6 +44,7 @@ selected account session, does one operation, and exits.
 | Backfill selected dialogs into archive | `tg --json archive backfill CHAT [CHAT …] [--limit N]` |
 | Backfill standing private dialogs | `tg --json archive backfill --private [--max-dialogs N] [--limit N]` |
 | Sync the archive with Telegram | `tg --json archive sync [--max-events N] [--max-dialogs N] [--max-media N]` (applies full difference; caps catch-up RPCs and media downloads) |
+| Finish an unfinished archive sync | A `catchups[]` item with `more: true` or a top-level `remaining: true` means run `tg --json archive sync` again; unfinished catch-ups resume without new activity |
 | Transcribe archived voice/video notes | `tg --json archive transcribe [--limit N] [--max-attempts N]` (offline local FluidAudio/Parakeet queue) |
 | Keep the archive current on a schedule | launchd or cron: `tg --session-role job --max-runtime 3000 --json archive sync` and `tg --max-runtime 3000 --json archive transcribe` |
 | Rebaseline the archive's update cursor | `tg --json archive rebaseline` |

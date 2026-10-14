@@ -656,7 +656,7 @@ def test_archive_v1_store_migrates_fts_tokenizer(config_env, monkeypatch):
     conn.close()
     conn = store_mod.connect(path)
     try:
-        assert store_mod.schema_version(conn) == 8
+        assert store_mod.schema_version(conn) == 9
         rows = conn.execute(
             "SELECT peer_id, message_id FROM messages_fts WHERE messages_fts MATCH ?",
             (store_mod.fold_yo("елка"),),
