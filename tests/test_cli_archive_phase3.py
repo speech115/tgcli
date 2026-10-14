@@ -1402,3 +1402,192 @@ def test_sync_new_private_dialog_enters_sync_state(config_env, monkeypatch, caps
         assert state["username"] == "carol" or state["title"] == "Carol"
     finally:
         conn.close()
+
+
+def _flood_wait_error():
+    flood_wait = telethon_errors.FloodWaitError(request=None)
+    flood_wait.seconds = 30
+    return flood_wait
+
+
+def _governor_cooling():
+    # What the governed client raises for a cooling request type, before any RPC.
+    from tgcli.errors import RateLimitError
+
+    return RateLimitError("GetFileRequest is rate limited for 600s", retry_after=600)
+
+
+@pytest.mark.parametrize(
+    "make_error", [_flood_wait_error, _governor_cooling], ids=["flood", "cooling"]
+)
+def test_sync_media_rate_limit_still_advances_the_changes_cursor(
+    config_env, monkeypatch, capsys, make_error
+):
+    """The difference was applied, then media download hit a rate limit and
+    the run exited 5 before the cursor checkpoint. Every run during the
+    cooldown re-fetched and re-applied the same difference. The cursor is
+    now saved before the media tail, and the media row keeps its attempts."""
+    user = _user()
+
+    class CooldownClient(FakeClient):
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, GetStateRequest):
+                return _state(pts=5, qts=1, seq=1)
+            if isinstance(request, GetDifferenceRequest):
+                return Difference(
+                    new_messages=[_msg(mid=3, text="new text")],
+                    new_encrypted_messages=[],
+                    other_updates=[],
+                    chats=[],
+                    users=[user],
+                    state=_state(pts=9, qts=1, seq=2),
+                )
+            raise AssertionError(request)
+
+        async def get_messages(self, entity, ids=None, limit=None, reply_to=None):
+            if ids is not None:
+                raise make_error()
+            return await super().get_messages(entity, ids, limit, reply_to)
+
+    client = CooldownClient(me=_me(), entities={7: user, "7": user, "@alice": user})
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    path = archive_cmd.db_path("main")
+    conn = store_mod.connect(path)
+    try:
+        store_mod.upsert_message(
+            conn,
+            7,
+            {
+                "id": 2,
+                "date": "2026-01-02T00:00:00+00:00",
+                "text": "pending voice",
+                "from": {"id": 7},
+                "media": "MessageMediaDocument",
+                "media_info": {"mime": "audio/ogg", "size": 10},
+                "media_kind": "voice",
+            },
+        )
+        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
+        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert main(["archive", "sync", "--json"]) == 5
+    captured = capsys.readouterr()
+    envelope = json.loads(captured.out)
+    assert envelope["error"]["code"] == "FLOOD_WAIT"
+    assert json.loads(captured.err.strip().splitlines()[-1]) == envelope
+
+    conn = store_mod.connect(path)
+    try:
+        saved = store_mod.read_account_sync(conn)["changes_cursor"]
+        assert changes_cursor.decode(saved).pts == 9
+        new_row = conn.execute(
+            "SELECT text FROM messages WHERE peer_id = 7 AND message_id = 3"
+        ).fetchone()
+        assert new_row["text"] == "new text"
+        row = store_mod.transcript_row(conn, 7, 2)
+        assert row["media_attempts"] == 0
+        assert row["media_status"] == "pending"
+    finally:
+        conn.close()
+
+
+def test_sync_catch_up_of_a_channel_without_history_keeps_its_newest_page(
+    config_env, monkeypatch, capsys
+):
+    """A scoped channel that was never backfilled has no `newest_id`. Reading
+    it oldest first would store the channel's first messages and crawl its
+    whole history one page per activity, so it keeps the newest page."""
+    from datetime import timedelta
+
+    channel = Channel(
+        id=1234,
+        title="News",
+        photo=None,
+        date=datetime(2026, 1, 1, tzinfo=UTC),
+        access_hash=99,
+        megagroup=False,
+        username="news",
+    )
+    peer = utils.get_peer_id(channel)
+
+    class ActivityClient(FakeClient):
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, GetFullChannelRequest):
+                # Skip subscription so UpdateChannelTooLong stays visible.
+                raise RuntimeError("pts unavailable")
+            if isinstance(request, GetStateRequest):
+                return _state(pts=5, qts=1, seq=1)
+            if isinstance(request, GetDifferenceRequest):
+                return Difference(
+                    new_messages=[],
+                    new_encrypted_messages=[],
+                    other_updates=[UpdateChannelTooLong(channel_id=1234, pts=None)],
+                    chats=[channel],
+                    users=[],
+                    state=_state(pts=6, qts=1, seq=2),
+                )
+            raise AssertionError(request)
+
+    newest_first = [
+        Message(
+            id=message_id,
+            peer_id=PeerChannel(1234),
+            message=f"m{message_id}",
+            date=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(minutes=message_id),
+        )
+        for message_id in range(200, 0, -1)
+    ]
+    client = ActivityClient(
+        me=_me(),
+        entities={peer: channel, 1234: channel, "@news": channel, "news": channel},
+        messages=newest_first,
+        message_total=200,
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    path = archive_cmd.db_path("main")
+    conn = store_mod.connect(path)
+    try:
+        store_mod.add_scope(
+            conn,
+            peer_id=peer,
+            kind="channel",
+            title="News",
+            username="news",
+            chat_ref="@news",
+        )
+        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
+        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert main(["archive", "sync", "--json"]) == 0
+    captured = capsys.readouterr()
+    assert '"error"' not in captured.err
+    data = json.loads(captured.out)
+    assert [item["peer_id"] for item in data["catchups"]] == [peer]
+    assert data["catchups"][0]["stored"] == sync_mod.CATCHUP_LIMIT
+    assert data["catchups"][0]["more"] is False
+    assert client.iter_messages_reverse_calls == [False]
+
+    conn = store_mod.connect(path)
+    try:
+        stored = {
+            int(row[0])
+            for row in conn.execute(
+                "SELECT message_id FROM messages WHERE peer_id = ?", (peer,)
+            )
+        }
+        assert stored == set(range(200 - sync_mod.CATCHUP_LIMIT + 1, 201))
+        assert store_mod.get_sync_state(conn, peer)["newest_id"] == 200
+    finally:
+        conn.close()
