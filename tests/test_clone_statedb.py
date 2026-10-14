@@ -29,7 +29,7 @@ def test_connect_applies_wal_pragmas_and_schema(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     path = tmp_path / "clones" / "x.db"
     path.parent.mkdir(parents=True)
-    conn = statedb.connect(path)
+    conn = statedb.connect(path, create=True)
     try:
         assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
         assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1  # NORMAL
@@ -60,7 +60,7 @@ def test_unknown_user_version_is_policy_error(tmp_path, monkeypatch):
     conn.close()
 
     with pytest.raises(PolicyError, match="unsupported schema version"):
-        statedb.connect(path)
+        statedb.connect(path, create=True)
 
 
 def test_save_then_load_round_trip_uses_sqlite(tmp_path, monkeypatch):
@@ -118,8 +118,8 @@ def test_save_one_mapping_is_o1_statements(tmp_path, monkeypatch):
     real_connect = statedb.connect
     counted: list[str] = []
 
-    def counting_connect(db_path: Path):
-        c = real_connect(db_path)
+    def counting_connect(db_path: Path, **kwargs):
+        c = real_connect(db_path, **kwargs)
         c.set_trace_callback(
             lambda statement: (
                 counted.append(statement) if not statement.startswith("--") else None
@@ -191,7 +191,7 @@ def test_mapping_and_cursor_share_one_transaction(tmp_path, monkeypatch):
         def __getattr__(self, name: str):
             return getattr(self._conn, name)
 
-    monkeypatch.setattr(statedb, "connect", lambda path: BoomConn(real_connect(path)))
+    monkeypatch.setattr(statedb, "connect", lambda path, **kw: BoomConn(real_connect(path, **kw)))
     with pytest.raises(OSError, match="simulated crash"):
         state.save(loaded)
     monkeypatch.setattr(statedb, "connect", real_connect)
@@ -344,7 +344,7 @@ def test_connect_restricts_wal_and_shm_sidecars_on_first_create(tmp_path, monkey
     path.parent.mkdir(parents=True)
     old_umask = os.umask(0o022)
     try:
-        conn = statedb.connect(path)
+        conn = statedb.connect(path, create=True)
     finally:
         os.umask(old_umask)
     try:
@@ -388,7 +388,7 @@ def test_persist_restricts_wal_and_shm_sidecars_before_close(tmp_path, monkeypat
         def __getattr__(self, name: str):
             return getattr(self._conn, name)
 
-    monkeypatch.setattr(statedb, "connect", lambda p: SnapshotConn(real_connect(p), p))
+    monkeypatch.setattr(statedb, "connect", lambda p, **kw: SnapshotConn(real_connect(p, **kw), p))
 
     old_umask = os.umask(0o022)
     try:

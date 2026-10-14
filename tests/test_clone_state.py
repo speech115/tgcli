@@ -436,7 +436,7 @@ def test_failed_save_preserves_previous_state(tmp_path, monkeypatch):
             return getattr(self._conn, name)
 
     s.cursor = 2
-    monkeypatch.setattr(statedb, "connect", lambda path: BoomConn(real_connect(path)))
+    monkeypatch.setattr(statedb, "connect", lambda path, **kw: BoomConn(real_connect(path, **kw)))
     with pytest.raises(OSError, match="interrupted save"):
         state.save(s)
     monkeypatch.setattr(statedb, "connect", real_connect)
