@@ -1,14 +1,19 @@
 """A generated channel + discussion group world for clone reply properties.
 
-One hypothesis strategy, ``worlds()``, draws a small source channel, its
-discussion group, and what a clone has copied of both so far. Channel ids and
-group ids are drawn from the same small range on purpose, as are the two
-destination id spaces, so a reply target taken from the wrong chat lands on an
-id that exists there too and only the chat tells them apart.
+``worlds()`` draws a small source channel, its discussion group, and what an
+earlier ``tg clone sync`` already copied of both. ``build()`` turns a world into
+saved clone state plus a ``CloneCommentsClient`` that records every send and
+the destination ids Telegram gave it, so a test can run the real
+``tg clone sync`` and read back where each reply went.
 
-The world also knows the truth a correct clone must reach: where each reply's
-parent lives in the destination (``parent_destination``) and which anchor a
-comment's thread hangs off (``thread_destination``).
+Channel and group ids are both small and sequential, so the two id spaces
+overlap on purpose, in the source and in the destination: a reply target taken
+from the wrong chat lands on an id that may exist there too, and only the chat
+tells them apart.
+
+The world is chronological the way Telegram is: a comment comes after its
+thread's anchor, a reply after its parent, and the comments leg never passed
+an anchor whose post the posts leg had not reached.
 """
 
 from __future__ import annotations
@@ -16,22 +21,22 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from hypothesis import strategies as st
-from telethon.tl import types
+from telethon.tl import functions, types
 
 from tests.fakes.clone import CloneCommentsClient, anchor, message
-from tgcli.clone import quotes, state
+from tgcli.clone import state
 
 SOURCE_CHANNEL = 123
 SOURCE_GROUP = 55
 DESTINATION_CHANNEL = 999
 DESTINATION_GROUP = 888
 
-# Source ids: both chats number their messages from the same range.
-SOURCE_IDS = range(1, 13)
-# Destination ids: the two ranges overlap but differ, so an id from the wrong
-# space is sometimes also a real id in the target chat and sometimes not.
-DESTINATION_CHANNEL_IDS = range(1, 13)
-DESTINATION_GROUP_IDS = range(5, 17)
+SENDS = (
+    functions.messages.ForwardMessagesRequest,
+    functions.messages.SendMessageRequest,
+    functions.messages.SendMediaRequest,
+    functions.messages.SendMultiMediaRequest,
+)
 
 
 @dataclass(frozen=True)
@@ -45,11 +50,11 @@ class Reply:
 @dataclass(frozen=True)
 class Post:
     id: int
-    dest: int | None  # destination channel id once copied
+    copied_before: bool  # an earlier run copied it (only below the cursor)
+    dest_anchor_kept: bool  # that earlier copy still has its group anchor
     anchor: int | None  # source group id of Telegram's auto-forward
     anchor_present: bool  # the source anchor can still be read
-    anchor_remembered: bool  # an earlier run recorded the anchor pair
-    dest_anchor: int | None  # the copy's auto-forward in the destination group
+    anchor_remembered: bool  # the earlier run recorded the anchor pair
     reply: Reply | None = None
 
 
@@ -57,7 +62,7 @@ class Post:
 class Comment:
     id: int
     thread: int  # the post whose discussion it belongs to
-    dest: int | None  # destination group id once copied
+    copied_before: bool  # an earlier run copied it (only below the cursor)
     reply: Reply
 
 
@@ -65,11 +70,10 @@ class Comment:
 class World:
     posts: tuple[Post, ...]
     comments: tuple[Comment, ...]
+    deleted_group_ids: tuple[int, ...]
     posts_cursor: int
-    posts_exhausted: bool
-    # A posts window that runs after a comments window in the same sync finds
-    # the source and destination groups already on the shared ResolveContext.
-    comments_leg_ran: bool
+    discussion_cursor: int
+    window: int  # posts per interleaved window (legs.WINDOW)
 
     def post(self, post_id: int) -> Post | None:
         return next((item for item in self.posts if item.id == post_id), None)
@@ -77,150 +81,140 @@ class World:
     def comment(self, comment_id: int) -> Comment | None:
         return next((item for item in self.comments if item.id == comment_id), None)
 
-    def thread_destination(self, post: Post) -> tuple[str, int] | None:
-        """The destination anchor a comment under ``post`` must hang off, when
-        the clone can know it: the post is copied, its copy has an anchor, and
-        the source anchor is readable or was recorded by an earlier run."""
-        if post.dest is None or post.dest_anchor is None:
-            return None
-        if not (post.anchor_present or post.anchor_remembered):
-            return None
-        return ("group", post.dest_anchor)
-
-    def parent_destination(self, reply: Reply, *, leg: str) -> tuple[str, int] | None:
-        """Where ``reply``'s parent lives in the destination, or None if lost."""
-        if reply.space == "channel":
-            post = self.post(reply.id)
-            if post is None or post.dest is None:
-                return None
-            if leg == "posts":
-                return ("channel", post.dest)
-            # A comment quoting a channel post points at that post's
-            # discussion anchor in the destination group.
-            if post.dest_anchor is None:
-                return None
-            return ("group", post.dest_anchor)
-        comment = self.comment(reply.id)
-        if comment is not None:
-            return None if comment.dest is None else ("group", comment.dest)
-        post = next((item for item in self.posts if item.anchor == reply.id), None)
-        return None if post is None else self.thread_destination(post)
-
-    def destination_ids(self, chat: str) -> set[int]:
-        """Every message id that exists in the destination ``chat``."""
-        if chat == "channel":
-            return {post.dest for post in self.posts if post.dest is not None}
-        return {
-            post.dest_anchor for post in self.posts if post.dest_anchor is not None
-        } | {comment.dest for comment in self.comments if comment.dest is not None}
-
-
-def _fresh(draw, pool, used: set[int]) -> int:
-    """A not-yet-used id from ``pool``; shrinks toward the smallest free id."""
-    found = draw(st.sampled_from([item for item in pool if item not in used]))
-    used.add(found)
-    return found
+    def anchored(self, group_id: int) -> Post | None:
+        return next((item for item in self.posts if item.anchor == group_id), None)
 
 
 @st.composite
 def worlds(draw) -> World:
-    # Each post and comment draws its own fields in one run, so the shrinker
-    # can drop a whole record without reshuffling the others.
-    channel_used: set[int] = set()
-    group_used: set[int] = set()
-    channel_dests: set[int] = set()
-    group_dests: set[int] = set()
-
+    post_ids = sorted(
+        draw(st.lists(st.integers(1, 8), min_size=1, max_size=5, unique=True))
+    )
+    posts_cursor = draw(st.sampled_from([0, *post_ids]))
     posts = []
-    for _ in range(draw(st.integers(1, 5))):
-        post_id = _fresh(draw, SOURCE_IDS, channel_used)
-        copied = draw(st.booleans())
-        has_anchor = draw(st.booleans())
+    for post_id in post_ids:
+        before = post_id <= posts_cursor
+        copied_before = before and draw(st.booleans())
+        kept = copied_before and draw(st.booleans())
         posts.append(
             Post(
                 id=post_id,
-                dest=_fresh(draw, DESTINATION_CHANNEL_IDS, channel_dests)
-                if copied
-                else None,
-                anchor=_fresh(draw, SOURCE_IDS, group_used) if has_anchor else None,
+                copied_before=copied_before,
+                dest_anchor_kept=kept,
+                anchor=None,
                 anchor_present=draw(st.booleans()),
-                anchor_remembered=draw(st.booleans()),
-                dest_anchor=_fresh(draw, DESTINATION_GROUP_IDS, group_dests)
-                if copied and draw(st.booleans())
-                else None,
+                anchor_remembered=kept and draw(st.booleans()),
             )
         )
-    posts.sort(key=lambda item: item.id)
-    threads = [post for post in posts if post.anchor is not None]
 
+    # The group, oldest first: anchors, comments under an earlier anchor, and
+    # ids whose message is gone.
     comments: list[Comment] = []
-    for _ in range(draw(st.integers(0, 5)) if threads else 0):
-        thread = draw(st.sampled_from(threads))
-        assert thread.anchor is not None
-        comment_id = _fresh(draw, SOURCE_IDS, group_used)
-        kind = draw(st.sampled_from(["anchor", "comment", "post"]))
-        if kind == "anchor":
-            reply = Reply("group", thread.anchor)
-        elif kind == "comment":
-            # An earlier comment in the same thread, or one since deleted.
-            siblings = [item.id for item in comments if item.thread == thread.id]
-            deleted = _unused(group_used)
-            reply = Reply("group", draw(st.sampled_from([*siblings, deleted])))
+    deleted: list[int] = []
+    for group_id in range(1, draw(st.integers(0, 8)) + 1):
+        unanchored = [item for item in posts if item.anchor is None]
+        threads = [item for item in posts if item.anchor is not None]
+        kinds = ["deleted"]
+        kinds += ["anchor"] if unanchored else []
+        kinds += ["comment"] if threads else []
+        kind = draw(st.sampled_from(kinds))
+        if kind == "deleted":
+            deleted.append(group_id)
+        elif kind == "anchor":
+            post = draw(st.sampled_from(unanchored))
+            posts[posts.index(post)] = replace(post, anchor=group_id)
         else:
-            # A channel post, copied or not, or a channel id nothing carries.
-            reply = Reply("channel", draw(st.sampled_from(SOURCE_IDS)))
-        comments.append(
-            Comment(
-                id=comment_id,
-                thread=thread.id,
-                dest=_fresh(draw, DESTINATION_GROUP_IDS, group_dests)
-                if draw(st.booleans())
-                else None,
-                reply=reply,
-            )
-        )
+            thread = draw(st.sampled_from(threads))
+            assert thread.anchor is not None
+            siblings = [item.id for item in comments if item.thread == thread.id]
+            choice = draw(st.sampled_from(["anchor", "comment", "post"]))
+            if choice == "anchor":
+                reply = Reply("group", thread.anchor)
+            elif choice == "comment" and (siblings or deleted):
+                # An earlier comment in the same thread, or one since deleted.
+                reply = Reply("group", draw(st.sampled_from(siblings + deleted)))
+            else:
+                # A channel post, copied or not, or a channel id nothing carries.
+                reply = Reply("channel", draw(st.integers(1, max(post_ids) + 1)))
+            comments.append(Comment(group_id, thread.id, False, reply))
 
-    # A post replies to another post, a comment, an anchor, a deleted id in
-    # either chat, or nothing.
-    parents = [Reply("channel", post.id) for post in posts]
-    parents += [Reply("group", item.id) for item in comments]
-    parents += [Reply("group", post.anchor) for post in threads if post.anchor]
-    parents += [Reply("channel", _unused(channel_used))]
-    parents += [Reply("group", _unused(group_used))]
-    posts = [
-        replace(
-            post,
-            reply=draw(
-                st.none()
-                | st.sampled_from(parents).filter(
-                    lambda item, own=post.id: item != Reply("channel", own)
-                )
-            ),
-        )
-        for post in posts
+    # The comments leg stops before an anchor whose post the posts leg has not
+    # reached, so everything it already passed sits below such an anchor.
+    reachable = [0]
+    for group_id in sorted(
+        [item.anchor for item in posts if item.anchor is not None]
+        + [item.id for item in comments]
+        + deleted
+    ):
+        post = next((item for item in posts if item.anchor == group_id), None)
+        if post is not None and post.id > posts_cursor:
+            break
+        reachable.append(group_id)
+    discussion_cursor = draw(st.sampled_from(reachable))
+    comments = [
+        replace(item, copied_before=draw(st.booleans()))
+        if item.id <= discussion_cursor
+        else item
+        for item in comments
     ]
 
+    # A post replies to an earlier post, a comment, an anchor, a deleted id in
+    # either chat, or nothing.
+    replied = []
+    for post in posts:
+        parents = [Reply("channel", item.id) for item in posts if item.id < post.id]
+        parents += [
+            Reply("channel", item) for item in range(1, post.id) if item not in post_ids
+        ]
+        parents += [Reply("group", item.id) for item in comments]
+        parents += [
+            Reply("group", item.anchor)
+            for item in posts
+            if item.anchor is not None and item.id < post.id
+        ]
+        parents += [Reply("group", item) for item in deleted]
+        reply = draw(st.none() | st.sampled_from(parents)) if parents else None
+        replied.append(replace(post, reply=reply))
+
     return World(
-        posts=tuple(posts),
+        posts=tuple(replied),
         comments=tuple(comments),
-        posts_cursor=draw(st.sampled_from([0, *SOURCE_IDS])),
-        posts_exhausted=draw(st.booleans()),
-        comments_leg_ran=draw(st.booleans()),
+        deleted_group_ids=tuple(deleted),
+        posts_cursor=posts_cursor,
+        discussion_cursor=discussion_cursor,
+        window=draw(st.sampled_from([1, 2, 50])),
     )
 
 
-def _unused(used) -> int:
-    """A source id no message carries: a deleted parent."""
-    return next(item for item in SOURCE_IDS if item not in used)
-
-
 class WorldClient(CloneCommentsClient):
-    """The comments fake, able to name the destination group as a reply peer."""
+    """The comments fake with Telegram's anchors and a record of every send.
+
+    Telegram auto-forwards each new channel post into the linked group, so a
+    post sent here gets its destination anchor at once. ``sent`` maps each
+    destination message, as (chat, id), to the request that created it.
+    """
+
+    def __init__(self, messages, comments=()):
+        super().__init__(messages, comments)
+        self.sent: dict[tuple[str, int], object] = {}
 
     async def get_input_entity(self, ref):
         if ref is self.destination_group:
             return types.InputPeerChannel(channel_id=DESTINATION_GROUP, access_hash=1)
         return await super().get_input_entity(ref)
+
+    async def __call__(self, request):
+        response = await super().__call__(request)
+        if isinstance(request, SENDS):
+            peer = getattr(request, "peer", None) or getattr(request, "to_peer", None)
+            chat = "group" if peer is self.destination_group else "channel"
+            for update in response.updates:
+                if isinstance(update, types.UpdateMessageID):
+                    self.sent[(chat, update.id)] = request
+                    if chat == "channel":
+                        self.group_last_id += 1
+                        self.anchor_ids[update.id] = self.group_last_id
+        return response
 
 
 def _header(reply: Reply, *, sender: str, thread_anchor: int | None):
@@ -237,24 +231,12 @@ def _header(reply: Reply, *, sender: str, thread_anchor: int | None):
     )
 
 
-def post_message(post: Post):
-    reply_to = (
-        None
-        if post.reply is None
-        else _header(post.reply, sender="posts", thread_anchor=None)
-    )
-    return message(post.id, chat=SOURCE_CHANNEL, reply_to=reply_to)
-
-
-def comment_message(world: World, comment: Comment):
-    thread = world.post(comment.thread)
-    assert thread is not None
-    header = _header(comment.reply, sender="discussion", thread_anchor=thread.anchor)
-    return message(comment.id, chat=SOURCE_GROUP, reply_to=header)
-
-
 def build(world: World) -> tuple[state.CloneState, WorldClient]:
-    """The clone state and Telegram client the world describes."""
+    """Save the clone state the earlier run left, and the client to sync with.
+
+    Earlier copies take destination ids from 1 in source order, in each chat:
+    posts in the channel; comments and kept post anchors in the group.
+    """
     clone_state = state.CloneState.new(
         account_user_id=42, source_peer_id=SOURCE_CHANNEL, source_title="Source channel"
     )
@@ -263,42 +245,54 @@ def build(world: World) -> tuple[state.CloneState, WorldClient]:
     clone_state.discussion_source_peer_id = SOURCE_GROUP
     clone_state.discussion_destination_peer_id = DESTINATION_GROUP
     clone_state.discussion_linked = True
-    for post in world.posts:
-        if post.dest is not None:
-            clone_state.record_mapping(post.id, post.dest)
-        if (
-            post.anchor is not None
-            and post.anchor_remembered
-            and post.dest_anchor is not None
-        ):
-            clone_state.record_anchor(post.anchor, post.dest_anchor)
-    for comment in world.comments:
-        if comment.dest is not None:
-            clone_state.record_discussion_mapping(comment.id, comment.dest)
+    clone_state.cursor = world.posts_cursor
+    clone_state.discussion_cursor = world.discussion_cursor
 
-    group_history = [
+    channel_last = 0
+    group_last = 0
+    anchor_ids = {}
+    for post in world.posts:
+        if not post.copied_before:
+            continue
+        channel_last += 1
+        clone_state.record_mapping(post.id, channel_last)
+        if post.dest_anchor_kept:
+            group_last += 1
+            anchor_ids[channel_last] = group_last
+            if post.anchor is not None and post.anchor_remembered:
+                clone_state.record_anchor(post.anchor, group_last)
+    for comment in world.comments:
+        if comment.copied_before:
+            group_last += 1
+            clone_state.record_discussion_mapping(comment.id, group_last)
+    state.save(clone_state)
+
+    posts = [
+        message(
+            post.id,
+            chat=SOURCE_CHANNEL,
+            reply_to=None
+            if post.reply is None
+            else _header(post.reply, sender="posts", thread_anchor=None),
+        )
+        for post in world.posts
+    ]
+    group = [
         anchor(
             post.anchor, post.id, source_channel_id=SOURCE_CHANNEL, chat=SOURCE_GROUP
         )
         for post in world.posts
         if post.anchor is not None and post.anchor_present
-    ] + [comment_message(world, comment) for comment in world.comments]
-    client = WorldClient([post_message(post) for post in world.posts], group_history)
-    client.anchor_ids = {
-        post.dest: post.dest_anchor
-        for post in world.posts
-        if post.dest is not None and post.dest_anchor is not None
-    }
+    ]
+    for comment in world.comments:
+        thread = world.post(comment.thread)
+        assert thread is not None
+        header = _header(
+            comment.reply, sender="discussion", thread_anchor=thread.anchor
+        )
+        group.append(message(comment.id, chat=SOURCE_GROUP, reply_to=header))
+    client = WorldClient(posts, group)
+    client.destination_last_id = max(channel_last, 1)
+    client.group_last_id = max(group_last, 1)
+    client.anchor_ids = anchor_ids
     return clone_state, client
-
-
-def resolve_context(client: WorldClient, *, comments_leg_ran: bool):
-    """The per-run context ``clone.sync`` builds, as each leg leaves it."""
-    ctx = quotes.ResolveContext(
-        tg=client, mutate=client, destination=client.destination
-    )
-    if comments_leg_ran:
-        ctx.source_group = client.source_group
-        ctx.source_channel_id = SOURCE_CHANNEL
-        ctx.destination_group = client.destination_group
-    return ctx
