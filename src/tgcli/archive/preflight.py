@@ -1,8 +1,11 @@
-"""Fail-closed CLI validation for the `tg archive` subsystem."""
+"""Fail-closed CLI validation for the `tg archive` subsystem.
+
+Each public `prepare_*`/`apply_*` is one leaf's preflight hook in
+`tgcli.registry`; the readonly gate is declared there too.
+"""
 
 from __future__ import annotations
 
-from tgcli import safety
 from tgcli.archive import (
     backfill as backfill_mod,
     explore as explore_mod,
@@ -12,14 +15,6 @@ from tgcli.archive import (
 )
 from tgcli.commands import archive as archive_cmd
 from tgcli.errors import PolicyError
-
-_LOCAL_MUTATION_COMMANDS = frozenset(
-    {"init", "add", "remove", "backfill", "sync", "rebaseline", "transcribe"}
-)
-
-
-def uses_time_bounds(args) -> bool:
-    return args.command == "archive" and args.archive_command in ("read", "search")
 
 
 def backfill_spec(*, chats, private: bool, limit) -> dict:
@@ -62,33 +57,7 @@ def sync_spec(*, max_events, max_dialogs, max_media) -> dict:
     }
 
 
-def prepare(args) -> None:
-    if args.command != "archive":
-        return
-    cmd = args.archive_command
-    if cmd in _LOCAL_MUTATION_COMMANDS:
-        safety.enforce_local_mutation_allowed(args.readonly)
-    if cmd == "search":
-        _prepare_search(args)
-        return
-    if cmd == "read":
-        _prepare_read(args)
-        return
-    if cmd == "history":
-        _prepare_history(args)
-        return
-    if cmd == "sync":
-        _apply_sync(args)
-        return
-    if cmd == "transcribe":
-        _prepare_transcribe(args)
-        return
-    if cmd != "backfill":
-        return
-    _apply_backfill(args)
-
-
-def _prepare_search(args) -> None:
+def prepare_search(args) -> None:
     args.query = search_mod.validate_query(getattr(args, "query", None))
     chat = getattr(args, "chat", None)
     if chat is not None and not str(chat).strip():
@@ -108,7 +77,7 @@ def _prepare_search(args) -> None:
     args.page = explore_mod.validate_page(getattr(args, "page", None))
 
 
-def _prepare_read(args) -> None:
+def prepare_read(args) -> None:
     if not str(args.chat).strip():
         raise PolicyError("archive read CHAT must be non-empty")
     explore_mod.validate_date_range(args.since, args.until, "read")
@@ -123,13 +92,13 @@ def _prepare_read(args) -> None:
     )
 
 
-def _prepare_history(args) -> None:
+def prepare_history(args) -> None:
     if not str(args.chat).strip():
         raise PolicyError("archive history CHAT must be non-empty")
     args.message_id = explore_mod.validate_message_id(args.message_id)
 
 
-def _apply_sync(args) -> None:
+def apply_sync(args) -> None:
     spec = sync_spec(
         max_events=getattr(args, "max_events", None),
         max_dialogs=getattr(args, "max_dialogs", None),
@@ -140,14 +109,14 @@ def _apply_sync(args) -> None:
     args.max_media = spec["max_media"]
 
 
-def _prepare_transcribe(args) -> None:
+def prepare_transcribe(args) -> None:
     args.limit = transcribe_mod.validate_limit(getattr(args, "limit", None))
     args.max_attempts = transcribe_mod.validate_max_attempts(
         getattr(args, "max_attempts", None)
     )
 
 
-def _apply_backfill(args) -> None:
+def apply_backfill(args) -> None:
     private = bool(getattr(args, "private", False))
     spec = backfill_spec(
         chats=list(getattr(args, "chats", None) or []),

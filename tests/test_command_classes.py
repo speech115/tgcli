@@ -1,9 +1,9 @@
 """Every CLI command is classified, and every write is refused when read-only.
 
-The readonly gates live in several places (preflight, preview_commit,
-archive preflight, cli). Nothing tied them to the parser, so a command could
-ship without one (the removed `accounts import` did). A new command now fails
-here until someone puts it in exactly one class below.
+Each command declares its class and readonly gate in `tgcli.registry`; a
+command could once ship without a gate (the removed `accounts import` did). A
+new command now fails here until it has a registry entry and sits in exactly
+one class below.
 """
 
 import argparse
@@ -13,6 +13,7 @@ import pytest
 from tgcli.cli import main
 from tgcli.parser import build_parser
 from tgcli.preview_commit import HANDSHAKES
+from tgcli.registry import COMMANDS
 
 # Network reads: Telegram is only asked, never changed. Output files a read
 # writes (`media download`, `export`) are the caller's own.
@@ -21,6 +22,8 @@ READS = {
     "contacts search",
     "count",
     "dialogs",
+    "draft list",
+    "draft show",
     "export messages",
     "export subscribers",
     "info",
@@ -45,8 +48,6 @@ LOCAL_READS = {
     "clone export-state",
     "clone status",
     "doctor",
-    "draft list",
-    "draft show",
     "store stats",
 }
 # Writes without a preview/commit handshake, each with an argv that would
@@ -122,6 +123,29 @@ def test_every_command_is_in_exactly_one_class():
     doubled = [leaf for leaf in leaves if sum(leaf in c for c in classes) > 1]
     stale = sorted(set().union(*classes) - set(leaves))
     assert (unclassified, doubled, stale) == ([], [], [])
+
+
+def test_every_command_is_registered_with_its_class():
+    """`tgcli.registry` is what the lifecycle routes on; it must agree with
+    the parser's leaves and with the classes above, gate included."""
+    expected = {
+        **dict.fromkeys(READS, "read"),
+        **dict.fromkeys(LOCAL_READS, "local-read"),
+        **dict.fromkeys(GATED_WRITES, "write"),
+        **dict.fromkeys(HANDSHAKE_COMMITS, "handshake"),
+    }
+    assert set(COMMANDS) == set(_leaves(build_parser()))
+    assert {key: spec.kind for key, spec in COMMANDS.items()} == expected
+    ungated = sorted(
+        key
+        for key, spec in COMMANDS.items()
+        if (spec.kind in ("write", "handshake")) != (spec.gate != "none")
+    )
+    assert ungated == []
+    assert all(
+        (spec.kind == "handshake") == (spec.gate == "handshake")
+        for spec in COMMANDS.values()
+    )
 
 
 def test_handshake_commits_match_the_preview_commit_registry():

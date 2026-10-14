@@ -1,34 +1,51 @@
 """Everything that must hold before a session is opened.
 
-`prepare` normalizes and validates a parsed namespace in place: argument shape,
-time bounds, mutation gates, preview loading, and raw-API policy. It either
-returns cleanly or fails closed — `parser.error` (SystemExit) for grammar-level
-mistakes, `TgcliError` for policy ones. No network, no config.
+`prepare` normalizes and validates a parsed namespace in place: time bounds,
+the readonly gate, preview loading, and each command's own argument checks.
+It either returns cleanly or fails closed — `parser.error` (SystemExit) for
+grammar-level mistakes, `TgcliError` for policy ones. No network, no config.
+
+Which gate and which checks apply is declared per command in
+`tgcli.registry`; the hooks it names live here.
 """
 
 from __future__ import annotations
 
 import argparse
 import math
+from collections.abc import Callable
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from tgcli import preview_commit, read_ops, safety
-from tgcli.archive import preflight as archive_preflight
 from tgcli.commands import (
     run as run_cmd,
 )
 from tgcli.errors import PolicyError
 
+if TYPE_CHECKING:
+    from tgcli.registry import Command
 
-def prepare(parser: argparse.ArgumentParser, args) -> None:
+Hook = Callable[[argparse.ArgumentParser, argparse.Namespace], None]
+
+
+def prepare(parser: argparse.ArgumentParser, args, spec: Command) -> None:
     _prepare_session_role(args)
     _prepare_max_runtime(args)
-    _prepare_search(parser, args)
-    _prepare_time_bounds(parser, args)
-    _prepare_mutations(args)
+    _enforce_gate(args, spec)
     preview_commit.prepare(parser, args)
-    _prepare_run(args)
-    archive_preflight.prepare(args)
+    if spec.prepare is not None:
+        spec.prepare(parser, args)
+
+
+def _enforce_gate(args, spec: Command) -> None:
+    """The readonly gate a command declares; handshakes gate their commit."""
+    if not spec.gated(args):
+        return
+    if spec.gate == "telegram":
+        safety.enforce_mutation_allowed(args.readonly)
+    elif spec.gate == "local":
+        safety.enforce_local_mutation_allowed(args.readonly)
 
 
 def _prepare_max_runtime(args) -> None:
@@ -43,12 +60,8 @@ def _prepare_max_runtime(args) -> None:
         raise PolicyError("--timeout must be a positive finite number of seconds")
 
 
-def _prepare_run(args) -> None:
-    """Compile the script and gate --write before any session work."""
-    if args.command != "run":
-        return
-    if args.write:
-        safety.enforce_mutation_allowed(args.readonly)
+def prepare_run(parser: argparse.ArgumentParser, args) -> None:
+    """Compile the script before any session work; `--write` is gated first."""
     args.run_code = run_cmd.compile_source(args.script)
 
 
@@ -70,9 +83,7 @@ def _parse_when(
     return read_ops.parse_when(value, invalid=invalid)
 
 
-def _prepare_search(parser: argparse.ArgumentParser, args) -> None:
-    if args.command != "search":
-        return
+def prepare_search(parser: argparse.ArgumentParser, args) -> None:
     if args.all:
         if args.query is not None or args.chat is None:
             parser.error("search --all takes exactly one QUERY")
@@ -81,44 +92,40 @@ def _prepare_search(parser: argparse.ArgumentParser, args) -> None:
         args.query, args.chat = args.chat, None
     elif args.chat is None or args.query is None:
         parser.error("search requires CHAT QUERY (or --all QUERY)")
+    bounds("since", "until")(parser, args)
 
 
-def _prepare_time_bounds(parser: argparse.ArgumentParser, args) -> None:
-    if (
-        args.command not in ("read", "search")
-        and not archive_preflight.uses_time_bounds(args)
-        and not (
-            args.command == "media" and args.media_command in ("manifest", "download")
-        )
-    ):
-        return
-    args.since = _parse_when(parser, getattr(args, "since", None), "--since")
-    if args.command != "media" or args.media_command == "manifest":
-        args.until = _parse_when(parser, getattr(args, "until", None), "--until")
-    if args.command == "archive" and args.archive_command == "read":
-        args.around_date = _parse_when(
-            parser, getattr(args, "around_date", None), "--around-date"
-        )
+_BOUND_FLAGS = {
+    "since": "--since",
+    "until": "--until",
+    "around_date": "--around-date",
+}
 
 
-def _prepare_mutations(args) -> None:
-    """Gate the write commands that carry no preview/commit handshake."""
-    if args.command == "clone" and args.clone_command == "sync":
-        safety.enforce_mutation_allowed(args.readonly)
-        if args.limit is not None and args.limit <= 0:
-            raise PolicyError("clone sync --limit must be positive")
-    if args.command == "transcribe":
-        # transcribeAudio is a server-side mutation (Premium quota, visible
-        # to other clients): the --readonly gate applies (ADR-0079).
-        safety.enforce_mutation_allowed(args.readonly)
-    if args.command == "accounts" and args.subcommand == "login":
-        _prepare_login(args)
+def bounds(*names: str) -> Hook:
+    """A hook that parses the named time-bound flags to datetimes."""
+
+    def parse(parser: argparse.ArgumentParser, args) -> None:
+        for name in names:
+            setattr(
+                args,
+                name,
+                _parse_when(parser, getattr(args, name, None), _BOUND_FLAGS[name]),
+            )
+
+    return parse
 
 
-def _prepare_login(args) -> None:
-    """Validate login flag combinations; gate with local-mutation readonly."""
-    # TGCLI_NO_SEND deliberately does not apply (ADR-0042 §8).
-    safety.enforce_local_mutation_allowed(args.readonly)
+def prepare_clone_sync(parser: argparse.ArgumentParser, args) -> None:
+    if args.limit is not None and args.limit <= 0:
+        raise PolicyError("clone sync --limit must be positive")
+
+
+def prepare_login(parser: argparse.ArgumentParser, args) -> None:
+    """Validate login flag combinations (the local gate runs first).
+
+    TGCLI_NO_SEND deliberately does not apply (ADR-0042 §8).
+    """
     continue_id = getattr(args, "continue_id", None)
     if continue_id:
         if args.alias is not None:

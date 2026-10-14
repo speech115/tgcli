@@ -21,6 +21,8 @@ READ_OWNERSHIP_MODULES = (
     "src/tgcli/parser.py",
     "src/tgcli/preflight.py",
     "src/tgcli/dispatch.py",
+    "src/tgcli/registry.py",
+    "src/tgcli/handlers.py",
 )
 
 EXCLUSIVE_READ_MODULES = {

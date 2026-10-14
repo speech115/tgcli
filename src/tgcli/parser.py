@@ -8,6 +8,7 @@ stay distinct from safety gates.
 from __future__ import annotations
 
 import argparse
+import functools
 from pathlib import Path
 
 from tgcli import __version__
@@ -544,3 +545,17 @@ def command_path(parser: argparse.ArgumentParser, args: argparse.Namespace) -> s
         words.append(name)
         current = action.choices.get(name)
     return " ".join(words)
+
+
+@functools.cache
+def _tree() -> argparse.ArgumentParser:
+    return build_parser()
+
+
+def command_key(args: argparse.Namespace) -> str:
+    """The full command path of a parsed namespace, e.g. `archive sync`.
+
+    The key of `tgcli.registry.COMMANDS` and of the journal's `command` field;
+    read off a cached parse tree so no module needs the caller's parser.
+    """
+    return command_path(_tree(), args)
