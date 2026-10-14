@@ -312,45 +312,67 @@ async def _poll_common(
 
 
 async def _poll_channel(
-    tg, cursor: ChangesCursor, peer: int, *, skipped: dict
+    tg, cursor: ChangesCursor, peer: int, *, skipped: dict, may_gap: bool = True
 ) -> tuple[list[dict], ChangesCursor, dict | None, list]:
+    """Poll one channel. A pass carries one gap, so when ``may_gap`` is false
+    a loss that would need one leaves the peer at its last applied pts
+    instead: no gap, nothing skipped, and a later pass reports it."""
     events: list[dict] = []
-    gap = None
     requests: list = []
     pts = cursor.channels[peer]
-    entity = await tg.get_entity(peer)
-    input_channel = await tg.get_input_entity(entity)
-    while True:
-        request = GetChannelDifferenceRequest(
-            channel=input_channel,
-            filter=ChannelMessagesFilterEmpty(),
-            pts=pts,
-            limit=CHANNEL_DIFF_LIMIT,
-        )
-        requests.append(request)
-        result = await tg(request)
-        if isinstance(result, ChannelDifferenceEmpty):
-            pts = int(result.pts)
-            break
-        if isinstance(result, ChannelDifferenceTooLong):
-            gap = _gap(peer, reason="channelDifferenceTooLong")
-            dialog_pts = getattr(result.dialog, "pts", None)
-            if isinstance(dialog_pts, int):
-                pts = dialog_pts
-            else:
-                pts = await _channel_pts(tg, entity)
-            break
-        if isinstance(result, ChannelDifference):
-            events.extend(
-                _map_difference_events(result, subscribed=set(), skipped=skipped)
+    try:
+        entity = await tg.get_entity(peer)
+        input_channel = await tg.get_input_entity(entity)
+        while True:
+            request = GetChannelDifferenceRequest(
+                channel=input_channel,
+                filter=ChannelMessagesFilterEmpty(),
+                pts=pts,
+                limit=CHANNEL_DIFF_LIMIT,
             )
-            pts = int(result.pts)
-            if getattr(result, "final", None):
+            requests.append(request)
+            result = await tg(request)
+            if isinstance(result, ChannelDifferenceEmpty):
+                pts = int(result.pts)
                 break
-            continue
-        _bump_skipped(skipped, type(result).__name__)
-        break
-    return events, changes_cursor.with_channel(cursor, peer, pts), gap, requests
+            if isinstance(result, ChannelDifferenceTooLong):
+                if not may_gap:
+                    note(f"changes: channel {peer} too long; reported by a later pass")
+                    break
+                dialog_pts = getattr(result.dialog, "pts", None)
+                if isinstance(dialog_pts, int):
+                    pts = dialog_pts
+                else:
+                    pts = await _channel_pts(tg, entity)
+                new_cursor = changes_cursor.with_channel(cursor, peer, pts)
+                gap = _gap(peer, reason="channelDifferenceTooLong")
+                return events, new_cursor, gap, requests
+            if isinstance(result, ChannelDifference):
+                events.extend(
+                    _map_difference_events(result, subscribed=set(), skipped=skipped)
+                )
+                pts = int(result.pts)
+                if getattr(result, "final", None):
+                    break
+                continue
+            _bump_skipped(skipped, type(result).__name__)
+            break
+    except CHANNEL_LOST_ERRORS as exc:
+        # A channel that turned private, was deleted, or banned the account
+        # must not stop the private chats and the other channels from
+        # advancing. Pages read before the loss are kept. The peer is dropped
+        # with a gap (its later updates are lost, and archive sync
+        # resubscribes it if access returns), or, when this pass already
+        # carries a gap, kept at the last applied pts for a later pass.
+        lost = f"changes: channel {peer} unavailable ({type(exc).__name__})"
+        if not may_gap:
+            note(f"{lost}; reported by a later pass")
+            kept = changes_cursor.with_channel(cursor, peer, pts)
+            return events, kept, None, requests
+        note(lost)
+        gap = _gap(peer, reason="channelUnavailable")
+        return events, changes_cursor.without_channel(cursor, peer), gap, requests
+    return events, changes_cursor.with_channel(cursor, peer, pts), None, requests
 
 
 # What Telegram says about a channel this account can no longer read.
@@ -384,22 +406,12 @@ async def once(
         gap = common_gap
 
     for peer in sorted(cursor.channels):
-        try:
-            ch_events, cursor, ch_gap, reqs = await _poll_channel(
-                tg, cursor, peer, skipped=skipped
-            )
-        except CHANNEL_LOST_ERRORS as exc:
-            # A channel that turned private, was deleted, or banned the
-            # account must not stop the private chats and the other channels
-            # from advancing. Drop it: its updates since the stored pts are
-            # lost (the gap says so), and archive sync resubscribes it if
-            # access ever returns.
-            note(f"changes: channel {peer} unavailable ({type(exc).__name__})")
-            cursor = changes_cursor.without_channel(cursor, peer)
-            ch_events, ch_gap, reqs = [], _gap(peer, reason="channelUnavailable"), []
+        ch_events, cursor, ch_gap, reqs = await _poll_channel(
+            tg, cursor, peer, skipped=skipped, may_gap=gap is None
+        )
         events.extend(ch_events)
         all_requests.extend(reqs)
-        if ch_gap is not None and gap is None:
+        if ch_gap is not None:
             gap = ch_gap
 
     return {"events": events, "gap": gap, "skipped": skipped}, cursor, all_requests

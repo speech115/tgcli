@@ -1754,8 +1754,10 @@ stored loudly in `account_sync` until `rebaseline` (a later clean sync keeps
 it) and surfaced by `status` / sync JSON; exit **0** (a gap is data). A
 subscribed channel the account can no longer read (private, deleted, banned)
 is dropped from the cursor with a `channelUnavailable` gap for that peer; the
-rest of the pass still advances, and a later sync resubscribes it if access
-returns. Light reconciliation (sampled local vs Telegram
+rest of the pass still advances, events read from it before the loss are
+applied, and a later sync resubscribes it if access returns. A pass reports
+one gap: a channel that would need a second one stays in the cursor at its
+last applied pts, and a later pass reports it. Light reconciliation (sampled local vs Telegram
 message totals, rotating across tracked dialogs) runs at the end of sync
 and is reported under `reconcile` / `status.reconcile`.
 
