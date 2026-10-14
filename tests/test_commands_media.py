@@ -716,7 +716,7 @@ async def test_bulk_download_skips_existing_destinations_and_continues(
         "items": [
             {
                 "message_id": 42,
-                "path": str(tmp_path / "fresh.bin"),
+                "path": str(tmp_path / "42-fresh.bin"),
                 "bytes": 20,
                 "resumed": False,
             }
@@ -726,7 +726,7 @@ async def test_bulk_download_skips_existing_destinations_and_continues(
         "skipped": [
             {
                 "message_id": 41,
-                "reason": f"output path already exists: {tmp_path / 'already.bin'}",
+                "reason": f"output path already exists: {tmp_path / '41-already.bin'}",
             }
         ],
     }

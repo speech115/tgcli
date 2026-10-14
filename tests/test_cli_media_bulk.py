@@ -586,3 +586,81 @@ def test_media_download_session_revoked_keeps_auth_exit_code(
     )
     error = json.loads(capsys.readouterr().err)
     assert error["error"]["code"] == "CONFIG"
+
+
+class _BytesClient(FakeClient):
+    """Streams each message's own bytes, keyed by its media object."""
+
+    def __init__(self, payloads, **kwargs):
+        super().__init__(**kwargs)
+        self._payloads = payloads
+
+    async def iter_download(self, media, *, offset=0, request_size=None, **kwargs):
+        yield self._payloads[id(media)][offset:]
+
+
+def test_media_download_bulk_keeps_two_files_with_the_same_name(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    first = _media_message(10, "document", filename="report.pdf", size=3)
+    second = _media_message(11, "document", filename="report.pdf", size=3)
+    client = _BytesClient(
+        {id(first.media): b"one", id(second.media): b"two"},
+        messages=[first, second],
+        entities={"@chan": ns(id=5, title="C")},
+    )
+    make_session_fake(monkeypatch, client)
+    out = tmp_path / "out"
+
+    argv = ["--json", "media", "download", "@chan", "--message-ids", "10,11"]
+    assert main([*argv, "--output", str(out)]) == 0
+    data = json.loads(capsys.readouterr().out)
+
+    assert data["skipped"] == []
+    assert [(item["message_id"], item["path"]) for item in data["items"]] == [
+        (10, str(out / "10-report.pdf")),
+        (11, str(out / "11-report.pdf")),
+    ]
+    assert (out / "10-report.pdf").read_bytes() == b"one"
+    assert (out / "11-report.pdf").read_bytes() == b"two"
+
+    assert main([*argv, "--output", str(out)]) == 0
+    rerun = json.loads(capsys.readouterr().out)
+    assert rerun["items"] == []
+    assert [item["message_id"] for item in rerun["skipped"]] == [10, 11]
+
+
+def test_media_download_bulk_resumes_a_checkpoint_from_before_the_id_prefix(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    message = _media_message(10, "document", filename="report.pdf", size=3)
+    client = _BytesClient(
+        {id(message.media): b"one"},
+        messages=[message],
+        entities={"@chan": ns(id=5, title="C")},
+    )
+    make_session_fake(monkeypatch, client)
+    out = tmp_path / "out"
+    # A bulk run from before the prefix was interrupted after one byte.
+    source = media_cmd.MediaSource(chat="@chan", message_id=10, private_channel_id=None)
+    state_path, part_path = media_cmd._state_paths(source)
+    part_path.parent.mkdir(parents=True)
+    part_path.write_bytes(b"o")
+    target = media_cmd._DownloadTarget(
+        media=message.media, filename="report.pdf", size=3
+    )
+    media_cmd._write_state(state_path, source, out / "report.pdf", target, 1)
+
+    argv = ["--json", "media", "download", "@chan", "--message-ids", "10"]
+    assert main([*argv, "--output", str(out)]) == 0
+    data = json.loads(capsys.readouterr().out)
+
+    assert data["items"] == [
+        {
+            "message_id": 10,
+            "path": str(out / "10-report.pdf"),
+            "bytes": 3,
+            "resumed": True,
+        }
+    ]
+    assert (out / "10-report.pdf").read_bytes() == b"one"

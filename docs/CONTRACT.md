@@ -411,13 +411,18 @@ When explicit IDs and filters are combined, the filters apply to those
 messages and `--limit` caps the filtered downloads, preserving input-ID order.
 Do not combine a positional `message_id` with bulk flags (exit 2). Hard cap
 **100** downloads per invocation (`--message-ids` length and filter `--limit`;
-default filter limit 100). `--output` is a destination directory. Success /
-partial JSON:
+default filter limit 100). `--output` is a destination directory, and each
+file in it is named `<message_id>-<name>`, so two media of one chat with the
+same name never collide. Message ids are unique only within a chat: give each
+chat its own `--output` directory, or files of two chats that share an id and
+a name meet at one path. Success / partial JSON:
 `{"dialog":{…},"items":[{"message_id","path","bytes","resumed"}],"count":N,
 "failed":[{"message_id","error"}],"skipped":[{"message_id","reason"}]}`.
 `count` is the number of files downloaded in this run only. A per-item
 `output path already exists: …` becomes an additive `skipped` row and the
-loop continues. Per-item NotFound goes into `failed` and continues;
+loop continues; the file is never overwritten, and the CLI does not check that
+it came from the same message. An interrupted bulk download from before the
+`<message_id>-` prefix resumes under the new name. Per-item NotFound goes into `failed` and continues;
 FloodWait/auth/other policy failures stop the loop. Any non-empty `failed` →
 nonzero exit (typically 4) while still emitting the JSON document on
 `--json`; successful files remain on disk. Unbounded `--all` is not offered.
