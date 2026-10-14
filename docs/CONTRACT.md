@@ -1606,8 +1606,9 @@ cooldown a FloodWait arms covers participant listing only, never message sync), 
 (no discussion group). Collected participants are rewritten atomically to the
 JSONL sidecar at `participants.path` (one object per line, tagged `peer` plus
 the `export subscribers` columns). This snapshot is source-side only; the
-destination is never populated with collected users. Roster collection is
-best-effort and never fails a sync whose messages already copied.
+destination is never populated with collected users. The Telegram refusals
+and transient errors above never fail a sync whose messages already copied; a
+sidecar write error or another Telegram error still does.
 
 Plain sync columns are `copied`, `forwarded`, `reuploaded`, `snapshots`,
 `reply_flattened`, `quote_flattened_count`, `skipped_service`,
