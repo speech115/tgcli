@@ -46,45 +46,15 @@ def slot_ids() -> set[str]:
     directory = state.clones_dir()
     if not directory.exists():
         return set()
-    found = {path.stem for path in directory.glob("*.db")}
-    found.update(
-        path.stem
-        for path in directory.glob("*.json")
-        if not path.name.startswith("account-")
-    )
-    # A crash between the rename and the first SQLite write leaves only the
-    # `.json.importing` marker (ADR-0105); `state.load` resumes it.
-    found.update(
-        path.name.removesuffix(".json.importing")
-        for path in directory.glob("*.json.importing")
-    )
-    return found
+    return {path.stem for path in directory.glob("*.db")}
 
 
-def legacy_json_slots() -> list[str]:
-    """Clone state files still in the pre-SQLite JSON form (ADR-0060), by name.
-
-    A plain `.json` slot waits for its import on the next load; a
-    `.json.importing` one is an import that crashed (ADR-0105). Archived
-    `.json.imported` files and `account-*.json` documents are not slots.
-    """
-    directory = state.clones_dir()
-    if not directory.exists():
-        return []
-    return sorted(
-        path.name
-        for pattern in ("*.json", "*.json.importing")
-        for path in directory.glob(pattern)
-        if not path.name.startswith("account-")
-    )
-
-
-def loaded_states(*, read_only: bool = False) -> list[state.CloneState]:
+def loaded_states() -> list[state.CloneState]:
     """Every clone state that loads; unreadable slots are skipped, not raised."""
     loaded = []
     for clone_id in slot_ids():
         try:
-            found = state.load(clone_id, read_only=read_only)
+            found = state.load(clone_id)
         except PolicyError:
             continue
         if found is not None:
@@ -140,9 +110,9 @@ def cooldown_until(account_user_id: int) -> str | None:
     return max(active.values()).isoformat() if active else None
 
 
-def export_state(source: str, *, read_only: bool = False) -> dict:
+def export_state(source: str) -> dict:
     """Readonly rollback/diagnostic path: the v2 JSON document for one clone."""
-    found = [s for s in loaded_states(read_only=read_only) if matches(s, source)]
+    found = [s for s in loaded_states() if matches(s, source)]
     if not found:
         raise PolicyError(f"clone not found: {source!r}")
     if len(found) > 1:

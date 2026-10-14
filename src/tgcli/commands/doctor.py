@@ -7,7 +7,6 @@ from pathlib import Path
 import telethon
 
 from tgcli import safety, session
-from tgcli.clone import lookup as clone_lookup
 from tgcli.config import Config, default_config_path, resolve_account
 from tgcli.errors import ConfigError, PolicyError
 from tgcli.output import note
@@ -331,15 +330,8 @@ async def run(
                 "(no --readonly, no TGCLI_READONLY=1)"
             )
         )
-    legacy = clone_lookup.legacy_json_slots()
-    if legacy:
-        note(
-            f"{len(legacy)} legacy JSON clone slot(s) under clones/; "
-            "`tg clone status` imports a readable one"
-        )
     return {
         "runtime": _runtime_fingerprint(),
-        "legacy_clone_slots": legacy,
         "accounts": reports,
         "ok": all(report["ok"] for report in reports),
     }

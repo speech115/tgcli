@@ -80,7 +80,6 @@ def test_save_then_load_round_trip_uses_sqlite(tmp_path, monkeypatch):
 
     assert state.path_for(s.clone_id).suffix == ".db"
     assert state.path_for(s.clone_id).is_file()
-    assert not state.json_path_for(s.clone_id).exists()
 
     loaded = state.load(s.clone_id)
     assert loaded is not None
@@ -401,20 +400,3 @@ def test_persist_restricts_wal_and_shm_sidecars_before_close(tmp_path, monkeypat
 
     assert captured, "expected at least one sidecar to exist before connection close"
     assert all(mode == 0o600 for mode in captured.values()), captured
-
-
-def test_probe_paths_both_files_present_reports_unreadable_shape(tmp_path, monkeypatch):
-    """CONTRACT §11: a slot with both .db and .json is ambiguous and must
-    report the documented unreadable shape (schema_version null, integrity
-    naming the ambiguity) — not the real .db diagnostics, which hides the
-    fact that manual resolution is required."""
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    s = _fresh()
-    state.save(s)
-    json_path = state.json_path_for(s.clone_id)
-    json_path.write_text("{}")
-
-    probe = state.probe(s.clone_id)
-    assert probe["schema_version"] is None
-    assert probe["integrity"] != "ok"
-    assert "both" in probe["integrity"] or "ambiguous" in probe["integrity"]

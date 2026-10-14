@@ -2,8 +2,7 @@
 
 Public seam: ``CloneState``, ``load``, ``save``, ``supersede``, ``clone_id``,
 ``path_for``, ``slot_lock``. Storage is SQLite/WAL via ``clone.statedb``
-(ADR-0060); a one-time JSON import renames the legacy file to
-``.json.imported``.
+(ADR-0060).
 """
 
 from __future__ import annotations
@@ -62,11 +61,6 @@ def ensure_clones_dir() -> Path:
 def path_for(clone_id: str) -> Path:
     """Active SQLite state path for a clone (ADR-0060)."""
     return clones_dir() / f"{clone_id}.db"
-
-
-def json_path_for(clone_id: str) -> Path:
-    """Legacy v2 JSON path used only for one-time import."""
-    return clones_dir() / f"{clone_id}.json"
 
 
 @contextmanager
@@ -403,58 +397,12 @@ def _hydrate(data: dict, *, path_name: str) -> CloneState:
     return loaded
 
 
-def load(clone_id: str, *, read_only: bool = False) -> CloneState | None:
-    """The slot's state, importing a legacy JSON document on the way.
-
-    ``read_only`` (a read under `--readonly`) reads the legacy document where
-    it lies and leaves the import to the next writable load.
-    """
+def load(clone_id: str) -> CloneState | None:
+    """The slot's state, or None when the slot has no database."""
     db_path = path_for(clone_id)
-    json_path = json_path_for(clone_id)
-    importing_path = json_path.with_name(json_path.name + ".importing")
-    if importing_path.exists():
-        # A prior import was interrupted after the JSON was already marked
-        # in-progress (T06). Resume it: re-derive the data from the marker
-        # file and retry the SQLite write + final rename, both idempotent.
-        if json_path.exists():
-            raise PolicyError(
-                f"clone state {clone_id} has both {json_path.name} and "
-                f"{importing_path.name}; manual resolution is required"
-            )
-        data = statedb.read_json_file(importing_path, expected_version=VERSION)
-        loaded = _hydrate(data, path_name=importing_path.name)
-        if read_only:
-            return loaded
-        statedb.finish_json_import(importing_path, db_path, loaded.to_dict())
-        note(
-            f"resumed interrupted clone state import "
-            f"{importing_path.name} → {db_path.name}"
-        )
-        return loaded
-    if db_path.exists() and json_path.exists():
-        raise PolicyError(
-            f"clone state {clone_id} has both {db_path.name} and {json_path.name}; "
-            "manual resolution is required"
-        )
-    if db_path.exists():
-        return _hydrate(statedb.load_dict(db_path), path_name=db_path.name)
-    if json_path.exists():
-        data = statedb.read_json_file(json_path, expected_version=VERSION)
-        loaded = _hydrate(data, path_name=json_path.name)
-        if read_only:
-            return loaded
-        importing_path = statedb.begin_json_import(json_path)
-        statedb.finish_json_import(importing_path, db_path, loaded.to_dict())
-        note(f"imported clone state {json_path.name} → {db_path.name}")
-        return loaded
-    return None
-
-
-def _slot_markers_present(clone_id: str) -> bool:
-    db_path = path_for(clone_id)
-    json_path = json_path_for(clone_id)
-    importing_path = json_path.with_name(json_path.name + ".importing")
-    return db_path.exists() or json_path.exists() or importing_path.exists()
+    if not db_path.exists():
+        return None
+    return _hydrate(statedb.load_dict(db_path), path_name=db_path.name)
 
 
 def resolve_slot(account_user_id: int, source_peer_id: int, source_kind: str) -> str:
@@ -462,20 +410,19 @@ def resolve_slot(account_user_id: int, source_peer_id: int, source_kind: str) ->
     (ADR-0103); a different-class legacy slot is left for its own class."""
     canonical = clone_id(account_user_id, source_peer_id, source_kind)
     legacy = _kind_blind_clone_id(account_user_id, source_peer_id)
-    canonical_taken = _slot_markers_present(canonical)
-    legacy_present = _slot_markers_present(legacy)
+    canonical_taken = path_for(canonical).exists()
+    legacy_present = path_for(legacy).exists()
     if legacy == canonical or canonical_taken or not legacy_present:
         return canonical
     try:
         legacy_state = load(legacy)
     except PolicyError:
-        return canonical  # corrupt/ambiguous legacy slot: leave for --all
+        return canonical  # corrupt legacy slot: left for manual repair
     same_class = legacy_state and _PEER_CLASS.get(
         legacy_state.source_kind
     ) == _PEER_CLASS.get(source_kind)
     if not same_class:
         return canonical
-    # load() above already folded a legacy .json into a .db.
     legacy_db, canonical_db = path_for(legacy), path_for(canonical)
     os.replace(legacy_db, canonical_db)
     for src, dst in zip(
@@ -491,14 +438,14 @@ def resolve_slot(account_user_id: int, source_peer_id: int, source_kind: str) ->
 
 def probe(clone_id: str) -> dict:
     """Local status probe: schema version + integrity without raising."""
-    return statedb.probe_paths(path_for(clone_id), json_path_for(clone_id))
+    return statedb.probe_path(path_for(clone_id))
 
 
 def supersede(clone_id: str, sidecars: tuple[Path, ...] = ()) -> list[Path]:
     """Archive active state (+ sidecars) out of the slot; renames, never deletes."""
     db_path = path_for(clone_id)
     wal, shm = statedb.sidecar_paths(db_path)
-    return statedb.archive_paths(db_path, wal, shm, json_path_for(clone_id), *sidecars)
+    return statedb.archive_paths(db_path, wal, shm, *sidecars)
 
 
 def save(state: CloneState) -> None:

@@ -677,9 +677,9 @@ and restricted phone sidecar) and `bytes` is their total size.
 `session_backups` reports `sessions/*.session.bak` and is never deleted by
 cleanup. `clones` aggregates
 everything under `clones/` and additionally breaks out SQLite state files
-(`.db` / `.db-wal` / `.db-shm`) plus one-time JSON import backups
-(`.json.imported`, ADR-0060); `.imported` files are reported and never
-auto-deleted. `clone_media_cache`
+(`.db` / `.db-wal` / `.db-shm`) plus backups left by the removed one-time
+JSON import (`.json.imported`, ADR-0060); `.imported` files are reported and
+never auto-deleted. `clone_media_cache`
 reports abandoned `clones/<clone_id>-media/` directories left by a failed
 `clone sync` reupload batch (ADR-0052); their bytes are also included in the
 aggregate `clones` figure. `archive` reports
@@ -786,7 +786,6 @@ skips it — the check then reports `preview_perms_ok: false` as before.
 
 ```json
 {"runtime":{"python":"/home/me/tgcli/.venv/bin/python","python_version":"3.12.9","telethon":"1.44.0","aes":"libssl"},
-"legacy_clone_slots":[],
 "accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
 "checks":{"session_file":true,"lock_free":true,"state_writable":true,
 "preview_perms_ok":true,"preview_perms_repaired":0,"audit_perms_ok":true,
@@ -805,12 +804,6 @@ that produced the report, and `aes` names the AES backend Telethon uses for
 MTProto and media: `cryptg` (installed by `uv sync --extra fast`), `libssl`,
 or the pure-Python `pyaes`. It is diagnostic only and does not change health
 status or exit codes.
-
-`legacy_clone_slots` lists clone state files still in the pre-SQLite JSON form
-(`<id>.json`, or `<id>.json.importing` from a crashed import), by file name,
-with one stderr note when it is not empty. `doctor` neither loads nor imports
-them; a readable one is imported by the next `tg clone status` outside
-readonly. It does not change `ok`.
 
 With `--connect`, `authorized` is a boolean and `user` is populated on success.
 Any ordinary online exception, including a session/configuration failure, is
@@ -1140,7 +1133,7 @@ clones from before this feature have `comments: "none"` and are never
 retroactively upgraded in place.
 
 ```text
-tg clone status [SOURCE] [--all]
+tg clone status [SOURCE]
 tg clone init SOURCE
 tg clone init SOURCE --replace
 tg clone init SOURCE --no-comments
@@ -1158,7 +1151,7 @@ case-insensitive title substring. A token from another peer class does not
 match (ADR-0104). JSON:
 
 ```json
-{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source","username":null},"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled","discussion_linked":true,"schema_version":3,"integrity":"ok"}],"pending_import":0}
+{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source","username":null},"cursor":42,"copied":40,"cooldown_until":null,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled","discussion_linked":true,"schema_version":3,"integrity":"ok"}]}
 ```
 
 `discussion_linked` is whether the clone's discussion group was actually
@@ -1183,7 +1176,7 @@ columns are `source_peer_id`, `source_title`, `source_kind`, `destination`
 (its title, or the numeric peer id when no title is recorded), `cursor`,
 `copied`, `last_synced_at`, `comments`.
 
-A corrupt or legacy state file never aborts the listing: without `SOURCE` it
+A corrupt state database never aborts the listing: without `SOURCE` it
 appears as a marked entry `{"clone_id":"hex","unreadable":
 true,...,"schema_version":null,"integrity":"<error>"}` with every other field
 null, and in plain output its `source_title`
@@ -1191,13 +1184,8 @@ column carries the `clone_id` and its `comments` column reads `unreadable`.
 Because an unreadable file's identity cannot be matched, it is omitted from
 `SOURCE`-filtered listings. Readable entries never carry the `unreadable` key.
 
-`pending_import` counts the slots holding a `.json` document with no `.db`
-beside it that this version cannot import — a pre-v2 document, or one too
-broken to parse. Such an entry has no field but `clone_id`, so it is **not
-listed** by default; `--all` includes it in `clones` alongside the other
-unreadable entries, and `status` prints a one-line pointer to `--all` on
-**stderr** whenever it hid any. The count is reported whether or not `SOURCE`
-or `--all` is given, because the slots exist on disk either way.
+Clone state from before SQLite (`<clone_id>.json`) is no longer read or
+imported; `status` ignores such files and leaves them where they lie.
 
 `export-state SOURCE` is local and read-only (ADR-0060). It prints exactly one
 clone's state as the v2 JSON document (`CloneState.to_dict()` shape) on
@@ -1286,18 +1274,7 @@ creation applies to up to two peers per run instead of one.
 
 Before creation, state with `destination_peer_id:null` and title marker
 `tgcli-clone-<clone-id-prefix>` is atomically saved under
-`TGCLI_STATE_DIR/clones/<clone_id>.db` (SQLite/WAL; ADR-0060). A legacy
-`<clone_id>.json` is imported once on first `load()` into `.db` and renamed
-to `<clone_id>.json.imported` (kept until manual cleanup; never auto-deleted).
-The import is crash-safe (ADR-0105): the JSON is first renamed to
-`<clone_id>.json.importing` — a private marker, never both-files-ambiguous —
-and only then written to `.db` and renamed to `.imported`; a crash at any
-point mid-import is resumed automatically by the next `load()`.
-Under `--readonly` / `TGCLI_READONLY=1` the local reads (`clone status`,
-`clone export-state`) read a legacy `.json` where it lies and import nothing:
-the entry is listed with its fields and `integrity: "json-pending-import"`,
-and the files on disk are unchanged until the next writable load.
-Both `.db` and `.json` present for the same id is exit 2 (ambiguous). Recovery
+`TGCLI_STATE_DIR/clones/<clone_id>.db` (SQLite/WAL; ADR-0060). Recovery
 adopts exactly one matching
 private creator-owned destination of the required kind, creates when none
 exists, and exits 2 without mutation on multiple or wrong-shape matches. Once a
