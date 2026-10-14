@@ -160,6 +160,9 @@ async def init_discussion(
         telethon_errors.ChannelPrivateError,
         telethon_errors.ChatAdminRequiredError,
     ):
+        # The same degrade as sync's: "unavailable" never relinks, and state
+        # holds no comment progress for a clone that is not copying comments.
+        clone_state.clear_discussion_progress()
         clone_state.comments = "unavailable"
         return state.save(clone_state)
     clone_state.comments = "enabled"
