@@ -7,6 +7,8 @@ import inspect
 import os
 import stat
 
+import pytest
+
 from tgcli import atomic
 from tgcli.commands import export
 
@@ -81,3 +83,26 @@ def test_export_uses_public_fsync_directory():
     source = inspect.getsource(export)
     assert "atomic._fsync_directory" not in source
     assert "atomic.fsync_directory" in source
+
+
+def test_replace_text_removes_its_temp_file_when_a_signal_interrupts_it(
+    tmp_path, monkeypatch
+):
+    """The CLI's signal escapes are BaseExceptions (SIGALRM, SIGTERM, ^C).
+
+    One landing mid-write must not leave a `.state.json-*.tmp` behind: nothing
+    else ever reaps those files.
+    """
+
+    def interrupted_fsync(fd: int) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(atomic.os, "fsync", interrupted_fsync)
+    target = tmp_path / "state.json"
+    target.write_text("old")
+
+    with pytest.raises(KeyboardInterrupt):
+        atomic.replace_text(target, "new")
+
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["state.json"]
+    assert target.read_text() == "old"
