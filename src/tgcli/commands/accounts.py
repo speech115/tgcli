@@ -1,7 +1,7 @@
 import json
 import tomllib
-from collections.abc import Iterable
-from contextlib import ExitStack
+from collections.abc import Iterable, Iterator
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -167,11 +167,7 @@ def remove_account(
     # since `--role` removal is unreachable once the config block is gone.
     role_paths = session.role_session_files(account)
     session.ensure_state_dir("sessions")
-    with ExitStack() as locks:
-        for locked in (path, *role_paths.values()):
-            locks.enter_context(
-                session.session_file_lock(locked, busy_error=PolicyError)
-            )
+    with _lock_sessions((path, *role_paths.values())):
         session_existed = path.is_file()
         backup_existed = bak.is_file()
 
@@ -281,9 +277,7 @@ def _remove_role(
             f"session role {role!r} for account {alias!r} does not exist"
         )
     session.ensure_state_dir("sessions")
-    with ExitStack() as locks:
-        for path in paths:
-            locks.enter_context(session.session_file_lock(path, busy_error=PolicyError))
+    with _lock_sessions(paths):
         statuses = {
             "session": _any_status(paths),
             "backup": _any_status(Path(str(path) + ".bak") for path in paths),
@@ -292,6 +286,22 @@ def _remove_role(
         for path in paths:
             _unlink_with_backup(path)
         return {"alias": alias, "role": role, "config": "unchanged", **statuses}
+
+
+@contextmanager
+def _lock_sessions(paths: Iterable[Path]) -> Iterator[None]:
+    """Hold every session's lock. On a case-insensitive filesystem two role
+    spellings share one lock file, and a second flock on it from this
+    process would report it busy, so a lock already held is not taken twice."""
+    held: list[Path] = []
+    with ExitStack() as locks:
+        for path in paths:
+            lock = path.with_suffix(".lock")
+            if any(lock.exists() and lock.samefile(other) for other in held):
+                continue
+            locks.enter_context(session.session_file_lock(path, busy_error=PolicyError))
+            held.append(lock)
+        yield
 
 
 def _any_status(paths: Iterable[Path]) -> str:

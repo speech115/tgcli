@@ -307,6 +307,30 @@ def test_remove_role_deletes_every_case_variant_of_the_role(config_env, capsys):
     assert not upper.exists()
 
 
+def test_remove_role_takes_a_shared_lock_file_once(config_env, capsys):
+    """On a case-insensitive filesystem (macOS) `Work@job.lock` and
+    `Work@JOB.lock` are one file; locking it a second time from the same
+    process reported the role busy and removed nothing."""
+    import json
+
+    from tgcli.cli import main
+
+    sessions = config_env["state"] / "sessions"
+    (sessions / "Work@job.session.bak").write_bytes(b"old-key")
+    (sessions / "Work@JOB.session").write_bytes(b"new-key")
+    (sessions / "Work@job.lock").touch()
+    (sessions / "Work@JOB.lock").symlink_to(sessions / "Work@job.lock")
+
+    assert (
+        main(["accounts", "remove", "work", "--role", "job", "--confirm", "--json"])
+        == 0
+    )
+
+    assert json.loads(capsys.readouterr().out)["session"] == "deleted"
+    assert not (sessions / "Work@JOB.session").exists()
+    assert not (sessions / "Work@job.session.bak").exists()
+
+
 def test_remove_role_rejects_keep_session(config_env, capsys):
     import json
 
