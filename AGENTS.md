@@ -16,9 +16,21 @@ a daemon-first stack, so staying small and daemonless is the point.
 
 ```bash
 uv sync
-./scripts/gate.sh   # exactly what CI runs, about 15 s
+./scripts/gate.sh   # exactly what CI runs, under a minute
 uv run tg --help
 ```
+
+## Where code lives
+
+- `cli.py` runs one invocation: `parser.py` (grammar), then `preflight.py`
+  (validation and the readonly gate, no network), then `dispatch.py` (one
+  session, one handler). `registry.py` lists every command; `handlers.py`
+  holds their `run` functions.
+- Writes: `preview_commit.py` (the handshake table) and `safety.py` (gates,
+  audit).
+- Features: `commands/` (one module per command group), `clone/`, `archive/`
+  (local store, sync, changes), `governor/` (per-account flood pacing).
+- Tests: `tests/fakes/` is the shared fake Telegram; `tests/live/` is opt-in.
 
 A green gate proves the code matches the fakes. To prove a behavior change
 against real Telegram, read-only, follow
@@ -80,7 +92,11 @@ mistake can no longer happen is deleted.
 - Branch `claude/<topic>` or `codex/<topic>`, one coherent change per PR to
   `main`. Never push to `main` unless asked in this session.
 - Run the gate before pushing; CI runs the same gate.
-- Merge with `gh pr merge N --squash` only after CI is green.
+- Before opening a PR, run `/pr-review-toolkit:review-pr` on the branch and
+  fix its Critical and Important findings; the `reviewer` agent covers the
+  contract and ADRs.
+- Enable squash auto-merge when opening the PR (`gh pr merge N --squash
+  --auto`); the ruleset holds it until the `checks` and `test` jobs pass.
 - `main` is what runs, and git log is the history; there is no changelog.
   Release only when the owner asks: bump the version in a PR, then tag
   `vX.Y.Z` on `main` and publish notes with `gh release create`.
