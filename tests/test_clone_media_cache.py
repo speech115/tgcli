@@ -9,6 +9,7 @@ from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
 from tests.conftest import make_session_fake
+from tests.fakes import messages
 from tests.fakes.clone import (
     SAMPLE,
     CloneReuploadClient,
@@ -29,10 +30,18 @@ def config_env(tmp_path, monkeypatch):
 
 
 def _photo_message(message_id=2, size=100):
-    photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
-    msg = message(message_id, message="caption", media=photo)
-    msg.file = SimpleNamespace(size=size)
-    return msg
+    # Telethon reads ``message.file.size`` off the largest photo size.
+    photo = types.Photo(
+        id=7,
+        access_hash=1,
+        file_reference=b"",
+        date=None,
+        sizes=[types.PhotoSize(type="x", w=1, h=1, size=size)],
+        dc_id=2,
+    )
+    return message(
+        message_id, message="caption", media=types.MessageMediaPhoto(photo=photo)
+    )
 
 
 def test_media_cache_dir_is_under_clones_state(state_dir_env):
@@ -603,14 +612,10 @@ async def test_short_stream_never_publishes_the_final_name(state_dir_env):
 
 
 def _sized_video(message_id, *, size, document_id):
-    document = SimpleNamespace(
-        id=document_id, mime_type="video/mp4", attributes=[], size=size
-    )
-    msg = message(
+    document = messages.document(id=document_id, size=size, mime_type="video/mp4")
+    return message(
         message_id, message="clip", media=types.MessageMediaDocument(document=document)
     )
-    msg.file = SimpleNamespace(size=size)
-    return msg
 
 
 @pytest.mark.asyncio

@@ -80,14 +80,11 @@ async def _peer_title(ctx: ResolveContext, peer, message) -> str | None:
     key = attribution.peer_key(peer)
     if key in ctx.peer_titles:
         return ctx.peer_titles[key]
-    enclosing = getattr(message, "peer_id", None)
-    if enclosing is None:
-        return None
     history = None
     try:
         history = await ctx.tg(
             functions.messages.GetHistoryRequest(
-                peer=enclosing,
+                peer=message.peer_id,
                 offset_id=message.id + 1,
                 offset_date=None,
                 add_offset=0,

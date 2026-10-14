@@ -135,7 +135,7 @@ def test_clone_sync_blocks_unmapped_topic_create_tail_before_retrying_create(
 
     assert "unexpected tail" in capsys.readouterr().err
     assert len(client.requests) == 1
-    assert client.iter_messages_calls == [(0, True)]
+    assert client.iter_messages_calls == [("posts", 0)]
     assert state.load(clone_state.clone_id).topic_map == {}
 
 

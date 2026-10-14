@@ -15,6 +15,7 @@ from tests.conftest import (
     make_session_fake,
     transient_exit_code,
 )
+from tests.fakes import messages
 from tests.fakes.clone import (
     CloneReuploadClient,
     CloneSyncClient,
@@ -558,7 +559,6 @@ def test_clone_sync_prefixes_attributed_reply_album_caption_once(
                 grouped_id=44,
                 reply_to=reply,
                 from_id=types.PeerUser(77),
-                sender_id=77,
             ),
             message(
                 3,
@@ -566,7 +566,6 @@ def test_clone_sync_prefixes_attributed_reply_album_caption_once(
                 media=photo,
                 grouped_id=44,
                 from_id=types.PeerUser(77),
-                sender_id=77,
             ),
         ]
     )
@@ -647,14 +646,9 @@ def test_clone_sync_reupload_streams_large_media_in_one_pass(
 
     seed_clone()
     document = types.MessageMediaDocument(
-        document=SimpleNamespace(
-            mime_type="application/octet-stream",
-            attributes=[],
-            size=2 * CHUNK_SIZE,
-        )
+        document=messages.document(size=2 * CHUNK_SIZE)
     )
     msg = message(2, message="big", media=document)
-    msg.file = SimpleNamespace(size=2 * CHUNK_SIZE)
 
     class StreamingClient(CloneReuploadClient):
         def __init__(self, messages, *, protected=False):
@@ -692,14 +686,9 @@ def test_clone_sync_reupload_download_flood_wait_exits_5(
 
     clone_state = seed_clone()
     document = types.MessageMediaDocument(
-        document=SimpleNamespace(
-            mime_type="application/octet-stream",
-            attributes=[],
-            size=2 * CHUNK_SIZE,
-        )
+        document=messages.document(size=2 * CHUNK_SIZE)
     )
     msg = message(2, message="big", media=document)
-    msg.file = SimpleNamespace(size=2 * CHUNK_SIZE)
 
     class FloodDownloadClient(CloneReuploadClient):
         async def iter_download(self, media, *, offset=0, request_size=None, **kw):

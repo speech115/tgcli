@@ -243,7 +243,6 @@ def test_clone_sync_reuploads_topic_reply_with_prefix_into_topic(
                 4,
                 message="pong",
                 from_id=types.PeerUser(77),
-                sender_id=77,
                 reply_to=types.MessageReplyHeader(
                     reply_to_msg_id=3, reply_to_top_id=2, forum_topic=True
                 ),
