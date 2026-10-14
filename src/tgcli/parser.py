@@ -72,14 +72,6 @@ def build_parser() -> argparse.ArgumentParser:
     accounts_sub.add_parser(
         "list", help="List configured accounts", parents=[global_flags]
     )
-    p_import = accounts_sub.add_parser(
-        "import",
-        help="Copy authorized sessions from the old stack",
-        parents=[global_flags],
-    )
-    p_import.add_argument("aliases", nargs="*", metavar="ALIAS")
-    p_import.add_argument("--source-root", type=Path, default=Path("~"))
-    p_import.add_argument("--force", action="store_true")
     p_show = accounts_sub.add_parser(
         "show",
         help="Show offline account and session status",

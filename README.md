@@ -80,8 +80,6 @@ Then verify:
 tg --json doctor --connect
 ```
 
-Existing sessions from the old `tools/telegram` stack can be adopted with `tg accounts import`.
-
 ## Quick start
 
 ```bash

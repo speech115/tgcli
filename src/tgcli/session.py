@@ -328,8 +328,7 @@ async def client(
                     )
                 raise ConfigError(
                     f"session {account.session!r} is not authorized; "
-                    "run: tg accounts login <alias> --phone PHONE "
-                    "(or tg accounts import for an old-stack session)"
+                    "run: tg accounts login <alias> --phone PHONE"
                 )
             yield tg
         except telethon_errors.SessionRevokedError as exc:
