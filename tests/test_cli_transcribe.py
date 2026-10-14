@@ -101,6 +101,19 @@ def test_transcribe_issues_exact_telethon_request(config_env, monkeypatch, capsy
     }
 
 
+def test_transcribe_unregisters_its_update_handler(config_env, monkeypatch, capsys):
+    """Telethon's add_event_handler returns None: removal goes by callback."""
+    client = FakeClient(
+        entities={"@socrates": CHANNEL},
+        messages=[make_voice_message(42)],
+        transcribe_result=transcribe_update(transcription_id=7, text="done"),
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["--json", "transcribe", "@socrates", "42"]) == 0
+    assert client.event_handlers == []
+
+
 def test_transcribe_waits_for_async_update_when_pending(config_env, monkeypatch):
     import asyncio
 

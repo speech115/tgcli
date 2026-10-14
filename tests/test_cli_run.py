@@ -3,6 +3,7 @@
 import io
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 from telethon.tl import functions, types
 
@@ -249,7 +250,7 @@ def test_getters_that_take_a_write_argument_need_the_write_flag(tmp_path, monkey
     for case in ("revoke", "decline", "password"):
         assert main(["run", path, case]) == 2
     assert client.sent == []
-    client, path = setup(tmp_path, monkeypatch, open(path).read())
+    client, path = setup(tmp_path, monkeypatch, Path(path).read_text())
     assert main(["run", "--write", path, "revoke"]) == 0
     assert [line["method"] for line in audit_lines()] == [
         "phone.getGroupCallStreamRtmpUrl"

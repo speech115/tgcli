@@ -32,7 +32,7 @@ from tgcli.output import note
 from tgcli.session import TRANSIENT_ERRORS
 
 
-def _entry(s: state.CloneState) -> dict:
+def _entry(s: state.CloneState, cooldown_until: str | None) -> dict:
     probe = state.probe(s.clone_id)
     return {
         "clone_id": s.clone_id,
@@ -48,7 +48,7 @@ def _entry(s: state.CloneState) -> dict:
         },
         "cursor": s.cursor,
         "copied": len(s.id_map),
-        "cooldown_until": s.retry_not_before,
+        "cooldown_until": cooldown_until,
         "created_at": s.created_at,
         "last_synced_at": s.last_synced_at,
         "comments": s.comments,
@@ -103,6 +103,7 @@ def list_clones(
     clone_ids = lookup.slot_ids()
     entries = []
     pending_import = 0
+    cooldowns: dict[int, str | None] = {}
     for clone_id in clone_ids:
         try:
             loaded = state.load(clone_id, read_only=read_only)
@@ -119,7 +120,10 @@ def list_clones(
             continue
         if loaded is None or not lookup.matches(loaded, source):
             continue
-        entries.append(_entry(loaded))
+        account = loaded.account_user_id
+        if account not in cooldowns:
+            cooldowns[account] = lookup.cooldown_until(account)
+        entries.append(_entry(loaded, cooldowns[account]))
     # An unreadable entry has no created_at at all (CONTRACT §11: every field
     # but clone_id is null), so it sorts ahead of every dated one.
     entries.sort(key=lambda entry: entry["created_at"] or "")

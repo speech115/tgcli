@@ -77,3 +77,52 @@ secret.
 
 **relic** — a directory left behind by a removed surface, produced by no
 current code path (ADR-0040).
+
+## Request governor
+
+**governor** — the per-account pacing and flood layer around every
+authenticated request (ADR-0072). It spaces paced request classes
+start-to-start and refuses locally while a type is cooling.
+
+**cooldown** — a server-confirmed FloodWait deadline for one account and one
+request type, kept in the governor ledger (`governor.db`). Only that type
+waits; `doctor` lists the live ones.
+
+**governed sleep** — time spent waiting on pacing or a cooldown. It does not
+count against `--timeout` and does count against `--max-runtime`.
+
+## Archive
+
+**scope** — which peers the archive covers: private dialogs as a standing
+category, plus the groups and channels added explicitly.
+
+**catch-up** — a bounded read of new messages for one scoped peer after the
+update cursor reports activity there. An unfinished one is resumed first by
+the next sync.
+
+**gap** — a stretch of updates the cursor could not deliver (e.g.
+`differenceTooLong`). Stored as data, never silently papered over.
+
+**rebaseline** — the explicit recovery from a gap: re-initialize the update
+cursor and clear the stored gap, without rebuilding history.
+
+## Clone
+
+**leg** — one source → destination stream of a clone: the posts, or the
+comments in the discussion group. Each leg has its own cursor and id map.
+
+**discussion group** — the group linked to a channel that holds its comments.
+A comment clone links one to the destination channel.
+
+**anchor** — the discussion-group message Telegram auto-forwards from a
+channel post; comments thread under it. Anchors are mapped, never copied.
+
+**attribution** — showing who wrote a cloned message: Telegram's own forward
+header where it survives, else a `<display name>: ` text prefix.
+
+**reupload cache** — the `clones/<clone_id>-media/` directory holding source
+media downloaded for a reupload batch. Kept after a failed send so a retry
+does not download again; removed after a successful one.
+
+**roster** — the best-effort participant snapshot of a clone's source channel
+and its discussion group, taken at the end of a sync (ADR-0024).

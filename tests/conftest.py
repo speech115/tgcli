@@ -179,13 +179,21 @@ class FakeClient:
         return key
 
     def add_event_handler(self, callback, event):
+        # Telethon 1.44 returns None here: removal must go by callback.
         self.event_handlers.append((callback, event))
-        return callback
 
-    def remove_event_handler(self, handler, event=None):
-        self.event_handlers = [
-            (cb, ev) for (cb, ev) in self.event_handlers if cb is not handler
+    def remove_event_handler(self, callback, event=None):
+        """Mirror Telethon: match the callback and, if given, the event type."""
+        if event is not None and not isinstance(event, type):
+            event = type(event)
+        kept = [
+            (cb, ev)
+            for (cb, ev) in self.event_handlers
+            if not (cb == callback and (event is None or isinstance(ev, event)))
         ]
+        found = len(self.event_handlers) - len(kept)
+        self.event_handlers = kept
+        return found
 
     def fire_update(self, update):
         """Deliver an update to every registered raw handler, awaited."""

@@ -722,6 +722,24 @@ def test_cleanup_older_than_gates_media_cache_by_mtime(tmp_path, monkeypatch):
     assert not cache.exists()
 
 
+def _patch_os_stat(monkeypatch, victim: Path, hook) -> None:
+    """Route every `os.stat` of `victim` through `hook(real_stat, args, kwargs)`.
+
+    `os.stat` is the one seam both `Path.stat` and the `is_file()`/`is_dir()`
+    probes reach on every supported Python (3.14 stopped routing the probes
+    through `Path.stat`), so a race injected here lands where production sees it.
+    """
+    real_stat = os.stat
+    target = os.fspath(victim)
+
+    def fake_stat(path, *args, **kwargs):
+        if isinstance(path, (str, os.PathLike)) and os.fspath(path) == target:
+            return hook(real_stat, path, args, kwargs)
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", fake_stat)
+
+
 def _vanish_after_first_stat(monkeypatch, victim: Path) -> None:
     """Let `victim` pass one stat and disappear before the next one.
 
@@ -729,19 +747,17 @@ def _vanish_after_first_stat(monkeypatch, victim: Path) -> None:
     login consumed by a concurrent `tg` lands exactly in that window: the
     `is_file()` probe still sees it, the stat that follows does not.
     """
-    real_stat = Path.stat
     seen = {"count": 0}
 
-    def fake_stat(self, *args, **kwargs):
-        if self == victim:
-            seen["count"] += 1
-            if seen["count"] > 1:
-                raise FileNotFoundError(
-                    errno.ENOENT, "No such file or directory", str(self)
-                )
-        return real_stat(self, *args, **kwargs)
+    def hook(real_stat, path, args, kwargs):
+        seen["count"] += 1
+        if seen["count"] > 1:
+            raise FileNotFoundError(
+                errno.ENOENT, "No such file or directory", str(path)
+            )
+        return real_stat(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "stat", fake_stat)
+    _patch_os_stat(monkeypatch, victim, hook)
 
 
 def test_scan_survives_a_preview_that_vanishes_mid_walk(tmp_path, monkeypatch):
@@ -798,15 +814,17 @@ def test_cleanup_survives_a_media_cache_that_vanishes_mid_walk(tmp_path, monkeyp
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     cache = _seed_clone_media_cache(tmp_path)
     _age_media_cache(cache, timedelta(days=1))
-    real_stat = Path.stat
+    seen = {"cleared": False}
 
-    def fake_stat(self, *args, **kwargs):
-        result = real_stat(self, *args, **kwargs)
-        if self == cache and os.path.isdir(cache):
+    def hook(real_stat, path, args, kwargs):
+        # The first probe sees the cache; it is gone before the next stat.
+        result = real_stat(path, *args, **kwargs)
+        if not seen["cleared"]:
+            seen["cleared"] = True
             shutil.rmtree(cache)
         return result
 
-    monkeypatch.setattr(Path, "stat", fake_stat)
+    _patch_os_stat(monkeypatch, cache, hook)
 
     result = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
 

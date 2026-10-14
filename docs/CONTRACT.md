@@ -27,7 +27,9 @@ Global flags (available on every command):
 | `-v/--verbose` | Python and Telethon debug diagnostics on stderr for this invocation |
 
 Env equivalents: `TGCLI_ACCOUNT`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`.
-Flag beats env, env beats config.
+Flag beats env, env beats config. `TGCLI_CONFIG` sets the config file path
+(default `~/.config/tgcli/config.toml`) and `TGCLI_STATE_DIR` the state root
+(default `~/.local/state/tgcli/`).
 
 `TGCLI_READONLY` and `TGCLI_NO_SEND` are read case-insensitively with
 surrounding whitespace ignored: `1`, `true`, `yes`, `on` enable the block;
@@ -683,11 +685,12 @@ tg store cleanup [--older-than Nd|Nh|N] [--include-pending] [--confirm]
 Reaps **spent** (`.used`) and **expired** (`.json` past TTL) previews under
 the state root, **expired** login attempts under `logins/` (JSON + staged
 session + optional journal and `0600` phone sidecar), and abandoned
-`clones/*-media/` directories (mtime-gated; never the clone's own `.json`
-state). Default is dry-run: stdout lists what would be removed and
+`clones/*-media/` directories (mtime-gated; never the clone's own `.db`
+state or its `-wal`/`-shm` sidecars). Default is dry-run: stdout lists what would be removed and
 stderr prints a one-line `--confirm` hint. With `--confirm`, those files are
 deleted. Never touches `audit.jsonl`, `sessions/` (including `.bak`), live
-login attempts, live `.json` within TTL, clone state JSON, a media cache
+login attempts, live `.json` within TTL, clone state (`.db` with its `-wal`/`-shm`
+sidecars, or a legacy `.json`), a media cache
 younger than one hour (`MEDIA_CACHE_MIN_AGE`, the running-sync guard), the
 archive store under `archive/` (ADR-0068), or relic directories.
 `.pending` files are
@@ -919,7 +922,7 @@ content into shell commands or file paths without sanitizing.
 
 Every successfully parsed command appends one JSON object to
 `~/.local/state/tgcli/invocations.jsonl` (or `TGCLI_STATE_DIR/invocations.jsonl`):
-`timestamp`, `command`, resolved `account` when applicable, `role` when
+`timestamp`, `command` (the full subcommand path, e.g. `archive sync`), resolved `account` when applicable, `role` when
 `--session-role` was set (ADR-0062; omitted for the primary), `exit_code`,
 structured `error` code when applicable, and `duration_ms`. A failed run
 also carries `error_site`, the `module:function` inside tgcli that raised it
@@ -1140,6 +1143,10 @@ and `clone sync`; both are `null` for a clone neither has touched since the
 names were introduced, and `username` is `null` for the private destinations
 init creates. `status` never resolves them over the network.
 
+`cooldown_until` is the latest active request-governor cooldown deadline for
+the clone's account (any request type; `doctor` lists them per type), read
+offline from the governor ledger, or `null` when nothing is cooling.
+
 Each readable entry carries `schema_version` (SQLite `PRAGMA user_version`)
 and `integrity` (`"ok"` or the integrity-check error string). Plain status
 columns are `source_peer_id`, `source_title`, `source_kind`, `destination`
@@ -1309,8 +1316,8 @@ fail-closed shared audit record before dispatch. A profile-copy failure exits 2
 while retaining the recorded destination for a new-preview retry; it never
 creates a second destination. A Telegram FloodWait during profile reads,
 downloads, uploads, or edits arms the request-governor's per-type cooldown
-(ADR-0072); the legacy per-clone `retry_not_before` field (ADR-0045) is only
-reported, as `cooldown_until`, and nothing writes or enforces it. Later
+(ADR-0072), which `clone status` reports as `cooldown_until`; the legacy
+per-clone `retry_not_before` field (ADR-0045) is neither written nor reported. Later
 `clone init --commit` and `clone sync` for **any** clone of
 that account refuse locally (no network) while the gated request type is
 cooling — `retry_after` comes from the governor's ledger. Read-only surfaces

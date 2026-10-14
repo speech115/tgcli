@@ -9,7 +9,7 @@ import pytest
 from telethon.tl.functions import messages, updates, upload
 
 from tgcli.archive import store as store_mod
-from tgcli.governor import gate, pacing, registry
+from tgcli.governor import gate, pacing
 from tgcli.governor.ledger import Ledger
 
 ACCOUNT = 7091037467
@@ -230,9 +230,11 @@ async def test_concurrent_tasks_queue_behind_each_other(ledger, clock):
 
 def test_the_interval_lookup_charges_per_unit():
     """BY_ID and MEDIA adjustments live at the charge, not in the registry."""
-    assert registry.interval_for(messages.GetMessagesRequest(id=[1])) == 10.0 / 3
-    file_request = upload.GetFileRequest(location=None, offset=0, limit=1)
-    assert registry.interval_for(file_request) == 3.0
+    assert pacing._charge(messages.GetMessagesRequest(id=[1])) == 10.0 / 3
+    first_chunk = upload.GetFileRequest(location=None, offset=0, limit=1)
+    assert pacing._charge(first_chunk) == 3.0
+    next_chunk = upload.GetFileRequest(location=None, offset=1, limit=1)
+    assert pacing._charge(next_chunk) is None
 
 
 def test_the_deadline_does_not_count_governed_sleep(monkeypatch):

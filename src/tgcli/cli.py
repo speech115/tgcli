@@ -39,7 +39,7 @@ from tgcli.commands import (
 from tgcli.config import load_config, resolve_account
 from tgcli.errors import CommandTimeoutError, PartialFailure, TgcliError
 from tgcli.formatting import mask_phones_in_text
-from tgcli.parser import build_parser
+from tgcli.parser import build_parser, command_path
 
 LOGGER = logging.getLogger(__name__)
 
@@ -601,7 +601,7 @@ def main(argv: list[str] | None = None) -> int:
         slept_ms = int(pacing.total_governed_sleep() * 1000)
         requests = pacing.request_count()
         invocations.log_invocation(
-            command=args.command,
+            command=command_path(parser, args),
             account=args.account,
             role=getattr(args, "session_role", None),
             exit_code=exit_code,

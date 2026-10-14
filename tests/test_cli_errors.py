@@ -230,7 +230,7 @@ def test_closed_stdout_pipe_exits_quietly_with_a_truthful_journal(tmp_path):
     assert process.returncode == 0
     assert stderr == b""
     [entry] = read_journal(state)
-    assert entry["command"] == "accounts"
+    assert entry["command"] == "accounts list"
     assert entry["exit_code"] == 0
     assert entry["error"] == "BROKEN_PIPE"
 
