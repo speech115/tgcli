@@ -66,11 +66,30 @@ def _first_word(segment: str) -> str:
     return ""
 
 
+def _is_bare_python(word: str) -> bool:
+    return bool(BARE_PYTHON.fullmatch(word)) and not PINNED_PYTHON.fullmatch(word)
+
+
+def _wrapped_words(segment: str) -> list[str]:
+    """Every word a wrapper could run, with quotes and `-S`/`--split-string=` peeled."""
+    words = []
+    for word in re.split(r"[\s'\"({]+", segment):
+        for prefix in ("--split-string=", "-S"):
+            word = word.removeprefix(prefix)
+        words.append(word)
+    return words
+
+
 def _runs_bare_python(line: str) -> bool:
     for segment in SEGMENT_SPLIT.split(line):
-        word = _first_word(segment)
-        if BARE_PYTHON.fullmatch(word) and not PINNED_PYTHON.fullmatch(word):
+        if _is_bare_python(_first_word(segment)):
             return True
+        # A wrapper (`env -S'python3 …'`, `sudo -E python3`) can hide the
+        # interpreter inside an option; any bare python word after it counts.
+        words = [w for w in segment.split() if not ENV_ASSIGNMENT.fullmatch(w)]
+        if words and words[0].strip("({\"'") in WRAPPERS:
+            if any(_is_bare_python(word) for word in _wrapped_words(segment)):
+                return True
     return False
 
 

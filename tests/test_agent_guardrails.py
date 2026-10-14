@@ -60,6 +60,9 @@ def test_agent_settings_make_sessions_readonly_and_wire_the_hook():
         "nohup python3 inspect.py main.session",
         "exec -a probe python3 inspect.py main.session",
         'env -S "python3 inspect.py main.session"',
+        "env -S'python3 inspect.py' main.session",
+        "env --split-string='python3 inspect.py' main.session",
+        "sudo -E python3 inspect.py main.session",
     ],
 )
 def test_hook_blocks_a_bare_python_near_session_files(command):
