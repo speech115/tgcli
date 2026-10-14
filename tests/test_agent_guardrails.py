@@ -21,8 +21,11 @@ def run_hook(stdin: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def bash_call(command: str) -> str:
-    return json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
+def bash_call(command: str, cwd: str | None = None) -> str:
+    payload = {"tool_name": "Bash", "tool_input": {"command": command}}
+    if cwd is not None:
+        payload["cwd"] = cwd
+    return json.dumps(payload)
 
 
 def test_agent_settings_make_sessions_readonly_and_wire_the_hook():
@@ -48,6 +51,18 @@ def test_agent_settings_make_sessions_readonly_and_wire_the_hook():
         "FOO=1 python3 read.py ~/.local/state/tgcli/sessions/a",
         "env python3 x.py work.session",
         "S=work.session\npython3 read.py $S",
+        "env -i python3 inspect.py main.session",
+        "env -u HOME -i FOO=1 python3 inspect.py main.session",
+        "env --unset=HOME python3 inspect.py main.session",
+        "sudo -u root python3 inspect.py main.session",
+        "sudo env -i /usr/bin/python3 inspect.py main.session",
+        "time -p python3 inspect.py main.session",
+        "nohup python3 inspect.py main.session",
+        "exec -a probe python3 inspect.py main.session",
+        'env -S "python3 inspect.py main.session"',
+        "env -S'python3 inspect.py' main.session",
+        "env --split-string='python3 inspect.py' main.session",
+        "sudo -E python3 inspect.py main.session",
     ],
 )
 def test_hook_blocks_a_bare_python_near_session_files(command):
@@ -72,6 +87,17 @@ def test_hook_allows_pinned_interpreters_and_unrelated_python(command):
     result = run_hook(bash_call(command))
 
     assert result.returncode == 0, result.stderr
+
+
+def test_hook_blocks_a_bare_python_run_inside_a_sessions_directory():
+    command = "python3 read.py main"
+    sessions = "/Users/me/.local/state/tgcli/sessions"
+
+    assert run_hook(bash_call(command, cwd=sessions)).returncode == 2
+    assert run_hook(bash_call(command, cwd=sessions + "/work")).returncode == 2
+    assert run_hook(bash_call(command, cwd="/Users/me/src/tgcli")).returncode == 0
+    allowed = bash_call("uv run python read.py main", cwd=sessions)
+    assert run_hook(allowed).returncode == 0
 
 
 def test_hook_ignores_input_it_cannot_parse():

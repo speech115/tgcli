@@ -8,8 +8,11 @@ on:
 # One full gate per PR, and again on main after a squash merge, so the merged
 # combination of PRs is checked too. GitHub-hosted macOS: the target platform,
 # and a public repository's fork PRs must not run on the owner's Mac (ADR-0121).
+# A new push to a PR cancels its superseded run. Every push to main gets its own
+# group: GitHub keeps only one pending run per group and cancels the rest, so a
+# shared main group would drop checks even with cancel-in-progress off.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -35,7 +38,9 @@ jobs:
         run: uv run pyright
       - name: Run tests
         # Same hostile values as scripts/gate.sh: tests set their own env.
-        run: env TGCLI_READONLY=1 TGCLI_ACCOUNT=gate-isolation uv run pytest -q -n auto
+        run: env TGCLI_READONLY=1 TGCLI_ACCOUNT=gate-isolation uv run pytest -q -n auto --ignore=tests/live
+      - name: Run opt-in live smoke (skipped unless TGCLI_LIVE_SMOKE=1)
+        run: uv run pytest -q tests/live
       - name: Check Telethon coverage matrix
         run: uv run python scripts/check-coverage.py
       - name: Check docs against the CLI surface
