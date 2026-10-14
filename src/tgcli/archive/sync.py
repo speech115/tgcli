@@ -23,12 +23,6 @@ from tgcli.errors import PolicyError, RateLimitError
 from tgcli.output import note
 from tgcli.session import RUN_ABORTING_ERRORS
 
-DEFAULT_MAX_CATCHUP_MESSAGES = 500
-MAX_CATCHUP_MESSAGES = 5000
-DEFAULT_MAX_CATCHUP_DIALOGS = 20
-MAX_CATCHUP_DIALOGS = 50
-DEFAULT_MAX_MEDIA = 50
-MAX_MEDIA = 500
 CATCHUP_LIMIT = 50
 RECONCILE_SAMPLE = 5
 # Marked channel/supergroup peer ids are at or below this bound.
@@ -42,37 +36,6 @@ def has_own_updates(entry: dict[str, Any]) -> bool:
     the common difference; subscribing it fails.
     """
     return int(entry["peer_id"]) <= CHANNEL_PEER_CEILING
-
-
-def validate_max_events(value: int | None, *, default: int, maximum: int) -> int:
-    """Validate ``--max-events`` as the catch-up message budget (not apply)."""
-    if value is None:
-        return default
-    if value <= 0:
-        raise PolicyError("archive sync --max-events must be positive")
-    if value > maximum:
-        raise PolicyError(f"archive sync --max-events accepts at most {maximum}")
-    return value
-
-
-def validate_max_dialogs(value: int | None, *, default: int, maximum: int) -> int:
-    if value is None:
-        return default
-    if value <= 0:
-        raise PolicyError("archive sync --max-dialogs must be positive")
-    if value > maximum:
-        raise PolicyError(f"archive sync --max-dialogs accepts at most {maximum}")
-    return value
-
-
-def validate_max_media(value: int | None, *, default: int, maximum: int) -> int:
-    if value is None:
-        return default
-    if value <= 0:
-        raise PolicyError("archive sync --max-media must be positive")
-    if value > maximum:
-        raise PolicyError(f"archive sync --max-media accepts at most {maximum}")
-    return value
 
 
 def _in_archive_scope(conn: sqlite3.Connection, peer_id: int, kind: str | None) -> bool:

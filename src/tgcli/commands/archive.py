@@ -7,6 +7,7 @@ from pathlib import Path
 from tgcli.archive import (
     backfill as backfill_mod,
     explore as explore_mod,
+    limits,
     scope as scope_mod,
     store as store_mod,
     sync as sync_mod,
@@ -14,22 +15,6 @@ from tgcli.archive import (
 )
 from tgcli.config import Config, load_config, resolve_account
 from tgcli.errors import NotFoundError, PolicyError
-
-DEFAULT_BACKFILL_LIMIT = 100
-MAX_BACKFILL_LIMIT = 1000
-MAX_BACKFILL_DIALOGS = 20
-DEFAULT_PRIVATE_DIALOGS = 20
-MAX_PRIVATE_DIALOGS = 100
-DEFAULT_SEARCH_LIMIT = explore_mod.SEARCH_DEFAULT_LIMIT
-MAX_SEARCH_LIMIT = explore_mod.SEARCH_MAX_LIMIT
-DEFAULT_READ_LIMIT = explore_mod.READ_DEFAULT_LIMIT
-MAX_READ_LIMIT = explore_mod.READ_MAX_LIMIT
-DEFAULT_SYNC_EVENTS = sync_mod.DEFAULT_MAX_CATCHUP_MESSAGES
-MAX_SYNC_EVENTS = sync_mod.MAX_CATCHUP_MESSAGES
-DEFAULT_SYNC_DIALOGS = sync_mod.DEFAULT_MAX_CATCHUP_DIALOGS
-MAX_SYNC_DIALOGS = sync_mod.MAX_CATCHUP_DIALOGS
-DEFAULT_SYNC_MEDIA = sync_mod.DEFAULT_MAX_MEDIA
-MAX_SYNC_MEDIA = sync_mod.MAX_MEDIA
 
 
 def archive_root(config: Config | None = None) -> Path:
@@ -195,8 +180,8 @@ def search(
     kind: str | None = None,
     transcripts_only: bool = False,
     sort: str = "relevance",
-    limit: int | None = None,
-    page: int | None = None,
+    limit: int,
+    page: int,
     config: Config | None = None,
 ) -> dict:
     return _offline(
@@ -210,8 +195,8 @@ def search(
         kind=kind,
         transcripts_only=transcripts_only,
         sort=sort,
-        limit=DEFAULT_SEARCH_LIMIT if limit is None else limit,
-        page=1 if page is None else page,
+        limit=limit,
+        page=page,
         config=config,
     )
 
@@ -224,7 +209,7 @@ def read(
     around_date=None,
     since=None,
     until=None,
-    limit: int | None = None,
+    limit: int,
     config: Config | None = None,
 ) -> dict:
     return _offline(
@@ -235,7 +220,7 @@ def read(
         around_date=around_date,
         since=since,
         until=until,
-        limit=DEFAULT_READ_LIMIT if limit is None else limit,
+        limit=limit,
         config=config,
     )
 
@@ -251,26 +236,19 @@ async def backfill(
     alias: str,
     chats: list[str],
     *,
-    limit: int | None = None,
+    limit: int,
     private: bool = False,
     max_dialogs: int | None = None,
     config: Config | None = None,
     should_stop=None,
 ) -> dict:
-    backfill_mod.validate_private_mode(private=private, chats=chats)
-    limit = backfill_mod.validate_limit(
-        limit, default=DEFAULT_BACKFILL_LIMIT, maximum=MAX_BACKFILL_LIMIT
-    )
+    """Arguments arrive normalized by `archive/preflight.py`."""
     me = await tg.get_me()
     conn = _open_existing(alias, config)
     try:
         store_mod.require_bound_user(conn, int(me.id), alias)
         if private:
-            max_dialogs = backfill_mod.validate_max_dialogs(
-                max_dialogs,
-                default=DEFAULT_PRIVATE_DIALOGS,
-                maximum=MAX_PRIVATE_DIALOGS,
-            )
+            assert max_dialogs is not None
             data = await backfill_mod.backfill_private(
                 tg,
                 conn,
@@ -279,7 +257,6 @@ async def backfill(
                 account_user_id=int(me.id),
             )
         else:
-            chats = backfill_mod.validate_dialogs(chats, maximum=MAX_BACKFILL_DIALOGS)
             dialogs, stop_reason = await backfill_mod.backfill_dialogs(
                 tg,
                 conn,
@@ -304,7 +281,7 @@ async def backfill(
             account_alias=alias,
             account_user_id=int(me.id),
             account_dir=account_dir(alias, config),
-            limit=DEFAULT_SYNC_MEDIA,
+            limit=limits.default("sync", "--max-media"),
             should_stop=should_stop,
         )
         data["remaining"] = bool(
@@ -322,21 +299,13 @@ async def sync(
     tg,
     alias: str,
     *,
-    max_events: int | None = None,
-    max_dialogs: int | None = None,
-    max_media: int | None = None,
+    max_events: int,
+    max_dialogs: int,
+    max_media: int,
     config: Config | None = None,
     should_stop=None,
 ) -> dict:
-    max_events = sync_mod.validate_max_events(
-        max_events, default=DEFAULT_SYNC_EVENTS, maximum=MAX_SYNC_EVENTS
-    )
-    max_dialogs = sync_mod.validate_max_dialogs(
-        max_dialogs, default=DEFAULT_SYNC_DIALOGS, maximum=MAX_SYNC_DIALOGS
-    )
-    max_media = sync_mod.validate_max_media(
-        max_media, default=DEFAULT_SYNC_MEDIA, maximum=MAX_SYNC_MEDIA
-    )
+    """Budgets arrive normalized by `archive/preflight.py`."""
     me = await tg.get_me()
     conn = _open_existing(alias, config)
     try:
@@ -376,13 +345,12 @@ async def rebaseline(tg, alias: str, *, config: Config | None = None) -> dict:
 def transcribe(
     alias: str,
     *,
-    limit: int | None = None,
-    max_attempts: int | None = None,
+    limit: int,
+    max_attempts: int,
     config: Config | None = None,
     should_stop=None,
 ) -> dict:
-    limit = transcribe_mod.validate_limit(limit)
-    max_attempts = transcribe_mod.validate_max_attempts(max_attempts)
+    """Caps arrive normalized by `archive/preflight.py`."""
     conn = _open_existing(alias, config)
     try:
         store_mod.require_bound_alias(conn, alias)

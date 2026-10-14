@@ -9,6 +9,7 @@ import pytest
 from telethon.tl.types import Channel, Message, PeerUser, User
 
 from tests.conftest import FakeClient, make_session_fake
+from tgcli.archive import limits
 from tgcli.cli import main
 from tgcli.commands import archive as archive_cmd
 
@@ -96,13 +97,13 @@ def test_backfill_requires_at_least_one_chat(config_env, capsys):
 def test_backfill_rejects_non_positive_and_over_cap_limit(config_env, capsys):
     assert main(["archive", "backfill", "@alice", "--limit", "0", "--json"]) == 2
     assert "limit" in capsys.readouterr().err.lower()
-    over = str(archive_cmd.MAX_BACKFILL_LIMIT + 1)
+    over = str(limits.BOUNDS["backfill", "--limit"].maximum + 1)
     assert main(["archive", "backfill", "@alice", "--limit", over, "--json"]) == 2
     assert "limit" in capsys.readouterr().err.lower()
 
 
 def test_backfill_rejects_too_many_dialogs(config_env, capsys):
-    chats = [f"@c{i}" for i in range(archive_cmd.MAX_BACKFILL_DIALOGS + 1)]
+    chats = [f"@c{i}" for i in range(limits.BACKFILL_MAX_CHATS + 1)]
     assert main(["archive", "backfill", *chats, "--json"]) == 2
     assert "dialog" in capsys.readouterr().err.lower()
 
@@ -548,13 +549,11 @@ def test_archive_search_rejects_empty_query(config_env, monkeypatch, capsys):
 def test_archive_search_rejects_non_positive_and_over_cap_limit(
     config_env, monkeypatch, capsys
 ):
-    from tgcli.commands import archive as arch
-
     _seed_search_corpus(monkeypatch)
     capsys.readouterr()
     assert main(["archive", "search", "ёлка", "--limit", "0", "--json"]) == 2
     assert "limit" in capsys.readouterr().err.lower()
-    over = str(arch.MAX_SEARCH_LIMIT + 1)
+    over = str(limits.BOUNDS["search", "--limit"].maximum + 1)
     assert main(["archive", "search", "ёлка", "--limit", over, "--json"]) == 2
     assert "limit" in capsys.readouterr().err.lower()
 
