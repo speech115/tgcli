@@ -22,6 +22,7 @@ from tgcli.clone import (
     state,
 )
 from tgcli.errors import PolicyError
+from tgcli.output import note
 
 
 def is_private_owned_broadcast(entity, *, title: str | None = None) -> bool:
@@ -123,13 +124,23 @@ async def init_discussion(
 ) -> None:
     """Create/adopt and link the destination discussion group before any post.
     An unreadable source group is not an error: the clone stays posts-only and
-    honestly records comments == "unavailable"."""
+    honestly records comments == "unavailable". A posts-only clone that has
+    already copied posts keeps its marker (ADR-0023: no anchor backfill)."""
     if clone_state.source_kind != "broadcast":
         return
     linked = discussion.linked_chat_id(full_chat)
     if linked is None:
         clone_state.comments = "none"
         return state.save(clone_state)
+    if clone_state.comments != "enabled" and clone_state.id_map:
+        # ADR-0023: posts copied before the link have no anchors, and there
+        # is no backfill, so a posts-only clone is never upgraded in place.
+        note(
+            f"note: clone comments stay {clone_state.comments}: posts were "
+            "copied without a linked discussion; re-run clone init --replace "
+            "for a fresh clone with comments"
+        )
+        return None
     clone_state.discussion_source_peer_id = linked
 
     try:
