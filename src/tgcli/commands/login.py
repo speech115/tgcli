@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -20,7 +21,12 @@ from tgcli.config import (
 from tgcli.errors import ConfigError, NotFoundError, PolicyError
 from tgcli.formatting import mask_phone
 from tgcli.output import note
-from tgcli.session import session_path, state_dir
+from tgcli.session import (
+    BUSY_WAIT_SECONDS,
+    session_file_lock,
+    session_path,
+    state_dir,
+)
 
 
 def login_rows(data: dict) -> list[tuple]:
@@ -193,6 +199,8 @@ async def _finish_authorized(
     backup = login_state.promote(login_id, dest, keep_backup=keep_backup)
     if is_new and role is None:
         _append_config_block(default_config_path(), alias, api_id, api_hash)
+    else:
+        _discard_if_account_removed(alias, dest, backup, method=method, role=role)
     result = {
         "alias": alias,
         "method": method,
@@ -205,6 +213,38 @@ async def _finish_authorized(
     if role is not None:
         result["role"] = role
     return result
+
+
+def _discard_if_account_removed(
+    alias: str,
+    dest: Path,
+    backup: Path | None,
+    *,
+    method: str,
+    role: str | None,
+) -> None:
+    """`accounts remove` may have dropped the alias while this login waited on
+    Telegram. Remove scans for role sessions again after dropping the config
+    block, and this check runs after promoting, so whichever of the two runs
+    second sees the other's write and no live key outlives the account."""
+    try:
+        present = alias in load_config().accounts
+    except ConfigError:
+        return  # an unreadable config proves nothing; keep the new session
+    if present:
+        return
+    _audit_login(alias, method=method, outcome="discarded", role=role)
+    with session_file_lock(dest, busy_error=PolicyError, wait=BUSY_WAIT_SECONDS):
+        # Leave the pre-login state: a `--keep-session` remove kept the old
+        # session, which this promote had just moved to the backup.
+        if backup is not None and backup.is_file():
+            os.replace(backup, dest)
+        else:
+            dest.unlink(missing_ok=True)
+    raise NotFoundError(
+        f"account {alias!r} was removed while this login was in progress; "
+        "the new session was deleted"
+    )
 
 
 def _pending(attempt: dict, *, next_step: str) -> dict:

@@ -252,6 +252,88 @@ def test_remove_role_unknown_exits_4(config_env, capsys):
     assert json.loads(capsys.readouterr().err)["error"]["code"] == "NOT_FOUND"
 
 
+def test_remove_role_deletes_a_role_left_with_only_its_backup(config_env, capsys):
+    """An interrupted promote leaves only `<account>@<role>.session.bak`, a
+    live key; `--role` removal exited 4 and could not reach it."""
+    import json
+
+    from tgcli.cli import main
+
+    bak = config_env["state"] / "sessions" / "Work@job.session.bak"
+    bak.write_bytes(b"live-key")
+
+    assert (
+        main(["accounts", "remove", "work", "--role", "job", "--confirm", "--json"])
+        == 0
+    )
+
+    assert json.loads(capsys.readouterr().out) == {
+        "alias": "work",
+        "role": "job",
+        "config": "unchanged",
+        "session": "absent",
+        "backup": "deleted",
+    }
+    assert not bak.exists()
+
+
+def test_remove_role_deletes_every_case_variant_of_the_role(config_env, capsys):
+    """On a case-sensitive filesystem a role can exist under two spellings
+    (a leftover `Work@job.session.bak` and a fresh `Work@JOB.session`); both
+    are live keys for one logical role, and removing only one left the other."""
+    import json
+
+    from tgcli.cli import main
+
+    sessions = config_env["state"] / "sessions"
+    lower_bak = sessions / "Work@job.session.bak"
+    upper = sessions / "Work@JOB.session"
+    lower_bak.write_bytes(b"old-key")
+    upper.write_bytes(b"new-key")
+
+    assert (
+        main(["accounts", "remove", "work", "--role", "job", "--confirm", "--json"])
+        == 0
+    )
+
+    assert json.loads(capsys.readouterr().out) == {
+        "alias": "work",
+        "role": "job",
+        "config": "unchanged",
+        "session": "deleted",
+        "backup": "deleted",
+    }
+    assert not lower_bak.exists()
+    assert not upper.exists()
+
+
+def test_remove_role_takes_a_shared_lock_file_once(config_env, capsys):
+    """On a case-insensitive filesystem (macOS) `Work@job.lock` and
+    `Work@JOB.lock` are one file; locking it a second time from the same
+    process reported the role busy and removed nothing."""
+    import json
+
+    from tgcli.cli import main
+
+    sessions = config_env["state"] / "sessions"
+    (sessions / "Work@job.session.bak").write_bytes(b"old-key")
+    (sessions / "Work@JOB.session").write_bytes(b"new-key")
+    (sessions / "Work@job.lock").touch()
+    if not (sessions / "Work@JOB.lock").exists():
+        # A case-sensitive filesystem: share the lock file the way a
+        # case-insensitive one does.
+        (sessions / "Work@JOB.lock").symlink_to(sessions / "Work@job.lock")
+
+    assert (
+        main(["accounts", "remove", "work", "--role", "job", "--confirm", "--json"])
+        == 0
+    )
+
+    assert json.loads(capsys.readouterr().out)["session"] == "deleted"
+    assert not (sessions / "Work@JOB.session").exists()
+    assert not (sessions / "Work@job.session.bak").exists()
+
+
 def test_remove_role_rejects_keep_session(config_env, capsys):
     import json
 

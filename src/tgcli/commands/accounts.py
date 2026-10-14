@@ -1,11 +1,19 @@
 import json
 import tomllib
-from contextlib import ExitStack
+from collections.abc import Iterable, Iterator
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
+from itertools import chain
 from pathlib import Path
 
 from tgcli import atomic, safety, session
-from tgcli.config import Config, default_config_path, load_config, validate_role_name
+from tgcli.config import (
+    Account,
+    Config,
+    default_config_path,
+    load_config,
+    validate_role_name,
+)
 from tgcli.errors import ConfigError, NotFoundError, PolicyError
 from tgcli.output import note
 
@@ -108,17 +116,27 @@ def _remove_config_block(config_path: Path, alias: str) -> None:
             kept.append(line)
     result = "".join(kept)
     try:
-        remaining = tomllib.loads(result).get("accounts", {})
+        remaining = tomllib.loads(result)
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(
             f"removing [accounts.{alias}] would break config: {exc}"
         ) from exc
-    if alias in remaining:
+    # The scan is line based: a header-like line inside a multi-line string
+    # would cut the wrong text. Write only when exactly the alias is gone.
+    expected = tomllib.loads(text)
+    expected.get("accounts", {}).pop(alias, None)
+    if _without_empty_accounts(remaining) != _without_empty_accounts(expected):
         raise ConfigError(
-            f"cannot find the [accounts.{alias}] table in {config_path}; "
+            f"cannot remove only the [accounts.{alias}] table from {config_path}; "
             "remove the account there by hand"
         )
     atomic.replace_text(config_path, result)
+
+
+def _without_empty_accounts(document: dict) -> dict:
+    if document.get("accounts") == {}:
+        return {key: value for key, value in document.items() if key != "accounts"}
+    return document
 
 
 def remove_account(
@@ -148,16 +166,9 @@ def remove_account(
     bak = Path(str(path) + ".bak")
     # Role sessions are full-access keys of the same account: they go with it,
     # since `--role` removal is unreachable once the config block is gone.
-    role_paths = {
-        role: session.session_path(account, role=role)
-        for role in session.list_roles(account)
-    }
+    role_paths = session.role_session_files(account)
     session.ensure_state_dir("sessions")
-    with ExitStack() as locks:
-        for locked in (path, *role_paths.values()):
-            locks.enter_context(
-                session.session_file_lock(locked, busy_error=PolicyError)
-            )
+    with _lock_sessions((path, *chain.from_iterable(role_paths.values()))):
         session_existed = path.is_file()
         backup_existed = bak.is_file()
 
@@ -184,9 +195,11 @@ def remove_account(
         config_path = default_config_path()
         _remove_config_block(config_path, alias)
         if not keep_session:
-            for removed in (path, *role_paths.values()):
-                removed.unlink(missing_ok=True)
-                Path(str(removed) + ".bak").unlink(missing_ok=True)
+            for removed in (path, *chain.from_iterable(role_paths.values())):
+                _unlink_with_backup(removed)
+        role_status.update(
+            _remove_late_roles(alias, account, role_paths, keep_session=keep_session)
+        )
 
         return {
             "alias": alias,
@@ -195,6 +208,42 @@ def remove_account(
             "backup": backup_status,
             "roles": role_status,
         }
+
+
+def _unlink_with_backup(path: Path) -> None:
+    path.unlink(missing_ok=True)
+    Path(str(path) + ".bak").unlink(missing_ok=True)
+
+
+def _remove_late_roles(
+    alias: str, account: Account, known: dict[str, list[Path]], *, keep_session: bool
+) -> dict[str, str]:
+    """Roles a concurrent login promoted after the first scan. Scanning again
+    once the config block is gone pairs with the login's own config re-check
+    after it promotes: whichever runs second sees the other's write."""
+    known_paths = set(chain.from_iterable(known.values()))
+    late = {
+        role: [role_path for role_path in role_paths if role_path not in known_paths]
+        for role, role_paths in session.role_session_files(account).items()
+    }
+    late = {role: role_paths for role, role_paths in late.items() if role_paths}
+    if not late:
+        return {}
+    status = "kept" if keep_session else "deleted"
+    late_status = dict.fromkeys(late, status)
+    if keep_session:
+        return late_status
+    safety.append_audit(
+        "accounts-remove", alias, {"roles": late_status, "keep_session": False}
+    )
+    for role_path in chain.from_iterable(late.values()):
+        # A login promoting this role holds its lock only briefly; failing
+        # here would leave a live key after the config block is gone.
+        with session.session_file_lock(
+            role_path, busy_error=PolicyError, wait=session.BUSY_WAIT_SECONDS
+        ):
+            _unlink_with_backup(role_path)
+    return late_status
 
 
 def _remove_role(
@@ -218,33 +267,48 @@ def _remove_role(
             "without --confirm"
         )
     account = config.accounts[alias]
-    path = session.session_path(account, role=role)
-    if not path.is_file():
+    # A case-sensitive filesystem can hold one logical role under several
+    # spellings; each is a live key, so every one of them goes.
+    paths = [
+        role_path
+        for name, role_paths in session.role_session_files(account).items()
+        if name.casefold() == role.casefold()
+        for role_path in role_paths
+    ]
+    if not paths:
         raise NotFoundError(
             f"session role {role!r} for account {alias!r} does not exist"
         )
-    bak = Path(str(path) + ".bak")
     session.ensure_state_dir("sessions")
-    with session.session_file_lock(path, busy_error=PolicyError):
-        backup_existed = bak.is_file()
-        safety.append_audit(
-            "accounts-remove-role",
-            alias,
-            {
-                "role": role,
-                "session": "deleted",
-                "backup": "deleted" if backup_existed else "absent",
-            },
-        )
-        path.unlink(missing_ok=True)
-        bak.unlink(missing_ok=True)
-        return {
-            "alias": alias,
-            "role": role,
-            "config": "unchanged",
-            "session": "deleted",
-            "backup": "deleted" if backup_existed else "absent",
+    with _lock_sessions(paths):
+        statuses = {
+            "session": _any_status(paths),
+            "backup": _any_status(Path(str(path) + ".bak") for path in paths),
         }
+        safety.append_audit("accounts-remove-role", alias, {"role": role, **statuses})
+        for path in paths:
+            _unlink_with_backup(path)
+        return {"alias": alias, "role": role, "config": "unchanged", **statuses}
+
+
+@contextmanager
+def _lock_sessions(paths: Iterable[Path]) -> Iterator[None]:
+    """Hold every session's lock. On a case-insensitive filesystem two role
+    spellings share one lock file, and a second flock on it from this
+    process would report it busy, so a lock already held is not taken twice."""
+    held: list[Path] = []
+    with ExitStack() as locks:
+        for path in paths:
+            lock = path.with_suffix(".lock")
+            if any(lock.exists() and lock.samefile(other) for other in held):
+                continue
+            locks.enter_context(session.session_file_lock(path, busy_error=PolicyError))
+            held.append(lock)
+        yield
+
+
+def _any_status(paths: Iterable[Path]) -> str:
+    return "deleted" if any(path.is_file() for path in paths) else "absent"
 
 
 def remove_rows(data: dict) -> list[tuple]:

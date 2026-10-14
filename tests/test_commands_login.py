@@ -846,3 +846,116 @@ def test_initial_login_rejects_code_without_continue(env, capsys):
         ]
     )
     assert code == 2
+
+
+@pytest.mark.parametrize("role", [None, "bot"])
+def test_login_finishing_after_its_account_was_removed_leaves_no_session(
+    env, fake_client, monkeypatch, capsys, role
+):
+    """`accounts remove` can run while `--continue` waits on Telegram, after
+    the continue already loaded config. The promoted session then outlived a
+    remove that reported success: a live key for an account that is gone."""
+    from tgcli.commands import accounts as accounts_cmd
+
+    env["config"].write_text(
+        SAMPLE + '\n[accounts.work]\napi_id = 5\napi_hash = "hw"\nsession = "work"\n'
+    )
+    start = ["accounts", "login", "work", "--phone", PHONE, "--json"]
+    if role is not None:
+        start += ["--role", role]
+    assert main(start) == 0
+    login_id = json.loads(capsys.readouterr().out)["login_id"]
+
+    sign_in = fake_client.sign_in
+
+    async def remove_while_signing_in(*args, **kwargs):
+        accounts_cmd.remove_account(
+            load_config(), "work", confirm=True, keep_session=False
+        )
+        return await sign_in(*args, **kwargs)
+
+    monkeypatch.setattr(fake_client, "sign_in", remove_while_signing_in)
+
+    code = main(
+        ["accounts", "login", "--continue", login_id, "--code", "12345", "--json"]
+    )
+
+    assert code == 4
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "NOT_FOUND"
+    sessions = env["state"] / "sessions"
+    assert [p.name for p in sessions.glob("work*") if p.suffix != ".lock"] == []
+    assert "work" not in load_config().accounts
+
+
+def test_login_after_a_keep_session_remove_restores_the_kept_session(
+    env, fake_client, monkeypatch, capsys
+):
+    """`accounts remove --keep-session` racing `--continue`: promote moved the
+    kept session to `.bak`, then the discard deleted both, so the session the
+    remove reported as kept was gone."""
+    from tgcli.commands import accounts as accounts_cmd
+
+    env["config"].write_text(
+        SAMPLE + '\n[accounts.work]\napi_id = 5\napi_hash = "hw"\nsession = "work"\n'
+    )
+    kept = env["state"] / "sessions" / "work.session"
+    kept.write_bytes(b"kept-key")
+    assert main(["accounts", "login", "work", "--phone", PHONE, "--json"]) == 0
+    login_id = json.loads(capsys.readouterr().out)["login_id"]
+
+    sign_in = fake_client.sign_in
+
+    async def remove_while_signing_in(*args, **kwargs):
+        accounts_cmd.remove_account(
+            load_config(), "work", confirm=True, keep_session=True
+        )
+        return await sign_in(*args, **kwargs)
+
+    monkeypatch.setattr(fake_client, "sign_in", remove_while_signing_in)
+
+    code = main(
+        ["accounts", "login", "--continue", login_id, "--code", "12345", "--json"]
+    )
+
+    assert code == 4
+    assert kept.read_bytes() == b"kept-key"
+    assert not Path(str(kept) + ".bak").exists()
+
+
+def test_login_discard_waits_for_a_busy_session_lock(
+    env, fake_client, monkeypatch, capsys
+):
+    """The discard took the session lock without waiting: a lock held for a
+    moment (a concurrent remove) turned it into exit 2 and left the new
+    session of a removed account in place."""
+    import fcntl
+    import threading
+
+    from tgcli.commands import accounts as accounts_cmd
+
+    env["config"].write_text(
+        SAMPLE + '\n[accounts.work]\napi_id = 5\napi_hash = "hw"\nsession = "work"\n'
+    )
+    assert main(["accounts", "login", "work", "--phone", PHONE, "--json"]) == 0
+    login_id = json.loads(capsys.readouterr().out)["login_id"]
+    dest = env["state"] / "sessions" / "work.session"
+    promote = login_state.promote
+
+    def promote_then_lock_held_briefly(*args, **kwargs):
+        accounts_cmd.remove_account(
+            load_config(), "work", confirm=True, keep_session=True
+        )
+        backup = promote(*args, **kwargs)
+        handle = dest.with_suffix(".lock").open("w")
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        threading.Timer(0.3, handle.close).start()
+        return backup
+
+    monkeypatch.setattr(login_state, "promote", promote_then_lock_held_briefly)
+
+    code = main(
+        ["accounts", "login", "--continue", login_id, "--code", "12345", "--json"]
+    )
+
+    assert code == 4
+    assert not dest.exists()

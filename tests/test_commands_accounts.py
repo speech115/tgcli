@@ -222,6 +222,114 @@ def test_remove_deletes_the_accounts_role_sessions_too(env, capsys):
     assert record["roles"] == {"bot": "deleted"}
 
 
+def test_remove_deletes_a_role_left_with_only_its_backup(env, capsys):
+    """A login promote interrupted after moving the role session to `.bak`
+    leaves only the backup, a live key. Role discovery saw only `*.session`,
+    so remove reported success and left the backup unreachable."""
+    _session(env, "work")
+    orphan = env["state"] / "sessions" / "work@bot.session.bak"
+    orphan.write_bytes(b"live-key")
+
+    assert main(["accounts", "remove", "work", "--confirm", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["roles"] == {"bot": "deleted"}
+    assert not orphan.exists()
+
+
+def test_remove_deletes_every_spelling_of_a_role(env, capsys):
+    """On a case-sensitive filesystem a leftover `WORK@bot.session.bak` and a
+    fresh `work@bot.session` are two keys of one role; discovery kept one path
+    per role name, so remove reported success and left the other."""
+    _session(env, "work")
+    sessions = env["state"] / "sessions"
+    old = sessions / "WORK@bot.session.bak"
+    old.write_bytes(b"old-key")
+    new = _session(env, "work@bot")
+
+    assert main(["accounts", "remove", "work", "--confirm", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["roles"] == {"bot": "deleted"}
+    assert not old.exists()
+    assert not new.exists()
+
+
+def test_remove_deletes_a_role_promoted_while_the_config_was_rewritten(
+    env, monkeypatch, capsys
+):
+    """A role login that promotes after remove listed the roles but before
+    the config block is gone must not survive a successful remove."""
+    _session(env, "work")
+    late = env["state"] / "sessions" / "work@bot.session"
+    replace_text = accounts_cmd.atomic.replace_text
+
+    def promote_during_config_write(path, text):
+        if Path(path) == env["config"]:
+            late.write_bytes(b"live-key")
+        replace_text(path, text)
+
+    monkeypatch.setattr(
+        accounts_cmd.atomic, "replace_text", promote_during_config_write
+    )
+
+    assert main(["accounts", "remove", "work", "--confirm", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["roles"] == {"bot": "deleted"}
+    assert not late.exists()
+    records = [
+        json.loads(line)
+        for line in audit_path().read_text().splitlines()
+        if json.loads(line)["action"] == "accounts-remove"
+    ]
+    assert records[-1]["roles"] == {"bot": "deleted"}
+
+
+def test_remove_refuses_when_a_multiline_string_looks_like_table_headers(env, capsys):
+    """Lines inside a multi-line string were read as table headers, so part
+    of an unrelated value was dropped silently."""
+    env["config"].write_text(
+        SAMPLE.replace(
+            'session = "main"\n',
+            'session = "main"\nnotes = """\n[accounts.work]\nkeep me\n[other]\n"""\n',
+        )
+    )
+    before = env["config"].read_text()
+    path = _session(env, "work")
+
+    assert main(["accounts", "remove", "work", "--confirm", "--json"]) == 3
+
+    assert env["config"].read_text() == before
+    assert path.exists()
+
+
+def test_remove_waits_for_a_late_role_lock_instead_of_failing_midway(
+    env, monkeypatch, capsys
+):
+    """A late role whose lock a promote still held made remove exit 2 after
+    the config block and sessions were already gone."""
+    import threading
+
+    _session(env, "work")
+    late = env["state"] / "sessions" / "work@bot.session"
+    replace_text = accounts_cmd.atomic.replace_text
+
+    def promote_during_config_write(path, text):
+        if Path(path) == env["config"]:
+            late.write_bytes(b"live-key")
+            handle = late.with_suffix(".lock").open("w")
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            threading.Timer(0.3, handle.close).start()
+        replace_text(path, text)
+
+    monkeypatch.setattr(
+        accounts_cmd.atomic, "replace_text", promote_during_config_write
+    )
+
+    assert main(["accounts", "remove", "work", "--confirm", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["roles"] == {"bot": "deleted"}
+    assert not late.exists()
+
+
 def test_remove_keep_session_keeps_role_sessions(env, capsys):
     _session(env, "work")
     role = _session(env, "work@bot")

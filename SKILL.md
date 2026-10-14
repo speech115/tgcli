@@ -52,7 +52,7 @@ selected account session, does one operation, and exits.
 | Offline archive search | `tg --json archive search QUERY [--chat CHAT] [--from SENDER] [--since ISO] [--until ISO] [--kind KIND] [--transcripts-only] [--sort {relevance,date}] [--limit N] [--page N]` |
 | Offline archive timeline | `tg --json archive read CHAT [--around-id ID | --around-date ISO] [--since ISO] [--until ISO] [--limit N]` |
 | Offline archive history | `tg --json archive history CHAT MESSAGE_ID` |
-| Remove a configured account | `tg --json accounts remove ALIAS --confirm` |
+| Remove a configured account | `tg --json accounts remove ALIAS --confirm` (also deletes its role sessions; JSON `roles` maps each to `deleted`/`kept`) |
 | Remove one session role | `tg --json accounts remove ALIAS --role job --confirm` |
 | The session died / a new machine | `tg --json accounts login ALIAS …` then `tg --json accounts show ALIAS` |
 | List dialogs | `tg --json dialogs --limit 50` |
