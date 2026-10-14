@@ -7,6 +7,7 @@ from pathlib import Path
 import telethon
 
 from tgcli import safety, session
+from tgcli.clone import lookup as clone_lookup
 from tgcli.config import Config, default_config_path, resolve_account
 from tgcli.errors import ConfigError, PolicyError
 from tgcli.output import note
@@ -139,7 +140,23 @@ def _runtime_fingerprint() -> dict[str, str]:
         "python": sys.executable,
         "python_version": sys.version.split()[0],
         "telethon": telethon.__version__,
+        "aes": _aes_backend(),
     }
+
+
+def _aes_backend() -> str:
+    """The AES-IGE backend Telethon picked: cryptg, then OpenSSL, then pyaes.
+
+    pyaes is pure Python and about 150x slower than cryptg on large media;
+    `uv sync --extra fast` installs cryptg.
+    """
+    from telethon.crypto import aes
+
+    if aes.cryptg is not None:
+        return "cryptg"
+    if aes.libssl.decrypt_ige:
+        return "libssl"
+    return "pyaes"
 
 
 def _local_ok(checks: dict) -> bool:
@@ -314,8 +331,15 @@ async def run(
                 "(no --readonly, no TGCLI_READONLY=1)"
             )
         )
+    legacy = clone_lookup.legacy_json_slots()
+    if legacy:
+        note(
+            f"{len(legacy)} legacy JSON clone slot(s) under clones/; "
+            "`tg clone status` imports a readable one"
+        )
     return {
         "runtime": _runtime_fingerprint(),
+        "legacy_clone_slots": legacy,
         "accounts": reports,
         "ok": all(report["ok"] for report in reports),
     }

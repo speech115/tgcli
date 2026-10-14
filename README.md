@@ -53,6 +53,8 @@ uv sync
 uv run tg --help
 ```
 
+On Apple Silicon or Linux, syncing with the `fast` extra also installs `cryptg`, native AES for Telethon that makes large media transfers much faster; `tg doctor` reports the backend in use as `runtime.aes`.
+
 ### Put `tg` on your PATH
 
 ```bash
