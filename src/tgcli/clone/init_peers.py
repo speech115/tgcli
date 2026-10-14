@@ -132,8 +132,12 @@ async def init_discussion(
     if linked is None:
         clone_state.comments = "none"
         return state.save(clone_state)
+    # Only "none" (the source unlinked its group for a while) relinks; an
+    # "unavailable" degrade cleared the comment map while the destination
+    # group still holds the copied comments.
     relinking = (
-        clone_state.discussion_linked
+        clone_state.comments == "none"
+        and clone_state.discussion_linked
         and clone_state.discussion_source_peer_id == linked
     )
     if clone_state.comments != "enabled" and clone_state.id_map and not relinking:

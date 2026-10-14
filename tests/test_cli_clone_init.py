@@ -1296,6 +1296,54 @@ def test_plain_reinit_restores_comments_when_source_relinks_same_group(
     assert saved.discussion_linked is True
 
 
+def test_plain_reinit_keeps_clone_degraded_by_sync_unavailable(
+    config_env, monkeypatch, capsys
+):
+    """A sync that degraded comments to "unavailable" cleared the comment
+    cursor and map but left the link. Re-enabling it would re-copy comments
+    onto a group that already holds them, so a plain re-init keeps the
+    marker even when the same group reads fine again."""
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel"
+    )
+    clone_state.creation_marker = f"tgcli-clone-{clone_state.clone_id[:12]}"
+    clone_state.destination_peer_id = 999
+    clone_state.comments = "unavailable"
+    clone_state.discussion_source_peer_id = 777
+    clone_state.discussion_destination_peer_id = 1001
+    clone_state.discussion_linked = True
+    for source_id in range(1, 51):
+        clone_state.record_mapping(source_id, source_id + 1000)
+    state.save(clone_state)
+    client = CloneInitClient()
+    client.destination = channel(999, "[Clone] Source channel", creator=True)
+    client.discussion = channel(
+        1001,
+        "[Clone] Source chat",
+        creator=True,
+        broadcast=False,
+        megagroup=True,
+        forum=False,
+    )
+    client.linked = linked_group()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["clone"]["comments"] == "unavailable"
+    assert "--replace" in captured.err
+    assert state.load(clone_state.clone_id).comments == "unavailable"
+    assert not any(
+        isinstance(item, functions.channels.SetDiscussionGroupRequest)
+        for item in client.requests
+    )
+
+
 def test_plain_reinit_upgrades_unavailable_clone_with_no_copied_posts(
     config_env, monkeypatch, capsys
 ):
