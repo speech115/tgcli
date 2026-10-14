@@ -17,6 +17,7 @@ from tgcli.commands import (
     search as search_cmd,
     thread as thread_cmd,
 )
+from tgcli.parser import command_key
 
 
 @dataclass(frozen=True)
@@ -306,23 +307,21 @@ _SPECS: dict[str, _Spec] = {
 }
 
 
-def _cli_op_name(args) -> str | None:
-    """The op a CLI invocation maps to, or None if it is not a read command.
+# Read commands whose op name is not their command path.
+_CLI_OPS = {
+    "contacts list": "contacts.list",
+    "contacts search": "contacts.search",
+    "draft list": "draft.list",
+    "draft show": "draft.show",
+    "media manifest": "media.manifest",
+}
 
-    Two commands fan out to more than one op; every other read command's name
-    is its op name.
-    """
-    if args.command == "contacts":
-        return "contacts.list" if args.contacts_command == "list" else "contacts.search"
-    if args.command == "media":
-        return "media.manifest" if args.media_command == "manifest" else None
-    if args.command == "draft":
-        if args.draft_command == "show":
-            return "draft.show"
-        if args.draft_command == "list":
-            return "draft.list"
-        return None
-    return args.command if args.command in _SPECS else None
+
+def _cli_op_name(args) -> str | None:
+    """The op a CLI invocation maps to, or None if it is not a read command."""
+    key = command_key(args)
+    name = _CLI_OPS.get(key, key)
+    return name if name in _SPECS else None
 
 
 def from_cli(args) -> ReadOperation | None:

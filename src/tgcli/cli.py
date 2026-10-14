@@ -25,16 +25,8 @@ from tgcli import (
     output,
     preflight,
     preview_commit,
+    registry,
     safety,
-    session,
-)
-from tgcli.archive import offline as archive_offline
-from tgcli.commands import (
-    accounts as accounts_cmd,
-    clone as clone_cmd,
-    doctor as doctor_cmd,
-    login as login_cmd,
-    store as store_cmd,
 )
 from tgcli.config import load_config, resolve_account
 from tgcli.errors import CommandTimeoutError, PartialFailure, TgcliError
@@ -110,47 +102,19 @@ def _restore_diagnostics(configured) -> None:
         logger.propagate = propagate
 
 
-def _default_timeout(args) -> float | None:
-    """The default deadline (CONTRACT §1): 60 s, a hang detector.
-
-    Governed sleep never counts against it (ADR-0072 decision 6), and
-    long-running commands keep no implicit deadline — CONTRACT §1 lists
-    them; only explicit `--timeout`/`--max-runtime` bounds them.
-    """
-    if (
-        args.command == "accounts"
-        and args.subcommand == "login"
-        and getattr(args, "continue_id", None)
-    ):
-        return None
-    if args.command == "transcribe":
-        return 120.0
-    if _long_running_command(args):
-        return None
-    return 60.0
-
-
-def _long_running_command(args) -> bool:
-    """Commands CONTRACT §1 exempts from the implicit 60 s deadline."""
-    return (
-        args.command == "media"
-        or args.command == "export"
-        or (args.command == "clone" and args.clone_command in ("init", "sync"))
-        or (
-            args.command == "archive"
-            and args.archive_command in ("backfill", "sync", "transcribe")
-        )
-    )
-
-
 def _apply_global_defaults(args) -> None:
-    """Backfill global flags argparse suppressed on the subparser it matched."""
+    """Backfill global flags argparse suppressed on the subparser it matched.
+
+    The default deadline (CONTRACT §1) is 60 s, a hang detector: governed
+    sleep never counts against it (ADR-0072 decision 6), and long-running
+    commands keep none — each command declares its own in `tgcli.registry`.
+    """
     defaults = {
         "account": None,
         "json": False,
         "plain": False,
         "readonly": False,
-        "timeout": _default_timeout(args),
+        "timeout": registry.lookup(args).default_timeout(args),
         "verbose": False,
     }
     for name, default in defaults.items():
@@ -224,10 +188,6 @@ def _honest_termination():
     finally:
         for number, handler in previous:
             signal.signal(number, handler)
-
-
-async def _run_network(args, account) -> tuple[dict, list[tuple]]:
-    return await dispatch.run_network(args, account)
 
 
 class _DeadlineExpired(Exception):
@@ -310,145 +270,48 @@ def _silence_stdout() -> None:
     os.close(devnull)
 
 
-def _audit_before(args, account) -> None:
+def _audit_before(args, account, spec: registry.Command) -> None:
     preview_commit.audit_before(args, account)
-    if args.command == "transcribe":
-        safety.append_audit(
-            args.command,
-            account.alias,
-            {"chat": args.chat, "message_id": args.message_id},
-        )
+    if spec.audit is not None:
+        safety.append_audit(args.command, account.alias, spec.audit(args))
 
 
-def _audit_after(args, account, data) -> None:
-    preview_commit.audit_after(args, account, data)
-
-
-def _execute(args) -> tuple[dict, list[tuple]]:
+def _execute(args, spec: registry.Command) -> tuple[dict, list[tuple]]:
     """Run one prepared invocation, opening only the resources it needs."""
-    if args.command == "clone" and args.clone_command == "status":
-        data = clone_cmd.list_clones(
-            args.source,
-            include_all=args.all_slots,
-            read_only=not safety.local_mutation_allowed(args.readonly),
-        )
-        if data["pending_import"] and not args.all_slots:
-            output.note(
-                f"{data['pending_import']} state slot(s) cannot be imported and "
-                "are not listed; see them with: tg clone status --all"
-            )
-        for entry in data["clones"]:
-            if clone_cmd.half_initialized(entry):
-                output.note(
-                    f"clone {entry['source']['id']} has comments enabled but no "
-                    "linked discussion group; finish it with: tg clone init "
-                    f"{entry['source']['id']}"
-                )
-        return data, clone_cmd.status_rows(data)
-    if args.command == "clone" and args.clone_command == "export-state":
-        data = clone_cmd.export_state(
-            args.source, read_only=not safety.local_mutation_allowed(args.readonly)
-        )
-        return data, []
-    if args.command == "store" and args.store_command == "stats":
-        data = store_cmd.stats(session.state_dir())
-        return data, store_cmd.stats_rows(data)
-    if args.command == "store" and args.store_command == "cleanup":
-        if args.confirm:
-            safety.enforce_local_mutation_allowed(args.readonly)
-        data = store_cmd.cleanup(
-            session.state_dir(),
-            older_than=getattr(args, "older_than", None),
-            include_pending=bool(getattr(args, "include_pending", False)),
-            confirm=bool(args.confirm),
-        )
-        return data, store_cmd.cleanup_rows(data)
-
+    if spec.needs == "none":
+        return spec.run(args)
     config = load_config()
-    offline = archive_offline.execute(args, config)
-    if offline is not None:
-        return offline
-    if args.command == "accounts" and args.subcommand == "show":
-        data = accounts_cmd.show_account(config, args.alias)
-        return data, accounts_cmd.show_rows(data)
-    if args.command == "accounts" and args.subcommand == "remove":
-        if args.confirm:
-            safety.enforce_local_mutation_allowed(args.readonly)
-        data = accounts_cmd.remove_account(
-            config,
-            args.alias,
-            confirm=bool(args.confirm),
-            keep_session=bool(getattr(args, "keep_session", False)),
-            role=getattr(args, "remove_role", None),
-        )
-        return data, accounts_cmd.remove_rows(data)
-    if args.command == "accounts" and args.subcommand == "login":
-        if getattr(args, "continue_id", None):
-            data = asyncio.run(
-                login_cmd.continue_login(
-                    login_id=args.continue_id,
-                    code=getattr(args, "code", None),
-                    password_stdin=bool(getattr(args, "password_stdin", False)),
-                )
-            )
-        else:
-            data = asyncio.run(
-                login_cmd.start_login(
-                    config,
-                    args.alias,
-                    phone=args.phone,
-                    api_id=getattr(args, "api_id", None),
-                    api_hash=getattr(args, "api_hash", None),
-                    force=bool(getattr(args, "force", False)),
-                    role=getattr(args, "login_role", None),
-                )
-            )
-        return data, login_cmd.login_rows(data)
-    if args.command == "accounts":
-        data = accounts_cmd.list_accounts(config)
-        return data, accounts_cmd.to_rows(data)
-    if args.command == "doctor":
-        connect = bool(getattr(args, "connect", False))
-        coro = doctor_cmd.run(
-            config, args.account, connect=connect, readonly=args.readonly
-        )
-        if connect:
-            data = _run_with_deadline(coro, args.timeout)
-        else:
-            data = asyncio.run(coro)
-        return data, doctor_cmd.to_rows(data)
-
-    return _execute_network(args, config)
+    if spec.needs == "config":
+        return spec.run(args, config)
+    return _execute_network(args, config, spec)
 
 
-def _execute_network(args, config) -> tuple[dict, list[tuple]]:
+def _execute_network(args, config, spec: registry.Command) -> tuple[dict, list[tuple]]:
     """Own account resolution, audit context, and one network invocation."""
     account = resolve_account(config, args.account)
     args.account = account.alias
     if args.verbose:
         LOGGER.debug("resolved account=%s command=%s", account.alias, args.command)
     # The audit role must cover every append_audit call this invocation makes,
-    # not just the network coroutine's client window: _audit_before/_audit_after
+    # not just the network coroutine's client window: the before/after audits
     # below run outside dispatch.run_network, so setting it only there (as
     # dispatch used to) left the cli-level mutation audit rows without "role"
     # (CONTRACT.md §9, ADR-0062).
     token = safety.set_audit_role(getattr(args, "session_role", None))
     try:
-        _audit_before(args, account)
-        network = _run_network(args, account)
+        _audit_before(args, account, spec)
+        network = dispatch.run_network(args, account)
         data, rows = _run_with_deadline(network, args.timeout)
-        _audit_after(args, account, data)
+        preview_commit.audit_after(args, account, data)
         return data, rows
     finally:
         safety.reset_audit_role(token)
 
 
-def _emit(args, data, rows) -> None:
-    if args.command == "clone" and args.clone_command == "export-state":
-        # CONTRACT: export-state's stdout IS the v2 JSON document (ADR-0060).
-        output.emit_json(data)
-        return
-    if args.json:
+def _emit(args, spec: registry.Command, data, rows) -> None:
+    if spec.emit == "none":
+        return  # the command owns stdout and already wrote it
+    if spec.emit == "document" or args.json:
         output.emit_json(data)
     elif args.plain:
         output.emit_plain(rows)
@@ -495,6 +358,7 @@ def main(argv: list[str] | None = None) -> int:
     if isinstance(parsed, int):
         return parsed
     args = parsed
+    spec = registry.lookup(args)
     _apply_global_defaults(args)
     from tgcli.governor import pacing
 
@@ -508,16 +372,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with _honest_termination():
             with _armed(args.timeout):
-                preflight.prepare(parser, args)
-                data, rows = _execute(args)
+                preflight.prepare(parser, args, spec)
+                data, rows = _execute(args, spec)
             result_data = data
             # Emitting is part of the invocation: a failure here is journaled,
             # not reported as a success.
-            if args.command == "run":
-                exit_code = 0  # the script owns stdout and already wrote it
-            else:
-                _emit(args, data, rows)
-                exit_code = 0
+            _emit(args, spec, data, rows)
+            exit_code = 0
     except SystemExit:
         # parser.error() already wrote usage to stderr, but a --json caller is
         # still owed exactly one document on stdout (CONTRACT §2).
