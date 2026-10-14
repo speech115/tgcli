@@ -44,7 +44,7 @@ def _older_than_type(value: str):
         raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
-def build_parser() -> argparse.ArgumentParser:
+def _global_flags() -> _Parser:
     global_flags = _Parser(add_help=False, argument_default=argparse.SUPPRESS)
     global_flags.add_argument("--account", help="account alias from config")
     global_flags.add_argument(
@@ -66,7 +66,15 @@ def build_parser() -> argparse.ArgumentParser:
         "exit 0 with a resume pointer (governed sleep counts against it)",
     )
     global_flags.add_argument("-v", "--verbose", action="store_true")
+    return global_flags
 
+
+# Dests every subcommand accepts; not part of any one command's arguments.
+GLOBAL_DESTS = frozenset(action.dest for action in _global_flags()._actions)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    global_flags = _global_flags()
     parser = _Parser(
         prog="tg", description="Stateless Telegram CLI", parents=[global_flags]
     )
@@ -336,10 +344,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_send.add_argument(
         "--format",
         choices=FORMATS,
-        default="md",
+        default=None,
         dest="format",
         help=(
-            "rich-text format of TEXT/caption "
+            "rich-text format of TEXT/caption, default md "
             "(html supports quote/spoiler/custom emoji)"
         ),
     )
@@ -360,9 +368,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_edit.add_argument(
         "--format",
         choices=FORMATS,
-        default="plain",
+        default=None,
         dest="format",
-        help="rich-text format of TEXT (html supports quote/spoiler/custom emoji)",
+        help=(
+            "rich-text format of TEXT, default plain "
+            "(html supports quote/spoiler/custom emoji)"
+        ),
     )
     p_edit.add_argument("--preview", action="store_true")
     p_edit.add_argument("--commit", metavar="PREVIEW_ID")

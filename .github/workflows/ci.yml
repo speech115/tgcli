@@ -5,23 +5,27 @@ on:
   push:
     branches: [main]
 
-# One full gate per PR, and again on main after a squash merge, so the merged
-# combination of PRs is checked too. GitHub-hosted macOS: the target platform,
-# and a public repository's fork PRs must not run on the owner's Mac (ADR-0121).
-# A new push to a PR cancels its superseded run. Every push to main gets its own
-# group: GitHub keeps only one pending run per group and cancels the rest, so a
-# shared main group would drop checks even with cancel-in-progress off.
 permissions:
   contents: read
 
+# One full gate per PR, and again on main after a squash merge, so the merged
+# combination of PRs is checked too. A new push to a PR cancels its superseded
+# run. Every push to main gets its own group: GitHub keeps only one pending run
+# per group and cancels the rest, so a shared main group would drop checks even
+# with cancel-in-progress off.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# The gate (scripts/gate.sh) split into two jobs that run side by side, so the
+# wall time is the test suite alone instead of tests plus static checks.
 jobs:
-  test:
-    name: test
-    runs-on: macos-latest
+  checks:
+    # Static checks do not depend on the OS; Linux runners start sooner.
+    # Pyright is pinned to Darwin in pyproject.toml, so it checks the same
+    # branches as on the Mac.
+    name: checks
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -39,12 +43,26 @@ jobs:
         run: uv run python scripts/check-architecture.py
       - name: Type check
         run: uv run pyright
+      - name: Check Telethon coverage matrix
+        run: uv run python scripts/check-coverage.py
+      - name: Check docs against the CLI surface
+        run: uv run python scripts/check-docs.py
+
+  test:
+    # GitHub-hosted macOS: the target platform, and a public repository's fork
+    # PRs must not run on the owner's Mac (ADR-0121). The job name is the
+    # required status check on main.
+    name: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --frozen
       - name: Run tests
         # Same hostile values as scripts/gate.sh: tests set their own env.
         run: env TGCLI_READONLY=1 TGCLI_ACCOUNT=gate-isolation uv run pytest -q -n auto --ignore=tests/live
       - name: Run opt-in live smoke (skipped unless TGCLI_LIVE_SMOKE=1)
         run: uv run pytest -q tests/live
-      - name: Check Telethon coverage matrix
-        run: uv run python scripts/check-coverage.py
-      - name: Check docs against the CLI surface
-        run: uv run python scripts/check-docs.py

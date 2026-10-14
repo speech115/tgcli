@@ -74,8 +74,8 @@ selected account session, does one operation, and exits.
 | List / search contacts | `tg --json contacts list` / `tg --json contacts search "query"` |
 | Media inventory (no download) | `tg --json media manifest @channel --type photo --limit 50` |
 | Reply chain | `tg --json thread CHAT MESSAGE_ID [--replies] [--depth 20]` |
-| Download media | `tg --json media download https://t.me/channel/42 --parallel 4` |
-| Bulk download media | `tg --json media download @chan --message-ids 1,2 --type video --since ISO --limit 50 --output DIR` (filters combine; max 100) |
+| Download media | `tg --json media download https://t.me/channel/42 --parallel 4` (unnamed photos and voice notes save as `media-<id>.jpg`/`.oga`) |
+| Bulk download media | `tg --json media download @chan --message-ids 1,2 --type video --since ISO --limit 50 --output DIR` (filters combine; max 100; files are named `<message_id>-<name>`; use one `--output` per chat) |
 | Download story media | `tg --json media download https://t.me/channel/s/937 [--codec h264|hevc|av1]` (stories are not messages; single download only) |
 | Transcribe a voice message | `tg --json transcribe @user 12345 [--timeout 120]` (Premium; waits for the server result) |
 | Preview a send | `tg --json send @channel "Hello" --preview` |
@@ -106,7 +106,9 @@ selected account session, does one operation, and exits.
 | Copy or catch up a chat | `tg --max-runtime 3600 --json clone sync SOURCE` |
 
 Send is deliberately two-step: preview first, then commit its single-use ID.
-Previews expire after five minutes.
+Previews expire after five minutes. The preview fixes every choice, so
+`--commit` takes nothing else (clone init keeps its SOURCE): a flag beside it,
+such as `--format` or `--replace`, is a usage error (exit 1).
 
 ## Formatting and custom emoji
 
@@ -235,8 +237,8 @@ top-level `ok` result.
   `tg --json archive rebaseline`. Later clean syncs keep it and return
   `gap: null`, so check `archive status` for it.
 - `clone sync` `participants.source` / `.discussion` with
-  `status: "deferred"` is retried next run: `reason` is `"flood_wait"` or a
-  Telegram error name. `"unavailable"` means Telegram refused access. These
+  `status: "deferred"` is retried next run: `reason` is `"flood_wait"`,
+  `"wall_clock_cap"` (`--max-runtime` ran out), or a Telegram error name. `"unavailable"` means Telegram refused access. These
   roster outcomes do not fail a sync whose messages copied.
 
 ## Account selection

@@ -32,7 +32,7 @@ from tgcli.output import note
 from tgcli.session import TRANSIENT_ERRORS
 
 
-def _entry(s: state.CloneState, cooldown_until: str | None) -> dict:
+def _entry(s: state.CloneState) -> dict:
     probe = state.probe(s.clone_id)
     return {
         "clone_id": s.clone_id,
@@ -48,7 +48,7 @@ def _entry(s: state.CloneState, cooldown_until: str | None) -> dict:
         },
         "cursor": s.cursor,
         "copied": len(s.id_map),
-        "cooldown_until": cooldown_until,
+        "cooldown_until": lookup.cooldown_until(s.account_user_id),
         "created_at": s.created_at,
         "last_synced_at": s.last_synced_at,
         "comments": s.comments,
@@ -119,29 +119,14 @@ def list_clones(
             continue
         if loaded is None or not lookup.matches(loaded, source):
             continue
-        cooldown = lookup.cooldown_until(loaded.account_user_id)
-        entries.append(_entry(loaded, cooldown))
+        entries.append(_entry(loaded))
     # An unreadable entry has no created_at at all (CONTRACT §11: every field
     # but clone_id is null), so it sorts ahead of every dated one.
     entries.sort(key=lambda entry: entry["created_at"] or "")
     return {"clones": entries, "pending_import": pending_import}
 
 
-def export_state(source: str, *, read_only: bool = False) -> dict:
-    """Readonly rollback/diagnostic path: the v2 JSON document for one clone."""
-    matches = [
-        loaded
-        for loaded in lookup.loaded_states(read_only=read_only)
-        if lookup.matches(loaded, source)
-    ]
-    if not matches:
-        raise PolicyError(f"clone not found: {source!r}")
-    if len(matches) > 1:
-        raise PolicyError(
-            f"clone export-state matched {len(matches)} clones for {source!r}; "
-            "narrow the source filter"
-        )
-    return matches[0].to_dict()
+export_state = lookup.export_state
 
 
 def status_rows(data: dict) -> list[tuple]:
@@ -710,10 +695,13 @@ async def _sync_slot(
     else:
         await run_posts_window(None)
 
+    # A run the cap stopped stopped early: no pin phase and no roster listing
+    # (CONTRACT §11), and `remaining` reflects the copy, not later phases.
+    capped = cap_exhausted()
     # ADR-0055: pin carry-over is broadcast-only; forum sync JSON omits `pinned`.
     pinned_result = None
     if not forum:
-        if not more:
+        if not more and not capped:
             pinned_result = await pin.sync_phase(
                 tg,
                 clone_state,
@@ -727,7 +715,11 @@ async def _sync_slot(
     if not warned_unstarted:
         clone_progress.comments_unstarted(clone_state)
     progress.phase("roster")
-    participants = await roster.collect(tg, clone_state, source_entity)
+    participants = (
+        roster.deferred(clone_state, "wall_clock_cap")
+        if cap_exhausted()  # the pin phase may have spent the rest of the cap
+        else await roster.collect(tg, clone_state, source_entity)
+    )
     clone_state.last_synced_at = datetime.now(UTC).isoformat()
     state.save(clone_state)
     data: dict = {
@@ -756,7 +748,7 @@ async def _sync_slot(
             **({"pinned": pinned_result} if pinned_result is not None else {}),
         },
     }
-    data["remaining"] = bool(more or cap_exhausted())
+    data["remaining"] = bool(more or capped)
     if quote_flattened:
         raise PartialFailure(
             f"clone sync finished with {len(quote_flattened)} quote fallback(s)",
@@ -764,7 +756,7 @@ async def _sync_slot(
             cause=PolicyError("clone planted quote fallback(s)"),
             rows=sync_rows(data),
         )
-    if cap_exhausted() and not more:
+    if capped and not more:
         # --max-runtime exhausted: a normal stop, not an error — the cursor
         # advanced and the next invocation resumes (ADR-0072 decision 6).
         data["stop_reason"] = "wall_clock_cap"  # type: ignore[index]

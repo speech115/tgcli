@@ -128,8 +128,10 @@ def test_untranslated_failure_journals_its_exception_type(tmp_path, monkeypatch)
 
 
 TERMINATION_PROGRAM = """
+import os
+import select
+import signal
 import sys
-import time
 
 from tgcli import cli
 
@@ -138,9 +140,16 @@ class BlockingStdin:
     "Announce that the invocation is running, then wait to be signalled."
 
     def read(self):
+        # Not time.sleep: a signal landing after the interpreter's last check
+        # but before the sleep syscall is not seen until the sleep ends, so the
+        # child outlived the parent's wait. The wakeup fd records every signal,
+        # so select returns at once even for one that arrived before it.
+        wake_read, wake_write = os.pipe()
+        os.set_blocking(wake_write, False)
+        signal.set_wakeup_fd(wake_write)
         sys.stderr.write("READY\\n")
         sys.stderr.flush()
-        time.sleep(30)
+        select.select([wake_read], [], [], 30)
         return ""
 
 

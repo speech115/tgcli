@@ -380,7 +380,9 @@ preview after any blocked commit.
 
 The command accepts public `t.me/<username>/<message_id>` and private
 `t.me/c/<channel_id>/<message_id>` links, or a chat reference plus message
-ID. Without `--output`, the final file is written to `~/Downloads`; an
+ID. Without `--output`, the final file is written to `~/Downloads` under the
+media's file name, or `media-<message_id><ext>` with the extension of its type
+(`.jpg` for a photo, `.bin` when unknown) when it has none; an
 existing final path is refused and never overwritten. Progress is emitted only
 to stderr. Single-stream transfer resumes a matching interrupted partial file
 from `~/.local/state/tgcli/downloads/`; `--parallel N` is opt-in, requires a
@@ -417,13 +419,18 @@ When explicit IDs and filters are combined, the filters apply to those
 messages and `--limit` caps the filtered downloads, preserving input-ID order.
 Do not combine a positional `message_id` with bulk flags (exit 2). Hard cap
 **100** downloads per invocation (`--message-ids` length and filter `--limit`;
-default filter limit 100). `--output` is a destination directory. Success /
-partial JSON:
+default filter limit 100). `--output` is a destination directory, and each
+file in it is named `<message_id>-<name>`, so two media of one chat with the
+same name never collide. Message ids are unique only within a chat: give each
+chat its own `--output` directory, or files of two chats that share an id and
+a name meet at one path. Success / partial JSON:
 `{"dialog":{…},"items":[{"message_id","path","bytes","resumed"}],"count":N,
 "failed":[{"message_id","error"}],"skipped":[{"message_id","reason"}]}`.
 `count` is the number of files downloaded in this run only. A per-item
 `output path already exists: …` becomes an additive `skipped` row and the
-loop continues. Per-item NotFound goes into `failed` and continues;
+loop continues; the file is never overwritten, and the CLI does not check that
+it came from the same message. An interrupted bulk download from before the
+`<message_id>-` prefix resumes under the new name. Per-item NotFound goes into `failed` and continues;
 FloodWait/auth/other policy failures stop the loop. Any non-empty `failed` →
 nonzero exit (typically 4) while still emitting the JSON document on
 `--json`; successful files remain on disk. Unbounded `--all` is not offered.
@@ -551,6 +558,12 @@ they may resolve or read a Telegram target and write a local preview record,
 but never send, edit, delete, or save a Telegram draft. They remain permitted with
 `--readonly`, `TGCLI_READONLY=1`, or `TGCLI_NO_SEND=1`. Those gates apply to
 `--commit` only, before configuration, session, audit, or mutation work.
+A `--commit` of any preview → commit command takes no other command argument
+or flag (global flags aside; `clone init` keeps its bound `SOURCE`): the
+preview already fixed them, so any of them beside `--commit` — `--format`
+included, and `clone init`'s `--replace` / `--no-comments` — is a usage error
+(`USAGE`, exit 1, "`<command> --commit accepts only a preview id`") before
+those gates.
 Every authorised send commit appends one JSON object to
 `~/.local/state/tgcli/audit.jsonl` (or `TGCLI_STATE_DIR/audit.jsonl`) before
 network dispatch, including the stored `random_id`; a successful confirmed
@@ -1244,8 +1257,14 @@ set to `[Clone] ` + the source group's display name (ADR-0044), then
 strictly before `sync` sends the first post. A linked source group that
 cannot be read (private, not a member) skips group creation entirely and
 sets `comments: "unavailable"`; a source with no linked group at all sets
-`comments: "none"`. Non-broadcast sources never attempt this and always
-report `comments: "none"`. Init's live ~15h FLOOD_WAIT window on rapid peer
+`comments: "none"`. A re-run of a clone whose `comments` is `"unavailable"`
+or `"none"` and that has already copied posts keeps that marker even when
+the linked group is now readable, unless a `"none"` clone was already linked to that
+same source group (the source unlinked it for a while; its posts have
+anchors, so the link is restored): it creates and links nothing, notes on
+stderr that `--replace` is the way to a clone with comments, and exits 0
+(those posts have no anchors; ADR-0023). Non-broadcast sources never attempt
+this and always report `comments: "none"`. Init's live ~15h FLOOD_WAIT window on rapid peer
 creation applies to up to two peers per run instead of one.
 
 Before creation, state with `destination_peer_id:null` and title marker
@@ -1630,8 +1649,8 @@ matching `GetFullUser` / `GetFullChat` for non-channel sources) on every
 completing run until resolved; a second `GetFullChannel` on the destination
 only on the run the source pin first becomes mappable; zero after resolution;
 plus one `messages.UpdatePinnedMessage` when a pin is actually placed. A run
-that stops early (`more:true`) never calls the pin phase and reports only
-what state already knows (`unmapped` / previously-resolved `set` /
+that stops early (`more:true`, or `--max-runtime` exhausted during copying)
+never calls the pin phase and reports only what state already knows (`unmapped` / previously-resolved `set` /
 `occupied`).
 
 `sync.poll_votes` is an additive list of per-poll markers from the ADR-0048
@@ -1649,7 +1668,11 @@ channel/chat, `discussion` = its linked comment group when
 `"deferred"` (FloodWait, `reason` `"flood_wait"`, or a Telegram-side failure,
 `reason` its error name; retried next run, partial results discarded, and the
 cooldown a FloodWait arms covers participant listing only, never message sync), or `"none"`
-(no discussion group). Collected participants are rewritten atomically to the
+(no discussion group). `--max-runtime` bounds the listing too: when the cap
+runs out during copying the roster is not listed at all (every peer
+`"deferred"` with `reason` `"wall_clock_cap"`, sidecar left as it was), and
+when it runs out after copying (in the pin phase or during the listing) the
+peer being listed and every peer not yet listed are deferred the same way; a run that copied everything still reports `remaining: false`. Collected participants are rewritten atomically to the
 JSONL sidecar at `participants.path` (one object per line, tagged `peer` plus
 the `export subscribers` columns). This snapshot is source-side only; the
 destination is never populated with collected users. The Telegram refusals
