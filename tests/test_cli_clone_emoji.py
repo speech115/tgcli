@@ -7,7 +7,7 @@ from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
 from tests.conftest import make_session_fake
-from tests.test_cli_clone_sync import (
+from tests.fakes.clone import (
     SAMPLE,
     CloneReuploadClient,
     message,

@@ -9,6 +9,7 @@ from telethon import errors as telethon_errors
 from telethon.tl import types
 
 from tests.conftest import TRANSIENT_ERRORS
+from tests.fakes.clone import discussion
 from tgcli.clone import (
     attribution,
     legs,
@@ -18,20 +19,6 @@ from tgcli.clone import (
     state,
     transport,
 )
-
-
-def _discussion(*, id_map=None, discussion_id_map=None, source_peer_id=2):
-    clone_state = state.CloneState.new(
-        account_user_id=1, source_peer_id=source_peer_id, source_title="src"
-    )
-    clone_state.comments = "enabled"
-    clone_state.discussion_source_peer_id = 4454061248
-    clone_state.discussion_destination_peer_id = 99
-    for source_id, destination_id in (id_map or {}).items():
-        clone_state.record_mapping(source_id, destination_id)
-    for source_id, destination_id in (discussion_id_map or {}).items():
-        clone_state.record_discussion_mapping(source_id, destination_id)
-    return legs.discussion(clone_state)
 
 
 def _posts(id_map=None):
@@ -188,7 +175,7 @@ def test_mapped_cross_leg_rewrites_via_post_map_and_destination_anchor():
         reply_to_top_id=2377,
     )
     messages = [_msg(2378, reply_to=header)]
-    leg = _discussion(id_map={789: 773}, discussion_id_map={2377: 901})
+    leg = discussion(id_map={789: 773}, discussion_id_map={2377: 901})
     plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
     client = FakeClient()
     ctx = _ctx(client, source_channel_id=2)
@@ -218,7 +205,7 @@ def test_foreign_peer_reachable_uses_native_quote_at_original():
         reply_to_top_id=2373,
     )
     messages = [_msg(2374, reply_to=header)]
-    leg = _discussion(discussion_id_map={2373: 900})
+    leg = discussion(discussion_id_map={2373: 900})
     plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
     client = FakeClient(
         entities={("channel", 2275285084): entity},
@@ -249,7 +236,7 @@ def test_foreign_peer_unreachable_renders_fallback():
         reply_to_top_id=2373,
     )
     messages = [_msg(2374, reply_to=header, message="author text")]
-    leg = _discussion(discussion_id_map={2373: 900})
+    leg = discussion(discussion_id_map={2373: 900})
     plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
     client = FakeClient()  # get_entity raises → unreachable
     ctx = _ctx(client)
@@ -277,7 +264,7 @@ def _forbidden_case(chats, *, history_error=None):
         reply_to_top_id=2373,
     )
     messages = [_msg(2374, reply_to=header, message="author text")]
-    leg = _discussion(discussion_id_map={2373: 900})
+    leg = discussion(discussion_id_map={2373: 900})
     plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
     # get_entity raises → unreachable
     client = FakeClient(chats=chats, history_error=history_error)
@@ -382,7 +369,7 @@ def test_reachable_then_rejected_degrades_to_fallback():
         quote_text="foreign quote",
     )
     messages = [_msg(2374, reply_to=header, message="author text")]
-    leg = _discussion()
+    leg = discussion()
     plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
     client = FakeClient(
         entities={("channel", 2275285084): entity},
@@ -424,7 +411,7 @@ def test_quiet_trap_utf16_offsets_after_quote_prefix_with_surrogate():
             entities=[author_entity],
         )
     ]
-    leg = _discussion()
+    leg = discussion()
     plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
     ctx = _ctx(FakeClient())
 
@@ -458,7 +445,7 @@ def test_quiet_trap_source_2374_never_uses_discussion_map_id_1244():
     )
     messages = [_msg(2374, reply_to=header)]
     # Poison: discussion map has an unrelated 1244 → 9999. Wrong map = silent bug.
-    leg = _discussion(discussion_id_map={1244: 9999, 2373: 900})
+    leg = discussion(discussion_id_map={1244: 9999, 2373: 900})
     plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
     assert replies.target(messages, leg, DISCUSSION_SOURCE).kind == "foreign-peer"
     ctx = _ctx(FakeClient())
@@ -492,7 +479,7 @@ def test_quiet_trap_a_foreign_parent_id_is_never_walked_against_the_group():
         quote_text="foreign quote",
     )
     messages = [_msg(2374, reply_to=header, message="author text")]
-    leg = _discussion(id_map={789: 773})
+    leg = discussion(id_map={789: 773})
     plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
     ctx = _threaded_ctx(FakeClient())
     # The group's own message 1244 happens to be the anchor of source post 789,
@@ -519,7 +506,7 @@ def test_degrade_keeps_the_thread_placement_the_rejected_send_resolved():
         reply_to_top_id=2373,
     )
     messages = [_msg(2374, reply_to=header, message="author text")]
-    leg = _discussion(id_map={789: 773})
+    leg = discussion(id_map={789: 773})
     plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
     client = FakeClient(
         entities={("channel", 2275285084): SimpleNamespace(id=2275285084, title="Ch")},
@@ -609,7 +596,7 @@ def test_send_with_degrade_retries_once_without_the_stale_quote():
             raise _bad_request("QUOTE_TEXT_INVALID")
         return "ok"
 
-    leg = _discussion(id_map={789: 773})
+    leg = discussion(id_map={789: 773})
     result = asyncio.run(
         quotes.send_with_degrade(
             send, messages, plan, leg, DISCUSSION_SOURCE, _ctx(FakeClient())
@@ -631,7 +618,7 @@ def test_send_with_degrade_reraises_unrelated_bad_requests():
     async def send(_current):
         raise _bad_request("MESSAGE_TOO_LONG")
 
-    leg = _discussion()
+    leg = discussion()
     with pytest.raises(telethon_errors.BadRequestError):
         asyncio.run(
             quotes.send_with_degrade(
@@ -646,7 +633,7 @@ def test_flattened_reply_kind_keeps_its_post_thread():
         reply_to_msg_id=2379, reply_to_top_id=2377, poll_option=b"0"
     )
     messages = [_msg(2380, reply_to=header)]
-    leg = _discussion(id_map={789: 773})
+    leg = discussion(id_map={789: 773})
     plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
     ctx = _threaded_ctx(FakeClient())
     ctx.anchors[2377] = 789

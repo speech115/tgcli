@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from telethon.tl import types
 
+from tests.fakes.clone import discussion
 from tgcli.clone import legs, replies, state
 from tgcli.errors import PolicyError
 
@@ -20,20 +21,6 @@ def _posts(id_map=None, *, discussion_source_peer_id=None, discussion_id_map=Non
     for source_id, destination_id in (discussion_id_map or {}).items():
         clone_state.record_discussion_mapping(source_id, destination_id)
     return legs.posts(clone_state)
-
-
-def _discussion(id_map=None, *, discussion_id_map=None, source_peer_id=2):
-    clone_state = state.CloneState.new(
-        account_user_id=1, source_peer_id=source_peer_id, source_title="src"
-    )
-    clone_state.comments = "enabled"
-    clone_state.discussion_source_peer_id = 4454061248
-    clone_state.discussion_destination_peer_id = 99
-    for source_id, destination_id in (id_map or {}).items():
-        clone_state.record_mapping(source_id, destination_id)
-    for source_id, destination_id in (discussion_id_map or {}).items():
-        clone_state.record_discussion_mapping(source_id, destination_id)
-    return legs.discussion(clone_state)
 
 
 def _msg(reply_to=None):
@@ -141,7 +128,7 @@ def test_cross_leg_target_not_yet_mapped_flattens():
     )
     classified = replies.target(
         [_msg(header)],
-        _discussion(discussion_id_map={2377: 901}),
+        discussion(discussion_id_map={2377: 901}),
         DISCUSSION_SOURCE,
         posts_cursor=789,
     )
@@ -161,7 +148,7 @@ def test_cross_leg_parent_beyond_posts_cursor_defers():
     )
     classified = replies.target(
         [_msg(header)],
-        _discussion(discussion_id_map={2377: 901}),
+        discussion(discussion_id_map={2377: 901}),
         DISCUSSION_SOURCE,
         posts_cursor=100,
     )
@@ -179,7 +166,7 @@ def test_cross_leg_parent_beyond_cursor_flattens_when_posts_exhausted():
     )
     classified = replies.target(
         [_msg(header)],
-        _discussion(discussion_id_map={2377: 901}),
+        discussion(discussion_id_map={2377: 901}),
         DISCUSSION_SOURCE,
         posts_cursor=100,
         posts_exhausted=True,
@@ -198,7 +185,7 @@ def test_cross_leg_parent_behind_cursor_still_flattens_when_absent():
     )
     classified = replies.target(
         [_msg(header)],
-        _discussion(discussion_id_map={2377: 901}),
+        discussion(discussion_id_map={2377: 901}),
         DISCUSSION_SOURCE,
         posts_cursor=100,
     )
@@ -217,7 +204,7 @@ def test_source_2374_foreign_quote_classifies_as_foreign_peer():
     )
     classified = replies.target(
         [_msg(header)],
-        _discussion(discussion_id_map={2373: 900}),
+        discussion(discussion_id_map={2373: 900}),
         DISCUSSION_SOURCE,
     )
     assert classified.kind == "foreign-peer"
@@ -235,7 +222,7 @@ def test_source_2378_channel_quote_classifies_as_mapped_cross_leg():
     )
     classified = replies.target(
         [_msg(header)],
-        _discussion(id_map={789: 773}, discussion_id_map={2377: 901}),
+        discussion(id_map={789: 773}, discussion_id_map={2377: 901}),
         DISCUSSION_SOURCE,
     )
     assert classified.kind == "mapped-cross-leg"
