@@ -33,7 +33,12 @@ def sanitize(text: str) -> str:
 
 
 def emit_json(data) -> None:
-    sys.stdout.write(_json_line(data))
+    # Streamed chunk by chunk: a large document (clone export-state) is never
+    # held whole in memory, let alone twice.
+    encoder = json.JSONEncoder(ensure_ascii=False, default=str)
+    for chunk in encoder.iterencode(data):
+        sys.stdout.write(chunk.translate(_JSON_CONTROL_ESCAPES))
+    sys.stdout.write("\n")
     # Flush here so a reader that hung up raises BrokenPipeError while cli.py
     # can still handle it, not during interpreter shutdown.
     sys.stdout.flush()
