@@ -103,7 +103,6 @@ def list_clones(
     clone_ids = lookup.slot_ids()
     entries = []
     pending_import = 0
-    cooldowns: dict[int, str | None] = {}
     for clone_id in clone_ids:
         try:
             loaded = state.load(clone_id, read_only=read_only)
@@ -120,10 +119,8 @@ def list_clones(
             continue
         if loaded is None or not lookup.matches(loaded, source):
             continue
-        account = loaded.account_user_id
-        if account not in cooldowns:
-            cooldowns[account] = lookup.cooldown_until(account)
-        entries.append(_entry(loaded, cooldowns[account]))
+        cooldown = lookup.cooldown_until(loaded.account_user_id)
+        entries.append(_entry(loaded, cooldown))
     # An unreadable entry has no created_at at all (CONTRACT §11: every field
     # but clone_id is null), so it sorts ahead of every dated one.
     entries.sort(key=lambda entry: entry["created_at"] or "")
