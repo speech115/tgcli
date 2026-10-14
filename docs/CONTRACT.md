@@ -1397,8 +1397,9 @@ reply in the right destination thread, including its quote; comment-on-
 comment parents remap through the discussion group's own `id_map`
 (`discussion_id_map`). A resolved source anchor → destination anchor pair is
 kept in the clone's `anchor_map` (schema 3), so later runs place a thread's
-comments without reading either anchor again. An unmappable parent flattens on the same
-`reply_flattened` rule as any other clone. Off-thread discussion-group
+comments without reading either anchor again. An unmappable parent counts in
+`reply_flattened` on the same rule as any other clone, but the comment keeps
+its place under the destination post anchor when its thread root resolves. Off-thread discussion-group
 messages clone as ordinary attributed megagroup content. The discussion
 group has its own tail verification, tolerating Telegram's own anchors in
 the tail the same way the channel tail tolerates topic-create service rows;
@@ -1465,7 +1466,12 @@ linked. `MessageReplyStoryHeader` also flattens and reports because it has no
 message id to map. In forum clones, placement-only topic headers are not replies;
 real in-topic replies map both their parent and topic. Non-forum clones, and
 headers that carry scheduled/ephemeral/todo/poll-option targets, flatten the
-reply relation and continue (ADR-0036). Cross-chat quote replies are resolved by
+reply relation and continue (ADR-0036). In a comments leg, losing the direct
+parent (by any of these rules) still counts in `reply_flattened`, but a
+comment whose thread post is known stays placed under that post's destination
+anchor: it is sent (reuploaded, or as a poll/story snapshot) with `reply_to`
+set to the anchor rather than copied without a reply relation. A quote text fallback in such a thread is placed the
+same way and counts in `quote_flattened` only. Cross-chat quote replies are resolved by
 target reachability (ADR-0036): a mapped target (same leg or the other leg's
 post→anchor path) keeps a native `InputReplyToMessage` with quote text/entities/
 offset; a foreign peer the account can read is quoted in place; an unreachable
@@ -1601,8 +1607,9 @@ cooldown a FloodWait arms covers participant listing only, never message sync), 
 (no discussion group). Collected participants are rewritten atomically to the
 JSONL sidecar at `participants.path` (one object per line, tagged `peer` plus
 the `export subscribers` columns). This snapshot is source-side only; the
-destination is never populated with collected users. Roster collection is
-best-effort and never fails a sync whose messages already copied.
+destination is never populated with collected users. The Telegram refusals
+and transient errors above never fail a sync whose messages already copied; a
+sidecar write error or another Telegram error still does.
 
 Plain sync columns are `copied`, `forwarded`, `reuploaded`, `snapshots`,
 `reply_flattened`, `quote_flattened_count`, `skipped_service`,
@@ -1751,7 +1758,9 @@ RPCs only: `--max-events` is the catch-up **message** budget (default
 exists in more than one matching dialog, sync tombstones every matching
 peer (MTProto does not name the peer). A `differenceTooLong`-class gap is
 stored loudly in `account_sync` until `rebaseline` (a later clean sync keeps
-it) and surfaced by `status` / sync JSON; exit **0** (a gap is data). A
+it); exit **0** (a gap is data). Sync JSON `gap` reports only a gap the
+current pass hit, so a later clean sync returns `gap: null` while the stored
+gap stays visible in `archive status` until `rebaseline`. A
 subscribed channel the account can no longer read (private, deleted, banned)
 is dropped from the cursor with a `channelUnavailable` gap for that peer; the
 rest of the pass still advances, events read from it before the loss are
