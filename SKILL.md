@@ -106,7 +106,9 @@ selected account session, does one operation, and exits.
 | Copy or catch up a chat | `tg --max-runtime 3600 --json clone sync SOURCE` |
 
 Send is deliberately two-step: preview first, then commit its single-use ID.
-Previews expire after five minutes.
+Previews expire after five minutes. The preview fixes every choice, so
+`--commit` takes nothing else (clone init keeps its SOURCE): a flag beside it,
+such as `--format` or `--replace`, is a usage error (exit 1).
 
 ## Formatting and custom emoji
 

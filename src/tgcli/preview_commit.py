@@ -15,6 +15,7 @@ from tgcli.commands import (
 )
 from tgcli.config import Account
 from tgcli.errors import PolicyError
+from tgcli.parser import GLOBAL_DESTS
 
 Run = Callable[[object, argparse.Namespace, Account], Awaitable[dict]]
 Rows = Callable[[dict], list[tuple]]
@@ -36,11 +37,8 @@ class Handshake:
     rows: Rows
     required: tuple[str, ...] = ()
     required_any: tuple[str, ...] = ()
-    commit_forbidden: tuple[str, ...] = ()
     preview_error: str = ""
-    commit_error: str = ""
     requires_preview_flag: bool = True
-    preview_defaults: tuple[tuple[str, object], ...] = ()
     source_binding: str | None = None
     audit: Audit | None = None
     mutation_safe: bool = False
@@ -83,7 +81,7 @@ HANDSHAKES = {
             caption=args.caption,
             topic=args.topic,
             silent=args.silent,
-            fmt=args.format,
+            fmt=args.format or "md",
         ),
         commit_call=lambda tg, args, _account: send_cmd.commit(
             tg,
@@ -93,20 +91,9 @@ HANDSHAKES = {
         rows=send_cmd.to_rows,
         required=("chat",),
         required_any=("text", "file"),
-        commit_forbidden=(
-            "preview",
-            "chat",
-            "text",
-            "reply_to",
-            "file",
-            "caption",
-            "topic",
-            "silent",
-        ),
         preview_error=(
             "send requires CHAT (TEXT | --file PATH) --preview or --commit PREVIEW_ID"
         ),
-        commit_error="send --commit accepts only a preview id",
         audit=_MESSAGE_AUDIT,
     ),
     ("edit", None): Handshake(
@@ -116,7 +103,7 @@ HANDSHAKES = {
             args.chat,
             args.message_id,
             args.text,
-            args.format,
+            args.format or "plain",
         ),
         commit_call=lambda tg, args, _account: mutate_cmd.commit_edit(
             tg,
@@ -125,11 +112,9 @@ HANDSHAKES = {
         ),
         rows=mutate_cmd.to_rows,
         required=("chat", "message_id", "text"),
-        commit_forbidden=("preview", "chat", "message_id", "text"),
         preview_error=(
             "edit requires CHAT MESSAGE_ID TEXT --preview or --commit PREVIEW_ID"
         ),
-        commit_error="edit --commit accepts only a preview id",
         audit=_MESSAGE_AUDIT,
     ),
     ("delete", None): Handshake(
@@ -146,11 +131,9 @@ HANDSHAKES = {
         ),
         rows=mutate_cmd.to_rows,
         required=("chat", "message_id"),
-        commit_forbidden=("preview", "chat", "message_id"),
         preview_error=(
             "delete requires CHAT MESSAGE_ID --preview or --commit PREVIEW_ID"
         ),
-        commit_error="delete --commit accepts only a preview id",
         audit=_MESSAGE_AUDIT,
     ),
     ("forward", None): Handshake(
@@ -168,12 +151,10 @@ HANDSHAKES = {
         ),
         rows=mutate_cmd.to_rows,
         required=("source", "message_id", "destination"),
-        commit_forbidden=("preview", "source", "message_id", "destination"),
         preview_error=(
             "forward requires SOURCE MESSAGE_ID DESTINATION --preview "
             "or --commit PREVIEW_ID"
         ),
-        commit_error="forward --commit accepts only a preview id",
         audit=_MESSAGE_AUDIT,
     ),
     ("clone", "init"): Handshake(
@@ -201,7 +182,7 @@ HANDSHAKES = {
             tg,
             args.chat,
             args.text,
-            fmt=args.format,
+            fmt=args.format or "md",
             reply_to=args.reply_to,
             topic=args.topic,
         ),
@@ -212,17 +193,7 @@ HANDSHAKES = {
         ),
         rows=draft_cmd.mutation_to_rows,
         required=("chat", "text"),
-        commit_forbidden=(
-            "preview",
-            "chat",
-            "text",
-            "format",
-            "reply_to",
-            "topic",
-        ),
         preview_error=("draft set requires CHAT TEXT --preview or --commit PREVIEW_ID"),
-        commit_error="draft set --commit accepts only a preview id",
-        preview_defaults=(("format", "md"),),
         audit=_DRAFT_AUDIT,
     ),
     ("draft", "clear"): Handshake(
@@ -238,9 +209,7 @@ HANDSHAKES = {
         ),
         rows=draft_cmd.mutation_to_rows,
         required=("chat",),
-        commit_forbidden=("preview", "chat"),
         preview_error=("draft clear requires CHAT --preview or --commit PREVIEW_ID"),
-        commit_error="draft clear --commit accepts only a preview id",
         audit=_DRAFT_AUDIT,
     ),
 }
@@ -262,8 +231,10 @@ def prepare(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     if spec is None:
         return
     if is_commit(args):
-        if any(_present(getattr(args, name, None)) for name in spec.commit_forbidden):
-            parser.error(spec.commit_error)
+        if _preview_arguments(args, spec):
+            parser.error(
+                f"{spec.kind.replace('-', ' ')} --commit accepts only a preview id"
+            )
         safety.enforce_mutation_allowed(args.readonly)
         args.preview_payload = safety.begin_commit(args.commit, expected_kind=spec.kind)
         if spec.source_binding is not None:
@@ -287,9 +258,23 @@ def prepare(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     )
     if not valid:
         parser.error(spec.preview_error)
-    for name, value in spec.preview_defaults:
-        if getattr(args, name, None) is None:
-            setattr(args, name, value)
+
+
+def _preview_arguments(args: argparse.Namespace, spec: Handshake) -> list[str]:
+    """Command arguments typed beside `--commit`; the preview already fixed them.
+
+    Derived from the parsed namespace, not listed per command: every argument
+    of a handshake subcommand defaults to None/False, so anything else was
+    typed and would be silently ignored by the commit.
+    """
+    keep = GLOBAL_DESTS | {"command", f"{args.command}_command", "commit"}
+    if spec.source_binding is not None:
+        keep |= {spec.source_binding}
+    return [
+        name
+        for name, value in vars(args).items()
+        if name not in keep and _present(value)
+    ]
 
 
 def mutation_safe(args: argparse.Namespace) -> bool:

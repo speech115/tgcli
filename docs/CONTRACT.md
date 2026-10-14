@@ -545,6 +545,12 @@ they may resolve or read a Telegram target and write a local preview record,
 but never send, edit, delete, or save a Telegram draft. They remain permitted with
 `--readonly`, `TGCLI_READONLY=1`, or `TGCLI_NO_SEND=1`. Those gates apply to
 `--commit` only, before configuration, session, audit, or mutation work.
+A `--commit` of any preview → commit command takes no other command argument
+or flag (global flags aside; `clone init` keeps its bound `SOURCE`): the
+preview already fixed them, so any of them beside `--commit` — `--format`
+included, and `clone init`'s `--replace` / `--no-comments` — is a usage error
+(`USAGE`, exit 1, "`<command> --commit accepts only a preview id`") before
+those gates.
 Every authorised send commit appends one JSON object to
 `~/.local/state/tgcli/audit.jsonl` (or `TGCLI_STATE_DIR/audit.jsonl`) before
 network dispatch, including the stored `random_id`; a successful confirmed
