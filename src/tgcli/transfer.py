@@ -13,6 +13,8 @@ from typing import Any
 from telethon import helpers, utils
 from telethon.tl import functions, types
 
+from tgcli.session import ensure_parent_dir, restrict_file
+
 CHUNK_SIZE = 512 * 1024
 CLONE_TRANSFER_PARALLEL = 4
 # One chunk cadence for every transfer that reports progress (ADR-0043/0049):
@@ -187,8 +189,12 @@ async def download_resumable(
     the transfer finished or raised. The caller owns what that record looks
     like and what makes it valid to resume from; this owns only the loop.
     """
-    part.parent.mkdir(parents=True, exist_ok=True)
-    with part.open("ab" if offset else "wb") as handle:
+    ensure_parent_dir(part)
+    # 0600 from the first byte: the partial file is the user's media.
+    flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if offset else os.O_TRUNC)
+    descriptor = os.open(part, flags, 0o600)
+    restrict_file(part)
+    with os.fdopen(descriptor, "ab" if offset else "wb") as handle:
         current = offset
         chunks_since_checkpoint = 0
         chunks_since_progress = 0

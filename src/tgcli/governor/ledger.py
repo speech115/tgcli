@@ -5,8 +5,9 @@ FloodWait, holding the server's own deadline, so the next process refuses
 that type locally instead of sending into a live penalty.
 
 * **A missing or corrupt file degrades, never crashes.** ``open`` returns a
-  private in-memory ledger with ``degraded=True``; ``doctor`` reports it, and
-  traffic proceeds without cross-process memory.
+  private in-memory ledger with ``degraded=True`` and the error kept on
+  ``degraded_reason``; ``doctor`` reports it, a governed client notes it on
+  stderr, and traffic proceeds without cross-process memory.
 * **Deadlines are clamped at read time**, so a deadline armed under a skewed
   clock degrades to a bounded wait instead of a permanent refusal.
 """
@@ -45,10 +46,11 @@ class Ledger:
     """Flood cooldowns for one machine; see the module docstring."""
 
     def __init__(
-        self, connection: sqlite3.Connection, *, degraded: bool = False
+        self, connection: sqlite3.Connection, *, degraded_reason: str | None = None
     ) -> None:
         self._db = connection
-        self.degraded = degraded
+        self.degraded_reason = degraded_reason
+        self.degraded = degraded_reason is not None
 
     @classmethod
     def open(cls, path: Path | None = None) -> Ledger:
@@ -60,8 +62,9 @@ class Ledger:
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
             connection = cls._connect(target)
-        except (sqlite3.Error, OSError):
-            return cls(cls._connect(None), degraded=True)
+        except (sqlite3.Error, OSError) as exc:
+            reason = f"{target}: {exc}"
+            return cls(cls._connect(None), degraded_reason=reason)
         try:
             restrict_file(target)
         except OSError:

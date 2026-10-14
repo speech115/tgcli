@@ -20,6 +20,7 @@ from pathlib import Path
 from tgcli.clone import statedb
 from tgcli.errors import PolicyError
 from tgcli.output import note
+from tgcli.session import ensure_state_dir, state_dir
 
 VERSION = 2
 
@@ -49,12 +50,13 @@ def _kind_blind_clone_id(account_user_id: int, source_peer_id: int) -> str:
     return hashlib.sha256(identity).hexdigest()
 
 
-def state_dir() -> Path:
-    return Path(os.environ.get("TGCLI_STATE_DIR", "~/.local/state/tgcli")).expanduser()
-
-
 def clones_dir() -> Path:
     return state_dir() / "clones"
+
+
+def ensure_clones_dir() -> Path:
+    """`clones/` and the state root, created or repaired to 0700."""
+    return ensure_state_dir("clones")
 
 
 def path_for(clone_id: str) -> Path:
@@ -501,7 +503,7 @@ def supersede(clone_id: str, sidecars: tuple[Path, ...] = ()) -> list[Path]:
 
 def save(state: CloneState) -> None:
     """Persist dirty mutations (or a full first write) in one SQLite transaction."""
-    clones_dir().mkdir(parents=True, exist_ok=True)
+    ensure_clones_dir()
     statedb.persist(
         path_for(state.clone_id),
         state.to_dict(),

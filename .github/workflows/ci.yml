@@ -11,6 +11,9 @@ on:
 # A new push to a PR cancels its superseded run. Every push to main gets its own
 # group: GitHub keeps only one pending run per group and cancels the rest, so a
 # shared main group would drop checks even with cancel-in-progress off.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -20,8 +23,8 @@ jobs:
     name: test
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
       - name: Install dependencies

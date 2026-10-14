@@ -1039,3 +1039,23 @@ def test_a_changed_media_never_masks_a_wrong_output_path(tmp_path):
     # The louder error must not have destroyed the record on its way out.
     assert part_path.exists()
     assert state_path.exists()
+
+
+async def test_download_state_dir_is_private_under_umask_022(tmp_path):
+    import os
+
+    source = MediaSource("@channel", 42, None)
+    previous = os.umask(0o022)
+    try:
+        await download_media(
+            FakeDownloadTelegram([b"abcdef"]),
+            source,
+            "main",
+            output=str(tmp_path / "o"),
+        )
+    finally:
+        os.umask(previous)
+
+    _, part_path = _state_paths(source)
+    assert part_path.parent.stat().st_mode & 0o777 == 0o700
+    assert part_path.parent.parent.stat().st_mode & 0o777 == 0o700

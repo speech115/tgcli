@@ -7,7 +7,7 @@ from pathlib import Path
 import telethon
 
 from tgcli import safety, session
-from tgcli.config import Config, resolve_account
+from tgcli.config import Config, default_config_path, resolve_account
 from tgcli.errors import PolicyError
 from tgcli.output import note
 
@@ -97,6 +97,11 @@ def _audit_perms_ok() -> bool:
     return _mode_ok(path)
 
 
+def _config_perms_ok() -> bool:
+    """`load_config` already tried to tighten it; this reports a failure."""
+    return _mode_ok(default_config_path())
+
+
 def _session_perms_ok(session_file: Path) -> bool:
     """Missing files are ok; a loose .session or .session.bak is not."""
     backup = Path(str(session_file) + ".bak")
@@ -141,8 +146,9 @@ def _local_ok(checks: dict) -> bool:
             # A cooldown is reportable state, not a failure.
             continue
         if key == "governor_degraded":
-            # ADR-0089: an unopenable ledger fails closed for governed
-            # traffic — doctor must report the account unhealthy.
+            # ADR-0089: an unopenable ledger degrades to a private in-memory
+            # one, so governed traffic proceeds without cross-process flood
+            # cooldowns — doctor must report the account unhealthy.
             if value is True:
                 return False
             continue
@@ -194,17 +200,23 @@ def _governor_check(session_file: Path) -> dict:
     Reads the ledger directly, no RPC: `doctor` is the one command that
     must work precisely when everything else is refusing (ADR-0072
     decision 1). An unreadable ledger reports ``governor_degraded: true``
-    and sets per-account ``ok: false`` (ADR-0089) — governed traffic
-    fails closed until the ledger is repaired.
+    with its error on ``governor_degraded_reason`` and sets per-account
+    ``ok: false`` (ADR-0089) — governed traffic still runs, but without
+    cross-process flood cooldowns until the ledger is repaired.
     """
     from tgcli.governor.ledger import Ledger
 
     user_id = session.session_user_id(session_file)
-    result: dict = {"governor_degraded": False, "governor_cooldowns": {}}
+    result: dict = {
+        "governor_degraded": False,
+        "governor_degraded_reason": None,
+        "governor_cooldowns": {},
+    }
     if user_id is None:
         return result
     with Ledger.open() as ledger:
         result["governor_degraded"] = ledger.degraded
+        result["governor_degraded_reason"] = ledger.degraded_reason
         result["governor_cooldowns"] = {
             request_type: deadline.isoformat()
             for request_type, deadline in sorted(
@@ -226,6 +238,7 @@ async def check_account(
         "preview_perms_ok": not _loose_previews(),
         "preview_perms_repaired": preview_perms_repaired,
         "audit_perms_ok": _audit_perms_ok(),
+        "config_perms_ok": _config_perms_ok(),
         "session_perms_ok": _session_perms_ok(session_file),
         "state_size": _state_size(),
         "authorized": None,

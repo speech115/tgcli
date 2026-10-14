@@ -346,7 +346,7 @@ def _append_config_block(
     would leave the user with a config file no command can read.
     """
     _reject_colliding_alias(config_path, alias)
-    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     if not config_path.exists():
         config_path.touch(mode=0o600)
     with config_path.open("a") as config_file:

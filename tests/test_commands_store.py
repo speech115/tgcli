@@ -247,6 +247,46 @@ def test_cleanup_confirm_blocked_by_tgcli_readonly_env(tmp_path, monkeypatch, ca
     assert (tmp_path / "previews" / "p_spent0.used").exists()
 
 
+@pytest.mark.parametrize("value", ["true", "YES", " 1 ", "on"])
+def test_cleanup_confirm_blocked_by_any_truthy_readonly_spelling(
+    tmp_path, monkeypatch, capsys, value
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("TGCLI_READONLY", value)
+    _seed_inventory(tmp_path)
+
+    assert main(["--json", "store", "cleanup", "--confirm"]) == 2
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "BLOCKED"
+    assert (tmp_path / "previews" / "p_spent0.used").exists()
+
+
+@pytest.mark.parametrize("value", ["0", "false", "No", "off", ""])
+def test_cleanup_confirm_allowed_by_falsy_readonly_spellings(
+    tmp_path, monkeypatch, value
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("TGCLI_READONLY", value)
+    _seed_inventory(tmp_path)
+
+    assert main(["--json", "store", "cleanup", "--confirm"]) == 0
+    assert not (tmp_path / "previews" / "p_spent0.used").exists()
+
+
+def test_cleanup_confirm_refuses_an_unrecognized_readonly_value(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("TGCLI_READONLY", "maybe")
+    _seed_inventory(tmp_path)
+
+    assert main(["--json", "store", "cleanup", "--confirm"]) == 3
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "CONFIG"
+    assert "TGCLI_READONLY" in error["message"]
+    assert "maybe" in error["message"]
+    assert (tmp_path / "previews" / "p_spent0.used").exists()
+
+
 def test_cleanup_rejects_invalid_older_than(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     assert main(["store", "cleanup", "--older-than", "nope", "--json"]) == 1

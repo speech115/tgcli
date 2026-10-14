@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from tgcli.errors import PolicyError
-from tgcli.session import restrict_file
+from tgcli.session import ensure_parent_dir, restrict_file
 
 SCHEMA_VERSION = 3
 
@@ -118,7 +118,7 @@ _MIGRATIONS: dict[int, tuple[str, ...]] = {
 
 def connect(path: Path) -> sqlite3.Connection:
     """Open (or create) a clone DB with the ADR-0060 pragmas and schema."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_parent_dir(path)
     created = not path.exists()
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row

@@ -29,6 +29,12 @@ Global flags (available on every command):
 Env equivalents: `TGCLI_ACCOUNT`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`.
 Flag beats env, env beats config.
 
+`TGCLI_READONLY` and `TGCLI_NO_SEND` are read case-insensitively with
+surrounding whitespace ignored: `1`, `true`, `yes`, `on` enable the block;
+unset, empty, `0`, `false`, `no`, `off` leave it off. Any other value fails
+closed: a command that consults the variable exits 3 (`CONFIG`) with a message
+naming the variable and the accepted values.
+
 `--session-role NAME` resolves to `sessions/<session>@<NAME>.session` before
 the client opens. Role names use the same charset/length rules as account
 aliases; `primary` is reserved (omit the flag to use the default session).
@@ -720,10 +726,12 @@ tg doctor [--account ALIAS] [--connect]
 `doctor` is a read-only health report: without `--account`, it checks every
 configured account; with it, it checks only that account. **By default it is
 offline** — config/session file presence, lock freeness, state writability,
-preview/audit/session permission tightness, total state size, and the request
+preview/audit/config/session permission tightness, total state size, and the request
 governor's cooldowns — and does not open a Telegram client.
 `session_perms_ok` covers the account's `.session` and its `.session.bak`; a
-missing file is healthy. All permission checks reject group **and** other
+missing file is healthy. `config_perms_ok` covers the config file: every
+command that loads the config first tightens it to `0600` (fail-open), so it is
+false only when that repair failed (for example, a file owned by someone else). All permission checks reject group **and** other
 bits, not just other. Live authorization (`get_me`) runs only under
 `--connect`, and it is the one network call exempt from the governor
 (ADR-0072 decision 1): `doctor` must work precisely when every gated type is
@@ -735,9 +743,12 @@ When `--connect` is absent, `checks.authorized` is `null` (unknown), not
 
 `checks.governor_cooldowns` maps each cooling request type to its deadline
 (an empty object when nothing is cooling); `checks.governor_degraded` is
-`true` when the governor's ledger could not be opened. A degraded ledger
-sets per-account / top-level `ok: false` in `doctor`; commands still run,
-without cross-process flood memory. A cooldown alone is reportable state,
+`true` when the governor's ledger could not be opened, and
+`checks.governor_degraded_reason` carries the open error (`null` when
+healthy). A degraded ledger sets per-account / top-level `ok: false` in
+`doctor`; commands still run, without cross-process flood memory, and each
+governed client prints one `warning: governor ledger unavailable (…)` line to
+stderr. A cooldown alone is reportable state,
 not a failure: it does not set `ok: false`. A cooldown lasts until the
 server's deadline.
 
@@ -760,8 +771,9 @@ skips it — the check then reports `preview_perms_ok: false` as before.
 "accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
 "checks":{"session_file":true,"lock_free":true,"state_writable":true,
 "preview_perms_ok":true,"preview_perms_repaired":0,"audit_perms_ok":true,
-"session_perms_ok":true,
-"state_size":4096,"authorized":null,"governor_degraded":false,"governor_cooldowns":{}},
+"config_perms_ok":true,"session_perms_ok":true,
+"state_size":4096,"authorized":null,"governor_degraded":false,
+"governor_degraded_reason":null,"governor_cooldowns":{}},
 "user":null,"roles":[],"ok":true}],"ok":true}
 ```
 
@@ -817,7 +829,10 @@ before it leaves. A method whose name starts with `get`, `search`, `check`, or
 `revoke`, or `decline` argument. Any other request is a write. Invoke wrappers
 are unwrapped first. `auth.*` and `account.*` are refused outright, reads
 included, except `auth.exportAuthorization`, which Telethon sends to download
-media from another datacentre.
+media from another datacentre. Root-namespace MTProto requests
+(`DestroyAuthKeyRequest`, `DestroySessionRequest`, key exchange) are refused
+outright too, with or without `--write`; only `PingRequest` and
+`PingDelayDisconnectRequest` pass, as reads.
 
 - Without `--write`, a write is refused with exit 2 and never sent.
 - With `--write`, each write appends `{"action": "run-write", "method": …}` to

@@ -174,6 +174,7 @@ def test_doctor_reports_active_governor_cooldowns(config_env, monkeypatch, capsy
     cooldowns = report["checks"]["governor_cooldowns"]
     assert "messages.GetHistoryRequest" in cooldowns
     assert report["checks"]["governor_degraded"] is False
+    assert report["checks"]["governor_degraded_reason"] is None
 
 
 def test_doctor_works_while_every_gated_type_is_cooling(
@@ -244,6 +245,7 @@ def test_doctor_marks_degraded_governor_as_unhealthy(config_env, monkeypatch, ca
     data = json.loads(capsys.readouterr().out)
     report = data["accounts"][0]
     assert report["checks"]["governor_degraded"] is True
+    assert "not a database" in report["checks"]["governor_degraded_reason"]
     assert report["ok"] is False
     assert data["ok"] is False
 
@@ -290,5 +292,42 @@ def test_doctor_connect_still_works_when_governor_is_degraded(
     report = data["accounts"][0]
     assert report["checks"]["authorized"] is True
     assert report["checks"]["governor_degraded"] is True
+    assert report["ok"] is False
+    assert data["ok"] is False
+
+
+def test_a_hand_made_config_is_tightened_to_0600(config_env, tmp_path, capsys):
+    """README's `config.toml` created by hand is 0644 and holds the api_hash."""
+    config = tmp_path / "config.toml"
+    config.chmod(0o644)
+
+    assert main(["doctor", "--json"]) == 0
+
+    report = json.loads(capsys.readouterr().out)["accounts"][0]
+    assert config.stat().st_mode & 0o777 == 0o600
+    assert report["checks"]["config_perms_ok"] is True
+
+
+def test_doctor_flags_a_config_it_cannot_tighten(
+    config_env, tmp_path, monkeypatch, capsys
+):
+    import os
+
+    config = tmp_path / "config.toml"
+    config.chmod(0o644)
+    real_chmod = os.chmod
+
+    def refuse(path, mode, *args, **kwargs):
+        if str(path) == str(config):
+            raise PermissionError("not the owner")
+        return real_chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "chmod", refuse)
+
+    assert main(["doctor", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    report = data["accounts"][0]
+    assert report["checks"]["config_perms_ok"] is False
     assert report["ok"] is False
     assert data["ok"] is False

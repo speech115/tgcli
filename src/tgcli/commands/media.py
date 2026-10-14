@@ -23,7 +23,7 @@ from tgcli.errors import (
     TgcliError,
 )
 from tgcli.output import note
-from tgcli.session import state_dir
+from tgcli.session import ensure_parent_dir, state_dir
 from tgcli.transfer import (
     download_resumable,
     download_striped,
@@ -430,7 +430,7 @@ async def download_media(
     offset = _resume_offset(state_path, part_path, source, destination, target)
     resumed = offset > 0
 
-    part_path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_parent_dir(part_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if parallel > 1:
         if resumed:

@@ -834,3 +834,53 @@ def test_save_writes_sqlite_database(tmp_path, monkeypatch):
     assert path.is_file()
     assert not state.json_path_for(s.clone_id).exists()
     assert state.load(s.clone_id).dest_for(7) == 70
+
+
+@pytest.fixture
+def usual_umask():
+    previous = os.umask(0o022)
+    try:
+        yield
+    finally:
+        os.umask(previous)
+
+
+def _mode(path) -> int:
+    return stat.S_IMODE(path.stat().st_mode)
+
+
+def test_clone_state_and_roster_dirs_are_private_under_umask_022(usual_umask):
+    """A fresh state root must not come out 0755 from a clone write."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from tgcli.session import state_dir
+
+    assert not state_dir().exists()
+    s = _fresh()
+    state.save(s)
+
+    assert _mode(state_dir()) == 0o700
+    assert _mode(state.clones_dir()) == 0o700
+
+    state.clones_dir().chmod(0o755)
+
+    class NoPeople:
+        async def iter_participants(self, entity, limit=None):
+            return
+            yield
+
+    asyncio.run(roster.collect(NoPeople(), s, SimpleNamespace(id=1)))
+
+    assert _mode(state.clones_dir()) == 0o700
+
+
+def test_clone_media_cache_dir_is_private_under_umask_022(usual_umask):
+    from tgcli.clone import reupload
+
+    s = _fresh()
+    cache = reupload.ensure_cache_dir(s)
+
+    assert cache == reupload.cache_dir(s)
+    assert _mode(cache) == 0o700
+    assert _mode(state.clones_dir()) == 0o700

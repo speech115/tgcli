@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from tgcli import atomic
-from tgcli.errors import PolicyError
+from tgcli.errors import ConfigError, PolicyError
 from tgcli.session import ensure_state_dir, restrict_file, state_dir
 
 PREVIEW_TTL = timedelta(minutes=5)
@@ -23,11 +23,44 @@ def reset_audit_role(token: Token) -> None:
     _AUDIT_ROLE.reset(token)
 
 
+_ON = frozenset({"1", "true", "yes", "on"})
+_OFF = frozenset({"", "0", "false", "no", "off"})
+
+
+def env_flag(name: str) -> bool:
+    """A kill-switch variable such as `TGCLI_READONLY`, read fail-closed.
+
+    Only an exact `1` used to count, so `true` or ` 1` silently turned the
+    protection off. Any other spelling than the accepted ones is a config
+    error rather than a guess either way.
+    """
+    raw = os.environ.get(name)
+    if raw is None:
+        return False
+    value = raw.strip().lower()
+    if value in _ON:
+        return True
+    if value in _OFF:
+        return False
+    raise ConfigError(
+        f"{name}={raw!r} is not a recognized value; "
+        "use 1/true/yes/on to enable or 0/false/no/off (or unset) to disable"
+    )
+
+
+def readonly_env() -> bool:
+    return env_flag("TGCLI_READONLY")
+
+
+def no_send_env() -> bool:
+    return env_flag("TGCLI_NO_SEND")
+
+
 def enforce_mutation_allowed(readonly: bool) -> None:
     """Block a mutation before configuration, sessions, or network work."""
-    if readonly or os.environ.get("TGCLI_READONLY") == "1":
+    if readonly or readonly_env():
         raise PolicyError("mutation blocked by readonly mode")
-    if os.environ.get("TGCLI_NO_SEND") == "1":
+    if no_send_env():
         raise PolicyError("mutation blocked by TGCLI_NO_SEND")
 
 
@@ -37,7 +70,7 @@ def enforce_local_mutation_allowed(readonly: bool) -> None:
     `TGCLI_NO_SEND` deliberately does not apply: it guards Telegram sends, and
     housekeeping under the state root reaches no network.
     """
-    if readonly or os.environ.get("TGCLI_READONLY") == "1":
+    if readonly or readonly_env():
         raise PolicyError("mutation blocked by readonly mode")
 
 

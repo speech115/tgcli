@@ -61,8 +61,7 @@ async def _collect_peer(tg, peer: str, entity) -> tuple[list[dict], str, str | N
 
 
 def _write(clone_id: str, rows: list[dict]) -> Path:
-    directory = state.clones_dir()
-    directory.mkdir(parents=True, exist_ok=True)
+    state.ensure_clones_dir()
     path = path_for(clone_id)
     atomic.replace_text(
         path, "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)

@@ -187,12 +187,15 @@ Scripts may only read. A request that changes Telegram is refused (exit 2)
 unless you pass `tg run --write SCRIPT`, which audits every write first; use
 `--write` only when the owner asked for that change. Prefer a wrapped command
 for sends, edits, deletes, and forwards: it shows a preview first.
+`auth.*`, `account.*`, and root MTProto requests such as
+`DestroyAuthKeyRequest` are refused even with `--write`; use `tg accounts`.
 
 ## Safety gates
 
 `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block mutations before
 network work. A block is exit 2; do not retry it until the safety condition is
-intentionally changed.
+intentionally changed. The variables also accept `true`/`yes`/`on` (and
+`0`/`false`/`no`/`off` for off); any other value is exit 3.
 Under readonly, `clone status` and `clone export-state` read a legacy JSON
 clone slot without importing it.
 

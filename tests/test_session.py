@@ -415,3 +415,31 @@ def test_lock_held_unprobeable_lock_is_none(tmp_path):
     (tmp_path / "t.lock").mkdir()
 
     assert session.lock_held(session_file) is None
+
+
+async def test_a_governed_client_on_a_degraded_ledger_says_so_once(
+    state, monkeypatch, capsys
+):
+    """Traffic proceeds without flood memory; the operator must hear why."""
+    (state / "governor.db").write_bytes(b"this is not a database")
+    fake = FakeTelethonClient()
+    monkeypatch.setattr(
+        session, "_make_client", lambda path, account, *, mutation_safe=False: fake
+    )
+    async with session.client(ACCOUNT):
+        pass
+
+    [line] = capsys.readouterr().err.splitlines()
+    assert "governor ledger unavailable" in line
+    assert "not a database" in line
+
+
+async def test_a_healthy_ledger_adds_no_note(state, monkeypatch, capsys):
+    fake = FakeTelethonClient()
+    monkeypatch.setattr(
+        session, "_make_client", lambda path, account, *, mutation_safe=False: fake
+    )
+    async with session.client(ACCOUNT):
+        pass
+
+    assert capsys.readouterr().err == ""

@@ -52,6 +52,18 @@ def ensure_state_dir(*parts: str) -> Path:
     return path
 
 
+def ensure_parent_dir(path: Path) -> Path:
+    """Create ``path``'s directory: 0700 at every level under the state root
+    (via `ensure_state_dir`), a plain `mkdir -p` anywhere else."""
+    parent = path.parent
+    try:
+        relative = parent.relative_to(state_dir())
+    except ValueError:
+        parent.mkdir(parents=True, exist_ok=True)
+        return parent
+    return ensure_state_dir(*relative.parts)
+
+
 def restrict_file(path: Path) -> None:
     """Force a tgcli state file to 0600, fail-open (missing file: no-op)."""
     _repair_mode(path, 0o600)
@@ -351,6 +363,14 @@ async def client(
             from tgcli.governor.ledger import Ledger
 
             governor = Ledger.open()
+            if governor.degraded_reason is not None:
+                from tgcli.output import note
+
+                note(
+                    "warning: governor ledger unavailable "
+                    f"({governor.degraded_reason}); flood cooldowns are not "
+                    "shared with other tg processes this run"
+                )
             install_governor(tg, governor)
         else:
             # `doctor --connect` is the one command exempt from the governor
