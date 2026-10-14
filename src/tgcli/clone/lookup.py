@@ -52,6 +52,12 @@ def slot_ids() -> set[str]:
         for path in directory.glob("*.json")
         if not path.name.startswith("account-")
     )
+    # A crash between the rename and the first SQLite write leaves only the
+    # `.json.importing` marker (ADR-0105); `state.load` resumes it.
+    found.update(
+        path.name.removesuffix(".json.importing")
+        for path in directory.glob("*.json.importing")
+    )
     return found
 
 

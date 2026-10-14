@@ -29,7 +29,9 @@ selected account session, does one operation, and exits.
   (`accounts login ALIAS --role job --phone PHONE`) and pass `--session-role job`.
 - Never open a tgcli `.session` file with bare `python3` or a system/user-site
   Telethon. Use the `tg` entrypoint or `./.venv/bin/python` from this checkout;
-  `tg doctor` reports the active Python and Telethon runtime under `runtime`.
+  `tg doctor` reports the active Python and Telethon runtime under `runtime`,
+  including `runtime.aes`: `pyaes` means slow pure-Python crypto, and the
+  checkout's `fast` extra installs `cryptg`.
 
 ## Command routing
 
@@ -231,7 +233,8 @@ clone: let it finish, then retry; nothing was sent.
 `edit`, `delete`, and `forward` follow the same preview → commit rule as
 `send`. `doctor` is read-only: it reports configured-account session presence,
 lock availability, local state writability, Telegram authorization, and a
-top-level `ok` result.
+top-level `ok` result. `legacy_clone_slots` names clone state still in the old
+JSON form; `tg clone status` imports a readable one.
 
 ## Reading sync results
 

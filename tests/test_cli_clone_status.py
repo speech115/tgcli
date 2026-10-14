@@ -493,3 +493,32 @@ def test_status_says_nothing_about_a_fully_linked_clone(capsys):
     captured = capsys.readouterr()
     assert json.loads(captured.out)["clones"][0]["discussion_linked"] is True
     assert "clone init" not in captured.err
+
+
+def test_status_resumes_an_import_that_crashed_before_its_database(capsys):
+    """A crash between the rename to ``.json.importing`` and the first SQLite
+    write leaves no ``.db`` and no ``.json``; `clone status` must still find
+    the slot and finish the import (ADR-0105), as `tg doctor` promises."""
+    s = state.CloneState.new(
+        account_user_id=100000001,
+        source_peer_id=777,
+        source_title="Interrupted",
+        source_kind="broadcast",
+    )
+    s.record_mapping(2, 20)
+    clones = state.ensure_clones_dir()
+    json_path = state.json_path_for(s.clone_id)
+    importing = json_path.with_name(json_path.name + ".importing")
+    importing.write_text(json.dumps(s.to_dict()))
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+
+    assert code == 0
+    [entry] = json.loads(out)["clones"]
+    assert entry["source"]["title"] == "Interrupted"
+    assert entry["copied"] == 1
+    assert state.path_for(s.clone_id).exists()
+    assert not importing.exists()
+    assert sorted(p.name for p in clones.iterdir() if "json" in p.name) == [
+        f"{s.clone_id}.json.imported"
+    ]
