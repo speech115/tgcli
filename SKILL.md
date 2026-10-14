@@ -219,6 +219,19 @@ day. Check the preview's `peers_to_create` before `--commit`. Use
 lock availability, local state writability, Telegram authorization, and a
 top-level `ok` result.
 
+## Reading sync results
+
+- `archive sync` catches up a known peer oldest first. A `catchups[]` item
+  with `more: true` (and top-level `remaining: true`) means that peer has
+  newer messages left: run `archive sync` again, not `backfill`.
+- An archive `gap` (lost updates) is stored until
+  `tg --json archive rebaseline`. Later clean syncs keep it and return
+  `gap: null`, so check `archive status` for it.
+- `clone sync` `participants.source` / `.discussion` with
+  `status: "deferred"` is retried next run: `reason` is `"flood_wait"` or a
+  Telegram error name. `"unavailable"` means Telegram refused access. The
+  roster never fails a sync whose messages copied.
+
 ## Account selection
 
 Selection order is `--account` > `TGCLI_ACCOUNT` > the config default.
