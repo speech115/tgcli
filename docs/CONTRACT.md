@@ -1714,7 +1714,9 @@ columns), `account_sync` (account-level update cursor + un-cleared gaps), plus a
 FTS5 index over message text and transcript text with
 `tokenize = "unicode61 remove_diacritics 2"` (Cyrillic `ё`/`е` folded at
 FTS write/query time). Opening an older store (v1 through v9) migrates it forward in place.
-Migrating to v10 keeps a stored gap as the first entry of the gap list. The message
+Migrating to v10 keeps a stored gap as the first entry of the gap list; a
+stored gap that cannot be read becomes one `common` gap with reason
+`unreadableGap`, which only `rebaseline` clears. The message
 payload is the universal `message_to_dict` JSON shape from `tg read` — not
 a second representation.
 

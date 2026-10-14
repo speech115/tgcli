@@ -297,6 +297,28 @@ def test_schema_v9_keeps_its_stored_gap_as_the_first_of_a_list(tmp_path):
         conn.close()
 
 
+def test_schema_v9_without_a_gap_migrates_to_no_gaps(tmp_path):
+    path = tmp_path / "archive.db"
+    raw = sqlite3.connect(path)
+    raw.executescript(schema_mod._SCHEMA_SQL)
+    raw.execute("PRAGMA user_version=9")
+    raw.execute(
+        "INSERT INTO account_sync(id, changes_cursor, gap_json) VALUES (1, ?, NULL)",
+        ("cursor-v1",),
+    )
+    raw.commit()
+    raw.close()
+
+    conn = store.connect(path)
+    try:
+        assert store.schema_version(conn) == 10
+        account = store.read_account_sync(conn)
+        assert account["gaps"] == []
+        assert account["gap"] is None
+    finally:
+        conn.close()
+
+
 def test_media_relative_path_uses_controlled_suffixes():
     assert media_module.media_relative_path(7, 9, media_kind="voice") == "media/7/9.ogg"
     assert (

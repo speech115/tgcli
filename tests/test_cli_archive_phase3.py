@@ -975,6 +975,48 @@ def test_every_uncleared_gap_stays_visible_until_rebaseline(
     assert status["gaps"] == []
 
 
+@pytest.mark.parametrize(
+    "stored", ["{not json", '"a string"', "[1, 2]", '[{"reason":"x"}, 3]']
+)
+def test_an_unreadable_v9_gap_migrates_to_a_gap_that_rebaseline_clears(
+    config_env, monkeypatch, capsys, stored
+):
+    """The v10 migration parsed the stored gap unguarded: a malformed value
+    crashed every archive command, rebaseline included, so the store could
+    never be opened again. An unreadable gap must still read as a loss."""
+
+    class StateClient(FakeClient):
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, GetStateRequest):
+                return _state(pts=50, qts=2, seq=9)
+            raise AssertionError(request)
+
+    make_session_fake(monkeypatch, StateClient(me=_me()))
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        store_mod.write_account_sync(conn, changes_cursor="v1:stale")
+        conn.execute("UPDATE account_sync SET gap_json = ? WHERE id = 1", (stored,))
+        conn.execute("PRAGMA user_version=9")
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert main(["archive", "status", "--json"]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["schema_version"] == store_mod.SCHEMA_VERSION
+    assert [g["reason"] for g in status["gaps"]] == ["unreadableGap"]
+    assert status["gap"]["scope"] == "common"
+    assert status["gap"]["recover"]["edits_deletes"] == "lost"
+
+    assert main(["archive", "rebaseline", "--json"]) == 0
+    capsys.readouterr()
+    assert main(["archive", "status", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["gaps"] == []
+
+
 def test_sync_and_rebaseline_readonly_blocked(config_env, monkeypatch, capsys):
     make_session_fake(monkeypatch, _client())
     assert main(["archive", "init", "--json"]) == 0

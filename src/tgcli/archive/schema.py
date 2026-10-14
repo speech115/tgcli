@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from tgcli.archive import gaps as gaps_mod
 from tgcli.errors import NotFoundError, PolicyError
 from tgcli.session import ensure_state_dir, restrict_file
 
@@ -338,12 +338,12 @@ def _migrate_v9_to_v10(conn: sqlite3.Connection) -> None:
     with conn:
         row = conn.execute("SELECT gap_json FROM account_sync WHERE id = 1").fetchone()
         if row is not None and row[0]:
-            stored = json.loads(row[0])
-            if isinstance(stored, dict):
-                conn.execute(
-                    "UPDATE account_sync SET gap_json = ? WHERE id = 1",
-                    (json.dumps([stored], ensure_ascii=False, separators=(",", ":")),),
-                )
+            # A gap that does not parse still records a loss: it becomes an
+            # unreadableGap that rebaseline clears, never a crash or nothing.
+            conn.execute(
+                "UPDATE account_sync SET gap_json = ? WHERE id = 1",
+                (gaps_mod.encode(gaps_mod.parse(row[0])),),
+            )
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
 
