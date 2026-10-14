@@ -972,3 +972,55 @@ def test_sync_refuses_while_another_run_holds_the_clone(
     assert main(["clone", "sync", "@source", "--json"]) == 0
     assert state.load(clone_state.clone_id).cursor == 3
     _hold_clone_lock(clone_state.clone_id).close()
+
+
+def test_clone_sync_cap_hit_in_comments_leg_stops_the_leg(
+    config_env, monkeypatch, capsys
+):
+    """The comments leg honours --max-runtime like the posts leg: once the cap
+    runs out mid-leg, no further comment is copied, the pin phase never runs,
+    the roster is deferred, and the run reports the stop with work left."""
+    from tgcli.governor import pacing
+
+    cap = {"remaining": 100.0}
+    monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: cap["remaining"])
+    seed_comments_clone()
+
+    def comment(message_id):
+        return message(
+            message_id,
+            chat=55,
+            message=f"c{message_id}",
+            reply_to=types.MessageReplyHeader(reply_to_msg_id=10),
+        )
+
+    class CapInCommentsClient(CloneCommentsClient):
+        async def __call__(self, request):
+            result = await super().__call__(request)
+            peer = getattr(request, "peer", None) or getattr(request, "to_peer", None)
+            if peer is self.destination_group and isinstance(
+                request,
+                (
+                    functions.messages.SendMessageRequest,
+                    functions.messages.ForwardMessagesRequest,
+                ),
+            ):
+                cap["remaining"] = 0.0
+            return result
+
+    client = CapInCommentsClient(
+        [message(2)], [anchor(10, 2), comment(12), comment(13), comment(14)]
+    )
+    client.anchor_ids = {2: 500}
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--max-runtime", "100", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    # One post, then exactly one comment before the cap ran out.
+    assert data["sync"]["copied"] == 2
+    assert data["sync"]["discussion_cursor"] == 12
+    assert data["remaining"] is True
+    assert data["stop_reason"] == "wall_clock_cap"
+    assert client.full_requests == []
+    assert data["sync"]["participants"]["source"]["reason"] == "wall_clock_cap"
