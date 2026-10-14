@@ -39,15 +39,23 @@ _CHATS = {
 
 
 class Truth:
-    """Where things live in the destination once the sync has finished."""
+    """Where things live in the destination once the sync has finished.
 
-    def __init__(self, world: World, final: state.CloneState, client):
+    Read only from what the fake Telegram answered (``client.copies``,
+    ``client.anchor_ids``) and what the test seeded, never from the id maps
+    the code under test wrote: a copy recorded under the wrong source would
+    otherwise become its own expected parent.
+    """
+
+    def __init__(self, world: World, client):
         self.world = world
-        self.final = final
         self.client = client
 
+    def dest_for(self, chat: str, source_id: int) -> int | None:
+        return self.client.copies.get((chat, source_id))
+
     def anchor_of(self, post) -> int | None:
-        dest = self.final.dest_for(post.id)
+        dest = self.dest_for("channel", post.id)
         return None if dest is None else self.client.anchor_ids.get(dest)
 
     def thread(self, post) -> tuple[str, int] | None:
@@ -66,24 +74,24 @@ class Truth:
             if post is None:
                 return None
             if leg == "posts":
-                dest = self.final.dest_for(post.id)
+                dest = self.dest_for("channel", post.id)
                 return None if dest is None else ("channel", dest)
             # A comment quoting a channel post points at its discussion anchor.
             found = self.anchor_of(post)
             return None if found is None else ("group", found)
         if self.world.comment(reply.id) is not None:
-            dest = self.final.discussion_dest_for(reply.id)
+            dest = self.dest_for("group", reply.id)
             return None if dest is None else ("group", dest)
         post = self.world.anchored(reply.id)
         return None if post is None else self.thread(post)
 
     def exists(self, chat: str, msg_id: int) -> bool:
-        if chat == "channel":
-            return msg_id in self.final.id_map.values()
-        return (
-            msg_id in self.final.discussion_id_map.values()
-            or msg_id in self.client.anchor_ids.values()
-        )
+        copies = {
+            dest for (where, _), dest in self.client.copies.items() if where == chat
+        }
+        if chat == "group":
+            copies |= set(self.client.anchor_ids.values())
+        return msg_id in copies
 
 
 def _reply(request, chat: str):
@@ -99,13 +107,19 @@ def _reply(request, chat: str):
 
 
 def _check(truth: Truth, sync: dict) -> None:
-    world, final, client = truth.world, truth.final, truth.client
+    world, client = truth.world, truth.client
     copies = [
-        ("posts", "channel", post, final.dest_for(post.id), None)
+        ("posts", "channel", post, truth.dest_for("channel", post.id), None)
         for post in world.posts
         if not post.copied_before
     ] + [
-        ("discussion", "group", comment, final.discussion_dest_for(comment.id), comment)
+        (
+            "discussion",
+            "group",
+            comment,
+            truth.dest_for("group", comment.id),
+            comment,
+        )
         for comment in world.comments
         if not comment.copied_before
     ]
@@ -181,4 +195,15 @@ def test_every_clone_reply_lands_with_its_parent_or_is_counted_flat(
         sync = json.loads(capsys.readouterr().out)["sync"]
         final = state.load(seeded.clone_id)
         assert final is not None
-        _check(Truth(world, final, client), sync)
+        # Clone state must record each copy where Telegram put it.
+        assert final.id_map == {
+            str(source): dest
+            for (chat, source), dest in client.copies.items()
+            if chat == "channel"
+        }
+        assert final.discussion_id_map == {
+            str(source): dest
+            for (chat, source), dest in client.copies.items()
+            if chat == "group"
+        }
+        _check(Truth(world, client), sync)

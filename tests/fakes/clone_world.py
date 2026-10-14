@@ -18,6 +18,7 @@ an anchor whose post the posts leg had not reached.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 
 from hypothesis import strategies as st
@@ -56,6 +57,7 @@ class Post:
     anchor_present: bool  # the source anchor can still be read
     anchor_remembered: bool  # the earlier run recorded the anchor pair
     reply: Reply | None = None
+    album: int | None = None  # grouped_id shared with its neighbours
 
 
 @dataclass(frozen=True)
@@ -158,10 +160,21 @@ def worlds(draw) -> World:
         for item in comments
     ]
 
+    # Neighbouring posts may form an album, which the clone forwards in one
+    # request carrying several ids. Album posts carry no reply here.
+    albums: list[int | None] = [None] * len(posts)
+    for index in range(1, len(posts)):
+        if draw(st.booleans()):
+            albums[index] = albums[index - 1] or posts[index - 1].id
+            albums[index - 1] = albums[index]
+
     # A post replies to an earlier post, a comment, an anchor, a deleted id in
     # either chat, or nothing.
     replied = []
-    for post in posts:
+    for post, album in zip(posts, albums, strict=True):
+        if album is not None:
+            replied.append(replace(post, album=album))
+            continue
         parents = [Reply("channel", item.id) for item in posts if item.id < post.id]
         parents += [
             Reply("channel", item) for item in range(1, post.id) if item not in post_ids
@@ -192,11 +205,15 @@ class WorldClient(CloneCommentsClient):
     Telegram auto-forwards each new channel post into the linked group, so a
     post sent here gets its destination anchor at once. ``sent`` maps each
     destination message, as (chat, id), to the request that created it.
+    ``copies`` maps each source message, as (chat, id), to the destination id
+    Telegram gave its copy: what the fake itself answered, never what clone
+    state recorded, plus the earlier run's copies the test seeded.
     """
 
     def __init__(self, messages, comments=()):
         super().__init__(messages, comments)
         self.sent: dict[tuple[str, int], object] = {}
+        self.copies: dict[tuple[str, int], int] = {}
 
     async def get_input_entity(self, ref):
         if ref is self.destination_group:
@@ -208,13 +225,40 @@ class WorldClient(CloneCommentsClient):
         if isinstance(request, SENDS):
             peer = getattr(request, "peer", None) or getattr(request, "to_peer", None)
             chat = "group" if peer is self.destination_group else "channel"
-            for update in response.updates:
-                if isinstance(update, types.UpdateMessageID):
-                    self.sent[(chat, update.id)] = request
-                    if chat == "channel":
-                        self.group_last_id += 1
-                        self.anchor_ids[update.id] = self.group_last_id
+            assigned = {
+                update.random_id: update.id
+                for update in response.updates
+                if isinstance(update, types.UpdateMessageID)
+            }
+            for source_id, random_id in _sources(request):
+                destination_id = assigned[random_id]
+                self.copies[(chat, source_id)] = destination_id
+                self.sent[(chat, destination_id)] = request
+                if chat == "channel":
+                    self.group_last_id += 1
+                    self.anchor_ids[destination_id] = self.group_last_id
         return response
+
+
+def _text(source_id: int) -> str:
+    """Each source message's own body, so a reuploaded copy names its source."""
+    return f"source message #{source_id}"
+
+
+def _sources(request) -> list[tuple[int, int]]:
+    """(source id, random id) for each message a send request carries."""
+    if isinstance(request, functions.messages.ForwardMessagesRequest):
+        return list(zip(request.id, request.random_id, strict=True))
+    if isinstance(request, functions.messages.SendMultiMediaRequest):
+        items = [(item.message, item.random_id) for item in request.multi_media]
+    else:
+        items = [(request.message, request.random_id)]
+    found = []
+    for body, random_id in items:
+        match = re.search(r"source message #(\d+)", body or "")
+        assert match is not None, f"a send names no source message: {body!r}"
+        found.append((int(match.group(1)), random_id))
+    return found
 
 
 def _header(reply: Reply, *, sender: str, thread_anchor: int | None):
@@ -251,11 +295,13 @@ def build(world: World) -> tuple[state.CloneState, WorldClient]:
     channel_last = 0
     group_last = 0
     anchor_ids = {}
+    seeded = {}
     for post in world.posts:
         if not post.copied_before:
             continue
         channel_last += 1
         clone_state.record_mapping(post.id, channel_last)
+        seeded[("channel", post.id)] = channel_last
         if post.dest_anchor_kept:
             group_last += 1
             anchor_ids[channel_last] = group_last
@@ -265,12 +311,15 @@ def build(world: World) -> tuple[state.CloneState, WorldClient]:
         if comment.copied_before:
             group_last += 1
             clone_state.record_discussion_mapping(comment.id, group_last)
+            seeded[("group", comment.id)] = group_last
     state.save(clone_state)
 
     posts = [
         message(
             post.id,
             chat=SOURCE_CHANNEL,
+            message=_text(post.id),
+            grouped_id=post.album,
             reply_to=None
             if post.reply is None
             else _header(post.reply, sender="posts", thread_anchor=None),
@@ -290,9 +339,17 @@ def build(world: World) -> tuple[state.CloneState, WorldClient]:
         header = _header(
             comment.reply, sender="discussion", thread_anchor=thread.anchor
         )
-        group.append(message(comment.id, chat=SOURCE_GROUP, reply_to=header))
+        group.append(
+            message(
+                comment.id,
+                chat=SOURCE_GROUP,
+                message=_text(comment.id),
+                reply_to=header,
+            )
+        )
     client = WorldClient(posts, group)
     client.destination_last_id = max(channel_last, 1)
     client.group_last_id = max(group_last, 1)
     client.anchor_ids = anchor_ids
+    client.copies = dict(seeded)
     return clone_state, client
