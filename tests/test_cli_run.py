@@ -282,3 +282,20 @@ def test_a_script_timeout_error_is_not_reported_as_the_deadline(
         assert envelope["error"]["code"] != "TIMEOUT", envelope
         assert "deadline" not in err.out
         assert "upstream slow" in err.err
+
+
+def test_a_timeout_error_after_the_deadline_is_still_the_deadline(
+    tmp_path, monkeypatch, capsys
+):
+    # Past --timeout, inside the grace window, a socket-style TimeoutError is
+    # the deadline expiring (CONTRACT §4 TIMEOUT), not a RUNTIME failure.
+    _, path = setup(
+        tmp_path,
+        monkeypatch,
+        "import asyncio\nawait asyncio.sleep(0.4)\nraise TimeoutError('late')\n",
+    )
+
+    main(["--json", "--timeout", "0.1", "run", path])
+
+    envelope = json.loads(capsys.readouterr().out)
+    assert envelope["error"]["code"] == "TIMEOUT", envelope

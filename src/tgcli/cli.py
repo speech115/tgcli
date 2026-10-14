@@ -267,7 +267,9 @@ def _run_with_deadline(coro, timeout):
                 if done:
                     try:
                         return task.result()
-                    except asyncio.CancelledError:
+                    except (asyncio.CancelledError, TimeoutError):
+                        # Past the deadline, a builtin TimeoutError (a socket
+                        # timing out in the grace window) is the deadline too.
                         raise _DeadlineExpired from None
                 task.cancel()
                 raise _DeadlineExpired
