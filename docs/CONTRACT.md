@@ -609,7 +609,9 @@ tg thread CHAT MESSAGE_ID [--replies] [--depth N] [--limit N]
 returns `{dialog, root, ancestors, replies, note}` where `root` and each
 ancestor/reply use the universal message JSON shape. Ancestors walk
 `reply_to` upward, ordered oldest→newest, excluding the root; `--depth`
-defaults to 20 and is hard-capped at 100 (cycles stop the walk). `replies`
+defaults to 20 and is hard-capped at 100 (cycles stop the walk, and so does a
+reply into another chat: the walk ends at the root or ancestor whose
+`reply_to` is a `{id, peer}` object). `replies`
 is empty unless `--replies` is set **and** the root exposes a cheap
 comment/forum thread (`message.replies`); otherwise `replies` stays `[]` and
 `note` is `"no cheap reply thread for this message; replies omitted"`.
