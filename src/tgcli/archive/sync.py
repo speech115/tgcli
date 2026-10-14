@@ -519,18 +519,9 @@ async def sync_archive(
 
     if should_stop is not None and should_stop():
         stopped = True
-    media = await fetch_media(
-        tg,
-        conn,
-        account_alias=account_alias,
-        account_user_id=account_user_id,
-        account_dir=account_dir,
-        limit=max_media,
-        should_stop=should_stop,
-    )
-    if should_stop is not None and should_stop():
-        stopped = True
-
+    # Checkpoint before the media tail: its queue lives in the database, so
+    # a media rate limit (exit 5) must not make the next run re-apply this
+    # difference.
     gap = doc.get("gap")
     encoded = changes_cursor.encode(cursor)
     # A clean pass does not bring lost edits back: the stored gap stays until
@@ -544,6 +535,17 @@ async def sync_archive(
     )
     assert persisted is not None
     encoded = persisted
+    media = await fetch_media(
+        tg,
+        conn,
+        account_alias=account_alias,
+        account_user_id=account_user_id,
+        account_dir=account_dir,
+        limit=max_media,
+        should_stop=should_stop,
+    )
+    if should_stop is not None and should_stop():
+        stopped = True
     reconcile_data = None
     if reconcile and not stopped:
         reconcile_data = await light_reconcile(tg, conn)

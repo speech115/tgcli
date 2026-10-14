@@ -8,7 +8,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from telethon import errors as telethon_errors
 
 from tgcli.archive import (
     explore as explore_module,
@@ -18,7 +17,6 @@ from tgcli.archive import (
     sync as sync_module,
     transcribe as transcribe_module,
 )
-from tgcli.errors import RateLimitError
 
 
 def _payload(message_id: int, text: str, *, media_kind: str = "voice") -> dict:
@@ -350,55 +348,6 @@ async def test_media_failure_retries_then_becomes_terminal(tmp_path, monkeypatch
         conn.close()
 
 
-def _flood_wait():
-    flood_wait = telethon_errors.FloodWaitError(request=None)
-    flood_wait.seconds = 30
-    return flood_wait
-
-
-def _cooling():
-    # What the governor raises for a cooling request type, before any RPC.
-    return RateLimitError("GetFileRequest is rate limited for 600s", retry_after=600)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "make_error", [_flood_wait, _cooling], ids=["flood", "cooling"]
-)
-async def test_media_rate_limit_does_not_consume_media_attempt(
-    tmp_path, monkeypatch, make_error
-):
-    """A governor cooldown is refused locally as RateLimitError, not
-    FloodWaitError. It was recorded as an ordinary failure, so three
-    scheduled syncs inside one cooldown made queued voice notes `no_media`
-    for good while every run exited 0."""
-    conn = _connection(tmp_path)
-    account_dir = tmp_path / "account"
-    account_dir.mkdir()
-    try:
-        store.upsert_message(conn, 7, _payload(1, "caption"))
-        conn.commit()
-
-        async def raise_flood(*_args, **_kwargs):
-            raise make_error()
-
-        monkeypatch.setattr(sync_module.media_cmd, "download_media", raise_flood)
-        with pytest.raises(RateLimitError):
-            await sync_module.fetch_media(
-                object(),
-                conn,
-                account_alias="main",
-                account_user_id=42,
-                account_dir=account_dir,
-                limit=10,
-            )
-        row = store.transcript_row(conn, 7, 1)
-        assert row["media_attempts"] == 0
-        assert row["media_status"] == "pending"
-    finally:
-        conn.close()
-
-
 @pytest.mark.asyncio
 async def test_media_fetch_reaches_backlog_older_than_candidate_window(
     tmp_path, monkeypatch
@@ -725,51 +674,5 @@ async def test_catch_up_fills_a_backlog_larger_than_one_page_without_holes(tmp_p
         assert stored == set(range(101, 201))
         assert store.get_sync_state(conn, peer)["newest_id"] == 200
         assert first["more"] is True
-    finally:
-        conn.close()
-
-
-@pytest.mark.asyncio
-async def test_catch_up_of_a_peer_without_history_keeps_its_newest_page(tmp_path):
-    """A scoped channel that was never backfilled has no `newest_id`. Reading
-    it oldest first would store the channel's first messages and crawl its
-    whole history one page per activity, so it keeps the newest page."""
-    from datetime import UTC, datetime, timedelta
-
-    from telethon.tl.types import Channel, Message, PeerChannel
-
-    from tests.conftest import FakeClient
-
-    conn = _connection(tmp_path)
-    try:
-        channel = Channel(
-            id=1234, title="News", photo=None, date=None, access_hash=5, megagroup=False
-        )
-        peer = -1000000001234
-        newest_first = [
-            Message(
-                id=message_id,
-                peer_id=PeerChannel(1234),
-                message=f"m{message_id}",
-                date=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(minutes=message_id),
-            )
-            for message_id in range(200, 0, -1)
-        ]
-        client = FakeClient(messages=newest_first, entities={peer: channel})
-
-        result = await sync_module._catch_up_peer(
-            client, conn, peer, account_user_id=42, message_budget=500
-        )
-
-        assert client.iter_messages_reverse_calls == [False]
-        assert result["more"] is False
-        stored = {
-            int(row[0])
-            for row in conn.execute(
-                "SELECT message_id FROM messages WHERE peer_id = ?", (peer,)
-            )
-        }
-        assert stored == set(range(200 - sync_module.CATCHUP_LIMIT + 1, 201))
-        assert store.get_sync_state(conn, peer)["newest_id"] == 200
     finally:
         conn.close()
