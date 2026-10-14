@@ -91,7 +91,7 @@ flag.
 | Code | Meaning | Typical cause |
 |------|---------|---------------|
 | 0 | success | |
-| 1 | runtime error | network, unexpected exception |
+| 1 | runtime error | network (a lost connection ends `clone sync`/`init` and `archive sync` rather than degrading one item), unexpected exception |
 | 2 | blocked by safety policy | `--readonly` + mutating command, `TGCLI_NO_SEND` |
 | 3 | config/auth error | missing `--account` / `default_account`, dead session (any Telegram `UnauthorizedError`: revoked, expired, unregistered key, deactivated user — `needs reauthentication`), bad api_id, a session still busy after the wait below |
 | 4 | not found | unknown dialog, message id, media; unknown alias on `accounts show\|remove` (lookup) |

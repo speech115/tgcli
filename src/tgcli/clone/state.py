@@ -78,8 +78,8 @@ def slot_lock(clone_id: str) -> Iterator[None]:
     write one clone and post every message twice. Never waits: the other run
     may be hours long. The `.lock` file stays; it holds no state.
     """
-    clones_dir().mkdir(parents=True, exist_ok=True)
-    with (clones_dir() / f"{clone_id}.lock").open("w") as handle:
+    lock = ensure_clones_dir() / f"{clone_id}.lock"
+    with os.fdopen(os.open(lock, os.O_WRONLY | os.O_CREAT, 0o600), "w") as handle:
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:

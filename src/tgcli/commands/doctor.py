@@ -8,7 +8,7 @@ import telethon
 
 from tgcli import safety, session
 from tgcli.config import Config, default_config_path, resolve_account
-from tgcli.errors import PolicyError
+from tgcli.errors import ConfigError, PolicyError
 from tgcli.output import note
 
 
@@ -62,11 +62,15 @@ def _repair_allowed(readonly: bool) -> bool:
     mutation site obeys. Asking `safety` is what keeps `--readonly` and
     `TGCLI_READONLY=1` one gate; a hand-rolled `if readonly` honoured only
     the flag and repaired previews under the environment variable (review
-    finding).
+    finding). A malformed kill-switch value fails closed here too, but as a
+    skipped repair: doctor must still report when everything else refuses.
     """
     try:
         safety.enforce_local_mutation_allowed(readonly)
     except PolicyError:
+        return False
+    except ConfigError as exc:
+        note(f"warning: {exc}; local repairs skipped")
         return False
     return True
 
