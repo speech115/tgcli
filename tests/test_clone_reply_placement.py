@@ -125,9 +125,12 @@ def _check(truth: Truth, sync: dict) -> None:
     ]
     lost = 0
     for leg, chat, item, dest, comment in copies:
-        if dest is None or (chat, dest) not in client.sent:
-            continue  # not copied by this run
         label = f"{leg} {item.id} -> {item.reply}"
+        # Every message above its leg's cursor is supported, and the run has
+        # no limit: each one must reach the destination in this run.
+        assert dest is not None and (chat, dest) in client.sent, (
+            f"{label}: never sent to the destination {chat}"
+        )
         target, top = _reply(client.sent[(chat, dest)], chat)
         thread = thread_anchor = None
         if comment is not None:

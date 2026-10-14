@@ -51,7 +51,7 @@ class Reply:
 @dataclass(frozen=True)
 class Post:
     id: int
-    copied_before: bool  # an earlier run copied it (only below the cursor)
+    copied_before: bool  # at or below its cursor, so an earlier run copied it
     dest_anchor_kept: bool  # that earlier copy still has its group anchor
     anchor: int | None  # source group id of Telegram's auto-forward
     anchor_present: bool  # the source anchor can still be read
@@ -64,7 +64,7 @@ class Post:
 class Comment:
     id: int
     thread: int  # the post whose discussion it belongs to
-    copied_before: bool  # an earlier run copied it (only below the cursor)
+    copied_before: bool  # at or below its cursor, so an earlier run copied it
     reply: Reply
 
 
@@ -95,8 +95,9 @@ def worlds(draw) -> World:
     posts_cursor = draw(st.sampled_from([0, *post_ids]))
     posts = []
     for post_id in post_ids:
-        before = post_id <= posts_cursor
-        copied_before = before and draw(st.booleans())
+        # A sync records a copy and moves the cursor in one step, so every
+        # post at or below the cursor was copied; a lost source is an id gap.
+        copied_before = post_id <= posts_cursor
         kept = copied_before and draw(st.booleans())
         posts.append(
             Post(
@@ -154,10 +155,7 @@ def worlds(draw) -> World:
         reachable.append(group_id)
     discussion_cursor = draw(st.sampled_from(reachable))
     comments = [
-        replace(item, copied_before=draw(st.booleans()))
-        if item.id <= discussion_cursor
-        else item
-        for item in comments
+        replace(item, copied_before=item.id <= discussion_cursor) for item in comments
     ]
 
     # A post replies to an earlier post, a comment, an anchor, a deleted id in
