@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from telethon import errors as telethon_errors
-from telethon.tl import functions
+from telethon.tl import functions, types
 
 from tgcli import session
 from tgcli.config import Account
@@ -219,6 +219,7 @@ def test_make_client_sets_stable_telegram_device_identity(tmp_path, monkeypatch)
     assert captured["args"] == (str(tmp_path / "regular"), 1, "h")
     assert captured["kwargs"] == {
         "flood_sleep_threshold": 0,
+        "raise_last_call_error": True,
         "device_model": "tgcli",
         "system_version": "TestOS",
         "app_version": session.__version__,
@@ -257,12 +258,47 @@ async def test_mutation_safe_telethon_client_sends_ambiguous_timeout_once(
         lambda sent: telethon_errors.TimedOutError(request=sent, message="TIMEOUT")
     )
 
-    with pytest.raises(ValueError, match="unsuccessful 1 time"):
+    with pytest.raises(telethon_errors.TimedOutError):
         await tg._call(sender, request)
 
     assert sender.calls == 1
     assert tg._request_retries == 0
     assert sleeps == [2]
+
+
+@pytest.mark.parametrize("mutation_safe", [True, False], ids=["mutation", "regular"])
+async def test_telegram_internal_error_surfaces_as_itself_not_a_value_error(
+    tmp_path, monkeypatch, mutation_safe
+):
+    """Telethon reports a call whose retries ran out as ValueError, the same
+    type `get_entity` uses for "no such peer". Callers turned that into
+    permanent state: one 500 switched a clone's comments off for good."""
+
+    async def fake_sleep(seconds):
+        pass
+
+    monkeypatch.setattr("telethon.client.users.asyncio.sleep", fake_sleep)
+    tg = session._make_client(
+        Path(tmp_path / "client"), ACCOUNT, mutation_safe=mutation_safe
+    )
+    request = functions.messages.GetHistoryRequest(
+        peer=types.InputPeerEmpty(),
+        offset_id=0,
+        offset_date=None,
+        add_offset=0,
+        limit=1,
+        max_id=0,
+        min_id=0,
+        hash=0,
+    )
+    sender = FailingSender(
+        lambda sent: telethon_errors.ServerError(
+            request=sent, message="INTERNAL", code=500
+        )
+    )
+
+    with pytest.raises(telethon_errors.ServerError):
+        await tg._call(sender, request)
 
 
 async def test_mutation_safe_telethon_client_surfaces_short_flood_wait_without_sleep(

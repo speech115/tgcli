@@ -7,6 +7,7 @@ from telethon import errors as telethon_errors, utils
 from telethon.tl import types
 
 from tgcli.errors import PolicyError
+from tgcli.session import TRANSIENT_ERRORS
 
 
 @dataclass(frozen=True)
@@ -133,14 +134,14 @@ async def _resolve(tg, peer, cache: dict):
 
     A post can name a peer this account cannot resolve — a private channel
     (live-proven: `[икона]` 54 forwards from one), a deleted account. Every
-    refusal is a missing label, not a failed sync; only a FloodWait still
-    stops the run (ADR-0045).
+    refusal is a missing label, not a failed sync; only a FloodWait or a
+    Telegram-side failure still stops the run (ADR-0045).
     """
     key = peer_key(peer)
     if key not in cache:
         try:
             cache[key] = await tg.get_entity(peer)
-        except telethon_errors.FloodWaitError:
+        except TRANSIENT_ERRORS:
             raise
         except (ValueError, telethon_errors.RPCError):
             cache[key] = None
@@ -175,7 +176,7 @@ async def _entity_from_message_forward(message, peer):
             continue
         try:
             entity = await getter()
-        except telethon_errors.FloodWaitError:
+        except TRANSIENT_ERRORS:
             raise
         except (ValueError, telethon_errors.RPCError):
             continue

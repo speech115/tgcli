@@ -8,7 +8,11 @@ from telethon import errors as telethon_errors
 from telethon.client.downloads import DownloadMethods
 from telethon.tl import functions, types
 
-from tests.conftest import make_session_fake
+from tests.conftest import (
+    TRANSIENT_ERRORS,
+    make_session_fake,
+    transient_exit_code,
+)
 from tgcli import safety, session
 from tgcli.cli import main
 from tgcli.clone import reforward, state, topics
@@ -1781,6 +1785,80 @@ def test_sync_marks_comments_unavailable_when_source_group_turns_private(
     saved = state.load(clone_state.clone_id)
     assert saved is not None
     assert saved.comments == "unavailable"
+
+
+@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
+def test_sync_keeps_comments_enabled_after_a_transient_group_read_failure(
+    config_env, monkeypatch, capsys, make_error
+):
+    """One Telegram 500 on the discussion group is not a refusal. It used to
+    reach the degrade guard as a ValueError, switch comments off for good,
+    and drop the comment progress; now the run stops and the next one retries."""
+    clone_state = seed_comments_clone()
+    error = make_error()
+
+    class FailingGroupClient(CloneCommentsClient):
+        async def iter_messages(self, entity, *, min_id=0, reverse=False):
+            if entity is self.source_group:
+                raise error
+            async for item in super().iter_messages(
+                entity, min_id=min_id, reverse=reverse
+            ):
+                yield item
+
+    client = FailingGroupClient([message(2)], [anchor(10, 2), message(12)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == transient_exit_code(error)
+
+    saved = state.load(clone_state.clone_id)
+    assert saved is not None
+    assert saved.comments == "enabled"
+    assert saved.dest_for(2) is not None
+
+
+def test_sync_copies_remaining_posts_alone_after_comments_degrade_mid_run(
+    config_env, monkeypatch, capsys
+):
+    """A group that turns private in window 1 degrades comments (ADR-0061).
+    The interleave loop used to call the comments leg again in window 2: it
+    re-read the group from cursor 0 into a clone marked "unavailable", and
+    that state no longer loaded."""
+    from tgcli.clone import legs
+
+    monkeypatch.setattr(legs, "WINDOW", 1)
+    clone_state = seed_comments_clone()
+
+    class TurnsPrivateOnce(CloneCommentsClient):
+        refused = False
+
+        async def iter_messages(self, entity, *, min_id=0, reverse=False):
+            if entity is self.source_group and not self.refused:
+                self.refused = True
+                self.iter_messages_calls.append(("group", min_id, reverse))
+                raise telethon_errors.ChannelPrivateError(request=None)
+            async for item in super().iter_messages(
+                entity, min_id=min_id, reverse=reverse
+            ):
+                yield item
+
+    client = TurnsPrivateOnce(
+        [message(2), message(3), message(4)], [anchor(10, 2), message(12)]
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    assert sync["copied"] == 3
+    assert [call for call in client.iter_messages_calls if call[0] == "group"] == [
+        ("group", 0, True)
+    ]
+    assert group_sends(client) == []
+    saved = state.load(clone_state.clone_id)
+    assert saved is not None
+    assert saved.comments == "unavailable"
+    assert [saved.dest_for(post) is not None for post in (2, 3, 4)] == [True] * 3
 
 
 @pytest.mark.asyncio
@@ -3913,6 +3991,36 @@ def test_clone_sync_continues_when_the_document_thumb_download_fails(
     assert state.load(clone_state.clone_id).dest_for(2) == 2
 
 
+@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
+def test_clone_sync_stops_when_the_document_thumb_download_fails_transiently(
+    config_env, monkeypatch, capsys, make_error
+):
+    """A thumb refused for good is dropped (#83), but a 500 is not a refusal:
+    dropping it would copy the post without its preview forever."""
+    clone_state = seed_clone()
+    still = types.PhotoSize(type="m", w=320, h=320, size=2048)
+    error = make_error()
+
+    class FailingThumbClient(CloneThumbClient):
+        async def download_media(self, message, file=None, thumb=None):
+            if thumb is None:
+                return await CloneReuploadClient.download_media(
+                    self, message, file=file
+                )
+            raise error
+
+    client = FailingThumbClient(
+        [message(2, message="paper", media=document_media(thumbs=[still]))],
+        protected=True,
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == transient_exit_code(error)
+
+    assert client.requests == []
+    assert state.load(clone_state.clone_id).dest_for(2) is None
+
+
 def test_clone_sync_reuploads_protected_album_as_one_ordered_batch(
     config_env, monkeypatch, capsys
 ):
@@ -4077,6 +4185,40 @@ def test_clone_sync_falls_back_to_reupload_when_reference_is_refused(
     assert isinstance(request.media, types.InputMediaUploadedPhoto)
     assert len(client.downloads) == 1
     assert state.load(clone_state.clone_id).dest_for(2) == 1002
+
+
+@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
+def test_clone_sync_never_reuploads_after_a_transient_reference_send_failure(
+    config_env, monkeypatch, capsys, make_error
+):
+    """A timeout or 500 on the by-reference send says nothing about whether
+    the post landed. Falling back to a reupload could post it twice, so the
+    run stops and the next one re-checks the destination tail."""
+    clone_state = seed_clone()
+    clone_state.record_mapping(1, 1001)
+    clone_state.cursor = 1
+    state.save(clone_state)
+    error = make_error()
+
+    class FailingReferenceClient(CloneReuploadClient):
+        async def __call__(self, request):
+            if isinstance(request, functions.messages.SendMediaRequest) and (
+                isinstance(request.media, types.InputMediaPhoto)
+            ):
+                raise error
+            return await super().__call__(request)
+
+    reply = types.MessageReplyHeader(reply_to_msg_id=1)
+    client = FailingReferenceClient([message(2, media=real_photo(70), reply_to=reply)])
+    client.destination_last_id = 1001
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == transient_exit_code(error)
+
+    assert "media by reference refused" not in capsys.readouterr().err
+    assert client.requests == []
+    assert client.downloads == []
+    assert state.load(clone_state.clone_id).dest_for(2) is None
 
 
 def test_clone_sync_prefixes_attributed_reply_album_caption_once(

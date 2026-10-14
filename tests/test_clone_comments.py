@@ -12,6 +12,7 @@ import pytest
 from telethon import errors as telethon_errors
 from telethon.tl import types
 
+from tests.conftest import TRANSIENT_ERRORS
 from tgcli.clone import comments, state
 from tgcli.errors import PolicyError
 
@@ -177,24 +178,27 @@ def test_privatized_source_degrades_on_a_cached_window(tmp_path, monkeypatch):
     assert reloaded.comments == "unavailable"
 
 
-def test_floodwait_from_a_cached_window_read_still_escapes(tmp_path, monkeypatch):
-    """FloodWait on the window's reads must keep reaching the ADR-0045
-    cooldown wrapper — the degrade guard may not swallow it."""
+@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
+def test_a_transient_error_from_a_cached_window_read_still_escapes(
+    tmp_path, monkeypatch, make_error
+):
+    """FloodWait must keep reaching the ADR-0045 cooldown wrapper, and one
+    Telegram 500 must not switch comments off for good: the degrade guard may
+    swallow neither."""
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     clone_state = seed()
+    error = make_error()
 
-    class FloodsOnRead(FakeTg):
+    class FailsOnRead(FakeTg):
         async def get_messages(self, destination, limit=1):
             return []
 
         async def iter_messages(self, entity, *, min_id=0, reverse=False):
-            flood = telethon_errors.FloodWaitError(request=None)
-            flood.seconds = 30
-            raise flood
+            raise error
             if False:  # pragma: no cover — async generator shape
                 yield None
 
-    tg = FloodsOnRead()
+    tg = FailsOnRead()
     ctx = SimpleNamespace(anchors={}, source_group=tg.source_group)
 
     async def one_window():
@@ -210,7 +214,7 @@ def test_floodwait_from_a_cached_window_read_still_escapes(tmp_path, monkeypatch
             resolve_ctx=ctx,
         )
 
-    with pytest.raises(telethon_errors.FloodWaitError):
+    with pytest.raises(type(error)):
         asyncio.run(one_window())
     assert clone_state.comments == "enabled"
 
@@ -280,14 +284,17 @@ def test_sync_phase_marks_unavailable_when_source_group_forbidden(
     assert clone_state.comments == "unavailable"
 
 
-def test_sync_phase_propagates_floodwait_from_source_resolve(tmp_path, monkeypatch):
-    """FloodWait must still escape so the ADR-0045 cooldown wrapper arms."""
+@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
+def test_sync_phase_propagates_a_transient_error_from_source_resolve(
+    tmp_path, monkeypatch, make_error
+):
+    """FloodWait must still escape so the ADR-0045 cooldown wrapper arms, and
+    a Telegram 500 must escape so the next run retries instead of degrading."""
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     clone_state = seed()
-    flood = telethon_errors.FloodWaitError(request=None)
-    flood.seconds = 30
-    tg = FakeTg(entity_error=flood)
-    with pytest.raises(telethon_errors.FloodWaitError):
+    error = make_error()
+    tg = FakeTg(entity_error=error)
+    with pytest.raises(type(error)):
         run(tg, clone_state)
     assert clone_state.comments == "enabled"
 

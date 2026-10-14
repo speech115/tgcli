@@ -15,12 +15,19 @@ from telethon.tl import types
 
 from tgcli import atomic
 from tgcli.clone import state
+from tgcli.session import TRANSIENT_ERRORS
 
 _ACCESS_ERRORS = (
     telethon_errors.ChatAdminRequiredError,
     telethon_errors.ChannelPrivateError,
     telethon_errors.ChatForbiddenError,
 )
+
+
+def _deferred_reason(exc: Exception) -> str:
+    if isinstance(exc, telethon_errors.FloodWaitError):
+        return "flood_wait"
+    return type(exc).__name__
 
 
 def path_for(clone_id: str) -> Path:
@@ -44,8 +51,8 @@ async def _collect_peer(tg, peer: str, entity) -> tuple[list[dict], str, str | N
     try:
         async for participant in tg.iter_participants(entity):
             rows.append(_row(peer, participant))
-    except telethon_errors.FloodWaitError:
-        return [], "deferred", "flood_wait"
+    except TRANSIENT_ERRORS as exc:
+        return [], "deferred", _deferred_reason(exc)
     except _ACCESS_ERRORS as exc:
         return [], "unavailable", type(exc).__name__
     except ValueError as exc:
@@ -92,8 +99,8 @@ async def collect(tg, clone_state: state.CloneState, source_entity) -> dict:
             group = await tg.get_entity(
                 types.PeerChannel(clone_state.discussion_source_peer_id)
             )
-        except telethon_errors.FloodWaitError:
-            discussion = _marker(clone_state, "deferred", "flood_wait")
+        except TRANSIENT_ERRORS as exc:
+            discussion = _marker(clone_state, "deferred", _deferred_reason(exc))
         except _ACCESS_ERRORS as exc:
             # Telegram refuses to name a peer with an RPCError, not a
             # ValueError — the same shape that reached `attribution._resolve`

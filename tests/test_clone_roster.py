@@ -2,9 +2,11 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+import pytest
 from telethon import errors as telethon_errors
 from telethon.tl import types
 
+from tests.conftest import TRANSIENT_ERRORS
 from tgcli.clone import roster, state
 
 
@@ -119,13 +121,12 @@ def test_collect_marks_channel_unavailable_when_not_admin():
     assert read_lines(clone_state) == []
 
 
-def test_collect_defers_on_floodwait_and_discards_partial():
+@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
+def test_collect_defers_on_a_transient_error_and_discards_partial(make_error):
     from tgcli.governor.ledger import Ledger
 
     clone_state = seed()
-    flood = telethon_errors.FloodWaitError(request=None)
-    flood.seconds = 30
-    tg = FakeTg(source=[user(1), user(2), user(3)], source_error=flood)
+    tg = FakeTg(source=[user(1), user(2), user(3)], source_error=make_error())
     result = run(tg, clone_state)
     assert result["source"]["status"] == "deferred"
     assert result["source"]["count"] == 0
@@ -178,16 +179,22 @@ def test_collect_marks_discussion_unavailable_when_group_turned_private():
     assert [row["id"] for row in read_lines(clone_state)] == [1]
 
 
-def test_collect_defers_discussion_when_entity_resolve_floods():
+@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
+def test_collect_defers_discussion_when_entity_resolve_fails_transiently(
+    make_error,
+):
     from tgcli.governor.ledger import Ledger
 
     clone_state = seed(comments="enabled")
-    flood = telethon_errors.FloodWaitError(request=None)
-    flood.seconds = 30
-    tg = FakeTg(source=[user(1)], entity_error=flood)
+    error = make_error()
+    tg = FakeTg(source=[user(1)], entity_error=error)
     result = run(tg, clone_state)
     assert result["discussion"]["status"] == "deferred"
-    assert result["discussion"]["reason"] == "flood_wait"
+    assert result["discussion"]["reason"] == (
+        "flood_wait"
+        if isinstance(error, telethon_errors.FloodWaitError)
+        else type(error).__name__
+    )
     # a roster flood must not arm the per-clone cooldown (ADR-0024)
     # nor the governor's ledger (roster RPCs are not governed)
     with Ledger.open() as ledger:

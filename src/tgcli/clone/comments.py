@@ -13,6 +13,7 @@ from telethon.tl import types
 
 from tgcli.clone import batching, discussion, legs, replies, state
 from tgcli.errors import PolicyError
+from tgcli.session import TRANSIENT_ERRORS
 
 
 def _anchor_posts(messages, source_channel_id) -> dict[int, int] | None:
@@ -76,8 +77,9 @@ async def sync_phase(
             source_group = await tg.get_entity(
                 types.PeerChannel(clone_state.discussion_source_peer_id)
             )
-        except telethon_errors.FloodWaitError:
-            # A flood is not a refusal: it must reach exit 5, never degrade.
+        except TRANSIENT_ERRORS:
+            # A flood or a Telegram-side failure is not a refusal: it stops
+            # the run so the next one retries, never degrades.
             raise
         except (ValueError, telethon_errors.RPCError):
             degrade()
@@ -110,8 +112,8 @@ async def sync_phase(
             event = await anext(events)
         except StopAsyncIteration:
             break
-        except telethon_errors.FloodWaitError:
-            # A flood is not a refusal: it must reach exit 5, never degrade.
+        except TRANSIENT_ERRORS:
+            # Same: a flood or a 500 stops the run, never degrades.
             raise
         except (ValueError, telethon_errors.RPCError):
             # The window's own reads are where a mid-run privatized source

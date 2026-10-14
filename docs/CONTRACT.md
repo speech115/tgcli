@@ -1608,8 +1608,9 @@ After message copying, `sync` snapshots the source's audience (ADR-0024). The
 channel/chat, `discussion` = its linked comment group when
 `comments == "enabled"`), a `status` of `"collected"`, `"unavailable"`
 (Telegram refused — a broadcast channel you do not administer always refuses),
-`"deferred"` (FloodWait; retried next run, partial results discarded, and the
-cooldown it arms covers participant listing only, never message sync), or `"none"`
+`"deferred"` (FloodWait, `reason` `"flood_wait"`, or a Telegram-side failure,
+`reason` its error name; retried next run, partial results discarded, and the
+cooldown a FloodWait arms covers participant listing only, never message sync), or `"none"`
 (no discussion group). Collected participants are rewritten atomically to the
 JSONL sidecar at `participants.path` (one object per line, tagged `peer` plus
 the `export subscribers` columns). This snapshot is source-side only; the

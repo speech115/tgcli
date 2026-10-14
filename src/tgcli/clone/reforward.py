@@ -18,6 +18,8 @@ from datetime import timedelta
 from telethon import errors as telethon_errors
 from telethon.tl import types
 
+from tgcli.session import TRANSIENT_ERRORS
+
 # One messages.Search per reposted post against the ADR-0045 flood budget. The
 # window only has to cover the messages a single sender produced within one
 # second; candidates outside `fwd_from.date` are discarded anyway.
@@ -192,11 +194,12 @@ def _media_key(message):
 
 
 async def _guarded(awaitable):
-    """Fall back on any refusal, but never swallow a FloodWait: the governor
-    needs it to arm the cooldown and stop the run."""
+    """Fall back on any refusal, but never swallow a FloodWait (the governor
+    needs it to arm the cooldown) or a Telegram-side failure (the miss would
+    be cached for the run)."""
     try:
         return await awaitable
-    except telethon_errors.FloodWaitError:
+    except TRANSIENT_ERRORS:
         raise
     except (ValueError, telethon_errors.RPCError):
         return None

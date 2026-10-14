@@ -8,6 +8,7 @@ import pytest
 from telethon import errors as telethon_errors
 from telethon.tl import types
 
+from tests.conftest import TRANSIENT_ERRORS
 from tgcli.clone import (
     attribution,
     legs,
@@ -336,16 +337,20 @@ def test_forbidden_peer_without_a_title_keeps_the_bare_id():
     )
 
 
-def test_forbidden_peer_title_propagates_a_flood_wait_without_caching_it():
-    """A FloodWait is the run's flood, not a missing title: it must reach the
-    caller's cooldown machinery, and the peer must stay uncached so the title
-    still resolves after the wait instead of degrading for the whole run."""
+@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
+def test_forbidden_peer_title_propagates_a_transient_error_without_caching_it(
+    make_error,
+):
+    """A FloodWait or a Telegram-side failure is not a missing title: it must
+    reach the caller, and the peer must stay uncached so the title still
+    resolves on the next run instead of degrading for the whole run."""
+    error = make_error()
     messages, plan, leg, _client, ctx = _forbidden_case(
         [SimpleNamespace(id=2275285084, title="Свободный Капиталюга")],
-        history_error=telethon_errors.FloodWaitError(request=None, capture=61),
+        history_error=error,
     )
 
-    with pytest.raises(telethon_errors.FloodWaitError):
+    with pytest.raises(type(error)):
         asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
     assert ctx.peer_titles == {}
 

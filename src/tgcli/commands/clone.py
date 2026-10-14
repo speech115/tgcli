@@ -29,6 +29,7 @@ from tgcli.clone import (
 from tgcli.errors import NotFoundError, PartialFailure, PolicyError
 from tgcli.governor import pacing
 from tgcli.output import note
+from tgcli.session import TRANSIENT_ERRORS
 
 
 def _entry(s: state.CloneState) -> dict:
@@ -390,9 +391,9 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
                     types.PeerChannel(clone_state.discussion_destination_peer_id)
                 )
             )
-        except telethon_errors.FloodWaitError:
-            # CONTRACT §4: a genuine flood is exit 5 with retry_after, never a
-            # quiet "muted: false" on an otherwise successful init.
+        except TRANSIENT_ERRORS:
+            # CONTRACT §4: a genuine flood is exit 5 with retry_after, and a
+            # 500 an error, never a quiet "muted: false" on a successful init.
             raise
         except (ValueError, telethon_errors.RPCError):
             discussion_unresolved = True
@@ -681,6 +682,11 @@ async def sync_text(
                 posts_exhausted=posts_exhausted,
             )
             if posts_exhausted:
+                break
+            if clone_state.comments != "enabled":
+                # The group refused mid-run and comments degraded (ADR-0061):
+                # the remaining posts copy alone.
+                await run_posts_window(None)
                 break
     else:
         await run_posts_window(None)
