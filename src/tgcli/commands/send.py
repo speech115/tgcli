@@ -158,7 +158,7 @@ def _video_info(path: Path) -> tuple[float, int, int] | None:
     with path.open("rb") as stream:
         file_end = stream.seek(0, 2)
         stream.seek(0)
-        for kind, start, end in _boxes(stream, file_end):
+        for kind, _start, end in _boxes(stream, file_end):
             if kind != b"moov":
                 continue
             for child, child_start, child_end in _boxes(stream, end):
