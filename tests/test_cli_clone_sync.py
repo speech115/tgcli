@@ -5285,6 +5285,97 @@ def test_clone_sync_max_runtime_stops_normally_with_resume(
     assert "resume" in data
 
 
+class RosterClient(CloneSyncClient):
+    """Source whose roster is readable; records each listing."""
+
+    def __init__(self, messages, *, on_participant=None):
+        super().__init__(messages)
+        self.iter_participants_calls = []
+        self.on_participant = on_participant
+
+    async def iter_participants(self, entity, limit=None):
+        self.iter_participants_calls.append(entity)
+        for member_id in (701, 702, 703):
+            if self.on_participant is not None:
+                self.on_participant()
+            yield SimpleNamespace(
+                id=member_id,
+                username=None,
+                first_name="Member",
+                last_name=None,
+                phone=None,
+                bot=False,
+            )
+
+
+def test_clone_sync_cap_hit_in_copy_skips_pin_and_roster(
+    config_env, monkeypatch, capsys
+):
+    """A run the cap stops early is a run that stops early: CONTRACT says it
+    never calls the pin phase, and the roster listing is deferred, not run
+    past the cap."""
+    from tgcli.clone import roster
+    from tgcli.governor import pacing
+
+    monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: 0.0)
+    clone_state = seed_clone()
+    sidecar = roster.path_for(clone_state.clone_id)
+    sidecar.write_text('{"peer": "source", "id": 1}\n')
+    client = RosterClient([message(2), message(3)])
+    client.source_pinned_msg_id = 2
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--max-runtime", "0.001", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["remaining"] is True
+    assert data["stop_reason"] == "wall_clock_cap"
+    assert client.full_requests == []
+    assert not any(
+        isinstance(item, functions.messages.UpdatePinnedMessageRequest)
+        for item in client.requests
+    )
+    assert data["sync"]["pinned"]["status"] == "unmapped"
+    assert client.iter_participants_calls == []
+    assert data["sync"]["participants"]["source"] == {
+        "peer_id": 123,
+        "status": "deferred",
+        "count": 0,
+        "reason": "wall_clock_cap",
+    }
+    assert sidecar.read_text() == '{"peer": "source", "id": 1}\n'
+
+
+def test_clone_sync_cap_hit_in_roster_defers_roster_and_reports_done(
+    config_env, monkeypatch, capsys
+):
+    """Every post copied, then the cap runs out inside the participant
+    listing: the listing stops at the cap and the run is not reported as
+    having copy work remaining."""
+    from tgcli.governor import pacing
+
+    cap = {"remaining": 100.0}
+    monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: cap["remaining"])
+    seed_clone()
+
+    def exhaust():
+        cap["remaining"] = 0.0
+
+    client = RosterClient([message(2), message(3)], on_participant=exhaust)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--max-runtime", "100", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["sync"]["copied"] == 2
+    assert data["sync"]["more"] is False
+    assert data["remaining"] is False
+    assert "stop_reason" not in data
+    assert data["sync"]["participants"]["source"]["status"] == "deferred"
+    assert data["sync"]["participants"]["source"]["reason"] == "wall_clock_cap"
+    assert data["sync"]["participants"]["source"]["count"] == 0
+
+
 def test_sync_resolves_a_bare_title_through_clone_state(
     config_env, monkeypatch, capsys
 ):

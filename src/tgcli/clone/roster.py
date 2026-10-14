@@ -15,6 +15,7 @@ from telethon.tl import types
 
 from tgcli import atomic
 from tgcli.clone import state
+from tgcli.governor import pacing
 from tgcli.session import TRANSIENT_ERRORS
 
 _ACCESS_ERRORS = (
@@ -50,6 +51,9 @@ async def _collect_peer(tg, peer: str, entity) -> tuple[list[dict], str, str | N
     rows = []
     try:
         async for participant in tg.iter_participants(entity):
+            if pacing.wall_clock_exhausted():
+                # --max-runtime bounds the whole sync, the listing included.
+                return [], "deferred", "wall_clock_cap"
             rows.append(_row(peer, participant))
     except TRANSIENT_ERRORS as exc:
         return [], "deferred", _deferred_reason(exc)
@@ -77,6 +81,22 @@ def _marker(clone_state: state.CloneState, status: str, reason: str) -> dict:
         "count": 0,
         "reason": reason,
     }
+
+
+def deferred(clone_state: state.CloneState, reason: str) -> dict:
+    """The roster this run skipped: every peer deferred, sidecar untouched."""
+    source = {
+        "peer_id": clone_state.source_peer_id,
+        "status": "deferred",
+        "count": 0,
+        "reason": reason,
+    }
+    if clone_state.comments == "enabled" and clone_state.discussion_source_peer_id:
+        discussion = _marker(clone_state, "deferred", reason)
+    else:
+        discussion = {"peer_id": None, "status": "none", "count": 0, "reason": None}
+    path = path_for(clone_state.clone_id)
+    return {"path": str(path), "source": source, "discussion": discussion}
 
 
 async def collect(tg, clone_state: state.CloneState, source_entity) -> dict:
