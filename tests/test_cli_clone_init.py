@@ -805,6 +805,32 @@ def test_clone_init_commit_adopts_half_created_marker_channel(
     assert state.load(clone_state.clone_id).destination_peer_id == 999
 
 
+def test_clone_init_first_commit_never_adopts_a_planted_marker_channel(
+    config_env, monkeypatch, capsys
+):
+    """The plain marker is a hash of public ids: anyone can title a group with
+    it and hand its ownership to the victim. A first init must not adopt it."""
+    client = CloneInitClient()
+    cid = state.clone_id(42, 123, "broadcast")
+    client.destination = channel(777, f"tgcli-clone-{cid[:12]}", creator=True)
+    make_session_fake(monkeypatch, client)
+    assert main(["clone", "init", "@source", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+
+    assert main(["clone", "init", "@source", "--commit", preview_id, "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["destination"]["id"] == 999
+    [create] = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.channels.CreateChannelRequest)
+    ]
+    saved = state.load(cid)
+    assert create.title == saved.creation_marker
+    assert saved.creation_marker.startswith(f"tgcli-clone-{cid[:12]}-")
+
+
 def test_clone_init_commit_adopts_plain_forum_marker_then_enables_forum(
     config_env, monkeypatch, capsys
 ):

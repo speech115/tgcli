@@ -83,3 +83,20 @@ def test_emit_error_masks_phones_in_typed_errors(capsys):
     assert "79991234567" not in captured.out + captured.err
     assert json.loads(captured.out)["error"]["message"] == "phone not found: '+7…67'"
     assert "phone not found: '+7…67'" in captured.err
+
+
+def test_emit_json_escapes_del_and_c1_but_keeps_the_data(capsys):
+    hostile = "a\x7fb\x9b2Kc\x9d8;;x\x9cd"
+    output.emit_json({"s": hostile, "ru": "привет"})
+    out = capsys.readouterr().out
+    assert not any(0x7F <= ord(ch) <= 0x9F for ch in out)
+    assert "\\u009b" in out and "привет" in out
+    assert json.loads(out) == {"s": hostile, "ru": "привет"}
+
+
+def test_emit_error_json_escapes_c1_on_both_streams(capsys):
+    output.emit_error(RateLimitError("bad\x9bname"), as_json=True)
+    captured = capsys.readouterr()
+    for stream in (captured.out, captured.err):
+        assert "\x9b" not in stream
+        assert json.loads(stream)["error"]["message"] == "bad\x9bname"

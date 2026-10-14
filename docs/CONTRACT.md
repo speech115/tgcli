@@ -937,7 +937,9 @@ tg export subscribers <channel> --output <path> [--limit <n>] [--usernames-only]
 ## 8. Untrusted Content
 
 Message texts, dialog names, and file names are untrusted input. In `--json`
-mode they are passed through as data (JSON escaping is sufficient). In human
+mode they are passed through as data: non-ASCII text stays literal UTF-8, and
+C0, DEL, and C1 control characters are written as `\u` escapes, so a parsed
+value is unchanged but no raw control sequence reaches a terminal. In human
 mode control characters are stripped. tgcli never interpolates message
 content into shell commands or file paths without sanitizing.
 
@@ -1274,7 +1276,7 @@ this and always report `comments: "none"`. Init's live ~15h FLOOD_WAIT window on
 creation applies to up to two peers per run instead of one.
 
 Before creation, state with `destination_peer_id:null` and title marker
-`tgcli-clone-<clone-id-prefix>` is atomically saved under
+`tgcli-clone-<clone-id-prefix>-<hex>` is atomically saved under
 `TGCLI_STATE_DIR/clones/<clone_id>.db` (SQLite/WAL; ADR-0060). Recovery
 adopts exactly one matching
 private creator-owned destination of the required kind, creates when none
@@ -1301,10 +1303,11 @@ and any leftover `<clone_id>.json`, and, if present, the ADR-0024 roster
 sidecar `<clone_id>-participants.jsonl` by renaming each to
 `*.superseded-<UTC>` (archive, never delete — the old destination in Telegram
 is untouched), appends a `clone-init-replace` audit record, then starts a fresh
-clone against a **new** destination pair. To guarantee the new pair, a replaced
-clone's creation marker gets a random suffix (`tgcli-clone-<prefix>-<hex>`) so
-it never re-adopts a marker-titled destination left by an interrupted prior
-init. `--replace` against an empty slot is a plain fresh init. `--replace` is
+clone against a **new** destination pair. Every new creation marker carries a
+fresh secret suffix (`<hex>`): the prefix alone is computable from public ids,
+so another user could title a peer with it and transfer its ownership to the
+account, and a replaced clone never re-adopts a marker-titled destination left
+by an interrupted prior init. `--replace` against an empty slot is a plain fresh init. `--replace` is
 declared on the preview step and carried in the preview payload; the commit
 honors the payload. Without `--replace`, the version-mismatch exit-2 message
 ends `; re-run clone init --replace to supersede it`; a v2 destination is never
