@@ -1,5 +1,6 @@
 import hashlib
 import json
+import mimetypes
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -819,6 +820,23 @@ def _mp4(
     )
 
 
+def _video_request(client, clip, *, random_id, mime, video):
+    """The exact SendMediaRequest a video upload must produce."""
+    return functions.messages.SendMediaRequest(
+        peer="input:@alice",
+        message="look",
+        entities=[],
+        random_id=random_id,
+        media=types.InputMediaUploadedDocument(
+            file=SimpleNamespace(name=client.uploaded[0]),
+            mime_type=mime,
+            attributes=[video, types.DocumentAttributeFilename(clip.name)],
+            # Unset, Telegram may turn a video without sound into a GIF.
+            nosound_video=True,
+        ),
+    )
+
+
 def test_send_commit_sends_mp4_as_streamable_video(config_env, monkeypatch, tmp_path):
     clip = tmp_path / "clip.mp4"
     clip.write_bytes(_mp4(timescale=1000, duration=12_500, width=1280, height=720))
@@ -828,19 +846,28 @@ def test_send_commit_sends_mp4_as_streamable_video(config_env, monkeypatch, tmp_
 
     assert main(["send", "--commit", preview["preview_id"]]) == 0
 
-    [request] = client.requests
-    assert isinstance(request.media, types.InputMediaUploadedDocument)
-    assert request.media.mime_type == "video/mp4"
-    assert request.media.attributes == [
-        types.DocumentAttributeVideo(
-            duration=12.5, w=1280, h=720, supports_streaming=True
-        ),
-        types.DocumentAttributeFilename("clip.mp4"),
+    assert client.requests == [
+        _video_request(
+            client,
+            clip,
+            random_id=790,
+            mime="video/mp4",
+            video=types.DocumentAttributeVideo(
+                duration=12.5, w=1280, h=720, supports_streaming=True
+            ),
+        )
     ]
 
 
-def test_send_commit_sends_unparsed_video_as_video(config_env, monkeypatch, tmp_path):
-    clip = tmp_path / "clip.webm"
+@pytest.mark.parametrize("name", ["clip.webm", "clip.avi", "clip.mkv"])
+def test_send_commit_sends_non_mp4_video_as_video_without_streaming(
+    config_env, monkeypatch, tmp_path, name
+):
+    # Telegram streams only MP4-like containers; claiming it for others
+    # breaks playback instead of falling back to a download.
+    mime = mimetypes.guess_type(name)[0]  # host tables differ, e.g. avi
+    assert mime.startswith("video/")
+    clip = tmp_path / name
     clip.write_bytes(b"not an iso media file")
     preview = file_preview(clip, random_id=791)
     client = SendClient()
@@ -848,11 +875,14 @@ def test_send_commit_sends_unparsed_video_as_video(config_env, monkeypatch, tmp_
 
     assert main(["send", "--commit", preview["preview_id"]]) == 0
 
-    [request] = client.requests
-    assert request.media.mime_type == "video/webm"
-    assert request.media.attributes == [
-        types.DocumentAttributeVideo(duration=0, w=1, h=1, supports_streaming=True),
-        types.DocumentAttributeFilename("clip.webm"),
+    assert client.requests == [
+        _video_request(
+            client,
+            clip,
+            random_id=791,
+            mime=mime,
+            video=types.DocumentAttributeVideo(duration=0, w=1, h=1),
+        )
     ]
 
 
@@ -869,8 +899,14 @@ def test_send_commit_reports_display_size_of_turned_video(
 
     assert main(["send", "--commit", preview["preview_id"]]) == 0
 
-    [request] = client.requests
-    assert request.media.mime_type == "video/quicktime"
-    assert request.media.attributes[0] == types.DocumentAttributeVideo(
-        duration=3.0, w=1080, h=1920, supports_streaming=True
-    )
+    assert client.requests == [
+        _video_request(
+            client,
+            clip,
+            random_id=792,
+            mime="video/quicktime",
+            video=types.DocumentAttributeVideo(
+                duration=3.0, w=1080, h=1920, supports_streaming=True
+            ),
+        )
+    ]

@@ -191,22 +191,34 @@ def _video_info(path: Path) -> tuple[float, int, int] | None:
     return duration, *size
 
 
+_STREAMABLE_VIDEO = frozenset({"video/mp4", "video/quicktime"})
+
+
 def _uploaded_media(uploaded, file: str, snapshot: Path):
     mime = mimetypes.guess_type(file)[0] or "application/octet-stream"
     if mime in ("image/jpeg", "image/png"):
         return types.InputMediaUploadedPhoto(file=uploaded)
     attributes: list = [types.DocumentAttributeFilename(Path(file).name)]
-    if mime.startswith("video/"):
+    video = mime.startswith("video/")
+    if video:
         # #285: without this attribute Telegram shows a video as a file row.
         duration, w, h = _video_info(snapshot) or (0, 1, 1)
         attributes.insert(
             0,
             types.DocumentAttributeVideo(
-                duration=duration, w=w, h=h, supports_streaming=True
+                duration=duration,
+                w=w,
+                h=h,
+                # Telegram streams only MP4-like containers.
+                supports_streaming=mime in _STREAMABLE_VIDEO or None,
             ),
         )
     return types.InputMediaUploadedDocument(
-        file=uploaded, mime_type=mime, attributes=attributes
+        file=uploaded,
+        mime_type=mime,
+        attributes=attributes,
+        # Unset, Telegram may turn a video without sound into a GIF.
+        nosound_video=video or None,
     )
 
 
