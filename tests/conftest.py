@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 from telethon import errors as telethon_errors
+from telethon.tl import types as tl_types
 
 
 class FakeClient:
@@ -380,6 +381,15 @@ TRANSIENT_ERRORS = [
             request=None, message="TIMEOUT", code=-503
         ),
         id="timeout",
+    ),
+    # Telethon's own internal-retry family (RPC_CALL_FAIL, RPC_MCGET_FAIL,
+    # INTERDC_N_CALL_*) maps to ServerError subclasses; built from the wire
+    # so a Telethon upgrade that moves them out of ServerError fails here.
+    pytest.param(
+        lambda: telethon_errors.rpc_message_to_error(
+            tl_types.RpcError(error_code=500, error_message="RPC_CALL_FAIL"), None
+        ),
+        id="rpc-call-fail",
     ),
 ]
 
