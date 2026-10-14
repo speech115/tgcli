@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from tgcli import output
 from tgcli.errors import RateLimitError
 
@@ -100,3 +102,11 @@ def test_emit_error_json_escapes_c1_on_both_streams(capsys):
     for stream in (captured.out, captured.err):
         assert "\x9b" not in stream
         assert json.loads(stream)["error"]["message"] == "bad\x9bname"
+
+
+def test_emit_json_writes_nothing_when_encoding_fails_late(capsys):
+    data = {"first": "written?"}
+    data["loop"] = data
+    with pytest.raises(ValueError):
+        output.emit_json(data)
+    assert capsys.readouterr().out == ""
