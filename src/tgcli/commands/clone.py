@@ -713,7 +713,7 @@ async def sync_text(
     progress.phase("roster")
     participants = (
         roster.deferred(clone_state, "wall_clock_cap")
-        if capped
+        if cap_exhausted()  # the pin phase may have spent the rest of the cap
         else await roster.collect(tg, clone_state, source_entity)
     )
     clone_state.last_synced_at = datetime.now(UTC).isoformat()

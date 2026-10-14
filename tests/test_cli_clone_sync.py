@@ -5376,6 +5376,75 @@ def test_clone_sync_cap_hit_in_roster_defers_roster_and_reports_done(
     assert data["sync"]["participants"]["source"]["count"] == 0
 
 
+def test_clone_sync_cap_spent_by_pin_phase_skips_roster(
+    config_env, monkeypatch, capsys
+):
+    """The pin phase can spend the rest of the cap; the roster listing must
+    not start after it."""
+    from tgcli.governor import pacing
+
+    cap = {"remaining": 100.0}
+    monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: cap["remaining"])
+    seed_clone()
+
+    class SlowPinClient(RosterClient):
+        async def __call__(self, request):
+            if isinstance(request, functions.channels.GetFullChannelRequest):
+                cap["remaining"] = 0.0
+            return await super().__call__(request)
+
+    client = SlowPinClient([message(2), message(3)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--max-runtime", "100", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["sync"]["copied"] == 2
+    assert data["remaining"] is False
+    assert client.full_requests
+    assert client.iter_participants_calls == []
+    assert data["sync"]["participants"]["source"]["status"] == "deferred"
+    assert data["sync"]["participants"]["source"]["reason"] == "wall_clock_cap"
+
+
+def test_clone_sync_cap_hit_in_source_roster_defers_discussion_roster(
+    config_env, monkeypatch, capsys
+):
+    """Once the cap runs out while listing the source, the discussion group
+    is deferred too, never resolved or listed."""
+    from tgcli.governor import pacing
+
+    cap = {"remaining": 100.0}
+    monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: cap["remaining"])
+    seed_comments_clone()
+
+    class CappedRosterClient(CloneCommentsClient):
+        def __init__(self):
+            super().__init__([])
+            self.iter_participants_calls = []
+
+        async def iter_participants(self, entity, limit=None):
+            self.iter_participants_calls.append(entity)
+            cap["remaining"] = 0.0
+            yield self.group_members[0]
+
+    client = CappedRosterClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--max-runtime", "100", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    participants = data["sync"]["participants"]
+    assert client.iter_participants_calls == [client.source]
+    assert participants["source"]["status"] == "deferred"
+    assert participants["discussion"] == {
+        "peer_id": 55,
+        "status": "deferred",
+        "count": 0,
+        "reason": "wall_clock_cap",
+    }
+
+
 def test_sync_resolves_a_bare_title_through_clone_state(
     config_env, monkeypatch, capsys
 ):

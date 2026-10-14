@@ -49,6 +49,8 @@ def _row(peer: str, participant) -> dict:
 
 async def _collect_peer(tg, peer: str, entity) -> tuple[list[dict], str, str | None]:
     rows = []
+    if pacing.wall_clock_exhausted():
+        return [], "deferred", "wall_clock_cap"
     try:
         async for participant in tg.iter_participants(entity):
             if pacing.wall_clock_exhausted():
@@ -114,7 +116,13 @@ async def collect(tg, clone_state: state.CloneState, source_entity) -> dict:
         "reason": source_reason,
     }
 
-    if clone_state.comments == "enabled" and clone_state.discussion_source_peer_id:
+    if not (
+        clone_state.comments == "enabled" and clone_state.discussion_source_peer_id
+    ):
+        discussion = {"peer_id": None, "status": "none", "count": 0, "reason": None}
+    elif pacing.wall_clock_exhausted():
+        discussion = _marker(clone_state, "deferred", "wall_clock_cap")
+    else:
         try:
             group = await tg.get_entity(
                 types.PeerChannel(clone_state.discussion_source_peer_id)
@@ -142,8 +150,6 @@ async def collect(tg, clone_state: state.CloneState, source_entity) -> dict:
                 "count": len(group_rows),
                 "reason": group_reason,
             }
-    else:
-        discussion = {"peer_id": None, "status": "none", "count": 0, "reason": None}
 
     path = _write(clone_state.clone_id, rows)
     return {"path": str(path), "source": source, "discussion": discussion}

@@ -1619,8 +1619,8 @@ cooldown a FloodWait arms covers participant listing only, never message sync), 
 (no discussion group). `--max-runtime` bounds the listing too: when the cap
 runs out during copying the roster is not listed at all (every peer
 `"deferred"` with `reason` `"wall_clock_cap"`, sidecar left as it was), and
-when it runs out during the listing the peer being listed is deferred the
-same way; a run that copied everything still reports `remaining: false`. Collected participants are rewritten atomically to the
+when it runs out after copying (in the pin phase or during the listing) the
+peer being listed and every peer not yet listed are deferred the same way; a run that copied everything still reports `remaining: false`. Collected participants are rewritten atomically to the
 JSONL sidecar at `participants.path` (one object per line, tagged `peer` plus
 the `export subscribers` columns). This snapshot is source-side only; the
 destination is never populated with collected users. The Telegram refusals
