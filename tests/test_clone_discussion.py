@@ -149,7 +149,7 @@ def test_adopt_maps_unreachable_recorded_group_to_policy_error():
     ):
 
         class Tg:
-            async def get_entity(self, peer):
+            async def get_entity(self, peer, error=error):
                 raise error
 
         async def candidates(*_args):

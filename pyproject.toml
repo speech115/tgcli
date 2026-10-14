@@ -40,12 +40,14 @@ extend-exclude = ["**/*.md"]
 [tool.ruff.lint]
 # ADR-0057 lint policy: pycodestyle (E/W, so line-length is enforced,
 # not just declared), pyflakes (F), import order (I), pyupgrade (UP), and
-# comprehensions (C4). Deliberately out: rule families whose fixes rewrite
-# logic rather than layout (B, SIM, PTH), unused-argument noise from the
+# comprehensions (C4), and bugbear (B), which flags likely bugs such as a
+# lost exception cause or a closure over a loop variable. Deliberately out:
+# rule families whose fixes rewrite style rather than bugs (SIM, PTH),
+# unused-argument noise from the
 # Telethon fakes in tests (ARG), and RUF ambiguous-unicode, which fires on
 # the Cyrillic strings ADR-0050 requires. T20 bans `print` in src/: stdout
 # carries contract data only, and diagnostics go through `output`.
-select = ["E", "W", "F", "I", "UP", "C4", "T20"]
+select = ["E", "W", "F", "I", "UP", "C4", "B", "T20"]
 # PEP 695 `type X = ...` builds a TypeAliasType: get_args() on it returns ()
 # and the read-operation registry test introspects that union.
 ignore = ["UP040"]
@@ -61,4 +63,4 @@ combine-as-imports = true
 
 [tool.pyright]
 include = ["src"]
-typeCheckingMode = "basic"
+typeCheckingMode = "standard"

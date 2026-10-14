@@ -72,7 +72,7 @@ async def _run_workers(coros: Iterable[Coroutine[Any, Any, None]]) -> None:
                 group.create_task(coro)
     except ExceptionGroup as eg:
         # Surface the first worker cause so FloodWait keeps the exit-5 path.
-        raise eg.exceptions[0]
+        raise eg.exceptions[0] from eg
 
 
 async def download_striped(

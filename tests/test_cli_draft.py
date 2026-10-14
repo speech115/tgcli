@@ -460,7 +460,7 @@ def test_draft_preview_serializes_formatted_date_entity(
 ):
     entity = _user()
     when = datetime(2026, 7, 23, 12, 0, tzinfo=UTC)
-    formatted_date = getattr(types, "MessageEntityFormattedDate")
+    formatted_date = types.MessageEntityFormattedDate
     client = FakeClient(
         entities={"@alice": entity},
         peer_dialogs_result=_peer_dialogs(

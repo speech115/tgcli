@@ -443,7 +443,9 @@ def resolve_slot(account_user_id: int, source_peer_id: int, source_kind: str) ->
     legacy_db, canonical_db = path_for(legacy), path_for(canonical)
     os.replace(legacy_db, canonical_db)
     for src, dst in zip(
-        statedb.sidecar_paths(legacy_db), statedb.sidecar_paths(canonical_db)
+        statedb.sidecar_paths(legacy_db),
+        statedb.sidecar_paths(canonical_db),
+        strict=True,
     ):
         if src.exists():
             os.replace(src, dst)

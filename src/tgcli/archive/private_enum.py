@@ -40,7 +40,7 @@ def cursor_from_dialog(dialog) -> dict[str, Any]:
     else:
         kind, peer_key, access_hash = (
             "user",
-            int(getattr(entity, "id")),
+            int(entity.id),
             int(getattr(entity, "access_hash", 0) or 0),
         )
     return {
