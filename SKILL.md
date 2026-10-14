@@ -53,7 +53,6 @@ selected account session, does one operation, and exits.
 | Offline archive history | `tg --json archive history CHAT MESSAGE_ID` |
 | Remove a configured account | `tg --json accounts remove ALIAS --confirm` |
 | Remove one session role | `tg --json accounts remove ALIAS --role job --confirm` |
-| Import old-stack sessions | `tg --json accounts import` |
 | The session died / a new machine | `tg --json accounts login ALIAS …` then `tg --json accounts show ALIAS` |
 | List dialogs | `tg --json dialogs --limit 50` |
 | List unread dialogs | `tg --json dialogs --unread-only` |

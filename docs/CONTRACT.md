@@ -9,8 +9,8 @@ code change.
 tg [global-flags] <command> [subcommand] [args] [options]
 ```
 
-Commands include offline local-state helpers (`store`, `clone status`,
-`accounts import`) that need no config or Telegram session, plus the usual
+Commands include offline local-state helpers (`store`, `clone status`)
+that need no config or Telegram session, plus the usual
 account-scoped surface (`doctor`, reads, mutations, …).
 
 Global flags (available on every command):
@@ -92,7 +92,7 @@ flag.
 A command whose session another `tg` process holds waits up to **120 s** for
 it, with one stderr note, then exits 3. The wait is governed sleep, so
 `--timeout` does not count it, and it never outlasts `--max-runtime`.
-Account administration (`accounts login|remove|import`) does not wait.
+Account administration (`accounts login|remove`) does not wait.
 
 **Request governor (ADR-0072).** Within one invocation each request type
 gets five requests unpaced, so a single command is never slowed. Past
@@ -923,7 +923,6 @@ current process. Stdout remains contract data in all output modes.
 
 ```
 tg accounts list
-tg accounts import [ALIAS ...] [--source-root PATH] [--force]
 tg accounts show ALIAS
 tg accounts remove ALIAS [--confirm] [--keep-session]
 tg accounts remove ALIAS --role NAME [--confirm]
@@ -942,26 +941,6 @@ its session basename (never `api_id` / `api_hash`):
 ```
 
 `--plain` emits frozen TSV columns: `alias`, `session`.
-
-`accounts import` is a local-only command: it never opens a Telegram
-connection. With no aliases it tries `main`, `recklessou`, and `teamsyncsage`,
-and reports a missing old-stack source as a warning rather than failing. An
-explicitly named missing source exits 4. The command copies old-stack SQLite
-sessions with an online backup into `TGCLI_STATE_DIR/sessions`; an existing
-destination is left untouched unless `--force` is supplied. A busy destination
-lock or missing or unparseable credentials for a newly configured account
-exits 3. Under `--readonly` / `TGCLI_READONLY=1` it refuses with exit 2 and
-writes nothing.
-
-`--json` emits:
-
-```json
-{"imported": [{"alias": "pl", "session": "/home/me/.local/state/tgcli/sessions/pl.session",
-               "status": "imported|skipped_existing|source_missing",
-               "config": "added|unchanged"}]}
-```
-
-`--plain` emits frozen TSV columns: `alias`, `status`, `config`.
 
 `accounts show` is strictly offline (ADR-0042 §11): config presence, resolved
 session path, existence, size, mtime (ISO-8601 UTC), whether the account lock

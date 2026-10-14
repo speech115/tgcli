@@ -316,13 +316,6 @@ def _audit_after(args, account, data) -> None:
 
 def _execute(args) -> tuple[dict, list[tuple]]:
     """Run one prepared invocation, opening only the resources it needs."""
-    if args.command == "accounts" and args.subcommand == "import":
-        # It writes config.toml and session files, like `accounts remove`.
-        safety.enforce_local_mutation_allowed(args.readonly)
-        data = accounts_cmd.import_accounts(
-            args.aliases or None, args.source_root.expanduser(), force=args.force
-        )
-        return data, accounts_cmd.import_rows(data)
     if args.command == "clone" and args.clone_command == "status":
         data = clone_cmd.list_clones(args.source, include_all=args.all_slots)
         if data["pending_import"] and not args.all_slots:

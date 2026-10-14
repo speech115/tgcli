@@ -2,8 +2,8 @@
 
 The readonly gates live in several places (preflight, preview_commit,
 archive preflight, cli). Nothing tied them to the parser, so a command could
-ship without one: `accounts import` did. A new command now fails here until
-someone puts it in exactly one class below.
+ship without one (the removed `accounts import` did). A new command now fails
+here until someone puts it in exactly one class below.
 """
 
 import argparse
@@ -52,7 +52,6 @@ LOCAL_READS = {
 # Writes without a preview/commit handshake, each with an argv that would
 # write: under TGCLI_READONLY=1 every one must exit 2 before it does.
 GATED_WRITES = {
-    "accounts import": ["accounts", "import", "main"],
     "accounts login": ["accounts", "login", "spare", "--phone", "+10000000000"],
     "accounts remove": ["accounts", "remove", "spare", "--confirm"],
     "archive add": ["archive", "add", "@chat"],
