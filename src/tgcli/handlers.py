@@ -221,9 +221,9 @@ async def archive_backfill(tg, args, account) -> tuple[dict, list[tuple]]:
         tg,
         account.alias,
         list(getattr(args, "chats", None) or []),
-        limit=getattr(args, "limit", None),
+        limit=args.limit,
         private=bool(getattr(args, "private", False)),
-        max_dialogs=getattr(args, "max_dialogs", None),
+        max_dialogs=args.max_dialogs,
         should_stop=pacing.wall_clock_exhausted,
     )
     return data, archive_cmd.backfill_rows(data)
@@ -233,9 +233,9 @@ async def archive_sync(tg, args, account) -> tuple[dict, list[tuple]]:
     data = await archive_cmd.sync(
         tg,
         account.alias,
-        max_events=getattr(args, "max_events", None),
-        max_dialogs=getattr(args, "max_dialogs", None),
-        max_media=getattr(args, "max_media", None),
+        max_events=args.max_events,
+        max_dialogs=args.max_dialogs,
+        max_media=args.max_media,
         should_stop=pacing.wall_clock_exhausted,
     )
     if data.get("remaining") and pacing.wall_clock_exhausted():

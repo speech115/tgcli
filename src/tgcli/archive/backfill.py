@@ -172,18 +172,6 @@ async def backfill_one(
     }
 
 
-def validate_limit(limit: int | None, *, default: int, maximum: int) -> int:
-    if limit is None:
-        return default
-    if limit <= 0:
-        raise PolicyError("archive backfill --limit must be positive")
-    if limit > maximum:
-        raise PolicyError(
-            f"archive backfill --limit accepts at most {maximum} messages per dialog"
-        )
-    return limit
-
-
 def validate_dialogs(chats: list[str], *, maximum: int) -> list[str]:
     if not chats:
         raise PolicyError(
@@ -198,18 +186,6 @@ def validate_dialogs(chats: list[str], *, maximum: int) -> list[str]:
             f"archive backfill accepts at most {maximum} dialogs per invocation"
         )
     return cleaned
-
-
-def validate_max_dialogs(value: int | None, *, default: int, maximum: int) -> int:
-    if value is None:
-        return default
-    if value <= 0:
-        raise PolicyError("archive backfill --max-dialogs must be positive")
-    if value > maximum:
-        raise PolicyError(
-            f"archive backfill --max-dialogs accepts at most {maximum} dialogs"
-        )
-    return value
 
 
 def validate_private_mode(*, private: bool, chats: list[str]) -> None:

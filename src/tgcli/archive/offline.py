@@ -26,8 +26,8 @@ def transcribe(args, config: Config) -> tuple[dict, list[tuple]]:
     alias = archive_cmd.resolve_alias(args.account, config)
     data = archive_cmd.transcribe(
         alias,
-        limit=getattr(args, "limit", None),
-        max_attempts=getattr(args, "max_attempts", None),
+        limit=args.limit,
+        max_attempts=args.max_attempts,
         config=config,
         should_stop=pacing.wall_clock_exhausted,
     )
@@ -43,7 +43,7 @@ def read(args, config: Config) -> tuple[dict, list[tuple]]:
         around_date=getattr(args, "around_date", None),
         since=getattr(args, "since", None),
         until=getattr(args, "until", None),
-        limit=getattr(args, "limit", None),
+        limit=args.limit,
         config=config,
     )
     return data, archive_cmd.read_rows(data)
@@ -67,8 +67,8 @@ def search(args, config: Config) -> tuple[dict, list[tuple]]:
         kind=getattr(args, "kind", None),
         transcripts_only=bool(getattr(args, "transcripts_only", False)),
         sort=getattr(args, "sort", "relevance"),
-        limit=getattr(args, "limit", None),
-        page=getattr(args, "page", None),
+        limit=args.limit,
+        page=args.page,
         config=config,
     )
     return data, archive_cmd.search_rows(data)

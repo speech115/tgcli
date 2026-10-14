@@ -9,52 +9,10 @@ from __future__ import annotations
 from tgcli.archive import (
     backfill as backfill_mod,
     explore as explore_mod,
+    limits,
     search as search_mod,
-    sync as sync_mod,
-    transcribe as transcribe_mod,
 )
-from tgcli.commands import archive as archive_cmd
 from tgcli.errors import PolicyError
-
-
-def backfill_spec(*, chats, private: bool, limit) -> dict:
-    """Normalized archive-backfill arguments."""
-    chat_list = list(chats)
-    backfill_mod.validate_private_mode(private=private, chats=chat_list)
-    if not private:
-        chat_list = backfill_mod.validate_dialogs(
-            chat_list, maximum=archive_cmd.MAX_BACKFILL_DIALOGS
-        )
-    return {
-        "chats": chat_list,
-        "limit": backfill_mod.validate_limit(
-            limit,
-            default=archive_cmd.DEFAULT_BACKFILL_LIMIT,
-            maximum=archive_cmd.MAX_BACKFILL_LIMIT,
-        ),
-        "private": private,
-    }
-
-
-def sync_spec(*, max_events, max_dialogs, max_media) -> dict:
-    """Normalized archive-sync arguments."""
-    return {
-        "max_dialogs": sync_mod.validate_max_dialogs(
-            max_dialogs,
-            default=archive_cmd.DEFAULT_SYNC_DIALOGS,
-            maximum=archive_cmd.MAX_SYNC_DIALOGS,
-        ),
-        "max_events": sync_mod.validate_max_events(
-            max_events,
-            default=archive_cmd.DEFAULT_SYNC_EVENTS,
-            maximum=archive_cmd.MAX_SYNC_EVENTS,
-        ),
-        "max_media": sync_mod.validate_max_media(
-            max_media,
-            default=archive_cmd.DEFAULT_SYNC_MEDIA,
-            maximum=archive_cmd.MAX_SYNC_MEDIA,
-        ),
-    }
 
 
 def prepare_search(args) -> None:
@@ -68,13 +26,8 @@ def prepare_search(args) -> None:
     args.kind = explore_mod.validate_kind(getattr(args, "kind", None))
     args.sort = explore_mod.validate_sort(getattr(args, "sort", None))
     explore_mod.validate_date_range(args.since, args.until, "search")
-    args.limit = explore_mod.validate_limit(
-        getattr(args, "limit", None),
-        default=archive_cmd.DEFAULT_SEARCH_LIMIT,
-        maximum=archive_cmd.MAX_SEARCH_LIMIT,
-        label="search",
-    )
-    args.page = explore_mod.validate_page(getattr(args, "page", None))
+    args.limit = limits.bounded("search", "--limit", getattr(args, "limit", None))
+    args.page = limits.bounded("search", "--page", getattr(args, "page", None))
 
 
 def prepare_read(args) -> None:
@@ -84,12 +37,7 @@ def prepare_read(args) -> None:
     explore_mod.validate_read_centers(
         getattr(args, "around_id", None), args.around_date
     )
-    args.limit = explore_mod.validate_limit(
-        getattr(args, "limit", None),
-        default=archive_cmd.DEFAULT_READ_LIMIT,
-        maximum=archive_cmd.MAX_READ_LIMIT,
-        label="read",
-    )
+    args.limit = limits.bounded("read", "--limit", getattr(args, "limit", None))
 
 
 def prepare_history(args) -> None:
@@ -99,36 +47,34 @@ def prepare_history(args) -> None:
 
 
 def apply_sync(args) -> None:
-    spec = sync_spec(
-        max_events=getattr(args, "max_events", None),
-        max_dialogs=getattr(args, "max_dialogs", None),
-        max_media=getattr(args, "max_media", None),
+    args.max_dialogs = limits.bounded(
+        "sync", "--max-dialogs", getattr(args, "max_dialogs", None)
     )
-    args.max_events = spec["max_events"]
-    args.max_dialogs = spec["max_dialogs"]
-    args.max_media = spec["max_media"]
+    args.max_events = limits.bounded(
+        "sync", "--max-events", getattr(args, "max_events", None)
+    )
+    args.max_media = limits.bounded(
+        "sync", "--max-media", getattr(args, "max_media", None)
+    )
 
 
 def prepare_transcribe(args) -> None:
-    args.limit = transcribe_mod.validate_limit(getattr(args, "limit", None))
-    args.max_attempts = transcribe_mod.validate_max_attempts(
-        getattr(args, "max_attempts", None)
+    args.limit = limits.bounded("transcribe", "--limit", getattr(args, "limit", None))
+    args.max_attempts = limits.bounded(
+        "transcribe", "--max-attempts", getattr(args, "max_attempts", None)
     )
 
 
 def apply_backfill(args) -> None:
     private = bool(getattr(args, "private", False))
-    spec = backfill_spec(
-        chats=list(getattr(args, "chats", None) or []),
-        private=private,
-        limit=getattr(args, "limit", None),
-    )
-    args.chats = spec["chats"]
-    args.limit = spec["limit"]
-    args.private = spec["private"]
+    chats = list(getattr(args, "chats", None) or [])
+    backfill_mod.validate_private_mode(private=private, chats=chats)
+    if not private:
+        chats = backfill_mod.validate_dialogs(chats, maximum=limits.BACKFILL_MAX_CHATS)
+    args.chats = chats
+    args.limit = limits.bounded("backfill", "--limit", getattr(args, "limit", None))
+    args.private = private
     if private:
-        args.max_dialogs = backfill_mod.validate_max_dialogs(
-            getattr(args, "max_dialogs", None),
-            default=archive_cmd.DEFAULT_PRIVATE_DIALOGS,
-            maximum=archive_cmd.MAX_PRIVATE_DIALOGS,
+        args.max_dialogs = limits.bounded(
+            "backfill", "--max-dialogs", getattr(args, "max_dialogs", None)
         )

@@ -40,6 +40,7 @@ from tests.conftest import FakeClient, make_session_fake
 from tgcli import changes_cursor
 from tgcli.archive import (
     backfill as backfill_mod,
+    limits,
     store as store_mod,
     sync as sync_mod,
 )
@@ -293,7 +294,7 @@ def test_backfill_private_requires_flag_and_caps(config_env, monkeypatch, capsys
         main(["archive", "backfill", "--private", "--max-dialogs", "0", "--json"]) == 2
     )
     assert "max-dialogs" in capsys.readouterr().err.lower()
-    over = str(archive_cmd.MAX_PRIVATE_DIALOGS + 1)
+    over = str(limits.BOUNDS["backfill", "--max-dialogs"].maximum + 1)
     assert (
         main(["archive", "backfill", "--private", "--max-dialogs", over, "--json"]) == 2
     )
@@ -934,7 +935,7 @@ def test_sync_rejects_over_cap_events_and_dialogs(config_env, monkeypatch, capsy
     make_session_fake(monkeypatch, _client())
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
-    over_events = str(archive_cmd.MAX_SYNC_EVENTS + 1)
+    over_events = str(limits.BOUNDS["sync", "--max-events"].maximum + 1)
     assert main(["archive", "sync", "--max-events", over_events, "--json"]) == 2
     assert "max-events" in capsys.readouterr().err.lower()
     assert main(["archive", "sync", "--max-dialogs", "0", "--json"]) == 2
@@ -947,10 +948,10 @@ def test_sync_rejects_invalid_media_budget(config_env, monkeypatch, capsys):
     capsys.readouterr()
     assert main(["archive", "sync", "--max-media", "0", "--json"]) == 2
     assert "max-media" in capsys.readouterr().err.lower()
-    over = str(archive_cmd.MAX_SYNC_MEDIA + 1)
+    over = str(limits.BOUNDS["sync", "--max-media"].maximum + 1)
     assert main(["archive", "sync", "--max-media", over, "--json"]) == 2
     assert "max-media" in capsys.readouterr().err.lower()
-    over_dialogs = str(archive_cmd.MAX_SYNC_DIALOGS + 1)
+    over_dialogs = str(limits.BOUNDS["sync", "--max-dialogs"].maximum + 1)
     assert main(["archive", "sync", "--max-dialogs", over_dialogs, "--json"]) == 2
     assert "max-dialogs" in capsys.readouterr().err.lower()
 

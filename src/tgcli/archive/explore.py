@@ -8,39 +8,15 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import quote
 
-from tgcli.archive import peers as peers_mod, search as search_mod
+from tgcli.archive import limits, peers as peers_mod, search as search_mod
 from tgcli.errors import NotFoundError, PolicyError
 
-SEARCH_DEFAULT_LIMIT = 20
-SEARCH_MAX_LIMIT = 50
-READ_DEFAULT_LIMIT = 20
-READ_MAX_LIMIT = 50
-MAX_PAGE = 10_000
 SORTS = ("relevance", "date")
 KINDS = ("text", "photo", "video", "video_note", "audio", "voice", "document")
 
 
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
-
-
-def validate_limit(value: int | None, *, default: int, maximum: int, label: str) -> int:
-    if value is None:
-        return default
-    if value <= 0:
-        raise PolicyError(f"archive {label} --limit must be positive")
-    if value > maximum:
-        raise PolicyError(f"archive {label} --limit accepts at most {maximum} hits")
-    return value
-
-
-def validate_page(value: int | None) -> int:
-    page = 1 if value is None else value
-    if page <= 0:
-        raise PolicyError("archive search --page must be positive")
-    if page > MAX_PAGE:
-        raise PolicyError(f"archive search --page accepts at most {MAX_PAGE}")
-    return page
 
 
 def validate_filter(value: str | None, flag: str) -> str | None:
@@ -254,14 +230,10 @@ def search(
     kind: str | None = None,
     transcripts_only: bool = False,
     sort: str = "relevance",
-    limit: int = SEARCH_DEFAULT_LIMIT,
+    limit: int = limits.default("search", "--limit"),
     page: int = 1,
 ) -> dict[str, Any]:
     query = search_mod.validate_query(query)
-    limit = validate_limit(
-        limit, default=SEARCH_DEFAULT_LIMIT, maximum=SEARCH_MAX_LIMIT, label="search"
-    )
-    page = validate_page(page)
     kind = validate_kind(kind)
     sort = validate_sort(sort)
     match, mode = search_mod.build_match(query)
@@ -405,7 +377,7 @@ def read(
     until: datetime | None = None,
     around_id: int | None = None,
     around_date: datetime | None = None,
-    limit: int = READ_DEFAULT_LIMIT,
+    limit: int = limits.default("read", "--limit"),
 ) -> dict[str, Any]:
     if not str(chat).strip():
         raise PolicyError("archive read CHAT must be non-empty")
@@ -415,9 +387,6 @@ def read(
         raise PolicyError(
             "archive read accepts only one of --around-id or --around-date"
         )
-    limit = validate_limit(
-        limit, default=READ_DEFAULT_LIMIT, maximum=READ_MAX_LIMIT, label="read"
-    )
     peer_id = search_mod.resolve_peer_id(conn, chat)
     identity = peers_mod.resolve(conn, peer_id)
     rows = _read_rows(
