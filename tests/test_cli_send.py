@@ -752,3 +752,86 @@ def test_send_commit_is_blocked_before_config_or_session(monkeypatch, flag, valu
 
     assert main(argv) == 2
     assert not safety.audit_path().exists()
+
+
+def _box(kind: bytes, payload: bytes) -> bytes:
+    return (8 + len(payload)).to_bytes(4, "big") + kind + payload
+
+
+def _mp4(
+    *, timescale: int, duration: int, width: int, height: int, turned: bool = False
+) -> bytes:
+    mvhd = bytes(4) + bytes(8) + timescale.to_bytes(4, "big")
+    mvhd += duration.to_bytes(4, "big") + bytes(80)
+    audio_tkhd = bytes(4) + bytes(20) + bytes(52) + bytes(8)
+    # Display matrix: a quarter turn swaps a=1 for b=1 (16.16 fixed point).
+    unit = (1 << 16).to_bytes(4, "big")
+    matrix = bytes(4) + unit if turned else unit + bytes(4)
+    video_tkhd = bytes(4) + bytes(20) + bytes(16) + matrix + bytes(28)
+    video_tkhd += (width << 16).to_bytes(4, "big") + (height << 16).to_bytes(4, "big")
+    moov = _box(b"mvhd", mvhd)
+    moov += _box(b"trak", _box(b"tkhd", audio_tkhd))
+    moov += _box(b"trak", _box(b"tkhd", video_tkhd))
+    # moov after mdat, as in a recording that was never made fast-start.
+    return (
+        _box(b"ftyp", b"isom" + bytes(4))
+        + _box(b"mdat", bytes(64))
+        + _box(b"moov", moov)
+    )
+
+
+def test_send_commit_sends_mp4_as_streamable_video(config_env, monkeypatch, tmp_path):
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(_mp4(timescale=1000, duration=12_500, width=1280, height=720))
+    preview = file_preview(clip, random_id=790)
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["send", "--commit", preview["preview_id"]]) == 0
+
+    [request] = client.requests
+    assert isinstance(request.media, types.InputMediaUploadedDocument)
+    assert request.media.mime_type == "video/mp4"
+    assert request.media.attributes == [
+        types.DocumentAttributeVideo(
+            duration=12.5, w=1280, h=720, supports_streaming=True
+        ),
+        types.DocumentAttributeFilename("clip.mp4"),
+    ]
+
+
+def test_send_commit_sends_unparsed_video_as_video(config_env, monkeypatch, tmp_path):
+    clip = tmp_path / "clip.webm"
+    clip.write_bytes(b"not an iso media file")
+    preview = file_preview(clip, random_id=791)
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["send", "--commit", preview["preview_id"]]) == 0
+
+    [request] = client.requests
+    assert request.media.mime_type == "video/webm"
+    assert request.media.attributes == [
+        types.DocumentAttributeVideo(duration=0, w=1, h=1, supports_streaming=True),
+        types.DocumentAttributeFilename("clip.webm"),
+    ]
+
+
+def test_send_commit_reports_display_size_of_turned_video(
+    config_env, monkeypatch, tmp_path
+):
+    clip = tmp_path / "phone.mov"
+    clip.write_bytes(
+        _mp4(timescale=600, duration=1800, width=1920, height=1080, turned=True)
+    )
+    preview = file_preview(clip, random_id=792)
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["send", "--commit", preview["preview_id"]]) == 0
+
+    [request] = client.requests
+    assert request.media.mime_type == "video/quicktime"
+    assert request.media.attributes[0] == types.DocumentAttributeVideo(
+        duration=3.0, w=1080, h=1920, supports_streaming=True
+    )

@@ -497,7 +497,9 @@ computing the snapshot's size and digest. A mismatch is blocked with exit 2;
 otherwise only the verified snapshot is uploaded, so later replacement of the
 original path cannot change the sent bytes. The snapshot is removed after
 success or any upload, request, or confirmation failure. MIME type and Telegram
-filename continue to derive from the original path. `--caption` requires
+filename continue to derive from the original path. A `video/*` file is sent as a
+streamable video: duration and display size come from the snapshot's MP4 or
+QuickTime `mvhd`/`tkhd` boxes, or are `0` and `1x1` when it has none. `--caption` requires
 `--file`; a file send cannot take positional text. The stored preview
 additionally includes the target, `kind: "send"`, the chosen `format`, and a
 positive `random_id` for the later idempotent commit path. `send` accepts
