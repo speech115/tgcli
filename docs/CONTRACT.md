@@ -950,7 +950,8 @@ explicitly named missing source exits 4. The command copies old-stack SQLite
 sessions with an online backup into `TGCLI_STATE_DIR/sessions`; an existing
 destination is left untouched unless `--force` is supplied. A busy destination
 lock or missing or unparseable credentials for a newly configured account
-exits 3.
+exits 3. Under `--readonly` / `TGCLI_READONLY=1` it refuses with exit 2 and
+writes nothing.
 
 `--json` emits:
 
