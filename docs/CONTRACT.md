@@ -498,7 +498,8 @@ otherwise only the verified snapshot is uploaded, so later replacement of the
 original path cannot change the sent bytes. The snapshot is removed after
 success or any upload, request, or confirmation failure. MIME type and Telegram
 filename continue to derive from the original path. A `video/*` file is sent as a
-streamable video: duration and display size come from the snapshot's MP4 or
+video (`nosound_video`, so Telegram never turns it into a GIF), marked
+streamable only for MP4 and QuickTime: duration and display size come from the snapshot's MP4 or
 QuickTime `mvhd`/`tkhd` boxes, or are `0` and `1x1` when it has none. `--caption` requires
 `--file`; a file send cannot take positional text. The stored preview
 additionally includes the target, `kind: "send"`, the chosen `format`, and a
