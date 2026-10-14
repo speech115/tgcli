@@ -84,16 +84,9 @@ async def sync_phase(
             return False
     group = getattr(resolve_ctx, "destination_group", None)
     if group is None:
-        try:
-            group = await tg.get_entity(
-                types.PeerChannel(clone_state.discussion_destination_peer_id)
-            )
-        except discussion.PEER_UNAVAILABLE:
-            raise PolicyError("clone discussion destination is unavailable") from None
-        if not discussion.is_discussion_destination(group):
-            raise PolicyError(
-                "clone discussion destination is not a private owned megagroup"
-            )
+        group = await discussion.destination_group(
+            tg, clone_state.discussion_destination_peer_id
+        )
         resolve_ctx.destination_group = group
     await discussion.verify_tail(
         tg,

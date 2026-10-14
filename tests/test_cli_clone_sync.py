@@ -1382,18 +1382,26 @@ def test_sync_points_channel_post_at_copied_group_comment(
     )
 
 
-def test_sync_flattens_channel_post_quoting_comment_before_group_resolves(
+def test_sync_points_channel_post_at_comment_copied_by_an_earlier_run(
     config_env, monkeypatch, capsys
 ):
-    """On a later run the posts window runs before the comments leg resolves
-    the destination group: the reply flattens instead of pointing at a channel
-    message that merely shares the group comment's id."""
+    """On a later run the posts window runs before the comments leg: the
+    destination group comes from clone state, so the reply still names the
+    group instead of flattening for good or pointing at a channel message
+    that merely shares the group comment's id."""
     clone_state = seed_comments_clone(discussion_cursor=12)
     clone_state.record_mapping(2, 2)
     clone_state.record_discussion_mapping(12, 3)
     clone_state.cursor = 2
     state.save(clone_state)
-    client = CloneCommentsClient(
+
+    class GroupInputClient(CloneCommentsClient):
+        async def get_input_entity(self, ref):
+            if ref is self.destination_group:
+                return types.InputPeerChannel(channel_id=888, access_hash=1)
+            return await super().get_input_entity(ref)
+
+    client = GroupInputClient(
         [
             message(2),
             message(
@@ -1414,14 +1422,21 @@ def test_sync_flattens_channel_post_quoting_comment_before_group_resolves(
 
     sync = json.loads(capsys.readouterr().out)["sync"]
     assert sync["copied"] == 1
-    assert sync["reply_flattened"] == 1
+    assert sync["reply_flattened"] == 0
     [post] = [
         item
         for item in client.requests
         if getattr(item, "peer", None) is client.destination
         or getattr(item, "to_peer", None) is client.destination
     ]
-    assert getattr(post, "reply_to", None) is None
+    assert isinstance(post, functions.messages.SendMessageRequest)
+    assert (
+        post.reply_to.to_dict()
+        == types.InputReplyToMessage(
+            reply_to_msg_id=3,
+            reply_to_peer_id=types.InputPeerChannel(channel_id=888, access_hash=1),
+        ).to_dict()
+    )
 
 
 def test_sync_copies_off_thread_group_messages(config_env, monkeypatch, capsys):

@@ -147,9 +147,14 @@ async def _cross_leg_reply(
         reply_to_msg_id = found
     else:
         # Posts leg quotes a group comment: the id lives in the destination
-        # group, so the reply must name it; unresolved yet → flatten.
+        # group, so the reply must name it. A later run's first posts window
+        # runs before the comments leg, so the group comes from clone state;
+        # the post is copied once, and flattening here would be for good.
         if ctx.destination_group is None:
-            return None
+            peer_id = leg.clone_state.discussion_destination_peer_id
+            if peer_id is None:
+                return None
+            ctx.destination_group = await discussion.destination_group(ctx.tg, peer_id)
         reply_to_msg_id = destination_post_id
         reply_to_peer_id = await ctx.tg.get_input_entity(ctx.destination_group)
     quote_text, quote_entities, quote_offset = _quote_fields(classified)
