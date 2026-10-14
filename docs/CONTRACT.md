@@ -1708,12 +1708,12 @@ the governor refuses locally with exit 5 and no request.
 
 Per-account SQLite/WAL store under `~/.local/state/tgcli/archive/<alias>/`
 (override with `[archive] root = "…"` in `config.toml`). Directory mode
-`0700`; `archive.db` mode `0600`. Schema v7 tables: `messages`, `revisions`,
+`0700`; `archive.db` mode `0600`. Schema v10 tables: `messages`, `revisions`,
 `tombstones`, `transcripts`, `scope`, `sync_state` (with peer identity
-columns), `account_sync` (account-level update cursor + gap), plus an
+columns), `account_sync` (account-level update cursor + un-cleared gaps), plus an
 FTS5 index over message text and transcript text with
 `tokenize = "unicode61 remove_diacritics 2"` (Cyrillic `ё`/`е` folded at
-FTS write/query time). Opening a v1/v2/v3/v4 store migrates in place.
+FTS write/query time). Opening an older store (v1 through v9) migrates it forward in place.
 Migrating to v10 keeps a stored gap as the first entry of the gap list. The message
 payload is the universal `message_to_dict` JSON shape from `tg read` — not
 a second representation.
@@ -1899,7 +1899,7 @@ under readonly; `read` and `history` are also offline read-only commands.
 
 ```json
 {"created":true,"path":"…/archive/main/archive.db",
- "account":{"alias":"main","user_id":42},"schema_version":7}
+ "account":{"alias":"main","user_id":42},"schema_version":10}
 ```
 
 ```json
@@ -1911,7 +1911,7 @@ under readonly; `read` and `history` are also offline read-only commands.
 
 ```json
 {"account":{"alias":"main","user_id":42},"path":"…",
- "schema_version":7,
+ "schema_version":10,
  "counts":{"messages":0,"revisions":0,"tombstones":0,"transcripts":0,
            "scope":0,"transcript_queue":0},
  "dialogs":[],"transcript_queue":0,
