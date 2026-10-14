@@ -247,6 +247,46 @@ def test_cleanup_confirm_blocked_by_tgcli_readonly_env(tmp_path, monkeypatch, ca
     assert (tmp_path / "previews" / "p_spent0.used").exists()
 
 
+@pytest.mark.parametrize("value", ["true", "YES", " 1 ", "on"])
+def test_cleanup_confirm_blocked_by_any_truthy_readonly_spelling(
+    tmp_path, monkeypatch, capsys, value
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("TGCLI_READONLY", value)
+    _seed_inventory(tmp_path)
+
+    assert main(["--json", "store", "cleanup", "--confirm"]) == 2
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "BLOCKED"
+    assert (tmp_path / "previews" / "p_spent0.used").exists()
+
+
+@pytest.mark.parametrize("value", ["0", "false", "No", "off", ""])
+def test_cleanup_confirm_allowed_by_falsy_readonly_spellings(
+    tmp_path, monkeypatch, value
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("TGCLI_READONLY", value)
+    _seed_inventory(tmp_path)
+
+    assert main(["--json", "store", "cleanup", "--confirm"]) == 0
+    assert not (tmp_path / "previews" / "p_spent0.used").exists()
+
+
+def test_cleanup_confirm_refuses_an_unrecognized_readonly_value(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("TGCLI_READONLY", "maybe")
+    _seed_inventory(tmp_path)
+
+    assert main(["--json", "store", "cleanup", "--confirm"]) == 3
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "CONFIG"
+    assert "TGCLI_READONLY" in error["message"]
+    assert "maybe" in error["message"]
+    assert (tmp_path / "previews" / "p_spent0.used").exists()
+
+
 def test_cleanup_rejects_invalid_older_than(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     assert main(["store", "cleanup", "--older-than", "nope", "--json"]) == 1
@@ -682,6 +722,24 @@ def test_cleanup_older_than_gates_media_cache_by_mtime(tmp_path, monkeypatch):
     assert not cache.exists()
 
 
+def _patch_os_stat(monkeypatch, victim: Path, hook) -> None:
+    """Route every `os.stat` of `victim` through `hook(real_stat, args, kwargs)`.
+
+    `os.stat` is the one seam both `Path.stat` and the `is_file()`/`is_dir()`
+    probes reach on every supported Python (3.14 stopped routing the probes
+    through `Path.stat`), so a race injected here lands where production sees it.
+    """
+    real_stat = os.stat
+    target = os.fspath(victim)
+
+    def fake_stat(path, *args, **kwargs):
+        if isinstance(path, (str, os.PathLike)) and os.fspath(path) == target:
+            return hook(real_stat, path, args, kwargs)
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", fake_stat)
+
+
 def _vanish_after_first_stat(monkeypatch, victim: Path) -> None:
     """Let `victim` pass one stat and disappear before the next one.
 
@@ -689,19 +747,17 @@ def _vanish_after_first_stat(monkeypatch, victim: Path) -> None:
     login consumed by a concurrent `tg` lands exactly in that window: the
     `is_file()` probe still sees it, the stat that follows does not.
     """
-    real_stat = Path.stat
     seen = {"count": 0}
 
-    def fake_stat(self, *args, **kwargs):
-        if self == victim:
-            seen["count"] += 1
-            if seen["count"] > 1:
-                raise FileNotFoundError(
-                    errno.ENOENT, "No such file or directory", str(self)
-                )
-        return real_stat(self, *args, **kwargs)
+    def hook(real_stat, path, args, kwargs):
+        seen["count"] += 1
+        if seen["count"] > 1:
+            raise FileNotFoundError(
+                errno.ENOENT, "No such file or directory", str(path)
+            )
+        return real_stat(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "stat", fake_stat)
+    _patch_os_stat(monkeypatch, victim, hook)
 
 
 def test_scan_survives_a_preview_that_vanishes_mid_walk(tmp_path, monkeypatch):
@@ -758,15 +814,17 @@ def test_cleanup_survives_a_media_cache_that_vanishes_mid_walk(tmp_path, monkeyp
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     cache = _seed_clone_media_cache(tmp_path)
     _age_media_cache(cache, timedelta(days=1))
-    real_stat = Path.stat
+    seen = {"cleared": False}
 
-    def fake_stat(self, *args, **kwargs):
-        result = real_stat(self, *args, **kwargs)
-        if self == cache and os.path.isdir(cache):
+    def hook(real_stat, path, args, kwargs):
+        # The first probe sees the cache; it is gone before the next stat.
+        result = real_stat(path, *args, **kwargs)
+        if not seen["cleared"]:
+            seen["cleared"] = True
             shutil.rmtree(cache)
         return result
 
-    monkeypatch.setattr(Path, "stat", fake_stat)
+    _patch_os_stat(monkeypatch, cache, hook)
 
     result = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
 

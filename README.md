@@ -63,7 +63,14 @@ Override the target with `TGCLI_BIN_DIR=/somewhere/bin`. The script warns if ano
 
 ### Configure an account
 
-Create `~/.config/tgcli/config.toml` with credentials from [my.telegram.org](https://my.telegram.org):
+Create `~/.config/tgcli/config.toml` with credentials from [my.telegram.org](https://my.telegram.org). It holds your API hash, so create it private:
+
+```bash
+mkdir -p -m 700 ~/.config/tgcli
+install -m 600 /dev/null ~/.config/tgcli/config.toml
+```
+
+Then fill it in:
 
 ```toml
 default_account = "main"
@@ -140,8 +147,8 @@ Sessions, locks, previews, the audit log, and cache live under `~/.local/state/t
 | `TGCLI_CONFIG` | Config file path. Defaults to `~/.config/tgcli/config.toml`. |
 | `TGCLI_STATE_DIR` | State root for sessions, locks, previews, audit log, cache. |
 | `TGCLI_ACCOUNT` | Account alias to use when `--account` is absent. |
-| `TGCLI_READONLY` | `1` blocks every mutation before any network work. |
-| `TGCLI_NO_SEND` | `1` blocks message-producing mutations specifically. |
+| `TGCLI_READONLY` | `1` (or `true`/`yes`/`on`) blocks every mutation before any network work; `0`/`false`/`no`/`off` or unset leaves it off; any other value is a config error (exit 3). |
+| `TGCLI_NO_SEND` | Same values; on blocks message-producing mutations specifically. |
 | `TGCLI_LIVE_SMOKE` | `1` enables the live-account smoke tests in the suite (read-only; `TGCLI_LIVE_ACCOUNT` picks the alias, `TGCLI_LIVE_WRITES=1` adds the draft round-trip). |
 
 **Exit codes:**

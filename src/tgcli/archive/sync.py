@@ -21,6 +21,7 @@ from tgcli.commands import changes as changes_cmd, media as media_cmd
 from tgcli.commands.read import message_to_dict
 from tgcli.errors import PolicyError, RateLimitError
 from tgcli.output import note
+from tgcli.session import RUN_ABORTING_ERRORS
 
 DEFAULT_MAX_CATCHUP_MESSAGES = 500
 MAX_CATCHUP_MESSAGES = 5000
@@ -387,10 +388,19 @@ async def fetch_media(
                 f"rate limited during archive media fetch of {message_id}",
                 retry_after=seconds,
             ) from exc
-        except RateLimitError:
-            # The governor refusing a cooling request type: no attempt was
-            # made, so none is recorded.
+        except RUN_ABORTING_ERRORS:
+            # The governor refusing a cooling request type, a lost connection,
+            # a dead session: nothing was learned about this item, so no
+            # attempt is recorded.
             raise
+        except (telethon_errors.ServerError, telethon_errors.TimedOutError) as exc:
+            # Telegram failing, not the file: stop the pass, keep the row's
+            # attempts, and let the next run take it again.
+            note(
+                f"archive sync: media pass stopped at {peer_id}/{message_id}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            break
         except Exception as exc:
             error = f"{type(exc).__name__}:{exc}"
             with conn:
@@ -420,6 +430,8 @@ async def _ensure_channel_subscriptions(
         try:
             entity = await tg.get_entity(peer)
             pts = await changes_cmd._channel_pts(tg, entity)
+        except RUN_ABORTING_ERRORS:
+            raise
         except Exception as exc:
             note(f"archive sync: skip channel subscribe {peer}: {exc}")
             continue
@@ -455,6 +467,8 @@ async def light_reconcile(
             entity = await tg.get_entity(peer)
             result = await tg.get_messages(entity, limit=0)
             telegram_total = int(getattr(result, "total", 0) or 0)
+        except RUN_ABORTING_ERRORS:
+            raise
         except Exception as exc:
             error = f"{type(exc).__name__}:{exc}"
         comparisons.append(
@@ -622,6 +636,8 @@ async def _enrich_private_identity(
             continue
         try:
             entity = await tg.get_entity(peer_id)
+        except RUN_ABORTING_ERRORS:
+            raise
         except Exception:
             continue
         username = getattr(entity, "username", None)

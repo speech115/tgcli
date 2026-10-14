@@ -761,7 +761,14 @@ def test_send_without_required_args_returns_usage_error(capsys):
 
 @pytest.mark.parametrize(
     "flag, value",
-    [("--readonly", None), ("TGCLI_READONLY", "1"), ("TGCLI_NO_SEND", "1")],
+    [
+        ("--readonly", None),
+        ("TGCLI_READONLY", "1"),
+        ("TGCLI_READONLY", "true"),
+        ("TGCLI_READONLY", " Yes "),
+        ("TGCLI_NO_SEND", "1"),
+        ("TGCLI_NO_SEND", "on"),
+    ],
 )
 def test_send_commit_is_blocked_before_config_or_session(monkeypatch, flag, value):
     from tgcli import cli

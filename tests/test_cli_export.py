@@ -19,6 +19,11 @@ api_hash = "abcdef0123456789"
 """
 
 
+def _csv_rows(path):
+    with path.open(newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
 @pytest.fixture
 def config_env(tmp_path, monkeypatch):
     path = tmp_path / "config.toml"
@@ -268,7 +273,7 @@ def test_export_subscribers_writes_header_and_quoted_rows(
     )
 
     assert json.loads(capsys.readouterr().out)["export"]["count"] == 1
-    assert list(csv.DictReader(destination.open())) == [
+    assert _csv_rows(destination) == [
         {
             "id": "7",
             "username": "alice",
@@ -326,7 +331,7 @@ def test_export_broadcast_subscribers_unions_prefix_searches(
     )
 
     assert json.loads(capsys.readouterr().out)["export"]["count"] == 3
-    assert {row["id"] for row in csv.DictReader(destination.open())} == {"1", "2", "3"}
+    assert {row["id"] for row in _csv_rows(destination)} == {"1", "2", "3"}
     assert fake.iter_participants_calls == []
     assert any(
         isinstance(req, functions.channels.GetParticipantsRequest)
@@ -538,7 +543,7 @@ def test_export_subscribers_neutralizes_formula_cells(
 
     assert main(["export", "subscribers", "@chan", "--output", str(destination)]) == 0
 
-    assert list(csv.DictReader(destination.open())) == [
+    assert _csv_rows(destination) == [
         {
             "id": "7",
             "username": "'=SUM(1,1)",
@@ -572,7 +577,7 @@ def test_export_subscribers_neutralizes_whitespace_led_formula_cells(
     assert main(["export", "subscribers", "@chan", "--output", str(destination)]) == 0
 
     # newline="" so the reader does not translate the embedded CR away.
-    row = list(csv.DictReader(destination.open(newline="")))[0]
+    row = _csv_rows(destination)[0]
     assert row["username"] == "'\t=SUM(1,1)"
     assert row["first_name"] == "'\r+cmd"
     assert row["last_name"] == "' @value"
@@ -598,7 +603,7 @@ def test_export_subscribers_leaves_plain_cells_untouched(
 
     assert main(["export", "subscribers", "@chan", "--output", str(destination)]) == 0
 
-    row = list(csv.DictReader(destination.open()))[0]
+    row = _csv_rows(destination)[0]
     assert row["username"] == " alice"
     assert row["first_name"] == "Alice"
 
@@ -628,7 +633,7 @@ def test_export_subscribers_accepts_numeric_dialog_id(
         == 0
     )
 
-    assert len(list(csv.DictReader(destination.open()))) == 1
+    assert len(_csv_rows(destination)) == 1
 
 
 def test_export_subscribers_empty_channel_keeps_only_header(

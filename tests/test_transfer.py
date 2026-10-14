@@ -583,3 +583,25 @@ async def test_the_part_file_is_synced_before_the_checkpoint_claims_it(
 
     assert order[0] == "fsync"
     assert order[1] == f"checkpoint:{transfer.CHUNK_SIZE}"
+
+
+@pytest.mark.asyncio
+async def test_a_resumable_part_file_is_created_0600(tmp_path):
+    """A `.part` holds the user's media: not world-readable under umask 022."""
+    import os
+
+    part = tmp_path / "x.part"
+    previous = os.umask(0o022)
+    try:
+        await transfer.download_resumable(
+            FakeSerialTelegram(transfer.CHUNK_SIZE),
+            object(),
+            part,
+            offset=0,
+            size=transfer.CHUNK_SIZE,
+            checkpoint=lambda current: None,
+        )
+    finally:
+        os.umask(previous)
+
+    assert part.stat().st_mode & 0o777 == 0o600

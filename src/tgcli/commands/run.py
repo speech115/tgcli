@@ -44,6 +44,10 @@ PLUMBING = frozenset({"auth.exportAuthorization"})
 # read, since auth.checkPassword and account.getTmpPassword only look like
 # reads (ADR-0010, ADR-0092).
 DENIED_NAMESPACES = frozenset({"account", "auth"})
+# The root namespace is MTProto session plumbing: `destroyAuthKey` and
+# `destroySession` end the session like a logout, the rest is key exchange.
+# Only the pings are let through; invoke wrappers are unwrapped before this.
+ROOT_ALLOWED = frozenset({"functions.ping", "functions.pingDelayDisconnect"})
 
 
 # A getter that takes one of these acts on it: rotating a stream key
@@ -75,7 +79,7 @@ def is_read(request_type: type) -> bool:
     name = _name(request_type)
     namespace, _, method = name.partition(".")
     if namespace == "functions":
-        return method in ("ping", "pingDelayDisconnect")
+        return name in ROOT_ALLOWED
     if WRITE_ARGUMENTS & set(inspect.signature(request_type.__init__).parameters):
         return False
     return method.startswith(READ_VERBS) and name not in SIDE_EFFECT_GETTERS
@@ -113,8 +117,13 @@ def install_write_gate(client, account: str, *, write: bool) -> None:
             name = method_name(item)
             if name in PLUMBING:
                 continue
-            if name.partition(".")[0] in DENIED_NAMESPACES:
+            namespace = name.partition(".")[0]
+            if namespace in DENIED_NAMESPACES:
                 raise PolicyError(f"{name} is never allowed in tg run; use tg accounts")
+            if namespace == "functions" and name not in ROOT_ALLOWED:
+                raise PolicyError(
+                    f"{name} is never allowed in tg run: it is session plumbing"
+                )
             if is_read(type(_unwrapped(item))):
                 continue
             if not write:

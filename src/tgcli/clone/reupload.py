@@ -18,7 +18,7 @@ from tgcli import atomic
 from tgcli.clone import progress as clone_progress, state
 from tgcli.errors import PolicyError
 from tgcli.output import note
-from tgcli.session import TRANSIENT_ERRORS
+from tgcli.session import TRANSIENT_ERRORS, ensure_state_dir
 from tgcli.transfer import (
     CHUNK_SIZE,
     CLONE_TRANSFER_PARALLEL,
@@ -109,6 +109,11 @@ async def uploaded_media(tg, message, path, progress=None):
 def cache_dir(clone_state: state.CloneState) -> Path:
     """Per-clone reupload download cache (ADR-0052). Survives a failed batch."""
     return state.clones_dir() / f"{clone_state.clone_id}-media"
+
+
+def ensure_cache_dir(clone_state: state.CloneState) -> Path:
+    """`cache_dir`, created with every level under the state root 0700."""
+    return ensure_state_dir("clones", cache_dir(clone_state).name)
 
 
 def complete_marker(target: Path) -> Path:

@@ -222,6 +222,27 @@ def test_doctor_env_readonly_reports_loose_previews_without_touching_them(
     assert "TGCLI_READONLY" in captured.err
 
 
+def test_doctor_reports_with_an_unparseable_kill_switch(
+    config_env, capsys, monkeypatch
+):
+    """A malformed TGCLI_READONLY blocks repairs but not the health report.
+
+    doctor must answer when everything else refuses; the bad value fails
+    closed (no repair) and is named on stderr.
+    """
+    monkeypatch.setenv("TGCLI_READONLY", "maybe")
+    _touch_session("main")
+    legacy = _loose_preview()
+
+    assert main(["doctor", "--json"]) == 0
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    checks = report["accounts"][0]["checks"]
+    assert checks["preview_perms_repaired"] == 0
+    assert legacy.stat().st_mode & 0o777 == 0o644
+    assert "TGCLI_READONLY" in captured.err
+
+
 def test_doctor_survives_a_previews_directory_that_vanishes(config_env, monkeypatch):
     """`store cleanup` may remove the directory between the probe and the scan."""
     from tgcli import safety

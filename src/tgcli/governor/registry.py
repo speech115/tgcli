@@ -122,13 +122,3 @@ def request_key(request: object) -> str:
 def classify(request: object) -> RequestClass:
     """The paced class for a request, or ``UNLISTED`` when it has none."""
     return _CLASSES.get(request_key(request), UNLISTED)
-
-
-def interval_for(request: object) -> float | None:
-    """Seconds of minimum start-to-start spacing, or ``None`` when unpaced.
-
-    Start-to-start is the whole point (ADR-0072 decision 3): the caller
-    reserves this interval *before* dispatching, so a slow request does not
-    add its own latency on top of the pace.
-    """
-    return INTERVALS[classify(request)]

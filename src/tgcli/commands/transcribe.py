@@ -66,7 +66,10 @@ async def transcribe_message(tg, chat: str, message_id: int, timeout: float) -> 
             return
         _settle(event)
 
-    handler = tg.add_event_handler(_on_update, events.Raw(types.UpdateTranscribedAudio))
+    # Telethon's add_event_handler returns None, so removal goes by the
+    # callback and filter themselves.
+    update_filter = events.Raw(types.UpdateTranscribedAudio)
+    tg.add_event_handler(_on_update, update_filter)
     try:
         try:
             result = await tg(
@@ -95,7 +98,7 @@ async def transcribe_message(tg, chat: str, message_id: int, timeout: float) -> 
         else:
             text = result.text
     finally:
-        tg.remove_event_handler(handler, events.Raw(types.UpdateTranscribedAudio))
+        tg.remove_event_handler(_on_update, update_filter)
 
     return {
         "dialog": {"id": entity.id, "name": _dialog_name(entity, chat)},

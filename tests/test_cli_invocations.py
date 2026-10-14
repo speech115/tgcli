@@ -47,6 +47,20 @@ def test_successful_command_writes_invocation_metadata(tmp_path, monkeypatch):
     assert "error" not in entry
 
 
+@pytest.mark.parametrize(
+    ("argv", "command"),
+    [(["accounts", "list"], "accounts list"), (["store", "stats"], "store stats")],
+)
+def test_subcommand_is_journaled_by_its_full_path(tmp_path, monkeypatch, argv, command):
+    """`archive sync` and `archive status` must not share one `archive` row."""
+    config_env(tmp_path, monkeypatch)
+
+    assert main(argv) == 0
+
+    [entry] = read_journal()
+    assert entry["command"] == command
+
+
 def test_policy_block_writes_the_structured_error_code():
     assert main(["--readonly", "run", "--write", "-"]) == 2
 
@@ -151,19 +165,19 @@ def test_termination_signal_journals_an_honest_row_and_dies_by_signal(
 ):
     """CONTRACT §9: a killed run still owes the journal one honest object."""
     config_env(tmp_path, monkeypatch)
-    process = subprocess.Popen(
+    with subprocess.Popen(
         [sys.executable, "-c", TERMINATION_PROGRAM],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True,
-    )
-    try:
-        assert process.stderr is not None
-        assert process.stderr.readline().strip() == "READY"
-        process.send_signal(signum)
-        process.wait(timeout=30)
-    finally:
-        process.kill()
+    ) as process:
+        try:
+            assert process.stderr is not None
+            assert process.stderr.readline().strip() == "READY"
+            process.send_signal(signum)
+            process.wait(timeout=30)
+        finally:
+            process.kill()
 
     assert process.returncode == -signum
     journal = state_dir() / "invocations.jsonl"

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from telethon import errors as telethon_errors
@@ -72,11 +71,7 @@ def _utf16_length(value: str) -> int:
 
 
 def _vote_capture_allowed() -> bool:
-    if os.environ.get("TGCLI_READONLY") == "1":
-        return False
-    if os.environ.get("TGCLI_NO_SEND") == "1":
-        return False
-    return True
+    return not (safety.readonly_env() or safety.no_send_env())
 
 
 def _poll_eligible_for_vote(poll) -> bool:

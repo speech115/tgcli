@@ -5740,3 +5740,52 @@ def test_clone_sync_announces_every_lost_keyboard_not_only_the_first(
         2,
         3,
     ]
+
+
+def _hold_clone_lock(clone_id):
+    import fcntl
+
+    state.clones_dir().mkdir(parents=True, exist_ok=True)
+    holder = (state.clones_dir() / f"{clone_id}.lock").open("w")
+    fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    return holder
+
+
+def test_sync_refuses_while_another_run_holds_the_clone(
+    config_env, monkeypatch, capsys
+):
+    """The session lock is per session file, so a `--session-role job` sync
+    and a primary-session sync of the same clone used to run at once and
+    post every message twice. The clone slot now has its own lock."""
+    clone_state = seed_clone()
+    client = CloneSyncClient([message(2), message(3)])
+    make_session_fake(monkeypatch, client)
+
+    holder = _hold_clone_lock(clone_state.clone_id)
+    try:
+        assert main(["clone", "sync", "@source", "--json"]) == 2
+    finally:
+        holder.close()
+
+    error = json.loads(capsys.readouterr().err)["error"]
+    assert error["code"] == "BLOCKED"
+    assert error["message"] == (
+        f"clone {clone_state.clone_id} is busy: another clone sync or init "
+        "is running; retry when it finishes"
+    )
+    assert not any(
+        isinstance(
+            request,
+            (
+                functions.messages.SendMessageRequest,
+                functions.messages.ForwardMessagesRequest,
+            ),
+        )
+        for request in client.requests
+    )
+    assert state.load(clone_state.clone_id).cursor == 0
+
+    # Released by the holder, the same clone syncs, and leaves no lock held.
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    assert state.load(clone_state.clone_id).cursor == 3
+    _hold_clone_lock(clone_state.clone_id).close()

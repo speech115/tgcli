@@ -486,3 +486,19 @@ def test_remove_audit_before_deletion_and_no_secrets(env, monkeypatch):
 def test_remove_unknown_alias_exit_4(env, capsys):
     code = main(["accounts", "remove", "ghost", "--confirm", "--json"])
     assert code == 4
+
+
+def test_a_new_config_directory_is_private(tmp_path):
+    """The config holds the api_hash: a fresh ~/.config/tgcli is 0700 under
+    the usual umask 022, not 0755."""
+    import os
+
+    fresh = tmp_path / "home" / ".config" / "tgcli" / "config.toml"
+    previous = os.umask(0o022)
+    try:
+        accounts_cmd._append_config_block(fresh, "fresh", 1, "h")
+    finally:
+        os.umask(previous)
+
+    assert fresh.parent.stat().st_mode & 0o777 == 0o700
+    assert fresh.stat().st_mode & 0o777 == 0o600

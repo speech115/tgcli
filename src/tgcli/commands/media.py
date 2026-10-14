@@ -23,7 +23,7 @@ from tgcli.errors import (
     TgcliError,
 )
 from tgcli.output import note
-from tgcli.session import state_dir
+from tgcli.session import ensure_parent_dir, state_dir
 from tgcli.transfer import (
     download_resumable,
     download_striped,
@@ -466,7 +466,7 @@ async def download_media(
     offset = _resume_offset(state_path, part_path, source, destination, target)
     resumed = offset > 0
 
-    part_path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_parent_dir(part_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if parallel > 1:
         if resumed:
@@ -692,7 +692,7 @@ async def download_media_bulk(
             hard_error = exc
             failed.append({"message_id": source.message_id, "error": str(exc)})
             break
-        except telethon_errors.SessionRevokedError:
+        except telethon_errors.UnauthorizedError:
             raise
         except Exception as exc:
             hard_error = exc

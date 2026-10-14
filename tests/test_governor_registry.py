@@ -47,6 +47,11 @@ def test_request_key_is_namespaced_by_telethon_module():
     )
 
 
+def _interval(request):
+    """The start-to-start spacing the request's class is paced at."""
+    return registry.INTERVALS[registry.classify(request)]
+
+
 def test_an_unlisted_request_type_still_gets_its_own_cooldown_key():
     """The gate must cover requests nobody enumerated, as `tg run` sends."""
 
@@ -57,7 +62,7 @@ def test_an_unlisted_request_type_still_gets_its_own_cooldown_key():
 
     assert key.endswith("SomeFutureRequest")
     assert registry.classify(SomeFutureRequest()) is registry.UNLISTED
-    assert registry.interval_for(SomeFutureRequest()) is None
+    assert _interval(SomeFutureRequest()) is None
 
 
 @pytest.mark.parametrize(
@@ -79,19 +84,19 @@ def test_history_reads_carry_the_three_second_interval():
     """ADR-0072 decision 3's default, and the one the incident lacked."""
     history = _history(limit=1000)
 
-    assert registry.interval_for(history) == 3.0
+    assert _interval(history) == 3.0
 
 
 def test_mutations_are_gated_but_unpaced():
     """No interval, yet still keyed — a flood on a send arms its own record."""
     send = messages.SendMessageRequest("p", "hi")
 
-    assert registry.interval_for(send) is None
+    assert _interval(send) is None
     assert registry.request_key(send) == "messages.SendMessageRequest"
 
 
 def test_get_messages_by_id_is_charged_10_s_per_300_ids_of_telethon_chunks():
-    assert registry.interval_for(messages.GetMessagesRequest(id=[1])) == 10.0 / 3
+    assert _interval(messages.GetMessagesRequest(id=[1])) == 10.0 / 3
 
 
 def test_the_real_telethon_call_is_the_shape_the_gate_wraps():

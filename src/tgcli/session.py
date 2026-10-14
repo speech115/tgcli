@@ -15,7 +15,7 @@ from telethon import TelegramClient, errors as telethon_errors
 
 from tgcli import __version__
 from tgcli.config import Account, validate_role_name
-from tgcli.errors import ConfigError
+from tgcli.errors import ConfigError, RateLimitError
 
 
 def state_dir() -> Path:
@@ -50,6 +50,18 @@ def ensure_state_dir(*parts: str) -> Path:
         path.mkdir(mode=0o700, exist_ok=True)
         _repair_mode(path, 0o700)
     return path
+
+
+def ensure_parent_dir(path: Path) -> Path:
+    """Create ``path``'s directory: 0700 at every level under the state root
+    (via `ensure_state_dir`), a plain `mkdir -p` anywhere else."""
+    parent = path.parent
+    try:
+        relative = parent.relative_to(state_dir())
+    except ValueError:
+        parent.mkdir(parents=True, exist_ok=True)
+        return parent
+    return ensure_state_dir(*relative.parts)
 
 
 def restrict_file(path: Path) -> None:
@@ -276,40 +288,53 @@ TRANSIENT_ERRORS = (
     telethon_errors.FloodWaitError,
     telethon_errors.ServerError,
     telethon_errors.TimedOutError,
+    # Telethon's own reconnects ran out: the network, not the request.
+    ConnectionError,
+)
+
+# Errors about the run, never about the one item it was working on: a flood
+# or a governor cooldown, a connection Telethon could not restore, a session
+# Telegram no longer accepts. A loop that records a per-item failure (an
+# attempt counter, an `error` field, a skipped peer) re-raises these before
+# its `except Exception`, or one outage marks every item it touched.
+RUN_ABORTING_ERRORS = (
+    telethon_errors.FloodWaitError,
+    RateLimitError,
+    ConnectionError,
+    telethon_errors.UnauthorizedError,
 )
 
 
-def _make_client(
-    path: Path, account: Account, *, mutation_safe: bool = False
-) -> TelegramClient:
+def build_client(path: Path, api_id: int, api_hash: str, **extra) -> TelegramClient:
+    """The one TelegramClient constructor: every client, login included.
+
+    ADR-0072 decision 2: `flood_sleep_threshold=0` on *every* client, not
+    just the mutation-safe ones. Telethon's own sleeping is what made the
+    incident invisible — it engages only above `limit > 3000` and silently
+    absorbs shorter waits, so the governor could never see the flood it is
+    supposed to record. `raise_last_call_error=True`: see TRANSIENT_ERRORS.
+    """
     device_model, system_version, app_version = client_identity()
-    # ADR-0072 decision 2: `flood_sleep_threshold=0` on *every* client, not
-    # just the mutation-safe ones. Telethon's own sleeping is what made the
-    # incident invisible — it engages only above `limit > 3000` and silently
-    # absorbs shorter waits, so the governor could never see the flood it is
-    # supposed to record. Retries stay at Telethon's default for reads.
-    if mutation_safe:
-        return TelegramClient(
-            str(path),
-            account.api_id,
-            account.api_hash,
-            request_retries=0,
-            flood_sleep_threshold=0,
-            raise_last_call_error=True,
-            device_model=device_model,
-            system_version=system_version,
-            app_version=app_version,
-        )
     return TelegramClient(
         str(path),
-        account.api_id,
-        account.api_hash,
+        api_id,
+        api_hash,
         flood_sleep_threshold=0,
         raise_last_call_error=True,
         device_model=device_model,
         system_version=system_version,
         app_version=app_version,
+        **extra,
     )
+
+
+def _make_client(
+    path: Path, account: Account, *, mutation_safe: bool = False
+) -> TelegramClient:
+    # Retries stay at Telethon's default for reads; a mutation is never
+    # retried blind.
+    extra = {"request_retries": 0} if mutation_safe else {}
+    return build_client(path, account.api_id, account.api_hash, **extra)
 
 
 @asynccontextmanager
@@ -338,6 +363,14 @@ async def client(
             from tgcli.governor.ledger import Ledger
 
             governor = Ledger.open()
+            if governor.degraded_reason is not None:
+                from tgcli.output import note
+
+                note(
+                    "warning: governor ledger unavailable "
+                    f"({governor.degraded_reason}); flood cooldowns are not "
+                    "shared with other tg processes this run"
+                )
             install_governor(tg, governor)
         else:
             # `doctor --connect` is the one command exempt from the governor
@@ -359,7 +392,8 @@ async def client(
                     "run: tg accounts login <alias> --phone PHONE"
                 )
             yield tg
-        except telethon_errors.SessionRevokedError as exc:
+        except telethon_errors.UnauthorizedError as exc:
+            # Revoked, expired, unregistered, deactivated: one remedy.
             raise ConfigError(
                 f"session {label!r} needs reauthentication; authorize it again"
             ) from exc

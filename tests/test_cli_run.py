@@ -3,6 +3,7 @@
 import io
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 from telethon.tl import functions, types
 
@@ -249,7 +250,7 @@ def test_getters_that_take_a_write_argument_need_the_write_flag(tmp_path, monkey
     for case in ("revoke", "decline", "password"):
         assert main(["run", path, case]) == 2
     assert client.sent == []
-    client, path = setup(tmp_path, monkeypatch, open(path).read())
+    client, path = setup(tmp_path, monkeypatch, Path(path).read_text())
     assert main(["run", "--write", path, "revoke"]) == 0
     assert [line["method"] for line in audit_lines()] == [
         "phone.getGroupCallStreamRtmpUrl"
@@ -266,6 +267,30 @@ def test_every_method_tg_run_lets_through_as_a_read_was_reviewed():
 
     reviewed = Path(__file__).with_name("run_read_methods.txt").read_text()
     assert run.read_methods() == reviewed.split()
+
+
+def test_root_session_requests_are_denied_even_with_the_flag(tmp_path, monkeypatch):
+    """DestroyAuthKey/DestroySession end the session like a logout (ADR-0092)."""
+    for script in (
+        "await client(functions.DestroyAuthKeyRequest())\n",
+        "await client(functions.DestroySessionRequest(session_id=1))\n",
+        "await client(functions.InvokeWithLayerRequest(layer=1, "
+        "query=functions.DestroyAuthKeyRequest()))\n",
+    ):
+        client, path = setup(tmp_path, monkeypatch, script)
+
+        assert main(["run", "--write", path]) == 2
+        assert client.sent == []
+        assert audit_lines() == []
+
+
+def test_ping_stays_a_read(tmp_path, monkeypatch):
+    client, path = setup(
+        tmp_path, monkeypatch, "await client(functions.PingRequest(ping_id=1))\n"
+    )
+
+    assert main(["run", path]) == 0
+    assert [type(r) for r in client.sent] == [functions.PingRequest]
 
 
 def test_a_script_timeout_error_is_not_reported_as_the_deadline(

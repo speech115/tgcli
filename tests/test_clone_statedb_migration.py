@@ -234,3 +234,53 @@ def test_status_reports_wrong_user_version(tmp_path, monkeypatch, capsys):
     entry = json.loads(capsys.readouterr().out)["clones"][0]
     assert entry["unreadable"] is True
     assert "schema version" in entry["integrity"]
+
+
+def _snapshot(root):
+    return {
+        path.relative_to(root): path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+@pytest.mark.parametrize(
+    ("argv", "env"),
+    [
+        (["clone", "status", "--json"], "1"),
+        (["--readonly", "clone", "status", "--json"], None),
+        (["clone", "export-state", "-1001234567890", "--json"], "1"),
+    ],
+    ids=["status-env", "status-flag", "export-state-env"],
+)
+def test_readonly_read_does_not_import_legacy_json(
+    tmp_path, monkeypatch, capsys, argv, env
+):
+    """A read under readonly reads the legacy document where it lies: the
+    one-time import rewrote the slot (`.db` created, `.json` renamed) from
+    `clone status`, which readonly promises never mutates local state."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    if env is None:
+        monkeypatch.delenv("TGCLI_READONLY", raising=False)
+    else:
+        monkeypatch.setenv("TGCLI_READONLY", env)
+    s = _fresh()
+    s.cursor = 7
+    s.record_mapping(1, 10)
+    json_path = state.json_path_for(s.clone_id)
+    json_path.parent.mkdir(parents=True)
+    json_path.write_text(json.dumps(s.to_dict(), ensure_ascii=False))
+    before = _snapshot(tmp_path / "clones")
+    from tgcli.cli import main
+
+    assert main(argv) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    if argv[1] == "export-state":
+        assert payload == s.to_dict()
+    else:
+        assert payload["pending_import"] == 0
+        [entry] = payload["clones"]
+        assert entry["cursor"] == 7
+        assert entry["copied"] == 1
+    assert _snapshot(tmp_path / "clones") == before

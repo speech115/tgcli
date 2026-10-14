@@ -55,12 +55,12 @@ def slot_ids() -> set[str]:
     return found
 
 
-def loaded_states() -> list[state.CloneState]:
+def loaded_states(*, read_only: bool = False) -> list[state.CloneState]:
     """Every clone state that loads; unreadable slots are skipped, not raised."""
     loaded = []
     for clone_id in slot_ids():
         try:
-            found = state.load(clone_id)
+            found = state.load(clone_id, read_only=read_only)
         except PolicyError:
             continue
         if found is not None:
@@ -98,3 +98,32 @@ def recorded_source_ref(account_user_id: int, source: str):
         )
     peer = _SOURCE_PEERS.get(found[0].source_kind, types.PeerChannel)
     return peer(found[0].source_peer_id)
+
+
+def cooldown_until(account_user_id: int) -> str | None:
+    """Latest live governor cooldown for the clone's account, read offline.
+
+    The request governor's ledger is where flood cooldowns live (ADR-0072),
+    the same place `doctor` reads them. A machine with no ledger yet has
+    nothing cooling, and a status listing must not create one.
+    """
+    from tgcli.governor.ledger import Ledger, default_path
+
+    if not default_path().exists():
+        return None
+    with Ledger.open() as ledger:
+        active = ledger.active_cooldowns(account_user_id)
+    return max(active.values()).isoformat() if active else None
+
+
+def export_state(source: str, *, read_only: bool = False) -> dict:
+    """Readonly rollback/diagnostic path: the v2 JSON document for one clone."""
+    found = [s for s in loaded_states(read_only=read_only) if matches(s, source)]
+    if not found:
+        raise PolicyError(f"clone not found: {source!r}")
+    if len(found) > 1:
+        raise PolicyError(
+            f"clone export-state matched {len(found)} clones for {source!r}; "
+            "narrow the source filter"
+        )
+    return found[0].to_dict()

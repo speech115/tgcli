@@ -84,6 +84,7 @@ def test_a_corrupt_ledger_fails_open(tmp_path):
 
     with Ledger.open(path) as store:
         assert store.degraded is True
+        assert "not a database" in store.degraded_reason
         assert store.cooldown_deadline(ACCOUNT, HISTORY) is None
 
 
@@ -98,6 +99,7 @@ def test_a_degraded_ledger_still_accepts_writes_without_raising(tmp_path):
 
 def test_a_healthy_ledger_is_not_degraded(ledger):
     assert ledger.degraded is False
+    assert ledger.degraded_reason is None
 
 
 def test_arm_cooldown_sqlite_failure_reports_false(ledger):

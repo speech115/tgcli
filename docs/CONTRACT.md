@@ -27,7 +27,15 @@ Global flags (available on every command):
 | `-v/--verbose` | Python and Telethon debug diagnostics on stderr for this invocation |
 
 Env equivalents: `TGCLI_ACCOUNT`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`.
-Flag beats env, env beats config.
+Flag beats env, env beats config. `TGCLI_CONFIG` sets the config file path
+(default `~/.config/tgcli/config.toml`) and `TGCLI_STATE_DIR` the state root
+(default `~/.local/state/tgcli/`).
+
+`TGCLI_READONLY` and `TGCLI_NO_SEND` are read case-insensitively with
+surrounding whitespace ignored: `1`, `true`, `yes`, `on` enable the block;
+unset, empty, `0`, `false`, `no`, `off` leave it off. Any other value fails
+closed: a command that consults the variable exits 3 (`CONFIG`) with a message
+naming the variable and the accepted values.
 
 `--session-role NAME` resolves to `sessions/<session>@<NAME>.session` before
 the client opens. Role names use the same charset/length rules as account
@@ -83,9 +91,9 @@ flag.
 | Code | Meaning | Typical cause |
 |------|---------|---------------|
 | 0 | success | |
-| 1 | runtime error | network, unexpected exception |
+| 1 | runtime error | network (a lost connection ends `clone sync`/`init` and `archive sync` rather than degrading one item), unexpected exception |
 | 2 | blocked by safety policy | `--readonly` + mutating command, `TGCLI_NO_SEND` |
-| 3 | config/auth error | missing `--account` / `default_account`, dead session, bad api_id, a session still busy after the wait below |
+| 3 | config/auth error | missing `--account` / `default_account`, dead session (any Telegram `UnauthorizedError`: revoked, expired, unregistered key, deactivated user — `needs reauthentication`), bad api_id, a session still busy after the wait below |
 | 4 | not found | unknown dialog, message id, media; unknown alias on `accounts show\|remove` (lookup) |
 | 5 | rate limited | FloodWait longer than threshold; `retry_after` in error JSON; also a sticky in-process cooldown after a FloodWait whose durable arm could not persist (ADR-0090) |
 
@@ -692,11 +700,12 @@ tg store cleanup [--older-than Nd|Nh|N] [--include-pending] [--confirm]
 Reaps **spent** (`.used`) and **expired** (`.json` past TTL) previews under
 the state root, **expired** login attempts under `logins/` (JSON + staged
 session + optional journal and `0600` phone sidecar), and abandoned
-`clones/*-media/` directories (mtime-gated; never the clone's own `.json`
-state). Default is dry-run: stdout lists what would be removed and
+`clones/*-media/` directories (mtime-gated; never the clone's own `.db`
+state or its `-wal`/`-shm` sidecars). Default is dry-run: stdout lists what would be removed and
 stderr prints a one-line `--confirm` hint. With `--confirm`, those files are
 deleted. Never touches `audit.jsonl`, `sessions/` (including `.bak`), live
-login attempts, live `.json` within TTL, clone state JSON, a media cache
+login attempts, live `.json` within TTL, clone state (`.db` with its `-wal`/`-shm`
+sidecars, or a legacy `.json`), a media cache
 younger than one hour (`MEDIA_CACHE_MIN_AGE`, the running-sync guard), the
 archive store under `archive/` (ADR-0068), or relic directories.
 `.pending` files are
@@ -735,10 +744,12 @@ tg doctor [--account ALIAS] [--connect]
 `doctor` is a read-only health report: without `--account`, it checks every
 configured account; with it, it checks only that account. **By default it is
 offline** — config/session file presence, lock freeness, state writability,
-preview/audit/session permission tightness, total state size, and the request
+preview/audit/config/session permission tightness, total state size, and the request
 governor's cooldowns — and does not open a Telegram client.
 `session_perms_ok` covers the account's `.session` and its `.session.bak`; a
-missing file is healthy. All permission checks reject group **and** other
+missing file is healthy. `config_perms_ok` covers the config file: every
+command that loads the config first tightens it to `0600` (fail-open), so it is
+false only when that repair failed (for example, a file owned by someone else). All permission checks reject group **and** other
 bits, not just other. Live authorization (`get_me`) runs only under
 `--connect`, and it is the one network call exempt from the governor
 (ADR-0072 decision 1): `doctor` must work precisely when every gated type is
@@ -750,9 +761,12 @@ When `--connect` is absent, `checks.authorized` is `null` (unknown), not
 
 `checks.governor_cooldowns` maps each cooling request type to its deadline
 (an empty object when nothing is cooling); `checks.governor_degraded` is
-`true` when the governor's ledger could not be opened. A degraded ledger
-sets per-account / top-level `ok: false` in `doctor`; commands still run,
-without cross-process flood memory. A cooldown alone is reportable state,
+`true` when the governor's ledger could not be opened, and
+`checks.governor_degraded_reason` carries the open error (`null` when
+healthy). A degraded ledger sets per-account / top-level `ok: false` in
+`doctor`; commands still run, without cross-process flood memory, and each
+governed client prints one `warning: governor ledger unavailable (…)` line to
+stderr. A cooldown alone is reportable state,
 not a failure: it does not set `ok: false`. A cooldown lasts until the
 server's deadline.
 
@@ -775,8 +789,9 @@ skips it — the check then reports `preview_perms_ok: false` as before.
 "accounts":[{"alias":"main","session":"/home/me/.local/state/tgcli/sessions/main.session",
 "checks":{"session_file":true,"lock_free":true,"state_writable":true,
 "preview_perms_ok":true,"preview_perms_repaired":0,"audit_perms_ok":true,
-"session_perms_ok":true,
-"state_size":4096,"authorized":null,"governor_degraded":false,"governor_cooldowns":{}},
+"config_perms_ok":true,"session_perms_ok":true,
+"state_size":4096,"authorized":null,"governor_degraded":false,
+"governor_degraded_reason":null,"governor_cooldowns":{}},
 "user":null,"roles":[],"ok":true}],"ok":true}
 ```
 
@@ -832,7 +847,10 @@ before it leaves. A method whose name starts with `get`, `search`, `check`, or
 `revoke`, or `decline` argument. Any other request is a write. Invoke wrappers
 are unwrapped first. `auth.*` and `account.*` are refused outright, reads
 included, except `auth.exportAuthorization`, which Telethon sends to download
-media from another datacentre.
+media from another datacentre. Root-namespace MTProto requests
+(`DestroyAuthKeyRequest`, `DestroySessionRequest`, key exchange) are refused
+outright too, with or without `--write`; only `PingRequest` and
+`PingDelayDisconnectRequest` pass, as reads.
 
 - Without `--write`, a write is refused with exit 2 and never sent.
 - With `--write`, each write appends `{"action": "run-write", "method": …}` to
@@ -919,7 +937,7 @@ content into shell commands or file paths without sanitizing.
 
 Every successfully parsed command appends one JSON object to
 `~/.local/state/tgcli/invocations.jsonl` (or `TGCLI_STATE_DIR/invocations.jsonl`):
-`timestamp`, `command`, resolved `account` when applicable, `role` when
+`timestamp`, `command` (the full subcommand path, e.g. `archive sync`), resolved `account` when applicable, `role` when
 `--session-role` was set (ADR-0062; omitted for the primary), `exit_code`,
 structured `error` code when applicable, and `duration_ms`. A failed run
 also carries `error_site`, the `module:function` inside tgcli that raised it
@@ -1140,6 +1158,10 @@ and `clone sync`; both are `null` for a clone neither has touched since the
 names were introduced, and `username` is `null` for the private destinations
 init creates. `status` never resolves them over the network.
 
+`cooldown_until` is the latest active request-governor cooldown deadline for
+the clone's account (any request type; `doctor` lists them per type), read
+offline from the governor ledger, or `null` when nothing is cooling.
+
 Each readable entry carries `schema_version` (SQLite `PRAGMA user_version`)
 and `integrity` (`"ok"` or the integrity-check error string). Plain status
 columns are `source_peer_id`, `source_title`, `source_kind`, `destination`
@@ -1256,6 +1278,10 @@ The import is crash-safe (ADR-0105): the JSON is first renamed to
 `<clone_id>.json.importing` — a private marker, never both-files-ambiguous —
 and only then written to `.db` and renamed to `.imported`; a crash at any
 point mid-import is resumed automatically by the next `load()`.
+Under `--readonly` / `TGCLI_READONLY=1` the local reads (`clone status`,
+`clone export-state`) read a legacy `.json` where it lies and import nothing:
+the entry is listed with its fields and `integrity: "json-pending-import"`,
+and the files on disk are unchanged until the next writable load.
 Both `.db` and `.json` present for the same id is exit 2 (ambiguous). Recovery
 adopts exactly one matching
 private creator-owned destination of the required kind, creates when none
@@ -1311,8 +1337,8 @@ fail-closed shared audit record before dispatch. A profile-copy failure exits 2
 while retaining the recorded destination for a new-preview retry; it never
 creates a second destination. A Telegram FloodWait during profile reads,
 downloads, uploads, or edits arms the request-governor's per-type cooldown
-(ADR-0072); the legacy per-clone `retry_not_before` field (ADR-0045) is only
-reported, as `cooldown_until`, and nothing writes or enforces it. Later
+(ADR-0072), which `clone status` reports as `cooldown_until`; the legacy
+per-clone `retry_not_before` field (ADR-0045) is neither written nor reported. Later
 `clone init --commit` and `clone sync` for **any** clone of
 that account refuse locally (no network) while the gated request type is
 cooling — `retry_after` comes from the governor's ledger. Read-only surfaces
@@ -1321,6 +1347,15 @@ FloodWait (ADR-0024) arms only the participant-listing cooldown, never message
 sync. `clone init` and `clone sync` keep no implicit deadline (CONTRACT §1);
 `clone sync` may be bounded with `--max-runtime` (exhausting it is a normal
 stop, exit 0, with a resume pointer).
+
+One clone slot has one writer at a time. `clone sync` and the commit leg of
+`clone init` hold an exclusive lock on `clones/<clone_id>.lock` for the whole
+run, so two runs on different session roles (`--session-role`) cannot copy
+the same clone twice. The lock never waits: while another run holds it, the
+command exits 2 (`BLOCKED`) with `clone <clone_id> is busy: another clone sync
+or init is running; retry when it finishes`, before any Telegram write; a
+refused `init --commit` does not spend its preview. The `.lock` file holds no
+state and is left in place; `store cleanup` never selects it.
 
 `sync SOURCE` accepts the same references as every other
 command plus, for an already-initialized clone, a **title** (ADR-0082): a
@@ -1829,7 +1864,13 @@ failures are `media_status: "retryable"` until the cap, then become terminal
 `media_status: "no_media"` and are not returned by later media queues. A
 later successful publish resets that media counter and sets
 `media_status: "done"`. A `FLOOD_WAIT` leaves the media item retryable,
-arms the governor's per-type cooldown (ADR-0072), and exits **5**.
+arms the governor's per-type cooldown (ADR-0072), and exits **5**. Errors
+about the run rather than the item never count an attempt either: a lost
+connection or a dead session aborts the sync (exit 1, or 3 for a dead
+session), and a Telegram server error or timeout stops the media pass with a
+stderr note, leaving the item queued and `remaining: true` (exit 0). The same
+errors abort channel subscription, private-peer enrichment, and light
+reconciliation instead of being recorded as one peer's failure.
 
 `tg archive transcribe` is foreground-only and offline. It drains the
 newest ready media rows first through the local `transcribe` CLI

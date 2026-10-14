@@ -97,8 +97,7 @@ async def reupload_batch(
                 f"warning: clone media by reference refused ({exc}); reuploading "
                 f"source message(s) {[m.id for m in messages]}"
             )
-    cache = reupload.cache_dir(clone_state)
-    cache.mkdir(parents=True, exist_ok=True)
+    cache = reupload.ensure_cache_dir(clone_state)
     downloads = {}
     for message in messages:
         if _has_media(message):

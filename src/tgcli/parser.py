@@ -13,7 +13,7 @@ from pathlib import Path
 from tgcli import __version__
 from tgcli.archive import arguments as archive_arguments
 from tgcli.commands import media as media_cmd, store as store_cmd
-from tgcli.formatting import mask_phones_in_text
+from tgcli.formatting import FORMATS, mask_phones_in_text
 
 
 class _Parser(argparse.ArgumentParser):
@@ -343,7 +343,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_send.add_argument("text", nargs="?", help="message text for --preview")
     p_send.add_argument(
         "--format",
-        choices=("plain", "md", "html"),
+        choices=FORMATS,
         default=None,
         dest="format",
         help=(
@@ -367,7 +367,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_edit.add_argument("text", nargs="?")
     p_edit.add_argument(
         "--format",
-        choices=("plain", "md", "html"),
+        choices=FORMATS,
         default=None,
         dest="format",
         help=(
@@ -502,7 +502,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_draft_set.add_argument("text", nargs="?")
     p_draft_set.add_argument(
         "--format",
-        choices=("plain", "md", "html"),
+        choices=FORMATS,
         default=None,
         dest="format",
         help="rich-text format of TEXT (default md, mirrors send)",
@@ -517,3 +517,30 @@ def build_parser() -> argparse.ArgumentParser:
     p_draft_clear.add_argument("--commit", metavar="PREVIEW_ID")
 
     return parser
+
+
+def command_path(parser: argparse.ArgumentParser, args: argparse.Namespace) -> str:
+    """The subcommand words the caller chose, e.g. `archive sync`.
+
+    Each level names its own dest (`command`, `store_command`, ...), so the
+    path is read off the tree rather than from a list kept beside it.
+    """
+    words: list[str] = []
+    current: argparse.ArgumentParser | None = parser
+    while current is not None:
+        action = next(
+            (
+                item
+                for item in current._actions
+                if isinstance(item, argparse._SubParsersAction)
+            ),
+            None,
+        )
+        if action is None:
+            break
+        name = getattr(args, action.dest, None)
+        if name is None:
+            break
+        words.append(name)
+        current = action.choices.get(name)
+    return " ".join(words)
