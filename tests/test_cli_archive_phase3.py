@@ -16,6 +16,7 @@ from telethon.tl.functions.updates import (
 )
 from telethon.tl.types import (
     Channel,
+    Chat,
     Message,
     PeerChannel,
     PeerUser,
@@ -609,6 +610,89 @@ def test_sync_survives_a_subscribed_channel_the_account_lost(
     # The next run neither aborts nor reports the same loss again.
     assert main(["archive", "sync", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["gap"] is None
+
+
+def test_rebaseline_and_sync_leave_a_scoped_basic_group_to_the_common_tier(
+    config_env, monkeypatch, capsys
+):
+    """A basic group is a `group` in scope, but only channels have their own
+    update stream. Rebaseline, the recovery every cursor error points to,
+    failed with "not a channel/supergroup" for any account that scoped one,
+    and every sync retried the subscription and failed again."""
+    group = Chat(
+        id=55,
+        title="Family",
+        photo=None,
+        participants_count=3,
+        date=datetime(2026, 1, 1, tzinfo=UTC),
+        version=1,
+    )
+    channel = Channel(
+        id=1234,
+        title="News",
+        photo=None,
+        date=datetime(2026, 1, 1, tzinfo=UTC),
+        access_hash=99,
+        megagroup=False,
+        username="news",
+    )
+    group_peer, channel_peer = utils.get_peer_id(group), utils.get_peer_id(channel)
+
+    class ScopeClient(FakeClient):
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, GetStateRequest):
+                return _state(pts=50, qts=2, seq=9)
+            if isinstance(request, GetFullChannelRequest):
+                assert request.channel is channel
+                return SimpleNamespace(full_chat=SimpleNamespace(pts=7))
+            if isinstance(request, GetDifferenceRequest):
+                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=9)
+            if isinstance(request, GetChannelDifferenceRequest):
+                return ChannelDifferenceEmpty(pts=7, final=True)
+            raise AssertionError(request)
+
+    client = ScopeClient(
+        me=_me(),
+        entities={
+            group_peer: group,
+            str(group_peer): group,
+            channel_peer: channel,
+            "@news": channel,
+        },
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        store_mod.add_scope(
+            conn,
+            peer_id=group_peer,
+            kind="group",
+            title="Family",
+            username=None,
+            chat_ref=str(group_peer),
+        )
+        store_mod.add_scope(
+            conn,
+            peer_id=channel_peer,
+            kind="channel",
+            title="News",
+            username="news",
+            chat_ref="@news",
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert main(["archive", "rebaseline", "--json"]) == 0
+    rebased = json.loads(capsys.readouterr().out)
+    assert rebased["peers"] == ["@news"]
+    assert changes_cursor.decode(rebased["next_cursor"]).channels == {channel_peer: 7}
+
+    assert main(["archive", "sync", "--json"]) == 0
+    assert "skip channel subscribe" not in capsys.readouterr().err
 
 
 def test_sync_and_rebaseline_readonly_blocked(config_env, monkeypatch, capsys):
