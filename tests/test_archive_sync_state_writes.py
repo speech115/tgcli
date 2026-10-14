@@ -216,7 +216,7 @@ def test_write_account_sync_rows(conn, clock):
     assert _account_row(conn) == {
         "id": 1,
         "changes_cursor": first,
-        "gap_json": '{"reason":"différenceTooLong","pts":50}',
+        "gap_json": '[{"reason":"différenceTooLong","pts":50}]',
         "last_sync_at": _ts(2),
         "last_reconcile_at": None,
         "reconcile_json": None,
@@ -229,7 +229,7 @@ def test_write_account_sync_rows(conn, clock):
     after_reconcile = {
         "id": 1,
         "changes_cursor": first,
-        "gap_json": '{"reason":"différenceTooLong","pts":50}',
+        "gap_json": '[{"reason":"différenceTooLong","pts":50}]',
         "last_sync_at": _ts(2),
         "last_reconcile_at": _ts(3),
         "reconcile_json": '{"next_offset":3,"checked":[]}',
@@ -247,11 +247,11 @@ def test_write_account_sync_rows(conn, clock):
     write(conn, clear_private_enum=True)
     assert _account_row(conn) == after_reconcile
 
-    # An empty pending list is stored as NULL; a later gap replaces the old.
+    # An empty pending list is stored as NULL; a later gap joins the old one.
     write(conn, pending_catchups=[], gap={"reason": "channel"})
     assert _account_row(conn) == {
         **after_reconcile,
-        "gap_json": '{"reason":"channel"}',
+        "gap_json": '[{"reason":"différenceTooLong","pts":50},{"reason":"channel"}]',
         "pending_catchups_json": None,
     }
 

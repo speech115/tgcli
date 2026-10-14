@@ -193,15 +193,14 @@ def read_account_sync(conn: sqlite3.Connection) -> dict[str, Any]:
         return {
             "changes_cursor": None,
             "gap": None,
+            "gaps": [],
             "last_sync_at": None,
             "last_reconcile_at": None,
             "reconcile": None,
             "private_enum": None,
             "pending_catchups": [],
         }
-    gap = None
-    if row["gap_json"]:
-        gap = json.loads(row["gap_json"])
+    gaps = _stored_gaps(row["gap_json"])
     reconcile = None
     if row["reconcile_json"]:
         reconcile = json.loads(row["reconcile_json"])
@@ -210,7 +209,8 @@ def read_account_sync(conn: sqlite3.Connection) -> dict[str, Any]:
         private_enum = json.loads(row["private_enum_json"])
     return {
         "changes_cursor": row["changes_cursor"],
-        "gap": gap,
+        "gap": gaps[-1] if gaps else None,
+        "gaps": gaps,
         "last_sync_at": row["last_sync_at"],
         "last_reconcile_at": row["last_reconcile_at"],
         "reconcile": reconcile,
@@ -219,6 +219,11 @@ def read_account_sync(conn: sqlite3.Connection) -> dict[str, Any]:
             int(peer) for peer in json.loads(row["pending_catchups_json"] or "[]")
         ],
     }
+
+
+def _stored_gaps(raw: str | None) -> list[dict[str, Any]]:
+    """Every gap recorded since the last rebaseline, oldest first."""
+    return list(json.loads(raw)) if raw else []
 
 
 def _json(value: Any) -> str:
@@ -284,7 +289,13 @@ def write_account_sync(
         if clear_gap:
             columns["gap_json"] = None
         elif gap is not None:
-            columns["gap_json"] = _json(gap)
+            # Add to, never replace, the gaps a rebaseline has not cleared;
+            # a repeat of a stored gap moves it to the end instead.
+            row = conn.execute(
+                "SELECT gap_json FROM account_sync WHERE id = 1"
+            ).fetchone()
+            gaps = [old for old in _stored_gaps(row["gap_json"]) if old != gap]
+            columns["gap_json"] = _json([*gaps, gap])
         if touch_sync:
             columns["last_sync_at"] = now
         if reconcile is not None:

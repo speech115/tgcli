@@ -163,6 +163,7 @@ def status(alias: str, config: Config | None = None) -> dict:
         "transcript_errors": transcript_errors,
         "last_errors": last_errors,
         "gap": account_sync["gap"],
+        "gaps": account_sync["gaps"],
         "last_sync_at": account_sync["last_sync_at"],
         "reconcile": account_sync["reconcile"],
         "has_cursor": account_sync["changes_cursor"] is not None,
@@ -427,6 +428,7 @@ def status_rows(data: dict) -> list[tuple]:
         ("dialogs", len(data["dialogs"])),
         ("last_errors", len(data["last_errors"])),
         ("gap", None if gap is None else gap.get("reason")),
+        ("gaps", len(data.get("gaps") or [])),
         ("has_cursor", data.get("has_cursor")),
     ]
 
