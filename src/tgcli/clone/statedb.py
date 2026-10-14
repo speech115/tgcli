@@ -115,17 +115,31 @@ _MIGRATIONS: dict[int, tuple[str, ...]] = {
 }
 
 
-def connect(path: Path) -> sqlite3.Connection:
-    """Open (or create) a clone DB with the ADR-0060 pragmas and schema."""
+def connect(path: Path, *, create: bool = False) -> sqlite3.Connection:
+    """Open a clone DB with the ADR-0060 pragmas and schema.
+
+    Only a writer (``create``) lays the schema into a new or still-empty
+    file. A reader refuses a file without it: the slot holds no state, and a
+    schema written into it would make it look like a healthy database.
+    """
     ensure_parent_dir(path)
     created = not path.exists()
+    if not create:
+        if created:
+            raise PolicyError(f"clone state {path.name} is missing")
+        if path.stat().st_size == 0:
+            raise PolicyError(
+                f"clone state {path.name} is empty; it holds no clone state"
+            )
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     try:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if version == 0 and not create:
+            raise sqlite3.DatabaseError("no clone state schema")
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA foreign_keys=ON")
-        version = conn.execute("PRAGMA user_version").fetchone()[0]
         if created or version == 0:
             conn.executescript(_SCHEMA_SQL)
             conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
@@ -341,7 +355,7 @@ def persist(
     deleted_discussion_id_map: set[str] | None = None,
     dirty_anchor_map: set[str] | None = None,
 ) -> None:
-    conn = connect(db_path)
+    conn = connect(db_path, create=True)
     try:
         if full:
             write_full(conn, data)

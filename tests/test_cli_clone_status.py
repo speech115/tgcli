@@ -414,3 +414,21 @@ def test_status_says_nothing_about_a_fully_linked_clone(capsys):
     captured = capsys.readouterr()
     assert json.loads(captured.out)["clones"][0]["discussion_linked"] is True
     assert "clone init" not in captured.err
+
+
+def test_status_reports_an_empty_slot_without_writing_a_schema_into_it(capsys):
+    """A slot file tgcli never wrote (0 bytes, e.g. left by another tool) is
+    reported as empty; a read does not initialize it into a healthy-looking
+    schema-3 database with no state in it."""
+    directory = state.clones_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    empty = directory / f"{'f' * 64}.db"
+    empty.write_bytes(b"")
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+    assert code == 0
+    (entry,) = json.loads(out)["clones"]
+    assert entry["unreadable"] is True
+    assert entry["schema_version"] is None
+    assert "empty" in entry["integrity"]
+    assert empty.read_bytes() == b""
