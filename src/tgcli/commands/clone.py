@@ -237,8 +237,13 @@ async def _commit_slot(tg, entity, source_kind, me, account_alias, payload) -> d
             "re-run with --replace to start a fresh posts-only clone"
         )
     if clone_state.creation_marker is None:
-        nonce = f"-{secrets.token_hex(3)}" if replace else ""
-        clone_state.creation_marker = f"tgcli-clone-{clone_id[:12]}{nonce}"
+        # Always a secret suffix: the bare prefix is computable from public ids,
+        # so anyone could title a group with it and hand the account its
+        # ownership to be adopted. Saved before creation, so a crashed init
+        # still finds its own half-created peers; a --replace never re-adopts
+        # the previous init's.
+        nonce = secrets.token_hex(3)
+        clone_state.creation_marker = f"tgcli-clone-{clone_id[:12]}-{nonce}"
     marker = clone_state.creation_marker
     state.save(clone_state)
     forum = clone_state.destination_kind == "forum"

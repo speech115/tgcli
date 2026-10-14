@@ -805,6 +805,32 @@ def test_clone_init_commit_adopts_half_created_marker_channel(
     assert state.load(clone_state.clone_id).destination_peer_id == 999
 
 
+def test_clone_init_first_commit_never_adopts_a_planted_marker_channel(
+    config_env, monkeypatch, capsys
+):
+    """The plain marker is a hash of public ids: anyone can title a group with
+    it and hand its ownership to the victim. A first init must not adopt it."""
+    client = CloneInitClient()
+    cid = state.clone_id(42, 123, "broadcast")
+    client.destination = channel(777, f"tgcli-clone-{cid[:12]}", creator=True)
+    make_session_fake(monkeypatch, client)
+    assert main(["clone", "init", "@source", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+
+    assert main(["clone", "init", "@source", "--commit", preview_id, "--json"]) == 0
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["destination"]["id"] == 999
+    [create] = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.channels.CreateChannelRequest)
+    ]
+    saved = state.load(cid)
+    assert create.title == saved.creation_marker
+    assert saved.creation_marker.startswith(f"tgcli-clone-{cid[:12]}-")
+
+
 def test_clone_init_commit_adopts_plain_forum_marker_then_enables_forum(
     config_env, monkeypatch, capsys
 ):
@@ -1067,6 +1093,72 @@ def test_clone_init_commit_blocks_multiple_marker_matches_without_mutation(
 
 def linked_group(group_id=777, title="Source chat"):
     return channel(group_id, title, broadcast=False, megagroup=True, forum=False)
+
+
+def test_first_init_never_adopts_a_planted_discussion_group(
+    config_env, monkeypatch, capsys
+):
+    client = CloneInitClient()
+    client.linked = linked_group()
+    cid = state.clone_id(42, 123, "broadcast")
+    client.discussion = channel(
+        555,
+        f"tgcli-clone-{cid[:12]}-discussion",
+        broadcast=False,
+        megagroup=True,
+        forum=False,
+        creator=True,
+    )
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+
+    saved = state.load(cid)
+    [created] = [
+        item
+        for item in client.requests
+        if isinstance(item, functions.channels.CreateChannelRequest)
+        and item.title.endswith("-discussion")
+    ]
+    assert created.title == f"{saved.creation_marker}-discussion"
+    assert saved.discussion_destination_peer_id != 555
+
+
+def test_recovery_adopts_its_suffixed_marker_beside_a_planted_bare_one(
+    config_env, monkeypatch, capsys
+):
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel"
+    )
+    bare = f"tgcli-clone-{clone_state.clone_id[:12]}"
+    clone_state.creation_marker = f"{bare}-a1b2c3"
+    state.save(clone_state)
+
+    class PlantedClient(CloneInitClient):
+        async def iter_dialogs(self):
+            yield SimpleNamespace(entity=channel(777, bare, creator=True))
+            yield SimpleNamespace(
+                entity=channel(999, clone_state.creation_marker, creator=True)
+            )
+
+    client = PlantedClient()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+
+    assert json.loads(capsys.readouterr().out)["clone"]["destination"]["id"] == 999
+    assert not any(
+        isinstance(item, functions.channels.CreateChannelRequest)
+        for item in client.requests
+    )
 
 
 def test_init_creates_and_links_discussion_group(config_env, monkeypatch, capsys):

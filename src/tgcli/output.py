@@ -16,14 +16,24 @@ _CONTROLS = dict.fromkeys(
 )
 
 
+# --json keeps the data verbatim but escapes DEL and C1: json escapes only
+# C0, and with ensure_ascii=False a raw CSI/OSC from a message would reach the
+# terminal. Escaped, the parsed value is unchanged.
+_JSON_CONTROL_ESCAPES = {code: f"\\u{code:04x}" for code in range(0x7F, 0xA0)}
+
+
+def _json_line(data) -> str:
+    text = json.dumps(data, ensure_ascii=False, default=str)
+    return text.translate(_JSON_CONTROL_ESCAPES) + "\n"
+
+
 def sanitize(text: str) -> str:
     """Drop C0/C1 control characters from Telegram-controlled text."""
     return text.translate(_CONTROLS)
 
 
 def emit_json(data) -> None:
-    json.dump(data, sys.stdout, ensure_ascii=False, default=str)
-    sys.stdout.write("\n")
+    sys.stdout.write(_json_line(data))
     # Flush here so a reader that hung up raises BrokenPipeError while cli.py
     # can still handle it, not during interpreter shutdown.
     sys.stdout.flush()
@@ -48,7 +58,7 @@ def emit_error(err: TgcliError, *, as_json: bool) -> None:
     message = mask_phones_in_text(str(err))
     if as_json:
         payload = {"error": {"code": err.code, "message": message, **err.details}}
-        line = json.dumps(payload, ensure_ascii=False, default=str) + "\n"
+        line = _json_line(payload)
         sys.stdout.write(line)
         # Same reason as emit_json: surface a hung-up reader to cli.py, not to
         # interpreter shutdown.
