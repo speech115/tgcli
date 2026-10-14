@@ -432,3 +432,22 @@ def test_status_reports_an_empty_slot_without_writing_a_schema_into_it(capsys):
     assert entry["schema_version"] is None
     assert "empty" in entry["integrity"]
     assert empty.read_bytes() == b""
+
+
+def test_status_probes_a_pre_adr_0103_slot_under_its_own_file_name(capsys):
+    """A slot still under its kind-blind id (migrated only by the next
+    init/sync, ADR-0103) is reported under that file and probed there,
+    not as `missing` under the kind-aware id it has not moved to yet."""
+    saved = state.CloneState.new(
+        account_user_id=100000001, source_peer_id=111, source_title="Alpha"
+    )
+    legacy_id = state._kind_blind_clone_id(100000001, 111)
+    state.ensure_clones_dir()
+    state.statedb.persist(state.path_for(legacy_id), saved.to_dict(), full=True)
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+    assert code == 0
+    (entry,) = json.loads(out)["clones"]
+    assert entry["clone_id"] == legacy_id
+    assert entry["integrity"] == "ok"
+    assert entry["schema_version"] == state.statedb.SCHEMA_VERSION

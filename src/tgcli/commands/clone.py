@@ -22,10 +22,12 @@ from tgcli.output import note
 from tgcli.session import TRANSIENT_ERRORS
 
 
-def _entry(s: state.CloneState) -> dict:
-    probe = state.probe(s.clone_id)
+def _entry(s: state.CloneState, slot_id: str) -> dict:
+    """``slot_id`` is the file the state was read from: a pre-ADR-0103 slot
+    keeps its kind-blind name until the next init/sync migrates it."""
+    probe = state.probe(slot_id)
     return {
-        "clone_id": s.clone_id,
+        "clone_id": slot_id,
         "source": {
             "id": s.source_peer_id,
             "title": s.source_title,
@@ -88,7 +90,7 @@ def list_clones(source: str | None = None) -> dict:
             continue
         if loaded is None or not lookup.matches(loaded, source):
             continue
-        entries.append(_entry(loaded))
+        entries.append(_entry(loaded, clone_id))
     # An unreadable entry has no created_at at all (CONTRACT §11: every field
     # but clone_id is null), so it sorts ahead of every dated one.
     entries.sort(key=lambda entry: entry["created_at"] or "")
