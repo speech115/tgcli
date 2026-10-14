@@ -52,6 +52,30 @@ def test_store_cleanup_confirm_must_be_spelled_in_full(config_env, capsys):
     assert "unrecognized arguments: --c" in captured.err
 
 
+@pytest.mark.parametrize(
+    ("argv", "diagnostic"),
+    [
+        # Rejected by the top-level parser.
+        (["dialogs", "+79991234567"], "unrecognized arguments: +7"),
+        # Rejected by a subparser.
+        (["media", "+79991234567"], "invalid choice: '+7"),
+        # Rejected by a type converter.
+        (["dialogs", "--limit", "+79991234567x"], "invalid int value: '+7"),
+    ],
+)
+def test_parse_errors_mask_phones_on_stderr(config_env, capsys, argv, diagnostic):
+    """CONTRACT §10 masks phones in every error, but argparse wrote its own
+    diagnostics straight to stderr, so `tg dialogs +79991234567` leaked the
+    number into agent transcripts."""
+    assert main(argv) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert diagnostic in captured.err
+    assert "usage: tg" in captured.err
+    assert "79991234567" not in captured.err
+
+
 def test_store_cleanup_confirm_still_deletes_when_spelled_in_full(
     config_env, capsys, tmp_path
 ):

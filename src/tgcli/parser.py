@@ -13,6 +13,7 @@ from pathlib import Path
 from tgcli import __version__
 from tgcli.archive import arguments as archive_arguments
 from tgcli.commands import media as media_cmd, store as store_cmd
+from tgcli.formatting import mask_phones_in_text
 
 
 class _Parser(argparse.ArgumentParser):
@@ -22,11 +23,18 @@ class _Parser(argparse.ArgumentParser):
     `--confirm` and `--w` reaches `--write` — the gates that exist precisely
     because a mutation has to be typed deliberately. `add_subparsers` defaults
     `parser_class` to `type(self)`, so every subparser inherits this.
+
+    Parse errors quote the caller's argv, and argparse writes them to stderr
+    itself, past `output.emit_error`; they are masked here so a phone typed as
+    an argument stays masked too (CONTRACT §10).
     """
 
     def __init__(self, *args, **kwargs):
         kwargs.setdefault("allow_abbrev", False)
         super().__init__(*args, **kwargs)
+
+    def error(self, message):
+        super().error(mask_phones_in_text(message))
 
 
 def _older_than_type(value: str):
