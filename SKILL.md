@@ -75,7 +75,7 @@ selected account session, does one operation, and exits.
 | Media inventory (no download) | `tg --json media manifest @channel --type photo --limit 50` |
 | Reply chain | `tg --json thread CHAT MESSAGE_ID [--replies] [--depth 20]` |
 | Download media | `tg --json media download https://t.me/channel/42 --parallel 4` (unnamed photos and voice notes save as `media-<id>.jpg`/`.oga`) |
-| Bulk download media | `tg --json media download @chan --message-ids 1,2 --type video --since ISO --limit 50 --output DIR` (filters combine; max 100; files are named `<message_id>-<name>`) |
+| Bulk download media | `tg --json media download @chan --message-ids 1,2 --type video --since ISO --limit 50 --output DIR` (filters combine; max 100; files are named `<message_id>-<name>`; use one `--output` per chat) |
 | Download story media | `tg --json media download https://t.me/channel/s/937 [--codec h264|hevc|av1]` (stories are not messages; single download only) |
 | Transcribe a voice message | `tg --json transcribe @user 12345 [--timeout 120]` (Premium; waits for the server result) |
 | Preview a send | `tg --json send @channel "Hello" --preview` |

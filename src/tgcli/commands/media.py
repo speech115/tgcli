@@ -624,9 +624,14 @@ async def download_media_bulk(
         )
         if fallback_id is None:
             continue
-        # The id prefix keeps two media with one name apart, so an existing
-        # path means this message was already downloaded here.
+        # The id prefix keeps two media of this chat with one name apart (ids
+        # are per chat, so another chat sharing the directory can still collide).
         name = f"{fallback_id}-{safe_filename(target.filename, fallback_id)}"
+        _adopt_unprefixed_checkpoint(
+            source,
+            output_dir / safe_filename(target.filename, fallback_id),
+            output_dir / name,
+        )
         try:
             result = await download_media(
                 tg,
@@ -689,6 +694,25 @@ async def download_media_bulk(
             rows=bulk_to_rows(data),
         )
     return data
+
+
+def _adopt_unprefixed_checkpoint(
+    source: MediaSource, unprefixed: Path, destination: Path
+) -> None:
+    """Point a checkpoint from before the bulk id prefix at the new name.
+
+    Bulk files were once saved without `<message_id>-`, and an interrupted
+    run recorded that path. The bytes are the same message's, so resume them
+    rather than refuse every later run on a destination mismatch.
+    """
+    state_path, _ = _state_paths(source)
+    try:
+        state = json.loads(state_path.read_text())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return
+    if isinstance(state, dict) and state.get("destination") == str(unprefixed):
+        state["destination"] = str(destination)
+        atomic.replace_text(state_path, json.dumps(state))
 
 
 async def _iter_bulk_candidates(
