@@ -322,3 +322,78 @@ def test_media_manifest_json_passes_control_characters_through(
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["items"][0]["filename"] == HOSTILE_FILENAME
+
+
+class _StreamingClient(FakeClient):
+    async def iter_download(self, media, *, offset=0, request_size=None, **kwargs):
+        yield b"abc"[offset:]
+
+
+def _real_message(message_id, media):
+    from datetime import UTC, datetime
+
+    from telethon.tl import types
+
+    return types.Message(
+        id=message_id,
+        peer_id=types.PeerChannel(5),
+        date=datetime(2026, 7, 20, tzinfo=UTC),
+        message="",
+        media=media,
+    )
+
+
+def _photo_media():
+    from datetime import UTC, datetime
+
+    from telethon.tl import types
+
+    photo = types.Photo(
+        id=7,
+        access_hash=1,
+        file_reference=b"",
+        date=datetime(2026, 7, 20, tzinfo=UTC),
+        sizes=[types.PhotoSize(type="y", w=1, h=1, size=3)],
+        dc_id=2,
+    )
+    return types.MessageMediaPhoto(photo=photo)
+
+
+def _voice_media():
+    from datetime import UTC, datetime
+
+    from telethon.tl import types
+
+    document = types.Document(
+        id=8,
+        access_hash=1,
+        file_reference=b"",
+        date=datetime(2026, 7, 20, tzinfo=UTC),
+        mime_type="audio/ogg",
+        size=3,
+        dc_id=2,
+        attributes=[types.DocumentAttributeAudio(duration=1, voice=True)],
+    )
+    return types.MessageMediaDocument(document=document)
+
+
+@pytest.mark.parametrize(
+    ("media", "expected"),
+    [(_photo_media, "media-42.jpg"), (_voice_media, "media-42.oga")],
+)
+def test_media_download_names_an_unnamed_file_by_its_type(
+    config_env, monkeypatch, tmp_path, capsys, media, expected
+):
+    from tests.conftest import ns
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    client = _StreamingClient(
+        messages=[_real_message(42, media())],
+        entities={"@chan": ns(id=5, title="C")},
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["--json", "media", "download", "@chan", "42"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["path"] == str(tmp_path / "Downloads" / expected)
+    assert (tmp_path / "Downloads" / expected).read_bytes() == b"abc"

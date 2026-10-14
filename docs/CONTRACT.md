@@ -372,7 +372,9 @@ preview after any blocked commit.
 
 The command accepts public `t.me/<username>/<message_id>` and private
 `t.me/c/<channel_id>/<message_id>` links, or a chat reference plus message
-ID. Without `--output`, the final file is written to `~/Downloads`; an
+ID. Without `--output`, the final file is written to `~/Downloads` under the
+media's file name, or `media-<message_id><ext>` with the extension of its type
+(`.jpg` for a photo, `.bin` when unknown) when it has none; an
 existing final path is refused and never overwritten. Progress is emitted only
 to stderr. Single-stream transfer resumes a matching interrupted partial file
 from `~/.local/state/tgcli/downloads/`; `--parallel N` is opt-in, requires a

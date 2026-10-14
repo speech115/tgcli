@@ -256,7 +256,13 @@ def _state_paths(source: MediaSource) -> tuple[Path, Path]:
 
 def _message_filename(message, message_id: int) -> str:
     file = getattr(message, "file", None)
-    return safe_filename(getattr(file, "name", None), message_id)
+    name = getattr(file, "name", None)
+    # Telethon names only documents with a filename attribute; photos and
+    # voice notes still have an extension from their type.
+    ext = getattr(file, "ext", None)
+    if not name and isinstance(ext, str) and ext[:1] == "." and ext[1:].isalnum():
+        name = f"media-{message_id}{ext}"
+    return safe_filename(name, message_id)
 
 
 def _message_size(message) -> int | None:
