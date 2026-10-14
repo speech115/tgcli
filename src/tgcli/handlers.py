@@ -30,16 +30,7 @@ from tgcli.governor import pacing
 
 
 def clone_status(args) -> tuple[dict, list[tuple]]:
-    data = clone_cmd.list_clones(
-        args.source,
-        include_all=args.all_slots,
-        read_only=not safety.local_mutation_allowed(args.readonly),
-    )
-    if data["pending_import"] and not args.all_slots:
-        output.note(
-            f"{data['pending_import']} state slot(s) cannot be imported and "
-            "are not listed; see them with: tg clone status --all"
-        )
+    data = clone_cmd.list_clones(args.source)
     for entry in data["clones"]:
         if clone_cmd.half_initialized(entry):
             output.note(
@@ -51,9 +42,7 @@ def clone_status(args) -> tuple[dict, list[tuple]]:
 
 
 def clone_export_state(args) -> tuple[dict, list[tuple]]:
-    data = clone_cmd.export_state(
-        args.source, read_only=not safety.local_mutation_allowed(args.readonly)
-    )
+    data = clone_cmd.export_state(args.source)
     return data, []
 
 

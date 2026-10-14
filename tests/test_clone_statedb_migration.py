@@ -1,4 +1,4 @@
-"""JSON → SQLite one-time import and export-state (ADR-0060 slice 2)."""
+"""SQLite schema migrations and export-state (ADR-0060)."""
 
 from __future__ import annotations
 
@@ -20,57 +20,6 @@ def _fresh(**overrides) -> state.CloneState:
     for key, value in overrides.items():
         setattr(s, key, value)
     return s
-
-
-def test_json_imports_exactly_once(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    s = _fresh()
-    s.cursor = 7
-    s.record_mapping(1, 10)
-    payload = json.dumps(s.to_dict(), ensure_ascii=False)
-    json_path = state.json_path_for(s.clone_id)
-    json_path.parent.mkdir(parents=True)
-    json_path.write_text(payload)
-
-    loaded = state.load(s.clone_id)
-    err = capsys.readouterr().err
-    assert loaded is not None
-    assert loaded.cursor == 7
-    assert loaded.dest_for(1) == 10
-    assert state.path_for(s.clone_id).is_file()
-    imported = json_path.with_name(json_path.name + ".imported")
-    assert imported.is_file()
-    assert imported.read_text() == payload
-    assert not json_path.exists()
-    assert "imported clone state" in err
-
-    # Second load must not re-import or touch the backup.
-    before = imported.read_bytes()
-    again = state.load(s.clone_id)
-    assert again is not None
-    assert again.to_dict() == loaded.to_dict()
-    assert imported.read_bytes() == before
-    assert "imported clone state" not in capsys.readouterr().err
-
-
-def test_both_db_and_json_is_policy_error(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    s = _fresh()
-    state.save(s)
-    state.json_path_for(s.clone_id).write_text(json.dumps(s.to_dict()))
-
-    with pytest.raises(PolicyError, match="both"):
-        state.load(s.clone_id)
-
-
-def test_corrupted_json_keeps_today_message(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    path = state.json_path_for("f" * 64)
-    path.parent.mkdir(parents=True)
-    path.write_text("{ this is not json")
-
-    with pytest.raises(PolicyError, match="corrupted"):
-        state.load("f" * 64)
 
 
 def _downgrade_to_schema_1(db_path) -> None:
@@ -242,45 +191,3 @@ def _snapshot(root):
         for path in sorted(root.rglob("*"))
         if path.is_file()
     }
-
-
-@pytest.mark.parametrize(
-    ("argv", "env"),
-    [
-        (["clone", "status", "--json"], "1"),
-        (["--readonly", "clone", "status", "--json"], None),
-        (["clone", "export-state", "-1001234567890", "--json"], "1"),
-    ],
-    ids=["status-env", "status-flag", "export-state-env"],
-)
-def test_readonly_read_does_not_import_legacy_json(
-    tmp_path, monkeypatch, capsys, argv, env
-):
-    """A read under readonly reads the legacy document where it lies: the
-    one-time import rewrote the slot (`.db` created, `.json` renamed) from
-    `clone status`, which readonly promises never mutates local state."""
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    if env is None:
-        monkeypatch.delenv("TGCLI_READONLY", raising=False)
-    else:
-        monkeypatch.setenv("TGCLI_READONLY", env)
-    s = _fresh()
-    s.cursor = 7
-    s.record_mapping(1, 10)
-    json_path = state.json_path_for(s.clone_id)
-    json_path.parent.mkdir(parents=True)
-    json_path.write_text(json.dumps(s.to_dict(), ensure_ascii=False))
-    before = _snapshot(tmp_path / "clones")
-    from tgcli.cli import main
-
-    assert main(argv) == 0
-
-    payload = json.loads(capsys.readouterr().out)
-    if argv[1] == "export-state":
-        assert payload == s.to_dict()
-    else:
-        assert payload["pending_import"] == 0
-        [entry] = payload["clones"]
-        assert entry["cursor"] == 7
-        assert entry["copied"] == 1
-    assert _snapshot(tmp_path / "clones") == before

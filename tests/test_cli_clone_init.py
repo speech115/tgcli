@@ -1874,26 +1874,21 @@ def test_clone_init_commit_readonly_blocks_before_config_session_and_preview_use
     assert safety.begin_commit(preview["preview_id"])["kind"] == "clone-init"
 
 
-def _write_v1_state(source_title="Old", extra=None):
+CORRUPT_DB = b"not a sqlite database"
+
+
+def _write_unreadable_state():
     cid = state.clone_id(42, 123, "broadcast")
-    path = state.json_path_for(cid)
+    path = state.path_for(cid)
     path.parent.mkdir(parents=True, exist_ok=True)
-    data = {
-        "version": 1,
-        "account_user_id": 42,
-        "source_peer_id": 123,
-        "source_title": source_title,
-    }
-    if extra:
-        data.update(extra)
-    path.write_text(json.dumps(data))
+    path.write_bytes(CORRUPT_DB)
     return cid, path
 
 
 def test_clone_init_commit_without_replace_hints_replace_on_unreadable_state(
     config_env, monkeypatch, capsys
 ):
-    _, path = _write_v1_state()
+    _, path = _write_unreadable_state()
     client = CloneInitClient()
     make_session_fake(monkeypatch, client)
     preview = stored_preview()
@@ -1905,14 +1900,14 @@ def test_clone_init_commit_without_replace_hints_replace_on_unreadable_state(
 
     err = capsys.readouterr().err
     assert "--replace" in err
-    assert json.loads(path.read_text())["version"] == 1
+    assert path.read_bytes() == CORRUPT_DB
     assert client.requests == []
 
 
 def test_clone_init_preview_reports_supersede_for_unreadable_state(
     config_env, monkeypatch, capsys
 ):
-    _write_v1_state()
+    _write_unreadable_state()
     client = CloneInitClient()
     make_session_fake(monkeypatch, client)
 
@@ -1928,7 +1923,7 @@ def test_clone_init_preview_reports_supersede_for_unreadable_state(
 def test_clone_init_replace_supersedes_unreadable_state_and_creates_fresh(
     config_env, monkeypatch, capsys
 ):
-    cid, _ = _write_v1_state()
+    cid, _ = _write_unreadable_state()
     sidecar = state.clones_dir() / f"{cid}-participants.jsonl"
     sidecar.write_text('{"peer":"source"}\n')
     client = CloneInitClient()
@@ -1946,12 +1941,12 @@ def test_clone_init_replace_supersedes_unreadable_state_and_creates_fresh(
     assert saved.version == state.VERSION
     assert saved.destination_peer_id == 999
 
-    state_archive = list(state.clones_dir().glob(f"{cid}.json.superseded-*"))
+    state_archive = list(state.clones_dir().glob(f"{cid}.db.superseded-*"))
     sidecar_archive = list(
         state.clones_dir().glob(f"{cid}-participants.jsonl.superseded-*")
     )
     assert len(state_archive) == 1
-    assert json.loads(state_archive[0].read_text())["version"] == 1
+    assert state_archive[0].read_bytes() == CORRUPT_DB
     assert len(sidecar_archive) == 1
     assert not sidecar.exists()
 

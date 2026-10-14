@@ -202,8 +202,6 @@ Under `--readonly` or `TGCLI_READONLY=1`, `tg run` is refused entirely
 network work. A block is exit 2; do not retry it until the safety condition is
 intentionally changed. The variables also accept `true`/`yes`/`on` (and
 `0`/`false`/`no`/`off` for off); any other value is exit 3.
-Under readonly, `clone status` and `clone export-state` read a legacy JSON
-clone slot without importing it.
 
 ### Request governor (ADR-0072)
 
@@ -233,8 +231,7 @@ clone: let it finish, then retry; nothing was sent.
 `edit`, `delete`, and `forward` follow the same preview → commit rule as
 `send`. `doctor` is read-only: it reports configured-account session presence,
 lock availability, local state writability, Telegram authorization, and a
-top-level `ok` result. `legacy_clone_slots` names clone state still in the old
-JSON form; `tg clone status` imports a readable one.
+top-level `ok` result.
 
 ## Reading sync results
 

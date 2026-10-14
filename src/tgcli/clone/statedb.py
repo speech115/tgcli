@@ -7,7 +7,6 @@ checks. ``clone.state`` keeps the public ``CloneState`` / ``load`` /
 
 from __future__ import annotations
 
-import json
 import os
 import sqlite3
 from datetime import UTC, datetime
@@ -363,81 +362,8 @@ def persist(
     _restrict_sidecars(db_path)
 
 
-def read_json_file(json_path: Path, *, expected_version: int) -> dict[str, Any]:
-    """Read and version-check a legacy v2 JSON state file."""
-    try:
-        raw = json_path.read_text()
-    except OSError as exc:
-        raise PolicyError(
-            f"clone state {json_path.name} is unreadable; manual repair is required"
-        ) from exc
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise PolicyError(
-            f"clone state {json_path.name} is corrupted; manual repair is required"
-        ) from exc
-    if type(data) is not dict:
-        raise PolicyError(
-            f"clone state {json_path.name} is invalid; manual repair is required"
-        )
-    if data.get("version") != expected_version:
-        raise PolicyError(
-            f"clone state {json_path.name} has unsupported version "
-            f"{data.get('version')!r}; expected {expected_version}"
-        )
-    return data
-
-
-def begin_json_import(json_path: Path) -> Path:
-    """Atomically rename ``json_path`` to a ``.importing`` marker.
-
-    Once this rename lands, the on-disk state unambiguously says "an import
-    is underway" (ADR-0060 / T06). A crash between here and
-    ``finish_json_import`` therefore resumes on the next ``load()`` instead
-    of leaving a plain-named ``.json`` sitting next to a possibly
-    already-written ``.db`` — the ambiguous both-files shape that used to
-    fail-close for "manual resolution required" even though the crash was
-    purely a timing accident, not a real conflict.
-    """
-    importing_path = json_path.with_name(json_path.name + ".importing")
-    os.replace(json_path, importing_path)
-    return importing_path
-
-
-def finish_json_import(
-    importing_path: Path, db_path: Path, data: dict[str, Any]
-) -> None:
-    """Write validated data to SQLite and rename the ``.importing`` marker
-    to ``.imported``.
-
-    Idempotent: ``persist(..., full=True)`` always overwrites the whole
-    database, so replaying it after a crash between the two steps below is
-    harmless, and the caller re-derives ``data`` from the same
-    ``.importing`` file on every retry.
-    """
-    persist(db_path, data, full=True)
-    imported_path = importing_path.with_name(
-        importing_path.name.removesuffix(".importing") + ".imported"
-    )
-    os.replace(importing_path, imported_path)
-
-
-def probe_paths(db_path: Path, json_path: Path) -> dict[str, Any]:
-    if db_path.exists() and json_path.exists():
-        # Ambiguous slot (CONTRACT §11): connecting to db_path alone would
-        # report real, healthy diagnostics and hide that manual resolution
-        # is required — the same condition ``state.load`` fail-closes on.
-        return {
-            "schema_version": None,
-            "integrity": (
-                f"clone state has both {db_path.name} and {json_path.name}; "
-                "manual resolution is required"
-            ),
-        }
+def probe_path(db_path: Path) -> dict[str, Any]:
     if not db_path.exists():
-        if json_path.exists():
-            return {"schema_version": None, "integrity": "json-pending-import"}
         return {"schema_version": None, "integrity": "missing"}
     try:
         conn = connect(db_path)

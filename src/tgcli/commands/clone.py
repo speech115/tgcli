@@ -77,35 +77,14 @@ def _unreadable_entry(clone_id: str) -> dict:
     }
 
 
-# A `.json` slot with no `.db` beside it that `state.load` still refused: a
-# pre-v2 document, or one too broken to parse. Nothing in it can be read, so
-# its entry is `clone_id` plus nulls — ten of those bury the real clones
-# (#173). They are counted, not listed, unless `--all` asks for them.
-PENDING_IMPORT = "json-pending-import"
-
-
-def list_clones(
-    source: str | None = None, *, include_all: bool = False, read_only: bool = False
-) -> dict:
-    directory = state.clones_dir()
-    if not directory.exists():
-        return {"clones": [], "pending_import": 0}
-    clone_ids = lookup.slot_ids()
+def list_clones(source: str | None = None) -> dict:
     entries = []
-    pending_import = 0
-    for clone_id in clone_ids:
+    for clone_id in lookup.slot_ids():
         try:
-            loaded = state.load(clone_id, read_only=read_only)
+            loaded = state.load(clone_id)
         except PolicyError:
-            entry = _unreadable_entry(clone_id)
-            if entry["integrity"] == PENDING_IMPORT:
-                # Counted whatever the filter is: the slot exists on disk
-                # either way, and its identity can never match a filter.
-                pending_import += 1
-                if not include_all:
-                    continue
             if source is None:
-                entries.append(entry)
+                entries.append(_unreadable_entry(clone_id))
             continue
         if loaded is None or not lookup.matches(loaded, source):
             continue
@@ -113,7 +92,7 @@ def list_clones(
     # An unreadable entry has no created_at at all (CONTRACT §11: every field
     # but clone_id is null), so it sorts ahead of every dated one.
     entries.sort(key=lambda entry: entry["created_at"] or "")
-    return {"clones": entries, "pending_import": pending_import}
+    return {"clones": entries}
 
 
 export_state = lookup.export_state
