@@ -266,3 +266,36 @@ def test_every_method_tg_run_lets_through_as_a_read_was_reviewed():
 
     reviewed = Path(__file__).with_name("run_read_methods.txt").read_text()
     assert run.read_methods() == reviewed.split()
+
+
+def test_a_script_timeout_error_is_not_reported_as_the_deadline(
+    tmp_path, monkeypatch, capsys
+):
+    # A script's own TimeoutError (asyncio.wait_for, socket timeouts) is a
+    # failure inside the command, not the --timeout deadline expiring.
+    _, path = setup(tmp_path, monkeypatch, "raise TimeoutError('upstream slow')\n")
+
+    for extra in ([], ["--timeout", "60"]):
+        assert main(["--json", *extra, "run", path]) == 1
+        err = capsys.readouterr()
+        envelope = json.loads(err.out)
+        assert envelope["error"]["code"] != "TIMEOUT", envelope
+        assert "deadline" not in err.out
+        assert "upstream slow" in err.err
+
+
+def test_a_timeout_error_after_the_deadline_is_still_the_deadline(
+    tmp_path, monkeypatch, capsys
+):
+    # Past --timeout, inside the grace window, a socket-style TimeoutError is
+    # the deadline expiring (CONTRACT §4 TIMEOUT), not a RUNTIME failure.
+    _, path = setup(
+        tmp_path,
+        monkeypatch,
+        "import asyncio\nawait asyncio.sleep(0.4)\nraise TimeoutError('late')\n",
+    )
+
+    main(["--json", "--timeout", "0.1", "run", path])
+
+    envelope = json.loads(capsys.readouterr().out)
+    assert envelope["error"]["code"] == "TIMEOUT", envelope
