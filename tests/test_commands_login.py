@@ -885,3 +885,38 @@ def test_login_finishing_after_its_account_was_removed_leaves_no_session(
     sessions = env["state"] / "sessions"
     assert [p.name for p in sessions.glob("work*") if p.suffix != ".lock"] == []
     assert "work" not in load_config().accounts
+
+
+def test_login_after_a_keep_session_remove_restores_the_kept_session(
+    env, fake_client, monkeypatch, capsys
+):
+    """`accounts remove --keep-session` racing `--continue`: promote moved the
+    kept session to `.bak`, then the discard deleted both, so the session the
+    remove reported as kept was gone."""
+    from tgcli.commands import accounts as accounts_cmd
+
+    env["config"].write_text(
+        SAMPLE + '\n[accounts.work]\napi_id = 5\napi_hash = "hw"\nsession = "work"\n'
+    )
+    kept = env["state"] / "sessions" / "work.session"
+    kept.write_bytes(b"kept-key")
+    assert main(["accounts", "login", "work", "--phone", PHONE, "--json"]) == 0
+    login_id = json.loads(capsys.readouterr().out)["login_id"]
+
+    sign_in = fake_client.sign_in
+
+    async def remove_while_signing_in(*args, **kwargs):
+        accounts_cmd.remove_account(
+            load_config(), "work", confirm=True, keep_session=True
+        )
+        return await sign_in(*args, **kwargs)
+
+    monkeypatch.setattr(fake_client, "sign_in", remove_while_signing_in)
+
+    code = main(
+        ["accounts", "login", "--continue", login_id, "--code", "12345", "--json"]
+    )
+
+    assert code == 4
+    assert kept.read_bytes() == b"kept-key"
+    assert not Path(str(kept) + ".bak").exists()

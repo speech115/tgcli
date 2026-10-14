@@ -284,6 +284,35 @@ def test_remove_refuses_when_a_multiline_string_looks_like_table_headers(env, ca
     assert path.exists()
 
 
+def test_remove_waits_for_a_late_role_lock_instead_of_failing_midway(
+    env, monkeypatch, capsys
+):
+    """A late role whose lock a promote still held made remove exit 2 after
+    the config block and sessions were already gone."""
+    import threading
+
+    _session(env, "work")
+    late = env["state"] / "sessions" / "work@bot.session"
+    replace_text = accounts_cmd.atomic.replace_text
+
+    def promote_during_config_write(path, text):
+        if Path(path) == env["config"]:
+            late.write_bytes(b"live-key")
+            handle = late.with_suffix(".lock").open("w")
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            threading.Timer(0.3, handle.close).start()
+        replace_text(path, text)
+
+    monkeypatch.setattr(
+        accounts_cmd.atomic, "replace_text", promote_during_config_write
+    )
+
+    assert main(["accounts", "remove", "work", "--confirm", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["roles"] == {"bot": "deleted"}
+    assert not late.exists()
+
+
 def test_remove_keep_session_keeps_role_sessions(env, capsys):
     _session(env, "work")
     role = _session(env, "work@bot")

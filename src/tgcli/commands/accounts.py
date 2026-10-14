@@ -238,7 +238,11 @@ def _remove_late_roles(
         "accounts-remove", alias, {"roles": late_status, "keep_session": False}
     )
     for role_path in late.values():
-        with session.session_file_lock(role_path, busy_error=PolicyError):
+        # A login promoting this role holds its lock only briefly; failing
+        # here would leave a live key after the config block is gone.
+        with session.session_file_lock(
+            role_path, busy_error=PolicyError, wait=session.BUSY_WAIT_SECONDS
+        ):
             _unlink_with_backup(role_path)
     return late_status
 

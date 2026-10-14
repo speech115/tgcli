@@ -1022,8 +1022,8 @@ After Telegram accepts the code request, the value required by
 `logins/l_<login_id>.phone` sidecar (ADR-0093); promotion, discard, code expiry,
 and expired-attempt `store cleanup` delete it with the staged attempt.
 If `accounts remove` drops an already configured alias while `--continue` is
-in flight, the continue deletes the session it just promoted (audit outcome
-`discarded`) and exits **4**.
+in flight, the continue deletes the session it just promoted, restoring a
+session `--keep-session` kept (audit outcome `discarded`), and exits **4**.
 
 There is no QR path, login token output, `tg://login` handoff, or QR-attempt
 compatibility. A pending attempt created by a removed method is exit **4** and

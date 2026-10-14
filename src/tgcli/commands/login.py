@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -194,7 +195,7 @@ async def _finish_authorized(
     if is_new and role is None:
         _append_config_block(default_config_path(), alias, api_id, api_hash)
     else:
-        _discard_if_account_removed(alias, dest, method=method, role=role)
+        _discard_if_account_removed(alias, dest, backup, method=method, role=role)
     result = {
         "alias": alias,
         "method": method,
@@ -210,7 +211,12 @@ async def _finish_authorized(
 
 
 def _discard_if_account_removed(
-    alias: str, dest: Path, *, method: str, role: str | None
+    alias: str,
+    dest: Path,
+    backup: Path | None,
+    *,
+    method: str,
+    role: str | None,
 ) -> None:
     """`accounts remove` may have dropped the alias while this login waited on
     Telegram. Remove scans for role sessions again after dropping the config
@@ -224,8 +230,12 @@ def _discard_if_account_removed(
         return
     _audit_login(alias, method=method, outcome="discarded", role=role)
     with session_file_lock(dest, busy_error=PolicyError):
-        dest.unlink(missing_ok=True)
-        Path(str(dest) + ".bak").unlink(missing_ok=True)
+        # Leave the pre-login state: a `--keep-session` remove kept the old
+        # session, which this promote had just moved to the backup.
+        if backup is not None and backup.is_file():
+            os.replace(backup, dest)
+        else:
+            dest.unlink(missing_ok=True)
     raise NotFoundError(
         f"account {alias!r} was removed while this login was in progress; "
         "the new session was deleted"
