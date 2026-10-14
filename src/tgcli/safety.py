@@ -41,6 +41,16 @@ def enforce_local_mutation_allowed(readonly: bool) -> None:
         raise PolicyError("mutation blocked by readonly mode")
 
 
+def local_mutation_allowed(readonly: bool) -> bool:
+    """The ADR-0040 gate, asked rather than enforced: a read that would
+    tidy local state on the way (an import, a repair) skips the tidying."""
+    try:
+        enforce_local_mutation_allowed(readonly)
+    except PolicyError:
+        return False
+    return True
+
+
 def previews_dir() -> Path:
     return state_dir() / "previews"
 

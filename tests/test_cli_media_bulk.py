@@ -543,16 +543,27 @@ def test_media_download_type_filter_skips_text_only_explicit_id(
     assert [item["message_id"] for item in data["items"]] == [11]
 
 
+@pytest.mark.parametrize(
+    "error_type",
+    [
+        telethon_errors.SessionRevokedError,
+        telethon_errors.AuthKeyUnregisteredError,
+        telethon_errors.SessionExpiredError,
+        telethon_errors.UserDeactivatedError,
+    ],
+)
 def test_media_download_session_revoked_keeps_auth_exit_code(
-    config_env, monkeypatch, tmp_path, capsys
+    config_env, monkeypatch, tmp_path, capsys, error_type
 ):
+    """A dead session is the run's problem, not one item's: bulk download
+    re-raises it so `session.client` maps it to exit 3, never `failed[]`."""
     client = FakeClient(entities={"@chan": ns(id=5, title="C")})
 
     @asynccontextmanager
     async def fake_session(account, *, mutation_safe=False, role=None, govern=True):
         try:
             yield client
-        except telethon_errors.SessionRevokedError as exc:
+        except telethon_errors.UnauthorizedError as exc:
             raise ConfigError("session needs reauthentication") from exc
 
     async def fake_resolve(tg, source, account_alias):
@@ -563,7 +574,7 @@ def test_media_download_session_revoked_keeps_auth_exit_code(
         )
 
     async def revoked_download(tg, source, account_alias, **kwargs):
-        raise telethon_errors.SessionRevokedError(request=None)
+        raise error_type(request=None)
 
     monkeypatch.setattr(session, "client", fake_session)
     monkeypatch.setattr(media_cmd, "resolve_message", fake_resolve)

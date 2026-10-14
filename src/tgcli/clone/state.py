@@ -1,14 +1,18 @@
 """Per-clone state with fail-closed validation (ADR-0017/0060).
 
 Public seam: ``CloneState``, ``load``, ``save``, ``supersede``, ``clone_id``,
-``path_for``. Storage is SQLite/WAL via ``clone.statedb`` (ADR-0060); a
-one-time JSON import renames the legacy file to ``.json.imported``.
+``path_for``, ``slot_lock``. Storage is SQLite/WAL via ``clone.statedb``
+(ADR-0060); a one-time JSON import renames the legacy file to
+``.json.imported``.
 """
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -61,6 +65,27 @@ def path_for(clone_id: str) -> Path:
 def json_path_for(clone_id: str) -> Path:
     """Legacy v2 JSON path used only for one-time import."""
     return clones_dir() / f"{clone_id}.json"
+
+
+@contextmanager
+def slot_lock(clone_id: str) -> Iterator[None]:
+    """One writer per clone slot at a time.
+
+    The session lock is per session file, but a slot is keyed by the account
+    user id, so a `--session-role` run and a primary-session run could both
+    write one clone and post every message twice. Never waits: the other run
+    may be hours long. The `.lock` file stays; it holds no state.
+    """
+    clones_dir().mkdir(parents=True, exist_ok=True)
+    with (clones_dir() / f"{clone_id}.lock").open("w") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise PolicyError(
+                f"clone {clone_id} is busy: another clone sync or init is "
+                "running; retry when it finishes"
+            ) from None
+        yield
 
 
 def _require_aware(value: datetime) -> datetime:
@@ -376,7 +401,12 @@ def _hydrate(data: dict, *, path_name: str) -> CloneState:
     return loaded
 
 
-def load(clone_id: str) -> CloneState | None:
+def load(clone_id: str, *, read_only: bool = False) -> CloneState | None:
+    """The slot's state, importing a legacy JSON document on the way.
+
+    ``read_only`` (a read under `--readonly`) reads the legacy document where
+    it lies and leaves the import to the next writable load.
+    """
     db_path = path_for(clone_id)
     json_path = json_path_for(clone_id)
     importing_path = json_path.with_name(json_path.name + ".importing")
@@ -391,6 +421,8 @@ def load(clone_id: str) -> CloneState | None:
             )
         data = statedb.read_json_file(importing_path, expected_version=VERSION)
         loaded = _hydrate(data, path_name=importing_path.name)
+        if read_only:
+            return loaded
         statedb.finish_json_import(importing_path, db_path, loaded.to_dict())
         note(
             f"resumed interrupted clone state import "
@@ -407,6 +439,8 @@ def load(clone_id: str) -> CloneState | None:
     if json_path.exists():
         data = statedb.read_json_file(json_path, expected_version=VERSION)
         loaded = _hydrate(data, path_name=json_path.name)
+        if read_only:
+            return loaded
         importing_path = statedb.begin_json_import(json_path)
         statedb.finish_json_import(importing_path, db_path, loaded.to_dict())
         note(f"imported clone state {json_path.name} → {db_path.name}")

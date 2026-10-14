@@ -317,7 +317,11 @@ def _audit_after(args, account, data) -> None:
 def _execute(args) -> tuple[dict, list[tuple]]:
     """Run one prepared invocation, opening only the resources it needs."""
     if args.command == "clone" and args.clone_command == "status":
-        data = clone_cmd.list_clones(args.source, include_all=args.all_slots)
+        data = clone_cmd.list_clones(
+            args.source,
+            include_all=args.all_slots,
+            read_only=not safety.local_mutation_allowed(args.readonly),
+        )
         if data["pending_import"] and not args.all_slots:
             output.note(
                 f"{data['pending_import']} state slot(s) cannot be imported and "
@@ -332,7 +336,9 @@ def _execute(args) -> tuple[dict, list[tuple]]:
                 )
         return data, clone_cmd.status_rows(data)
     if args.command == "clone" and args.clone_command == "export-state":
-        data = clone_cmd.export_state(args.source)
+        data = clone_cmd.export_state(
+            args.source, read_only=not safety.local_mutation_allowed(args.readonly)
+        )
         return data, []
     if args.command == "store" and args.store_command == "stats":
         data = store_cmd.stats(session.state_dir())

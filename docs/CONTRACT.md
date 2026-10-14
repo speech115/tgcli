@@ -85,7 +85,7 @@ flag.
 | 0 | success | |
 | 1 | runtime error | network, unexpected exception |
 | 2 | blocked by safety policy | `--readonly` + mutating command, `TGCLI_NO_SEND` |
-| 3 | config/auth error | missing `--account` / `default_account`, dead session, bad api_id, a session still busy after the wait below |
+| 3 | config/auth error | missing `--account` / `default_account`, dead session (any Telegram `UnauthorizedError`: revoked, expired, unregistered key, deactivated user — `needs reauthentication`), bad api_id, a session still busy after the wait below |
 | 4 | not found | unknown dialog, message id, media; unknown alias on `accounts show\|remove` (lookup) |
 | 5 | rate limited | FloodWait longer than threshold; `retry_after` in error JSON; also a sticky in-process cooldown after a FloodWait whose durable arm could not persist (ADR-0090) |
 
@@ -1235,6 +1235,10 @@ The import is crash-safe (ADR-0105): the JSON is first renamed to
 `<clone_id>.json.importing` — a private marker, never both-files-ambiguous —
 and only then written to `.db` and renamed to `.imported`; a crash at any
 point mid-import is resumed automatically by the next `load()`.
+Under `--readonly` / `TGCLI_READONLY=1` the local reads (`clone status`,
+`clone export-state`) read a legacy `.json` where it lies and import nothing:
+the entry is listed with its fields and `integrity: "json-pending-import"`,
+and the files on disk are unchanged until the next writable load.
 Both `.db` and `.json` present for the same id is exit 2 (ambiguous). Recovery
 adopts exactly one matching
 private creator-owned destination of the required kind, creates when none
@@ -1300,6 +1304,15 @@ FloodWait (ADR-0024) arms only the participant-listing cooldown, never message
 sync. `clone init` and `clone sync` keep no implicit deadline (CONTRACT §1);
 `clone sync` may be bounded with `--max-runtime` (exhausting it is a normal
 stop, exit 0, with a resume pointer).
+
+One clone slot has one writer at a time. `clone sync` and the commit leg of
+`clone init` hold an exclusive lock on `clones/<clone_id>.lock` for the whole
+run, so two runs on different session roles (`--session-role`) cannot copy
+the same clone twice. The lock never waits: while another run holds it, the
+command exits 2 (`BLOCKED`) with `clone <clone_id> is busy: another clone sync
+or init is running; retry when it finishes`, before any Telegram write; a
+refused `init --commit` does not spend its preview. The `.lock` file holds no
+state and is left in place; `store cleanup` never selects it.
 
 `sync SOURCE` accepts the same references as every other
 command plus, for an already-initialized clone, a **title** (ADR-0082): a
@@ -1804,7 +1817,13 @@ failures are `media_status: "retryable"` until the cap, then become terminal
 `media_status: "no_media"` and are not returned by later media queues. A
 later successful publish resets that media counter and sets
 `media_status: "done"`. A `FLOOD_WAIT` leaves the media item retryable,
-arms the governor's per-type cooldown (ADR-0072), and exits **5**.
+arms the governor's per-type cooldown (ADR-0072), and exits **5**. Errors
+about the run rather than the item never count an attempt either: a lost
+connection or a dead session aborts the sync (exit 1, or 3 for a dead
+session), and a Telegram server error or timeout stops the media pass with a
+stderr note, leaving the item queued and `remaining: true` (exit 0). The same
+errors abort channel subscription, private-peer enrichment, and light
+reconciliation instead of being recorded as one peer's failure.
 
 `tg archive transcribe` is foreground-only and offline. It drains the
 newest ready media rows first through the local `transcribe` CLI

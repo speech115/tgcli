@@ -189,17 +189,29 @@ async def test_revoked_session_raises_reauthentication_error(state, monkeypatch)
             pass
 
 
+# Every UnauthorizedError is a dead session, not a runtime failure: a
+# deleted or expired key used to escape as exit 1 with no remedy.
+DEAD_SESSION_ERRORS = [
+    telethon_errors.SessionRevokedError,
+    telethon_errors.AuthKeyUnregisteredError,
+    telethon_errors.SessionExpiredError,
+    telethon_errors.UserDeactivatedError,
+]
+
+
+@pytest.mark.parametrize("error_type", DEAD_SESSION_ERRORS)
 async def test_revoked_session_during_command_raises_reauthentication_error(
-    state, monkeypatch
+    state, monkeypatch, error_type
 ):
     fake = FakeTelethonClient()
     monkeypatch.setattr(
         session, "_make_client", lambda path, account, *, mutation_safe=False: fake
     )
 
-    with pytest.raises(ConfigError, match="needs reauthentication"):
+    with pytest.raises(ConfigError, match="needs reauthentication") as excinfo:
         async with session.client(ACCOUNT):
-            raise telethon_errors.SessionRevokedError(request=None)
+            raise error_type(request=None)
+    assert excinfo.value.exit_code == 3
 
 
 def test_make_client_sets_stable_telegram_device_identity(tmp_path, monkeypatch):

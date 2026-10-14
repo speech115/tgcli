@@ -193,6 +193,8 @@ for sends, edits, deletes, and forwards: it shows a preview first.
 `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block mutations before
 network work. A block is exit 2; do not retry it until the safety condition is
 intentionally changed.
+Under readonly, `clone status` and `clone export-state` read a legacy JSON
+clone slot without importing it.
 
 ### Request governor (ADR-0072)
 
@@ -215,6 +217,10 @@ comments are enabled). Prefer at most ~one peer-creating init per account per
 day. Check the preview's `peers_to_create` before `--commit`. Use
 `--no-comments` when a posts-only clone is enough.
 
+One clone runs one `clone sync` or `clone init --commit` at a time, across
+session roles. Exit 2 with `clone <id> is busy` means another run holds that
+clone: let it finish, then retry; nothing was sent.
+
 `edit`, `delete`, and `forward` follow the same preview → commit rule as
 `send`. `doctor` is read-only: it reports configured-account session presence,
 lock availability, local state writability, Telegram authorization, and a
@@ -235,7 +241,9 @@ top-level `ok` result.
 Selection order is `--account` > `TGCLI_ACCOUNT` > the config default.
 `--session-role NAME` (ADR-0062) selects a named session beside the primary;
 omit it for the primary. A missing role is exit 3 with remediation — never a
-silent fallback. Available migration aliases are `main`, `recklessou`, and
+silent fallback. A session Telegram no longer accepts (revoked, expired,
+unregistered key, deactivated) is exit 3 `needs reauthentication`: log that
+session in again, do not retry. Available migration aliases are `main`, `recklessou`, and
 `teamsyncsage`.
 
 ## Migration note

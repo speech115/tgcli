@@ -391,6 +391,11 @@ TRANSIENT_ERRORS = [
         ),
         id="rpc-call-fail",
     ),
+    # Telethon's reconnects ran out mid-request.
+    pytest.param(
+        lambda: ConnectionError("Connection to Telegram failed 5 time(s)"),
+        id="connection",
+    ),
 ]
 
 

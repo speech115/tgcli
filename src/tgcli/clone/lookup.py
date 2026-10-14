@@ -55,12 +55,12 @@ def slot_ids() -> set[str]:
     return found
 
 
-def loaded_states() -> list[state.CloneState]:
+def loaded_states(*, read_only: bool = False) -> list[state.CloneState]:
     """Every clone state that loads; unreadable slots are skipped, not raised."""
     loaded = []
     for clone_id in slot_ids():
         try:
-            found = state.load(clone_id)
+            found = state.load(clone_id, read_only=read_only)
         except PolicyError:
             continue
         if found is not None:

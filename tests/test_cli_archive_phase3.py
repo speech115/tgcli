@@ -1588,16 +1588,42 @@ def _governor_cooling():
     return RateLimitError("GetFileRequest is rate limited for 600s", retry_after=600)
 
 
+def _connection_lost():
+    return ConnectionError("Connection to Telegram failed 5 time(s)")
+
+
+def _auth_key_unregistered():
+    return telethon_errors.AuthKeyUnregisteredError(request=None)
+
+
+def _server_error():
+    return telethon_errors.ServerError(request=None, message="INTERNAL", code=500)
+
+
 @pytest.mark.parametrize(
-    "make_error", [_flood_wait_error, _governor_cooling], ids=["flood", "cooling"]
+    ("make_error", "exit_code", "code"),
+    [
+        (_flood_wait_error, 5, "FLOOD_WAIT"),
+        (_governor_cooling, 5, "FLOOD_WAIT"),
+        (_connection_lost, 1, "RUNTIME"),
+        (_auth_key_unregistered, 1, "RUNTIME"),
+        (_server_error, 0, None),
+    ],
+    ids=["flood", "cooling", "connection", "auth-key", "server"],
 )
 def test_sync_media_rate_limit_still_advances_the_changes_cursor(
-    config_env, monkeypatch, capsys, make_error
+    config_env, monkeypatch, capsys, make_error, exit_code, code
 ):
     """The difference was applied, then media download hit a rate limit and
     the run exited 5 before the cursor checkpoint. Every run during the
     cooldown re-fetched and re-applied the same difference. The cursor is
-    now saved before the media tail, and the media row keeps its attempts."""
+    now saved before the media tail, and the media row keeps its attempts.
+
+    The same holds for every error that is about the run, not the item: a
+    dropped connection or a dead session aborts the run, and a Telegram 500
+    stops the media pass for the next run. None of them used to be told
+    apart from a broken file, so three of them made the row `no_media` for
+    good."""
     user = _user()
 
     class CooldownClient(FakeClient):
@@ -1647,11 +1673,16 @@ def test_sync_media_rate_limit_still_advances_the_changes_cursor(
     finally:
         conn.close()
 
-    assert main(["archive", "sync", "--json"]) == 5
+    assert main(["archive", "sync", "--json"]) == exit_code
     captured = capsys.readouterr()
-    envelope = json.loads(captured.out)
-    assert envelope["error"]["code"] == "FLOOD_WAIT"
-    assert json.loads(captured.err.strip().splitlines()[-1]) == envelope
+    if code is None:
+        media = json.loads(captured.out)["media"]
+        assert media["failed"] == []
+        assert media["remaining"] is True
+    else:
+        envelope = json.loads(captured.out)
+        assert envelope["error"]["code"] == code
+        assert json.loads(captured.err.strip().splitlines()[-1]) == envelope
 
     conn = store_mod.connect(path)
     try:

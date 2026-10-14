@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from telethon import errors as telethon_errors
 
 from tgcli.archive import (
     explore as explore_module,
@@ -708,5 +709,50 @@ async def test_catch_up_fills_a_backlog_larger_than_one_page_without_holes(tmp_p
         assert stored == set(range(101, 201))
         assert store.get_sync_state(conn, peer)["newest_id"] == 200
         assert first["more"] is True
+    finally:
+        conn.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [
+        ConnectionError("Connection to Telegram failed 5 time(s)"),
+        telethon_errors.AuthKeyUnregisteredError(request=None),
+    ],
+    ids=["connection", "auth-key"],
+)
+async def test_reconcile_aborts_on_a_run_error_instead_of_sampling_it(tmp_path, error):
+    """A lost connection or a dead session is not one dialog's count: the
+    reconcile used to store it as that dialog's `error` and report success."""
+    conn = _connection(tmp_path)
+    try:
+        store.upsert_sync_state(conn, 7, oldest_id=1, newest_id=1, more=False)
+        conn.commit()
+
+        class Client:
+            async def get_entity(self, _peer):
+                raise error
+
+        with pytest.raises(type(error)):
+            await sync_module.light_reconcile(Client(), conn)
+        assert store.read_account_sync(conn).get("reconcile") is None
+    finally:
+        conn.close()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_still_records_a_per_dialog_refusal(tmp_path):
+    conn = _connection(tmp_path)
+    try:
+        store.upsert_sync_state(conn, 7, oldest_id=1, newest_id=1, more=False)
+        conn.commit()
+
+        class Client:
+            async def get_entity(self, _peer):
+                raise ValueError("no such peer")
+
+        summary = await sync_module.light_reconcile(Client(), conn)
+        assert summary["comparisons"][0]["error"] == "ValueError:no such peer"
     finally:
         conn.close()

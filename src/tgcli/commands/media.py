@@ -647,7 +647,7 @@ async def download_media_bulk(
             hard_error = exc
             failed.append({"message_id": source.message_id, "error": str(exc)})
             break
-        except telethon_errors.SessionRevokedError:
+        except telethon_errors.UnauthorizedError:
             raise
         except Exception as exc:
             hard_error = exc

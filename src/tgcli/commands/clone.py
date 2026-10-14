@@ -94,7 +94,9 @@ def _unreadable_entry(clone_id: str) -> dict:
 PENDING_IMPORT = "json-pending-import"
 
 
-def list_clones(source: str | None = None, *, include_all: bool = False) -> dict:
+def list_clones(
+    source: str | None = None, *, include_all: bool = False, read_only: bool = False
+) -> dict:
     directory = state.clones_dir()
     if not directory.exists():
         return {"clones": [], "pending_import": 0}
@@ -103,7 +105,7 @@ def list_clones(source: str | None = None, *, include_all: bool = False) -> dict
     pending_import = 0
     for clone_id in clone_ids:
         try:
-            loaded = state.load(clone_id)
+            loaded = state.load(clone_id, read_only=read_only)
         except PolicyError:
             entry = _unreadable_entry(clone_id)
             if entry["integrity"] == PENDING_IMPORT:
@@ -124,10 +126,12 @@ def list_clones(source: str | None = None, *, include_all: bool = False) -> dict
     return {"clones": entries, "pending_import": pending_import}
 
 
-def export_state(source: str) -> dict:
+def export_state(source: str, *, read_only: bool = False) -> dict:
     """Readonly rollback/diagnostic path: the v2 JSON document for one clone."""
     matches = [
-        loaded for loaded in lookup.loaded_states() if lookup.matches(loaded, source)
+        loaded
+        for loaded in lookup.loaded_states(read_only=read_only)
+        if lookup.matches(loaded, source)
     ]
     if not matches:
         raise PolicyError(f"clone not found: {source!r}")
@@ -272,7 +276,6 @@ async def _peers_to_create(
 
 
 async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dict:
-    replace = bool(payload.get("replace"))
     entity, source_kind, _ = await _resolve_source(tg, source)
     me = await tg.get_me()
     if (
@@ -281,6 +284,12 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
         or payload.get("source_kind", source_kind) != source_kind
     ):
         raise PolicyError("clone init preview no longer matches the source or account")
+    with state.slot_lock(state.clone_id(me.id, entity.id, source_kind)):
+        return await _commit_slot(tg, entity, source_kind, me, account_alias, payload)
+
+
+async def _commit_slot(tg, entity, source_kind, me, account_alias, payload) -> dict:
+    replace = bool(payload.get("replace"))
     clone_id = state.resolve_slot(me.id, entity.id, source_kind)
     if replace and (
         archived := state.supersede(clone_id, (roster.path_for(clone_id),))
@@ -444,6 +453,15 @@ async def sync_text(
     source_entity, source_kind, _ = await _resolve_source(
         tg, source, account_user_id=me.id
     )
+    with state.slot_lock(state.clone_id(me.id, source_entity.id, source_kind)):
+        return await _sync_slot(
+            tg, source, account_alias, me, source_entity, source_kind, limit=limit
+        )
+
+
+async def _sync_slot(
+    tg, source, account_alias, me, source_entity, source_kind, *, limit
+) -> dict:
     clone_state = state.load(state.resolve_slot(me.id, source_entity.id, source_kind))
     if clone_state is None or clone_state.destination_peer_id is None:
         raise PolicyError("clone is not initialized; run clone init first")

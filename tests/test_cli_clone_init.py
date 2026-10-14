@@ -1934,3 +1934,36 @@ def test_init_commit_spends_the_preview_once_it_succeeds(
         == 2
     )
     assert "already used" in capsys.readouterr().err
+
+
+def test_clone_init_commit_refuses_while_another_run_holds_the_clone(
+    config_env, monkeypatch, capsys
+):
+    """A sync on another session role owns the slot: the commit leg must not
+    create, rename, or re-shape the destination underneath it."""
+    import fcntl
+
+    client = CloneInitClient()
+    make_session_fake(monkeypatch, client)
+    assert main(["clone", "init", "@source", "--json"]) == 0
+    preview = json.loads(capsys.readouterr().out)
+    client.requests.clear()
+    clone_id = preview["clone"]["id"]
+    state.clones_dir().mkdir(parents=True, exist_ok=True)
+    holder = (state.clones_dir() / f"{clone_id}.lock").open("w")
+    fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        argv = ["clone", "init", "@source", "--commit", preview["preview_id"]]
+        assert main([*argv, "--json"]) == 2
+    finally:
+        holder.close()
+
+    error = json.loads(capsys.readouterr().err)["error"]
+    assert error["code"] == "BLOCKED"
+    assert f"clone {clone_id} is busy" in error["message"]
+    assert client.requests == []
+    assert state.load(clone_id) is None
+
+    # The refused commit did not spend its preview.
+    assert main([*argv, "--json"]) == 0
+    assert state.load(clone_id).destination_peer_id == 999

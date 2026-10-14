@@ -6,12 +6,11 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-from telethon import errors as telethon_errors
-
 from tgcli import atomic, chatref
 from tgcli.commands.read import _dialog_name, message_to_dict
 from tgcli.errors import ExportError, NotFoundError
 from tgcli.output import note
+from tgcli.session import RUN_ABORTING_ERRORS
 
 SUBSCRIBER_COLUMNS = ("id", "username", "first_name", "last_name", "phone", "is_bot")
 TAKEOUT_MESSAGE_KWARGS = {"chats": True, "megagroups": True, "channels": True}
@@ -194,7 +193,7 @@ async def _channel_member_total(tg, entity) -> int | None:
     try:
         full = await tg(functions.channels.GetFullChannelRequest(entity))
         return full.full_chat.participants_count
-    except telethon_errors.FloodWaitError:
+    except RUN_ABORTING_ERRORS:
         raise
     except Exception:
         return None
