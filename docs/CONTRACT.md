@@ -1597,8 +1597,8 @@ matching `GetFullUser` / `GetFullChat` for non-channel sources) on every
 completing run until resolved; a second `GetFullChannel` on the destination
 only on the run the source pin first becomes mappable; zero after resolution;
 plus one `messages.UpdatePinnedMessage` when a pin is actually placed. A run
-that stops early (`more:true`) never calls the pin phase and reports only
-what state already knows (`unmapped` / previously-resolved `set` /
+that stops early (`more:true`, or `--max-runtime` exhausted during copying)
+never calls the pin phase and reports only what state already knows (`unmapped` / previously-resolved `set` /
 `occupied`).
 
 `sync.poll_votes` is an additive list of per-poll markers from the ADR-0048
@@ -1616,7 +1616,11 @@ channel/chat, `discussion` = its linked comment group when
 `"deferred"` (FloodWait, `reason` `"flood_wait"`, or a Telegram-side failure,
 `reason` its error name; retried next run, partial results discarded, and the
 cooldown a FloodWait arms covers participant listing only, never message sync), or `"none"`
-(no discussion group). Collected participants are rewritten atomically to the
+(no discussion group). `--max-runtime` bounds the listing too: when the cap
+runs out during copying the roster is not listed at all (every peer
+`"deferred"` with `reason` `"wall_clock_cap"`, sidecar left as it was), and
+when it runs out after copying (in the pin phase or during the listing) the
+peer being listed and every peer not yet listed are deferred the same way; a run that copied everything still reports `remaining: false`. Collected participants are rewritten atomically to the
 JSONL sidecar at `participants.path` (one object per line, tagged `peer` plus
 the `export subscribers` columns). This snapshot is source-side only; the
 destination is never populated with collected users. The Telegram refusals

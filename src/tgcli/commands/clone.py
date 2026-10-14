@@ -691,10 +691,13 @@ async def sync_text(
     else:
         await run_posts_window(None)
 
+    # A run the cap stopped stopped early: no pin phase and no roster listing
+    # (CONTRACT §11), and `remaining` reflects the copy, not later phases.
+    capped = cap_exhausted()
     # ADR-0055: pin carry-over is broadcast-only; forum sync JSON omits `pinned`.
     pinned_result = None
     if not forum:
-        if not more:
+        if not more and not capped:
             pinned_result = await pin.sync_phase(
                 tg,
                 clone_state,
@@ -708,7 +711,11 @@ async def sync_text(
     if not warned_unstarted:
         clone_progress.comments_unstarted(clone_state)
     progress.phase("roster")
-    participants = await roster.collect(tg, clone_state, source_entity)
+    participants = (
+        roster.deferred(clone_state, "wall_clock_cap")
+        if cap_exhausted()  # the pin phase may have spent the rest of the cap
+        else await roster.collect(tg, clone_state, source_entity)
+    )
     clone_state.last_synced_at = datetime.now(UTC).isoformat()
     state.save(clone_state)
     data: dict = {
@@ -737,7 +744,7 @@ async def sync_text(
             **({"pinned": pinned_result} if pinned_result is not None else {}),
         },
     }
-    data["remaining"] = bool(more or cap_exhausted())
+    data["remaining"] = bool(more or capped)
     if quote_flattened:
         raise PartialFailure(
             f"clone sync finished with {len(quote_flattened)} quote fallback(s)",
@@ -745,7 +752,7 @@ async def sync_text(
             cause=PolicyError("clone planted quote fallback(s)"),
             rows=sync_rows(data),
         )
-    if cap_exhausted() and not more:
+    if capped and not more:
         # --max-runtime exhausted: a normal stop, not an error — the cursor
         # advanced and the next invocation resumes (ADR-0072 decision 6).
         data["stop_reason"] = "wall_clock_cap"  # type: ignore[index]
