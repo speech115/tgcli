@@ -364,6 +364,10 @@ async def fetch_media(
                 f"rate limited during archive media fetch of {message_id}",
                 retry_after=seconds,
             ) from exc
+        except RateLimitError:
+            # The governor refusing a cooling request type: no attempt was
+            # made, so none is recorded.
+            raise
         except Exception as exc:
             error = f"{type(exc).__name__}:{exc}"
             with conn:

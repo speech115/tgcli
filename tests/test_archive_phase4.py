@@ -350,19 +350,37 @@ async def test_media_failure_retries_then_becomes_terminal(tmp_path, monkeypatch
         conn.close()
 
 
+def _flood_wait():
+    flood_wait = telethon_errors.FloodWaitError(request=None)
+    flood_wait.seconds = 30
+    return flood_wait
+
+
+def _cooling():
+    # What the governor raises for a cooling request type, before any RPC.
+    return RateLimitError("GetFileRequest is rate limited for 600s", retry_after=600)
+
+
 @pytest.mark.asyncio
-async def test_media_flood_wait_does_not_consume_media_attempt(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "make_error", [_flood_wait, _cooling], ids=["flood", "cooling"]
+)
+async def test_media_rate_limit_does_not_consume_media_attempt(
+    tmp_path, monkeypatch, make_error
+):
+    """A governor cooldown is refused locally as RateLimitError, not
+    FloodWaitError. It was recorded as an ordinary failure, so three
+    scheduled syncs inside one cooldown made queued voice notes `no_media`
+    for good while every run exited 0."""
     conn = _connection(tmp_path)
     account_dir = tmp_path / "account"
     account_dir.mkdir()
     try:
         store.upsert_message(conn, 7, _payload(1, "caption"))
         conn.commit()
-        flood_wait = telethon_errors.FloodWaitError(request=None)
-        flood_wait.seconds = 30
 
         async def raise_flood(*_args, **_kwargs):
-            raise flood_wait
+            raise make_error()
 
         monkeypatch.setattr(sync_module.media_cmd, "download_media", raise_flood)
         with pytest.raises(RateLimitError):
