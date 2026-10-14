@@ -216,6 +216,7 @@ def read_account_sync(conn: sqlite3.Connection) -> dict[str, Any]:
             "last_reconcile_at": None,
             "reconcile": None,
             "private_enum": None,
+            "pending_catchups": [],
         }
     gap = None
     if row["gap_json"]:
@@ -233,6 +234,9 @@ def read_account_sync(conn: sqlite3.Connection) -> dict[str, Any]:
         "last_reconcile_at": row["last_reconcile_at"],
         "reconcile": reconcile,
         "private_enum": private_enum,
+        "pending_catchups": [
+            int(peer) for peer in json.loads(row["pending_catchups_json"] or "[]")
+        ],
     }
 
 
@@ -247,6 +251,7 @@ def write_account_sync(
     scope_channels: bool = False,
     private_enum: dict[str, Any] | None = None,
     clear_private_enum: bool = False,
+    pending_catchups: list[int] | None = None,
 ) -> str | None:
     """Update account sync state without a stale read-modify-write window."""
     if not conn.in_transaction:
@@ -317,18 +322,26 @@ def write_account_sync(
                 if existing["private_enum"] is not None
                 else None
             )
+        catchups = (
+            pending_catchups
+            if pending_catchups is not None
+            else existing["pending_catchups"]
+        )
+        pending_catchups_json = json.dumps(catchups) if catchups else None
         conn.execute(
             "INSERT INTO account_sync("
             "id, changes_cursor, gap_json, last_sync_at, "
-            "last_reconcile_at, reconcile_json, private_enum_json"
-            ") VALUES (1, ?, ?, ?, ?, ?, ?) "
+            "last_reconcile_at, reconcile_json, private_enum_json, "
+            "pending_catchups_json"
+            ") VALUES (1, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET "
             "changes_cursor = excluded.changes_cursor, "
             "gap_json = excluded.gap_json, "
             "last_sync_at = excluded.last_sync_at, "
             "last_reconcile_at = excluded.last_reconcile_at, "
             "reconcile_json = excluded.reconcile_json, "
-            "private_enum_json = excluded.private_enum_json",
+            "private_enum_json = excluded.private_enum_json, "
+            "pending_catchups_json = excluded.pending_catchups_json",
             (
                 cursor,
                 gap_json,
@@ -336,6 +349,7 @@ def write_account_sync(
                 last_reconcile,
                 reconcile_json,
                 private_enum_json,
+                pending_catchups_json,
             ),
         )
         conn.commit()

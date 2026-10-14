@@ -1746,7 +1746,14 @@ a bounded catch-up (`iter_messages` with `min_id`). A peer with a stored
 `newest_id` is read oldest first, so a page cut short never leaves a hole;
 its `catchups[]` item carries `more: true` when the page was full, and the
 run reports `remaining: true`. A peer with no stored history keeps only its
-newest page (`more: false`); older messages belong to `backfill`. Difference events from
+newest page (`more: false`); older messages belong to `backfill`. A
+catch-up left unfinished (`more: true`, `skipped_budget: true`, or not
+reached under `--max-dialogs` or `--max-runtime`) is persisted in
+`account_sync` and resumed first by the next sync even without new
+`channel_activity`; `remaining` stays `true` until every one finishes. A peer
+removed from scope is dropped from that queue, and so is one that fails
+with an `error` (`unresolvable`, or `channelUnavailable` when the account can
+no longer read the channel); that `catchups[]` item carries the `error`. Difference events from
 the poll are **always applied in full** before the cursor advances — there
 is no apply-side truncation (dropping a tail while advancing the cursor
 would silently lose archive history). Caps bound the expensive catch-up
