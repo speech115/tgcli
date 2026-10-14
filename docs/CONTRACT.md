@@ -1760,7 +1760,10 @@ RPCs only: `--max-events` is the catch-up **message** budget (default
 exists in more than one matching dialog, sync tombstones every matching
 peer (MTProto does not name the peer). A `differenceTooLong`-class gap is
 stored loudly in `account_sync` and surfaced by `status` / sync JSON; exit
-**0** (a gap is data). Light reconciliation (sampled local vs Telegram
+**0** (a gap is data). A subscribed channel the account can no longer read
+(private, deleted, banned) is dropped from the cursor with a
+`channelUnavailable` gap for that peer; the rest of the pass still advances,
+and a later sync resubscribes it if access returns. Light reconciliation (sampled local vs Telegram
 message totals, rotating across tracked dialogs) runs at the end of sync
 and is reported under `reconcile` / `status.reconcile`.
 

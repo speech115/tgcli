@@ -344,3 +344,47 @@ def _forge_channels(cursor: str, channels: dict[int, int]) -> str:
     payload["channels"] = {str(peer): pts for peer, pts in channels.items()}
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
     return prefix + ":" + base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+@pytest.mark.asyncio
+async def test_lost_channel_is_dropped_with_a_gap_and_the_rest_advance():
+    from telethon import errors as telethon_errors, utils
+
+    lost, live = (
+        Channel(
+            id=channel_id,
+            title="C",
+            photo=None,
+            date=datetime(2026, 1, 1, tzinfo=UTC),
+            access_hash=7,
+        )
+        for channel_id in (42, 43)
+    )
+    lost_peer, live_peer = utils.get_peer_id(lost), utils.get_peer_id(live)
+
+    async def handler(request, tg):
+        if isinstance(request, GetDifferenceRequest):
+            return Difference(
+                new_messages=[],
+                new_encrypted_messages=[],
+                other_updates=[],
+                chats=[],
+                users=[],
+                state=_state(pts=9),
+            )
+        if isinstance(request, GetChannelDifferenceRequest):
+            if request.channel.channel_id == lost.id:
+                raise telethon_errors.ChannelPrivateError(request=request)
+            return ChannelDifferenceEmpty(pts=20, final=True)
+        raise AssertionError(type(request))
+
+    tg = FakeTg(handler)
+    tg.entities.update({lost_peer: lost, live_peer: live})
+    cursor = ChangesCursor(
+        pts=1, qts=0, date=0, seq=1, channels={lost_peer: 3, live_peer: 4}
+    )
+    doc, new_cursor, _ = await changes_cmd.once(tg, cursor)
+    assert doc["gap"]["scope"] == lost_peer
+    assert doc["gap"]["reason"] == "channelUnavailable"
+    assert new_cursor.pts == 9
+    assert new_cursor.channels == {live_peer: 20}

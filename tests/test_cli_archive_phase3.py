@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
-from telethon import utils
+from telethon import errors as telethon_errors, utils
 from telethon.tl.functions.channels import GetFullChannelRequest
 from telethon.tl.functions.updates import (
     GetChannelDifferenceRequest,
@@ -510,6 +510,105 @@ def test_sync_records_gap_and_rebaseline_clears_it(config_env, monkeypatch, caps
     assert main(["archive", "status", "--json"]) == 0
     status = json.loads(capsys.readouterr().out)
     assert status["gap"] is None
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        telethon_errors.ChannelPrivateError,
+        telethon_errors.ChannelInvalidError,
+        telethon_errors.ChannelBannedError,
+    ],
+)
+def test_sync_survives_a_subscribed_channel_the_account_lost(
+    config_env, monkeypatch, capsys, refusal
+):
+    """One channel that turned private, was deleted, or banned the account
+    used to abort every `archive sync` before the cursor was saved, so the
+    private chats and every other channel stopped advancing for good."""
+
+    def broadcast(channel_id):
+        return Channel(
+            id=channel_id,
+            title=f"C{channel_id}",
+            photo=None,
+            date=datetime(2026, 1, 1, tzinfo=UTC),
+            access_hash=99,
+            megagroup=False,
+        )
+
+    lost, live = broadcast(1234), broadcast(5678)
+    lost_peer, live_peer = utils.get_peer_id(lost), utils.get_peer_id(live)
+
+    class LostChannelClient(FakeClient):
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, GetStateRequest):
+                return _state(pts=5, qts=1, seq=1)
+            if isinstance(request, GetDifferenceRequest):
+                return Difference(
+                    new_messages=[],
+                    new_encrypted_messages=[],
+                    other_updates=[],
+                    chats=[],
+                    users=[],
+                    state=_state(pts=9, qts=1, seq=2),
+                )
+            if isinstance(request, GetChannelDifferenceRequest):
+                if request.channel.channel_id == lost.id:
+                    raise refusal(request=request)
+                return ChannelDifferenceEmpty(pts=20, final=True)
+            if isinstance(request, GetFullChannelRequest):
+                raise refusal(request=request)
+            raise AssertionError(request)
+
+    client = LostChannelClient(me=_me(), entities={lost_peer: lost, live_peer: live})
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    path = archive_cmd.db_path("main")
+    conn = store_mod.connect(path)
+    try:
+        for channel, peer in ((lost, lost_peer), (live, live_peer)):
+            store_mod.add_scope(
+                conn,
+                peer_id=peer,
+                kind="channel",
+                title=channel.title,
+                username=None,
+                chat_ref=str(peer),
+            )
+        cursor = ChangesCursor(
+            pts=5,
+            qts=1,
+            date=1_735_689_600,
+            seq=1,
+            channels={lost_peer: 3, live_peer: 4},
+        )
+        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert main(["archive", "sync", "--json"]) == 0
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data["gap"]["scope"] == lost_peer
+    assert data["gap"]["reason"] == "channelUnavailable"
+    assert f"{lost_peer}" in captured.err
+    conn = store_mod.connect(path)
+    try:
+        saved = changes_cursor.decode(
+            store_mod.read_account_sync(conn)["changes_cursor"]
+        )
+    finally:
+        conn.close()
+    assert saved.pts == 9
+    assert saved.channels == {live_peer: 20}
+
+    # The next run neither aborts nor reports the same loss again.
+    assert main(["archive", "sync", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["gap"] is None
 
 
 def test_sync_and_rebaseline_readonly_blocked(config_env, monkeypatch, capsys):

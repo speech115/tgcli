@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from telethon import utils
+from telethon import errors as telethon_errors, utils
 from telethon.tl import types
 from telethon.tl.functions.channels import GetFullChannelRequest
 from telethon.tl.functions.updates import (
@@ -353,6 +353,14 @@ async def _poll_channel(
     return events, changes_cursor.with_channel(cursor, peer, pts), gap, requests
 
 
+# What Telegram says about a channel this account can no longer read.
+CHANNEL_LOST_ERRORS = (
+    telethon_errors.ChannelPrivateError,
+    telethon_errors.ChannelInvalidError,
+    telethon_errors.ChannelBannedError,
+)
+
+
 async def once(
     tg, cursor: ChangesCursor, *, private_deletes: bool = False
 ) -> tuple[dict, ChangesCursor, list]:
@@ -376,9 +384,19 @@ async def once(
         gap = common_gap
 
     for peer in sorted(cursor.channels):
-        ch_events, cursor, ch_gap, reqs = await _poll_channel(
-            tg, cursor, peer, skipped=skipped
-        )
+        try:
+            ch_events, cursor, ch_gap, reqs = await _poll_channel(
+                tg, cursor, peer, skipped=skipped
+            )
+        except CHANNEL_LOST_ERRORS as exc:
+            # A channel that turned private, was deleted, or banned the
+            # account must not stop the private chats and the other channels
+            # from advancing. Drop it: its updates since the stored pts are
+            # lost (the gap says so), and archive sync resubscribes it if
+            # access ever returns.
+            note(f"changes: channel {peer} unavailable ({type(exc).__name__})")
+            cursor = changes_cursor.without_channel(cursor, peer)
+            ch_events, ch_gap, reqs = [], _gap(peer, reason="channelUnavailable"), []
         events.extend(ch_events)
         all_requests.extend(reqs)
         if ch_gap is not None and gap is None:
