@@ -2,5 +2,21 @@
   "enabledPlugins": {
     "code-review@claude-plugins-official": true,
     "code-simplifier@claude-plugins-official": true
+  },
+  "env": {
+    "TGCLI_READONLY": "1"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_session_files.py\""
+          }
+        ]
+      }
+    ]
   }
 }

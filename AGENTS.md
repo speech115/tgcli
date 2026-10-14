@@ -41,6 +41,7 @@ is wrong, fix the check.
 | Every Telethon namespace is classified; `tg run` refuses writes without `--write` and auth/account always | `scripts/check-coverage.py` with `docs/FEATURES.md`, `tests/test_cli_run.py` |
 | README and SKILL.md name only real flags, commands, and links | `scripts/check-docs.py` |
 | Sessions, `.env`, audit and journal files never enter git | `.gitignore` |
+| Agent sessions here run with `TGCLI_READONLY=1`, and a bare `python3` near a `.session` file is refused (the pinned Telethon writes a schema older versions crash on) | `.claude/settings.json`, `tests/test_agent_guardrails.py` |
 | Merged branches are deleted and history stays linear | GitHub repository settings |
 
 ## Rules that need judgment
@@ -49,10 +50,8 @@ Nothing fails if you skip these, so they stay few.
 
 - **The live account is real.** Run a Telegram mutation (send, edit, delete,
   forward, clone writes, `tg run --write`, login) only when the owner asked for it in
-  this session. Read-only checks are fine.
-- **Never open a `.session` file with bare `python3`** or a system Telethon.
-  Use `uv run tg` or `.venv/bin/python`: the pinned Telethon writes a schema
-  older versions crash on.
+  this session, and then prefix that one command with `TGCLI_READONLY=0`.
+  Read-only checks are fine.
 - **A bug fix starts with a reproducing test**, then the smallest fix. Grep for
   sibling code with the same pattern and fix it in the same PR.
 - **Test behavior at public seams**: CLI arguments in; stdout, stderr, JSON,
