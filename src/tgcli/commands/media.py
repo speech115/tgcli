@@ -624,12 +624,15 @@ async def download_media_bulk(
         )
         if fallback_id is None:
             continue
+        # The id prefix keeps two media with one name apart, so an existing
+        # path means this message was already downloaded here.
+        name = f"{fallback_id}-{safe_filename(target.filename, fallback_id)}"
         try:
             result = await download_media(
                 tg,
                 source,
                 account_alias,
-                output=str(output_dir / safe_filename(target.filename, fallback_id)),
+                output=str(output_dir / name),
                 progress=progress,
             )
             items.append(

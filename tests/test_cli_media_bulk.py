@@ -586,3 +586,45 @@ def test_media_download_session_revoked_keeps_auth_exit_code(
     )
     error = json.loads(capsys.readouterr().err)
     assert error["error"]["code"] == "CONFIG"
+
+
+class _BytesClient(FakeClient):
+    """Streams each message's own bytes, keyed by its media object."""
+
+    def __init__(self, payloads, **kwargs):
+        super().__init__(**kwargs)
+        self._payloads = payloads
+
+    async def iter_download(self, media, *, offset=0, request_size=None, **kwargs):
+        yield self._payloads[id(media)][offset:]
+
+
+def test_media_download_bulk_keeps_two_files_with_the_same_name(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    first = _media_message(10, "document", filename="report.pdf", size=3)
+    second = _media_message(11, "document", filename="report.pdf", size=3)
+    client = _BytesClient(
+        {id(first.media): b"one", id(second.media): b"two"},
+        messages=[first, second],
+        entities={"@chan": ns(id=5, title="C")},
+    )
+    make_session_fake(monkeypatch, client)
+    out = tmp_path / "out"
+
+    argv = ["--json", "media", "download", "@chan", "--message-ids", "10,11"]
+    assert main([*argv, "--output", str(out)]) == 0
+    data = json.loads(capsys.readouterr().out)
+
+    assert data["skipped"] == []
+    assert [(item["message_id"], item["path"]) for item in data["items"]] == [
+        (10, str(out / "10-report.pdf")),
+        (11, str(out / "11-report.pdf")),
+    ]
+    assert (out / "10-report.pdf").read_bytes() == b"one"
+    assert (out / "11-report.pdf").read_bytes() == b"two"
+
+    assert main([*argv, "--output", str(out)]) == 0
+    rerun = json.loads(capsys.readouterr().out)
+    assert rerun["items"] == []
+    assert [item["message_id"] for item in rerun["skipped"]] == [10, 11]
