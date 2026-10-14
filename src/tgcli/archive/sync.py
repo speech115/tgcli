@@ -10,14 +10,15 @@ from typing import Any
 
 from telethon import errors as telethon_errors
 
-from tgcli import changes_cursor
 from tgcli.archive import (
+    changes as changes_engine,
+    changes_cursor,
     media as media_mod,
     scope as scope_mod,
     store as store_mod,
 )
-from tgcli.changes_cursor import ChangesCursor
-from tgcli.commands import changes as changes_cmd, media as media_cmd
+from tgcli.archive.changes_cursor import ChangesCursor
+from tgcli.commands import media as media_cmd
 from tgcli.commands.read import message_to_dict
 from tgcli.errors import PolicyError, RateLimitError
 from tgcli.output import note
@@ -161,7 +162,7 @@ async def _catch_up_peer(
         entity = await tg.get_entity(peer_id)
     except ValueError:
         return {"peer_id": peer_id, "stored": 0, "error": "unresolvable"}
-    except changes_cmd.CHANNEL_LOST_ERRORS:
+    except changes_engine.CHANNEL_LOST_ERRORS:
         return {"peer_id": peer_id, "stored": 0, "error": "channelUnavailable"}
     stored = 0
     ids: list[int] = []
@@ -196,7 +197,7 @@ async def _catch_up_peer(
             f"rate limited during archive sync catch-up of {chat!r}",
             retry_after=seconds,
         ) from exc
-    except changes_cmd.CHANNEL_LOST_ERRORS:
+    except changes_engine.CHANNEL_LOST_ERRORS:
         # The account can no longer read this channel: keep what was stored
         # and drop the catch-up instead of failing every later sync on it.
         with conn:
@@ -392,7 +393,7 @@ async def _ensure_channel_subscriptions(
             continue
         try:
             entity = await tg.get_entity(peer)
-            pts = await changes_cmd._channel_pts(tg, entity)
+            pts = await changes_engine._channel_pts(tg, entity)
         except RUN_ABORTING_ERRORS:
             raise
         except Exception as exc:
@@ -481,7 +482,7 @@ async def sync_archive(
         cursor = changes_cursor.decode(account["changes_cursor"])
         initialized = False
     else:
-        doc = await changes_cmd.init_changes(tg, peers=[])
+        doc = await changes_engine.init_changes(tg, peers=[])
         cursor = changes_cursor.decode(doc["next_cursor"])
         initialized = True
         store_mod.write_account_sync(
@@ -489,7 +490,7 @@ async def sync_archive(
         )
 
     cursor = await _ensure_channel_subscriptions(tg, conn, cursor)
-    doc, cursor, requests = await changes_cmd.once(tg, cursor, private_deletes=True)
+    doc, cursor, requests = await changes_engine.once(tg, cursor, private_deletes=True)
     events = list(doc.get("events") or [])
     applied = apply_events(conn, events)
     await _enrich_private_identity(tg, conn, events)
@@ -627,7 +628,7 @@ async def rebaseline(tg, conn: sqlite3.Connection) -> dict[str, Any]:
         for entry in store_mod.list_scope(conn)
         if has_own_updates(entry)
     ]
-    doc = await changes_cmd.init_changes(tg, peers=peers)
+    doc = await changes_engine.init_changes(tg, peers=peers)
     encoded = store_mod.write_account_sync(
         conn,
         changes_cursor=doc["next_cursor"],

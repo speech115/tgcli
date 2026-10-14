@@ -37,14 +37,14 @@ from telethon.tl.types.updates import (
 )
 
 from tests.conftest import FakeClient, make_session_fake
-from tgcli import changes_cursor
 from tgcli.archive import (
     backfill as backfill_mod,
+    changes_cursor,
     limits,
     store as store_mod,
     sync as sync_mod,
 )
-from tgcli.changes_cursor import ChangesCursor
+from tgcli.archive.changes_cursor import ChangesCursor
 from tgcli.cli import main
 from tgcli.commands import archive as archive_cmd
 from tgcli.governor import pacing
@@ -1408,7 +1408,7 @@ def test_sync_max_runtime_stops_before_catchup_and_media(
         raise AssertionError("expired sync must not start media")
 
     monkeypatch.setattr(sync_mod, "_ensure_channel_subscriptions", keep_subscriptions)
-    monkeypatch.setattr(sync_mod.changes_cmd, "once", one_activity)
+    monkeypatch.setattr(sync_mod.changes_engine, "once", one_activity)
     monkeypatch.setattr(sync_mod.media_cmd, "download_media", unexpected_download)
     monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: 0.0)
 

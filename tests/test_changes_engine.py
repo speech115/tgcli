@@ -37,9 +37,8 @@ from telethon.tl.types.updates import (
     State,
 )
 
-from tgcli import changes_cursor
-from tgcli.changes_cursor import ChangesCursor
-from tgcli.commands import changes as changes_cmd
+from tgcli.archive import changes as changes_cmd, changes_cursor
+from tgcli.archive.changes_cursor import ChangesCursor
 
 
 def _state(pts=10, qts=1, seq=2, date=None):

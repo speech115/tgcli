@@ -35,8 +35,9 @@ from telethon.tl.types.updates import (
     DifferenceTooLong,
 )
 
-from tgcli import changes_cursor, chatref
-from tgcli.changes_cursor import ChangesCursor
+from tgcli import chatref
+from tgcli.archive import changes_cursor
+from tgcli.archive.changes_cursor import ChangesCursor
 from tgcli.commands.read import message_to_dict
 from tgcli.errors import ConfigError, NotFoundError, PolicyError
 from tgcli.output import note
@@ -417,20 +418,16 @@ async def once(
     return {"events": events, "gap": gap, "skipped": skipped}, cursor, all_requests
 
 
-def _document(
-    doc: dict, cursor: ChangesCursor, *, binding_key: bytes | None = None
-) -> dict:
+def _document(doc: dict, cursor: ChangesCursor) -> dict:
     return {
         "events": doc["events"],
-        "next_cursor": changes_cursor.encode(cursor, binding_key=binding_key),
+        "next_cursor": changes_cursor.encode(cursor),
         "gap": doc["gap"],
         "skipped": doc["skipped"],
     }
 
 
-async def init_changes(
-    tg, peers: list[str] | None = None, *, binding_key: bytes | None = None
-) -> dict:
+async def init_changes(tg, peers: list[str] | None = None) -> dict:
     state = await tg(GetStateRequest())
     cursor = _from_state(state)
     for ref in peers or ():
@@ -439,8 +436,4 @@ async def init_changes(
         pts = await _channel_pts(tg, entity)
         cursor = changes_cursor.with_channel(cursor, peer, pts)
         note(f"subscribed {peer} at pts {pts} (no history replay)")
-    return _document(
-        {"events": [], "gap": None, "skipped": {}},
-        cursor,
-        binding_key=binding_key,
-    )
+    return _document({"events": [], "gap": None, "skipped": {}}, cursor)

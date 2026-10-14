@@ -13,9 +13,12 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from tgcli import changes_cursor as cursor_codec
-from tgcli.archive import store as store_mod, sync_state as sync_state_mod
-from tgcli.changes_cursor import ChangesCursor
+from tgcli.archive import (
+    changes_cursor as cursor_codec,
+    store as store_mod,
+    sync_state as sync_state_mod,
+)
+from tgcli.archive.changes_cursor import ChangesCursor
 
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
