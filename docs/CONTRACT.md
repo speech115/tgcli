@@ -1747,7 +1747,11 @@ scope channels are subscribed into the cursor. Apply vocabulary:
 peers auto-enter `sync_state`; `message_delete` → tombstones (channel
 deletes carry `peer`; private `UpdateDeleteMessages` are resolved against
 local message ids); `channel_activity` for scoped channels/groups triggers
-a bounded catch-up (`iter_messages` with `min_id`). Difference events from
+a bounded catch-up (`iter_messages` with `min_id`). A peer with a stored
+`newest_id` is read oldest first, so a page cut short never leaves a hole;
+its `catchups[]` item carries `more: true` when the page was full, and the
+run reports `remaining: true`. A peer with no stored history keeps only its
+newest page (`more: false`); older messages belong to `backfill`. Difference events from
 the poll are **always applied in full** before the cursor advances — there
 is no apply-side truncation (dropping a tail while advancing the cursor
 would silently lose archive history). Caps bound the expensive catch-up
