@@ -48,7 +48,15 @@ deleted.
    TGCLI_READONLY=1 TGCLI_STATE_DIR="$SCRATCH" uv run tg --json clone status
    ```
 
-4. Report what you ran and what came back: commands, exit codes, and the JSON
+4. Check that the tests pin what you changed. This flips each comparison and
+   `and`/`or` on your changed lines in a scratch copy and runs the suite; a
+   `SURVIVED` line is a behavior no test would catch breaking, or dead code:
+
+   ```bash
+   uv run python scripts/mutate.py
+   ```
+
+5. Report what you ran and what came back: commands, exit codes, and the JSON
    keys and values that prove the change. Don't paste message text, names, or
    phone numbers from a real account into chat or a PR. Show keys, counts, and
    ids instead.
