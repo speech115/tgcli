@@ -33,7 +33,15 @@ def sanitize(text: str) -> str:
 
 
 def emit_json(data) -> None:
-    sys.stdout.write(_json_line(data))
+    # Encoded whole before the first write, so a late encoding error leaves
+    # stdout empty for the error envelope; escaped per chunk, so a large
+    # document (clone export-state) is held once, not twice.
+    encoder = json.JSONEncoder(ensure_ascii=False, default=str)
+    chunks = [
+        chunk.translate(_JSON_CONTROL_ESCAPES) for chunk in encoder.iterencode(data)
+    ]
+    sys.stdout.writelines(chunks)
+    sys.stdout.write("\n")
     # Flush here so a reader that hung up raises BrokenPipeError while cli.py
     # can still handle it, not during interpreter shutdown.
     sys.stdout.flush()
