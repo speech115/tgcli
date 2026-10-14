@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from tgcli.clone import statedb
+from tgcli.clone.ids import DestCommentId, DestPostId, SourceCommentId, SourcePostId
 from tgcli.errors import PolicyError
 from tgcli.output import note
 from tgcli.session import ensure_state_dir, state_dir
@@ -128,7 +129,8 @@ class CloneState:
     destination_username: str | None = None
     creation_marker: str | None = None
     cursor: int = 0
-    id_map: dict[str, int] = field(default_factory=dict)
+    # Keys are str(SourcePostId); persisted as plain ints.
+    id_map: dict[str, DestPostId] = field(default_factory=dict)
     # Legacy ADR-0045 deadline: kept and reported, no longer written or enforced.
     retry_not_before: str | None = None
     created_at: str = ""
@@ -137,12 +139,13 @@ class CloneState:
     discussion_destination_peer_id: int | None = None
     discussion_linked: bool = False
     discussion_cursor: int = 0
-    discussion_id_map: dict[str, int] = field(default_factory=dict)
+    # Keys are str(SourceCommentId).
+    discussion_id_map: dict[str, DestCommentId] = field(default_factory=dict)
     comments: str = "none"
     avatar_photo_ids: dict[str, int] = field(default_factory=dict)
     # Source discussion anchor id -> destination anchor id, so a later run
     # places a comment without re-reading either anchor.
-    anchor_map: dict[str, int] = field(default_factory=dict)
+    anchor_map: dict[str, DestCommentId] = field(default_factory=dict)
     pinned_dest_id: int | None = None
     pin_occupied: bool = False
     _persisted: bool = field(default=False, init=False, repr=False, compare=False)
@@ -187,7 +190,9 @@ class CloneState:
     def clone_id(self) -> str:
         return clone_id(self.account_user_id, self.source_peer_id, self.source_kind)
 
-    def record_mapping(self, source_id: int, destination_id: int) -> None:
+    def record_mapping(
+        self, source_id: SourcePostId, destination_id: DestPostId
+    ) -> None:
         key = str(source_id)
         self.id_map[key] = destination_id
         self._dirty_id_map.add(key)
@@ -200,15 +205,19 @@ class CloneState:
     def avatar_for(self, source_peer_id: int) -> int | None:
         return self.avatar_photo_ids.get(str(source_peer_id))
 
-    def record_anchor(self, source_anchor_id: int, destination_anchor_id: int) -> None:
+    def record_anchor(
+        self, source_anchor_id: SourceCommentId, destination_anchor_id: DestCommentId
+    ) -> None:
         key = str(source_anchor_id)
         self.anchor_map[key] = destination_anchor_id
         self._dirty_anchor_map.add(key)
 
-    def anchor_dest_for(self, source_anchor_id: int) -> int | None:
+    def anchor_dest_for(
+        self, source_anchor_id: SourceCommentId
+    ) -> DestCommentId | None:
         return self.anchor_map.get(str(source_anchor_id))
 
-    def dest_for(self, source_id: int) -> int | None:
+    def dest_for(self, source_id: SourcePostId) -> DestPostId | None:
         return self.id_map.get(str(source_id))
 
     def record_topic(self, source_topic_id: int, destination_topic_id: int) -> None:
@@ -230,12 +239,14 @@ class CloneState:
     def topic_dest_for(self, source_topic_id: int) -> int | None:
         return self.topic_map.get(str(source_topic_id))
 
-    def record_discussion_mapping(self, source_id: int, destination_id: int) -> None:
+    def record_discussion_mapping(
+        self, source_id: SourceCommentId, destination_id: DestCommentId
+    ) -> None:
         key = str(source_id)
         self.discussion_id_map[key] = destination_id
         self._dirty_discussion_id_map.add(key)
 
-    def discussion_dest_for(self, source_id: int) -> int | None:
+    def discussion_dest_for(self, source_id: SourceCommentId) -> DestCommentId | None:
         return self.discussion_id_map.get(str(source_id))
 
     def clear_discussion_progress(self) -> None:

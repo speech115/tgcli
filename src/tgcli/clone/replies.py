@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from telethon.tl import types
 
 from tgcli.clone import attribution
+from tgcli.clone.legs import Leg
 from tgcli.errors import PolicyError
 
 _FLATTEN_FIELDS = ("todo_item_id", "poll_option")
@@ -72,23 +73,9 @@ def _peer_matches_id(peer, peer_id: int | None) -> bool:
     return False
 
 
-def _other_source_peer_id(leg) -> int | None:
-    clone_state = leg.clone_state
-    if leg.map_field == "discussion_id_map":
-        return clone_state.source_peer_id
-    return clone_state.discussion_source_peer_id
-
-
-def _other_dest_for(leg, source_id: int) -> int | None:
-    clone_state = leg.clone_state
-    if leg.map_field == "discussion_id_map":
-        return clone_state.dest_for(source_id)
-    return clone_state.discussion_dest_for(source_id)
-
-
 def _classify_header(
     header,
-    leg,
+    leg: Leg,
     source,
     *,
     posts_cursor: int | None = None,
@@ -137,15 +124,15 @@ def _classify_header(
         )
 
     if peer is not None and not attribution.same_peer(peer, source):
-        if _peer_matches_id(peer, _other_source_peer_id(leg)):
-            if _other_dest_for(leg, parent_id) is not None:
+        if _peer_matches_id(peer, leg.other.source_peer_id):
+            if leg.other.dest_for(parent_id) is not None:
                 return result("mapped-cross-leg")
             # Discussion leg only (ADR-0051): parent beyond the posts cursor
             # means "not copied yet" → defer, unless the posts leg is already
             # exhausted (parent will never arrive) → flatten. Parent behind
             # the cursor and absent means permanently gone → flatten.
             if (
-                leg.map_field == "discussion_id_map"
+                leg.kind == "discussion"
                 and posts_cursor is not None
                 and parent_id > posts_cursor
                 and not posts_exhausted
@@ -168,7 +155,7 @@ def _classify_header(
 
 def target(
     messages,
-    leg,
+    leg: Leg,
     source,
     *,
     posts_cursor: int | None = None,
@@ -194,7 +181,9 @@ def target(
     return leading
 
 
-def input_reply(classified: Classification, leg) -> types.InputReplyToMessage | None:
+def input_reply(
+    classified: Classification, leg: Leg
+) -> types.InputReplyToMessage | None:
     """Build the native reply input for a mapped-in-leg classification."""
     if classified.kind != "mapped-in-leg" or classified.parent_id is None:
         return None

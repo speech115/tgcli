@@ -18,6 +18,7 @@ from datetime import timedelta
 from telethon import errors as telethon_errors
 from telethon.tl import types
 
+from tgcli.clone.legs import Leg
 from tgcli.session import TRANSIENT_ERRORS
 
 # One messages.Search per reposted post against the ADR-0045 flood budget. The
@@ -28,7 +29,7 @@ SEARCH_LIMIT = 20
 _GROUP_KEY = "source-group"
 
 
-def eligible(leg, messages, plan) -> bool:
+def eligible(leg: Leg, messages, plan) -> bool:
     """Whether a batch may spend a search on proving its original.
 
     Only a lone protected broadcast repost with nothing else in flight

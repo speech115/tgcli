@@ -15,6 +15,8 @@ from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
 from tgcli.clone import attribution, discussion, quote_fallback, replies, transport
+from tgcli.clone.ids import DestCommentId, DestPostId, SourceCommentId, SourcePostId
+from tgcli.clone.legs import Leg
 from tgcli.session import TRANSIENT_ERRORS
 
 
@@ -28,8 +30,10 @@ class ResolveContext:
     source_group: object | None = None
     destination_group: object | None = None
     source_channel_id: int | None = None
-    anchors: dict = field(default_factory=dict)
-    anchor_cache: dict = field(default_factory=dict)
+    # Source anchor (an auto-forward in the source group) -> its source post.
+    anchors: dict[SourceCommentId, SourcePostId | None] = field(default_factory=dict)
+    # Destination post -> its anchor in the destination group (per run).
+    anchor_cache: dict[DestPostId, DestCommentId | None] = field(default_factory=dict)
     peer_reachable: dict = field(default_factory=dict)
     peer_entities: dict = field(default_factory=dict)
     peer_titles: dict = field(default_factory=dict)
@@ -111,16 +115,9 @@ async def _peer_title(ctx: ResolveContext, peer, message) -> str | None:
     return title
 
 
-def _other_dest(leg, source_id: int) -> int | None:
-    clone_state = leg.clone_state
-    if leg.map_field == "discussion_id_map":
-        return clone_state.dest_for(source_id)
-    return clone_state.discussion_dest_for(source_id)
-
-
 async def _destination_anchor(
-    ctx: ResolveContext, destination_post_id: int
-) -> int | None:
+    ctx: ResolveContext, destination_post_id: DestPostId
+) -> DestCommentId | None:
     if ctx.destination is None:
         return None
     return await discussion.anchor_for(
@@ -129,16 +126,16 @@ async def _destination_anchor(
 
 
 async def _cross_leg_reply(
-    classified: replies.Classification, leg, ctx: ResolveContext
+    classified: replies.Classification, leg: Leg, ctx: ResolveContext
 ) -> types.InputReplyToMessage | None:
     assert classified.parent_id is not None
-    destination_post_id = _other_dest(leg, classified.parent_id)
+    destination_post_id = leg.other.dest_for(classified.parent_id)
     if destination_post_id is None:
         return None
     reply_to_peer_id = None
     # Discussion leg quotes a channel post: point at the destination's
     # discussion anchor for that post (same walk as thread-root remap).
-    if leg.map_field == "discussion_id_map":
+    if leg.kind == "discussion":
         found = await _destination_anchor(ctx, destination_post_id)
         if found is None:
             return None
@@ -170,7 +167,7 @@ async def _cross_leg_reply(
 
 
 async def _foreign_native(
-    classified: replies.Classification, leg, ctx: ResolveContext
+    classified: replies.Classification, leg: Leg, ctx: ResolveContext
 ) -> types.InputReplyToMessage | None:
     assert classified.parent_id is not None and classified.peer is not None
     input_peer = await ctx.tg.get_input_entity(classified.peer)
@@ -188,21 +185,24 @@ async def _foreign_native(
     )
 
 
-async def _source_post(ctx: ResolveContext, anchor_id: int):
+async def _source_post(
+    ctx: ResolveContext, anchor_id: SourceCommentId
+) -> SourcePostId | None:
     if ctx.source_group is None or ctx.source_channel_id is None:
         return None
     if anchor_id not in ctx.anchors:
         found = await ctx.tg.get_messages(ctx.source_group, ids=anchor_id)
-        ctx.anchors[anchor_id] = (
+        post_id = (
             None
             if found is None
             else discussion.autoforward_post_id(found, ctx.source_channel_id)
         )
+        ctx.anchors[anchor_id] = None if post_id is None else SourcePostId(post_id)
     return ctx.anchors[anchor_id]
 
 
 async def _place_thread(
-    messages, plan: transport.TransportPlan, leg, ctx: ResolveContext
+    messages, plan: transport.TransportPlan, leg: Leg, ctx: ResolveContext
 ) -> transport.TransportPlan:
     """Re-point a comment's thread root at the destination's own anchor.
 
@@ -210,7 +210,7 @@ async def _place_thread(
     """
     # Only a comment has a thread root: a post's parent id names the channel,
     # and the group's own message under that id may anchor an unrelated post.
-    if leg.map_field != "discussion_id_map":
+    if leg.kind != "discussion":
         return plan
     if ctx.source_group is None or ctx.source_channel_id is None:
         return plan
@@ -228,11 +228,12 @@ async def _place_thread(
         root = header.reply_to_msg_id
     if root is None:
         return plan
+    anchor_id = SourceCommentId(root)
     # A resolved root is remembered in clone state, so later runs skip both
     # anchor reads.
-    found = leg.clone_state.anchor_dest_for(root)
+    found = leg.clone_state.anchor_dest_for(anchor_id)
     if found is None:
-        post_id = await _source_post(ctx, root)
+        post_id = await _source_post(ctx, anchor_id)
         destination_post_id = (
             None if post_id is None else leg.clone_state.dest_for(post_id)
         )
@@ -254,7 +255,7 @@ async def _place_thread(
         found = await _destination_anchor(ctx, destination_post_id)
         if found is None:
             return plan
-        leg.clone_state.record_anchor(root, found)
+        leg.clone_state.record_anchor(anchor_id, found)
     if top is None:
         reply_to = types.InputReplyToMessage(
             reply_to_msg_id=found,
@@ -304,7 +305,7 @@ async def _unreachable_fallback(
 async def resolve(
     messages,
     plan: transport.TransportPlan,
-    leg,
+    leg: Leg,
     source,
     ctx: ResolveContext,
     *,
@@ -359,7 +360,7 @@ async def resolve(
 
 
 def degrade_to_fallback(
-    messages, plan: transport.TransportPlan, leg, source, ctx: ResolveContext
+    messages, plan: transport.TransportPlan, leg: Leg, source, ctx: ResolveContext
 ) -> transport.TransportPlan:
     """A reachable foreign send that Telegram rejected → rendered fallback."""
     classified = replies.target(messages, leg, source)
@@ -378,7 +379,9 @@ def degrade_to_fallback(
     )
 
 
-def _degraded_placement(plan, classified: replies.Classification, leg) -> int | None:
+def _degraded_placement(
+    plan, classified: replies.Classification, leg: Leg
+) -> int | None:
     """Keep the thread the rejected send had already resolved (ADR-0036 §2).
 
     ``_place_thread`` walks source anchor -> post -> destination anchor, and a
@@ -401,7 +404,7 @@ def foreign_quote_reply(plan) -> bool:
     )
 
 
-async def send_with_degrade(send, messages, plan, leg, source, ctx):
+async def send_with_degrade(send, messages, plan, leg: Leg, source, ctx):
     """Retry once with fallback when a native foreign quote is rejected."""
     try:
         return await send(plan)
