@@ -29,6 +29,7 @@ from telethon.tl.types import (
 from telethon.tl.types.updates import (
     ChannelDifference,
     ChannelDifferenceEmpty,
+    ChannelDifferenceTooLong,
     Difference,
     DifferenceEmpty,
     DifferenceTooLong,
@@ -610,6 +611,176 @@ def test_sync_survives_a_subscribed_channel_the_account_lost(
     # The next run neither aborts nor reports the same loss again.
     assert main(["archive", "sync", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["gap"] is None
+
+
+def _broadcast(channel_id: int) -> Channel:
+    return Channel(
+        id=channel_id,
+        title=f"C{channel_id}",
+        photo=None,
+        date=datetime(2026, 1, 1, tzinfo=UTC),
+        access_hash=99,
+        megagroup=False,
+    )
+
+
+def _seed_channel_cursor(channels: list[tuple[Channel, int]]) -> None:
+    """Scope each channel and store a cursor subscribed at the given pts."""
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        for channel, _pts in channels:
+            store_mod.add_scope(
+                conn,
+                peer_id=utils.get_peer_id(channel),
+                kind="channel",
+                title=channel.title,
+                username=None,
+                chat_ref=str(utils.get_peer_id(channel)),
+            )
+        cursor = ChangesCursor(
+            pts=5,
+            qts=1,
+            date=1_735_689_600,
+            seq=1,
+            channels={utils.get_peer_id(ch): pts for ch, pts in channels},
+        )
+        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _saved_cursor() -> ChangesCursor:
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        return changes_cursor.decode(
+            store_mod.read_account_sync(conn)["changes_cursor"]
+        )
+    finally:
+        conn.close()
+
+
+def test_sync_keeps_the_pages_read_before_a_channel_was_lost(
+    config_env, monkeypatch, capsys
+):
+    """Access lost on a later page of a paginated channel difference used to
+    throw away the pages already read; the peer left the cursor, so those
+    messages were never stored and no later sync could fetch them again."""
+    lost = _broadcast(1234)
+    lost_peer = utils.get_peer_id(lost)
+
+    class MidPollLossClient(FakeClient):
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, GetStateRequest):
+                return _state(pts=5, qts=1, seq=1)
+            if isinstance(request, GetDifferenceRequest):
+                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=1)
+            if isinstance(request, GetChannelDifferenceRequest) and request.pts == 3:
+                return ChannelDifference(
+                    pts=6,
+                    new_messages=[
+                        _msg(mid=10, text="before loss", peer=PeerChannel(1234))
+                    ],
+                    other_updates=[],
+                    chats=[lost],
+                    users=[],
+                    final=False,
+                )
+            # The next page, and any catch-up, finds the channel gone.
+            raise telethon_errors.ChannelPrivateError(request=request)
+
+    client = MidPollLossClient(me=_me(), entities={lost_peer: lost})
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    _seed_channel_cursor([(lost, 3)])
+
+    assert main(["archive", "sync", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["gap"]["scope"] == lost_peer
+    assert data["gap"]["reason"] == "channelUnavailable"
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        row = conn.execute(
+            "SELECT text FROM messages WHERE peer_id = ? AND message_id = ?",
+            (lost_peer, 10),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    assert row["text"] == "before loss"
+    assert _saved_cursor().channels == {}
+
+
+@pytest.mark.parametrize("second_failure", ["lost", "too_long"])
+def test_sync_reports_every_channel_gap_one_pass_at_a_time(
+    config_env, monkeypatch, capsys, second_failure
+):
+    """A pass reports one gap. A second channel losing updates in the same
+    pass used to be dropped (or jumped ahead) anyway, so its loss was never
+    reported. It now stays at its last applied pts until a later pass can
+    report it."""
+    first, second, live = _broadcast(1111), _broadcast(2222), _broadcast(3333)
+    first_peer, second_peer, live_peer = (
+        utils.get_peer_id(first),
+        utils.get_peer_id(second),
+        utils.get_peer_id(live),
+    )
+    reason = {"lost": "channelUnavailable", "too_long": "channelDifferenceTooLong"}[
+        second_failure
+    ]
+
+    class TwoGapsClient(FakeClient):
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, GetStateRequest):
+                return _state(pts=5, qts=1, seq=1)
+            if isinstance(request, GetDifferenceRequest):
+                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=1)
+            if isinstance(request, GetChannelDifferenceRequest):
+                channel_id = request.channel.channel_id
+                if channel_id == second.id:
+                    raise telethon_errors.ChannelPrivateError(request=request)
+                if channel_id == first.id:
+                    if second_failure == "lost":
+                        raise telethon_errors.ChannelPrivateError(request=request)
+                    return ChannelDifferenceTooLong(
+                        dialog=SimpleNamespace(pts=90),
+                        messages=[],
+                        chats=[],
+                        users=[],
+                        final=True,
+                    )
+                return ChannelDifferenceEmpty(pts=20, final=True)
+            if isinstance(request, GetFullChannelRequest):
+                raise telethon_errors.ChannelPrivateError(request=request)
+            raise AssertionError(request)
+
+    client = TwoGapsClient(
+        me=_me(),
+        entities={first_peer: first, second_peer: second, live_peer: live},
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    # Peers are polled in sorted order: -1002222… comes before -1001111….
+    assert sorted([first_peer, second_peer]) == [second_peer, first_peer]
+    _seed_channel_cursor([(first, 3), (second, 4), (live, 7)])
+
+    assert main(["archive", "sync", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["gap"]["scope"] == second_peer
+    assert data["gap"]["reason"] == "channelUnavailable"
+    saved = _saved_cursor()
+    assert second_peer not in saved.channels
+    assert saved.channels[first_peer] == 3
+    assert saved.channels[live_peer] == 20
+
+    assert main(["archive", "sync", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["gap"]["scope"] == first_peer
+    assert data["gap"]["reason"] == reason
 
 
 def test_rebaseline_and_sync_leave_a_scoped_basic_group_to_the_common_tier(
