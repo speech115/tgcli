@@ -489,3 +489,21 @@ def discussion(*, id_map=None, discussion_id_map=None, source_peer_id=2):
     for source_id, destination_id in (discussion_id_map or {}).items():
         clone_state.record_discussion_mapping(source_id, destination_id)
     return legs.discussion(clone_state)
+
+
+def _inline_keyboard():
+    """A bot keyboard mixing a URL row with a callback row, as a channel post
+    carries it: the URL row is the only class Telegram ever re-renders on a
+    forward, and neither class survives a reupload (ADR-0085)."""
+    return types.ReplyInlineMarkup(
+        rows=[
+            types.KeyboardButtonRow(
+                buttons=[
+                    types.KeyboardButtonUrl(text="Open", url="https://example.com")
+                ]
+            ),
+            types.KeyboardButtonRow(
+                buttons=[types.KeyboardButtonCallback(text="Vote", data=b"v")]
+            ),
+        ]
+    )
