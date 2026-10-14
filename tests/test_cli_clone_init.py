@@ -1246,6 +1246,56 @@ def test_plain_reinit_keeps_posts_only_clone_with_copied_posts(
     )
 
 
+def test_plain_reinit_restores_comments_when_source_relinks_same_group(
+    config_env, monkeypatch, capsys
+):
+    """A clone that was linked when its posts copied has their anchors. If the
+    source unlinks its group for a while (init records "none") and then links
+    the same group again, a plain re-init restores "enabled"."""
+    clone_state = state.CloneState.new(
+        account_user_id=42, source_peer_id=123, source_title="Source channel"
+    )
+    clone_state.creation_marker = f"tgcli-clone-{clone_state.clone_id[:12]}"
+    clone_state.destination_peer_id = 999
+    clone_state.comments = "enabled"
+    clone_state.discussion_source_peer_id = 777
+    clone_state.discussion_destination_peer_id = 1001
+    clone_state.discussion_linked = True
+    for source_id in range(1, 51):
+        clone_state.record_mapping(source_id, source_id + 1000)
+    state.save(clone_state)
+    client = CloneInitClient()
+    client.destination = channel(999, "[Clone] Source channel", creator=True)
+    client.discussion = channel(
+        1001,
+        "[Clone] Source chat",
+        creator=True,
+        broadcast=False,
+        megagroup=True,
+        forum=False,
+    )
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["clone"]["comments"] == "none"
+
+    client.linked = linked_group()
+    preview = stored_preview()
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["clone"]["comments"] == "enabled"
+    saved = state.load(result["clone"]["id"])
+    assert saved.discussion_destination_peer_id == 1001
+    assert saved.discussion_linked is True
+
+
 def test_plain_reinit_upgrades_unavailable_clone_with_no_copied_posts(
     config_env, monkeypatch, capsys
 ):

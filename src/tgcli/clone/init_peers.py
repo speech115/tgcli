@@ -132,9 +132,14 @@ async def init_discussion(
     if linked is None:
         clone_state.comments = "none"
         return state.save(clone_state)
-    if clone_state.comments != "enabled" and clone_state.id_map:
+    relinking = (
+        clone_state.discussion_linked
+        and clone_state.discussion_source_peer_id == linked
+    )
+    if clone_state.comments != "enabled" and clone_state.id_map and not relinking:
         # ADR-0023: posts copied before the link have no anchors, and there
         # is no backfill, so a posts-only clone is never upgraded in place.
+        # A clone that was linked to this same group already has them.
         note(
             f"note: clone comments stay {clone_state.comments}: posts were "
             "copied without a linked discussion; re-run clone init --replace "
