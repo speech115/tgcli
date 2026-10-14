@@ -986,8 +986,11 @@ resolved path, existence, lock probe, and `authorized: null`.
 `--plain` emits: `alias`, `exists`, `bytes`, `modified`, `locked`, `backup`,
 `authorized`.
 
-`accounts remove` deletes the named `[accounts.<alias>]` block and, unless
-`--keep-session`, the session file and its `.bak`. Without `--confirm` it
+`accounts remove` deletes the named `[accounts.<alias>]` table (any TOML
+spelling of its header, and its subtables) and, unless `--keep-session`, the
+session file, its role sessions, and their `.bak` files. When the alias would
+still be in config afterwards (say, written as a dotted key), it exits 3 and
+deletes nothing. Without `--confirm` it
 deletes nothing, prints a `--confirm` hint to stderr, and exits 2. It refuses
 (exit 2) when the account lock is held, when the alias is `default_account`,
 or under `--readonly` / `TGCLI_READONLY=1` with `--confirm`. `TGCLI_NO_SEND`
@@ -1001,10 +1004,13 @@ rejected (exit 2). A missing role file exits 4. The audit action is
 keeps `"config": "unchanged"`.
 
 ```json
-{"alias": "x", "config": "removed", "session": "deleted", "backup": "deleted"}
+{"alias": "x", "config": "removed", "session": "deleted", "backup": "deleted",
+ "roles": {"bot": "deleted"}}
 ```
 
-`session` / `backup` are `deleted`, `kept` (`--keep-session`), or `absent`.
+`session` / `backup` are `deleted`, `kept` (`--keep-session`), or `absent`;
+`roles` maps each role session to `deleted` or `kept` (`{}` when there are none,
+absent with `--role`).
 `--plain` emits: `alias`, `config`, `session`, `backup`, `role` (empty when
 removing the whole account).
 

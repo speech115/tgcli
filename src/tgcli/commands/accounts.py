@@ -1,5 +1,7 @@
 import json
 import sqlite3
+import tomllib
+from contextlib import ExitStack
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -79,23 +81,48 @@ def show_rows(data: dict) -> list[tuple]:
     ]
 
 
+def _table_path(line: str) -> tuple[str, ...] | None:
+    """The key path a `[table]` header line opens, or None for other lines."""
+    stripped = line.strip()
+    if not stripped.startswith("["):
+        return None
+    try:
+        parsed: object = tomllib.loads(stripped)
+    except tomllib.TOMLDecodeError:
+        return None  # a line inside a multi-line array, not a header
+    path: list[str] = []
+    while isinstance(parsed, dict) and len(parsed) == 1:
+        key, parsed = next(iter(parsed.items()))
+        path.append(key)
+    return tuple(path)
+
+
 def _remove_config_block(config_path: Path, alias: str) -> None:
-    """Drop `[accounts.<alias>]` while preserving unrelated text and comments."""
+    """Drop `[accounts.<alias>]` and its subtables, keeping unrelated text and
+    comments. Refuses, writing nothing, unless the result parses without the
+    alias: the caller deletes sessions only after this returns."""
     text = config_path.read_text()
-    header = f"[accounts.{alias}]"
-    lines = text.splitlines(keepends=True)
     kept: list[str] = []
     skipping = False
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            skipping = stripped == header
-            if skipping:
-                continue
-        if skipping:
-            continue
-        kept.append(line)
-    atomic.replace_text(config_path, "".join(kept))
+    for line in text.splitlines(keepends=True):
+        path = _table_path(line)
+        if path is not None:
+            skipping = path[:2] == ("accounts", alias)
+        if not skipping:
+            kept.append(line)
+    result = "".join(kept)
+    try:
+        remaining = tomllib.loads(result).get("accounts", {})
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigError(
+            f"removing [accounts.{alias}] would break config: {exc}"
+        ) from exc
+    if alias in remaining:
+        raise ConfigError(
+            f"cannot find the [accounts.{alias}] table in {config_path}; "
+            "remove the account there by hand"
+        )
+    atomic.replace_text(config_path, result)
 
 
 def remove_account(
@@ -120,10 +147,21 @@ def remove_account(
             f"refusing to remove default_account {alias!r}; "
             "edit default_account in config first"
         )
-    path = session.session_path(config.accounts[alias])
+    account = config.accounts[alias]
+    path = session.session_path(account)
     bak = Path(str(path) + ".bak")
+    # Role sessions are full-access keys of the same account: they go with it,
+    # since `--role` removal is unreachable once the config block is gone.
+    role_paths = {
+        role: session.session_path(account, role=role)
+        for role in session.list_roles(account)
+    }
     session.ensure_state_dir("sessions")
-    with session.session_file_lock(path, busy_error=PolicyError):
+    with ExitStack() as locks:
+        for locked in (path, *role_paths.values()):
+            locks.enter_context(
+                session.session_file_lock(locked, busy_error=PolicyError)
+            )
         session_existed = path.is_file()
         backup_existed = bak.is_file()
 
@@ -134,6 +172,7 @@ def remove_account(
 
         session_status = _status(session_existed)
         backup_status = _status(backup_existed)
+        role_status = {role: _status(True) for role in role_paths}
 
         safety.append_audit(
             "accounts-remove",
@@ -141,6 +180,7 @@ def remove_account(
             {
                 "session": session_status,
                 "backup": backup_status,
+                "roles": role_status,
                 "keep_session": keep_session,
             },
         )
@@ -148,14 +188,16 @@ def remove_account(
         config_path = default_config_path()
         _remove_config_block(config_path, alias)
         if not keep_session:
-            path.unlink(missing_ok=True)
-            bak.unlink(missing_ok=True)
+            for removed in (path, *role_paths.values()):
+                removed.unlink(missing_ok=True)
+                Path(str(removed) + ".bak").unlink(missing_ok=True)
 
         return {
             "alias": alias,
             "config": "removed",
             "session": session_status,
             "backup": backup_status,
+            "roles": role_status,
         }
 
 
