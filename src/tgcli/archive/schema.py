@@ -7,10 +7,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from tgcli.archive import gaps as gaps_mod
 from tgcli.errors import NotFoundError, PolicyError
 from tgcli.session import ensure_state_dir, restrict_file
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 DB_NAME = "archive.db"
 TRANSCRIBABLE_MEDIA_KINDS = ("voice", "video_note")
 NO_TRANSCRIPT_MARKER = "no_transcript no transcript"
@@ -161,6 +162,8 @@ def connect(path: Path) -> sqlite3.Connection:
                 _migrate_v7_to_v8(conn)
             if version <= 8:
                 _migrate_v8_to_v9(conn)
+            if version <= 9:
+                _migrate_v9_to_v10(conn)
         elif version != SCHEMA_VERSION:
             conn.close()
             raise PolicyError(
@@ -326,6 +329,20 @@ def _migrate_v8_to_v9(conn: sqlite3.Connection) -> None:
         if "pending_catchups_json" not in cols:
             conn.execute(
                 "ALTER TABLE account_sync ADD COLUMN pending_catchups_json TEXT"
+            )
+        conn.execute("PRAGMA user_version=9")
+
+
+def _migrate_v9_to_v10(conn: sqlite3.Connection) -> None:
+    """Store every un-cleared gap: ``gap_json`` becomes a JSON array."""
+    with conn:
+        row = conn.execute("SELECT gap_json FROM account_sync WHERE id = 1").fetchone()
+        if row is not None and row[0]:
+            # A gap that does not parse still records a loss: it becomes an
+            # unreadableGap that rebaseline clears, never a crash or nothing.
+            conn.execute(
+                "UPDATE account_sync SET gap_json = ? WHERE id = 1",
+                (gaps_mod.encode(gaps_mod.parse(row[0])),),
             )
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 

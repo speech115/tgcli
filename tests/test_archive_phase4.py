@@ -117,7 +117,7 @@ def test_schema_v7_keeps_media_failure_state_without_refresh_state(tmp_path):
                 for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
             }
         )
-        assert store.schema_version(conn) == 9
+        assert store.schema_version(conn) == 10
     finally:
         conn.close()
 
@@ -143,7 +143,7 @@ def test_schema_v5_migrates_media_retry_state(tmp_path):
     conn = store.connect(path)
     try:
         row = store.transcript_row(conn, 7, 1)
-        assert store.schema_version(conn) == 9
+        assert store.schema_version(conn) == 10
         assert row["media_attempts"] == 0
         assert row["media_status"] == "done"
     finally:
@@ -185,7 +185,7 @@ def test_schema_v6_migrates_refresh_state_out_and_preserves_sync_data(tmp_path):
 
     conn = store.connect(path)
     try:
-        assert store.schema_version(conn) == 9
+        assert store.schema_version(conn) == 10
         columns = {
             row[1] for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
         }
@@ -198,7 +198,7 @@ def test_schema_v6_migrates_refresh_state_out_and_preserves_sync_data(tmp_path):
         assert dict(row) == {
             "id": 1,
             "changes_cursor": "cursor-v1",
-            "gap_json": '{"kind":"difference-too-long"}',
+            "gap_json": '[{"kind":"difference-too-long"}]',
             "last_sync_at": "2026-08-01T00:00:00+00:00",
             "last_reconcile_at": "2026-08-01T00:01:00+00:00",
             "reconcile_json": '{"sampled":1}',
@@ -233,7 +233,7 @@ def test_schema_v7_migrates_private_enum_column(tmp_path):
 
     conn = store.connect(path)
     try:
-        assert store.schema_version(conn) == 9
+        assert store.schema_version(conn) == 10
         columns = {
             row[1] for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
         }
@@ -265,11 +265,56 @@ def test_schema_v8_migrates_pending_catchups_column(tmp_path):
 
     conn = store.connect(path)
     try:
-        assert store.schema_version(conn) == 9
+        assert store.schema_version(conn) == 10
         account = store.read_account_sync(conn)
         assert account["changes_cursor"] == "cursor-v1"
         assert account["private_enum"] == {"offset_id": 3}
         assert account["pending_catchups"] == []
+    finally:
+        conn.close()
+
+
+def test_schema_v9_keeps_its_stored_gap_as_the_first_of_a_list(tmp_path):
+    path = tmp_path / "archive.db"
+    raw = sqlite3.connect(path)
+    raw.executescript(schema_mod._SCHEMA_SQL)
+    raw.execute("PRAGMA user_version=9")
+    raw.execute(
+        "INSERT INTO account_sync(id, changes_cursor, gap_json) VALUES (1, ?, ?)",
+        ("cursor-v1", '{"scope":"common","reason":"differenceTooLong"}'),
+    )
+    raw.commit()
+    raw.close()
+
+    conn = store.connect(path)
+    try:
+        assert store.schema_version(conn) == 10
+        account = store.read_account_sync(conn)
+        assert account["gaps"] == [{"scope": "common", "reason": "differenceTooLong"}]
+        assert account["gap"] == account["gaps"][0]
+        assert account["changes_cursor"] == "cursor-v1"
+    finally:
+        conn.close()
+
+
+def test_schema_v9_without_a_gap_migrates_to_no_gaps(tmp_path):
+    path = tmp_path / "archive.db"
+    raw = sqlite3.connect(path)
+    raw.executescript(schema_mod._SCHEMA_SQL)
+    raw.execute("PRAGMA user_version=9")
+    raw.execute(
+        "INSERT INTO account_sync(id, changes_cursor, gap_json) VALUES (1, ?, NULL)",
+        ("cursor-v1",),
+    )
+    raw.commit()
+    raw.close()
+
+    conn = store.connect(path)
+    try:
+        assert store.schema_version(conn) == 10
+        account = store.read_account_sync(conn)
+        assert account["gaps"] == []
+        assert account["gap"] is None
     finally:
         conn.close()
 

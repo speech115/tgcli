@@ -532,8 +532,8 @@ async def sync_archive(
     # difference.
     gap = doc.get("gap")
     encoded = changes_cursor.encode(cursor)
-    # A clean pass does not bring lost edits back: the stored gap stays until
-    # `rebaseline` clears it.
+    # A clean pass does not bring lost edits back, and a new gap joins the
+    # stored ones: every recorded gap stays until `rebaseline` clears them.
     persisted = store_mod.write_account_sync(
         conn,
         changes_cursor=encoded,
@@ -641,5 +641,6 @@ async def rebaseline(tg, conn: sqlite3.Connection) -> dict[str, Any]:
         "rebaselined": True,
         "next_cursor": encoded,
         "gap": None,
+        "gaps": [],
         "peers": peers,
     }

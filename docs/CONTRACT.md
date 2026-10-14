@@ -1708,12 +1708,15 @@ the governor refuses locally with exit 5 and no request.
 
 Per-account SQLite/WAL store under `~/.local/state/tgcli/archive/<alias>/`
 (override with `[archive] root = "…"` in `config.toml`). Directory mode
-`0700`; `archive.db` mode `0600`. Schema v7 tables: `messages`, `revisions`,
+`0700`; `archive.db` mode `0600`. Schema v10 tables: `messages`, `revisions`,
 `tombstones`, `transcripts`, `scope`, `sync_state` (with peer identity
-columns), `account_sync` (account-level update cursor + gap), plus an
+columns), `account_sync` (account-level update cursor + un-cleared gaps), plus an
 FTS5 index over message text and transcript text with
 `tokenize = "unicode61 remove_diacritics 2"` (Cyrillic `ё`/`е` folded at
-FTS write/query time). Opening a v1/v2/v3/v4 store migrates in place. The message
+FTS write/query time). Opening an older store (v1 through v9) migrates it forward in place.
+Migrating to v10 keeps a stored gap as the first entry of the gap list; a
+stored gap that cannot be read becomes one `common` gap with reason
+`unreadableGap`, which only `rebaseline` clears. The message
 payload is the universal `message_to_dict` JSON shape from `tg read` — not
 a second representation.
 
@@ -1827,9 +1830,13 @@ RPCs only: `--max-events` is the catch-up **message** budget (default
 exists in more than one matching dialog, sync tombstones every matching
 peer (MTProto does not name the peer). A `differenceTooLong`-class gap is
 stored loudly in `account_sync` until `rebaseline` (a later clean sync keeps
-it); exit **0** (a gap is data). Sync JSON `gap` reports only a gap the
-current pass hit, so a later clean sync returns `gap: null` while the stored
-gap stays visible in `archive status` until `rebaseline`. A
+it); exit **0** (a gap is data). Every gap stays stored until `rebaseline`:
+a later pass that hits a different gap adds it rather than replacing the
+older one, and a repeat of a stored gap is kept once. Sync JSON `gap`
+reports only a gap the current pass hit, so a later clean sync returns
+`gap: null`. `archive status` reports the stored gaps: `gaps` lists every
+gap not yet cleared, oldest first, and `gap` is the most recent of them
+(`null` when there is none). A
 subscribed channel the account can no longer read (private, deleted, banned)
 is dropped from the cursor with a `channelUnavailable` gap for that peer; the
 rest of the pass still advances, events read from it before the loss are
@@ -1894,7 +1901,7 @@ under readonly; `read` and `history` are also offline read-only commands.
 
 ```json
 {"created":true,"path":"…/archive/main/archive.db",
- "account":{"alias":"main","user_id":42},"schema_version":7}
+ "account":{"alias":"main","user_id":42},"schema_version":10}
 ```
 
 ```json
@@ -1906,13 +1913,13 @@ under readonly; `read` and `history` are also offline read-only commands.
 
 ```json
 {"account":{"alias":"main","user_id":42},"path":"…",
- "schema_version":7,
+ "schema_version":10,
  "counts":{"messages":0,"revisions":0,"tombstones":0,"transcripts":0,
            "scope":0,"transcript_queue":0},
  "dialogs":[],"transcript_queue":0,
  "transcript_status":{"pending":0,"retryable":0,"done":0,"no_transcript":0},
  "transcript_errors":[],"last_errors":[],
- "gap":null,"last_sync_at":null,"reconcile":null,"has_cursor":false}
+ "gap":null,"gaps":[],"last_sync_at":null,"reconcile":null,"has_cursor":false}
 ```
 
 ```json
@@ -1972,7 +1979,7 @@ under readonly; `read` and `history` are also offline read-only commands.
 
 ```json
 {"account":{"alias":"main","user_id":42},"rebaselined":true,
- "next_cursor":"v1:…","gap":null,"peers":["@news"]}
+ "next_cursor":"v1:…","gap":null,"gaps":[],"peers":["@news"]}
 ```
 
 ```json
@@ -1988,7 +1995,7 @@ under readonly; `read` and `history` are also offline read-only commands.
 terminal `no_media` row without consuming transcription attempts.
 
 `--plain` rows: `init` → `created,alias,user_id,path`; `list` → standing +
-explicit peer rows; `status` → counts summary (+ gap/cursor/transcript
+explicit peer rows; `status` → counts summary (+ gap, gaps count, cursor, transcript
 statuses); `search` → per-hit
 `peer_id,message_id,date,chat_ref|title,text,transcript,transcript_status,tg_link,snippet`;
 `read` → per-message `id,date,from_name,text,tg_link`; `history` → status,

@@ -237,7 +237,8 @@ top-level `ok` result.
 
 - An archive `gap` (lost updates) is stored until
   `tg --json archive rebaseline`. Later clean syncs keep it and return
-  `gap: null`, so check `archive status` for it.
+  `gap: null`, so check `archive status`: `gaps` lists every gap not yet
+  cleared, oldest first.
 - `clone sync` `participants.source` / `.discussion` with
   `status: "deferred"` is retried next run: `reason` is `"flood_wait"`,
   `"wall_clock_cap"` (`--max-runtime` ran out), or a Telegram error name. `"unavailable"` means Telegram refused access. These

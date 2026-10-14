@@ -913,6 +913,110 @@ def test_a_recorded_gap_survives_later_clean_syncs_until_rebaseline(
     assert json.loads(capsys.readouterr().out)["gap"] is None
 
 
+def test_every_uncleared_gap_stays_visible_until_rebaseline(
+    config_env, monkeypatch, capsys
+):
+    """The archive stored one gap: a second pass that hit a different gap
+    overwrote the first before `rebaseline`, so `archive status` silently
+    forgot the earlier loss."""
+    lost = _broadcast(1111)
+    lost_peer = utils.get_peer_id(lost)
+
+    class TooLongThenLostClient(FakeClient):
+        too_long = True
+
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, GetStateRequest):
+                return _state(pts=50, qts=2, seq=9)
+            if isinstance(request, GetDifferenceRequest):
+                if self.too_long:
+                    self.too_long = False
+                    return DifferenceTooLong(pts=50)
+                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=9)
+            if isinstance(request, GetChannelDifferenceRequest | GetFullChannelRequest):
+                if self.lost:
+                    raise telethon_errors.ChannelPrivateError(request=request)
+                return SimpleNamespace(full_chat=SimpleNamespace(pts=7))
+            raise AssertionError(request)
+
+    client = TooLongThenLostClient(me=_me(), entities={lost_peer: lost})
+    client.lost = True
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    _seed_channel_cursor([(lost, 3)])
+
+    assert main(["archive", "sync", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["gap"]["scope"] == "common"
+    assert main(["archive", "sync", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["gap"]["scope"] == lost_peer
+    assert main(["archive", "sync", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["gap"] is None
+
+    assert main(["archive", "status", "--json"]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert [(g["scope"], g["reason"]) for g in status["gaps"]] == [
+        ("common", "differenceTooLong"),
+        (lost_peer, "channelUnavailable"),
+    ]
+    assert status["gap"] == status["gaps"][-1]
+    assert main(["--plain", "archive", "status"]) == 0
+    plain = capsys.readouterr().out
+    assert "gap\tchannelUnavailable" in plain
+    assert "gaps\t2" in plain
+
+    client.lost = False  # access is back, so rebaseline can resubscribe
+    assert main(["archive", "rebaseline", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["gaps"] == []
+    assert main(["archive", "status", "--json"]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["gap"] is None
+    assert status["gaps"] == []
+
+
+@pytest.mark.parametrize(
+    "stored", ["{not json", '"a string"', "[1, 2]", '[{"reason":"x"}, 3]']
+)
+def test_an_unreadable_v9_gap_migrates_to_a_gap_that_rebaseline_clears(
+    config_env, monkeypatch, capsys, stored
+):
+    """The v10 migration parsed the stored gap unguarded: a malformed value
+    crashed every archive command, rebaseline included, so the store could
+    never be opened again. An unreadable gap must still read as a loss."""
+
+    class StateClient(FakeClient):
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, GetStateRequest):
+                return _state(pts=50, qts=2, seq=9)
+            raise AssertionError(request)
+
+    make_session_fake(monkeypatch, StateClient(me=_me()))
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        store_mod.write_account_sync(conn, changes_cursor="v1:stale")
+        conn.execute("UPDATE account_sync SET gap_json = ? WHERE id = 1", (stored,))
+        conn.execute("PRAGMA user_version=9")
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert main(["archive", "status", "--json"]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["schema_version"] == store_mod.SCHEMA_VERSION
+    assert [g["reason"] for g in status["gaps"]] == ["unreadableGap"]
+    assert status["gap"]["scope"] == "common"
+    assert status["gap"]["recover"]["edits_deletes"] == "lost"
+
+    assert main(["archive", "rebaseline", "--json"]) == 0
+    capsys.readouterr()
+    assert main(["archive", "status", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["gaps"] == []
+
+
 def test_sync_and_rebaseline_readonly_blocked(config_env, monkeypatch, capsys):
     make_session_fake(monkeypatch, _client())
     assert main(["archive", "init", "--json"]) == 0

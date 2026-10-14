@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
 
 from telethon import errors as telethon_errors, utils
 from telethon.tl import types
@@ -36,7 +35,7 @@ from telethon.tl.types.updates import (
 )
 
 from tgcli import chatref
-from tgcli.archive import changes_cursor
+from tgcli.archive import changes_cursor, gaps as gaps_mod
 from tgcli.archive.changes_cursor import ChangesCursor
 from tgcli.commands.read import message_to_dict
 from tgcli.errors import ConfigError, NotFoundError, PolicyError
@@ -239,17 +238,6 @@ def _map_difference_events(
     return events
 
 
-def _gap(scope, *, reason: str) -> dict:
-    recover: dict[str, Any] = {"edits_deletes": "lost"}
-    if scope == "common":
-        recover["creation"] = (
-            "re-read chats of interest with: tg read CHAT --after-id N"
-        )
-    else:
-        recover["creation"] = f"re-read with: tg read {scope} --after-id N"
-    return {"scope": scope, "reason": reason, "recover": recover}
-
-
 async def _poll_common(
     tg, cursor: ChangesCursor, *, skipped: dict, private_deletes: bool = False
 ) -> tuple[list[dict], ChangesCursor, dict | None, list]:
@@ -272,7 +260,7 @@ async def _poll_common(
             seq = int(result.seq)
             break
         if isinstance(result, DifferenceTooLong):
-            gap = _gap("common", reason="differenceTooLong")
+            gap = gaps_mod.gap("common", reason="differenceTooLong")
             state_req = GetStateRequest()
             requests.append(state_req)
             state = await tg(state_req)
@@ -346,7 +334,7 @@ async def _poll_channel(
                 else:
                     pts = await _channel_pts(tg, entity)
                 new_cursor = changes_cursor.with_channel(cursor, peer, pts)
-                gap = _gap(peer, reason="channelDifferenceTooLong")
+                gap = gaps_mod.gap(peer, reason="channelDifferenceTooLong")
                 return events, new_cursor, gap, requests
             if isinstance(result, ChannelDifference):
                 events.extend(
@@ -371,7 +359,7 @@ async def _poll_channel(
             kept = changes_cursor.with_channel(cursor, peer, pts)
             return events, kept, None, requests
         note(lost)
-        gap = _gap(peer, reason="channelUnavailable")
+        gap = gaps_mod.gap(peer, reason="channelUnavailable")
         return events, changes_cursor.without_channel(cursor, peer), gap, requests
     return events, changes_cursor.with_channel(cursor, peer, pts), None, requests
 
