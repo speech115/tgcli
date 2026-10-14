@@ -1,7 +1,11 @@
 {
   "enabledPlugins": {
+    "claude-md-management@claude-plugins-official": true,
+    "claude-security@claude-plugins-official": true,
     "code-review@claude-plugins-official": true,
-    "code-simplifier@claude-plugins-official": true
+    "code-simplifier@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": true,
+    "pyright-lsp@claude-plugins-official": true
   },
   "env": {
     "TGCLI_READONLY": "1"
