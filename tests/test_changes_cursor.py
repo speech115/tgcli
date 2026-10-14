@@ -8,7 +8,7 @@ import json
 import pytest
 from hypothesis import given, strategies as st
 
-from tgcli.changes_cursor import (
+from tgcli.archive.changes_cursor import (
     ChangesCursor,
     decode,
     encode,

@@ -23,9 +23,8 @@ from telethon.tl.types import (
 from telethon.tl.types.updates import Difference, DifferenceEmpty, State
 
 from tests.conftest import FakeClient, make_session_fake
-from tgcli import changes_cursor
-from tgcli.archive import store as store_mod
-from tgcli.changes_cursor import ChangesCursor
+from tgcli.archive import changes_cursor, store as store_mod
+from tgcli.archive.changes_cursor import ChangesCursor
 from tgcli.cli import main
 from tgcli.commands import archive as archive_cmd
 

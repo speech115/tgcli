@@ -6,20 +6,12 @@ Pure functions only — no I/O. The caller owns the string between invocations.
 from __future__ import annotations
 
 import base64
-import hmac
 import json
 from dataclasses import dataclass, field
 
 from tgcli.errors import PolicyError
 
 CURSOR_PREFIX = "v1:"
-BOUND_CURSOR_PREFIX = "v2:"
-_BINDING_CONTEXT = b"tgcli changes cursor v2"
-_BINDING_FIELD = "binding"
-_BOUND_FIELDS = {"pts", "qts", "date", "seq", "channels", _BINDING_FIELD}
-_TOKEN_CHARS = frozenset(
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-)
 
 
 # Archive sync owns the cursor; rebaseline is how an operator resets it.
@@ -46,45 +38,17 @@ def _payload(cursor: ChangesCursor) -> dict:
     }
 
 
-def _raw(payload: dict) -> bytes:
-    return json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+def encode(cursor: ChangesCursor) -> str:
+    raw = json.dumps(_payload(cursor), separators=(",", ":"), sort_keys=True).encode()
+    return CURSOR_PREFIX + base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
-def _token(raw: bytes) -> str:
-    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
-
-
-def _binding(payload: dict, binding_key: bytes) -> str:
-    return _token(hmac.digest(binding_key, _raw(payload), "sha256"))
-
-
-def encode(cursor: ChangesCursor, *, binding_key: bytes | None = None) -> str:
-    payload = _payload(cursor)
-    prefix = CURSOR_PREFIX
-    if binding_key is not None:
-        payload[_BINDING_FIELD] = _binding(payload, binding_key)
-        prefix = BOUND_CURSOR_PREFIX
-    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
-    return prefix + base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
-
-
-def decode(
-    text: str,
-    *,
-    binding_key: bytes | None = None,
-    require_bound: bool = False,
-) -> ChangesCursor:
+def decode(text: str) -> ChangesCursor:
     if not isinstance(text, str) or not text:
         raise PolicyError(f"changes cursor is required; {REBASELINE}")
-    if text.startswith(BOUND_CURSOR_PREFIX):
-        prefix = BOUND_CURSOR_PREFIX
-        is_bound = True
-    elif text.startswith(CURSOR_PREFIX):
-        prefix = CURSOR_PREFIX
-        is_bound = False
-    else:
+    if not text.startswith(CURSOR_PREFIX):
         raise PolicyError(f"changes cursor is missing or unsupported; {REBASELINE}")
-    padded = text[len(prefix) :]
+    padded = text[len(CURSOR_PREFIX) :]
     pad = "=" * (-len(padded) % 4)
     try:
         raw = base64.urlsafe_b64decode(padded + pad)
@@ -107,29 +71,7 @@ def decode(
             channels[peer] = _nonneg_int(value, "channel pts")
     except KeyError as exc:
         raise PolicyError(f"changes cursor is corrupt; {REBASELINE}") from exc
-    cursor = ChangesCursor(pts=pts, qts=qts, date=date, seq=seq, channels=channels)
-    if is_bound:
-        supplied = payload.get(_BINDING_FIELD)
-        if (
-            set(payload) != _BOUND_FIELDS
-            or not isinstance(supplied, str)
-            or len(supplied) != 43
-            or any(char not in _TOKEN_CHARS for char in supplied)
-        ):
-            raise PolicyError(f"changes cursor is corrupt; {REBASELINE}")
-        if binding_key is not None and not hmac.compare_digest(
-            supplied, _binding(_payload(cursor), binding_key)
-        ):
-            raise _bound_error()
-    if require_bound and (not is_bound or binding_key is None):
-        raise _bound_error()
-    return cursor
-
-
-def _bound_error() -> PolicyError:
-    return PolicyError(
-        f"changes cursor is not bound to this account or was modified; {REBASELINE}"
-    )
+    return ChangesCursor(pts=pts, qts=qts, date=date, seq=seq, channels=channels)
 
 
 def with_channel(cursor: ChangesCursor, peer: int, pts: int) -> ChangesCursor:

@@ -7,7 +7,7 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
-from tgcli import changes_cursor as cursor_codec
+from tgcli.archive import changes_cursor as cursor_codec
 
 
 def list_scope(conn: sqlite3.Connection) -> list[dict[str, Any]]:
