@@ -359,7 +359,11 @@ def _adopt_checkpoint(source: MediaSource, olds: list[Path], new: Path) -> None:
         state = json.loads(state_path.read_text())
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return
-    if isinstance(state, dict) and state.get("destination") in {str(p) for p in olds}:
+    if not isinstance(state, dict):
+        return
+    destination = state.get("destination")
+    # Anything else is left for _resume_offset to refuse as a mismatch.
+    if isinstance(destination, str) and destination in [str(p) for p in olds]:
         state["destination"] = str(new)
         atomic.replace_text(state_path, json.dumps(state))
 
@@ -451,7 +455,12 @@ async def download_media(
         raise NotFoundError(f"invalid media source: {_source_label(source)}")
     destination = destination_for(safe_filename(target.filename, fallback_id), output)
     state_path, part_path = _state_paths(source)
-    if source.story_id is None and destination.name.startswith(f"media-{fallback_id}."):
+    # Only the default name changed; an explicit --output keeps its own check.
+    if (
+        output is None
+        and source.story_id is None
+        and destination.name.startswith(f"media-{fallback_id}.")
+    ):
         untyped = destination.with_name(f"media-{fallback_id}.bin")
         _adopt_checkpoint(source, [untyped], destination)
     offset = _resume_offset(state_path, part_path, source, destination, target)
