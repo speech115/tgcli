@@ -68,3 +68,18 @@ def test_emit_error_json_mode_passes_control_characters_through(capsys):
     output.emit_error(RateLimitError(HOSTILE, retry_after=1), as_json=True)
     captured = capsys.readouterr()
     assert json.loads(captured.out)["error"]["message"] == HOSTILE
+
+
+def test_emit_error_masks_phones_in_typed_errors(capsys):
+    """CONTRACT §10 promises masked phones. Only the RUNTIME path masked
+    them, so a typed error such as `phone not found: '+79991234567'` reached
+    stdout, stderr and agent transcripts raw."""
+    from tgcli.errors import NotFoundError
+
+    err = NotFoundError("phone not found: '+79991234567'")
+    output.emit_error(err, as_json=True)
+    output.emit_error(err, as_json=False)
+    captured = capsys.readouterr()
+    assert "79991234567" not in captured.out + captured.err
+    assert json.loads(captured.out)["error"]["message"] == "phone not found: '+7…67'"
+    assert "phone not found: '+7…67'" in captured.err

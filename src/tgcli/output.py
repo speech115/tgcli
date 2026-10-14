@@ -4,6 +4,7 @@ import json
 import sys
 
 from tgcli.errors import TgcliError
+from tgcli.formatting import mask_phones_in_text
 
 # CONTRACT.md §8: human/plain output strips control characters from untrusted
 # content. C0 (including tab and newline), DEL, and C1 all go — a name that
@@ -42,8 +43,11 @@ def note(message: str) -> None:
 
 
 def emit_error(err: TgcliError, *, as_json: bool) -> None:
+    # The one boundary every error leaves through, so phones are masked here
+    # (CONTRACT §10), whichever layer wrote the message.
+    message = mask_phones_in_text(str(err))
     if as_json:
-        payload = {"error": {"code": err.code, "message": str(err), **err.details}}
+        payload = {"error": {"code": err.code, "message": message, **err.details}}
         line = json.dumps(payload, ensure_ascii=False, default=str) + "\n"
         sys.stdout.write(line)
         # Same reason as emit_json: surface a hung-up reader to cli.py, not to
@@ -51,4 +55,4 @@ def emit_error(err: TgcliError, *, as_json: bool) -> None:
         sys.stdout.flush()
         sys.stderr.write(line)
     else:
-        note(f"error: {sanitize(str(err))}")
+        note(f"error: {sanitize(message)}")
