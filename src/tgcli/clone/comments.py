@@ -12,23 +12,28 @@ from telethon import errors as telethon_errors
 from telethon.tl import types
 
 from tgcli.clone import batching, discussion, legs, replies, state
+from tgcli.clone.ids import SourceCommentId, SourcePostId
 from tgcli.errors import PolicyError
 from tgcli.session import TRANSIENT_ERRORS
 
 
-def _anchor_posts(messages, source_channel_id) -> dict[int, int] | None:
+def _anchor_posts(
+    messages, source_channel_id
+) -> dict[SourceCommentId, SourcePostId] | None:
     """Anchor id -> source post id for a batch of Telegram's own auto-forwards,
     or None when the batch is real content. A channel album auto-forwards as an
     album, so an anchor batch can carry several messages."""
     found = {
-        message.id: discussion.autoforward_post_id(message, source_channel_id)
+        SourceCommentId(message.id): discussion.autoforward_post_id(
+            message, source_channel_id
+        )
         for message in messages
     }
     if all(post_id is None for post_id in found.values()):
         return None
     if any(post_id is None for post_id in found.values()):
         raise PolicyError("clone discussion anchor album is incomplete")
-    return cast(dict[int, int], found)
+    return cast(dict[SourceCommentId, SourcePostId], found)
 
 
 async def sync_phase(

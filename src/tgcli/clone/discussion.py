@@ -4,6 +4,7 @@ from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
 from tgcli.clone import topics
+from tgcli.clone.ids import DestCommentId, DestPostId
 from tgcli.errors import PolicyError
 
 # A peer id recorded in clone state can stop resolving for more reasons than a
@@ -139,8 +140,11 @@ async def ensure_linked(mutate, channel, group) -> None:
 
 
 async def anchor_for(
-    mutate, destination_channel, destination_post_id: int, cache: dict
-) -> int | None:
+    mutate,
+    destination_channel,
+    destination_post_id: DestPostId,
+    cache: dict[DestPostId, DestCommentId | None],
+) -> DestCommentId | None:
     """Destination anchor message id in the discussion group, via
     messages.getDiscussionMessage. Cached per run; None when Telegram
     returns no anchor."""
@@ -158,6 +162,6 @@ async def anchor_for(
     found = [
         item for item in anchors if type(item) is int and 0 < item <= 2_147_483_647
     ]
-    anchor = found[0] if found else None
+    anchor = DestCommentId(found[0]) if found else None
     cache[destination_post_id] = anchor
     return anchor

@@ -3,6 +3,7 @@
 from dataclasses import dataclass, replace
 
 from tgcli.clone import fidelity, replies, topics
+from tgcli.clone.legs import Leg
 
 
 @dataclass(frozen=True)
@@ -30,7 +31,7 @@ def as_reuploaded(plan: TransportPlan) -> TransportPlan:
 
 def decide(
     messages,
-    leg,
+    leg: Leg,
     source,
     *,
     posts_cursor: int | None = None,

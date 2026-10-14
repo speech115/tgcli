@@ -23,6 +23,7 @@ from tgcli.clone import (
     topics,
     transport,
 )
+from tgcli.clone.legs import Leg
 from tgcli.errors import PolicyError
 from tgcli.output import note
 from tgcli.session import TRANSIENT_ERRORS
@@ -32,7 +33,7 @@ def _body_text(message, author, plan) -> tuple[str, list | None]:
     return quote_fallback.apply_body(message, author, plan)
 
 
-def _drops_author(leg, messages) -> bool:
+def _drops_author(leg: Leg, messages) -> bool:
     """A broadcast clone hides the source-forward header on the channel's own
     posts, but a post that is itself a forward keeps drop_author=False so
     Telegram restores its original forward header instead of erasing the origin.
@@ -284,7 +285,7 @@ async def forward_batch(
     source,
     destination,
     clone_state,
-    leg,
+    leg: Leg,
     account_alias,
     messages,
     me,
