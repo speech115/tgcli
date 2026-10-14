@@ -378,7 +378,9 @@ media's file name, or `media-<message_id><ext>` with the extension of its type
 existing final path is refused and never overwritten. Progress is emitted only
 to stderr. Single-stream transfer resumes a matching interrupted partial file
 from `~/.local/state/tgcli/downloads/`; `--parallel N` is opt-in, requires a
-positive `N`, and starts a fresh offset-based transfer.
+positive `N`, and starts a fresh offset-based transfer. A partial file
+recorded under the older `media-<message_id>.bin` name resumes under the
+typed name.
 
 "Matching" means the media itself, not the path (ADR-0084): the resume record
 carries Telegram's document/photo id and the byte size, and a partial file

@@ -397,3 +397,31 @@ def test_media_download_names_an_unnamed_file_by_its_type(
     data = json.loads(capsys.readouterr().out)
     assert data["path"] == str(tmp_path / "Downloads" / expected)
     assert (tmp_path / "Downloads" / expected).read_bytes() == b"abc"
+
+
+def test_media_download_resumes_a_checkpoint_from_the_bin_name(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    from tests.conftest import ns
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    media = _photo_media()
+    client = _StreamingClient(
+        messages=[_real_message(42, media)],
+        entities={"@chan": ns(id=5, title="C")},
+    )
+    make_session_fake(monkeypatch, client)
+    # A download from before the typed name was interrupted after one byte.
+    source = media_cmd.MediaSource(chat="@chan", message_id=42, private_channel_id=None)
+    state_path, part_path = media_cmd._state_paths(source)
+    part_path.parent.mkdir(parents=True)
+    part_path.write_bytes(b"a")
+    target = media_cmd._DownloadTarget(media=media, filename="media-42.bin", size=3)
+    downloads = tmp_path / "Downloads"
+    media_cmd._write_state(state_path, source, downloads / "media-42.bin", target, 1)
+
+    assert main(["--json", "media", "download", "@chan", "42"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["path"] == str(downloads / "media-42.jpg")
+    assert data["resumed"] is True
+    assert (downloads / "media-42.jpg").read_bytes() == b"abc"

@@ -6,7 +6,12 @@ import pytest
 from telethon import errors as telethon_errors
 
 from tests.conftest import FakeClient, make_session_fake, ns
-from tests.test_cli_media import _media_message
+from tests.test_cli_media import (
+    _media_message,
+    _photo_media,
+    _real_message,
+    _StreamingClient,
+)
 from tgcli import session
 from tgcli.cli import main
 from tgcli.commands import media as media_cmd
@@ -664,3 +669,36 @@ def test_media_download_bulk_resumes_a_checkpoint_from_before_the_id_prefix(
         }
     ]
     assert (out / "10-report.pdf").read_bytes() == b"one"
+
+
+def test_media_download_bulk_resumes_an_unprefixed_bin_checkpoint(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    media = _photo_media()
+    client = _StreamingClient(
+        messages=[_real_message(42, media)],
+        entities={"@chan": ns(id=5, title="C")},
+    )
+    make_session_fake(monkeypatch, client)
+    out = tmp_path / "out"
+    # An unnamed photo from before both the id prefix and the typed extension.
+    source = media_cmd.MediaSource(chat="@chan", message_id=42, private_channel_id=None)
+    state_path, part_path = media_cmd._state_paths(source)
+    part_path.parent.mkdir(parents=True)
+    part_path.write_bytes(b"a")
+    target = media_cmd._DownloadTarget(media=media, filename="media-42.bin", size=3)
+    media_cmd._write_state(state_path, source, out / "media-42.bin", target, 1)
+
+    argv = ["--json", "media", "download", "@chan", "--message-ids", "42"]
+    assert main([*argv, "--output", str(out)]) == 0
+    data = json.loads(capsys.readouterr().out)
+
+    assert data["items"] == [
+        {
+            "message_id": 42,
+            "path": str(out / "42-media-42.jpg"),
+            "bytes": 3,
+            "resumed": True,
+        }
+    ]
+    assert (out / "42-media-42.jpg").read_bytes() == b"abc"
