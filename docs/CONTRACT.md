@@ -991,7 +991,9 @@ keeps `"config": "unchanged"`.
 
 `session` / `backup` are `deleted`, `kept` (`--keep-session`), or `absent`;
 `roles` maps each role session to `deleted` or `kept` (`{}` when there are none,
-absent with `--role`).
+absent with `--role`). A role left with only its `.session.bak` (an
+interrupted login promote) counts as a role, and so does one a concurrent
+`accounts login --continue` promotes while the config block is removed.
 `--plain` emits: `alias`, `config`, `session`, `backup`, `role` (empty when
 removing the whole account).
 
@@ -1019,6 +1021,9 @@ After Telegram accepts the code request, the value required by
 `auth.SignInRequest` is held only in an atomically written `0600`
 `logins/l_<login_id>.phone` sidecar (ADR-0093); promotion, discard, code expiry,
 and expired-attempt `store cleanup` delete it with the staged attempt.
+If `accounts remove` drops an already configured alias while `--continue` is
+in flight, the continue deletes the session it just promoted (audit outcome
+`discarded`) and exits **4**.
 
 There is no QR path, login token output, `tg://login` handoff, or QR-attempt
 compatibility. A pending attempt created by a removed method is exit **4** and

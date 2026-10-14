@@ -5,7 +5,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from tgcli import atomic, safety, session
-from tgcli.config import Config, default_config_path, load_config, validate_role_name
+from tgcli.config import (
+    Account,
+    Config,
+    default_config_path,
+    load_config,
+    validate_role_name,
+)
 from tgcli.errors import ConfigError, NotFoundError, PolicyError
 from tgcli.output import note
 
@@ -108,17 +114,27 @@ def _remove_config_block(config_path: Path, alias: str) -> None:
             kept.append(line)
     result = "".join(kept)
     try:
-        remaining = tomllib.loads(result).get("accounts", {})
+        remaining = tomllib.loads(result)
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(
             f"removing [accounts.{alias}] would break config: {exc}"
         ) from exc
-    if alias in remaining:
+    # The scan is line based: a header-like line inside a multi-line string
+    # would cut the wrong text. Write only when exactly the alias is gone.
+    expected = tomllib.loads(text)
+    expected.get("accounts", {}).pop(alias, None)
+    if _without_empty_accounts(remaining) != _without_empty_accounts(expected):
         raise ConfigError(
-            f"cannot find the [accounts.{alias}] table in {config_path}; "
+            f"cannot remove only the [accounts.{alias}] table from {config_path}; "
             "remove the account there by hand"
         )
     atomic.replace_text(config_path, result)
+
+
+def _without_empty_accounts(document: dict) -> dict:
+    if document.get("accounts") == {}:
+        return {key: value for key, value in document.items() if key != "accounts"}
+    return document
 
 
 def remove_account(
@@ -148,10 +164,7 @@ def remove_account(
     bak = Path(str(path) + ".bak")
     # Role sessions are full-access keys of the same account: they go with it,
     # since `--role` removal is unreachable once the config block is gone.
-    role_paths = {
-        role: session.session_path(account, role=role)
-        for role in session.list_roles(account)
-    }
+    role_paths = session.role_session_files(account)
     session.ensure_state_dir("sessions")
     with ExitStack() as locks:
         for locked in (path, *role_paths.values()):
@@ -185,8 +198,10 @@ def remove_account(
         _remove_config_block(config_path, alias)
         if not keep_session:
             for removed in (path, *role_paths.values()):
-                removed.unlink(missing_ok=True)
-                Path(str(removed) + ".bak").unlink(missing_ok=True)
+                _unlink_with_backup(removed)
+        role_status.update(
+            _remove_late_roles(alias, account, role_paths, keep_session=keep_session)
+        )
 
         return {
             "alias": alias,
@@ -195,6 +210,37 @@ def remove_account(
             "backup": backup_status,
             "roles": role_status,
         }
+
+
+def _unlink_with_backup(path: Path) -> None:
+    path.unlink(missing_ok=True)
+    Path(str(path) + ".bak").unlink(missing_ok=True)
+
+
+def _remove_late_roles(
+    alias: str, account: Account, known: dict[str, Path], *, keep_session: bool
+) -> dict[str, str]:
+    """Roles a concurrent login promoted after the first scan. Scanning again
+    once the config block is gone pairs with the login's own config re-check
+    after it promotes: whichever runs second sees the other's write."""
+    late = {
+        role: role_path
+        for role, role_path in session.role_session_files(account).items()
+        if role not in known
+    }
+    if not late:
+        return {}
+    status = "kept" if keep_session else "deleted"
+    late_status = dict.fromkeys(late, status)
+    if keep_session:
+        return late_status
+    safety.append_audit(
+        "accounts-remove", alias, {"roles": late_status, "keep_session": False}
+    )
+    for role_path in late.values():
+        with session.session_file_lock(role_path, busy_error=PolicyError):
+            _unlink_with_backup(role_path)
+    return late_status
 
 
 def _remove_role(
