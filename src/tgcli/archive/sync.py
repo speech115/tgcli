@@ -197,6 +197,8 @@ async def _catch_up_peer(
         entity = await tg.get_entity(peer_id)
     except ValueError:
         return {"peer_id": peer_id, "stored": 0, "error": "unresolvable"}
+    except changes_cmd.CHANNEL_LOST_ERRORS:
+        return {"peer_id": peer_id, "stored": 0, "error": "channelUnavailable"}
     stored = 0
     ids: list[int] = []
     limit = min(CATCHUP_LIMIT, message_budget)
@@ -230,6 +232,20 @@ async def _catch_up_peer(
             f"rate limited during archive sync catch-up of {chat!r}",
             retry_after=seconds,
         ) from exc
+    except changes_cmd.CHANNEL_LOST_ERRORS:
+        # The account can no longer read this channel: keep what was stored
+        # and drop the catch-up instead of failing every later sync on it.
+        with conn:
+            store_mod.upsert_sync_state(
+                conn,
+                peer_id,
+                oldest_id=(state or {}).get("oldest_id"),
+                newest_id=max(ids) if ids else (state or {}).get("newest_id"),
+                more=bool(state["more"]) if state else False,
+                last_error="channelUnavailable",
+                touch_sync=True,
+            )
+        return {"peer_id": peer_id, "stored": stored, "error": "channelUnavailable"}
     kind = scope_mod.classify_entity(entity)
     with conn:
         store_mod.upsert_sync_state(

@@ -1751,7 +1751,9 @@ catch-up left unfinished (`more: true`, `skipped_budget: true`, or not
 reached under `--max-dialogs` or `--max-runtime`) is persisted in
 `account_sync` and resumed first by the next sync even without new
 `channel_activity`; `remaining` stays `true` until every one finishes. A peer
-removed from scope is dropped from that queue. Difference events from
+removed from scope is dropped from that queue, and so is one that fails
+with an `error` (`unresolvable`, or `channelUnavailable` when the account can
+no longer read the channel); that `catchups[]` item carries the `error`. Difference events from
 the poll are **always applied in full** before the cursor advances — there
 is no apply-side truncation (dropping a tail while advancing the cursor
 would silently lose archive history). Caps bound the expensive catch-up

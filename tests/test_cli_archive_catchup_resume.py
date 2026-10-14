@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
-from telethon import utils
+from telethon import errors as telethon_errors, utils
 from telethon.tl.functions.channels import GetFullChannelRequest
 from telethon.tl.functions.updates import GetDifferenceRequest, GetStateRequest
 from telethon.tl.types import (
@@ -269,3 +269,39 @@ def test_unfinished_catchup_of_a_removed_channel_is_dropped(
     assert second["remaining"] is False
     assert len(client.iter_messages_calls) == calls
     assert _stored_ids(peer) == [6, 7]
+
+
+def test_pending_catchup_of_a_channel_the_account_lost_does_not_block_sync(
+    tmp_path, monkeypatch, capsys
+):
+    news = _channel(1234, "news")
+    peer = utils.get_peer_id(news)
+    client = _start(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        [news],
+        {news.id: _messages(news.id, range(6, 9))},
+    )
+
+    first = _sync(capsys, "--max-events", "2")
+    assert first["remaining"] is True
+
+    client.iter_messages_error = telethon_errors.ChannelPrivateError(request=None)
+    second = _sync(capsys, "--max-events", "2")
+    assert second["catchups"] == [
+        {"peer_id": peer, "stored": 0, "error": "channelUnavailable"}
+    ]
+    assert second["remaining"] is False
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        account = store_mod.read_account_sync(conn)
+    finally:
+        conn.close()
+    assert account["pending_catchups"] == []
+    assert account["changes_cursor"] == second["next_cursor"]
+
+    calls = len(client.iter_messages_calls)
+    third = _sync(capsys, "--max-events", "2")
+    assert third["catchups"] == []
+    assert len(client.iter_messages_calls) == calls
