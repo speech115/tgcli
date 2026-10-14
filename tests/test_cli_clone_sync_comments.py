@@ -15,7 +15,9 @@ from tests.fakes.clone import (
     CloneCommentsClient,
     CloneSyncClient,
     anchor,
+    forwarded_ids,
     group_sends,
+    history,
     message,
     seed_clone,
     seed_comments_clone,
@@ -172,7 +174,7 @@ def test_sync_disabled_comments_does_not_interleave(config_env, monkeypatch, cap
         make_session_fake(monkeypatch, client)
         assert main(["clone", "sync", "@source", "--json"]) == 0
         capsys.readouterr()
-        assert client.iter_messages_calls == [(0, True)]
+        assert forwarded_ids(client.requests) == [2, 3, 4]
         assert all(
             (getattr(item, "to_peer", None) or getattr(item, "peer", None))
             is client.destination
@@ -287,13 +289,14 @@ def test_sync_comments_phase_stops_at_anchor_beyond_posts_cursor(
                 ):
                     yield item
                 return
-            self.iter_messages_calls.append(("group", min_id, reverse))
+            self.iter_messages_calls.append(("group", min_id))
             scan: list[int] = []
             self.scans.append(scan)
-            for item in sorted(self.comments, key=lambda value: value.id):
-                if item.id > min_id:
-                    scan.append(item.id)
-                    yield item
+            for item in history(
+                self.comments, self.source_group, min_id=min_id, reverse=reverse
+            ):
+                scan.append(item.id)
+                yield item
 
     client = TrackingCommentsClient(
         [message(2), message(3), message(4)],
@@ -432,7 +435,7 @@ def test_sync_disabled_comments_skips_comment_phase_and_discussion_roster(
 
     class TrackingClient(CloneSyncClient):
         def __init__(self):
-            super().__init__([message(2)])
+            super().__init__([message(2), message(3)])
             self.iter_participants_calls = []
 
         async def iter_participants(self, entity, limit=None):
@@ -453,8 +456,9 @@ def test_sync_disabled_comments_skips_comment_phase_and_discussion_roster(
         "reason": None,
     }
     assert client.iter_participants_calls == [client.source]
-    # posts-only: never walks a discussion entity
-    assert client.iter_messages_calls == [(0, True)]
+    # posts-only: oldest first, and never walks a discussion entity
+    assert forwarded_ids(client.requests) == [2, 3]
+    assert client.iter_messages_calls == [("posts", 0)]
     assert state.load(clone_state.clone_id).discussion_id_map == {}
 
 
@@ -593,7 +597,6 @@ def test_sync_attaches_a_comment_to_its_post_thread(config_env, monkeypatch, cap
                 12,
                 message="nice",
                 from_id=types.PeerUser(77),
-                sender_id=77,
                 reply_to=types.MessageReplyHeader(reply_to_msg_id=10),
             ),
         ],
@@ -982,7 +985,7 @@ def test_sync_copies_off_thread_group_messages(config_env, monkeypatch, capsys):
     seed_comments_clone()
     client = CloneCommentsClient(
         [message(2)],
-        [message(12, message="hello", from_id=types.PeerUser(77), sender_id=77)],
+        [message(12, message="hello", from_id=types.PeerUser(77))],
     )
     make_session_fake(monkeypatch, client)
 
@@ -1028,12 +1031,15 @@ def test_sync_advances_the_discussion_cursor_per_batch(config_env, monkeypatch, 
     rerun = json.loads(capsys.readouterr().out)["sync"]
     assert rerun["copied"] == 0
     assert rerun["skipped_autoforward"] == 0
-    assert len(group_sends(client)) == 2
+    assert [send.message for send in group_sends(client)] == [
+        "Source chat: \n\none",
+        "Source chat: \n\ntwo",
+    ]
     assert client.iter_messages_calls == [
-        (0, True),
-        ("group", 0, True),
-        (2, True),
-        ("group", 13, True),
+        ("posts", 0),
+        ("group", 0),
+        ("posts", 2),
+        ("group", 13),
     ]
 
 
@@ -1069,7 +1075,8 @@ def test_sync_limit_spends_phase_one_first(config_env, monkeypatch, capsys):
     assert sync["discussion_cursor"] == 0
     assert sync["skipped_autoforward"] == 0
     assert group_sends(client) == []
-    assert client.iter_messages_calls == [(0, True)]
+    assert forwarded_ids(client.requests) == [2]
+    assert client.iter_messages_calls == [("posts", 0)]
     assert state.load(clone_state.clone_id).discussion_cursor == 0
 
 
@@ -1277,17 +1284,18 @@ def test_sync_skips_phase_two_when_comments_are_unavailable(
         discussion_destination_peer_id=None,
         discussion_linked=False,
     )
-    client = CloneCommentsClient([message(2)], [anchor(10, 2), message(12)])
+    client = CloneCommentsClient([message(2), message(3)], [anchor(10, 2), message(12)])
     make_session_fake(monkeypatch, client)
 
     assert main(["clone", "sync", "@source", "--json"]) == 0
 
     sync = json.loads(capsys.readouterr().out)["sync"]
-    assert sync["copied"] == 1
+    assert sync["copied"] == 2
     assert sync["skipped_autoforward"] == 0
     assert sync["discussion_cursor"] == 0
     assert group_sends(client) == []
-    assert client.iter_messages_calls == [(0, True)]
+    assert forwarded_ids(client.requests) == [2, 3]
+    assert client.iter_messages_calls == [("posts", 0)]
 
 
 def test_sync_marks_comments_unavailable_when_source_group_turns_private(
@@ -1314,7 +1322,7 @@ def test_sync_marks_comments_unavailable_when_source_group_turns_private(
     assert sync["skipped_autoforward"] == 0
     assert sync["discussion_cursor"] == 0
     assert group_sends(client) == []
-    assert ("group", 0, True) not in client.iter_messages_calls
+    assert client.iter_messages_calls == [("posts", 0)]
     saved = state.load(clone_state.clone_id)
     assert saved is not None
     assert saved.comments == "unavailable"
@@ -1368,7 +1376,7 @@ def test_sync_copies_remaining_posts_alone_after_comments_degrade_mid_run(
         async def iter_messages(self, entity, *, min_id=0, reverse=False):
             if entity is self.source_group and not self.refused:
                 self.refused = True
-                self.iter_messages_calls.append(("group", min_id, reverse))
+                self.iter_messages_calls.append(("group", min_id))
                 raise telethon_errors.ChannelPrivateError(request=None)
             async for item in super().iter_messages(
                 entity, min_id=min_id, reverse=reverse
@@ -1385,8 +1393,9 @@ def test_sync_copies_remaining_posts_alone_after_comments_degrade_mid_run(
     sync = json.loads(capsys.readouterr().out)["sync"]
     assert sync["copied"] == 3
     assert [call for call in client.iter_messages_calls if call[0] == "group"] == [
-        ("group", 0, True)
+        ("group", 0)
     ]
+    assert forwarded_ids(client.requests) == [2, 3, 4]
     assert group_sends(client) == []
     saved = state.load(clone_state.clone_id)
     assert saved is not None

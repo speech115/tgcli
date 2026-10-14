@@ -77,7 +77,7 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
     rerun = json.loads(capsys.readouterr().out)
     assert rerun["sync"]["copied"] == 0
     assert len(client.requests) == 2
-    assert client.iter_messages_calls == [(0, True), (3, True)]
+    assert client.iter_messages_calls == [("posts", 0), ("posts", 3)]
 
 
 def test_clone_sync_keeps_native_forward_header_for_reforwarded_broadcast_post(
@@ -178,7 +178,6 @@ def test_clone_sync_reuploads_megagroup_reply_with_prefix_and_shifted_entities(
                 message="😀bold",
                 entities=[original],
                 from_id=types.PeerUser(77),
-                sender_id=77,
                 reply_to=types.MessageReplyHeader(reply_to_msg_id=1),
             )
         ]
@@ -220,8 +219,8 @@ def test_clone_sync_reuploads_protected_megagroup_with_cached_author_prefix(
     seed_clone(kind="megagroup", title="Team chat")
     client = CloneReuploadClient(
         [
-            message(2, message="first", from_id=types.PeerUser(77), sender_id=77),
-            message(3, message="second", from_id=types.PeerUser(77), sender_id=77),
+            message(2, message="first", from_id=types.PeerUser(77)),
+            message(3, message="second", from_id=types.PeerUser(77)),
         ],
         protected=True,
     )
@@ -400,7 +399,6 @@ def test_clone_sync_reuploads_private_dialog_reply_with_explicit_source_peer(
                 2,
                 message="answer",
                 from_id=types.PeerUser(123),
-                sender_id=123,
                 reply_to=reply,
             )
         ]
@@ -461,7 +459,6 @@ def test_clone_sync_reuploads_basic_group_reply_with_prefix(
                 2,
                 message="pong",
                 from_id=types.PeerUser(77),
-                sender_id=77,
                 reply_to=types.MessageReplyHeader(reply_to_msg_id=1),
             ),
         ]
@@ -512,6 +509,10 @@ def test_clone_sync_copies_basic_group_foreign_peer_reply_without_wedging(
     assert sync["copied"] == 1
     assert sync["reuploaded"] == 1
     assert sync["quote_flattened"] == [{"id": 2, "peer": 456, "reason": "unreachable"}]
+    # The unreachable peer's title is looked up in the source's own history.
+    assert [request.peer for request in client.history_requests] == [
+        types.PeerChat(chat_id=123)
+    ]
     assert state.load(clone_state.clone_id).dest_for(2) is not None
 
 

@@ -10,6 +10,7 @@ from telethon.tl import types
 
 from tests.conftest import TRANSIENT_ERRORS
 from tests.fakes.clone import discussion
+from tests.fakes.messages import message as real_message
 from tgcli.clone import (
     attribution,
     legs,
@@ -31,14 +32,8 @@ def _posts(id_map=None):
 
 
 def _msg(message_id=10, *, reply_to=None, message="body", entities=None):
-    return SimpleNamespace(
-        id=message_id,
-        reply_to=reply_to,
-        message=message,
-        entities=entities,
-        media=None,
-        noforwards=False,
-        peer_id=types.PeerChannel(4454061248),
+    return real_message(
+        message_id, 4454061248, reply_to=reply_to, message=message, entities=entities
     )
 
 

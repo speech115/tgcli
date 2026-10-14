@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
+from tests.fakes import messages
 from tgcli.clone import legs, state
 
 SAMPLE = """
@@ -43,22 +44,29 @@ def legacy_group():
     )
 
 
-def message(message_id, **overrides):
-    values = {
-        "id": message_id,
-        "message": f"message {message_id}",
-        "action": None,
-        "media": None,
-        "reply_to": None,
-        "grouped_id": None,
-        "noforwards": False,
-        "entities": None,
-        "from_id": None,
-        "sender_id": None,
-        "out": False,
-    }
-    values.update(overrides)
-    return SimpleNamespace(**values)
+def message(message_id, *, chat=123, **fields):
+    """A real Telethon message, posted in the source channel unless ``chat`` says."""
+    if fields.get("action") is not None:
+        return messages.service(message_id, chat, **fields)
+    fields.pop("action", None)
+    return messages.message(message_id, chat, **fields)
+
+
+def history(items, chat, *, min_id=0, reverse=False):
+    """``chat``'s messages newer than ``min_id``, ordered as Telethon yields them.
+
+    ``iter_messages`` walks newest-first unless ``reverse=True`` asks for
+    oldest-first. Each message is stamped with ``chat`` as its ``peer_id``,
+    since Telegram returns a chat's history with that chat as the peer.
+    """
+    found = sorted(
+        (item for item in items if item.id > min_id),
+        key=lambda item: item.id,
+        reverse=not reverse,
+    )
+    for item in found:
+        item.peer_id = messages.peer(chat)
+    return found
 
 
 def poll_media(*, multiple_choice=False, results=None, total_voters=10, **poll_flags):
@@ -115,10 +123,16 @@ class CloneSyncClient:
         self.destination_last_id = 1
         self.destination_actions = {}
         self.requests = []
+        # Which history reads happened, as (leg, min_id): order is observed
+        # through what the destination receives, never through call flags.
         self.iter_messages_calls = []
         self.source_pinned_msg_id = None
         self.destination_pinned_msg_id = None
         self.full_requests = []
+        # Chats the source history response ships alongside a message: where
+        # Telegram puts ``ChannelForbidden`` for a quoted channel (quotes.py).
+        self.history_chats = []
+        self.history_requests = []
 
     async def get_entity(self, ref):
         if isinstance(ref, types.PeerChannel):
@@ -146,7 +160,11 @@ class CloneSyncClient:
             return SimpleNamespace(total=len(self.messages))
         assert entity is self.destination
         return [
-            SimpleNamespace(id=item_id, action=self.destination_actions.get(item_id))
+            message(
+                item_id,
+                chat=self.destination,
+                action=self.destination_actions.get(item_id),
+            )
             for item_id in range(
                 self.destination_last_id, max(self.destination_last_id - limit, 0), -1
             )
@@ -154,10 +172,9 @@ class CloneSyncClient:
 
     async def iter_messages(self, entity, *, min_id=0, reverse=False):
         assert entity is self.source
-        self.iter_messages_calls.append((min_id, reverse))
-        for item in sorted(self.messages, key=lambda value: value.id):
-            if item.id > min_id:
-                yield item
+        self.iter_messages_calls.append(("posts", min_id))
+        for item in history(self.messages, self.source, min_id=min_id, reverse=reverse):
+            yield item
 
     async def iter_participants(self, entity, limit=None):
         # a broadcast source the account does not administer refuses its roster
@@ -183,6 +200,11 @@ class CloneSyncClient:
             self.full_requests.append(request)
             return SimpleNamespace(
                 full_chat=SimpleNamespace(pinned_msg_id=self.source_pinned_msg_id)
+            )
+        if isinstance(request, functions.messages.GetHistoryRequest):
+            self.history_requests.append(request)
+            return types.messages.Messages(
+                messages=[], chats=list(self.history_chats), users=[]
             )
         if isinstance(request, functions.messages.UpdatePinnedMessageRequest):
             self.requests.append(request)
@@ -360,10 +382,11 @@ def seed_comments_clone(**overrides):
     return clone_state
 
 
-def anchor(message_id, post_id, *, source_channel_id=123):
+def anchor(message_id, post_id, *, source_channel_id=123, chat=55):
     """Telegram's own auto-forward of a channel post into its linked group."""
     return message(
         message_id,
+        chat=chat,
         message=f"post {post_id}",
         fwd_from=types.MessageFwdHeader(
             date=None,
@@ -372,6 +395,16 @@ def anchor(message_id, post_id, *, source_channel_id=123):
             saved_from_msg_id=post_id,
         ),
     )
+
+
+def forwarded_ids(requests):
+    """Source ids in the order the destination received them as forwards."""
+    return [
+        message_id
+        for request in requests
+        if isinstance(request, functions.messages.ForwardMessagesRequest)
+        for message_id in request.id
+    ]
 
 
 def group_sends(client):
@@ -439,7 +472,9 @@ class CloneCommentsClient(CloneReuploadClient):
             # Telegram fills a live discussion group with its own anchors for
             # our posts; anything else must be planted explicitly.
             return [
-                self.group_tail.get(item_id, anchor(item_id, 2, source_channel_id=999))
+                self.group_tail.get(
+                    item_id, anchor(item_id, 2, source_channel_id=999, chat=888)
+                )
                 for item_id in range(
                     self.group_last_id, max(self.group_last_id - limit, 0), -1
                 )
@@ -453,10 +488,11 @@ class CloneCommentsClient(CloneReuploadClient):
             ):
                 yield item
             return
-        self.iter_messages_calls.append(("group", min_id, reverse))
-        for item in sorted(self.comments, key=lambda value: value.id):
-            if item.id > min_id:
-                yield item
+        self.iter_messages_calls.append(("group", min_id))
+        for item in history(
+            self.comments, self.source_group, min_id=min_id, reverse=reverse
+        ):
+            yield item
 
     async def __call__(self, request):
         if isinstance(request, functions.messages.GetDiscussionMessageRequest):
