@@ -200,12 +200,14 @@ async def _catch_up_peer(
     stored = 0
     ids: list[int] = []
     limit = min(CATCHUP_LIMIT, message_budget)
+    forward = min_id > 0
     try:
-        # Oldest first: a page cut short by the limit or a flood ends at a
-        # message whose predecessors are all stored, so `newest_id` never
-        # skips past a hole.
+        # With a stored `newest_id`, read oldest first: a page cut short by
+        # the limit or a flood ends at a message whose predecessors are all
+        # stored, so `newest_id` never skips past a hole. A peer with no
+        # history yet keeps its newest page; backfill owns older messages.
         async for message in tg.iter_messages(
-            entity, limit=limit, min_id=min_id, reverse=True
+            entity, limit=limit, min_id=min_id, reverse=forward
         ):
             payload = message_to_dict(message, entity)
             with conn:
@@ -243,7 +245,7 @@ async def _catch_up_peer(
             username=getattr(entity, "username", None),
             chat_ref=chat,
         )
-    return {"peer_id": peer_id, "stored": stored, "more": stored >= limit}
+    return {"peer_id": peer_id, "stored": stored, "more": forward and stored >= limit}
 
 
 def _media_candidates(
