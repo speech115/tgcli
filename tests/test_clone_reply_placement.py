@@ -21,13 +21,13 @@ from __future__ import annotations
 import json
 
 import pytest
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, example, given, settings
 from telethon.tl import types
 
 from tests.conftest import make_session_fake
 from tests.fakes import clone_world
 from tests.fakes.clone_env import config_env as config_env
-from tests.fakes.clone_world import Reply, World
+from tests.fakes.clone_world import Comment, Post, Reply, World
 from tgcli.cli import main
 from tgcli.clone import legs, state
 from tgcli.governor import pacing
@@ -129,11 +129,12 @@ def _check(truth: Truth, sync: dict) -> None:
             continue  # not copied by this run
         label = f"{leg} {item.id} -> {item.reply}"
         target, top = _reply(client.sent[(chat, dest)], chat)
-        thread = None
+        thread = thread_anchor = None
         if comment is not None:
             thread_post = world.post(comment.thread)
             assert thread_post is not None
             thread = truth.thread(thread_post)
+            thread_anchor = thread_post.anchor
 
         # (c) Every id sent exists in the chat it points into.
         if target is not None:
@@ -147,6 +148,18 @@ def _check(truth: Truth, sync: dict) -> None:
             )
             assert truth.exists("group", top), (
                 f"(c) {label}: top_msg_id={top} is not a destination group message"
+            )
+
+        # (a) A post that replies to nothing is sent replying to nothing.
+        if item.reply is None:
+            assert target is None and top is None, (
+                f"(a) {label}: a non-reply sent with reply {target} top={top}"
+            )
+        # A top-level comment (every comment replies; this one to its own
+        # thread's anchor) goes under that anchor alone, with no thread top.
+        if comment is not None and comment.reply == Reply("group", thread_anchor):
+            assert top is None and target in (None, thread), (
+                f"(a) {label}: top-level comment sent to {target} top={top}"
             )
 
         # (a) Same chat and message as the parent, or a counted loss.
@@ -179,6 +192,51 @@ def _check(truth: Truth, sync: dict) -> None:
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 @given(world=clone_world.worlds())
+# The worlds the search shrank each past reply bug to, pinned so the lever
+# keeps catching them whatever the search happens to draw. #313: with window
+# 1 a later posts window walks parent post 2 as a group thread root, and
+# group message 2 anchors post 1.
+@example(
+    world=World(
+        posts=(
+            Post(1, False, False, 2, True, False),
+            Post(2, False, False, None, False, False),
+            Post(3, False, False, None, False, False),
+            Post(5, False, False, None, False, False, Reply("channel", 2)),
+        ),
+        comments=(),
+        deleted_group_ids=(1,),
+        posts_cursor=0,
+        discussion_cursor=0,
+        window=1,
+    )
+)
+# #315: post 7 replies to comment 2, which is already in the destination group.
+@example(
+    world=World(
+        posts=(
+            Post(1, False, False, 1, False, False),
+            Post(2, False, False, None, False, False),
+            Post(7, False, False, None, False, False, Reply("group", 2)),
+        ),
+        comments=(Comment(2, 1, False, Reply("group", 1)),),
+        deleted_group_ids=(),
+        posts_cursor=0,
+        discussion_cursor=0,
+        window=1,
+    )
+)
+# #321: comment 2 quotes channel post 2, which never existed; its thread is known.
+@example(
+    world=World(
+        posts=(Post(1, False, False, 1, True, False),),
+        comments=(Comment(2, 1, False, Reply("channel", 2)),),
+        deleted_group_ids=(),
+        posts_cursor=0,
+        discussion_cursor=0,
+        window=1,
+    )
+)
 def test_every_clone_reply_lands_with_its_parent_or_is_counted_flat(
     world, config_env, tmp_path_factory, capsys
 ):

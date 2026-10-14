@@ -160,21 +160,10 @@ def worlds(draw) -> World:
         for item in comments
     ]
 
-    # Neighbouring posts may form an album, which the clone forwards in one
-    # request carrying several ids. Album posts carry no reply here.
-    albums: list[int | None] = [None] * len(posts)
-    for index in range(1, len(posts)):
-        if draw(st.booleans()):
-            albums[index] = albums[index - 1] or posts[index - 1].id
-            albums[index - 1] = albums[index]
-
     # A post replies to an earlier post, a comment, an anchor, a deleted id in
     # either chat, or nothing.
     replied = []
-    for post, album in zip(posts, albums, strict=True):
-        if album is not None:
-            replied.append(replace(post, album=album))
-            continue
+    for post in posts:
         parents = [Reply("channel", item.id) for item in posts if item.id < post.id]
         parents += [
             Reply("channel", item) for item in range(1, post.id) if item not in post_ids
@@ -188,6 +177,17 @@ def worlds(draw) -> World:
         parents += [Reply("group", item) for item in deleted]
         reply = draw(st.none() | st.sampled_from(parents)) if parents else None
         replied.append(replace(post, reply=reply))
+    window = draw(st.sampled_from([1, 2, 50]))
+
+    # Neighbouring posts without a reply may form an album, which the clone
+    # forwards in one request carrying several ids. Drawn last, so the album
+    # choice never reshapes the rest of the world.
+    for index in range(1, len(replied)):
+        previous, post = replied[index - 1], replied[index]
+        if previous.reply is None and post.reply is None and draw(st.booleans()):
+            album = previous.album or previous.id
+            replied[index - 1] = replace(previous, album=album)
+            replied[index] = replace(post, album=album)
 
     return World(
         posts=tuple(replied),
@@ -195,7 +195,7 @@ def worlds(draw) -> World:
         deleted_group_ids=tuple(deleted),
         posts_cursor=posts_cursor,
         discussion_cursor=discussion_cursor,
-        window=draw(st.sampled_from([1, 2, 50])),
+        window=window,
     )
 
 
