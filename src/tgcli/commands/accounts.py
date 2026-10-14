@@ -268,33 +268,25 @@ def _remove_role(
             "without --confirm"
         )
     account = config.accounts[alias]
-    path = session.session_path(account, role=role)
-    if not path.is_file():
+    found = {
+        name.casefold(): role_path
+        for name, role_path in session.role_session_files(account).items()
+    }
+    path = found.get(role.casefold())
+    if path is None:
         raise NotFoundError(
             f"session role {role!r} for account {alias!r} does not exist"
         )
     bak = Path(str(path) + ".bak")
     session.ensure_state_dir("sessions")
     with session.session_file_lock(path, busy_error=PolicyError):
-        backup_existed = bak.is_file()
-        safety.append_audit(
-            "accounts-remove-role",
-            alias,
-            {
-                "role": role,
-                "session": "deleted",
-                "backup": "deleted" if backup_existed else "absent",
-            },
-        )
-        path.unlink(missing_ok=True)
-        bak.unlink(missing_ok=True)
-        return {
-            "alias": alias,
-            "role": role,
-            "config": "unchanged",
-            "session": "deleted",
-            "backup": "deleted" if backup_existed else "absent",
+        statuses = {
+            "session": "deleted" if path.is_file() else "absent",
+            "backup": "deleted" if bak.is_file() else "absent",
         }
+        safety.append_audit("accounts-remove-role", alias, {"role": role, **statuses})
+        _unlink_with_backup(path)
+        return {"alias": alias, "role": role, "config": "unchanged", **statuses}
 
 
 def remove_rows(data: dict) -> list[tuple]:

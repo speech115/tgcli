@@ -252,6 +252,31 @@ def test_remove_role_unknown_exits_4(config_env, capsys):
     assert json.loads(capsys.readouterr().err)["error"]["code"] == "NOT_FOUND"
 
 
+def test_remove_role_deletes_a_role_left_with_only_its_backup(config_env, capsys):
+    """An interrupted promote leaves only `<account>@<role>.session.bak`, a
+    live key; `--role` removal exited 4 and could not reach it."""
+    import json
+
+    from tgcli.cli import main
+
+    bak = config_env["state"] / "sessions" / "Work@job.session.bak"
+    bak.write_bytes(b"live-key")
+
+    assert (
+        main(["accounts", "remove", "work", "--role", "job", "--confirm", "--json"])
+        == 0
+    )
+
+    assert json.loads(capsys.readouterr().out) == {
+        "alias": "work",
+        "role": "job",
+        "config": "unchanged",
+        "session": "absent",
+        "backup": "deleted",
+    }
+    assert not bak.exists()
+
+
 def test_remove_role_rejects_keep_session(config_env, capsys):
     import json
 

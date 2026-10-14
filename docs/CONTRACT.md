@@ -980,8 +980,10 @@ is written before any deletion (fails closed).
 
 With `--role NAME`, `accounts remove` deletes **only** that role's
 `.session` / `.bak` (never config, never the primary). `--keep-session` is
-rejected (exit 2). A missing role file exits 4. The audit action is
-`accounts-remove-role` and includes `"role"`. Success JSON adds `"role"` and
+rejected (exit 2). It exits 4 only when neither the role's `.session` nor its
+`.bak` exists; a role left with only its `.bak` reports
+`"session": "absent"`. The audit action is `accounts-remove-role` and
+includes `"role"`. Success JSON adds `"role"` and
 keeps `"config": "unchanged"`.
 
 ```json

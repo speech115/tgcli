@@ -21,7 +21,12 @@ from tgcli.config import (
 from tgcli.errors import ConfigError, NotFoundError, PolicyError
 from tgcli.formatting import mask_phone
 from tgcli.output import note
-from tgcli.session import session_file_lock, session_path, state_dir
+from tgcli.session import (
+    BUSY_WAIT_SECONDS,
+    session_file_lock,
+    session_path,
+    state_dir,
+)
 
 
 def login_rows(data: dict) -> list[tuple]:
@@ -229,7 +234,7 @@ def _discard_if_account_removed(
     if present:
         return
     _audit_login(alias, method=method, outcome="discarded", role=role)
-    with session_file_lock(dest, busy_error=PolicyError):
+    with session_file_lock(dest, busy_error=PolicyError, wait=BUSY_WAIT_SECONDS):
         # Leave the pre-login state: a `--keep-session` remove kept the old
         # session, which this promote had just moved to the backup.
         if backup is not None and backup.is_file():
