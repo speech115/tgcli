@@ -61,6 +61,8 @@ ignore = ["UP040"]
 [tool.ruff.lint.per-file-ignores]
 "scripts/**" = ["T20"]
 "tests/**" = ["T20"]
+# `tg run` scripts: top-level await, names tgcli injects, stdout of their own.
+"examples/**" = ["T20", "F704", "F821"]
 
 [tool.ruff.lint.isort]
 # `from x import a as b, c as d` stays one statement; splitting aliased members

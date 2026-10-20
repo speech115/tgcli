@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Replace TG, SCRIPT, ALIAS, SOURCE and HOME, then:
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.tgcli.clone-watch.plist -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tgcli.clone-watch</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>TG</string>
+    <string>--account</string>
+    <string>ALIAS</string>
+    <string>--session-role</string>
+    <string>watch</string>
+    <string>--timeout</string>
+    <string>5400</string>
+    <string>run</string>
+    <string>SCRIPT</string>
+    <string>SOURCE</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+  <key>StandardOutPath</key>
+  <string>HOME/.local/state/tgcli/clone-watch.log</string>
+  <key>StandardErrorPath</key>
+  <string>HOME/.local/state/tgcli/clone-watch.log</string>
+</dict>
+</plist>
