@@ -224,7 +224,7 @@ COMMANDS: dict[str, Command] = {
     "contacts list": _READ,
     "contacts search": _READ,
     "count": _READ,
-    "dialogs": _READ,
+    "dialogs": replace(_READ, prepare=preflight.limit("dialogs", allow_zero=True)),
     "info": _READ,
     "latest": _READ,
     "message": _READ,
@@ -232,7 +232,7 @@ COMMANDS: dict[str, Command] = {
         kind="read",
         needs="network",
         run=handlers.read,
-        prepare=preflight.bounds("since", "until"),
+        prepare=_then(preflight.bounds("since", "until"), preflight.limit("read")),
     ),
     "resolve": _READ,
     "search": Command(
@@ -241,13 +241,15 @@ COMMANDS: dict[str, Command] = {
         run=handlers.read,
         prepare=preflight.prepare_search,
     ),
-    "thread": _READ,
+    "thread": replace(_READ, prepare=preflight.limit("thread")),
     "media manifest": Command(
         kind="read",
         needs="network",
         run=handlers.read,
         deadline=None,
-        prepare=preflight.bounds("since", "until"),
+        prepare=_then(
+            preflight.bounds("since", "until"), preflight.limit("media manifest")
+        ),
     ),
     # Network reads that write the caller's own output files
     "media download": Command(
@@ -258,10 +260,18 @@ COMMANDS: dict[str, Command] = {
         prepare=preflight.bounds("since"),
     ),
     "export messages": Command(
-        kind="read", needs="network", run=handlers.export_messages, deadline=None
+        kind="read",
+        needs="network",
+        run=handlers.export_messages,
+        deadline=None,
+        prepare=preflight.limit("export messages"),
     ),
     "export subscribers": Command(
-        kind="read", needs="network", run=handlers.export_subscribers, deadline=None
+        kind="read",
+        needs="network",
+        run=handlers.export_subscribers,
+        deadline=None,
+        prepare=preflight.limit("export subscribers"),
     ),
     # Telegram writes
     "send": _HANDSHAKE,

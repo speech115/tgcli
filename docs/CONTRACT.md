@@ -131,6 +131,12 @@ a signal death. SIGKILL cannot be caught and journals nothing.
 
 ## 5. Core JSON Shapes (phase 1–4)
 
+`dialogs` and `search` (scoped and `--all`) refuse a negative `--limit` and
+accept 0, which returns no rows and reports in `more` whether anything
+matches. `read`, `thread`, `media manifest`, `export messages` and
+`export subscribers` need a positive `--limit`. These are checked before a
+session opens; a refused `--limit` exits 2 (`BLOCKED`).
+
 `tg dialogs [--unread-only] [--kind {user,group,channel}] --json`:
 ```json
 {"dialogs": [{"id": -1001234, "name": "Channel", "kind": "channel",

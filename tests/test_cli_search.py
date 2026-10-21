@@ -364,3 +364,17 @@ def test_search_all_reports_no_more_when_hits_fill_limit_exactly(
     data = json.loads(capsys.readouterr().out)
     assert [message["id"] for message in data["messages"]] == [1]
     assert data["more"] is False
+
+
+def test_search_limit_zero_asks_only_whether_any_hit_exists(
+    config_env, monkeypatch, capsys
+):
+    fake = make_search_client()
+    make_session_fake(monkeypatch, fake)
+
+    assert main(["search", "@chan", "hello", "--limit", "0", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["messages"] == []
+    assert data["more"] is True
+    assert fake.iter_messages_calls[0][2] == 1

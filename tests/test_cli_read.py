@@ -181,3 +181,11 @@ def test_read_plain_sanitizes_sender_controls(config_env, monkeypatch, capsys):
     assert output.count("\n") == 1
     assert "\r" not in output
     assert len(output.rstrip("\n").split("\t")) == 4
+
+
+def test_read_accepts_limit_one(config_env, monkeypatch, capsys):
+    make_session_fake(monkeypatch, make_fake())
+
+    assert main(["--json", "read", "@chan", "--limit", "1"]) == 0
+
+    assert [m["id"] for m in json.loads(capsys.readouterr().out)["messages"]] == [42]

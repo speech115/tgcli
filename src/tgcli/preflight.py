@@ -102,7 +102,22 @@ def prepare_search(parser: argparse.ArgumentParser, args) -> None:
         args.query, args.chat = args.chat, None
     elif args.chat is None or args.query is None:
         parser.error("search requires CHAT QUERY (or --all QUERY)")
+    limit("search", allow_zero=True)(parser, args)
     bounds("since", "until")(parser, args)
+
+
+def limit(command: str, *, allow_zero: bool = False) -> Hook:
+    """A hook that refuses a non-positive --limit; no --limit (None) passes.
+
+    `allow_zero` is for reads whose `more` answers "is there anything" at 0.
+    """
+
+    def check(parser: argparse.ArgumentParser, args) -> None:
+        if args.limit is not None and args.limit < (0 if allow_zero else 1):
+            rule = "not be negative" if allow_zero else "be positive"
+            raise PolicyError(f"{command} --limit must {rule}")
+
+    return check
 
 
 _BOUND_FLAGS = {
