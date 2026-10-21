@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from telethon.errors import RandomIdDuplicateError
 from telethon.extensions import markdown
 from telethon.tl import functions, types
 
@@ -71,6 +72,14 @@ class UnknownChatClient(SendClient):
 class FailingClient(SendClient):
     async def __call__(self, request):
         raise OSError("connection reset")
+
+
+class AlreadySentClient(SendClient):
+    """An earlier attempt was delivered: Telegram refuses the reused random_id."""
+
+    async def __call__(self, request):
+        self.requests.append(request)
+        raise RandomIdDuplicateError(request=request)
 
 
 class SnapshotClient(SendClient):
@@ -360,6 +369,7 @@ def test_send_commit_sends_raw_with_stored_random_id(config_env, monkeypatch, ca
     assert json.loads(capsys.readouterr().out) == {
         "preview_id": preview["preview_id"],
         "message_id": 42,
+        "already_sent": False,
     }
     [request] = client.requests
     assert isinstance(request, functions.messages.SendMessageRequest)
@@ -689,6 +699,74 @@ def test_send_commit_is_retryable_after_network_failure(
     make_session_fake(monkeypatch, working)
     assert main(["send", "--commit", preview["preview_id"], "--json"]) == 0
     assert working.requests[0].random_id == 779
+
+
+def test_send_commit_reports_already_sent_on_duplicate_random_id(
+    config_env, monkeypatch, capsys
+):
+    preview = safety.create_preview(
+        {
+            "kind": "send",
+            "chat": "@alice",
+            "text": "hello",
+            "file": None,
+            "file_size": None,
+            "reply_to": None,
+            "topic": None,
+            "silent": False,
+            "random_id": 781,
+            "to": {"id": 7, "name": "Alice"},
+        }
+    )
+    make_session_fake(monkeypatch, FailingClient())
+    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 1
+    capsys.readouterr()
+
+    client = AlreadySentClient()
+    make_session_fake(monkeypatch, client)
+    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out) == {
+        "preview_id": preview["preview_id"],
+        "message_id": None,
+        "already_sent": True,
+    }
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMessageRequest)
+    assert request.random_id == 781
+    pending = safety.previews_dir() / f"{preview['preview_id']}.pending"
+    assert not pending.exists()
+    assert pending.with_suffix(".used").exists()
+    result = json.loads(safety.audit_path().read_text().splitlines()[-1])
+    assert result["action"] == "send-result"
+    assert result["message_id"] is None
+    assert result["already_sent"] is True
+
+
+def test_send_media_commit_reports_already_sent_on_duplicate_random_id(
+    config_env, monkeypatch, capsys, tmp_path
+):
+    path = tmp_path / "photo.png"
+    path.write_bytes(b"png")
+    preview = file_preview(path, random_id=782)
+    client = AlreadySentClient()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["send", "--commit", preview["preview_id"], "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out) == {
+        "preview_id": preview["preview_id"],
+        "message_id": None,
+        "already_sent": True,
+    }
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMediaRequest)
+    assert request.random_id == 782
+    used = safety.previews_dir() / f"{preview['preview_id']}.used"
+    assert used.exists()
+    result = json.loads(safety.audit_path().read_text().splitlines()[-1])
+    assert result["action"] == "send-result"
+    assert result["already_sent"] is True
 
 
 def test_send_commit_keeps_preview_pending_when_result_audit_fails(

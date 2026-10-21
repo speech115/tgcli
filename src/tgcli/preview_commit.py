@@ -52,7 +52,10 @@ def _message_audit_before(args: argparse.Namespace) -> dict:
 
 
 def _message_audit_after(args: argparse.Namespace, data: dict) -> dict:
-    return {"preview_id": args.commit, "message_id": data.get("message_id")}
+    details = {"preview_id": args.commit, "message_id": data.get("message_id")}
+    if "already_sent" in data:
+        details["already_sent"] = data["already_sent"]
+    return details
 
 
 def _draft_audit_before(args: argparse.Namespace) -> dict:

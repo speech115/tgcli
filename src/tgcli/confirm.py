@@ -2,6 +2,7 @@
 
 from typing import cast
 
+from telethon.errors import RandomIdDuplicateError
 from telethon.tl import types
 
 from tgcli.errors import PolicyError
@@ -37,3 +38,17 @@ def confirmed_ids(response, random_ids: list[int]) -> list[int]:
     ):
         raise PolicyError("Telegram did not confirm the send")
     return cast(list[int], message_ids)
+
+
+async def send_confirmed(tg, request, random_id: int) -> dict:
+    """Send one message request and report its confirmed id.
+
+    RANDOM_ID_DUPLICATE means an earlier attempt with this preview's random_id
+    was delivered, but Telegram does not say which message it became.
+    """
+    try:
+        response = await tg(request)
+    except RandomIdDuplicateError:
+        return {"message_id": None, "already_sent": True}
+    [message_id] = confirmed_ids(response, [random_id])
+    return {"message_id": message_id, "already_sent": False}

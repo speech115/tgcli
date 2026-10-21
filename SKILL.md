@@ -166,12 +166,13 @@ stable per-dialog boundary.
 
 Create exactly one preview:
 `tg --json send CHAT "TEXT" --preview`, then commit its `preview_id` with
-`tg --json send --commit PREVIEW_ID`. If the commit fails due to a network or
-runtime error, re-run that exact same `--commit PREVIEW_ID`; do not create a
-new preview. Send and forward previews retain a Telegram `random_id`, so tgcli
-can confirm the original operation without duplicating it. Do not retry exit 2
-(a safety block) until its intentional cause is removed, or exit 5 until the
-reported `retry_after` has elapsed.
+`tg --json send --commit PREVIEW_ID`. The commit already retries Telegram
+server errors with the same `random_id`. If it still exits 1, re-run that
+exact same `--commit PREVIEW_ID`; never create a new preview. A commit whose
+earlier attempt was delivered exits 0 with `"already_sent": true` and
+`"message_id": null`: the message is sent, so stop. Do not retry exit 2 (a
+safety block) until its intentional cause is removed, or exit 5 until the
+reported `retry_after` has elapsed. `forward --commit` works the same way.
 
 ## `tg run` — anything without a command
 
