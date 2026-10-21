@@ -136,8 +136,13 @@ a signal death. SIGKILL cannot be caught and journals nothing.
 {"dialogs": [{"id": -1001234, "name": "Channel", "kind": "channel",
               "username": "chan", "unread": 3,
               "mentions": 0,
-              "last_message_at": "2026-07-06T11:59:00+00:00"}]}
+              "last_message_at": "2026-07-06T11:59:00+00:00"}],
+ "more": false}
 ```
+
+`more` is true when at least one more dialog matching the filters exists past
+`--limit`; `--limit 0` returns no dialogs and reports in `more` whether any
+match.
 
 Megagroup dialogs are classified as `group` even though Telethon also marks
 them as channels; broadcast channels remain `channel`.
@@ -201,21 +206,25 @@ newest-first output and stops when it reaches the lower date boundary.
                "edited_at": null,
                "outgoing": false, "forwarded_from": null, "reactions": [],
                "custom_emoji": [],
-               "topic_id": null, "grouped_id": null, "is_service": false}]}
+               "topic_id": null, "grouped_id": null, "is_service": false}],
+ "more": false}
 ```
 
 Chat-scoped `search <chat> <query>` accepts `--from @username` to restrict
 results to that sender and `--since ISO` as an inclusive lower date boundary.
 Search remains newest-first and stops when it reaches a message older than
-`--since`.
+`--since`. `more` is true when another hit exists past `--limit` (tgcli asks
+Telegram for one extra hit and drops it); it is false when every hit was
+returned or `--since` stopped the search. `search --all` reports `more` the
+same way.
 
 `tg search --all <query> --json` searches across accessible dialogs. Its top
-level response has `query` and `messages`; each message retains the standard
+level response has `query`, `messages`, and `more`; each message retains the standard
 message shape and adds a per-hit `dialog` object with the source dialog `id`
 and `name`:
 ```json
 {"query": "hello", "messages": [{"id": 42,
- "dialog": {"id": 3817664407, "name": "Channel"}}]}
+ "dialog": {"id": 3817664407, "name": "Channel"}}], "more": false}
 ```
 
 `search --all` takes exactly one query positional and may use `--limit`.

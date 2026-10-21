@@ -17,22 +17,32 @@ async def fetch_search(
 ) -> dict:
     entity = await _entity(tg, chat)
     messages = []
+    more = False
+    # One hit past the limit tells a full page from a complete answer.
     async for message in tg.iter_messages(
-        entity, search=query, limit=limit, from_user=from_user
+        entity, search=query, limit=limit + 1, from_user=from_user
     ):
         if since is not None and message.date is not None and message.date < since:
+            break
+        if len(messages) >= limit:
+            more = True
             break
         messages.append(message_to_dict(message, entity))
     return {
         "dialog": {"id": entity.id, "name": _dialog_name(entity, chat)},
         "query": query,
         "messages": messages,
+        "more": more,
     }
 
 
 async def fetch_search_all(tg, query: str, limit: int = 20) -> dict:
     messages = []
-    async for message in tg.iter_messages(None, search=query, limit=limit):
+    more = False
+    async for message in tg.iter_messages(None, search=query, limit=limit + 1):
+        if len(messages) >= limit:
+            more = True
+            break
         chat = getattr(message, "chat", None)
         entry = message_to_dict(message, chat)
         entry["dialog"] = {
@@ -40,7 +50,7 @@ async def fetch_search_all(tg, query: str, limit: int = 20) -> dict:
             "name": _dialog_name(chat, "") if chat is not None else None,
         }
         messages.append(entry)
-    return {"query": query, "messages": messages}
+    return {"query": query, "messages": messages, "more": more}
 
 
 async def fetch_latest(tg, chat: str) -> dict:
