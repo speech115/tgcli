@@ -9,10 +9,8 @@ def _kind(dialog) -> str:
 async def fetch_dialogs(
     tg, limit: int = 50, *, unread_only: bool = False, kind: str | None = None
 ) -> dict:
-    if limit == 0:
-        return {"dialogs": []}
-
     dialogs = []
+    more = False
     async for dialog in tg.iter_dialogs():
         mentions = (
             getattr(getattr(dialog, "dialog", None), "unread_mentions_count", 0) or 0
@@ -21,6 +19,9 @@ async def fetch_dialogs(
             continue
         if kind is not None and _kind(dialog) != kind:
             continue
+        if len(dialogs) >= limit:
+            more = True
+            break
         dialogs.append(
             {
                 "id": dialog.id,
@@ -32,9 +33,7 @@ async def fetch_dialogs(
                 "last_message_at": dialog.date.isoformat() if dialog.date else None,
             }
         )
-        if len(dialogs) >= limit:
-            break
-    return {"dialogs": dialogs}
+    return {"dialogs": dialogs, "more": more}
 
 
 def to_rows(data: dict) -> list[tuple]:

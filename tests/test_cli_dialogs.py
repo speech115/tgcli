@@ -75,7 +75,8 @@ def test_dialogs_json_matches_contract(config_env, monkeypatch, capsys):
                 "mentions": 0,
                 "last_message_at": "2026-07-06T11:59:00+00:00",
             }
-        ]
+        ],
+        "more": False,
     }
 
 
@@ -137,7 +138,7 @@ def test_dialogs_limit_zero_returns_no_dialogs(config_env, monkeypatch, capsys):
 
     assert main(["dialogs", "--limit", "0", "--json"]) == 0
 
-    assert json.loads(capsys.readouterr().out) == {"dialogs": []}
+    assert json.loads(capsys.readouterr().out) == {"dialogs": [], "more": True}
 
 
 def test_dialogs_unread_only_includes_unread_mentions(config_env, monkeypatch, capsys):
@@ -157,7 +158,8 @@ def test_dialogs_unread_only_includes_unread_mentions(config_env, monkeypatch, c
                 "mentions": 2,
                 "last_message_at": "2026-07-06T12:00:00+00:00",
             }
-        ]
+        ],
+        "more": False,
     }
 
 
@@ -206,3 +208,29 @@ def test_dialogs_json_passes_control_characters_through(
 
     data = json.loads(capsys.readouterr().out)
     assert data["dialogs"][0]["name"] == HOSTILE_TITLE
+
+
+def test_dialogs_reports_more_when_matches_exceed_limit(
+    config_env, monkeypatch, capsys
+):
+    make_session_fake(
+        monkeypatch, FakeClient(dialogs=[make_dialog(), make_megagroup_dialog()])
+    )
+
+    assert main(["dialogs", "--limit", "1", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert [dialog["id"] for dialog in data["dialogs"]] == [-1001234]
+    assert data["more"] is True
+
+
+def test_dialogs_more_counts_only_matching_dialogs(config_env, monkeypatch, capsys):
+    make_session_fake(
+        monkeypatch, FakeClient(dialogs=[make_dialog(), make_megagroup_dialog()])
+    )
+
+    assert main(["dialogs", "--kind", "channel", "--limit", "1", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert [dialog["id"] for dialog in data["dialogs"]] == [-1001234]
+    assert data["more"] is False

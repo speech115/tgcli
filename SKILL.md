@@ -59,14 +59,14 @@ selected account session, does one operation, and exits.
 | Remove a configured account | `tg --json accounts remove ALIAS --confirm` (also deletes its role sessions; JSON `roles` maps each to `deleted`/`kept`) |
 | Remove one session role | `tg --json accounts remove ALIAS --role job --confirm` |
 | The session died / a new machine | `tg --json accounts login ALIAS …` then `tg --json accounts show ALIAS` |
-| List dialogs | `tg --json dialogs --limit 50` |
+| List dialogs | `tg --json dialogs --limit 50` (`more: true` means more dialogs match than `--limit`) |
 | List unread dialogs | `tg --json dialogs --unread-only` |
 | New since the last ack | `tg --json inbox read [--limit N]`, then `tg --json inbox ack ACK` |
 | Filter dialogs by kind | `tg --json dialogs --kind channel` |
 | Read recent messages | `tg --json read @channel --limit 20` |
 | Read an older page | `tg --json read @channel --before-id 42 --limit 20` |
 | Read newer or bounded messages | `tg --json read CHAT --after-id 42 --since ISO --until ISO --topic ID` |
-| Search a dialog | `tg --json search @channel "query" --limit 20` |
+| Search a dialog | `tg --json search @channel "query" --limit 20` (`more: true` means more hits than `--limit`; raise it or narrow the query) |
 | Search a dialog with filters | `tg --json search CHAT "query" --from @user --since ISO` |
 | Search all dialogs | `tg --json search --all "query" --limit 20` |
 | Read the latest message | `tg --json latest @channel` |
