@@ -17,12 +17,14 @@ from tgcli.commands import (
     clone as clone_cmd,
     doctor as doctor_cmd,
     export as export_cmd,
+    inbox as inbox_cmd,
     login as login_cmd,
     media as media_cmd,
     run as run_cmd,
     store as store_cmd,
     transcribe as transcribe_cmd,
 )
+from tgcli.config import resolve_account
 from tgcli.errors import PolicyError
 from tgcli.governor import pacing
 
@@ -126,6 +128,12 @@ def doctor(args, config) -> tuple[dict, list[tuple]]:
     return data, doctor_cmd.to_rows(data)
 
 
+def inbox_ack(args, config) -> tuple[dict, list[tuple]]:
+    account = resolve_account(config, args.account)
+    data = inbox_cmd.ack(account.alias, args.token)
+    return data, inbox_cmd.ack_rows(data)
+
+
 # Network commands: one open session each.
 
 
@@ -135,6 +143,11 @@ async def read(tg, args, account) -> tuple[dict, list[tuple]]:
         raise AssertionError(f"no read operation for {args.command}")
     result = await read_ops.execute(tg, operation)
     return result.data, result.rows
+
+
+async def inbox_read(tg, args, account) -> tuple[dict, list[tuple]]:
+    data = await inbox_cmd.fetch_inbox(tg, account.alias, limit=args.limit)
+    return data, inbox_cmd.to_rows(data)
 
 
 async def handshake(tg, args, account) -> tuple[dict, list[tuple]]:

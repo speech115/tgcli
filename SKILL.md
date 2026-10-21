@@ -61,6 +61,7 @@ selected account session, does one operation, and exits.
 | The session died / a new machine | `tg --json accounts login ALIAS …` then `tg --json accounts show ALIAS` |
 | List dialogs | `tg --json dialogs --limit 50` |
 | List unread dialogs | `tg --json dialogs --unread-only` |
+| New since the last ack | `tg --json inbox read [--limit N]`, then `tg --json inbox ack ACK` |
 | Filter dialogs by kind | `tg --json dialogs --kind channel` |
 | Read recent messages | `tg --json read @channel --limit 20` |
 | Read an older page | `tg --json read @channel --before-id 42 --limit 20` |
@@ -147,18 +148,15 @@ collected pages only if a consumer needs oldest-first processing.
 
 ### What's new since the last check
 
-First discover pending conversations with
-`tg --json dialogs --unread-only`. For each dialog, persist the last processed
-message id in the caller's own state. Hold that `LAST_ID` fixed while fetching
-the whole unread window: start with
-`tg --json read CHAT --after-id LAST_ID --limit 100`, then paginate older
-results with
-`tg --json read CHAT --after-id LAST_ID --before-id OLDEST_ID --limit 100`,
-where `OLDEST_ID` is the preceding page's `page.oldest_id`. Stop on an empty
-`messages` array. Only after collecting every page, process the messages
-oldest-first; once processing succeeds, advance the checkpoint to the maximum
-collected message id. Do not use `unread` as a durable cursor: it is a Telegram
-UI counter, whereas the message id is the stable per-dialog boundary.
+`tg --json inbox read` returns the messages after each dialog's checkpoint,
+oldest first (`--limit N` per dialog, default 100). Process them, then run
+`tg --json inbox ack ACK` with the returned `ack` token from the same account;
+only ack moves the checkpoints, so a failed run re-reads the same messages of
+an acked dialog. When `more` is true, ack and read again for the rest. A dialog
+never acked is walked only while unread, starting after Telegram's read marker.
+`ack` writes local state, so `TGCLI_READONLY=1` blocks it. Do not use `unread`
+as a durable cursor: it is a Telegram UI counter, whereas the message id is the
+stable per-dialog boundary.
 
 ### Send with retry
 
