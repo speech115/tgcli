@@ -2,7 +2,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from telethon.errors import MessageNotModifiedError
+from telethon.errors import MessageNotModifiedError, RandomIdDuplicateError
 
 from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli import safety, session
@@ -75,6 +75,12 @@ class ForwardClient(MutateClient):
         return SimpleNamespace(
             updates=[types.UpdateMessageID(id=99, random_id=request.random_id[0])]
         )
+
+
+class AlreadyForwardedClient(ForwardClient):
+    async def __call__(self, request):
+        self.forwarded = request
+        raise RandomIdDuplicateError(request=request)
 
 
 class ConvergedEditClient(MutateClient):
@@ -439,8 +445,11 @@ def test_forward_commit_uses_stored_random_id(config_env, monkeypatch, capsys):
 
     assert main(["forward", "--commit", preview["preview_id"], "--json"]) == 0
 
-    data = json.loads(capsys.readouterr().out)
-    assert data["message_id"] == 99
+    assert json.loads(capsys.readouterr().out) == {
+        "preview_id": preview["preview_id"],
+        "message_id": 99,
+        "already_sent": False,
+    }
     assert client.forwarded.from_peer == "@chan"
     assert client.forwarded.to_peer == "@other"
     assert client.forwarded.random_id == [555]
@@ -450,6 +459,40 @@ def test_forward_commit_uses_stored_random_id(config_env, monkeypatch, capsys):
         for line in safety.audit_path().read_text().splitlines()
     ]
     assert actions == ["forward", "forward-result"]
+
+
+def test_forward_commit_reports_already_sent_on_duplicate_random_id(
+    config_env, monkeypatch, capsys
+):
+    from telethon.tl import functions
+
+    preview = safety.create_preview(
+        {
+            "kind": "forward",
+            "source": "@chan",
+            "message_id": 2,
+            "destination": "@other",
+            "text": "old",
+            "random_id": 556,
+        }
+    )
+    client = make_forward_client(AlreadyForwardedClient)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["forward", "--commit", preview["preview_id"], "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out) == {
+        "preview_id": preview["preview_id"],
+        "message_id": None,
+        "already_sent": True,
+    }
+    assert isinstance(client.forwarded, functions.messages.ForwardMessagesRequest)
+    assert client.forwarded.random_id == [556]
+    used = safety.previews_dir() / f"{preview['preview_id']}.used"
+    assert used.exists()
+    result = json.loads(safety.audit_path().read_text().splitlines()[-1])
+    assert result["action"] == "forward-result"
+    assert result["already_sent"] is True
 
 
 def test_forward_preview_stores_chat_refs_and_random_id(

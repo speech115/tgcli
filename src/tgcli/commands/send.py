@@ -10,7 +10,7 @@ from typing import cast
 from telethon.tl import functions, types
 
 from tgcli import chatref, formatting, safety
-from tgcli.confirm import confirmed_ids
+from tgcli.confirm import send_confirmed
 from tgcli.errors import NotFoundError, PolicyError
 
 
@@ -259,15 +259,13 @@ async def commit(tg, preview_id: str, payload: dict) -> dict:
             request = functions.messages.SendMediaRequest(
                 **common, media=_uploaded_media(uploaded, original_path, snapshot)
             )
-            response = await tg(request)
-            [message_id] = confirmed_ids(response, [random_id])
+            sent = await send_confirmed(tg, request, random_id)
         finally:
             snapshot_dir.cleanup()
     else:
         request = functions.messages.SendMessageRequest(**common)
-        response = await tg(request)
-        [message_id] = confirmed_ids(response, [random_id])
-    return {"preview_id": preview_id, "message_id": message_id}
+        sent = await send_confirmed(tg, request, random_id)
+    return {"preview_id": preview_id, **sent}
 
 
 def to_rows(data: dict) -> list[tuple]:

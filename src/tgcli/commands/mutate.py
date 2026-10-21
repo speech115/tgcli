@@ -7,7 +7,7 @@ from telethon.tl import functions
 
 from tgcli import chatref, formatting, safety
 from tgcli.commands.read import sanitize_plain_text
-from tgcli.confirm import confirmed_ids
+from tgcli.confirm import send_confirmed
 from tgcli.errors import NotFoundError
 
 
@@ -127,16 +127,14 @@ async def prepare_forward(tg, source: str, message_id: int, destination: str) ->
 
 
 async def commit_forward(tg, preview_id: str, payload: dict) -> dict:
-    response = await tg(
-        functions.messages.ForwardMessagesRequest(
-            from_peer=await _input_peer(tg, payload["source"]),
-            id=[payload["message_id"]],
-            random_id=[payload["random_id"]],
-            to_peer=await _input_peer(tg, payload["destination"]),
-        )
+    request = functions.messages.ForwardMessagesRequest(
+        from_peer=await _input_peer(tg, payload["source"]),
+        id=[payload["message_id"]],
+        random_id=[payload["random_id"]],
+        to_peer=await _input_peer(tg, payload["destination"]),
     )
-    [message_id] = confirmed_ids(response, [payload["random_id"]])
-    return {"preview_id": preview_id, "message_id": message_id}
+    sent = await send_confirmed(tg, request, payload["random_id"])
+    return {"preview_id": preview_id, **sent}
 
 
 def to_rows(data: dict) -> list[tuple]:

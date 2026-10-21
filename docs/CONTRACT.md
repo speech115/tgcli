@@ -590,10 +590,18 @@ Previews expire after five minutes. A send commit moves its preview through
 `.json` → `.pending` → `.used`: a failed commit may be re-committed; Telegram
 deduplicates by `random_id` within the preview TTL. Only a confirmed send marks
 the preview used, and only after its result audit record persists. Commit JSON
-is `{"preview_id": "p_9f3a", "message_id": 42}`. An expired preview never
-advances to `.pending`, and a `.pending` retry found expired here is moved back
-to `.json`: either way it lands in the plain expired bucket `store cleanup`
-reaps by default, never waiting on `--include-pending` for a second TTL.
+is `{"preview_id": "p_9f3a", "message_id": 42, "already_sent": false}`, and
+every send and forward commit carries `already_sent`. When Telegram refuses the
+request as `RANDOM_ID_DUPLICATE`, an earlier attempt of this preview was
+delivered but Telegram does not say which message it became: the commit exits
+0 with `{"preview_id": "p_9f3a", "message_id": null, "already_sent": true}`
+(`--plain` leaves the message id cell empty), writes the result audit record
+with `already_sent: true`, and marks the preview used. Telethon still retries
+that error five times, about twelve seconds, before tgcli sees it. An expired
+preview never advances to `.pending`, and a `.pending` retry found expired here
+is moved back to `.json`: either way it lands in the plain expired bucket
+`store cleanup` reaps by default, never waiting on `--include-pending` for a
+second TTL.
 All `--preview` invocations for `send`, `edit`, `delete`, `forward`,
 `draft set`, and `draft clear` are non-mutating:
 they may resolve or read a Telegram target and write a local preview record,
@@ -658,9 +666,10 @@ source and destination chat references. Preview resolves both references only
 as a preflight; commit re-resolves the stored chat references into input peers,
 then sends that source message to that destination through Telegram's native
 forward request. It returns
-`{"preview_id":"p_9f3a","message_id":43}` only after exact `random_id`
-confirmation. Forward previews and commits use the same validation, readonly
-gates, retryable `.json` → `.pending` → `.used` lifecycle, and fail-closed
+`{"preview_id":"p_9f3a","message_id":43,"already_sent":false}` only after exact
+`random_id` confirmation, or `already_sent: true` with a null `message_id` on
+`RANDOM_ID_DUPLICATE`, as for send. Forward previews and commits use the same
+validation, readonly gates, retryable `.json` → `.pending` → `.used` lifecycle, and fail-closed
 `forward` / `forward-result` audit records as send. A native forward does not
 take reply or topic flags and therefore creates no reply header.
 
