@@ -224,7 +224,7 @@ COMMANDS: dict[str, Command] = {
     "contacts list": _READ,
     "contacts search": _READ,
     "count": _READ,
-    "dialogs": replace(_READ, prepare=preflight.limit("dialogs", minimum=0)),
+    "dialogs": replace(_READ, prepare=preflight.limit("dialogs", allow_zero=True)),
     "info": _READ,
     "latest": _READ,
     "message": _READ,

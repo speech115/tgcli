@@ -34,9 +34,9 @@ selected account session, does one operation, and exits.
   `tg doctor` reports the active Python and Telethon runtime under `runtime`,
   including `runtime.aes`: `pyaes` means slow pure-Python crypto, and the
   checkout's `fast` extra installs `cryptg`.
-- `--limit` must be positive, except on `dialogs` and `search`, where 0
-  returns no rows and `more` says whether anything matches. A bad `--limit`
-  exits 2.
+- `--limit` must be positive, except on `dialogs` and Telegram `search`,
+  where 0 returns no rows and `more` says whether anything matches. A bad
+  `--limit` exits 2.
 
 ## Command routing
 
