@@ -13,8 +13,9 @@ sibling code with the same pattern is fixed in the same PR.**
 
 `N/A` when the change fixes no bug. Otherwise it passes only if all hold:
 
-- A test in the diff fails on the base and passes on the head because of the
-  fix. Name it, and say which assertion fails without the fix.
+- A test in the diff asserts the fixed behavior, so by reading the base code
+  it would fail there. Name it, and say which assertion fails without the
+  fix.
 - Every changed line in `src/` is needed for the fix; a refactor or a cleanup
   riding along is a violation.
 - Grep `src/` for code with the same pattern as the bug. Each sibling either

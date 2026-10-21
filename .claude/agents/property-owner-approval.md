@@ -19,8 +19,10 @@ It passes only if all hold:
   `uv.lock`), or new module group is something the owner asked for: in the PR
   body, a linked issue, or the intent you were given. Quote where; if you find
   no request, it is a violation.
-- No process is left running after the command exits, and no path is written
-  outside the two directories above (tests and temp files excluded).
+- No process is left running after the command exits, and no persistent
+  tgcli state (sessions, locks, journals, caches, config) is written outside
+  the two directories above. Output files the user asked for (downloads,
+  exports to a given path) are not state.
 - An ADR added in `docs/decisions/` records a decision that is hard to
   reverse; an ADR for an easily undone choice is a violation.
 

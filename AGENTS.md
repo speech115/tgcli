@@ -102,7 +102,8 @@ mistake can no longer happen is deleted.
   fix its Critical and Important findings; the `reviewer` agent covers the
   contract and ADRs. In the same message, launch one `property-*` agent per
   judgment rule above (bug-fix, test-seams, contract-docs, owner-approval,
-  scope) on the branch, all in parallel. A `FAIL` from any of them blocks the
+  scope) on the branch, all in parallel; the live-account rule governs the
+  session, not the diff, so it has none. A `FAIL` from any of them blocks the
   PR until fixed; if the property itself is wrong, fix its agent.
 - Enable squash auto-merge when opening the PR (`gh pr merge N --squash
   --auto`); the ruleset holds it until the `checks` and `test` jobs pass.

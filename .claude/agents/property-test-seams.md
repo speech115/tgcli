@@ -16,8 +16,10 @@ test passes only if all hold:
 - It feeds CLI arguments in and asserts stdout, stderr, JSON, or the exit
   code, rather than calling private helpers or asserting internal state.
 - It mocks only the Telegram client (`FakeClient` in `tests/conftest.py`,
-  `tests/fakes/`), time, and the filesystem. Patching a tgcli module function
-  is a violation.
+  `tests/fakes/`), time, and the filesystem. Patching tgcli code that the
+  behavior under test runs through is a violation; patching a tgcli function
+  only to simulate a filesystem, clock, or Telegram failure (an unwritable
+  audit, a busy database) is allowed.
 - When the diff adds or changes an RPC call in `src/`, a test asserts the exact
   `functions.*Request` class and the `types.Input*` values it sends, not just
   that some call happened.
