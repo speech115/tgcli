@@ -341,3 +341,26 @@ def test_search_all_reports_more_when_hits_exceed_limit(
     assert [message["id"] for message in data["messages"]] == [2]
     assert data["more"] is True
     assert client.iter_messages_calls == [(None, "invoice", 2)]
+
+
+def test_search_all_reports_no_more_when_hits_fill_limit_exactly(
+    config_env, monkeypatch, capsys
+):
+    hit = ns(
+        id=1,
+        date=None,
+        sender_id=1,
+        sender=None,
+        text="invoice",
+        media=None,
+        reply_to_msg_id=None,
+        chat=ns(id=5, title="Chan"),
+        chat_id=5,
+    )
+    make_session_fake(monkeypatch, FakeClient(search_messages={"invoice": [hit]}))
+
+    assert main(["search", "--all", "invoice", "--limit", "1", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert [message["id"] for message in data["messages"]] == [1]
+    assert data["more"] is False

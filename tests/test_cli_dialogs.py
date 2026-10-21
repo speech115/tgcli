@@ -234,3 +234,13 @@ def test_dialogs_more_counts_only_matching_dialogs(config_env, monkeypatch, caps
     data = json.loads(capsys.readouterr().out)
     assert [dialog["id"] for dialog in data["dialogs"]] == [-1001234]
     assert data["more"] is False
+
+
+def test_dialogs_limit_zero_reports_no_more_when_nothing_matches(
+    config_env, monkeypatch, capsys
+):
+    make_session_fake(monkeypatch, FakeClient(dialogs=[make_dialog()]))
+
+    assert main(["dialogs", "--kind", "user", "--limit", "0", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out) == {"dialogs": [], "more": False}
