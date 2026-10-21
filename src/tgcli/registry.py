@@ -200,6 +200,16 @@ COMMANDS: dict[str, Command] = {
     "draft show": _READ,
     "draft set": _HANDSHAKE,
     "draft clear": _HANDSHAKE,
+    # inbox: Telegram read from local checkpoints, then a local checkpoint write
+    "inbox read": Command(
+        kind="read",
+        needs="network",
+        run=handlers.inbox_read,
+        prepare=preflight.prepare_inbox_read,
+    ),
+    "inbox ack": Command(
+        kind="write", needs="config", run=handlers.inbox_ack, gate="local"
+    ),
     # local housekeeping
     "doctor": Command(kind="local-read", needs="config", run=handlers.doctor),
     "store stats": Command(kind="local-read", needs="none", run=handlers.store_stats),

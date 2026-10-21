@@ -131,6 +131,11 @@ def prepare_clone_sync(parser: argparse.ArgumentParser, args) -> None:
         raise PolicyError("clone sync --limit must be positive")
 
 
+def prepare_inbox_read(parser: argparse.ArgumentParser, args) -> None:
+    if args.limit <= 0:
+        raise PolicyError("inbox read --limit must be positive")
+
+
 def prepare_login(parser: argparse.ArgumentParser, args) -> None:
     """Validate login flag combinations (the local gate runs first).
 

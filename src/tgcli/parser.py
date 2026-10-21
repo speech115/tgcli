@@ -511,6 +511,27 @@ def build_parser() -> argparse.ArgumentParser:
     p_draft_clear.add_argument("--preview", action="store_true")
     p_draft_clear.add_argument("--commit", metavar="PREVIEW_ID")
 
+    p_inbox = sub.add_parser(
+        "inbox",
+        help="Read what is new since the last ack, then ack it",
+        parents=[global_flags],
+    )
+    inbox_sub = p_inbox.add_subparsers(dest="inbox_command", required=True)
+    p_inbox_read = inbox_sub.add_parser(
+        "read",
+        help="New messages in unread dialogs after each checkpoint",
+        parents=[global_flags],
+    )
+    p_inbox_read.add_argument(
+        "--limit", type=int, default=100, help="max messages per dialog (default 100)"
+    )
+    p_inbox_ack = inbox_sub.add_parser(
+        "ack",
+        help="Advance checkpoints to an inbox read's ack token",
+        parents=[global_flags],
+    )
+    p_inbox_ack.add_argument("token", help="the `ack` value from tg inbox read")
+
     return parser
 
 

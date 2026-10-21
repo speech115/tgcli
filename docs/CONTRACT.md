@@ -450,6 +450,46 @@ stops at the first message older than the bound). Success JSON:
 `{"dialog":{"id":3817664407,"name":"Channel"},"items":[...],"count":N}`. Plain
 rows are `message_id`, `type`, `size`, `mime`, `filename`.
 
+### Inbox (`tg inbox`)
+
+```
+tg inbox read [--limit N]
+tg inbox ack TOKEN
+```
+
+`inbox read` walks every dialog that has a checkpoint, and every other dialog
+with `unread_count > 0`, and returns the messages after that dialog's start,
+oldest first, at most `--limit` (default 100, must be positive) per dialog. A
+dialog's start is its checkpoint; a dialog with no checkpoint starts after
+Telegram's read marker (`read_inbox_max_id`). A checkpointed dialog is walked
+even when it was read in another client. A dialog with nothing after its start
+is omitted, and when the dialog list shows its newest message at or below the
+start, its history is not read. `read` never moves a checkpoint. Success JSON:
+
+```json
+{"dialogs":[{"id":-1001234,"name":"Channel","kind":"channel","after_id":10,
+  "messages":[...],"more":false}],
+ "more":false,"ack":"v1:eyJhY2NvdW50IjogIm1haW4iLCAiZGlhbG9ncyI6IHsiLTEwMDEyMzQiOiAxM319"}
+```
+
+Messages use the `tg read` message shape. `more` is true when a dialog has
+messages past the returned page; the next `read` after an ack continues from
+there. `ack` is `null` when no messages were returned. The token names the
+account it was read from.
+
+`inbox ack TOKEN` sets each dialog's checkpoint to the newest id the token
+carries; a checkpoint never moves back, so acking an older token or the same
+token twice changes nothing. Checkpoints live in
+`inbox/<account>.json` under the state root. `ack` writes local state:
+`--readonly` / `TGCLI_READONLY=1` block it (exit 2); `TGCLI_NO_SEND` does not
+apply. A malformed token, a token from another account, a non-positive
+`--limit`, or an unreadable state file on either leg exits 2 (`BLOCKED`).
+Success JSON: `{"acked":[{"id":-1001234,"checkpoint":13}]}`.
+
+Plain rows: `inbox read` outputs `dialog_id`, `id`, `date`, `from_name`,
+`text` per message and does not carry the ack token, so the read → ack loop
+needs `--json`; `inbox ack` outputs `dialog_id`, `checkpoint`.
+
 ### Transcribe (`tg transcribe`; ADR-0075)
 
 `tg transcribe <chat> <message_id>` resolves the peer, refuses a message that
