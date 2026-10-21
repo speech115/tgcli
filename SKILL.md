@@ -140,11 +140,15 @@ message is not a voice message or the flag was unavailable.
 
 ### Walk history
 
-Start with `tg --json read CHAT --limit 100`. Save the returned
-`page.oldest_id`; while it is not `null`, request the next older page with
-`tg --json read CHAT --before-id OLDEST_ID --limit 100`. Stop on an empty
-`messages` array. Results stay newest-first within each page, so reverse the
-collected pages only if a consumer needs oldest-first processing.
+To walk a whole chat, use `tg --json export messages CHAT --output FILE.jsonl`
+instead of paging `read`: it writes every message oldest first, one
+`read`-shape object per line. A failed run leaves `FILE.jsonl` unchanged; run
+it again, after `retry_after` on exit 5. Later, add `--resume` to append only
+messages newer than the file's last line.
+
+For a few pages before a point, page
+`tg --json read CHAT --before-id OLDEST_ID --limit 100` with each response's
+`page.oldest_id`, and stop when it is `null`.
 
 ### What's new since the last check
 
