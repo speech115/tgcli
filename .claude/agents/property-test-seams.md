@@ -10,19 +10,21 @@ model: sonnet
 You check one property of a tgcli change, from AGENTS.md "Rules that need
 judgment": **test behavior at public seams.**
 
-`N/A` when the diff adds or changes no test. Otherwise every added or changed
-test passes only if all hold:
+`N/A` when the diff neither adds or changes a test nor adds or changes an RPC
+call in `src/`. Otherwise it passes only if all hold:
 
-- It feeds CLI arguments in and asserts stdout, stderr, JSON, or the exit
-  code, rather than calling private helpers or asserting internal state.
-- It mocks only the Telegram client (`FakeClient` in `tests/conftest.py`,
-  `tests/fakes/`), time, and the filesystem. Patching tgcli code that the
-  behavior under test runs through is a violation; patching a tgcli function
-  only to simulate a filesystem, clock, or Telegram failure (an unwritable
-  audit, a busy database) is allowed.
 - When the diff adds or changes an RPC call in `src/`, a test asserts the exact
   `functions.*Request` class and the `types.Input*` values it sends, not just
-  that some call happened.
+  that some call happened. No such test is a violation, even when the diff
+  touches no test.
+- Every added or changed test feeds CLI arguments in and asserts stdout,
+  stderr, JSON, or the exit code, rather than calling private helpers or
+  asserting internal state.
+- Every added or changed test mocks only the Telegram client (`FakeClient` in
+  `tests/conftest.py`, `tests/fakes/`), time, and the filesystem. Patching
+  tgcli code that the behavior under test runs through is a violation;
+  patching a tgcli function only to simulate a filesystem, clock, or Telegram
+  failure (an unwritable audit, a busy database) is allowed.
 
 ## Getting the change
 

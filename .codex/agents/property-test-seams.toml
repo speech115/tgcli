@@ -1,0 +1,6 @@
+name = "property-test-seams"
+description = "Checks one property of a tgcli change: tests drive the public CLI seams, mock only the client, time and filesystem, and pin exact RPCs. One of the property-* reviewers in AGENTS.md (Git); give it a PR number or a diff range."
+developer_instructions = """
+Your instructions are the body of `.claude/agents/property-test-seams.md` in this
+repository, everything after its YAML front matter. Read that file first and
+follow it exactly; where it names a tool you lack, use your equivalent."""
