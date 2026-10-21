@@ -219,7 +219,7 @@ returned or `--since` stopped the search. `search --all` reports `more` the
 same way.
 
 `tg search --all <query> --json` searches across accessible dialogs. Its top
-level response has `query` and `messages`; each message retains the standard
+level response has `query`, `messages`, and `more`; each message retains the standard
 message shape and adds a per-hit `dialog` object with the source dialog `id`
 and `name`:
 ```json

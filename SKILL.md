@@ -68,7 +68,7 @@ selected account session, does one operation, and exits.
 | Read newer or bounded messages | `tg --json read CHAT --after-id 42 --since ISO --until ISO --topic ID` |
 | Search a dialog | `tg --json search @channel "query" --limit 20` (`more: true` means more hits than `--limit`; raise it or narrow the query) |
 | Search a dialog with filters | `tg --json search CHAT "query" --from @user --since ISO` |
-| Search all dialogs | `tg --json search --all "query" --limit 20` |
+| Search all dialogs | `tg --json search --all "query" --limit 20` (`more: true` means more hits than `--limit`) |
 | Read the latest message | `tg --json latest @channel` |
 | Read an exact message | `tg --json message @channel 42` |
 | Read a message with neighbours | `tg --json message @channel 42 --context 3` |
