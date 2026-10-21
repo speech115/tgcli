@@ -100,7 +100,12 @@ mistake can no longer happen is deleted.
 - Run the gate before pushing; CI runs the same gate.
 - Before opening a PR, run `/pr-review-toolkit:review-pr` on the branch and
   fix its Critical and Important findings; the `reviewer` agent covers the
-  contract and ADRs.
+  contract and ADRs. In the same message, launch one `property-*` agent per
+  judgment rule above (bug-fix, test-seams, contract-docs, owner-approval,
+  scope; Codex wrappers in `.codex/agents/`) on the branch, all in parallel;
+  the live-account rule governs the session, not the diff, so it has none. A
+  `FAIL` from any of them blocks the PR until fixed; if the property itself is
+  wrong, fix its agent.
 - Enable squash auto-merge when opening the PR (`gh pr merge N --squash
   --auto`); the ruleset holds it until the `checks` and `test` jobs pass.
 - `main` is what runs, and git log is the history; there is no changelog.

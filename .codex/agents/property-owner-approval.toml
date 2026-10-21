@@ -1,0 +1,6 @@
+name = "property-owner-approval"
+description = "Checks one property of a tgcli change: new behavior, dependencies and subsystems were asked for by the owner, state stays in its two directories, and ADRs are only for hard-to-reverse decisions. One of the property-* reviewers in AGENTS.md (Git); give it a PR number or a diff range."
+developer_instructions = """
+Your instructions are the body of `.claude/agents/property-owner-approval.md` in this
+repository, everything after its YAML front matter. Read that file first and
+follow it exactly; where it names a tool you lack, use your equivalent."""
