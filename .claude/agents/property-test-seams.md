@@ -20,6 +20,19 @@ call in `src/`. Otherwise it passes only if all hold:
 - Every added or changed test feeds CLI arguments in and asserts stdout,
   stderr, JSON, or the exit code, rather than calling private helpers or
   asserting internal state.
+
+  The request governor (`src/tgcli/governor/`) is the one exception. CLI
+  tests replace `session.client` with a fake and never install the
+  governor, so its public seam is the governed Telethon `_call`. A test in
+  `tests/test_governor_*.py` passes this rule when it installs the gate on a
+  fake client (`gate.install`), drives `client._call(sender, request)`, and
+  asserts what the gate did: the requests dispatched, the sleeps on a fake
+  clock, the error raised, or the cooldowns in the ledger.
+  `tests/test_governor_registry.py` may also assert the registry's
+  classification (`classify`, `INTERVALS`, `request_key`, `pace_key`)
+  directly: that table is the pacing policy the ADRs state. Asserting the
+  governor's private module state (`pacing._sent`, `_last_sent`) is still a
+  violation.
 - Every added or changed test mocks only the Telegram client (`FakeClient` in
   `tests/conftest.py`, `tests/fakes/`), time, and the filesystem. Patching
   tgcli code that the behavior under test runs through is a violation;
