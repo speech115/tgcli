@@ -74,6 +74,8 @@ Nothing fails if you skip these, so they stay few.
   sibling code with the same pattern and fix it in the same PR.
 - **Test behavior at public seams**: CLI arguments in; stdout, stderr, JSON,
   and exit code out. Mock only the Telegram client, time, and the filesystem.
+  The governor is the exception: CLI fakes never install it, so its tests
+  drive the gate-installed `_call` and its public module API.
   A test for a new or changed RPC asserts the exact `functions.*Request` and
   `types.Input*` it sends.
 - **A CLI contract change** (flags, JSON, exit codes) updates
