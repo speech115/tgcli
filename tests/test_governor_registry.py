@@ -74,6 +74,8 @@ def test_an_unlisted_request_type_still_gets_its_own_cooldown_key():
         (upload.GetFileRequest(location=None, offset=0, limit=1), "media"),
         (contacts.ResolvePhoneRequest("+100"), "resolve_phone"),
         (updates.GetStateRequest(), "metadata"),
+        (messages.SendMessageRequest("p", "hi"), "send"),
+        (messages.DeleteMessagesRequest(id=[1]), "mutation"),
     ],
 )
 def test_known_request_types_land_in_their_adr_class(request_object, expected):
@@ -87,12 +89,22 @@ def test_history_reads_carry_the_three_second_interval():
     assert _interval(history) == 3.0
 
 
-def test_mutations_are_gated_but_unpaced():
-    """No interval, yet still keyed — a flood on a send arms its own record."""
-    send = messages.SendMessageRequest("p", "hi")
+def test_other_mutations_are_gated_but_unpaced():
+    """No interval, yet still keyed — a flood on a delete arms its own record."""
+    delete = messages.DeleteMessagesRequest(id=[1])
 
-    assert _interval(send) is None
+    assert _interval(delete) is None
+    assert registry.request_key(delete) == "messages.DeleteMessagesRequest"
+
+
+def test_sends_carry_the_three_second_interval_and_their_own_cooldown_key():
+    """Paced as one class, yet a flood still arms only the type that drew it."""
+    send = messages.SendMessageRequest("p", "hi")
+    forward = messages.ForwardMessagesRequest(from_peer="a", id=[1], to_peer="p")
+
+    assert _interval(send) == _interval(forward) == 3.0
     assert registry.request_key(send) == "messages.SendMessageRequest"
+    assert registry.pace_key(send) == registry.pace_key(forward)
 
 
 def test_get_messages_by_id_is_charged_10_s_per_300_ids_of_telethon_chunks():

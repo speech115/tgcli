@@ -31,7 +31,8 @@ _wall_clock_started = 0.0
 # the last flood-family stop.
 _request_count = 0
 _last_stop: dict | None = None
-# Per request type: how many were sent and when the last one left.
+# Per pacing slot (`registry.pace_key`): how many were sent and when the last
+# one left.
 _sent: dict[str, int] = {}
 _last_sent: dict[str, float] = {}
 
@@ -152,7 +153,7 @@ async def pace_before_dispatch(
     interval = _charge(request)
     if interval is None:
         return
-    key = registry.request_key(request)
+    key = registry.pace_key(request)
     _sent[key] = _sent.get(key, 0) + 1
     free = 0 if registry.classify(request) in registry.ALWAYS_PACED else FREE_REQUESTS
     now = clock()

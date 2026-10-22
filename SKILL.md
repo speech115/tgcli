@@ -215,7 +215,8 @@ intentionally changed. The variables also accept `true`/`yes`/`on` (and
 
 A single command runs unpaced. Loops are paced: past five requests of one
 type in a run, history reads wait 3 s each, so prefer one script or one
-bulk command over hundreds of separate reads. A FloodWait is remembered
+bulk command over hundreds of separate reads. Sends and forwards share one
+pace: past five in a run, 3 s each (ADR-0122). A FloodWait is remembered
 across processes: until the server's deadline, that request type refuses
 locally (exit 5, `retry_after`) without sending anything. `tg doctor`
 reports active cooldowns and works even while they refuse. Exit 5 means

@@ -29,6 +29,7 @@ class RequestClass(StrEnum):
     BY_ID = "by_id"
     ENUMERATION = "enumeration"
     MEDIA = "media"
+    SEND = "send"
     MUTATION = "mutation"
     METADATA = "metadata"
     RESOLVE_PHONE = "resolve_phone"
@@ -43,6 +44,8 @@ INTERVALS: dict[RequestClass, float | None] = {
     RequestClass.BY_ID: 10.0 / 3,
     RequestClass.ENUMERATION: 3.0,
     RequestClass.MEDIA: 3.0,
+    # ADR-0122: 20 messages a minute, the pace a clone held without a flood.
+    RequestClass.SEND: 3.0,
     RequestClass.MUTATION: None,
     RequestClass.METADATA: None,
     RequestClass.RESOLVE_PHONE: 3.0,
@@ -51,6 +54,11 @@ INTERVALS: dict[RequestClass, float | None] = {
 # Classes paced from the first request, with no free allowance: Telegram
 # punishes phone resolution hardest.
 ALWAYS_PACED = frozenset({RequestClass.RESOLVE_PHONE})
+
+# Classes whose types share one pacing slot: Telegram limits how many
+# messages land, whichever method put them there (ADR-0122). Cooldowns stay
+# per type either way.
+SHARED_SLOT = frozenset({RequestClass.SEND})
 
 # Keyed by "<namespace>.<TypeName>" so two namespaces that share a type name
 # (channels.GetMessagesRequest vs messages.GetMessagesRequest, and likewise
@@ -76,14 +84,15 @@ _CLASSES: dict[str, RequestClass] = {
     "upload.GetCdnFileRequest": RequestClass.MEDIA,
     "upload.SaveFilePartRequest": RequestClass.MEDIA,
     "upload.SaveBigFilePartRequest": RequestClass.MEDIA,
+    # Sends: each one puts messages into a chat, so they share one pace.
+    "messages.SendMessageRequest": RequestClass.SEND,
+    "messages.SendMediaRequest": RequestClass.SEND,
+    "messages.SendMultiMediaRequest": RequestClass.SEND,
+    "messages.ForwardMessagesRequest": RequestClass.SEND,
     # Mutations: no interval, but flood_sleep_threshold=0 means a flood here
     # propagates rather than being silently slept off.
-    "messages.SendMessageRequest": RequestClass.MUTATION,
-    "messages.SendMediaRequest": RequestClass.MUTATION,
-    "messages.SendMultiMediaRequest": RequestClass.MUTATION,
     "messages.EditMessageRequest": RequestClass.MUTATION,
     "messages.DeleteMessagesRequest": RequestClass.MUTATION,
-    "messages.ForwardMessagesRequest": RequestClass.MUTATION,
     "messages.ReadHistoryRequest": RequestClass.MUTATION,
     "channels.DeleteMessagesRequest": RequestClass.MUTATION,
     "channels.ReadHistoryRequest": RequestClass.MUTATION,
@@ -122,3 +131,11 @@ def request_key(request: object) -> str:
 def classify(request: object) -> RequestClass:
     """The paced class for a request, or ``UNLISTED`` when it has none."""
     return _CLASSES.get(request_key(request), UNLISTED)
+
+
+def pace_key(request: object) -> str:
+    """The pacing slot: the class for a ``SHARED_SLOT`` class, else the type."""
+    request_class = classify(request)
+    if request_class in SHARED_SLOT:
+        return f"class:{request_class}"
+    return request_key(request)
