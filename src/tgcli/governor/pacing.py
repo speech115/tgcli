@@ -2,7 +2,8 @@
 
 The 2026-07-31 incident (ADR-0072) was one process walking hundreds of dialogs
 with no spacing at all, which drew a 21.5-hour FloodWait. A single command
-sends a handful of requests and needs no spacing, so each request type gets
+sends a handful of requests and needs no spacing, so each pacing slot
+(``registry.pace_key``: the request type, or the whole class for sends) gets
 ``FREE_REQUESTS`` per process; past that, its interval applies start-to-start
 before every request. Loops (backfill, clone, export, bulk media, scripts)
 are paced; interactive commands are not.
@@ -15,7 +16,7 @@ import time
 
 from tgcli.governor import registry
 
-# Requests of one type a process may send before pacing starts.
+# Requests per pacing slot a process may send before pacing starts.
 FREE_REQUESTS = 5
 
 # Process-wide governed sleep and the optional wall-clock cap (plan phase 5).
@@ -149,7 +150,7 @@ def _charge(request: object) -> float | None:
 async def pace_before_dispatch(
     request: object, *, sleep=asyncio.sleep, clock=time.monotonic
 ) -> None:
-    """Hold the start-to-start interval once this type used its free requests."""
+    """Hold the start-to-start interval once this slot used its free requests."""
     interval = _charge(request)
     if interval is None:
         return

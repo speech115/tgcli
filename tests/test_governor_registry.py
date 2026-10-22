@@ -98,7 +98,7 @@ def test_other_mutations_are_gated_but_unpaced():
 
 
 def test_sends_carry_the_three_second_interval_and_their_own_cooldown_key():
-    """Paced as one class, yet a flood still arms only the type that drew it."""
+    """Paced as one class, yet each send type keeps its own cooldown key."""
     send = messages.SendMessageRequest("p", "hi")
     forward = messages.ForwardMessagesRequest(from_peer="a", id=[1], to_peer="p")
 

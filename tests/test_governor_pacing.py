@@ -219,6 +219,28 @@ async def test_every_kind_of_send_shares_one_pace(client, sleeper):
     assert sleeper.calls == [3.0, 3.0]
 
 
+async def test_types_outside_the_send_class_keep_their_own_slot(client, sleeper):
+    """A history page plus a search is one command; it must not be slowed."""
+    search = messages.SearchRequest(
+        peer="peer-a",
+        q="q",
+        filter=None,
+        min_date=None,
+        max_date=None,
+        offset_id=0,
+        add_offset=0,
+        limit=100,
+        max_id=0,
+        min_id=0,
+        hash=0,
+    )
+
+    await spend_free(client, history())
+    await spend_free(client, search)
+
+    assert sleeper.calls == []
+
+
 async def test_phone_resolution_is_paced_from_the_first_request(client, sleeper):
     """Telegram punishes resolvePhone hardest: it gets no free allowance."""
     from telethon.tl.functions.contacts import ResolvePhoneRequest

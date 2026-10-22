@@ -2,7 +2,9 @@
 
 Date: 2026-10-22
 Status: accepted
-Amends: ADR-0072 decision 3 (mutations no longer all unpaced)
+Amends: ADR-0072 decision 3 — sends are no longer unpaced, and for sends the
+pace key is the class rather than the request type (the cooldown key stays
+the type)
 
 ## Context
 
@@ -18,33 +20,41 @@ nothing slowed it: the audit log shows 94 sends in the first 32 s of
 `messages.SendMessageRequest`. The run slept it out under `--max-runtime`,
 resumed at full speed, and drew a second wait of 292 s 42 messages later.
 
-Bursting buys nothing. About 100 messages followed by a 280 s wait is about
-3.1 s per message, the same throughput as a steady 3 s pace, and repeated
-floods on one account tend to come back longer.
+Bursting bought nothing. The first burst and its wait came to
+(32 + 280) s / 94 ≈ 3.3 s per message; the second, with a 292 s wait after
+42 messages, to about 7 s per message. A steady 3 s pace is faster than
+either, and repeated floods on one account tend to come back longer.
 
 ## Decision
 
 1. **A new paced class, `send`, at 3 s start-to-start.** It holds
    `messages.SendMessageRequest`, `SendMediaRequest`,
-   `SendMultiMediaRequest` and `ForwardMessagesRequest`. 3 s is 20 messages
-   a minute: the rate the media-bound part of the same run held without a
-   flood, and the per-chat rate Telegram's bot FAQ names. Other mutations
-   (edit, delete, read marks, peer creation) stay unpaced.
+   `SendMultiMediaRequest` and `ForwardMessagesRequest`. 3 s is 20 send
+   requests a minute: about the rate the media-bound part of the same run
+   held without a flood, and the per-group rate Telegram's bot FAQ names.
+   The charge is per request, so an album or a multi-id forward is one
+   charge. Every other write (e.g. edit, delete, read marks, peer creation,
+   and every unlisted type) stays unpaced.
 2. **The class shares one pacing slot.** A clone interleaves text sends,
-   media sends and forwards into the same chat, and the limit counts
-   messages, not methods. Per-type slots would let three types each send
-   at full pace. The five free requests are counted across the class too,
-   so `tg send` and other single commands are not slowed.
+   media sends and forwards into the same chat, and the limit counts what
+   lands in the chat, not the method that put it there. Per-type slots
+   would let each type send at full pace. The five free requests are
+   counted across the class too, so `tg send` and other single commands
+   are not slowed.
 3. **Cooldowns stay per request type.** ADR-0072 decision 1 is unchanged: a
    flood arms only the type that drew it. The shared slot is a pacing key
    (`registry.pace_key`), not a cooldown key.
 
 ## Consequences
 
-- A long clone catch-up takes about as long as before but should not
-  flood: 600 text messages take about 30 minutes instead of bursts
-  separated by 5-minute waits.
+- A long clone catch-up should no longer flood: 600 text messages take
+  about 30 minutes, instead of bursts separated by 5-minute waits.
 - `tg run` scripts that send in a loop are paced the same way.
+- The slot is per process (one invocation) and covers all chats: a loop
+  that sends one message to each of many chats is also held to 20 sends a
+  minute. That is the conservative side; a per-chat slot would need the
+  peer in the pace key. Two concurrent processes on one account each get
+  their own slot, as for every other paced class.
 - The 3 s figure comes from one observed run. If floods on sends still
   occur at this pace, raise the interval; the class and the shared slot
   stay.

@@ -1,15 +1,18 @@
 """Which Telegram request type belongs to which paced class (ADR-0072).
 
-Two different keys live here and conflating them is the mistake this module
+Three different keys live here and conflating them is the mistake this module
 exists to prevent:
 
 * the **cooldown key** is the request type itself (``request_key``). A
   ``FLOOD_WAIT`` arms a record for exactly the type that drew it, so the gate
   works for every request tgcli can ever issue — including ones nobody
   enumerated, and whatever a ``tg run`` script sends.
-* the **paced class** (``classify``) decides only the *interval* between
+* the **paced class** (``classify``) decides the *interval* between
   requests, because ADR-0072 decision 3 states its defaults per class rather
-  than per type.
+  than per type, and for a ``SHARED_SLOT`` class also the pace key.
+* the **pace key** (``pace_key``) is the slot pacing counts in: the request
+  type, except that a ``SHARED_SLOT`` class counts all its types together
+  (ADR-0122). It never selects a cooldown.
 
 An unlisted request type is therefore not a hole in the gate. It is a request
 with no pre-emptive pacing, still fully covered by the cooldown. That asymmetry
@@ -23,7 +26,7 @@ from enum import StrEnum
 
 
 class RequestClass(StrEnum):
-    """The pacing classes ADR-0072 decision 3 gives defaults for."""
+    """The pacing classes ADR-0072 decision 3 and ADR-0122 give defaults for."""
 
     HISTORY = "history"
     BY_ID = "by_id"
@@ -44,7 +47,8 @@ INTERVALS: dict[RequestClass, float | None] = {
     RequestClass.BY_ID: 10.0 / 3,
     RequestClass.ENUMERATION: 3.0,
     RequestClass.MEDIA: 3.0,
-    # ADR-0122: 20 messages a minute, the pace a clone held without a flood.
+    # ADR-0122: 20 send requests a minute (an album or a multi-id forward is
+    # one request), about the pace a clone held without a flood.
     RequestClass.SEND: 3.0,
     RequestClass.MUTATION: None,
     RequestClass.METADATA: None,
