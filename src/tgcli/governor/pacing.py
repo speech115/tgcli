@@ -2,7 +2,8 @@
 
 The 2026-07-31 incident (ADR-0072) was one process walking hundreds of dialogs
 with no spacing at all, which drew a 21.5-hour FloodWait. A single command
-sends a handful of requests and needs no spacing, so each request type gets
+sends a handful of requests and needs no spacing, so each pacing slot
+(``registry.pace_key``: the request type, or the whole class for sends) gets
 ``FREE_REQUESTS`` per process; past that, its interval applies start-to-start
 before every request. Loops (backfill, clone, export, bulk media, scripts)
 are paced; interactive commands are not.
@@ -15,7 +16,7 @@ import time
 
 from tgcli.governor import registry
 
-# Requests of one type a process may send before pacing starts.
+# Requests per pacing slot a process may send before pacing starts.
 FREE_REQUESTS = 5
 
 # Process-wide governed sleep and the optional wall-clock cap (plan phase 5).
@@ -31,7 +32,8 @@ _wall_clock_started = 0.0
 # the last flood-family stop.
 _request_count = 0
 _last_stop: dict | None = None
-# Per request type: how many were sent and when the last one left.
+# Per pacing slot (`registry.pace_key`): how many were sent and when the last
+# one left.
 _sent: dict[str, int] = {}
 _last_sent: dict[str, float] = {}
 
@@ -148,11 +150,11 @@ def _charge(request: object) -> float | None:
 async def pace_before_dispatch(
     request: object, *, sleep=asyncio.sleep, clock=time.monotonic
 ) -> None:
-    """Hold the start-to-start interval once this type used its free requests."""
+    """Hold the start-to-start interval once this slot used its free requests."""
     interval = _charge(request)
     if interval is None:
         return
-    key = registry.request_key(request)
+    key = registry.pace_key(request)
     _sent[key] = _sent.get(key, 0) + 1
     free = 0 if registry.classify(request) in registry.ALWAYS_PACED else FREE_REQUESTS
     now = clock()

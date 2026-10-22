@@ -132,6 +132,29 @@ async def test_a_flood_on_one_type_leaves_the_others_free(ledger):
     assert ledger.cooldown_deadline(ACCOUNT, "messages.SendMessageRequest") is None
 
 
+async def test_a_flood_on_one_send_type_leaves_the_other_sends_free(ledger):
+    """ADR-0122: sends share a pacing slot, not a cooldown."""
+    error = telethon_errors.FloodWaitError(request=None)
+    error.seconds = 600
+    client = FakeClient(raises=error)
+    gate.install(client, ledger)
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        await client._call(None, messages.SendMessageRequest("p", "hi"))
+
+    clean = FakeClient()
+    gate.install(clean, ledger)
+    media = messages.SendMediaRequest("p", media=None, message="")
+    forward = messages.ForwardMessagesRequest(from_peer="a", id=[1], to_peer="p")
+    assert await clean._call(None, media) == "result"
+    assert await clean._call(None, forward) == "result"
+    with pytest.raises(RateLimitError):
+        await clean._call(None, messages.SendMessageRequest("p", "again"))
+
+    assert clean.sent == [media, forward]
+    assert set(ledger.active_cooldowns(ACCOUNT)) == {"messages.SendMessageRequest"}
+
+
 async def test_a_direct_call_from_the_download_path_is_governed(ledger):
     """S5: the reason `__call__` was rejected as the seam.
 

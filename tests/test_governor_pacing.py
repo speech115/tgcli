@@ -183,12 +183,60 @@ async def test_upload_parts_are_never_paced(client, sleeper):
     assert sleeper.calls == []
 
 
-async def test_mutations_and_unlisted_types_are_never_paced(client, sleeper):
-    send = messages.SendMessageRequest("peer-a", "hi")
+async def test_other_mutations_and_unlisted_types_are_never_paced(client, sleeper):
+    delete = messages.DeleteMessagesRequest(id=[1])
 
     for _ in range(FREE + 3):
-        await client._call(None, send)
+        await client._call(None, delete)
         await client._call(None, updates.GetStateRequest())
+
+    assert sleeper.calls == []
+
+
+async def test_past_the_free_requests_sends_wait_the_interval(client, sleeper):
+    """The 2026-10-22 clone sync sent ~3 messages/s and drew a 280 s flood."""
+    send = messages.SendMessageRequest("peer-a", "hi")
+
+    await spend_free(client, send)
+    await client._call(None, send)
+    await client._call(None, send)
+
+    assert sleeper.calls == [3.0, 3.0]
+
+
+async def test_every_kind_of_send_shares_one_pace(client, sleeper):
+    """Text, media and forwards interleave in a clone; they share one slot."""
+    sends = [
+        messages.SendMessageRequest("peer-a", "hi"),
+        messages.SendMediaRequest("peer-a", media=None, message=""),
+        messages.SendMultiMediaRequest("peer-a", multi_media=[]),
+        messages.ForwardMessagesRequest(from_peer="peer-b", id=[1], to_peer="peer-a"),
+    ]
+
+    for index in range(FREE + 2):
+        await client._call(None, sends[index % len(sends)])
+
+    assert sleeper.calls == [3.0, 3.0]
+
+
+async def test_types_outside_the_send_class_keep_their_own_slot(client, sleeper):
+    """A history page plus a search is one command; it must not be slowed."""
+    search = messages.SearchRequest(
+        peer="peer-a",
+        q="q",
+        filter=None,
+        min_date=None,
+        max_date=None,
+        offset_id=0,
+        add_offset=0,
+        limit=100,
+        max_id=0,
+        min_id=0,
+        hash=0,
+    )
+
+    await spend_free(client, history())
+    await spend_free(client, search)
 
     assert sleeper.calls == []
 
