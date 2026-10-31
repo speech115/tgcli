@@ -46,6 +46,32 @@ def set_media_path(
         "WHERE peer_id = ? AND message_id = ?",
         (path, media_kind, now, peer_id, message_id),
     )
+    _refresh_fts(conn, peer_id, message_id)
+
+
+def record_media_failure(conn, peer_id: int, message_id: int, *, error: str) -> None:
+    """Count one acquisition failure and stop retrying after the hard cap.
+
+    At the cap an untranscribed row becomes ``no_transcript`` too: without
+    media the transcribe queue can never take it.
+    """
+    now = datetime.now(UTC).isoformat()
+    conn.execute(
+        "UPDATE transcripts SET media_path = NULL, "
+        "media_attempts = media_attempts + 1, "
+        "media_status = CASE WHEN media_attempts + 1 >= ? "
+        "THEN 'no_media' ELSE 'retryable' END, "
+        "status = CASE WHEN media_attempts + 1 >= ? "
+        "AND status IN ('pending', 'retryable') "
+        "THEN 'no_transcript' ELSE status END, "
+        "last_error = ?, updated_at = ? "
+        "WHERE peer_id = ? AND message_id = ?",
+        (MAX_MEDIA_ATTEMPTS, MAX_MEDIA_ATTEMPTS, error, now, peer_id, message_id),
+    )
+    _refresh_fts(conn, peer_id, message_id)
+
+
+def _refresh_fts(conn, peer_id: int, message_id: int) -> None:
     message = conn.execute(
         "SELECT text FROM messages WHERE peer_id = ? AND message_id = ?",
         (peer_id, message_id),
@@ -55,18 +81,4 @@ def set_media_path(
         peer_id,
         message_id,
         message["text"] if message is not None else "",
-    )
-
-
-def record_media_failure(conn, peer_id: int, message_id: int, *, error: str) -> None:
-    """Count one acquisition failure and stop retrying after the hard cap."""
-    now = datetime.now(UTC).isoformat()
-    conn.execute(
-        "UPDATE transcripts SET media_path = NULL, "
-        "media_attempts = media_attempts + 1, "
-        "media_status = CASE WHEN media_attempts + 1 >= ? "
-        "THEN 'no_media' ELSE 'retryable' END, "
-        "last_error = ?, updated_at = ? "
-        "WHERE peer_id = ? AND message_id = ?",
-        (MAX_MEDIA_ATTEMPTS, error, now, peer_id, message_id),
     )
