@@ -283,6 +283,19 @@ def test_backfill_private_without_add_and_group_requires_add(
     assert status["counts"]["messages"] == 2
 
 
+def test_refused_backfill_leaves_no_dialog_state(config_env, monkeypatch, capsys):
+    client = _client(entities={"@news": _channel()}, messages=[_msg(mid=1)])
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    assert main(["archive", "backfill", "@news", "--json"]) == 2
+    capsys.readouterr()
+    assert main(["archive", "status", "--json"]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["dialogs"] == []
+    assert status["last_errors"] == []
+
+
 def test_backfill_channel_after_add_stores_universal_shape(
     config_env, monkeypatch, capsys
 ):
