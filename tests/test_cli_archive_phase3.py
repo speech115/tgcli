@@ -358,6 +358,50 @@ def test_backfill_private_enumerates_users_and_skips_complete(
     assert data["skipped_complete"] >= 1
 
 
+def test_backfill_private_resumes_unfinished_dialog_before_a_finished_one(
+    config_env, monkeypatch, capsys
+):
+    class PerPeerClient(FakeClient):
+        async def iter_messages(self, entity, limit=None, offset_id=0, **_kwargs):
+            page = [
+                message
+                for message in self._messages
+                if message.peer_id.user_id == entity.id
+                and (not offset_id or message.id < offset_id)
+            ]
+            for message in page[:limit]:
+                yield message
+
+    alice = _user(user_id=7, username="alice")
+    bob = _user(user_id=8, username="bob", first="Bob")
+    client = PerPeerClient(
+        me=_me(),
+        entities={"@alice": alice, 7: alice, "@bob": bob, 8: bob},
+        messages=[
+            _msg(mid=3, peer=PeerUser(7)),
+            _msg(mid=2, peer=PeerUser(7)),
+            _msg(mid=1, peer=PeerUser(7)),
+            _msg(mid=5, peer=PeerUser(8)),
+        ],
+        dialogs=[_dialog(alice, name="Alice"), _dialog(bob, name="Bob")],
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    backfill = ["archive", "backfill", "--private", "--limit", "2", "--json"]
+
+    assert main(backfill) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert [(d["peer_id"], d["more"]) for d in first["dialogs"]] == [
+        (7, True),
+        (8, False),
+    ]
+
+    assert main(backfill) == 0
+    second = json.loads(capsys.readouterr().out)
+    assert [d["peer_id"] for d in second["dialogs"]] == [7]
+
+
 @pytest.mark.asyncio
 async def test_private_backfill_does_not_skip_delta_only_state(tmp_path):
     alice = _user()
