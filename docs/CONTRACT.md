@@ -1138,6 +1138,9 @@ After Telegram accepts the code request, the value required by
 `auth.SignInRequest` is held only in an atomically written `0600`
 `logins/l_<login_id>.phone` sidecar (ADR-0093); promotion, discard, code expiry,
 and expired-attempt `store cleanup` delete it with the staged attempt.
+A first step that fails before the `phone_code_hash` is recorded (flood wait,
+invalid credentials, network) discards the attempt and keeps its own error
+and exit code.
 If `accounts remove` drops an already configured alias while `--continue` is
 in flight, the continue deletes the session it just promoted, restoring a
 session `--keep-session` kept (audit outcome `discarded`), and exits **4**.

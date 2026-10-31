@@ -962,3 +962,21 @@ def test_cleanup_probes_locks_without_creating_them(tmp_path, monkeypatch):
     assert "abc123-media" in result["removed"]
     assert list((tmp_path / "sessions").glob("*.lock")) == []
     assert list((tmp_path / "logins").glob("*.lock")) == []
+
+
+def test_interrupted_cleanup_leaves_the_attempt_reapable(
+    tmp_path, monkeypatch, fail_first_unlink
+):
+    """A cleanup that dies mid-attempt must leave the json behind, or the
+    rest of the attempt (a raw phone) is invisible to every later run."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    _write_login(
+        tmp_path, "l_dead", expires_at=NOW - timedelta(minutes=1), phone="+7999"
+    )
+    fail_first_unlink(".phone")
+
+    with pytest.raises(OSError):
+        store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
+    store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
+
+    assert list((tmp_path / "logins").iterdir()) == []

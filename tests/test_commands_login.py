@@ -959,3 +959,96 @@ def test_login_discard_waits_for_a_busy_session_lock(
 
     assert code == 4
     assert not dest.exists()
+
+
+def _attempt_files(state: Path) -> list[str]:
+    logins = state / "logins"
+    if not logins.is_dir():
+        return []
+    return sorted(path.name for path in logins.iterdir() if path.suffix != ".lock")
+
+
+def _start_args() -> list[str]:
+    return [
+        "accounts",
+        "login",
+        "tmp",
+        "--phone",
+        PHONE,
+        "--api-id",
+        "1",
+        "--api-hash",
+        "h",
+        "--json",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("error", "exit_code"),
+    [
+        (telethon_errors.FloodWaitError(request=None, capture=30), 5),
+        (telethon_errors.ApiIdInvalidError(request=None), 1),
+        (ConnectionError("network is unreachable"), 1),
+    ],
+)
+def test_failed_code_request_leaves_no_attempt(
+    env, fake_client, capsys, error, exit_code
+):
+    """An attempt without a phone_code_hash can never be continued, so a code
+    request that did not succeed must not leave one behind."""
+    fake_client._send_code_error = error
+
+    assert main(_start_args()) == exit_code
+
+    assert _attempt_files(env["state"]) == []
+
+
+def test_unrecorded_code_request_leaves_no_phone(env, fake_client, monkeypatch, capsys):
+    """The phone sidecar lands before phone_code_hash is recorded; a failure
+    between the two writes left the raw phone on disk (ADR-0042)."""
+    from tgcli import atomic
+
+    replace_text = atomic.replace_text
+
+    def fail_attempt_update(path, text, **kwargs):
+        if path.suffix == ".json" and path.exists():
+            raise OSError(28, "No space left on device", str(path))
+        replace_text(path, text, **kwargs)
+
+    monkeypatch.setattr(atomic, "replace_text", fail_attempt_update)
+
+    assert main(_start_args()) == 1
+
+    assert _attempt_files(env["state"]) == []
+
+
+@pytest.mark.parametrize(
+    "sign_in_error",
+    [telethon_errors.PhoneCodeExpiredError(request=None), None],
+    ids=["discard", "promote"],
+)
+def test_interrupted_attempt_removal_stays_reapable(
+    env, fake_client, fail_first_unlink, capsys, sign_in_error
+):
+    """`store cleanup` finds an attempt by its json: removing the json first
+    and failing on the phone left a raw phone nothing would ever reap."""
+    from datetime import UTC, datetime
+
+    from tgcli.commands import store as store_cmd
+
+    assert main(_start_args()) == 0
+    login_id = json.loads(capsys.readouterr().out)["login_id"]
+    fake_client._sign_in_error = sign_in_error
+    fail_first_unlink(".phone")
+
+    assert (
+        main(["accounts", "login", "--continue", login_id, "--code", "1", "--json"])
+        == 1
+    )
+
+    store_cmd.cleanup(
+        env["state"],
+        confirm=True,
+        now=datetime.now(UTC) + 2 * login_state.LOGIN_TTL,
+    )
+    assert _attempt_files(env["state"]) == []

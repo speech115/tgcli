@@ -311,27 +311,31 @@ async def start_login(
         async with authclient.unauthorized_client(
             staged, resolved_id, resolved_hash
         ) as client:
-            return await _phone_start(client, attempt, phone=phone)
+            phone_code_hash = await _request_code(client, phone)
+        login_state.save_phone(login_id, phone)
+        login_state.update_attempt(login_id, phone_code_hash=phone_code_hash)
     except (
         telethon_errors.PhoneNumberBannedError,
         telethon_errors.PhoneNumberInvalidError,
     ) as exc:
         login_state.discard_attempt(login_id)
         raise ConfigError(str(exc)) from exc
+    except BaseException:
+        login_state.discard_attempt(login_id)
+        raise
+    note(
+        f"confirmation code sent to {mask_phone(phone)}; "
+        f"continue with: tg accounts login --continue {login_id} --code …"
+    )
+    return _pending(attempt, next_step="code")
 
 
-async def _phone_start(client, attempt: dict, *, phone: str) -> dict:
+async def _request_code(client, phone: str) -> str:
     sent = await client.send_code_request(phone)
     phone_code_hash = sent.phone_code_hash
     if not isinstance(phone, str) or not isinstance(phone_code_hash, str):
         raise ConfigError("Telegram returned unexpected send_code_request types")
-    login_state.save_phone(attempt["login_id"], phone)
-    login_state.update_attempt(attempt["login_id"], phone_code_hash=phone_code_hash)
-    note(
-        f"confirmation code sent to {mask_phone(phone)}; "
-        f"continue with: tg accounts login --continue {attempt['login_id']} --code …"
-    )
-    return _pending(attempt, next_step="code")
+    return phone_code_hash
 
 
 async def _complete_password(

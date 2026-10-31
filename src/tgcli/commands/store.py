@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from tgcli import session
-from tgcli.login_state import LOGIN_TTL
+from tgcli.login_state import LOGIN_TTL, attempt_files
 from tgcli.output import note
 from tgcli.safety import PREVIEW_TTL
 
@@ -185,13 +185,7 @@ def _login_pair_stats(directory: Path, login_id: str) -> tuple[int, int]:
     """Return (file_count, bytes) for every file owned by one login attempt."""
     count = 0
     total = 0
-    for name in (
-        f"{login_id}.json",
-        f"{login_id}.session",
-        f"{login_id}.session-journal",
-        f"{login_id}.phone",
-    ):
-        path = directory / name
+    for path in attempt_files(directory, login_id):
         if path.is_file():
             count += 1
             total += _file_bytes(path)
@@ -423,13 +417,7 @@ def _deletable_paths(
             login_id = path.stem
             if _attempt_lock_held(logins_root, login_id):
                 continue
-            for name in (
-                f"{login_id}.json",
-                f"{login_id}.session",
-                f"{login_id}.session-journal",
-                f"{login_id}.phone",
-            ):
-                candidate = logins_root / name
+            for candidate in attempt_files(logins_root, login_id):
                 if candidate.is_file():
                     selected.append(candidate)
 
