@@ -407,8 +407,8 @@ async def _ensure_channel_subscriptions(
 async def light_reconcile(
     tg, conn: sqlite3.Connection, *, sample: int = RECONCILE_SAMPLE
 ) -> dict[str, Any]:
-    """Cheap local-vs-Telegram count sample; rotates across tracked dialogs."""
-    dialogs = store_mod.list_sync_state(conn)
+    """Cheap local-vs-Telegram count sample; rotates across in-scope dialogs."""
+    dialogs = store_mod.list_scoped_sync_state(conn)
     comparisons: list[dict[str, Any]] = []
     if not dialogs:
         summary = {"sampled": 0, "mismatched": 0, "comparisons": [], "next_offset": 0}

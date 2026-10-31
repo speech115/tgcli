@@ -1814,7 +1814,10 @@ when the store is missing.
 **Scope.** Private 1:1 dialogs are a standing category — always in scope,
 including future correspondents; `add` of a private user is exit 2.
 Groups and channels join only via `add` / leave via `remove`. `list`
-returns the standing category plus the explicit allowlist.
+returns the standing category plus the explicit allowlist. `remove` keeps the
+peer's stored messages and `sync_state` row, so a later `add` and `backfill`
+resume from them; `status` still lists that row, but reconciliation and
+explore staleness consider only in-scope peers.
 
 **Search.** Offline FTS5 over archived messages only. Default MATCH
 is exact (no auto-prefix on short tokens); if `QUERY` contains FTS
@@ -1827,7 +1830,7 @@ resolved offline from `scope` **or** `sync_state` identity
 (`chat_ref` / `username` / numeric `peer_id`, including private peers that
 have no `scope` row); unknown chat is exit **4**. JSON includes `hits`
 plus a `scope` object noting archived-peers-only coverage and whether any
-dialog has `more: true` (staleness). `--from` accepts a numeric sender id,
+in-scope dialog has `more: true` (staleness). `--from` accepts a numeric sender id,
 `@username`, or stored sender name. `--since`/`--until` are inclusive ISO
 bounds. `--kind` accepts `text`, `photo`, `video`, `video_note`, `audio`,
 `voice`, or `document`; `--transcripts-only` restricts MATCH to successful
@@ -1925,7 +1928,7 @@ rest of the pass still advances, events read from it before the loss are
 applied, and a later sync resubscribes it if access returns. A pass reports
 one gap: a channel that would need a second one stays in the cursor at its
 last applied pts, and a later pass reports it. Light reconciliation (sampled local vs Telegram
-message totals, rotating across tracked dialogs) runs at the end of sync
+message totals, rotating across in-scope dialogs) runs at the end of sync
 and is reported under `reconcile` / `status.reconcile`.
 
 **Media and transcription.** `backfill` and `sync` acquire queued `voice`

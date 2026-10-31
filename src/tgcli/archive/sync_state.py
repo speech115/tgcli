@@ -116,6 +116,19 @@ def list_sync_state(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return [_sync_state_row(row) for row in rows]
 
 
+def list_scoped_sync_state(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Rows for peers in archive scope: private users and explicit scope.
+
+    `remove` keeps a peer's row so a later `add` resumes from it.
+    """
+    rows = conn.execute(
+        "SELECT * FROM sync_state "
+        "WHERE peer_id > 0 OR peer_id IN (SELECT peer_id FROM scope) "
+        "ORDER BY peer_id"
+    ).fetchall()
+    return [_sync_state_row(row) for row in rows]
+
+
 def _sync_state_row(row: sqlite3.Row) -> dict[str, Any]:
     keys = set(row.keys())
     return {
