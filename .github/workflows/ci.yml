@@ -61,8 +61,14 @@ jobs:
           enable-cache: true
       - name: Install dependencies
         run: uv sync --frozen
-      - name: Run tests
-        # Same hostile values as scripts/gate.sh: tests set their own env.
-        run: env TGCLI_READONLY=1 TGCLI_ACCOUNT=gate-isolation uv run pytest -q -n auto --ignore=tests/live
+      - name: Experiment xdist workers
+        run: |
+          sysctl -n hw.ncpu
+          for n in auto 3 4 6 8 auto 4 6; do
+            start=$(date +%s.%N 2>/dev/null || python3 -c 'import time;print(time.time())')
+            env TGCLI_READONLY=1 TGCLI_ACCOUNT=gate-isolation uv run pytest -q -n $n --ignore=tests/live -p no:cacheprovider > /tmp/out.txt 2>&1 || { tail -5 /tmp/out.txt; exit 1; }
+            end=$(python3 -c 'import time;print(time.time())')
+            echo "XDIST n=$n wall=$(python3 -c "print(round($end-$start,1))") $(tail -1 /tmp/out.txt)"
+          done
       - name: Run opt-in live smoke (skipped unless TGCLI_LIVE_SMOKE=1)
         run: uv run pytest -q tests/live
