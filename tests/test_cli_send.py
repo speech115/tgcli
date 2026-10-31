@@ -1,6 +1,8 @@
 import hashlib
 import json
 import mimetypes
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -806,6 +808,47 @@ def test_send_commit_keeps_preview_pending_when_result_audit_fails(
     assert main(["send", "--commit", preview["preview_id"], "--json"]) == 0
     assert len(client.requests) == 2
     assert {request.random_id for request in client.requests} == {780}
+
+
+def test_send_commit_refuses_while_another_process_commits_the_preview(
+    config_env, monkeypatch, capsys
+):
+    client = SendClient()
+    make_session_fake(monkeypatch, client)
+    assert main(["send", "@alice", "hello", "--preview", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+    first = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from tgcli import safety; "
+            "safety.begin_commit(sys.argv[1]); print('begun', flush=True); "
+            "sys.stdin.read()",
+            preview_id,
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert first.stdout.readline() == "begun\n"
+        exit_code = main(["send", "--commit", preview_id, "--json"])
+    finally:
+        first.communicate("")
+
+    assert exit_code == 2
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "BLOCKED"
+    assert "already in progress" in error["message"]
+    assert not any(
+        isinstance(request, functions.messages.SendMessageRequest)
+        for request in client.requests
+    )
+    assert not safety.audit_path().exists()
+
+    assert main(["send", "--commit", preview_id, "--json"]) == 0
+    [request] = client.requests
+    assert isinstance(request, functions.messages.SendMessageRequest)
 
 
 def test_send_commit_rejects_a_non_send_preview_before_session(monkeypatch):
