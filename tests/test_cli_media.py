@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -472,3 +473,21 @@ def test_media_download_explicit_output_does_not_adopt_a_bin_checkpoint(
     error = json.loads(capsys.readouterr().err)
     assert error["error"]["code"] == "BLOCKED"
     assert not (out / "media-42.png").exists()
+
+
+def test_media_download_restarts_when_the_checkpoint_has_no_partial_file(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    downloads = tmp_path / "Downloads"
+    state_path = _interrupted_photo(monkeypatch, tmp_path, downloads / "media-42.jpg")
+    source = media_cmd.MediaSource(chat="@chan", message_id=42, private_channel_id=None)
+    _, part_path = media_cmd._state_paths(source)
+    part_path.unlink()
+
+    assert main(["--json", "media", "download", "@chan", "42"]) == 0
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data["resumed"] is False
+    assert Path(data["path"]).read_bytes() == b"abc"
+    assert "restarting it from the beginning" in captured.err
+    assert not state_path.exists()
