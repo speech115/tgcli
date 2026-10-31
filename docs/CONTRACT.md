@@ -1790,8 +1790,7 @@ Migrating to v10 keeps a stored gap as the first entry of the gap list; a
 stored gap that cannot be read becomes one `common` gap with reason
 `unreadableGap`, which only `rebaseline` clears. Migrating to v11 moves a
 pending or retryable transcript whose media is `no_media` to `no_transcript`.
-The message
-payload is the universal `message_to_dict` JSON shape from `tg read` — not
+The message payload is the universal `message_to_dict` JSON shape from `tg read` — not
 a second representation.
 
 **Account binding.** `init` binds the live `get_me().id` and selected alias

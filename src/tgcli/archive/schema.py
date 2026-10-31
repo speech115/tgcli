@@ -360,7 +360,8 @@ def _migrate_v10_to_v11(conn: sqlite3.Connection) -> None:
             "UPDATE messages_fts SET transcript = ? "
             "WHERE (peer_id, message_id) IN ("
             "SELECT peer_id, message_id FROM transcripts "
-            "WHERE status = 'no_transcript' AND COALESCE(text, '') = '')",
+            "WHERE status = 'no_transcript' AND media_status = 'no_media' "
+            "AND COALESCE(text, '') = '')",
             (NO_TRANSCRIPT_MARKER,),
         )
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
