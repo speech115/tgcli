@@ -117,7 +117,7 @@ def test_schema_v7_keeps_media_failure_state_without_refresh_state(tmp_path):
                 for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
             }
         )
-        assert store.schema_version(conn) == 11
+        assert store.schema_version(conn) == 12
     finally:
         conn.close()
 
@@ -143,7 +143,7 @@ def test_schema_v5_migrates_media_retry_state(tmp_path):
     conn = store.connect(path)
     try:
         row = store.transcript_row(conn, 7, 1)
-        assert store.schema_version(conn) == 11
+        assert store.schema_version(conn) == 12
         assert row["media_attempts"] == 0
         assert row["media_status"] == "done"
     finally:
@@ -185,7 +185,7 @@ def test_schema_v6_migrates_refresh_state_out_and_preserves_sync_data(tmp_path):
 
     conn = store.connect(path)
     try:
-        assert store.schema_version(conn) == 11
+        assert store.schema_version(conn) == 12
         columns = {
             row[1] for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
         }
@@ -233,7 +233,7 @@ def test_schema_v7_migrates_private_enum_column(tmp_path):
 
     conn = store.connect(path)
     try:
-        assert store.schema_version(conn) == 11
+        assert store.schema_version(conn) == 12
         columns = {
             row[1] for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
         }
@@ -265,7 +265,7 @@ def test_schema_v8_migrates_pending_catchups_column(tmp_path):
 
     conn = store.connect(path)
     try:
-        assert store.schema_version(conn) == 11
+        assert store.schema_version(conn) == 12
         account = store.read_account_sync(conn)
         assert account["changes_cursor"] == "cursor-v1"
         assert account["private_enum"] == {"offset_id": 3}
@@ -288,7 +288,7 @@ def test_schema_v9_keeps_its_stored_gap_as_the_first_of_a_list(tmp_path):
 
     conn = store.connect(path)
     try:
-        assert store.schema_version(conn) == 11
+        assert store.schema_version(conn) == 12
         account = store.read_account_sync(conn)
         assert account["gaps"] == [{"scope": "common", "reason": "differenceTooLong"}]
         assert account["gap"] == account["gaps"][0]
@@ -334,13 +334,63 @@ def test_schema_v10_ends_transcripts_whose_media_gave_up(tmp_path):
 
     conn = store.connect(path)
     try:
-        assert store.schema_version(conn) == 11
+        assert store.schema_version(conn) == 12
         assert [
             (row["status"], row["attempts"])
             for row in (store.transcript_row(conn, 7, mid) for mid in (1, 2, 3, 4))
         ] == [("no_transcript", 0), ("no_transcript", 1), ("done", 1), ("pending", 0)]
         hits = explore_module.search(conn, "no_transcript")["hits"]
         assert sorted(hit["message_id"] for hit in hits) == [1, 2]
+    finally:
+        conn.close()
+
+
+def test_schema_v11_ends_transcripts_a_redownload_reopened(tmp_path):
+    """A re-download used to move an ended row back to pending with its
+    attempts kept, and the queue never took it again."""
+    path = tmp_path / "archive.db"
+    raw = sqlite3.connect(path)
+    raw.executescript(schema_mod._SCHEMA_SQL)
+    raw.execute("PRAGMA user_version=11")
+    rows = [
+        (1, "pending", 3, None),
+        (2, "pending", 0, None),
+        (3, "retryable", 1, None),
+        (4, "done", 1, "heard"),
+        (5, "pending", 1, None),
+    ]
+    for message_id, status, attempts, text in rows:
+        raw.execute(
+            "INSERT INTO messages(peer_id, message_id, date, text, payload) "
+            "VALUES (7, ?, ?, 'caption', ?)",
+            (
+                message_id,
+                f"2026-01-0{message_id}",
+                json.dumps(_payload(message_id, "caption")),
+            ),
+        )
+        raw.execute(
+            "INSERT INTO messages_fts(text, transcript, peer_id, message_id) "
+            "VALUES ('caption', ?, 7, ?)",
+            (text or "", message_id),
+        )
+        raw.execute(
+            "INSERT INTO transcripts(peer_id, message_id, text, status, attempts, "
+            "updated_at, media_kind, media_attempts, media_status) "
+            "VALUES (7, ?, ?, ?, ?, '2026-01-01', 'voice', 0, 'done')",
+            (message_id, text, status, attempts),
+        )
+    raw.commit()
+    raw.close()
+
+    conn = store.connect(path)
+    try:
+        assert store.schema_version(conn) == schema_mod.SCHEMA_VERSION
+        assert [
+            store.transcript_row(conn, 7, mid)["status"] for mid in (1, 2, 3, 4, 5)
+        ] == ["no_transcript", "pending", "retryable", "done", "no_transcript"]
+        hits = explore_module.search(conn, "no_transcript")["hits"]
+        assert sorted(hit["message_id"] for hit in hits) == [1, 5]
     finally:
         conn.close()
 
@@ -359,7 +409,7 @@ def test_schema_v9_without_a_gap_migrates_to_no_gaps(tmp_path):
 
     conn = store.connect(path)
     try:
-        assert store.schema_version(conn) == 11
+        assert store.schema_version(conn) == 12
         account = store.read_account_sync(conn)
         assert account["gaps"] == []
         assert account["gap"] is None

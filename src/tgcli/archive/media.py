@@ -40,9 +40,8 @@ def set_media_path(
     now = datetime.now(UTC).isoformat()
     conn.execute(
         "UPDATE transcripts SET media_path = ?, media_kind = ?, "
-        "media_attempts = 0, media_status = 'done', status = CASE "
-        "WHEN status = 'no_transcript' THEN 'pending' ELSE status END, "
-        "last_error = NULL, updated_at = ? "
+        "media_attempts = 0, media_status = 'done', last_error = CASE "
+        "WHEN status = 'no_transcript' THEN last_error END, updated_at = ? "
         "WHERE peer_id = ? AND message_id = ?",
         (path, media_kind, now, peer_id, message_id),
     )

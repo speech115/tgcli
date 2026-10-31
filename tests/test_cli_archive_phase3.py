@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -43,6 +44,7 @@ from tgcli.archive import (
     limits,
     store as store_mod,
     sync as sync_mod,
+    transcribe as transcribe_mod,
 )
 from tgcli.archive.changes_cursor import ChangesCursor
 from tgcli.cli import main
@@ -1916,6 +1918,97 @@ def test_voice_whose_media_never_downloads_leaves_the_transcript_queue(
     assert main(["archive", "search", "no_transcript", "--json"]) == 0
     [hit] = json.loads(capsys.readouterr().out)["hits"]
     assert (hit["message_id"], hit["transcript_status"]) == (2, "no_transcript")
+
+    assert main(["archive", "transcribe", "--json"]) == 0
+    transcribe = json.loads(capsys.readouterr().out)
+    assert (transcribe["queued"], transcribe["remaining"]) == (0, False)
+
+
+def test_redownloaded_voice_that_used_up_its_transcription_attempts_stays_ended(
+    config_env, monkeypatch, capsys
+):
+    """Publishing media moved every `no_transcript` row back to `pending`. A
+    voice whose transcription attempts were used up and whose file was then
+    re-downloaded became `pending` with attempts at the cap: transcribe never
+    took it, and `status` counted it in the transcript queue forever."""
+    user = _user()
+
+    class EmptyDifferenceClient(FakeClient):
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, GetStateRequest):
+                return _state(pts=5, qts=1, seq=1)
+            if isinstance(request, GetDifferenceRequest):
+                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=1)
+            raise AssertionError(request)
+
+    client = EmptyDifferenceClient(
+        me=_me(), entities={7: user, "7": user, "@alice": user}
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        store_mod.upsert_message(
+            conn,
+            7,
+            {
+                "id": 2,
+                "date": "2026-01-02T00:00:00+00:00",
+                "text": "unclear voice",
+                "from": {"id": 7},
+                "media": "MessageMediaDocument",
+                "media_info": {"mime": "audio/ogg", "size": 10},
+                "media_kind": "voice",
+            },
+        )
+        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
+        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
+        conn.commit()
+    finally:
+        conn.close()
+
+    async def fake_download(_tg, _source, _alias, *, output, parallel):
+        Path(output).write_bytes(b"voice")
+        return {"path": output, "bytes": 5}
+
+    monkeypatch.setattr(sync_mod.media_cmd, "download_media", fake_download)
+    monkeypatch.setattr(transcribe_mod.shutil, "which", lambda _: "/bin/transcribe")
+    monkeypatch.setattr(
+        transcribe_mod.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=1, stdout="", stderr="temporary engine failure"
+        ),
+    )
+
+    assert main(["archive", "sync", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["media"]["downloaded"] == 1
+    for _ in range(3):
+        assert main(["archive", "transcribe", "--json"]) == 0
+        assert json.loads(capsys.readouterr().out)["attempted"] == 1
+
+    (archive_cmd.account_dir("main") / "media/7/2.ogg").unlink()
+    assert main(["archive", "sync", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["media"]["downloaded"] == 1
+
+    assert main(["archive", "status", "--json"]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["transcript_queue"] == 0
+    assert status["transcript_status"] == {
+        "pending": 0,
+        "retryable": 0,
+        "done": 0,
+        "no_transcript": 1,
+    }
+    [error] = status["transcript_errors"]
+    assert (error["status"], error["attempts"], error["media_status"]) == (
+        "no_transcript",
+        3,
+        "done",
+    )
+    assert "temporary engine failure" in error["error"]
 
     assert main(["archive", "transcribe", "--json"]) == 0
     transcribe = json.loads(capsys.readouterr().out)
