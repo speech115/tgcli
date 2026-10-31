@@ -357,6 +357,27 @@ def wide_umask():
         os.umask(previous)
 
 
+@pytest.fixture
+def fail_first_unlink(monkeypatch):
+    """Arm a disk error on the first unlink of a file with the given suffix."""
+    from pathlib import Path
+
+    unlink = Path.unlink
+
+    def arm(suffix: str) -> None:
+        failed = []
+
+        def flaky_unlink(path, missing_ok=False):
+            if path.suffix == suffix and not failed:
+                failed.append(path)
+                raise OSError(5, "Input/output error", str(path))
+            unlink(path, missing_ok=missing_ok)
+
+        monkeypatch.setattr(Path, "unlink", flaky_unlink)
+
+    return arm
+
+
 def make_session_fake(monkeypatch, fake_client):
     """Route session.client(...) to a FakeClient for every caller."""
     from tgcli import session
