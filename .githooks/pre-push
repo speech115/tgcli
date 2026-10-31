@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Static half of the gate before every push, so a lint or type error is
+# caught in seconds instead of a CI round. Tests stay in CI and gate.sh.
+# It checks the working tree, so uncommitted edits count too.
+while read -r _ local_sha _ _; do
+  if [[ "$local_sha" != 0000000000000000000000000000000000000000 ]]; then
+    exec "$(git rev-parse --show-toplevel)/scripts/gate.sh" --static
+  fi
+done

@@ -7,6 +7,7 @@ maintainer decides what lands.
 git clone https://github.com/speech115/tgcli.git
 cd tgcli
 uv sync
+git config core.hooksPath .githooks   # static checks before every push
 uv run tg --help
 ```
 
