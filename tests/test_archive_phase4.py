@@ -345,6 +345,55 @@ def test_schema_v10_ends_transcripts_whose_media_gave_up(tmp_path):
         conn.close()
 
 
+def test_schema_v11_ends_transcripts_a_redownload_reopened(tmp_path):
+    """A re-download used to move an ended row back to pending with its
+    attempts kept, and the queue never took it again."""
+    path = tmp_path / "archive.db"
+    raw = sqlite3.connect(path)
+    raw.executescript(schema_mod._SCHEMA_SQL)
+    raw.execute("PRAGMA user_version=11")
+    rows = [
+        (1, "pending", 3, None),
+        (2, "pending", 0, None),
+        (3, "retryable", 1, None),
+        (4, "done", 1, "heard"),
+    ]
+    for message_id, status, attempts, text in rows:
+        raw.execute(
+            "INSERT INTO messages(peer_id, message_id, date, text, payload) "
+            "VALUES (7, ?, ?, 'caption', ?)",
+            (
+                message_id,
+                f"2026-01-0{message_id}",
+                json.dumps(_payload(message_id, "caption")),
+            ),
+        )
+        raw.execute(
+            "INSERT INTO messages_fts(text, transcript, peer_id, message_id) "
+            "VALUES ('caption', ?, 7, ?)",
+            (text or "", message_id),
+        )
+        raw.execute(
+            "INSERT INTO transcripts(peer_id, message_id, text, status, attempts, "
+            "updated_at, media_kind, media_attempts, media_status) "
+            "VALUES (7, ?, ?, ?, ?, '2026-01-01', 'voice', 0, 'done')",
+            (message_id, text, status, attempts),
+        )
+    raw.commit()
+    raw.close()
+
+    conn = store.connect(path)
+    try:
+        assert store.schema_version(conn) == schema_mod.SCHEMA_VERSION
+        assert [
+            store.transcript_row(conn, 7, mid)["status"] for mid in (1, 2, 3, 4)
+        ] == ["no_transcript", "pending", "retryable", "done"]
+        hits = explore_module.search(conn, "no_transcript")["hits"]
+        assert [hit["message_id"] for hit in hits] == [1]
+    finally:
+        conn.close()
+
+
 def test_schema_v9_without_a_gap_migrates_to_no_gaps(tmp_path):
     path = tmp_path / "archive.db"
     raw = sqlite3.connect(path)
