@@ -383,8 +383,8 @@ async def continue_login(
     dest = _login_destination(config, alias, role)
     keep_backup = dest.exists()
     if role is None and attempt.get("is_new") is False and alias not in config.accounts:
-        login_state.discard_attempt(login_id)
         _audit_login(alias, method=method, outcome="discarded", role=role)
+        login_state.discard_attempt(login_id)
         raise NotFoundError(
             f"account {alias!r} was removed after this login started; "
             "the login attempt was discarded"

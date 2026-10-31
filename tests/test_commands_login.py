@@ -944,6 +944,11 @@ def test_continue_after_the_account_was_removed_does_not_add_it_back(
     assert code == 4
     assert json.loads(capsys.readouterr().err)["error"]["code"] == "NOT_FOUND"
     assert fake_client.sign_in_calls == []
+    audit = [
+        json.loads(line)
+        for line in (env["state"] / "audit.jsonl").read_text().splitlines()
+    ]
+    assert audit[-1]["outcome"] == "discarded"
     assert "work" not in load_config().accounts
     sessions = env["state"] / "sessions"
     assert [p.name for p in sessions.glob("work*") if p.suffix != ".lock"] == []
