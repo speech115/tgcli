@@ -357,6 +357,7 @@ def test_schema_v11_ends_transcripts_a_redownload_reopened(tmp_path):
         (2, "pending", 0, None),
         (3, "retryable", 1, None),
         (4, "done", 1, "heard"),
+        (5, "pending", 1, None),
     ]
     for message_id, status, attempts, text in rows:
         raw.execute(
@@ -386,10 +387,10 @@ def test_schema_v11_ends_transcripts_a_redownload_reopened(tmp_path):
     try:
         assert store.schema_version(conn) == schema_mod.SCHEMA_VERSION
         assert [
-            store.transcript_row(conn, 7, mid)["status"] for mid in (1, 2, 3, 4)
-        ] == ["no_transcript", "pending", "retryable", "done"]
+            store.transcript_row(conn, 7, mid)["status"] for mid in (1, 2, 3, 4, 5)
+        ] == ["no_transcript", "pending", "retryable", "done", "no_transcript"]
         hits = explore_module.search(conn, "no_transcript")["hits"]
-        assert [hit["message_id"] for hit in hits] == [1]
+        assert sorted(hit["message_id"] for hit in hits) == [1, 5]
     finally:
         conn.close()
 
