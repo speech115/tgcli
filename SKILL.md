@@ -175,7 +175,11 @@ exact same `--commit PREVIEW_ID`; never create a new preview. A commit whose
 earlier attempt was delivered exits 0 with `"already_sent": true` and
 `"message_id": null`: the message is sent, so stop. Do not retry exit 2 (a
 safety block) until its intentional cause is removed, or exit 5 until the
-reported `retry_after` has elapsed. `forward --commit` works the same way.
+reported `retry_after` has elapsed. Exit 2 with "preview commit already in
+progress" means an earlier `--commit` of that preview is still running: wait
+for it to exit, then re-run the same `--commit`. If that re-run exits 2 with
+"preview is already used", the earlier commit finished: check the audit or the
+chat instead of making a new preview. `forward --commit` works the same way.
 
 ## `tg run` — anything without a command
 

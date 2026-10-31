@@ -635,6 +635,13 @@ preview already fixed them, so any of them beside `--commit` — `--format`
 included, and `clone init`'s `--replace` / `--no-comments` — is a usage error
 (`USAGE`, exit 1, "`<command> --commit accepts only a preview id`") before
 those gates.
+A commit holds a lock on its preview until it finishes or its process
+exits. A second `--commit` of the same preview id while another `tg` process
+holds it exits 2 (`BLOCKED`, "preview commit already in progress in another
+tg process") before configuration, session, audit, or mutation work. A crash
+releases the lock, so re-running the same `--commit` afterwards is safe. A
+re-run after the holder finished its commit exits 2 with "preview is already
+used or does not exist": the preview is spent.
 Every authorised send commit appends one JSON object to
 `~/.local/state/tgcli/audit.jsonl` (or `TGCLI_STATE_DIR/audit.jsonl`) before
 network dispatch, including the stored `random_id`; a successful confirmed

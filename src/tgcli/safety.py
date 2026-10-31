@@ -1,5 +1,6 @@
 """Local safety gates, write previews, and audit records for mutations."""
 
+import fcntl
 import json
 import os
 import secrets
@@ -12,6 +13,7 @@ from tgcli.errors import ConfigError, PolicyError
 from tgcli.session import ensure_state_dir, restrict_file, state_dir
 
 PREVIEW_TTL = timedelta(minutes=5)
+_COMMIT_LOCKS: dict[str, int] = {}
 _AUDIT_ROLE: ContextVar[str | None] = ContextVar("tgcli_audit_role", default=None)
 
 
@@ -147,14 +149,16 @@ def begin_commit(
     now: datetime | None = None,
     expected_kind: str | None = None,
 ) -> dict:
-    """Move a preview to .pending and return its payload.
+    """Move a preview to .pending, lock it, and return its payload.
 
-    A .pending preview may be begun again: the stored random_id makes a
-    retried network send idempotent (ADR-0028). Kind and TTL are both
-    validated before any rename to `.pending`, and an already-pending
-    preview found expired here is renamed back to `.json` (T13): an
-    expired preview always ends up in the plain expired bucket, never
-    sticky-pending.
+    A .pending preview may be begun again after the process that began it
+    is gone: the stored random_id makes a retried network send idempotent
+    (ADR-0028). While that process is alive it holds the `.pending` flock,
+    so a concurrent commit of the same preview is refused instead of
+    running the mutation twice. Kind and TTL are both validated before any
+    rename to `.pending`, and an already-pending preview found expired here
+    is renamed back to `.json` (T13): an expired preview always ends up in
+    the plain expired bucket, never sticky-pending.
     """
     if not preview_id.startswith("p_") or "/" in preview_id:
         raise PolicyError("preview is already used or does not exist")
@@ -176,16 +180,57 @@ def begin_commit(
         except FileNotFoundError:
             if not pending.exists():
                 raise PolicyError("preview is already used or does not exist") from None
+    _lock_pending(preview_id, pending)
     try:
         record = json.loads(pending.read_text())
+        _validate_preview_kind(record["payload"], expected_kind)
+        if now >= _expires_at(record):
+            _expire_pending(pending, path)
+            raise PolicyError("preview has expired")
+        os.chmod(pending, 0o600)
+    except FileNotFoundError:
+        _release_commit_lock(preview_id)
+        raise PolicyError("preview is already used or does not exist") from None
+    except Exception:
+        _release_commit_lock(preview_id)
+        raise
+    return record["payload"]
+
+
+def _lock_pending(preview_id: str, pending: Path) -> None:
+    """Hold the `.pending` flock until finish_commit or process exit.
+
+    A crash releases it, so a retry still proceeds. The inode check refuses
+    a lock taken on a file that finish_commit renamed away in between.
+    """
+    if preview_id in _COMMIT_LOCKS:
+        return
+    try:
+        fd = os.open(pending, os.O_RDONLY)
     except FileNotFoundError:
         raise PolicyError("preview is already used or does not exist") from None
-    _validate_preview_kind(record["payload"], expected_kind)
-    if now >= _expires_at(record):
-        _expire_pending(pending, path)
-        raise PolicyError("preview has expired")
-    os.chmod(pending, 0o600)
-    return record["payload"]
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        raise PolicyError(
+            "preview commit already in progress in another tg process; "
+            "re-run this --commit after it exits"
+        ) from None
+    try:
+        current = os.path.samestat(os.fstat(fd), pending.stat())
+    except FileNotFoundError:
+        current = False
+    if not current:
+        os.close(fd)
+        raise PolicyError("preview is already used or does not exist")
+    _COMMIT_LOCKS[preview_id] = fd
+
+
+def _release_commit_lock(preview_id: str) -> None:
+    fd = _COMMIT_LOCKS.pop(preview_id, None)
+    if fd is not None:
+        os.close(fd)
 
 
 def finish_commit(preview_id: str) -> None:
@@ -198,6 +243,8 @@ def finish_commit(preview_id: str) -> None:
         os.chmod(used, 0o600)
     except FileNotFoundError:
         pass
+    finally:
+        _release_commit_lock(preview_id)
 
 
 def append_audit(action: str, account: str, details: dict) -> None:
