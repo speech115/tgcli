@@ -1141,9 +1141,13 @@ and expired-attempt `store cleanup` delete it with the staged attempt.
 A first step that fails before the `phone_code_hash` is recorded (flood wait,
 invalid credentials, network) discards the attempt and keeps its own error
 and exit code.
-If `accounts remove` drops an already configured alias while `--continue` is
-in flight, the continue deletes the session it just promoted, restoring a
-session `--keep-session` kept (audit outcome `discarded`), and exits **4**.
+`--continue` never adds back an alias that `accounts remove` dropped after the
+login started. If the alias is already gone when `--continue` begins, it
+discards the attempt before signing in (audit outcome `discarded`) and exits
+**4**. If the removal lands while `--continue` is in flight, the continue
+deletes the session it just promoted, restoring a session `--keep-session`
+kept (audit outcome `discarded`), and exits **4**. A `--role` continue whose
+alias is already gone refuses before signing in (exit **3**).
 
 There is no QR path, login token output, `tg://login` handoff, or QR-attempt
 compatibility. A pending attempt created by a removed method is exit **4** and
