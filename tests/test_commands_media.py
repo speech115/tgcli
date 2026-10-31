@@ -544,25 +544,6 @@ async def test_download_restarts_after_a_killed_parallel_transfer(tmp_path):
     assert result["resumed"] is False
 
 
-def test_resume_offset_raises_policy_error_when_part_file_missing(tmp_path):
-    source = MediaSource("@channel", 42, None)
-    destination = tmp_path / "out.bin"
-    state_path = tmp_path / "state.json"
-    part_path = tmp_path / "missing.part"
-    state_path.write_text(
-        json.dumps(
-            {
-                "source": _source_label(source),
-                "destination": str(destination),
-                "offset": 0,
-            }
-        )
-    )
-
-    with pytest.raises(PolicyError, match="no partial file"):
-        _resume_offset(state_path, part_path, source, destination, _target())
-
-
 @pytest.mark.parametrize("payload", ["[]", '"x"', "42", "null", "true"])
 def test_resume_offset_rejects_non_dict_state(tmp_path, payload):
     """Same shape guard as clone state: a valid-JSON non-object is corrupt."""

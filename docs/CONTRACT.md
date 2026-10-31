@@ -412,7 +412,9 @@ typed name.
 "Matching" means the media itself, not the path (ADR-0084): the resume record
 carries Telegram's document/photo id and the byte size, and a partial file
 whose media no longer matches is discarded and re-downloaded from zero with a
-one-line note on **stderr**. `resumed` is then `false`. A source that replaces
+one-line note on **stderr**. `resumed` is then `false`. A resume record whose
+partial file is gone (a run killed before its first byte, or after publishing)
+is dropped the same way. A source that replaces
 the file behind a message used to have the new file's tail appended to the old
 file's head and published as complete.
 
