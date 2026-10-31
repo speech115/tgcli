@@ -303,6 +303,7 @@ async def start_login(
         api_id=resolved_id,
         api_hash=resolved_hash,
         role=role,
+        is_new=is_new,
     )
     login_id = attempt["login_id"]
     staged = login_state.staged_session_path(login_id)
@@ -381,6 +382,13 @@ async def continue_login(
     config = load_config()
     dest = _login_destination(config, alias, role)
     keep_backup = dest.exists()
+    if role is None and attempt.get("is_new") is False and alias not in config.accounts:
+        _audit_login(alias, method=method, outcome="discarded", role=role)
+        login_state.discard_attempt(login_id)
+        raise NotFoundError(
+            f"account {alias!r} was removed after this login started; "
+            "the login attempt was discarded"
+        )
     is_new = alias not in config.accounts and role is None
     needs_password = attempt.get("next") == "password"
 

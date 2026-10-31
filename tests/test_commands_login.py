@@ -922,6 +922,46 @@ def test_login_after_a_keep_session_remove_restores_the_kept_session(
     assert not Path(str(kept) + ".bak").exists()
 
 
+def test_continue_after_the_account_was_removed_does_not_add_it_back(
+    env, fake_client, capsys
+):
+    """The continue decided from the current config whether the alias was new.
+    A re-login of a configured alias whose account was removed between start
+    and continue was treated as a first login and re-added to config. It must
+    refuse before signing in, so Telegram never authorizes a removed account."""
+    env["config"].write_text(
+        SAMPLE + '\n[accounts.work]\napi_id = 5\napi_hash = "hw"\nsession = "work"\n'
+    )
+    assert main(["accounts", "login", "work", "--phone", PHONE, "--json"]) == 0
+    login_id = json.loads(capsys.readouterr().out)["login_id"]
+    assert main(["accounts", "remove", "work", "--confirm", "--json"]) == 0
+    capsys.readouterr()
+
+    code = main(
+        ["accounts", "login", "--continue", login_id, "--code", "12345", "--json"]
+    )
+
+    assert code == 4
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "NOT_FOUND"
+    assert fake_client.sign_in_calls == []
+    audit = [
+        json.loads(line)
+        for line in (env["state"] / "audit.jsonl").read_text().splitlines()
+    ]
+    assert audit[-1]["outcome"] == "discarded"
+    assert "work" not in load_config().accounts
+    sessions = env["state"] / "sessions"
+    assert [p.name for p in sessions.glob("work*") if p.suffix != ".lock"] == []
+    assert (
+        sorted(
+            p.name
+            for p in (env["state"] / "logins").glob(f"{login_id}*")
+            if p.suffix != ".lock"
+        )
+        == []
+    )
+
+
 def test_login_discard_waits_for_a_busy_session_lock(
     env, fake_client, monkeypatch, capsys
 ):
