@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import fcntl
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from tgcli.archive import (
@@ -14,7 +17,7 @@ from tgcli.archive import (
     transcribe as transcribe_mod,
 )
 from tgcli.config import Config, load_config, resolve_account
-from tgcli.errors import NotFoundError, PolicyError
+from tgcli.errors import ConfigError, NotFoundError, PolicyError
 
 
 def archive_root(config: Config | None = None) -> Path:
@@ -37,6 +40,20 @@ def account_dir(alias: str, config: Config | None = None) -> Path:
 
 def db_path(alias: str, config: Config | None = None) -> Path:
     return store_mod.db_path_for(account_dir(alias, config))
+
+
+@contextmanager
+def _one_run_per_account(directory: Path, name: str, command: str) -> Iterator[None]:
+    """Refuse a second run: two transcribes would repeat the same rows, and
+    two syncs would each write back the update cursor they read at start."""
+    with (directory / f"{name}.lock").open("w") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ConfigError(
+                f"{command} is already running for this account; retry when it finishes"
+            ) from None
+        yield
 
 
 def _open_existing(alias: str, config: Config | None = None):
@@ -311,17 +328,19 @@ async def sync(
     conn = _open_existing(alias, config)
     try:
         store_mod.require_bound_user(conn, int(me.id), alias)
-        data = await sync_mod.sync_archive(
-            tg,
-            conn,
-            account_user_id=int(me.id),
-            max_events=max_events,
-            max_dialogs=max_dialogs,
-            max_media=max_media,
-            account_alias=alias,
-            account_dir=account_dir(alias, config),
-            should_stop=should_stop,
-        )
+        directory = account_dir(alias, config)
+        with _one_run_per_account(directory, "sync", "archive sync or rebaseline"):
+            data = await sync_mod.sync_archive(
+                tg,
+                conn,
+                account_user_id=int(me.id),
+                max_events=max_events,
+                max_dialogs=max_dialogs,
+                max_media=max_media,
+                account_alias=alias,
+                account_dir=directory,
+                should_stop=should_stop,
+            )
     finally:
         conn.close()
     data["account"] = {"alias": alias, "user_id": int(me.id)}
@@ -336,7 +355,10 @@ async def rebaseline(tg, alias: str, *, config: Config | None = None) -> dict:
     conn = _open_existing(alias, config)
     try:
         store_mod.require_bound_user(conn, int(me.id), alias)
-        data = await sync_mod.rebaseline(tg, conn)
+        with _one_run_per_account(
+            account_dir(alias, config), "sync", "archive sync or rebaseline"
+        ):
+            data = await sync_mod.rebaseline(tg, conn)
     finally:
         conn.close()
     data["account"] = {"alias": alias, "user_id": int(me.id)}
@@ -355,10 +377,11 @@ def transcribe(
     conn = _open_existing(alias, config)
     try:
         store_mod.require_bound_alias(conn, alias)
-        with transcribe_mod.queue_lock(account_dir(alias, config)):
+        directory = account_dir(alias, config)
+        with _one_run_per_account(directory, "transcribe", "archive transcribe"):
             data = transcribe_mod.run_queue(
                 conn,
-                account_dir(alias, config),
+                directory,
                 limit=limit,
                 max_attempts=max_attempts,
                 should_stop=should_stop,

@@ -250,6 +250,9 @@ top-level `ok` result.
 
 ## Reading sync results
 
+- `archive sync` or `archive rebaseline` exiting 3 with "already running"
+  means another sync or rebaseline for that account is still running; wait
+  for it to finish instead of retrying in a loop.
 - An archive `gap` (lost updates) is stored until
   `tg --json archive rebaseline`. Later clean syncs keep it and return
   `gap: null`, so check `archive status`: `gaps` lists every gap not yet
