@@ -7,9 +7,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 static_only=false
-if [[ "${1:-}" == "--static" ]]; then
-  static_only=true
-fi
+case "${1:-}" in
+  "") ;;
+  --static) static_only=true ;;
+  *) echo "usage: scripts/gate.sh [--static]" >&2; exit 2 ;;
+esac
 
 run() {
   echo "==> $*"
