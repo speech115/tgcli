@@ -1071,6 +1071,59 @@ def test_sync_and_rebaseline_readonly_blocked(config_env, monkeypatch, capsys):
     assert "readonly" in capsys.readouterr().err.lower()
 
 
+def test_sync_and_rebaseline_refuse_while_another_run_holds_the_account(
+    config_env, monkeypatch, capsys
+):
+    import fcntl
+
+    class QuietClient(FakeClient):
+        async def __call__(self, request):
+            self.call_requests.append(request)
+            if isinstance(request, GetStateRequest):
+                return _state(pts=50, qts=2, seq=9)
+            if isinstance(request, GetDifferenceRequest):
+                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=1)
+            raise AssertionError(request)
+
+    client = QuietClient(me=_me())
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    stored = changes_cursor.encode(
+        ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
+    )
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        store_mod.write_account_sync(
+            conn, changes_cursor=stored, pending_catchups=[-1001234567890]
+        )
+    finally:
+        conn.close()
+
+    def account_sync():
+        conn = store_mod.connect(archive_cmd.db_path("main"))
+        try:
+            return store_mod.read_account_sync(conn)
+        finally:
+            conn.close()
+
+    before = account_sync()
+    lock = archive_cmd.account_dir("main") / "sync.lock"
+    with lock.open("w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        for command in ("sync", "rebaseline"):
+            assert main(["archive", command, "--json"]) == 3
+            error = json.loads(capsys.readouterr().out)["error"]
+            assert "already running" in error["message"]
+    assert account_sync() == before
+    assert not any(
+        isinstance(request, (GetStateRequest, GetDifferenceRequest))
+        for request in client.call_requests
+    )
+    assert main(["archive", "rebaseline", "--json"]) == 0
+    assert account_sync()["changes_cursor"] != stored
+
+
 def test_sync_rejects_non_positive_event_cap(config_env, monkeypatch, capsys):
     make_session_fake(monkeypatch, _client())
     assert main(["archive", "init", "--json"]) == 0
