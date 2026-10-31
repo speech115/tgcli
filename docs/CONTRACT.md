@@ -93,7 +93,7 @@ flag.
 | 0 | success | |
 | 1 | runtime error | network (a lost connection ends `clone sync`/`init` and `archive sync` rather than degrading one item), unexpected exception |
 | 2 | blocked by safety policy | `--readonly` + mutating command, `TGCLI_NO_SEND` |
-| 3 | config/auth error | missing `--account` / `default_account`, dead session (any Telegram `UnauthorizedError`: revoked, expired, unregistered key, deactivated user — `needs reauthentication`), bad api_id, a session still busy after the wait below |
+| 3 | config/auth error | missing `--account` / `default_account`, dead session (any Telegram `UnauthorizedError`: revoked, expired, unregistered key, deactivated user — `needs reauthentication`), bad api_id, a session still busy after the wait below, an `archive sync`/`rebaseline`/`transcribe` already running for the account |
 | 4 | not found | unknown dialog, message id, media; unknown alias on `accounts show\|remove` (lookup) |
 | 5 | rate limited | FloodWait longer than threshold; `retry_after` in error JSON; also a sticky in-process cooldown after a FloodWait whose durable arm could not persist (ADR-0090) |
 
@@ -1942,7 +1942,11 @@ applied, and a later sync resubscribes it if access returns. A pass reports
 one gap: a channel that would need a second one stays in the cursor at its
 last applied pts, and a later pass reports it. Light reconciliation (sampled local vs Telegram
 message totals, rotating across in-scope dialogs) runs at the end of sync
-and is reported under `reconcile` / `status.reconcile`.
+and is reported under `reconcile` / `status.reconcile`. One `sync` or
+`rebaseline` runs per account at a time: while one runs, a second `sync` or
+`rebaseline` for the same account exits **3** without reading updates or
+writing the archive, so the running one's cursor, gaps, and pending catch-ups
+stand.
 
 **Media and transcription.** `backfill` and `sync` acquire queued `voice`
 and `video_note` media into the account-local `media/` directory. Backfill
@@ -1993,6 +1997,8 @@ an empty FTS value.
 **Rebaseline.** `tg archive rebaseline` is the explicit gap recovery:
 re-inits the changes cursor (and re-subscribes explicit scope channels)
 and clears the stored gap. It does not silently rebuild message history.
+It shares the one-run-per-account rule with `sync` (exit **3** while either
+runs).
 
 **Readonly.** `init` / `add` / `remove` / `backfill` / `sync` / `transcribe` /
 `rebaseline` mutate local state and are blocked by `--readonly` /

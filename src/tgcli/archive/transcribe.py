@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import fcntl
 import json
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from tgcli.archive import media as media_mod, store as store_mod
-from tgcli.errors import ConfigError, PolicyError
+from tgcli.errors import PolicyError
 
 PROCESS_TIMEOUT_SECONDS = 15 * 60
 TRANSCRIBE_COMMAND = "transcribe"
@@ -135,20 +133,6 @@ def _base_result(limit: int, max_attempts: int) -> dict[str, Any]:
         "remaining": False,
         "errors": [],
     }
-
-
-@contextmanager
-def queue_lock(account_dir: Path) -> Iterator[None]:
-    """One drain per account at a time: two would transcribe the same rows."""
-    with (account_dir / "transcribe.lock").open("w") as handle:
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise ConfigError(
-                "archive transcribe is already running for this account; "
-                "retry when it finishes"
-            ) from None
-        yield
 
 
 def run_queue(
