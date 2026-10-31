@@ -231,7 +231,9 @@ out instead of exiting 5 — give long runs (`clone sync`, bulk media,
 `clone init` creates 1–2 Telegram peers (channel, plus discussion group when
 comments are enabled). Prefer at most ~one peer-creating init per account per
 day. Check the preview's `peers_to_create` before `--commit`. Use
-`--no-comments` when a posts-only clone is enough.
+`--no-comments` when a posts-only clone is enough. It cannot disable a clone
+that already has a linked discussion group (exit 2); `--replace` starts a fresh
+posts-only clone instead.
 
 One clone runs one `clone sync` or `clone init --commit` at a time, across
 session roles. Exit 2 with `clone <id> is busy` means another run holds that

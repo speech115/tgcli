@@ -1289,8 +1289,10 @@ they are per request type in the governor's ledger and surfaced by
 preview payload and honored at commit; it creates a posts-only clone with
 `comments: "disabled"`, creates one peer, and links nothing. Re-running
 init with `--no-comments` against a slot whose state already has
-`comments: "enabled"` is exit 2 (`PolicyError`) — the flag cannot orphan an
-existing linked group (use `--replace` for a fresh posts-only clone).
+`comments: "enabled"`, or `comments: "none"` with a linked group whose source
+unlinked it for a while (its comments resume on relink), is exit 2
+(`PolicyError`) — the flag cannot orphan an existing linked group (use
+`--replace` for a fresh posts-only clone).
 
 `init SOURCE --commit PREVIEW_ID` requires a matching unexpired clone-init
 preview. The preview is spent when the commit **succeeds**, not when it is
@@ -1332,8 +1334,10 @@ set to `[Clone] ` + the source group's display name (ADR-0044), then
 strictly before `sync` sends the first post. A linked source group that
 cannot be read (private, not a member) skips group creation entirely and
 sets `comments: "unavailable"`; a source with no linked group at all sets
-`comments: "none"`. A re-run of a clone whose `comments` is `"unavailable"`
-or `"none"` and that has already copied posts keeps that marker even when
+`comments: "none"`. A re-run against a source that no longer has a linked
+group keeps an existing `"unavailable"`. A re-run of a clone whose `comments`
+is `"unavailable"` or `"none"` and that has already copied posts keeps that
+marker even when
 the linked group is now readable, unless a `"none"` clone was already linked to that
 same source group (the source unlinked it for a while; its posts have
 anchors, so the link is restored and the comments resume from the recorded

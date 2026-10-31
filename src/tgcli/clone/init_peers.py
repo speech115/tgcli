@@ -130,7 +130,8 @@ async def init_discussion(
         return
     linked = discussion.linked_chat_id(full_chat)
     if linked is None:
-        clone_state.comments = "none"
+        if clone_state.comments != "unavailable":
+            clone_state.comments = "none"
         return state.save(clone_state)
     # Only "none" (the source unlinked its group for a while) relinks; an
     # "unavailable" degrade cleared the comment map while the destination
