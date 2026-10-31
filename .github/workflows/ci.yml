@@ -60,21 +60,18 @@ jobs:
         with:
           enable-cache: true
       - name: Install dependencies
+        env:
+          UV_COMPILE_BYTECODE: "1"
         run: uv sync --frozen
       - name: Experiment A/B
         env:
           TGCLI_READONLY: "1"
           TGCLI_ACCOUNT: gate-isolation
         run: |
-          sysctl -n hw.ncpu hw.perflevel0.physicalcpu hw.perflevel1.physicalcpu || true
+          sysctl -n hw.ncpu
           t() { s=$(python3 -c 'import time;print(time.time())'); "$@" > /tmp/o.txt 2>&1 || { tail -20 /tmp/o.txt; exit 1; }; e=$(python3 -c 'import time;print(time.time())'); echo "ABTEST [$*] wall=$(python3 -c "print(round($e-$s,1))") :: $(tail -1 /tmp/o.txt)"; }
           t uv run pytest -q -n auto --ignore=tests/live
           t uv run pytest -q -n auto --ignore=tests/live
-          t uv run pytest -q -n auto --ignore=tests/live -p no:cacheprovider
-          t uv run pytest -q -n 6 --ignore=tests/live
           t uv run pytest -q -n auto --ignore=tests/live
-          t env PYTHONDONTWRITEBYTECODE=1 uv run pytest -q -n auto --ignore=tests/live
-          t uv run pytest -q -n auto --ignore=tests/live --durations=12
-          tail -16 /tmp/o.txt
       - name: Run opt-in live smoke (skipped unless TGCLI_LIVE_SMOKE=1)
         run: uv run pytest -q tests/live
