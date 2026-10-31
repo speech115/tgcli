@@ -231,7 +231,8 @@ async def _commit_slot(tg, entity, source_kind, me, account_alias, payload) -> d
     if clone_state.source_kind != source_kind:
         raise PolicyError("clone source kind no longer matches initialized state")
     no_comments = bool(payload.get("no_comments")) or clone_state.comments == "disabled"
-    if no_comments and clone_state.comments == "enabled":
+    paused = clone_state.comments == "none" and clone_state.discussion_linked
+    if no_comments and (clone_state.comments == "enabled" or paused):
         raise PolicyError(
             "clone init --no-comments cannot disable an existing linked discussion; "
             "re-run with --replace to start a fresh posts-only clone"
