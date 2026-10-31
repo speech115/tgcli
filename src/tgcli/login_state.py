@@ -144,15 +144,18 @@ def update_attempt(login_id: str, *, now: datetime | None = None, **fields) -> d
     return record
 
 
+def attempt_files(directory: Path, login_id: str) -> tuple[Path, ...]:
+    """Every file one attempt owns, json last: `store cleanup` finds an attempt
+    by its json, so a removal cut short must leave the json behind."""
+    return tuple(
+        directory / f"{login_id}{suffix}"
+        for suffix in (".session", ".session-journal", ".phone", ".json")
+    )
+
+
 def discard_attempt(login_id: str) -> None:
     _validate_id(login_id)
-    directory = logins_dir()
-    for path in (
-        directory / f"{login_id}.json",
-        directory / f"{login_id}.session",
-        directory / f"{login_id}.session-journal",
-        directory / f"{login_id}.phone",
-    ):
+    for path in attempt_files(logins_dir(), login_id):
         path.unlink(missing_ok=True)
 
 
@@ -189,10 +192,5 @@ def promote(
         else:
             os.replace(staged, destination)
         restrict_file(destination)
-        # Drop the attempt json (and any leftover staged journal) after the
-        # session has landed; staged itself is already moved.
-        path = _attempt_path(login_id)
-        path.unlink(missing_ok=True)
-        (logins_dir() / f"{login_id}.session-journal").unlink(missing_ok=True)
-        (logins_dir() / f"{login_id}.phone").unlink(missing_ok=True)
+        discard_attempt(login_id)
         return backup_path
