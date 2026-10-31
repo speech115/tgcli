@@ -89,8 +89,9 @@ def advance_completed(
             "private enum advance requires matching dialog and cursor counts"
         )
     for item, cursor in zip(dialogs, cursors, strict=True):
-        if not item.get("more", True):
-            advance_past(conn, cursor)
+        if item.get("more", True):
+            return
+        advance_past(conn, cursor)
 
 
 async def enumerate_private_dialogs(
