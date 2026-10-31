@@ -83,15 +83,13 @@ def tg_link(
 
 
 def _scope(conn: sqlite3.Connection) -> dict[str, Any]:
-    stale = any(bool(row.get("more")) for row in _sync_rows(conn))
+    stale = any(
+        row["more"] for row in search_mod.store_mod.list_scoped_sync_state(conn)
+    )
     note = "Results cover archived peers only."
     if stale:
         note += " At least one dialog still has more history on Telegram (more=true)."
     return {"archived_peers_only": True, "stale": stale, "note": note}
-
-
-def _sync_rows(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    return search_mod.store_mod.list_sync_state(conn)
 
 
 def _payload(value: str | None, peer_id: int, message_id: int) -> dict[str, Any]:
