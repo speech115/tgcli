@@ -117,7 +117,7 @@ def test_schema_v7_keeps_media_failure_state_without_refresh_state(tmp_path):
                 for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
             }
         )
-        assert store.schema_version(conn) == 11
+        assert store.schema_version(conn) == 12
     finally:
         conn.close()
 
@@ -143,7 +143,7 @@ def test_schema_v5_migrates_media_retry_state(tmp_path):
     conn = store.connect(path)
     try:
         row = store.transcript_row(conn, 7, 1)
-        assert store.schema_version(conn) == 11
+        assert store.schema_version(conn) == 12
         assert row["media_attempts"] == 0
         assert row["media_status"] == "done"
     finally:
@@ -185,7 +185,7 @@ def test_schema_v6_migrates_refresh_state_out_and_preserves_sync_data(tmp_path):
 
     conn = store.connect(path)
     try:
-        assert store.schema_version(conn) == 11
+        assert store.schema_version(conn) == 12
         columns = {
             row[1] for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
         }
@@ -233,7 +233,7 @@ def test_schema_v7_migrates_private_enum_column(tmp_path):
 
     conn = store.connect(path)
     try:
-        assert store.schema_version(conn) == 11
+        assert store.schema_version(conn) == 12
         columns = {
             row[1] for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
         }
@@ -265,7 +265,7 @@ def test_schema_v8_migrates_pending_catchups_column(tmp_path):
 
     conn = store.connect(path)
     try:
-        assert store.schema_version(conn) == 11
+        assert store.schema_version(conn) == 12
         account = store.read_account_sync(conn)
         assert account["changes_cursor"] == "cursor-v1"
         assert account["private_enum"] == {"offset_id": 3}
@@ -288,7 +288,7 @@ def test_schema_v9_keeps_its_stored_gap_as_the_first_of_a_list(tmp_path):
 
     conn = store.connect(path)
     try:
-        assert store.schema_version(conn) == 11
+        assert store.schema_version(conn) == 12
         account = store.read_account_sync(conn)
         assert account["gaps"] == [{"scope": "common", "reason": "differenceTooLong"}]
         assert account["gap"] == account["gaps"][0]
@@ -334,7 +334,7 @@ def test_schema_v10_ends_transcripts_whose_media_gave_up(tmp_path):
 
     conn = store.connect(path)
     try:
-        assert store.schema_version(conn) == 11
+        assert store.schema_version(conn) == 12
         assert [
             (row["status"], row["attempts"])
             for row in (store.transcript_row(conn, 7, mid) for mid in (1, 2, 3, 4))
@@ -408,7 +408,7 @@ def test_schema_v9_without_a_gap_migrates_to_no_gaps(tmp_path):
 
     conn = store.connect(path)
     try:
-        assert store.schema_version(conn) == 11
+        assert store.schema_version(conn) == 12
         account = store.read_account_sync(conn)
         assert account["gaps"] == []
         assert account["gap"] is None
