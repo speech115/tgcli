@@ -99,10 +99,13 @@ async def backfill_one(
     try:
         entity = await resolve_entity(tg, chat)
         kind = scope_mod.classify_entity(entity)
-        peer = scope_mod.peer_id(entity)
         scope_mod.allow_backfill(
-            kind, explicitly_scoped=store_mod.in_explicit_scope(conn, peer)
+            kind,
+            explicitly_scoped=store_mod.in_explicit_scope(
+                conn, scope_mod.peer_id(entity)
+            ),
         )
+        peer = scope_mod.peer_id(entity)
         state = store_mod.get_sync_state(conn, peer)
         offset_id = int(state["oldest_id"]) if state and state.get("oldest_id") else 0
         async for message in tg.iter_messages(entity, limit=limit, offset_id=offset_id):
