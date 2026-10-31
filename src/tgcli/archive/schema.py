@@ -11,7 +11,7 @@ from tgcli.archive import gaps as gaps_mod
 from tgcli.errors import NotFoundError, PolicyError
 from tgcli.session import ensure_state_dir, restrict_file
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 DB_NAME = "archive.db"
 TRANSCRIBABLE_MEDIA_KINDS = ("voice", "video_note")
 NO_TRANSCRIPT_MARKER = "no_transcript no transcript"
@@ -164,6 +164,8 @@ def connect(path: Path) -> sqlite3.Connection:
                 _migrate_v8_to_v9(conn)
             if version <= 9:
                 _migrate_v9_to_v10(conn)
+            if version <= 10:
+                _migrate_v10_to_v11(conn)
         elif version != SCHEMA_VERSION:
             conn.close()
             raise PolicyError(
@@ -344,6 +346,23 @@ def _migrate_v9_to_v10(conn: sqlite3.Connection) -> None:
                 "UPDATE account_sync SET gap_json = ? WHERE id = 1",
                 (gaps_mod.encode(gaps_mod.parse(row[0])),),
             )
+        conn.execute("PRAGMA user_version=10")
+
+
+def _migrate_v10_to_v11(conn: sqlite3.Connection) -> None:
+    """End the transcript of a row whose media acquisition already gave up."""
+    with conn:
+        conn.execute(
+            "UPDATE transcripts SET status = 'no_transcript' "
+            "WHERE media_status = 'no_media' AND status IN ('pending', 'retryable')"
+        )
+        conn.execute(
+            "UPDATE messages_fts SET transcript = ? "
+            "WHERE (peer_id, message_id) IN ("
+            "SELECT peer_id, message_id FROM transcripts "
+            "WHERE status = 'no_transcript' AND COALESCE(text, '') = '')",
+            (NO_TRANSCRIPT_MARKER,),
+        )
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
 
