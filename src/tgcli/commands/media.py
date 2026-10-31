@@ -420,7 +420,12 @@ def _resume_offset(
         state_path.unlink(missing_ok=True)
         return 0
     if not part_path.exists():
-        raise PolicyError(f"media download state has no partial file: {part_path}")
+        note(
+            f"media download state for {_source_label(source)} has no partial "
+            f"file; restarting it from the beginning"
+        )
+        state_path.unlink(missing_ok=True)
+        return 0
     offset = state.get("offset")
     part_size = part_path.stat().st_size
     if not isinstance(offset, int) or offset < 0 or offset > part_size:
