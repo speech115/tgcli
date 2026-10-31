@@ -1946,7 +1946,9 @@ failures are `media_status: "retryable"` until the cap, then become terminal
 untranscribed row becomes `no_transcript` at the same time, without spending
 a transcription attempt. A
 later successful publish resets that media counter and sets
-`media_status: "done"`. A `FLOOD_WAIT` leaves the media item retryable,
+`media_status: "done"`; it does not change the transcript status, so a
+re-downloaded `no_transcript` row stays `no_transcript` with its last error.
+A `FLOOD_WAIT` leaves the media item retryable,
 arms the governor's per-type cooldown (ADR-0072), and exits **5**. Errors
 about the run rather than the item never count an attempt either: a lost
 connection or a dead session aborts the sync (exit 1, or 3 for a dead
