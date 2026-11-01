@@ -115,7 +115,10 @@ export, bulk media, `tg run` scripts) are paced, interactive commands are
 not. `contacts.resolvePhone` waits 3 s from its
 first request. A FloodWait records the server's deadline for that request
 type in `governor.db`: until it passes, every tgcli process refuses that
-type locally with exit 5 and `retry_after`, sending nothing. Under
+type locally with exit 5 and `retry_after`, sending nothing. For an hour
+after that flood was armed, every process paces that type from its first
+request, at twice its interval or at 3 s when its class has none (slow
+start). Under
 `--max-runtime`, a wait that fits the remaining cap — a fresh FloodWait or
 a recorded one — is slept out instead, and a flooded request is sent once
 more; a second flood on it exits 5. An unreadable

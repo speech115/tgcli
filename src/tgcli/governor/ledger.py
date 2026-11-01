@@ -145,6 +145,26 @@ class Ledger:
             return False
         return True
 
+    def flooded_since(
+        self, account_user_id: int, request_key: str, since: datetime
+    ) -> bool:
+        """Whether this request type drew a flood armed at or after ``since``."""
+        try:
+            row = self._db.execute(
+                "SELECT armed_at FROM cooldowns "
+                "WHERE account_user_id = ? AND request_key = ?",
+                (account_user_id, request_key),
+            ).fetchone()
+        except sqlite3.Error:
+            return False
+        if row is None:
+            return False
+        try:
+            armed = datetime.fromisoformat(row[0])
+        except (TypeError, ValueError):
+            return False
+        return armed.tzinfo is not None and armed >= since
+
     def active_cooldowns(
         self, account_user_id: int, *, now: datetime | None = None
     ) -> dict[str, datetime]:
