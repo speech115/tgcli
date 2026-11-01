@@ -157,23 +157,15 @@ def _test_import_errors(path: Path, relative: str) -> list[str]:
     errors: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
-            if node.level:
-                names = [node.module or ""] + [a.name for a in node.names]
-            elif node.module == "tests":
-                names = [a.name for a in node.names]
-            else:
-                names = [(node.module or "").removeprefix("tests.")]
-                if not (node.module or "").startswith("tests."):
-                    continue
+            module = node.module or ""
+            if not (node.level or module == "tests" or module.startswith("tests.")):
+                continue
+            dotted = [f"{module}.{alias.name}" for alias in node.names]
         elif isinstance(node, ast.Import):
-            names = [
-                a.name.removeprefix("tests.")
-                for a in node.names
-                if a.name.startswith("tests.")
-            ]
+            dotted = [a.name for a in node.names if a.name.startswith("tests.")]
         else:
             continue
-        if any(name.split(".")[0].startswith("test_") for name in names):
+        if any(part.startswith("test_") for name in dotted for part in name.split(".")):
             errors.append(
                 f"{relative}:{node.lineno} imports a test module; "
                 "move the shared helper into tests/fakes/"

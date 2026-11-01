@@ -180,11 +180,19 @@ def test_architecture_check_rejects_a_test_importing_another_test_module(tmp_pat
     (tests / "test_a.py").write_text("from tests.test_b import helper\n")
     (tests / "test_c.py").write_text("def t():\n    from tests import test_b\n")
     (tests / "test_d.py").write_text("from .test_b import helper\n")
+    (tests / "test_e.py").write_text("from tests.live.test_smoke import helper\n")
+    (tests / "test_f.py").write_text("import tests.live.test_smoke\n")
 
     result = _run(tmp_path)
 
     assert result.returncode == 1
-    for name in ("test_a.py:1", "test_c.py:2", "test_d.py:1"):
+    for name in (
+        "test_a.py:1",
+        "test_c.py:2",
+        "test_d.py:1",
+        "test_e.py:1",
+        "test_f.py:1",
+    ):
         assert f"tests/{name} imports a test module" in result.stdout
 
 
