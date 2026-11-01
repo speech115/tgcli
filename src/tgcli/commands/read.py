@@ -99,10 +99,8 @@ def _custom_emoji(message) -> list[dict]:
     the covered glyph is sliced via Telethon's surrogate helpers.
     """
     entities = getattr(message, "entities", None) or []
-    # Entities index into the raw text (.message); fall back to .text for fakes.
-    raw = getattr(message, "message", None)
-    if raw is None:
-        raw = getattr(message, "text", "") or ""
+    # Entities index into the raw text (.message), not the formatted .text.
+    raw = getattr(message, "message", None) or ""
     surrogate = add_surrogate(raw)
     output = []
     for entity in entities:

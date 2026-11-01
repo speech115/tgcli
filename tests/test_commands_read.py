@@ -250,6 +250,30 @@ def test_message_to_dict_extracts_custom_emoji_ids():
     assert isinstance(data["custom_emoji"][0]["id"], str)
 
 
+def test_custom_emoji_offsets_index_the_raw_message_not_formatted_text():
+    from telethon.tl.types import MessageEntityBold, MessageEntityCustomEmoji
+
+    # Entity offsets count UTF-16 units of the raw ``message`` field. Telethon's
+    # ``.text`` re-renders entities as markup, so slicing it would shift the glyph.
+    message = _ns(
+        id=7,
+        date=None,
+        sender_id=1,
+        sender=None,
+        text="**жги** 🔥",
+        message="жги 🔥",
+        media=None,
+        reply_to_msg_id=None,
+        entities=[
+            MessageEntityBold(offset=0, length=3),
+            MessageEntityCustomEmoji(offset=4, length=2, document_id=99),
+        ],
+    )
+    assert message_to_dict(message)["custom_emoji"] == [
+        {"id": "99", "emoji": "🔥", "offset": 4, "length": 2}
+    ]
+
+
 def test_message_to_dict_media_topic_and_private_permalink():
     entity = _ns(id=999, username=None, megagroup=True)
     message = _ns(

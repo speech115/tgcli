@@ -47,3 +47,17 @@ def test_discussion_leg_applies_megagroup_rules():
     leg = legs.discussion(_state())
     assert leg.source_kind == "megagroup"
     assert leg.destination_kind == "megagroup"
+
+
+def test_raw_ids_land_in_each_legs_own_map():
+    clone_state = _state()
+    posts, comments = legs.posts(clone_state), legs.discussion(clone_state)
+    posts.record_raw_mapping(1, 10)
+    comments.record_raw_mapping(1, 20)
+    assert clone_state.id_map == {"1": 10}
+    assert clone_state.discussion_id_map == {"1": 20}
+    assert posts.dest_for_raw(1) == 10
+    assert comments.dest_for_raw(1) == 20
+    assert posts.other.dest_for_raw(1) == 20
+    assert comments.other.dest_for_raw(1) == 10
+    assert posts.dest_for_raw(2) is None
