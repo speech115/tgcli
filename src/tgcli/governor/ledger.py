@@ -145,6 +145,34 @@ class Ledger:
             return False
         return True
 
+    def cooled_since(
+        self, account_user_id: int, request_key: str, since: datetime
+    ) -> bool:
+        """Whether this type's last flood cooldown ended at or after ``since``.
+
+        A cooldown still running counts too. The deadline is capped at
+        ``MAX_COOLDOWN_S`` past its arming, as reads of it are.
+        """
+        try:
+            row = self._db.execute(
+                "SELECT deadline, armed_at FROM cooldowns "
+                "WHERE account_user_id = ? AND request_key = ?",
+                (account_user_id, request_key),
+            ).fetchone()
+        except sqlite3.Error:
+            return False
+        if row is None:
+            return False
+        try:
+            deadline = datetime.fromisoformat(row[0])
+            armed = datetime.fromisoformat(row[1])
+        except (TypeError, ValueError):
+            return False
+        if deadline.tzinfo is None or armed.tzinfo is None:
+            return False
+        ended = min(deadline, armed + timedelta(seconds=MAX_COOLDOWN_S))
+        return ended >= since
+
     def active_cooldowns(
         self, account_user_id: int, *, now: datetime | None = None
     ) -> dict[str, datetime]:

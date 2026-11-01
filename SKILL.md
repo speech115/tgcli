@@ -222,7 +222,9 @@ type in a run, history reads wait 3 s each, so prefer one script or one
 bulk command over hundreds of separate reads. Sends and forwards share one
 pace: past five in a run, 3 s each (ADR-0122). A FloodWait is remembered
 across processes: until the server's deadline, that request type refuses
-locally (exit 5, `retry_after`) without sending anything. `tg doctor`
+locally (exit 5, `retry_after`) without sending anything, and until an hour
+after it ends every run paces that type from its first request (slow start), so
+the rerun is slower. `tg doctor`
 reports active cooldowns and works even while they refuse. Exit 5 means
 wait out `retry_after`; never retry FloodWait in a loop. The default
 `--timeout` is a hang detector that ignores governed sleep; `--max-runtime`

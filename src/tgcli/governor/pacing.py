@@ -19,6 +19,14 @@ from tgcli.governor import registry
 # Requests per pacing slot a process may send before pacing starts.
 FREE_REQUESTS = 5
 
+# Slow start. Most floods in the journal repeated a flood of the same type
+# within the hour: a run exited 5, and the next one started with fresh free
+# requests and burst into the same limit. Until an hour after a type's
+# flood cooldown ends, every process paces that type from its first request
+# at twice its interval, or at SLOW_START_INTERVAL when its class has none.
+SLOW_START_WINDOW_S = 3600
+SLOW_START_INTERVAL = 3.0
+
 # Process-wide governed sleep and the optional wall-clock cap (plan phase 5).
 # The deadline asks pacing how much it has slept so `--timeout` can count
 # only ungoverned time; the wall-clock cap is the explicit `--max-runtime`
@@ -125,8 +133,11 @@ async def sleep_flood(seconds: float, *, sleep=asyncio.sleep) -> bool:
     return True
 
 
-def _charge(request: object) -> float | None:
+def _charge(request: object, *, slow_start: bool = False) -> float | None:
     """The interval this request owes, after per-unit adjustment.
+
+    Under ``slow_start`` (a recent flood on this type) the interval doubles,
+    and an unpaced class owes ``SLOW_START_INTERVAL``.
 
     ``None`` means the class is unpaced: no pre-emptive interval, still
     fully gated on its cooldown. MEDIA pays per *file*, not per chunk: a
@@ -138,25 +149,33 @@ def _charge(request: object) -> float | None:
     """
     request_class = registry.classify(request)
     interval = registry.INTERVALS[request_class]
-    if interval is None:
-        return None
     if request_class is registry.RequestClass.MEDIA:
         offset = getattr(request, "offset", None)
         if offset is None or offset != 0:
             return None
-    return interval
+    if interval is None:
+        return SLOW_START_INTERVAL if slow_start else None
+    return 2 * interval if slow_start else interval
 
 
 async def pace_before_dispatch(
-    request: object, *, sleep=asyncio.sleep, clock=time.monotonic
+    request: object,
+    *,
+    slow_start: bool = False,
+    sleep=asyncio.sleep,
+    clock=time.monotonic,
 ) -> None:
-    """Hold the start-to-start interval once this slot used its free requests."""
-    interval = _charge(request)
+    """Hold the start-to-start interval once this slot used its free requests.
+
+    Under ``slow_start`` the slot has no free requests (see ``_charge``).
+    """
+    interval = _charge(request, slow_start=slow_start)
     if interval is None:
         return
     key = registry.pace_key(request)
     _sent[key] = _sent.get(key, 0) + 1
-    free = 0 if registry.classify(request) in registry.ALWAYS_PACED else FREE_REQUESTS
+    always = slow_start or registry.classify(request) in registry.ALWAYS_PACED
+    free = 0 if always else FREE_REQUESTS
     now = clock()
     start = now
     last = _last_sent.get(key)
