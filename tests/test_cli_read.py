@@ -189,3 +189,36 @@ def test_read_accepts_limit_one(config_env, monkeypatch, capsys):
     assert main(["--json", "read", "@chan", "--limit", "1"]) == 0
 
     assert [m["id"] for m in json.loads(capsys.readouterr().out)["messages"]] == [42]
+
+
+def test_read_custom_emoji_offsets_index_the_raw_message_not_formatted_text(
+    config_env, monkeypatch, capsys
+):
+    from telethon.tl.types import MessageEntityBold, MessageEntityCustomEmoji
+
+    # Entity offsets count UTF-16 units of the raw ``message`` field. Telethon's
+    # ``.text`` re-renders entities as markup, so slicing it would shift the glyph.
+    message = ns(
+        id=42,
+        date=dt.datetime(2026, 7, 6, 10, 0, tzinfo=dt.UTC),
+        sender_id=111,
+        sender=ns(first_name="Alice", last_name=None),
+        text="**жги** 🔥",
+        message="жги 🔥",
+        entities=[
+            MessageEntityBold(offset=0, length=3),
+            MessageEntityCustomEmoji(offset=4, length=2, document_id=99),
+        ],
+        media=None,
+        reply_to_msg_id=None,
+    )
+    entity = ns(id=-1001234, title="Channel")
+    make_session_fake(
+        monkeypatch, FakeClient(messages=[message], entities={"@chan": entity})
+    )
+
+    assert main(["--json", "read", "@chan", "--limit", "1"]) == 0
+    [item] = json.loads(capsys.readouterr().out)["messages"]
+    assert item["custom_emoji"] == [
+        {"id": "99", "emoji": "🔥", "offset": 4, "length": 2}
+    ]

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from telethon.tl import types
 
 from tgcli.clone import attribution
-from tgcli.clone.legs import Leg
+from tgcli.clone.legs import AnyLeg
 from tgcli.errors import PolicyError
 
 _FLATTEN_FIELDS = ("todo_item_id", "poll_option")
@@ -75,7 +75,7 @@ def _peer_matches_id(peer, peer_id: int | None) -> bool:
 
 def _classify_header(
     header,
-    leg: Leg,
+    leg: AnyLeg,
     source,
     *,
     posts_cursor: int | None = None,
@@ -125,7 +125,7 @@ def _classify_header(
 
     if peer is not None and not attribution.same_peer(peer, source):
         if _peer_matches_id(peer, leg.other.source_peer_id):
-            if leg.other.dest_for(parent_id) is not None:
+            if leg.other.dest_for_raw(parent_id) is not None:
                 return result("mapped-cross-leg")
             # Discussion leg only (ADR-0051): parent beyond the posts cursor
             # means "not copied yet" → defer, unless the posts leg is already
@@ -145,17 +145,17 @@ def _classify_header(
             return result("flatten")
         return (
             result("mapped-in-leg", clear_top=True)
-            if leg.dest_for(parent_id) is not None
+            if leg.dest_for_raw(parent_id) is not None
             else result("flatten", clear_top=True)
         )
-    if leg.dest_for(parent_id) is not None:
+    if leg.dest_for_raw(parent_id) is not None:
         return result("mapped-in-leg")
     return result("flatten")
 
 
 def target(
     messages,
-    leg: Leg,
+    leg: AnyLeg,
     source,
     *,
     posts_cursor: int | None = None,
@@ -182,16 +182,16 @@ def target(
 
 
 def input_reply(
-    classified: Classification, leg: Leg
+    classified: Classification, leg: AnyLeg
 ) -> types.InputReplyToMessage | None:
     """Build the native reply input for a mapped-in-leg classification."""
     if classified.kind != "mapped-in-leg" or classified.parent_id is None:
         return None
-    destination_id = leg.dest_for(classified.parent_id)
+    destination_id = leg.dest_for_raw(classified.parent_id)
     if destination_id is None:
         return None
     top_destination_id = (
-        leg.dest_for(classified.top_id) if classified.top_id is not None else None
+        leg.dest_for_raw(classified.top_id) if classified.top_id is not None else None
     )
     return types.InputReplyToMessage(
         reply_to_msg_id=destination_id,

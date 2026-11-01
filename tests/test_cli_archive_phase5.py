@@ -7,7 +7,7 @@ import json
 import pytest
 
 from tests.conftest import make_session_fake
-from tests.test_cli_archive import _block_telegram_session, _client
+from tests.fakes.archive import archive_client, block_telegram_session
 from tgcli.archive import store as store_mod
 from tgcli.archive.explore import tg_link
 from tgcli.cli import main
@@ -36,7 +36,7 @@ def config_env(tmp_path, monkeypatch):
 
 
 def _seed_phase5_corpus(monkeypatch):
-    make_session_fake(monkeypatch, _client())
+    make_session_fake(monkeypatch, archive_client())
     assert main(["archive", "init", "--json"]) == 0
     path = archive_cmd.db_path("main")
     conn = store_mod.connect(path)
@@ -144,7 +144,7 @@ def test_archive_search_filters_ranking_paging_and_handoff(
 ):
     _seed_phase5_corpus(monkeypatch)
     capsys.readouterr()
-    _block_telegram_session(monkeypatch)
+    block_telegram_session(monkeypatch)
 
     assert (
         main(
@@ -264,7 +264,7 @@ def test_archive_read_is_offline_and_can_center_on_id_or_date(
 ):
     _seed_phase5_corpus(monkeypatch)
     capsys.readouterr()
-    _block_telegram_session(monkeypatch)
+    block_telegram_session(monkeypatch)
 
     assert (
         main(
@@ -322,7 +322,7 @@ def test_archive_history_exposes_revisions_and_tombstone(
         conn.commit()
     finally:
         conn.close()
-    _block_telegram_session(monkeypatch)
+    block_telegram_session(monkeypatch)
 
     assert main(["archive", "history", "@alice", "2", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)

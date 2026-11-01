@@ -25,7 +25,6 @@ from telethon.tl.types import (
     UpdateDeleteChannelMessages,
     UpdateDeleteMessages,
     UpdateEditMessage,
-    User,
 )
 from telethon.tl.types.updates import (
     ChannelDifference,
@@ -38,6 +37,14 @@ from telethon.tl.types.updates import (
 )
 
 from tests.conftest import FakeClient, make_session_fake
+from tests.fakes.archive import (
+    archive_client,
+    archive_dialog,
+    archive_me,
+    archive_msg,
+    archive_user,
+    init_archive,
+)
 from tgcli.archive import (
     backfill as backfill_mod,
     changes_cursor,
@@ -73,48 +80,6 @@ def config_env(tmp_path, monkeypatch):
     return state
 
 
-def _me(*, user_id: int = 42):
-    return User(
-        id=user_id,
-        is_self=True,
-        access_hash=1,
-        first_name="Me",
-        username="me",
-        phone="100",
-    )
-
-
-def _user(*, user_id: int = 7, username: str = "alice", first: str = "Alice"):
-    return User(
-        id=user_id,
-        is_self=False,
-        access_hash=2,
-        first_name=first,
-        username=username,
-        phone="200",
-    )
-
-
-def _msg(*, mid: int = 1, text: str = "hi", peer=None, edit_date=None):
-    return Message(
-        id=mid,
-        peer_id=peer or PeerUser(7),
-        message=text,
-        date=datetime(2026, 1, 2, tzinfo=UTC),
-        out=False,
-        edit_date=edit_date,
-    )
-
-
-def _client(*, me=None, entities=None, messages=(), dialogs=()):
-    return FakeClient(
-        me=me or _me(),
-        entities=entities or {},
-        messages=list(messages),
-        dialogs=list(dialogs),
-    )
-
-
 def _state(pts=10, qts=1, seq=2, date=None):
     return State(
         pts=pts,
@@ -125,29 +90,10 @@ def _state(pts=10, qts=1, seq=2, date=None):
     )
 
 
-def _init(monkeypatch, client=None):
-    make_session_fake(monkeypatch, client or _client())
-    assert main(["archive", "init", "--json"]) == 0
-
-
-def _dialog(entity, *, name=None):
-    return SimpleNamespace(
-        id=entity.id,
-        name=name or getattr(entity, "first_name", None) or "X",
-        entity=entity,
-        is_user=isinstance(entity, User),
-        is_group=False,
-        is_channel=False,
-        unread_count=0,
-        date=datetime(2026, 1, 2, tzinfo=UTC),
-        dialog=SimpleNamespace(unread_mentions_count=0),
-    )
-
-
 def test_search_resolves_private_username_from_sync_state(
     config_env, monkeypatch, capsys
 ):
-    _init(monkeypatch)
+    init_archive(monkeypatch)
     capsys.readouterr()
     path = archive_cmd.db_path("main")
     conn = store_mod.connect(path)
@@ -195,10 +141,10 @@ def test_search_resolves_private_username_from_sync_state(
 
 
 def test_backfill_persists_identity_for_private_peer(config_env, monkeypatch, capsys):
-    user = _user()
-    client = _client(
+    user = archive_user()
+    client = archive_client(
         entities={"@alice": user, 7: user},
-        messages=[_msg(mid=2, text="b"), _msg(mid=1, text="a")],
+        messages=[archive_msg(mid=2, text="b"), archive_msg(mid=1, text="a")],
     )
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
@@ -220,10 +166,10 @@ def test_backfill_persists_identity_for_private_peer(config_env, monkeypatch, ca
 def test_backfill_max_runtime_does_not_start_media_tail(
     config_env, monkeypatch, capsys
 ):
-    user = _user()
-    client = _client(
+    user = archive_user()
+    client = archive_client(
         entities={"@alice": user, 7: user},
-        messages=[_msg(mid=1, text="hi")],
+        messages=[archive_msg(mid=1, text="hi")],
     )
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
@@ -289,7 +235,7 @@ def test_backfill_private_requires_flag_and_caps(config_env, monkeypatch, capsys
     err = capsys.readouterr().err.lower()
     assert "chat" in err or "private" in err
 
-    make_session_fake(monkeypatch, _client())
+    make_session_fake(monkeypatch, archive_client())
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
     assert (
@@ -308,12 +254,12 @@ def test_backfill_private_requires_flag_and_caps(config_env, monkeypatch, capsys
 def test_backfill_private_enumerates_users_and_skips_complete(
     config_env, monkeypatch, capsys
 ):
-    alice = _user(user_id=7, username="alice")
-    bob = _user(user_id=8, username="bob", first="Bob")
-    dialogs = [_dialog(alice, name="Alice"), _dialog(bob, name="Bob")]
-    client = _client(
+    alice = archive_user(user_id=7, username="alice")
+    bob = archive_user(user_id=8, username="bob", first="Bob")
+    dialogs = [archive_dialog(alice, name="Alice"), archive_dialog(bob, name="Bob")]
+    client = archive_client(
         entities={"@alice": alice, 7: alice, "@bob": bob, 8: bob},
-        messages=[_msg(mid=1, text="hi", peer=PeerUser(7))],
+        messages=[archive_msg(mid=1, text="hi", peer=PeerUser(7))],
         dialogs=dialogs,
     )
     # Map messages per entity for FakeClient: same list for all.
@@ -374,18 +320,18 @@ def test_backfill_private_resumes_unfinished_dialog_before_a_finished_one(
             for message in page[:limit]:
                 yield message
 
-    alice = _user(user_id=7, username="alice")
-    bob = _user(user_id=8, username="bob", first="Bob")
+    alice = archive_user(user_id=7, username="alice")
+    bob = archive_user(user_id=8, username="bob", first="Bob")
     client = PerPeerClient(
-        me=_me(),
+        me=archive_me(),
         entities={"@alice": alice, 7: alice, "@bob": bob, 8: bob},
         messages=[
-            _msg(mid=3, peer=PeerUser(7)),
-            _msg(mid=2, peer=PeerUser(7)),
-            _msg(mid=1, peer=PeerUser(7)),
-            _msg(mid=5, peer=PeerUser(8)),
+            archive_msg(mid=3, peer=PeerUser(7)),
+            archive_msg(mid=2, peer=PeerUser(7)),
+            archive_msg(mid=1, peer=PeerUser(7)),
+            archive_msg(mid=5, peer=PeerUser(8)),
         ],
-        dialogs=[_dialog(alice, name="Alice"), _dialog(bob, name="Bob")],
+        dialogs=[archive_dialog(alice, name="Alice"), archive_dialog(bob, name="Bob")],
     )
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
@@ -406,8 +352,8 @@ def test_backfill_private_resumes_unfinished_dialog_before_a_finished_one(
 
 @pytest.mark.asyncio
 async def test_private_backfill_does_not_skip_delta_only_state(tmp_path):
-    alice = _user()
-    client = _client(dialogs=[_dialog(alice, name="Alice")])
+    alice = archive_user()
+    client = archive_client(dialogs=[archive_dialog(alice, name="Alice")])
     conn = store_mod.connect(tmp_path / "archive.db")
     try:
         store_mod.upsert_sync_state(
@@ -436,7 +382,7 @@ async def test_private_backfill_does_not_skip_delta_only_state(tmp_path):
 def test_sync_applies_edit_revision_and_private_delete_tombstone(
     config_env, monkeypatch, capsys
 ):
-    user = _user()
+    user = archive_user()
     path_holder = {}
 
     class SyncClient(FakeClient):
@@ -452,7 +398,7 @@ def test_sync_applies_edit_revision_and_private_delete_tombstone(
                     new_encrypted_messages=[],
                     other_updates=[
                         UpdateEditMessage(
-                            message=_msg(
+                            message=archive_msg(
                                 mid=1,
                                 text="edited",
                                 peer=PeerUser(7),
@@ -471,7 +417,7 @@ def test_sync_applies_edit_revision_and_private_delete_tombstone(
                 return _state(pts=5, qts=1, seq=1)
             raise AssertionError(f"unexpected {request!r}")
 
-    client = SyncClient(me=_me(), entities={"@alice": user, 7: user})
+    client = SyncClient(me=archive_me(), entities={"@alice": user, 7: user})
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
@@ -532,7 +478,7 @@ def test_sync_records_gap_and_rebaseline_clears_it(config_env, monkeypatch, caps
                 return DifferenceTooLong(pts=50)
             raise AssertionError(request)
 
-    client = GapClient(me=_me())
+    client = GapClient(me=archive_me())
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
@@ -611,7 +557,9 @@ def test_sync_survives_a_subscribed_channel_the_account_lost(
                 raise refusal(request=request)
             raise AssertionError(request)
 
-    client = LostChannelClient(me=_me(), entities={lost_peer: lost, live_peer: live})
+    client = LostChannelClient(
+        me=archive_me(), entities={lost_peer: lost, live_peer: live}
+    )
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
@@ -727,7 +675,7 @@ def test_sync_keeps_the_pages_read_before_a_channel_was_lost(
                 return ChannelDifference(
                     pts=6,
                     new_messages=[
-                        _msg(mid=10, text="before loss", peer=PeerChannel(1234))
+                        archive_msg(mid=10, text="before loss", peer=PeerChannel(1234))
                     ],
                     other_updates=[],
                     chats=[lost],
@@ -737,7 +685,7 @@ def test_sync_keeps_the_pages_read_before_a_channel_was_lost(
             # The next page, and any catch-up, finds the channel gone.
             raise telethon_errors.ChannelPrivateError(request=request)
 
-    client = MidPollLossClient(me=_me(), entities={lost_peer: lost})
+    client = MidPollLossClient(me=archive_me(), entities={lost_peer: lost})
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
@@ -805,7 +753,7 @@ def test_sync_reports_every_channel_gap_one_pass_at_a_time(
             raise AssertionError(request)
 
     client = TwoGapsClient(
-        me=_me(),
+        me=archive_me(),
         entities={first_peer: first, second_peer: second, live_peer: live},
     )
     make_session_fake(monkeypatch, client)
@@ -871,7 +819,7 @@ def test_rebaseline_and_sync_leave_a_scoped_basic_group_to_the_common_tier(
             raise AssertionError(request)
 
     client = ScopeClient(
-        me=_me(),
+        me=archive_me(),
         entities={
             group_peer: group,
             str(group_peer): group,
@@ -934,7 +882,7 @@ def test_a_recorded_gap_survives_later_clean_syncs_until_rebaseline(
                 return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=9)
             raise AssertionError(request)
 
-    client = OnceTooLongClient(me=_me())
+    client = OnceTooLongClient(me=archive_me())
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
@@ -986,7 +934,7 @@ def test_every_uncleared_gap_stays_visible_until_rebaseline(
                 return SimpleNamespace(full_chat=SimpleNamespace(pts=7))
             raise AssertionError(request)
 
-    client = TooLongThenLostClient(me=_me(), entities={lost_peer: lost})
+    client = TooLongThenLostClient(me=archive_me(), entities={lost_peer: lost})
     client.lost = True
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
@@ -1038,7 +986,7 @@ def test_an_unreadable_v9_gap_migrates_to_a_gap_that_rebaseline_clears(
                 return _state(pts=50, qts=2, seq=9)
             raise AssertionError(request)
 
-    make_session_fake(monkeypatch, StateClient(me=_me()))
+    make_session_fake(monkeypatch, StateClient(me=archive_me()))
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
     conn = store_mod.connect(archive_cmd.db_path("main"))
@@ -1064,7 +1012,7 @@ def test_an_unreadable_v9_gap_migrates_to_a_gap_that_rebaseline_clears(
 
 
 def test_sync_and_rebaseline_readonly_blocked(config_env, monkeypatch, capsys):
-    make_session_fake(monkeypatch, _client())
+    make_session_fake(monkeypatch, archive_client())
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
     assert main(["--readonly", "archive", "sync", "--json"]) == 2
@@ -1087,7 +1035,7 @@ def test_sync_and_rebaseline_refuse_while_another_run_holds_the_account(
                 return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=1)
             raise AssertionError(request)
 
-    client = QuietClient(me=_me())
+    client = QuietClient(me=archive_me())
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
@@ -1127,7 +1075,7 @@ def test_sync_and_rebaseline_refuse_while_another_run_holds_the_account(
 
 
 def test_sync_rejects_non_positive_event_cap(config_env, monkeypatch, capsys):
-    make_session_fake(monkeypatch, _client())
+    make_session_fake(monkeypatch, archive_client())
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
     assert main(["archive", "sync", "--max-events", "0", "--json"]) == 2
@@ -1135,7 +1083,7 @@ def test_sync_rejects_non_positive_event_cap(config_env, monkeypatch, capsys):
 
 
 def test_sync_rejects_over_cap_events_and_dialogs(config_env, monkeypatch, capsys):
-    make_session_fake(monkeypatch, _client())
+    make_session_fake(monkeypatch, archive_client())
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
     over_events = str(limits.BOUNDS["sync", "--max-events"].maximum + 1)
@@ -1146,7 +1094,7 @@ def test_sync_rejects_over_cap_events_and_dialogs(config_env, monkeypatch, capsy
 
 
 def test_sync_rejects_invalid_media_budget(config_env, monkeypatch, capsys):
-    make_session_fake(monkeypatch, _client())
+    make_session_fake(monkeypatch, archive_client())
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
     assert main(["archive", "sync", "--max-media", "0", "--json"]) == 2
@@ -1160,10 +1108,10 @@ def test_sync_rejects_invalid_media_budget(config_env, monkeypatch, capsys):
 
 
 def test_sync_and_rebaseline_verify_live_account_id(config_env, monkeypatch, capsys):
-    make_session_fake(monkeypatch, _client(me=_me(user_id=42)))
+    make_session_fake(monkeypatch, archive_client(me=archive_me(user_id=42)))
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
-    make_session_fake(monkeypatch, _client(me=_me(user_id=99)))
+    make_session_fake(monkeypatch, archive_client(me=archive_me(user_id=99)))
     assert main(["archive", "sync", "--json"]) == 2
     assert "account" in capsys.readouterr().err.lower()
     assert main(["archive", "rebaseline", "--json"]) == 2
@@ -1257,7 +1205,7 @@ def test_sync_channel_delete_outside_archive_scope_does_not_tombstone(
             raise AssertionError(request)
 
     client = DeleteClient(
-        me=_me(), entities={peer: channel, 1234: channel, "@removed": channel}
+        me=archive_me(), entities={peer: channel, 1234: channel, "@removed": channel}
     )
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
@@ -1388,7 +1336,7 @@ def test_sync_channel_activity_catchup_for_scoped_channel(
             return await super().get_entity(key)
 
     client = CatchupClient(
-        me=_me(),
+        me=archive_me(),
         entities={peer: channel, 1234: channel, "@news": channel, "news": channel},
         messages=[catchup],
         message_total=1,
@@ -1476,7 +1424,7 @@ def test_remove_drops_channel_from_changes_cursor(config_env, monkeypatch, capsy
             raise AssertionError(request)
 
     client = NoChannelPollClient(
-        me=_me(), entities={peer: channel, 1234: channel, "@news": channel}
+        me=archive_me(), entities={peer: channel, 1234: channel, "@news": channel}
     )
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
@@ -1534,7 +1482,7 @@ def test_sync_max_runtime_stops_before_catchup_and_media(
         username="news",
     )
     peer = utils.get_peer_id(channel)
-    client = _client(
+    client = archive_client(
         entities={peer: channel},
         messages=[
             Message(
@@ -1640,7 +1588,7 @@ def test_remove_keeps_scope_when_changes_cursor_is_corrupt(
         username="news",
     )
     peer = utils.get_peer_id(channel)
-    client = _client(entities={peer: channel, 1234: channel, "@news": channel})
+    client = archive_client(entities={peer: channel, 1234: channel, "@news": channel})
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
@@ -1693,7 +1641,7 @@ def test_inflight_sync_cannot_restore_removed_channel_subscription(
             raise AssertionError(request)
 
     client = ConcurrentRemoveClient(
-        me=_me(), entities={peer: channel, 1234: channel, "@news": channel}
+        me=archive_me(), entities={peer: channel, 1234: channel, "@news": channel}
     )
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
@@ -1732,7 +1680,7 @@ def test_inflight_sync_cannot_restore_removed_channel_subscription(
 
 
 def test_sync_new_private_dialog_enters_sync_state(config_env, monkeypatch, capsys):
-    user = _user(user_id=9, username="carol", first="Carol")
+    user = archive_user(user_id=9, username="carol", first="Carol")
 
     class NewPeerClient(FakeClient):
         async def __call__(self, request):
@@ -1741,7 +1689,9 @@ def test_sync_new_private_dialog_enters_sync_state(config_env, monkeypatch, caps
                 return _state(pts=5, qts=1, seq=1)
             if isinstance(request, GetDifferenceRequest):
                 return Difference(
-                    new_messages=[_msg(mid=3, text="hello carol", peer=PeerUser(9))],
+                    new_messages=[
+                        archive_msg(mid=3, text="hello carol", peer=PeerUser(9))
+                    ],
                     new_encrypted_messages=[],
                     other_updates=[],
                     chats=[],
@@ -1755,7 +1705,9 @@ def test_sync_new_private_dialog_enters_sync_state(config_env, monkeypatch, caps
                 return user
             return await super().get_entity(key)
 
-    client = NewPeerClient(me=_me(), entities={9: user, "@carol": user, "carol": user})
+    client = NewPeerClient(
+        me=archive_me(), entities={9: user, "@carol": user, "carol": user}
+    )
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
@@ -1828,7 +1780,7 @@ def test_sync_media_rate_limit_still_advances_the_changes_cursor(
     stops the media pass for the next run. None of them used to be told
     apart from a broken file, so three of them made the row `no_media` for
     good."""
-    user = _user()
+    user = archive_user()
 
     class CooldownClient(FakeClient):
         async def __call__(self, request):
@@ -1837,7 +1789,7 @@ def test_sync_media_rate_limit_still_advances_the_changes_cursor(
                 return _state(pts=5, qts=1, seq=1)
             if isinstance(request, GetDifferenceRequest):
                 return Difference(
-                    new_messages=[_msg(mid=3, text="new text")],
+                    new_messages=[archive_msg(mid=3, text="new text")],
                     new_encrypted_messages=[],
                     other_updates=[],
                     chats=[],
@@ -1851,7 +1803,9 @@ def test_sync_media_rate_limit_still_advances_the_changes_cursor(
                 raise make_error()
             return await super().get_messages(entity, ids, limit, reply_to)
 
-    client = CooldownClient(me=_me(), entities={7: user, "7": user, "@alice": user})
+    client = CooldownClient(
+        me=archive_me(), entities={7: user, "7": user, "@alice": user}
+    )
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
@@ -1910,7 +1864,7 @@ def test_voice_whose_media_never_downloads_leaves_the_transcript_queue(
     but kept transcript status `pending`. Transcribe only takes rows with
     media, so the row was never drained and `status` counted it in the
     transcript queue forever."""
-    user = _user()
+    user = archive_user()
 
     class EmptyDifferenceClient(FakeClient):
         async def __call__(self, request):
@@ -1922,7 +1876,7 @@ def test_voice_whose_media_never_downloads_leaves_the_transcript_queue(
             raise AssertionError(request)
 
     client = EmptyDifferenceClient(
-        me=_me(), entities={7: user, "7": user, "@alice": user}
+        me=archive_me(), entities={7: user, "7": user, "@alice": user}
     )
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
@@ -1984,7 +1938,7 @@ def test_redownloaded_voice_that_used_up_its_transcription_attempts_stays_ended(
     voice whose transcription attempts were used up and whose file was then
     re-downloaded became `pending` with attempts at the cap: transcribe never
     took it, and `status` counted it in the transcript queue forever."""
-    user = _user()
+    user = archive_user()
 
     class EmptyDifferenceClient(FakeClient):
         async def __call__(self, request):
@@ -1996,7 +1950,7 @@ def test_redownloaded_voice_that_used_up_its_transcription_attempts_stays_ended(
             raise AssertionError(request)
 
     client = EmptyDifferenceClient(
-        me=_me(), entities={7: user, "7": user, "@alice": user}
+        me=archive_me(), entities={7: user, "7": user, "@alice": user}
     )
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
@@ -2116,7 +2070,7 @@ def test_sync_catch_up_of_a_channel_without_history_keeps_its_newest_page(
         for message_id in range(200, 0, -1)
     ]
     client = ActivityClient(
-        me=_me(),
+        me=archive_me(),
         entities={peer: channel, 1234: channel, "@news": channel, "news": channel},
         messages=newest_first,
         message_total=200,

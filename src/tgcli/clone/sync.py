@@ -115,7 +115,7 @@ async def _sync_slot(
     )
     posts_exhausted = False
 
-    async def copy_batch(messages, leg: legs.Leg, source, dest) -> None:
+    async def copy_batch(messages, leg: legs.AnyLeg, source, dest) -> None:
         nonlocal copied, copied_batches, reply_flattened
         unsupported = [
             {"id": message.id, "kind": kind}

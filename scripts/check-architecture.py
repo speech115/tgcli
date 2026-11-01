@@ -1,4 +1,5 @@
-"""Fail-closed architecture checks: read ownership, state writes, module size."""
+"""Fail-closed architecture checks: read ownership, state writes, module size,
+bare clone ``Leg`` annotations, and test modules that import test modules."""
 
 from __future__ import annotations
 
@@ -112,6 +113,66 @@ def _read_ownership_errors(path: Path, relative: str) -> set[str]:
     return errors
 
 
+def _annotations(tree: ast.AST):
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            arguments = node.args
+            every = [
+                *arguments.posonlyargs,
+                *arguments.args,
+                *arguments.kwonlyargs,
+                *(a for a in (arguments.vararg, arguments.kwarg) if a is not None),
+            ]
+            yield from (a.annotation for a in every if a.annotation is not None)
+            if node.returns is not None:
+                yield node.returns
+        elif isinstance(node, ast.AnnAssign):
+            yield node.annotation
+
+
+def _bare_leg_errors(path: Path, relative: str) -> list[str]:
+    """Cross-leg code takes ``AnyLeg``: a bare ``Leg`` erases its id spaces."""
+    tree = ast.parse(path.read_text(), filename=str(path))
+    errors: list[str] = []
+    for annotation in _annotations(tree):
+        for node in ast.walk(annotation):
+            name = (
+                node.id
+                if isinstance(node, ast.Name)
+                else node.attr
+                if isinstance(node, ast.Attribute)
+                else None
+            )
+            if name == "Leg":
+                errors.append(
+                    f"{relative}:{node.lineno} annotates a bare Leg; "
+                    "use legs.AnyLeg or a concrete leg"
+                )
+    return errors
+
+
+def _test_import_errors(path: Path, relative: str) -> list[str]:
+    """A test module imports shared helpers from tests/fakes, never a test_*."""
+    tree = ast.parse(path.read_text(), filename=str(path))
+    errors: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if not (node.level or module == "tests" or module.startswith("tests.")):
+                continue
+            dotted = [f"{module}.{alias.name}" for alias in node.names]
+        elif isinstance(node, ast.Import):
+            dotted = [a.name for a in node.names if a.name.startswith("tests.")]
+        else:
+            continue
+        if any(part.startswith("test_") for name in dotted for part in name.split(".")):
+            errors.append(
+                f"{relative}:{node.lineno} imports a test module; "
+                "move the shared helper into tests/fakes/"
+            )
+    return errors
+
+
 def check(root: Path) -> list[str]:
     errors: list[str] = []
     for relative in READ_OWNERSHIP_MODULES:
@@ -130,6 +191,11 @@ def check(root: Path) -> list[str]:
         if line_count > limit:
             errors.append(f"{relative} has {line_count} lines; the limit is {limit}")
         errors.extend(_state_write_errors(path, relative))
+        if relative != "src/tgcli/clone/legs.py":
+            errors.extend(_bare_leg_errors(path, relative))
+
+    for path in sorted((root / "tests").rglob("*.py")):
+        errors.extend(_test_import_errors(path, path.relative_to(root).as_posix()))
     return errors
 
 

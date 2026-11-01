@@ -6,11 +6,11 @@ import pytest
 from telethon import errors as telethon_errors
 
 from tests.conftest import FakeClient, make_session_fake, ns
-from tests.test_cli_media import (
-    _media_message,
-    _photo_media,
-    _real_message,
-    _StreamingClient,
+from tests.fakes.media import (
+    StreamingClient,
+    media_message,
+    photo_media,
+    real_message,
 )
 from tgcli import session
 from tgcli.cli import main
@@ -181,7 +181,7 @@ def test_media_download_missing_explicit_id_continues_without_filters(
     make_session_fake(
         monkeypatch,
         FakeClient(
-            messages=[_media_message(11, "photo")],
+            messages=[media_message(11, "photo")],
             entities={"@chan": ns(id=5, title="C")},
         ),
     )
@@ -230,7 +230,7 @@ def test_media_download_missing_explicit_id_continues_with_filters(
     make_session_fake(
         monkeypatch,
         FakeClient(
-            messages=[_media_message(11, "video")],
+            messages=[media_message(11, "video")],
             entities={"@chan": ns(id=5, title="C")},
         ),
     )
@@ -391,10 +391,10 @@ def test_media_download_message_ids_combine_with_filters_and_limit(
     config_env, monkeypatch, tmp_path, capsys
 ):
     messages = {
-        10: _media_message(10, "photo", date=datetime(2026, 7, 22, tzinfo=UTC)),
-        11: _media_message(11, "video", date=datetime(2026, 7, 18, tzinfo=UTC)),
-        12: _media_message(12, "video", date=datetime(2026, 7, 22, tzinfo=UTC)),
-        13: _media_message(13, "video", date=datetime(2026, 7, 23, tzinfo=UTC)),
+        10: media_message(10, "photo", date=datetime(2026, 7, 22, tzinfo=UTC)),
+        11: media_message(11, "video", date=datetime(2026, 7, 18, tzinfo=UTC)),
+        12: media_message(12, "video", date=datetime(2026, 7, 22, tzinfo=UTC)),
+        13: media_message(13, "video", date=datetime(2026, 7, 23, tzinfo=UTC)),
     }
     make_session_fake(
         monkeypatch,
@@ -449,10 +449,10 @@ def test_media_download_filter_limit_continues_past_skipped_existing_files(
     config_env, monkeypatch, tmp_path, capsys
 ):
     messages = [
-        _media_message(10, "video_note", date=datetime(2026, 7, 24, tzinfo=UTC)),
-        _media_message(11, "video_note", date=datetime(2026, 7, 23, tzinfo=UTC)),
-        _media_message(12, "video_note", date=datetime(2026, 7, 22, tzinfo=UTC)),
-        _media_message(13, "video_note", date=datetime(2026, 7, 21, tzinfo=UTC)),
+        media_message(10, "video_note", date=datetime(2026, 7, 24, tzinfo=UTC)),
+        media_message(11, "video_note", date=datetime(2026, 7, 23, tzinfo=UTC)),
+        media_message(12, "video_note", date=datetime(2026, 7, 22, tzinfo=UTC)),
+        media_message(13, "video_note", date=datetime(2026, 7, 21, tzinfo=UTC)),
     ]
     make_session_fake(
         monkeypatch,
@@ -503,10 +503,10 @@ def test_media_download_filter_limit_continues_past_skipped_existing_files(
 def test_media_download_type_filter_skips_text_only_explicit_id(
     config_env, monkeypatch, tmp_path, capsys
 ):
-    text = _media_message(10, "photo", date=datetime(2026, 7, 22, tzinfo=UTC))
+    text = media_message(10, "photo", date=datetime(2026, 7, 22, tzinfo=UTC))
     text.media = None
     text.file = None
-    video = _media_message(11, "video", date=datetime(2026, 7, 22, tzinfo=UTC))
+    video = media_message(11, "video", date=datetime(2026, 7, 22, tzinfo=UTC))
     client = FakeClient(
         messages=[text, video],
         entities={"@chan": ns(id=5, title="C")},
@@ -573,7 +573,7 @@ def test_media_download_session_revoked_keeps_auth_exit_code(
 
     async def fake_resolve(tg, source, account_alias):
         return ns(id=5), media_cmd._DownloadTarget(
-            media=_media_message(source.message_id, "video"),
+            media=media_message(source.message_id, "video"),
             filename=f"{source.message_id}.bin",
             size=10,
         )
@@ -618,8 +618,8 @@ class _BytesClient(FakeClient):
 def test_media_download_bulk_keeps_two_files_with_the_same_name(
     config_env, monkeypatch, tmp_path, capsys
 ):
-    first = _media_message(10, "document", filename="report.pdf", size=3)
-    second = _media_message(11, "document", filename="report.pdf", size=3)
+    first = media_message(10, "document", filename="report.pdf", size=3)
+    second = media_message(11, "document", filename="report.pdf", size=3)
     client = _BytesClient(
         {id(first.media): b"one", id(second.media): b"two"},
         messages=[first, second],
@@ -649,7 +649,7 @@ def test_media_download_bulk_keeps_two_files_with_the_same_name(
 def test_media_download_bulk_resumes_a_checkpoint_from_before_the_id_prefix(
     config_env, monkeypatch, tmp_path, capsys
 ):
-    message = _media_message(10, "document", filename="report.pdf", size=3)
+    message = media_message(10, "document", filename="report.pdf", size=3)
     client = _BytesClient(
         {id(message.media): b"one"},
         messages=[message],
@@ -685,9 +685,9 @@ def test_media_download_bulk_resumes_a_checkpoint_from_before_the_id_prefix(
 def test_media_download_bulk_resumes_an_unprefixed_bin_checkpoint(
     config_env, monkeypatch, tmp_path, capsys
 ):
-    media = _photo_media()
-    client = _StreamingClient(
-        messages=[_real_message(42, media)],
+    media = photo_media()
+    client = StreamingClient(
+        messages=[real_message(42, media)],
         entities={"@chan": ns(id=5, title="C")},
     )
     make_session_fake(monkeypatch, client)

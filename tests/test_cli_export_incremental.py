@@ -3,7 +3,7 @@ import json
 import pytest
 
 from tests.conftest import make_session_fake
-from tests.test_cli_export import SAMPLE, make_export_fake, make_message
+from tests.fakes.export import SAMPLE, make_export_fake, make_message
 from tgcli.cli import main
 
 

@@ -15,7 +15,12 @@ from telethon.tl.functions.updates import GetDifferenceRequest, GetStateRequest
 from telethon.tl.types.updates import DifferenceEmpty, State
 
 from tests.conftest import FakeClient, make_session_fake
-from tests.test_cli_archive import _client, _me, _seed_search_corpus, _user
+from tests.fakes.archive import (
+    archive_client,
+    archive_me,
+    archive_user,
+    seed_search_corpus,
+)
 from tgcli.archive import changes_cursor, store as store_mod
 from tgcli.archive.changes_cursor import ChangesCursor
 from tgcli.cli import main
@@ -157,7 +162,7 @@ def test_archive_bound_refusals_are_exact_and_exit_2(config_env, capsys, argv, m
 def test_archive_search_default_and_cap(
     config_env, monkeypatch, capsys, extra, limit, page
 ):
-    _seed_search_corpus(monkeypatch)
+    seed_search_corpus(monkeypatch)
     capsys.readouterr()
     assert main(["archive", "search", "ёлка", *extra, "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
@@ -166,7 +171,7 @@ def test_archive_search_default_and_cap(
 
 @pytest.mark.parametrize(("extra", "limit"), [([], 20), (["--limit", "50"], 50)])
 def test_archive_read_default_and_cap(config_env, monkeypatch, capsys, extra, limit):
-    _seed_search_corpus(monkeypatch)
+    seed_search_corpus(monkeypatch)
     capsys.readouterr()
     assert main(["archive", "read", "7", *extra, "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["limit"] == limit
@@ -179,7 +184,7 @@ def test_archive_read_default_and_cap(config_env, monkeypatch, capsys, extra, li
 def test_archive_transcribe_default_and_cap(
     config_env, monkeypatch, capsys, extra, limit, attempts
 ):
-    make_session_fake(monkeypatch, _client())
+    make_session_fake(monkeypatch, archive_client())
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
     assert main(["archive", "transcribe", *extra, "--json"]) == 0
@@ -191,8 +196,8 @@ def test_archive_transcribe_default_and_cap(
 def test_archive_backfill_chats_default_and_cap(
     config_env, monkeypatch, capsys, extra, limit
 ):
-    alice = _user()
-    make_session_fake(monkeypatch, _client(entities={"@alice": alice, 7: alice}))
+    alice = archive_user()
+    make_session_fake(monkeypatch, archive_client(entities={"@alice": alice, 7: alice}))
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
     assert main(["archive", "backfill", "@alice", *extra, "--json"]) == 0
@@ -206,7 +211,7 @@ def test_archive_backfill_chats_default_and_cap(
 def test_archive_backfill_private_default_and_cap(
     config_env, monkeypatch, capsys, extra, limit, max_dialogs
 ):
-    make_session_fake(monkeypatch, _client())
+    make_session_fake(monkeypatch, archive_client())
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
     assert main(["archive", "backfill", "--private", *extra, "--json"]) == 0
@@ -241,7 +246,7 @@ class _QuietClient(FakeClient):
     ],
 )
 def test_archive_sync_default_and_cap(config_env, monkeypatch, capsys, extra, budgets):
-    make_session_fake(monkeypatch, _QuietClient(me=_me()))
+    make_session_fake(monkeypatch, _QuietClient(me=archive_me()))
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
     cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})

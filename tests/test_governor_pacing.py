@@ -8,6 +8,13 @@ import asyncio
 import pytest
 from telethon.tl.functions import messages, updates, upload
 
+from tests.fakes.archive import (
+    archive_dialog,
+    archive_me,
+    archive_msg,
+    archive_user,
+    init_archive,
+)
 from tgcli.archive import store as store_mod
 from tgcli.governor import gate, pacing
 from tgcli.governor.ledger import Ledger
@@ -390,7 +397,6 @@ def test_backfill_stops_normally_when_the_wall_clock_cap_is_exhausted(
     from telethon.tl.types import PeerUser
 
     from tests.conftest import FakeClient, make_session_fake
-    from tests.test_cli_archive_phase3 import _dialog, _init, _me, _msg, _user
     from tgcli.cli import main
     from tgcli.commands import archive as archive_cmd
     from tgcli.governor import pacing
@@ -400,16 +406,16 @@ def test_backfill_stops_normally_when_the_wall_clock_cap_is_exhausted(
     # from --max-runtime, so a real-time race must not decide this test.
     monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: 0.0)
 
-    me = _me(user_id=42)
-    alice = _user(user_id=7, username="alice")
+    me = archive_me(user_id=42)
+    alice = archive_user(user_id=7, username="alice")
     client = FakeClient(
         me=me,
         entities={7: alice, "@alice": alice},
-        messages=[_msg(mid=1, text="hi", peer=PeerUser(7))],
-        dialogs=[_dialog(alice, name="Alice")],
+        messages=[archive_msg(mid=1, text="hi", peer=PeerUser(7))],
+        dialogs=[archive_dialog(alice, name="Alice")],
     )
     make_session_fake(monkeypatch, client)
-    _init(monkeypatch, client)
+    init_archive(monkeypatch, client)
     capsys.readouterr()
 
     assert (
@@ -529,23 +535,22 @@ def test_journal_carries_stop_reason_on_a_normal_stop(config_env, monkeypatch, c
     from telethon.tl.types import PeerUser
 
     from tests.conftest import FakeClient, make_session_fake
-    from tests.test_cli_archive_phase3 import _dialog, _init, _me, _msg, _user
     from tgcli.cli import main
     from tgcli.governor import pacing
 
     # Deterministic: the cap is always exhausted at the first check, instead
     # of racing a real 0.001 s wall-clock window.
     monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: 0.0)
-    me = _me(user_id=42)
-    alice = _user(user_id=7, username="alice")
+    me = archive_me(user_id=42)
+    alice = archive_user(user_id=7, username="alice")
     client = FakeClient(
         me=me,
         entities={7: alice, "@alice": alice},
-        messages=[_msg(mid=1, text="hi", peer=PeerUser(7))],
-        dialogs=[_dialog(alice, name="Alice")],
+        messages=[archive_msg(mid=1, text="hi", peer=PeerUser(7))],
+        dialogs=[archive_dialog(alice, name="Alice")],
     )
     make_session_fake(monkeypatch, client)
-    _init(monkeypatch, client)
+    init_archive(monkeypatch, client)
     capsys.readouterr()
 
     args = ["archive", "backfill", "--private", "--max-dialogs", "5", "--json"]
@@ -725,9 +730,8 @@ def test_journal_records_resolve_phone_cooldown_provenance(
     from telethon.tl import types
 
     from tests.conftest import FakeClient, make_session_fake
-    from tests.test_cli_archive_phase3 import _me
 
-    user = _me(user_id=42)
+    user = archive_me(user_id=42)
     resolved = types.PeerUser(user_id=42)
     client = FakeClient(
         me=user,

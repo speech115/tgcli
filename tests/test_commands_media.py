@@ -9,7 +9,7 @@ from telethon import errors as telethon_errors
 from telethon.tl import types
 
 from tests.conftest import ns
-from tests.test_cli_media import _media_message
+from tests.fakes.media import media_message
 from tgcli.commands import media
 from tgcli.commands.media import (
     MediaSource,
@@ -718,10 +718,10 @@ async def test_bulk_download_filter_limit_counts_successes_not_skipped_attempts(
 ):
     entity = ns(id=-1001, title="Channel")
     messages = {
-        41: _media_message(41, "video_note"),
-        42: _media_message(42, "video_note"),
-        43: _media_message(43, "video_note"),
-        44: _media_message(44, "video_note"),
+        41: media_message(41, "video_note"),
+        42: media_message(42, "video_note"),
+        43: media_message(43, "video_note"),
+        44: media_message(44, "video_note"),
     }
     client = type(
         "FakeTelegram",

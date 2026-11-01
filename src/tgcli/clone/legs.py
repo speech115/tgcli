@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, ClassVar, Literal
+from typing import ClassVar, Literal
 
 from tgcli.clone import state
 from tgcli.clone.ids import DestCommentId, DestPostId, SourceCommentId, SourcePostId
@@ -39,13 +39,31 @@ class Leg[S: (SourcePostId, SourceCommentId), D: (DestPostId, DestCommentId)](AB
 
     @property
     @abstractmethod
-    def other(self) -> Leg[Any, Any]: ...
+    def other(self) -> AnyLeg: ...
+
+    @abstractmethod
+    def source_id(self, raw: int) -> S:
+        """Brand a raw id read off this leg's source as this leg's id."""
 
     @abstractmethod
     def dest_for(self, source_id: S) -> D | None: ...
 
+    def dest_for_raw(self, raw: int) -> D | None:
+        """The destination of a raw id that names a message in this leg's source."""
+        return self.dest_for(self.source_id(raw))
+
     @abstractmethod
     def record_mapping(self, source_id: S, destination_id: D) -> None: ...
+
+    @abstractmethod
+    def destination_id(self, raw: int) -> D:
+        """Brand a raw id Telegram returned for this leg's destination."""
+
+    def record_raw_mapping(self, source_raw: int, destination_raw: int) -> None:
+        """Record a send whose ids came back from Telegram as plain ints."""
+        self.record_mapping(
+            self.source_id(source_raw), self.destination_id(destination_raw)
+        )
 
     @property
     @abstractmethod
@@ -79,6 +97,12 @@ class PostsLeg(Leg[SourcePostId, DestPostId]):
     @property
     def other(self) -> DiscussionLeg:
         return DiscussionLeg(self.clone_state)
+
+    def source_id(self, raw: int) -> SourcePostId:
+        return SourcePostId(raw)
+
+    def destination_id(self, raw: int) -> DestPostId:
+        return DestPostId(raw)
 
     def dest_for(self, source_id: SourcePostId) -> DestPostId | None:
         return self.clone_state.dest_for(source_id)
@@ -117,6 +141,12 @@ class DiscussionLeg(Leg[SourceCommentId, DestCommentId]):
     def other(self) -> PostsLeg:
         return PostsLeg(self.clone_state)
 
+    def source_id(self, raw: int) -> SourceCommentId:
+        return SourceCommentId(raw)
+
+    def destination_id(self, raw: int) -> DestCommentId:
+        return DestCommentId(raw)
+
     def dest_for(self, source_id: SourceCommentId) -> DestCommentId | None:
         return self.clone_state.discussion_dest_for(source_id)
 
@@ -132,6 +162,11 @@ class DiscussionLeg(Leg[SourceCommentId, DestCommentId]):
     @cursor.setter
     def cursor(self, value: int) -> None:
         self.clone_state.discussion_cursor = value
+
+
+# What cross-leg code takes: either concrete leg, never a bare ``Leg`` whose id
+# spaces are unknown. Narrow with ``isinstance`` before using a leg-specific id.
+type AnyLeg = PostsLeg | DiscussionLeg
 
 
 def posts(clone_state: state.CloneState) -> PostsLeg:

@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import FakeClient, make_session_fake
+from tests.fakes.media import StreamingClient, media_message, photo_media, real_message
 from tgcli.cli import main
 from tgcli.commands import media as media_cmd
 
@@ -87,70 +88,6 @@ def test_media_download_accepts_complete_tme_link(config_env, monkeypatch, capsy
     assert json.loads(capsys.readouterr().out) == RESULT
 
 
-def _media_message(message_id, kind, *, date=None, size=10, mime=None, filename=None):
-    from datetime import UTC, datetime
-
-    from tests.conftest import ns
-
-    file = ns(name=filename, mime_type=mime, size=size)
-    markers = {
-        "photo": {
-            "photo": object(),
-            "video": None,
-            "audio": None,
-            "voice": None,
-            "document": None,
-        },
-        "video": {
-            "photo": None,
-            "video": object(),
-            "audio": None,
-            "voice": None,
-            "document": None,
-        },
-        "audio": {
-            "photo": None,
-            "video": None,
-            "audio": object(),
-            "voice": None,
-            "document": None,
-        },
-        "voice": {
-            "photo": None,
-            "video": None,
-            "audio": None,
-            "voice": object(),
-            "document": None,
-        },
-        "document": {
-            "photo": None,
-            "video": None,
-            "audio": None,
-            "voice": None,
-            "document": object(),
-        },
-        "video_note": {
-            "photo": None,
-            "video": None,
-            "audio": None,
-            "voice": None,
-            "document": None,
-            "video_note": object(),
-        },
-    }[kind]
-    return ns(
-        id=message_id,
-        date=date or datetime(2026, 7, 20, 12, 0, tzinfo=UTC),
-        sender_id=1,
-        sender=None,
-        text="",
-        media=object(),
-        reply_to_msg_id=None,
-        file=file,
-        **markers,
-    )
-
-
 def test_media_manifest_lists_media_without_downloading(
     config_env, monkeypatch, capsys
 ):
@@ -160,7 +97,7 @@ def test_media_manifest_lists_media_without_downloading(
 
     entity = ns(id=-1001, title="Channel", username="channel")
     messages = [
-        _media_message(3, "photo", filename="a.jpg", mime="image/jpeg", size=11),
+        media_message(3, "photo", filename="a.jpg", mime="image/jpeg", size=11),
         ns(
             id=2,
             date=datetime(2026, 7, 20, 11, 0, tzinfo=UTC),
@@ -176,7 +113,7 @@ def test_media_manifest_lists_media_without_downloading(
             voice=None,
             document=None,
         ),
-        _media_message(1, "video", filename="b.mp4", mime="video/mp4", size=22),
+        media_message(1, "video", filename="b.mp4", mime="video/mp4", size=22),
     ]
     client = FakeClient(messages=messages, entities={"@channel": entity})
 
@@ -214,9 +151,9 @@ def test_media_manifest_type_filter(config_env, monkeypatch, capsys):
     entity = ns(id=-1001, title="Channel")
     client = FakeClient(
         messages=[
-            _media_message(3, "photo"),
-            _media_message(2, "video"),
-            _media_message(1, "audio"),
+            media_message(3, "photo"),
+            media_message(2, "video"),
+            media_message(1, "audio"),
         ],
         entities={"@channel": entity},
     )
@@ -235,9 +172,9 @@ def test_media_manifest_type_filter_accepts_video_note(config_env, monkeypatch, 
     entity = ns(id=-1001, title="Channel")
     client = FakeClient(
         messages=[
-            _media_message(3, "video"),
-            _media_message(2, "video_note"),
-            _media_message(1, "audio"),
+            media_message(3, "video"),
+            media_message(2, "video_note"),
+            media_message(1, "audio"),
         ],
         entities={"@channel": entity},
     )
@@ -260,9 +197,9 @@ def test_media_manifest_since_excludes_older(config_env, monkeypatch, capsys):
     entity = ns(id=-1001, title="Channel")
     client = FakeClient(
         messages=[
-            _media_message(3, "photo", date=datetime(2026, 7, 22, 12, 0, tzinfo=UTC)),
-            _media_message(2, "video", date=datetime(2026, 7, 20, 12, 0, tzinfo=UTC)),
-            _media_message(1, "audio", date=datetime(2026, 7, 18, 12, 0, tzinfo=UTC)),
+            media_message(3, "photo", date=datetime(2026, 7, 22, 12, 0, tzinfo=UTC)),
+            media_message(2, "video", date=datetime(2026, 7, 20, 12, 0, tzinfo=UTC)),
+            media_message(1, "audio", date=datetime(2026, 7, 18, 12, 0, tzinfo=UTC)),
         ],
         entities={"@channel": entity},
     )
@@ -297,7 +234,7 @@ def _hostile_manifest_client():
     from tests.conftest import ns
 
     return FakeClient(
-        messages=[_media_message(3, "video", filename=HOSTILE_FILENAME, size=11)],
+        messages=[media_message(3, "video", filename=HOSTILE_FILENAME, size=11)],
         entities={"@channel": ns(id=-1001, title="Channel")},
     )
 
@@ -325,41 +262,6 @@ def test_media_manifest_json_passes_control_characters_through(
     assert payload["items"][0]["filename"] == HOSTILE_FILENAME
 
 
-class _StreamingClient(FakeClient):
-    async def iter_download(self, media, *, offset=0, request_size=None, **kwargs):
-        yield b"abc"[offset:]
-
-
-def _real_message(message_id, media):
-    from datetime import UTC, datetime
-
-    from telethon.tl import types
-
-    return types.Message(
-        id=message_id,
-        peer_id=types.PeerChannel(5),
-        date=datetime(2026, 7, 20, tzinfo=UTC),
-        message="",
-        media=media,
-    )
-
-
-def _photo_media():
-    from datetime import UTC, datetime
-
-    from telethon.tl import types
-
-    photo = types.Photo(
-        id=7,
-        access_hash=1,
-        file_reference=b"",
-        date=datetime(2026, 7, 20, tzinfo=UTC),
-        sizes=[types.PhotoSize(type="y", w=1, h=1, size=3)],
-        dc_id=2,
-    )
-    return types.MessageMediaPhoto(photo=photo)
-
-
 def _voice_media():
     from datetime import UTC, datetime
 
@@ -380,7 +282,7 @@ def _voice_media():
 
 @pytest.mark.parametrize(
     ("media", "expected"),
-    [(_photo_media, "media-42.jpg"), (_voice_media, "media-42.oga")],
+    [(photo_media, "media-42.jpg"), (_voice_media, "media-42.oga")],
 )
 def test_media_download_names_an_unnamed_file_by_its_type(
     config_env, monkeypatch, tmp_path, capsys, media, expected
@@ -388,8 +290,8 @@ def test_media_download_names_an_unnamed_file_by_its_type(
     from tests.conftest import ns
 
     monkeypatch.setenv("HOME", str(tmp_path))
-    client = _StreamingClient(
-        messages=[_real_message(42, media())],
+    client = StreamingClient(
+        messages=[real_message(42, media())],
         entities={"@chan": ns(id=5, title="C")},
     )
     make_session_fake(monkeypatch, client)
@@ -406,9 +308,9 @@ def test_media_download_resumes_a_checkpoint_from_the_bin_name(
     from tests.conftest import ns
 
     monkeypatch.setenv("HOME", str(tmp_path))
-    media = _photo_media()
-    client = _StreamingClient(
-        messages=[_real_message(42, media)],
+    media = photo_media()
+    client = StreamingClient(
+        messages=[real_message(42, media)],
         entities={"@chan": ns(id=5, title="C")},
     )
     make_session_fake(monkeypatch, client)
@@ -433,9 +335,9 @@ def _interrupted_photo(monkeypatch, tmp_path, destination):
     from tests.conftest import ns
 
     monkeypatch.setenv("HOME", str(tmp_path))
-    media = _photo_media()
-    client = _StreamingClient(
-        messages=[_real_message(42, media)],
+    media = photo_media()
+    client = StreamingClient(
+        messages=[real_message(42, media)],
         entities={"@chan": ns(id=5, title="C")},
     )
     make_session_fake(monkeypatch, client)
