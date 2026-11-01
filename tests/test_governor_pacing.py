@@ -619,11 +619,10 @@ def test_journal_counts_every_flood_the_run_met(config_env, monkeypatch, capsys)
     """A run that slept two floods out and finished still journals them, so
     floods per run can be measured; the stop fields stay off a clean exit.
     The floods go through the installed gate, not the tally API."""
+    from telethon import errors as telethon_errors
+
     from tgcli import dispatch
     from tgcli.cli import main
-    from tgcli.governor import pacing
-
-    from telethon import errors as telethon_errors
 
     class TwiceFlooding(FakeClient):
         async def _call(self, sender, request, *args, **kwargs):
