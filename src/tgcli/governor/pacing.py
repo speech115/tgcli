@@ -21,9 +21,9 @@ FREE_REQUESTS = 5
 
 # Slow start. Most floods in the journal repeated a flood of the same type
 # within the hour: a run exited 5, and the next one started with fresh free
-# requests and burst into the same limit. For an hour after a flood on a
-# type, every process paces that type from its first request at twice its
-# interval, or at SLOW_START_INTERVAL when its class has none.
+# requests and burst into the same limit. Until an hour after a type's
+# flood cooldown ends, every process paces that type from its first request
+# at twice its interval, or at SLOW_START_INTERVAL when its class has none.
 SLOW_START_WINDOW_S = 3600
 SLOW_START_INTERVAL = 3.0
 
