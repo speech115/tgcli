@@ -615,6 +615,51 @@ def test_journal_omits_flood_fields_on_a_survived_flood(
     assert "provenance" not in entry
 
 
+def test_journal_counts_every_flood_the_run_met(config_env, monkeypatch, capsys):
+    """A run that slept two floods out and finished still journals them, so
+    floods per run can be measured; the stop fields stay off a clean exit."""
+    from tgcli import dispatch
+    from tgcli.cli import main
+    from tgcli.governor import pacing
+
+    async def survived_floods(args, account):
+        pacing.note_request()
+        pacing.note_flood(3)
+        pacing.note_flood(5.5)
+        return {"dialogs": []}, []
+
+    monkeypatch.setattr(dispatch, "run_network", survived_floods)
+
+    assert main(["dialogs", "--json"]) == 0
+    capsys.readouterr()
+
+    entry = _journal_lines()[-1]
+    assert entry["floods"] == 2
+    assert entry["flood_wait_s"] == 8.5
+    assert "retry_after" not in entry
+
+
+def test_journal_omits_flood_counts_on_a_run_without_floods(
+    config_env, monkeypatch, capsys
+):
+    from tgcli import dispatch
+    from tgcli.cli import main
+    from tgcli.governor import pacing
+
+    async def calm(args, account):
+        pacing.note_request()
+        return {"dialogs": []}, []
+
+    monkeypatch.setattr(dispatch, "run_network", calm)
+
+    assert main(["dialogs", "--json"]) == 0
+    capsys.readouterr()
+
+    entry = _journal_lines()[-1]
+    assert "floods" not in entry
+    assert "flood_wait_s" not in entry
+
+
 def test_journal_omits_flood_fields_when_final_error_is_not_flood(
     config_env, monkeypatch, capsys
 ):

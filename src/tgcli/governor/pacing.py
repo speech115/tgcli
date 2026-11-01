@@ -32,6 +32,9 @@ _wall_clock_started = 0.0
 # the last flood-family stop.
 _request_count = 0
 _last_stop: dict | None = None
+# Every server FloodWait this run met, survived or not, and their seconds.
+_flood_count = 0
+_flood_seconds = 0.0
 # Per pacing slot (`registry.pace_key`): how many were sent and when the last
 # one left.
 _sent: dict[str, int] = {}
@@ -41,12 +44,14 @@ _last_sent: dict[str, float] = {}
 def reset_runtime(*, cap: float | None = None) -> None:
     """Start a fresh invocation: zero the counters, set the cap."""
     global _slept_seconds, _wall_clock_cap, _wall_clock_started
-    global _request_count, _last_stop
+    global _request_count, _last_stop, _flood_count, _flood_seconds
     _slept_seconds = 0.0
     _wall_clock_cap = cap
     _wall_clock_started = time.monotonic()
     _request_count = 0
     _last_stop = None
+    _flood_count = 0
+    _flood_seconds = 0.0
     _sent.clear()
     _last_sent.clear()
 
@@ -75,6 +80,18 @@ def note_request() -> None:
 
 def request_count() -> int:
     return _request_count
+
+
+def note_flood(seconds: float) -> None:
+    """Count one server FloodWait, including one the run then slept out."""
+    global _flood_count, _flood_seconds
+    _flood_count += 1
+    _flood_seconds += seconds
+
+
+def flood_tally() -> tuple[int, float]:
+    """How many server FloodWaits this run met and their total seconds."""
+    return _flood_count, _flood_seconds
 
 
 def note_stop(**fields) -> None:
