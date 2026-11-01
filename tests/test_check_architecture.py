@@ -171,3 +171,53 @@ def test_new_python_module_is_write_text_denied_by_default(tmp_path):
 
     assert result.returncode == 1
     assert "src/tgcli/new_state.py:2 calls write_text" in result.stdout
+
+
+def test_architecture_check_rejects_a_test_importing_another_test_module(tmp_path):
+    _write_minimal_tree(tmp_path)
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_a.py").write_text("from tests.test_b import helper\n")
+    (tests / "test_c.py").write_text("def t():\n    from tests import test_b\n")
+    (tests / "test_d.py").write_text("from .test_b import helper\n")
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 1
+    for name in ("test_a.py:1", "test_c.py:2", "test_d.py:1"):
+        assert f"tests/{name} imports a test module" in result.stdout
+
+
+def test_architecture_check_accepts_tests_importing_fakes_and_conftest(tmp_path):
+    _write_minimal_tree(tmp_path)
+    tests = tmp_path / "tests"
+    (tests / "fakes").mkdir(parents=True)
+    (tests / "test_a.py").write_text(
+        "from tests.conftest import FakeClient\n"
+        "from tests.fakes.media import media_message\n"
+        "from tests.fakes import messages\n"
+    )
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 0, result.stdout
+
+
+def test_architecture_check_rejects_a_bare_leg_annotation(tmp_path):
+    _write_minimal_tree(tmp_path)
+    module = tmp_path / "src/tgcli/clone/replies.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from tgcli.clone import legs\n"
+        "from tgcli.clone.legs import AnyLeg, Leg\n"
+        "def a(leg: Leg) -> None: ...\n"
+        "def b(*, leg: legs.Leg | None = None) -> None: ...\n"
+        "def c(leg: AnyLeg) -> legs.PostsLeg: ...\n"
+    )
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 1
+    assert "src/tgcli/clone/replies.py:3 annotates a bare Leg" in result.stdout
+    assert "src/tgcli/clone/replies.py:4 annotates a bare Leg" in result.stdout
+    assert "replies.py:5" not in result.stdout
