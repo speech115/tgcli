@@ -4,7 +4,12 @@ import json
 from datetime import UTC, datetime
 
 from tgcli.output import note
-from tgcli.session import ensure_state_dir, restrict_file, state_dir
+from tgcli.session import (
+    ensure_state_dir,
+    open_private_append,
+    restrict_file,
+    state_dir,
+)
 
 
 def log_invocation(
@@ -59,7 +64,7 @@ def log_invocation(
     path = state_dir() / "invocations.jsonl"
     try:
         ensure_state_dir()
-        with path.open("a") as handle:
+        with open_private_append(path) as handle:
             restrict_file(path)
             handle.write(
                 json.dumps(

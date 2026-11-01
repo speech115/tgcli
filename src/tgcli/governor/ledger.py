@@ -18,7 +18,12 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from tgcli.session import ensure_state_dir, restrict_file, state_dir
+from tgcli.session import (
+    create_private,
+    ensure_state_dir,
+    restrict_file,
+    state_dir,
+)
 
 # Telegram's longest realistic FloodWait is on the order of a day; anything
 # further ahead is skew or corruption.
@@ -61,6 +66,7 @@ class Ledger:
                 ensure_state_dir()
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
+            create_private(target)
             connection = cls._connect(target)
         except (sqlite3.Error, OSError) as exc:
             reason = f"{target}: {exc}"

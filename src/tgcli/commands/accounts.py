@@ -347,9 +347,7 @@ def _append_config_block(
     """
     _reject_colliding_alias(config_path, alias)
     config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if not config_path.exists():
-        config_path.touch(mode=0o600)
-    with config_path.open("a") as config_file:
+    with session.open_private_append(config_path) as config_file:
         config_file.write(
             f"\n[accounts.{alias}]\napi_id = {api_id}\n"
             f"api_hash = {json.dumps(api_hash)}\nsession = {json.dumps(alias)}\n"
