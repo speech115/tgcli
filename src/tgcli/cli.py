@@ -471,6 +471,7 @@ def main(argv: list[str] | None = None) -> int:
         # requests (review fix m1): offline commands carry neither field.
         slept_ms = int(pacing.total_governed_sleep() * 1000)
         requests = pacing.request_count()
+        floods, flood_seconds = pacing.flood_tally()
         invocations.log_invocation(
             command=command_path(parser, args),
             account=args.account,
@@ -482,6 +483,8 @@ def main(argv: list[str] | None = None) -> int:
             duration_ms=duration_ms,
             governed_sleep_ms=slept_ms if requests else None,
             request_count=requests or None,
+            floods=floods or None,
+            flood_wait_s=flood_seconds if floods else None,
             **stop_fields,
         )
         _restore_diagnostics(verbose_diagnostics)

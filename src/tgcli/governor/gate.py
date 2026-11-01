@@ -174,6 +174,7 @@ def arm_from_flood(
     deadline = datetime.now(UTC) + timedelta(seconds=float(seconds))
     from tgcli.output import note
 
+    pacing.note_flood(float(seconds))
     persisted = ledger.arm_cooldown(account, request_key, deadline)
     note(
         f"telegram flood on {request_key}: cooling for {seconds}s"

@@ -540,3 +540,30 @@ async def test_a_recorded_cooldown_that_fits_the_cap_is_slept_out(ledger):
 
     assert len(slept) == 1 and 0 < slept[0] <= 5
     assert len(client.sent) == 1
+
+
+async def test_every_server_flood_is_tallied_even_when_slept_out(ledger):
+    """A survived flood leaves no exit 5, so the tally is the only record of
+    it: without one the journal cannot count floods per run."""
+    pacing.reset_runtime(cap=3600)
+    _, sleep = recording_sleep()
+    client = FloodingClient(floods=1, seconds=4)
+    gate.install(client, ledger, sleep=sleep)
+
+    assert await client._call(None, history()) == "result"
+
+    assert pacing.flood_tally() == (1, 4.0)
+
+
+async def test_a_local_refusal_is_not_tallied_as_a_flood(ledger):
+    """Only the server's FloodWaits count; refusing a recorded cooldown
+    sends nothing and draws no new penalty."""
+    pacing.reset_runtime()
+    arm(ledger)
+    client = FakeClient()
+    gate.install(client, ledger)
+
+    with pytest.raises(RateLimitError):
+        await client._call(None, history())
+
+    assert pacing.flood_tally() == (0, 0.0)

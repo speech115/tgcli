@@ -1031,8 +1031,10 @@ also carries `error_site`, the `module:function` inside tgcli that raised it
 (for example `session:session_file_lock` for a busy session), and an
 untranslated failure carries `error_type`, the exception class name. Runs that
 actually issued governed requests additionally carry `governed_sleep_ms`
-(total deliberate pacing/flood sleep) and `request_count`. A flood-related
-exit (exit 5) additionally carries `retry_after`, `request_type` (the
+(total deliberate pacing/flood sleep) and `request_count`. A run that met
+any server FloodWait, including one it slept out and survived, carries
+`floods` (how many) and `flood_wait_s` (their summed server waits, a
+float). A flood-related exit (exit 5) additionally carries `retry_after`, `request_type` (the
 governed key, e.g. `messages.GetHistoryRequest`) and `provenance`
 (`server` | `account_cooldown` | `resolve_phone_cooldown`). A normal stop
 carries `stop_reason` (`wall_clock_cap`). The journal never contains message/search text, chat

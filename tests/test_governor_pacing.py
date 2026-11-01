@@ -620,6 +620,71 @@ def test_journal_omits_flood_fields_on_a_survived_flood(
     assert "provenance" not in entry
 
 
+def test_journal_counts_every_flood_the_run_met(config_env, monkeypatch, capsys):
+    """A run that slept two floods out and finished still journals them, so
+    floods per run can be measured; the stop fields stay off a clean exit.
+    The floods go through the installed gate, not the tally API."""
+    from telethon import errors as telethon_errors
+
+    from tgcli import dispatch
+    from tgcli.cli import main
+
+    class TwiceFlooding(FakeClient):
+        async def _call(self, sender, request, *args, **kwargs):
+            reply = self.replies.pop(0)
+            if isinstance(reply, int):
+                error = telethon_errors.FloodWaitError(request=None)
+                error.seconds = reply
+                raise error
+            return reply
+
+    async def survived_floods(args, account):
+        # The real gate on a fake Telegram: both floods fit the cap, so the
+        # run sleeps them out and finishes.
+        async def no_sleep(seconds):
+            return None
+
+        with Ledger.open() as ledger:
+            client = TwiceFlooding()
+            # Each request floods once, then its retry goes through.
+            client.replies = [3, "result", 5, "result"]
+            gate.install(client, ledger, sleep=no_sleep)
+            await client._call(None, history())
+            await client._call(None, history())
+        return {"dialogs": []}, []
+
+    monkeypatch.setattr(dispatch, "run_network", survived_floods)
+
+    assert main(["--max-runtime", "60", "dialogs", "--json"]) == 0
+    capsys.readouterr()
+
+    entry = _journal_lines()[-1]
+    assert entry["floods"] == 2
+    assert entry["flood_wait_s"] == 8.0
+    assert "retry_after" not in entry
+
+
+def test_journal_omits_flood_counts_on_a_run_without_floods(
+    config_env, monkeypatch, capsys
+):
+    from tgcli import dispatch
+    from tgcli.cli import main
+    from tgcli.governor import pacing
+
+    async def calm(args, account):
+        pacing.note_request()
+        return {"dialogs": []}, []
+
+    monkeypatch.setattr(dispatch, "run_network", calm)
+
+    assert main(["dialogs", "--json"]) == 0
+    capsys.readouterr()
+
+    entry = _journal_lines()[-1]
+    assert "floods" not in entry
+    assert "flood_wait_s" not in entry
+
+
 def test_journal_omits_flood_fields_when_final_error_is_not_flood(
     config_env, monkeypatch, capsys
 ):
