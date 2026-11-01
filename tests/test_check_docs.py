@@ -12,12 +12,15 @@ def run(
     *,
     readme: Path | None = None,
     skill: Path | None = None,
+    operations: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     argv = [sys.executable, str(SCRIPT)]
     if readme is not None:
         argv.extend(["--readme", str(readme)])
     if skill is not None:
         argv.extend(["--skill", str(skill)])
+    if operations is not None:
+        argv.extend(["--operations", str(operations)])
     return subprocess.run(
         argv,
         cwd=ROOT,
@@ -119,3 +122,19 @@ def test_a_doc_naming_a_fake_flag_command_or_link_fails(tmp_path):
     assert "SKILL.md: unknown command 'tg no-such-command'" in result.stdout
     assert "SKILL.md: unknown command 'tg archive searhc'" in result.stdout
     assert "SKILL.md: dead link -> missing.md" in result.stdout
+
+
+def test_the_operations_runbook_is_checked_against_the_cli(tmp_path):
+    operations = tmp_path / "OPERATIONS.md"
+    operations.write_text(
+        "Rerun `tg archive sync --no-such-flag`.\n"
+        "Ship with `git merge --ff-only origin/main`.\n"
+        "```bash\nuv sync --extra fast\n```\n"
+    )
+
+    result = run(operations=operations)
+
+    assert result.returncode == 1
+    assert "OPERATIONS.md: unknown flag --no-such-flag" in result.stdout
+    assert "--ff-only" not in result.stdout
+    assert "--extra" not in result.stdout
