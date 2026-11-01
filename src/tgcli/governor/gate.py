@@ -141,9 +141,13 @@ def cooling_seconds(ledger: Ledger, account: int, request_key: str) -> int:
 
 
 def recently_flooded(ledger: Ledger, account: int, request_key: str) -> bool:
-    """Whether this type drew a flood within ``pacing.SLOW_START_WINDOW_S``."""
+    """Whether this type is cooling, or stopped cooling within the window.
+
+    Counted from the end of the cooldown, not its arming: after a 21-hour
+    flood the first run is the one that must not burst.
+    """
     since = datetime.now(UTC) - timedelta(seconds=pacing.SLOW_START_WINDOW_S)
-    return ledger.flooded_since(account, request_key, since)
+    return ledger.cooled_since(account, request_key, since)
 
 
 def refuse_if_cooling(ledger: Ledger, account: int, request_key: str) -> None:

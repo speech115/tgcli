@@ -93,12 +93,13 @@ def ledger(tmp_path):
         yield store
 
 
-def flooded_ago(ledger, key, minutes):
-    """Record a flood on `key` armed `minutes` ago whose cooldown is over."""
+def flooded_ago(ledger, key, minutes, *, cooled_for=None):
+    """Record a flood on `key` whose cooldown ended `minutes` ago, armed
+    `cooled_for` minutes before that (one by default)."""
     now = datetime.now(UTC)
-    ledger.arm_cooldown(
-        ACCOUNT, key, now - timedelta(seconds=1), now=now - timedelta(minutes=minutes)
-    )
+    ended = now - timedelta(minutes=minutes)
+    armed = ended - timedelta(minutes=1 if cooled_for is None else cooled_for)
+    ledger.arm_cooldown(ACCOUNT, key, ended, now=armed)
 
 
 def server(ledger, clock, sleeper, **limits):
@@ -160,6 +161,20 @@ async def test_an_old_flood_leaves_the_free_requests_alone(ledger, clock, sleepe
         await fake._call(None, get_users())
 
     assert sleeper.calls == []
+
+
+async def test_slow_start_counts_from_the_end_of_a_long_cooldown(
+    ledger, clock, sleeper
+):
+    """A 21-hour flood was armed long ago, but its cooldown just ended: the
+    first run after it is the one that must not burst."""
+    flooded_ago(ledger, USERS_KEY, minutes=1, cooled_for=21 * 60)
+    fake = server(ledger, clock, sleeper, limit=1000)
+
+    for _ in range(3):
+        await fake._call(None, get_users())
+
+    assert sleeper.calls == [pacing.SLOW_START_INTERVAL] * 2
 
 
 async def test_a_flood_on_one_type_does_not_slow_another(ledger, clock, sleeper):
