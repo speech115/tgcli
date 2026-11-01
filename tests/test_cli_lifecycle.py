@@ -11,6 +11,7 @@ import time
 import pytest
 
 from tests.conftest import FakeClient, make_session_fake
+from tests.fakes.clone_init import CloneInitClient
 from tgcli import __version__
 from tgcli.cli import main
 from tgcli.session import state_dir
@@ -119,16 +120,12 @@ def test_clone_init_runs_without_an_implicit_deadline(config_env, monkeypatch, c
     """D2: clone init keeps no implicit deadline (CONTRACT §1) — a long copy
     must not be killed by a default. The exemption itself is pinned by
     test_deadline_defaults_match_the_contract; this test guards the run."""
-    from tests.test_cli_clone_init import CloneInitClient
-
     make_session_fake(monkeypatch, CloneInitClient())
 
     assert main(["clone", "init", "@source", "--json"]) == 0
 
 
 def test_clone_init_still_honours_an_explicit_timeout(config_env, monkeypatch, capsys):
-    from tests.test_cli_clone_init import CloneInitClient
-
     make_session_fake(monkeypatch, CloneInitClient())
 
     assert main(["clone", "init", "@source", "--timeout", "30", "--json"]) == 0

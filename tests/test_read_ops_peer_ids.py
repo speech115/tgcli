@@ -18,7 +18,7 @@ from telethon.tl.custom.dialog import Dialog
 from telethon.tl.custom.message import Message
 
 from tests.conftest import FakeClient
-from tests.test_cli_media import _media_message
+from tests.fakes.media import media_message
 from tgcli import read_ops
 
 CHANNEL_ID = 1234567890
@@ -115,8 +115,8 @@ async def test_entity_based_operations_emit_the_bare_id(operation, path):
     channel = make_channel()
     client = FakeClient(
         entities={"@chan": channel},
-        messages=[_media_message(7, "photo")],
-        search_messages={"needle": [_media_message(7, "photo")]},
+        messages=[media_message(7, "photo")],
+        search_messages={"needle": [media_message(7, "photo")]},
         message_total=1,
     )
 

@@ -7,16 +7,9 @@ import pytest
 from telethon import errors as telethon_errors
 
 from tests.conftest import FakeClient, make_session_fake, ns
+from tests.fakes.export import SAMPLE, make_export_fake, make_message
 from tgcli.cli import main
 from tgcli.commands.export import _atomic_text_destination
-
-SAMPLE = """
-default_account = "main"
-
-[accounts.main]
-api_id = 12345
-api_hash = "abcdef0123456789"
-"""
 
 
 def _csv_rows(path):
@@ -29,27 +22,6 @@ def config_env(tmp_path, monkeypatch):
     path = tmp_path / "config.toml"
     path.write_text(SAMPLE)
     monkeypatch.setenv("TGCLI_CONFIG", str(path))
-
-
-def make_message(message_id, text):
-    return ns(
-        id=message_id,
-        date=dt.datetime(2026, 7, 10, 10, 0, tzinfo=dt.UTC),
-        sender_id=111,
-        sender=ns(first_name="Alice", last_name=None),
-        text=text,
-        media=None,
-        reply_to_msg_id=None,
-    )
-
-
-def make_export_fake(messages=(), participants=()):
-    entity = ns(id=-1001234, title="Channel")
-    return FakeClient(
-        messages=messages,
-        participants=participants,
-        entities={"@chan": entity},
-    )
 
 
 def test_export_messages_requires_output(config_env, capsys):
