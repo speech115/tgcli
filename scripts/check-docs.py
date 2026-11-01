@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Fail-closed gate: active docs must match the real CLI.
 
-Documentation that drifts is worse than none, so every claim README.md and
-SKILL.md make about the CLI surface is checked against the parser itself:
+Documentation that drifts is worse than none, so every claim README.md,
+SKILL.md and docs/OPERATIONS.md make about the CLI surface is checked against
+the parser itself:
 
   1. every ``--flag`` they name exists somewhere in the argparse tree;
   2. every ``tg <command>`` they name is a real command;
@@ -25,6 +26,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 README = REPO / "README.md"
 SKILL = REPO / "SKILL.md"
+OPERATIONS = REPO / "docs" / "OPERATIONS.md"
 
 sys.path.insert(0, str(REPO / "src"))
 
@@ -128,6 +130,9 @@ def page_problems(
     """Flags, commands, and relative links a page names must all be real."""
     text = page.read_text()
     prose = re.sub(r"\]\([^)]*\)", "]", text)  # a link target is not a flag
+    # git, uv and gh commands carry their own flags, not tgcli's
+    prose = re.sub(r"`(?:git|uv|gh) [^`]*`", "", prose)
+    prose = re.sub(r"(?m)^(?:git|uv|gh) .*$", "", prose)
     problems = [
         f"{page.name}: unknown flag {flag}"
         for flag in sorted(set(re.findall(r"--[a-z][a-z0-9-]*", prose)))
@@ -166,6 +171,7 @@ def main(argv: list[str] | None = None) -> int:
     cli = argparse.ArgumentParser(description="Check documentation consistency.")
     cli.add_argument("--readme", type=Path, default=README)
     cli.add_argument("--skill", type=Path, default=SKILL)
+    cli.add_argument("--operations", type=Path, default=OPERATIONS)
     args = cli.parse_args(argv)
 
     parser = build_parser()
@@ -175,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
     problems = readme_global_flag_problems(args.readme, parser)
     problems += readme_random_id_problems(args.readme)
     problems += readme_clone_retry_problems(args.readme)
-    for page in (args.readme, args.skill):
+    for page in (args.readme, args.skill, args.operations):
         problems += page_problems(page, flags, commands)
 
     for problem in problems:

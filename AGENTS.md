@@ -112,7 +112,8 @@ mistake can no longer happen is deleted.
 - Enable squash auto-merge when opening the PR (`gh pr merge N --squash
   --auto`); the ruleset holds it until the `checks` and `test` jobs pass.
 - `main` is what runs, and git log is the history; there is no changelog.
-  Release only when the owner asks: bump the version in a PR, then tag
+  Release only when the owner asks ([docs/OPERATIONS.md](docs/OPERATIONS.md)
+  also covers shipping `main` to the Mac): bump the version in a PR, then tag
   `vX.Y.Z` on `main` and publish notes with `gh release create`.
 
 ## Language
