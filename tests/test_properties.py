@@ -139,3 +139,33 @@ def test_clone_state_from_dict_fails_closed(data):
     except (KeyError, TypeError, ValueError):
         return
     assert isinstance(state, CloneState)
+
+
+@st.composite
+def long_caption(draw):
+    unit = draw(TEXT)
+    text = unit * draw(st.integers(1, 3000 // len(unit) + 1))
+    size = utf16_units(text)
+    entities = [
+        MessageEntityBold(offset=offset, length=draw(st.integers(1, size - offset)))
+        for offset in draw(st.lists(st.integers(0, size - 1), max_size=5))
+    ]
+    return text, entities
+
+
+@DETERMINISTIC
+@given(long_caption())
+def test_a_cut_caption_fits_and_keeps_entities_inside_it(caption):
+    from tgcli.clone.send import CAPTION_LIMIT, cut_caption
+
+    text, entities = caption
+    originals = [(entity.offset, entity.length) for entity in entities]
+    cut, kept = cut_caption(text, entities)
+
+    assert utf16_units(cut) <= CAPTION_LIMIT
+    assert cut.endswith("…") and text.startswith(cut[:-1])
+    body = utf16_units(cut) - 1
+    assert all(0 <= e.offset and e.length > 0 for e in kept)
+    assert all(e.offset + e.length <= body for e in kept)
+    # Every entity that started inside the kept text survives, clipped.
+    assert len(kept) == sum(1 for offset, _ in originals if offset < body)
