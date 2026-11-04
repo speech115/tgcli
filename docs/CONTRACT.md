@@ -1706,6 +1706,16 @@ is retried once after a fail-closed `clone-sync-emoji-fallback` audit row
 text` to stderr, and the exit code stays 0. When no emoji proves unavailable,
 the original error stands.
 
+A media send refused with `MEDIA_CAPTION_TOO_LONG` (a Premium author may
+caption up to 4096 characters; an account without Premium is limited to
+1024) cuts every caption past 1024 UTF-16 units to 1023 plus `…`, never
+splitting a surrogate pair, and clips its entities to the kept text. The
+send is retried once, by file reference or byte copy as before, after a
+fail-closed `clone-sync-caption-fallback` audit row (`source_message_ids`).
+Each affected message prints `warning: clone source message N: caption cut
+from L to 1024 characters (longer needs Premium)` to stderr, and the exit
+code stays 0. When no caption passes 1024, the original error stands.
+
 `--limit N` must be positive and copies at most N message batches. If another
 source row remains, JSON reports `"more":true`; the next run resumes at the
 saved cursor. Sync has no implicit overall timeout (CONTRACT §1), uses a

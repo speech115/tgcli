@@ -178,7 +178,7 @@ async def _send(
             request = functions.messages.SendMediaRequest(
                 **common, media=await media_for(message, False)
             )
-        return await _send_without_unavailable_emoji(
+        return await _send_fitting_captions(
             tg, request, messages, clone_state, account_alias
         )
     multi_media = []
@@ -199,9 +199,70 @@ async def _send(
     request = functions.messages.SendMultiMediaRequest(
         peer=destination, multi_media=multi_media, reply_to=reply_to
     )
-    return await _send_without_unavailable_emoji(
+    return await _send_fitting_captions(
         tg, request, messages, clone_state, account_alias
     )
+
+
+# The caption limit without Premium. A Premium author may post up to 4096, so
+# a copy by an account without it is refused MEDIA_CAPTION_TOO_LONG.
+CAPTION_LIMIT = 1024
+_CUT_MARK = "…"
+
+
+async def _send_fitting_captions(tg, request, messages, clone_state, account_alias):
+    """Send ``request``; on MEDIA_CAPTION_TOO_LONG cut every caption past
+    ``CAPTION_LIMIT`` to it, ending in an ellipsis, and retry once. A refusal
+    with no caption past the limit stands."""
+    bodies = getattr(request, "multi_media", None) or [request]
+    try:
+        return await _send_without_unavailable_emoji(
+            tg, request, messages, clone_state, account_alias
+        )
+    except telethon_errors.MediaCaptionTooLongError:
+        cut = {
+            message.id: attribution.utf16_len(body.message)
+            for message, body in zip(messages, bodies, strict=True)
+            if attribution.utf16_len(body.message or "") > CAPTION_LIMIT
+        }
+        if not cut:
+            raise
+    safety.append_audit(
+        "clone-sync-caption-fallback",
+        account_alias,
+        {"clone_id": clone_state.clone_id, "source_message_ids": list(cut)},
+    )
+    for message, body in zip(messages, bodies, strict=True):
+        if message.id in cut:
+            body.message, body.entities = cut_caption(body.message, body.entities)
+    response = await _send_without_unavailable_emoji(
+        tg, request, messages, clone_state, account_alias
+    )
+    for message_id, length in cut.items():
+        note(
+            f"warning: clone source message {message_id}: caption cut from "
+            f"{length} to {CAPTION_LIMIT} characters (longer needs Premium)"
+        )
+    return response
+
+
+def cut_caption(text: str, entities) -> tuple[str, list | None]:
+    """``text`` cut to fit ``CAPTION_LIMIT`` with its mark, entities clipped.
+
+    Counted in UTF-16 units, as Telegram counts; a surrogate pair split by the
+    cut is dropped whole.
+    """
+    budget = CAPTION_LIMIT - attribution.utf16_len(_CUT_MARK)
+    kept = text.encode("utf-16-le")[: 2 * budget].decode("utf-16-le", "ignore")
+    end = attribution.utf16_len(kept)
+    clipped = []
+    for entity in entities or ():
+        if entity.offset >= end:
+            continue
+        if entity.offset + entity.length > end:
+            entity.length = end - entity.offset
+        clipped.append(entity)
+    return kept + _CUT_MARK, clipped if entities is not None else None
 
 
 async def _send_without_unavailable_emoji(
