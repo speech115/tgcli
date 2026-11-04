@@ -311,7 +311,7 @@ def _execute_network(args, config, spec: registry.Command) -> tuple[dict, list[t
 def _emit(args, spec: registry.Command, data, rows) -> None:
     if spec.emit == "none":
         return  # the command owns stdout and already wrote it
-    if spec.emit == "document" or args.json:
+    if args.json:
         output.emit_json(data)
     elif args.plain:
         output.emit_plain(rows)

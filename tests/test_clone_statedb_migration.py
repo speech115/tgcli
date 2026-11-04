@@ -1,4 +1,4 @@
-"""SQLite schema migrations and export-state (ADR-0060)."""
+"""SQLite schema migrations (ADR-0060)."""
 
 from __future__ import annotations
 
@@ -109,33 +109,6 @@ def test_newer_schema_version_is_refused(tmp_path, monkeypatch):
 
     with pytest.raises(PolicyError, match="unsupported schema version"):
         state.load(s.clone_id)
-
-
-def test_export_state_prints_v2_json(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    s = _fresh()
-    s.destination_peer_id = 99
-    s.cursor = 3
-    s.record_mapping(2, 20)
-    state.save(s)
-
-    from tgcli.cli import main
-
-    code = main(["clone", "export-state", "-1001234567890", "--json"])
-    out = capsys.readouterr().out
-    assert code == 0
-    payload = json.loads(out)
-    assert payload == s.to_dict()
-    # Rollback proof: the export re-validates through from_dict.
-    assert state.CloneState.from_dict(payload).to_dict() == s.to_dict()
-
-
-def test_export_state_unknown_clone_exits_2(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    from tgcli.cli import main
-
-    code = main(["clone", "export-state", "999999999", "--json"])
-    assert code == 2
 
 
 def test_status_reports_schema_version_and_integrity(tmp_path, monkeypatch, capsys):

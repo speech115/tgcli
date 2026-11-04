@@ -1,7 +1,7 @@
 """Every command emits dialog ids in the form CONTRACT documents.
 
-Entity-scoped shapes carry Telethon's positive `entity.id`; `tg dialogs` and
-`tg inbox` carry the bot-API peer id (`-N` for a basic group, `-100…` for a
+Entity-scoped shapes carry Telethon's positive `entity.id`; `tg dialogs`
+carries the bot-API peer id (`-N` for a basic group, `-100…` for a
 channel). Real Telethon entities drive the commands, so a `get_peer_id` or
 `.id` swap in any of them fails here for the peer kind it breaks.
 """
@@ -76,7 +76,6 @@ ENTITY_SCOPED = [
     (["message", "@peer", "1"], ("dialog", "id")),
     (["count", "@peer"], ("dialog", "id")),
     (["search", "@peer", "hello"], ("dialog", "id")),
-    (["thread", "@peer", "1"], ("dialog", "id")),
     (["info", "@peer"], ("id",)),
     (["export", "messages", "@peer", "--output", "OUT"], ("export", "dialog", "id")),
 ]

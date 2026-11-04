@@ -15,7 +15,6 @@ from tgcli.commands import (
     media as media_cmd,
     read as read_cmd,
     search as search_cmd,
-    thread as thread_cmd,
 )
 from tgcli.parser import command_key
 
@@ -106,16 +105,6 @@ class MediaManifest:
 
 
 @dataclass(frozen=True)
-class Thread:
-    chat: str
-    message_id: int
-    depth: int
-    want_replies: bool
-    replies_limit: int
-    name: ClassVar[Literal["thread"]] = "thread"
-
-
-@dataclass(frozen=True)
 class Draft:
     chat: str
     name: ClassVar[Literal["draft.show"]] = "draft.show"
@@ -138,7 +127,6 @@ ReadOperation: TypeAlias = (
     | ContactsList
     | ContactsSearch
     | MediaManifest
-    | Thread
     | Draft
     | Drafts
 )
@@ -281,18 +269,6 @@ _SPECS: dict[str, _Spec] = {
             tg, op.source, kind=op.kind, since=op.since, limit=op.limit
         ),
         rows=media_cmd.manifest_to_rows,
-    ),
-    "thread": _Spec(
-        cli=lambda a: Thread(a.chat, a.message_id, a.depth, a.replies, a.limit),
-        fetch=lambda tg, op: thread_cmd.fetch_thread(
-            tg,
-            op.chat,
-            op.message_id,
-            depth=op.depth,
-            want_replies=op.want_replies,
-            replies_limit=op.replies_limit,
-        ),
-        rows=thread_cmd.to_rows,
     ),
     "draft.show": _Spec(
         cli=lambda a: Draft(a.chat),

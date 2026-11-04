@@ -97,9 +97,6 @@ def list_clones(source: str | None = None) -> dict:
     return {"clones": entries}
 
 
-export_state = lookup.export_state
-
-
 def status_rows(data: dict) -> list[tuple]:
     return [
         (

@@ -245,31 +245,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_resolve.add_argument("ref", help="+phone, @username, t.me link, or dialog id")
 
-    p_thread = sub.add_parser(
-        "thread",
-        help="Read a reply chain (ancestors; optional replies)",
-        parents=[global_flags],
-    )
-    p_thread.add_argument("chat")
-    p_thread.add_argument("message_id", type=int)
-    p_thread.add_argument(
-        "--replies",
-        action="store_true",
-        help="include comment/forum replies when a cheap thread API exists",
-    )
-    p_thread.add_argument(
-        "--depth",
-        type=int,
-        default=20,
-        help="max ancestor steps (default 20, hard cap 100)",
-    )
-    p_thread.add_argument(
-        "--limit",
-        type=int,
-        default=50,
-        help="max replies when --replies is set (default 50)",
-    )
-
     p_contacts = sub.add_parser(
         "contacts", help="List or search Telegram contacts", parents=[global_flags]
     )
@@ -476,15 +451,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_clone_sync = clone_sub.add_parser("sync", parents=[global_flags])
     p_clone_sync.add_argument("source", help="source channel, supergroup, or dialog")
     p_clone_sync.add_argument("--limit", type=int)
-    p_clone_export = clone_sub.add_parser(
-        "export-state",
-        parents=[global_flags],
-        help="print one clone's state as the v2 JSON document (ADR-0060 rollback)",
-    )
-    p_clone_export.add_argument(
-        "source", help="source id or title substring identifying exactly one clone"
-    )
-
     p_draft = sub.add_parser(
         "draft", help="Show, list, set, or clear dialog drafts", parents=[global_flags]
     )
@@ -510,27 +476,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_draft_clear.add_argument("chat", nargs="?")
     p_draft_clear.add_argument("--preview", action="store_true")
     p_draft_clear.add_argument("--commit", metavar="PREVIEW_ID")
-
-    p_inbox = sub.add_parser(
-        "inbox",
-        help="Read what is new since the last ack, then ack it",
-        parents=[global_flags],
-    )
-    inbox_sub = p_inbox.add_subparsers(dest="inbox_command", required=True)
-    p_inbox_read = inbox_sub.add_parser(
-        "read",
-        help="New messages in unread dialogs after each checkpoint",
-        parents=[global_flags],
-    )
-    p_inbox_read.add_argument(
-        "--limit", type=int, default=100, help="max messages per dialog (default 100)"
-    )
-    p_inbox_ack = inbox_sub.add_parser(
-        "ack",
-        help="Advance checkpoints to an inbox read's ack token",
-        parents=[global_flags],
-    )
-    p_inbox_ack.add_argument("token", help="the `ack` value from tg inbox read")
 
     return parser
 

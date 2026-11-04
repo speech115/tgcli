@@ -25,7 +25,6 @@ CLI_INVOCATIONS = {
     "contacts.list": ["contacts", "list"],
     "contacts.search": ["contacts", "search", "term"],
     "media.manifest": ["media", "manifest", "@chat"],
-    "thread": ["thread", "@chat", "7"],
     "draft.show": ["draft", "show", "@chat"],
     "draft.list": ["draft", "list"],
 }

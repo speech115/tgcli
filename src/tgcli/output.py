@@ -35,7 +35,7 @@ def sanitize(text: str) -> str:
 def emit_json(data) -> None:
     # Encoded whole before the first write, so a late encoding error leaves
     # stdout empty for the error envelope; escaped per chunk, so a large
-    # document (clone export-state) is held once, not twice.
+    # document is held once, not twice.
     encoder = json.JSONEncoder(ensure_ascii=False, default=str)
     chunks = [
         chunk.translate(_JSON_CONTROL_ESCAPES) for chunk in encoder.iterencode(data)
