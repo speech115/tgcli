@@ -30,6 +30,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # No uv cache: restoring it took as long as a fresh install (19 wheels
+      # in ~1.4 s), and saving it added a post step to every main run.
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: false
@@ -60,6 +62,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # No uv cache: restoring it took as long as a fresh install (19 wheels
+      # in ~1.4 s), and saving it added a post step to every main run.
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: false
@@ -70,20 +74,3 @@ jobs:
         run: env TGCLI_READONLY=1 TGCLI_ACCOUNT=gate-isolation uv run pytest -q -n auto --ignore=tests/live
       # tests/live is not run here: CI has no Telegram session, so every live
       # test skips. scripts/gate.sh still runs it on a developer's machine.
-
-  # EXPERIMENT, removed before merge: queue wait and test time per runner.
-  probe:
-    name: probe (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-15, macos-26, macos-14, ubuntu-latest, ubuntu-24.04-arm]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-        with:
-          enable-cache: false
-      - run: uv sync --frozen
-      - run: env TGCLI_READONLY=1 TGCLI_ACCOUNT=gate-isolation uv run pytest -q -n auto --ignore=tests/live
