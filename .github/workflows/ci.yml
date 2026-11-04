@@ -26,11 +26,15 @@ jobs:
     # branches as on the Mac.
     name: checks
     runs-on: ubuntu-latest
+    # A healthy run takes under 30 s; the default limit is six hours.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # No uv cache: restoring it took as long as a fresh install (19 wheels
+      # in ~1.4 s), and saving it added a post step to every main run.
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
-          enable-cache: true
+          enable-cache: false
       - name: Install dependencies
         run: uv sync --frozen
       - name: Check the lockfile matches pyproject.toml
@@ -54,15 +58,19 @@ jobs:
     # required status check on main.
     name: test
     runs-on: macos-latest
+    # A healthy run takes under a minute; the default limit is six hours.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # No uv cache: restoring it took as long as a fresh install (19 wheels
+      # in ~1.4 s), and saving it added a post step to every main run.
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
-          enable-cache: true
+          enable-cache: false
       - name: Install dependencies
         run: uv sync --frozen
       - name: Run tests
         # Same hostile values as scripts/gate.sh: tests set their own env.
         run: env TGCLI_READONLY=1 TGCLI_ACCOUNT=gate-isolation uv run pytest -q -n auto --ignore=tests/live
-      - name: Run opt-in live smoke (skipped unless TGCLI_LIVE_SMOKE=1)
-        run: uv run pytest -q tests/live
+      # tests/live is not run here: CI has no Telegram session, so every live
+      # test skips. scripts/gate.sh still runs it on a developer's machine.
