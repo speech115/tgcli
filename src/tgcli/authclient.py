@@ -15,6 +15,7 @@ from tgcli.config import Account
 from tgcli.errors import RateLimitError
 from tgcli.session import (
     build_client,
+    create_private,
     ensure_state_dir,
     restrict_file,
     session_file_lock,
@@ -39,9 +40,9 @@ async def unauthorized_client(path: Path, api_id: int, api_hash: str):
         # create and mode-repair it like every other confirmed site.
         ensure_state_dir(*relative.parts)
     with session_file_lock(path):
+        create_private(path)
         tg = build_client(path, api_id, api_hash)
-        # Telethon creates the SQLite session during construction; tighten it
-        # before any network use.
+        # A session made before create_private existed may still be loose.
         restrict_file(path)
         try:
             try:

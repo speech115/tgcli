@@ -9,7 +9,7 @@ from typing import Any
 
 from tgcli.archive import gaps as gaps_mod
 from tgcli.errors import NotFoundError, PolicyError
-from tgcli.session import ensure_state_dir, restrict_file
+from tgcli.session import create_private, ensure_state_dir, restrict_file
 
 SCHEMA_VERSION = 12
 DB_NAME = "archive.db"
@@ -134,6 +134,7 @@ def connect(path: Path) -> sqlite3.Connection:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     created = not path.exists()
+    create_private(path)
     conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_MS / 1000)
     conn.row_factory = sqlite3.Row
     conn.create_function("tgcli_casefold", 1, _casefold)
@@ -182,8 +183,6 @@ def connect(path: Path) -> sqlite3.Connection:
         raise PolicyError(
             f"archive store {path.name} is corrupted; manual repair is required"
         ) from exc
-    if created:
-        restrict_file(path)
     _restrict_sidecars(path)
     return conn
 

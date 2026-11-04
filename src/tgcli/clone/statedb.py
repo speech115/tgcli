@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from tgcli.errors import PolicyError
-from tgcli.session import ensure_parent_dir, restrict_file
+from tgcli.session import create_private, ensure_parent_dir, restrict_file
 
 SCHEMA_VERSION = 3
 
@@ -131,6 +131,8 @@ def connect(path: Path, *, create: bool = False) -> sqlite3.Connection:
             raise PolicyError(
                 f"clone state {path.name} is empty; it holds no clone state"
             )
+    else:
+        create_private(path)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     try:
@@ -154,8 +156,6 @@ def connect(path: Path, *, create: bool = False) -> sqlite3.Connection:
         raise PolicyError(
             f"clone state {path.name} is corrupted; manual repair is required"
         ) from exc
-    if created:
-        restrict_file(path)
     _restrict_sidecars(path)
     return conn
 
@@ -324,11 +324,8 @@ def sidecar_paths(db_path: Path) -> tuple[Path, Path]:
 
 def _restrict_sidecars(db_path: Path) -> None:
     """Force any existing -wal/-shm sidecars to 0600 (fail-open, like
-    ``restrict_file`` itself). SQLite creates them at the process default
-    mode (e.g. 0644 under umask 022) rather than inheriting the .db's
-    already-restricted mode when they are first written mid-transaction —
-    most notably during the schema-creation commit inside ``connect()``,
-    which runs before the .db itself has been chmod'd. Leaving them
+    ``restrict_file`` itself). SQLite gives new sidecars the .db's mode, so
+    this repairs only those left by a .db that was once loose. Leaving them
     unrestricted would leak clone state plaintext through the sidecars."""
     for sidecar in sidecar_paths(db_path):
         if sidecar.exists():

@@ -105,7 +105,7 @@ def fake_client(env, monkeypatch):
     def fake_telegram(path, api_id, api_hash, **kwargs):
         staged = Path(path)
         staged.parent.mkdir(parents=True, exist_ok=True)
-        if not staged.exists():
+        if not staged.exists() or staged.stat().st_size == 0:
             staged.write_bytes(b"staged")
         return client
 

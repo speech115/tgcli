@@ -69,6 +69,21 @@ def restrict_file(path: Path) -> None:
     _repair_mode(path, 0o600)
 
 
+def create_private(path: Path) -> None:
+    """Create `path` empty at 0600 if it is missing; an existing file is untouched.
+
+    Call it before a library (SQLite, Telethon) creates the file, so a new
+    file is never readable by others, not even until `restrict_file` runs.
+    SQLite gives its -wal/-shm sidecars the database file's mode.
+    """
+    os.close(os.open(path, os.O_WRONLY | os.O_CREAT, 0o600))
+
+
+def open_private_append(path: Path) -> IO[str]:
+    """Open `path` for appending text, creating it at 0600 if it is missing."""
+    return os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600), "a")
+
+
 def _role_stem(account: Account, role: str) -> str:
     """``<session>@<role>`` stem, reusing an on-disk casefold match when present."""
     validate_role_name(role)
@@ -354,9 +369,9 @@ async def client(
         )
     ensure_state_dir("sessions")
     with session_file_lock(path, label=label, wait=BUSY_WAIT_SECONDS):
+        create_private(path)
         tg = _make_client(path, account, mutation_safe=mutation_safe)
-        # Telethon creates the SQLite session during client construction; tighten it
-        # before any network use.
+        # A session made before create_private existed may still be loose.
         restrict_file(path)
         if govern:
             from tgcli.governor.gate import install as install_governor

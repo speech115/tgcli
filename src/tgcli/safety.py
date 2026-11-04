@@ -10,7 +10,12 @@ from pathlib import Path
 
 from tgcli import atomic
 from tgcli.errors import ConfigError, PolicyError
-from tgcli.session import ensure_state_dir, restrict_file, state_dir
+from tgcli.session import (
+    ensure_state_dir,
+    open_private_append,
+    restrict_file,
+    state_dir,
+)
 
 PREVIEW_TTL = timedelta(minutes=5)
 _COMMIT_LOCKS: dict[str, int] = {}
@@ -260,7 +265,7 @@ def append_audit(action: str, account: str, details: dict) -> None:
     path = audit_path()
     try:
         ensure_state_dir()
-        with path.open("a") as handle:
+        with open_private_append(path) as handle:
             restrict_file(path)
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
     except OSError as exc:
