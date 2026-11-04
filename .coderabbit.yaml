@@ -1,0 +1,66 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit review settings. Kept quiet on purpose: the gate (scripts/gate.sh)
+# already enforces style, lint, and types, and AGENTS.md prefers checks that
+# run over diff-reading review. CodeRabbit is here to catch real bugs.
+language: en-US
+tone_instructions: >-
+  Comment only on likely bugs, security problems, data loss, or broken
+  contracts. No style, naming, or refactoring suggestions. Be brief.
+
+reviews:
+  profile: quiet
+  high_level_summary: false
+  review_status: false
+  collapse_walkthrough: true
+  sequence_diagrams: false
+  changed_files_summary: false
+  estimate_code_review_effort: false
+  assess_linked_issues: false
+  related_issues: false
+  related_prs: false
+  suggested_labels: false
+  suggested_reviewers: false
+  in_progress_fortune: false
+  poem: false
+  auto_review:
+    enabled: true
+    drafts: false
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
+    title:
+      mode: "off"
+    description:
+      mode: "off"
+    issue_assessment:
+      mode: "off"
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+  path_instructions:
+    - path: "**/*.py"
+      instructions: >-
+        Look for correctness and safety issues only: a Telegram mutation that
+        skips preview/commit or the readonly gate, audit written after the
+        mutation, state written without tgcli.atomic.replace_text, contract
+        data or diagnostics on the wrong stream, exit codes outside errors.py,
+        and leaked secrets or phone numbers. Do not repeat ruff or pyright.
+  tools:
+    # The gate runs ruff and pyright; prose and Markdown linters only add noise.
+    ruff:
+      enabled: false
+    flake8:
+      enabled: false
+    pylint:
+      enabled: false
+    markdownlint:
+      enabled: false
+    languagetool:
+      enabled: false
+    yamllint:
+      enabled: false
+
+chat:
+  auto_reply: true
