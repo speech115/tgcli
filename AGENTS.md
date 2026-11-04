@@ -73,8 +73,9 @@ Nothing fails if you skip these, so they stay few.
   forward, clone writes, `tg run --write`, login) only when the owner asked for it in
   this session, and then prefix that one command with `TGCLI_READONLY=0`.
   Read-only checks are fine.
-- **A bug fix starts with a reproducing test**, then the smallest fix. Grep for
-  sibling code with the same pattern and fix it in the same PR.
+- **A bug fix starts with a reproducing test** (`scripts/repro.py` shows it
+  fails on `main`), then the smallest fix. Grep for sibling code with the same
+  pattern and fix it in the same PR.
 - **Test behavior at public seams**: CLI arguments in; stdout, stderr, JSON,
   and exit code out. Mock only the Telegram client, time, and the filesystem.
   The governor is the exception: CLI fakes never install it, so its tests
@@ -103,14 +104,22 @@ mistake can no longer happen is deleted.
 - Branch `claude/<topic>` or `codex/<topic>`, one coherent change per PR to
   `main`. Never push to `main` unless asked in this session.
 - Run the gate before pushing; CI runs the same gate.
-- Before opening a PR, run `/pr-review-toolkit:review-pr` on the branch and
-  fix its Critical and Important findings; the `reviewer` agent covers the
-  contract and ADRs. In the same message, launch one `property-*` agent per
-  judgment rule above (bug-fix, test-seams, contract-docs, owner-approval,
-  scope; Codex wrappers in `.codex/agents/`) on the branch, all in parallel;
-  the live-account rule governs the session, not the diff, so it has none. A
-  `FAIL` from any of them blocks the PR until fixed; if the property itself is
-  wrong, fix its agent.
+- Before opening a PR, prove the change by running it, not by reading it.
+  Don't launch review agents that only read the diff (`pr-review-toolkit`,
+  `/code-review`, pstack `interrogate`): put those tokens into checks that
+  execute. Quote what each one printed in the PR body:
+  - `uv run python scripts/repro.py`: at least one changed test fails on
+    `origin/main`'s code. A bug fix or a new behavior that exits 1 has no
+    reproducing test yet; a pure refactor exits 1 and the PR says so.
+  - `uv run python scripts/mutate.py`: no `SURVIVED` mutant on the changed
+    lines, or the PR shows why that mutant changes nothing.
+  - Logic over a wide input space (parsing, formatting, entity offsets, id and
+    range math, state migration) gets a Hypothesis property, as in
+    `tests/test_properties.py`. A change to a state machine (the preview →
+    commit handshake, clone resume, the governor ledger) gets a Hypothesis
+    `RuleBasedStateMachine` over its public API.
+  - A change to what a command does against Telegram runs the
+    [verify skill](.claude/skills/verify/SKILL.md).
 - Enable squash auto-merge when opening the PR (`gh pr merge N --squash
   --auto`); the ruleset holds it until the `checks` and `test` jobs pass.
 - `main` is what runs, and git log is the history; there is no changelog.

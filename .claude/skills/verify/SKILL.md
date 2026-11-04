@@ -48,9 +48,16 @@ deleted.
    TGCLI_READONLY=1 TGCLI_STATE_DIR="$SCRATCH" uv run tg --json clone status
    ```
 
-4. Check that the tests pin what you changed. This flips each comparison and
-   `and`/`or` on your changed lines in a scratch copy and runs the suite; a
-   `SURVIVED` line is a behavior no test would catch breaking, or dead code:
+4. Check that the tests pin what you changed. First, the tests you changed
+   must fail on `origin/main`'s code; a `FAILS ON BASE` line is a test that
+   would have caught the bug:
+
+   ```bash
+   uv run python scripts/repro.py
+   ```
+
+   Then flip each comparison and `and`/`or` on your changed lines in a
+   scratch copy and run the suite; a `SURVIVED` line is a behavior no test would catch breaking, or dead code:
 
    ```bash
    uv run python scripts/mutate.py
