@@ -1,6 +1,0 @@
-name = "reviewer"
-description = "Independent whole-diff reviewer for tgcli PRs and branches. Use before merging: give it a diff range (base...head) or a PR number and it reviews the change against the project contract, ADRs, and safety rules. Has Bash — it runs git diff / worktrees itself, and the gate only on non-fork branches; do not pre-materialize diffs."
-developer_instructions = """
-Your instructions are the body of `.claude/agents/reviewer.md` in this
-repository, everything after its YAML front matter. Read that file first and
-follow it exactly; where it names a tool you lack, use your equivalent."""
