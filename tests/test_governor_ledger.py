@@ -125,6 +125,17 @@ def test_a_naive_deadline_is_rejected_rather_than_guessed(ledger):
     assert ledger.cooldown_deadline(ACCOUNT, HISTORY) is None
 
 
+@pytest.mark.parametrize("column", ["deadline", "armed_at"])
+def test_a_naive_timestamp_ends_no_slow_start(ledger, column):
+    """Either timestamp naive: no slow start, and no naive/aware TypeError."""
+    ledger.arm_cooldown(ACCOUNT, HISTORY, datetime.now(UTC) + timedelta(hours=1))
+    ledger._db.execute(f"UPDATE cooldowns SET {column} = '2099-01-01T00:00:00'")
+    ledger._db.commit()
+
+    since = datetime.now(UTC) - timedelta(hours=1)
+    assert ledger.cooled_since(ACCOUNT, HISTORY, since) is False
+
+
 def test_active_cooldowns_lists_only_live_types(ledger):
     now = datetime.now(UTC)
     ledger.arm_cooldown(ACCOUNT, HISTORY, now + timedelta(hours=1), now=now)
