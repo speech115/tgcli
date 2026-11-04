@@ -85,7 +85,12 @@ def install(
             wait = cooling_seconds(ledger, account, key)
             if not (wait and await pacing.sleep_flood(wait, sleep=sleep)):
                 refuse_if_cooling(ledger, account, key)
-            await pacing.pace_before_dispatch(request, sleep=sleep, clock=clock)
+            await pacing.pace_before_dispatch(
+                request,
+                slow_start=recently_flooded(ledger, account, key),
+                sleep=sleep,
+                clock=clock,
+            )
             pacing.note_request()
         retried = False
         while True:
@@ -133,6 +138,16 @@ def cooling_seconds(ledger: Ledger, account: int, request_key: str) -> int:
     if deadline is None:
         return 0
     return max(0, ceil((deadline - datetime.now(UTC)).total_seconds()))
+
+
+def recently_flooded(ledger: Ledger, account: int, request_key: str) -> bool:
+    """Whether this type is cooling, or stopped cooling within the window.
+
+    Counted from the end of the cooldown, not its arming: after a 21-hour
+    flood the first run is the one that must not burst.
+    """
+    since = datetime.now(UTC) - timedelta(seconds=pacing.SLOW_START_WINDOW_S)
+    return ledger.cooled_since(account, request_key, since)
 
 
 def refuse_if_cooling(ledger: Ledger, account: int, request_key: str) -> None:
