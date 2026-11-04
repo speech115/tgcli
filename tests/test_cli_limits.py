@@ -32,7 +32,6 @@ REFUSALS = [
     (["search", "--all", "hi", "--limit", "-1"], "search --limit must not be negative"),
     (["read", "@chan", "--limit", "0"], "read --limit must be positive"),
     (["read", "@chan", "--limit", "-1"], "read --limit must be positive"),
-    (["thread", "@chan", "7", "--limit", "0"], "thread --limit must be positive"),
     (
         ["media", "manifest", "@chan", "--limit", "0"],
         "media manifest --limit must be positive",

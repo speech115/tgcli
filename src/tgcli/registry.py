@@ -51,8 +51,8 @@ class Command:
     retries: whether the session may retry a write (`mutation_safe`).
     prepare: argument checks run in preflight, after the gate.
     audit: details of one audit row written before the network call.
-    emit: `rows` follows --json/--plain, `document` always prints the data as
-      JSON, `none` prints nothing (the command owns stdout).
+    emit: `rows` follows --json/--plain, `none` prints nothing (the command
+      owns stdout).
     """
 
     kind: Literal["read", "local-read", "write", "handshake"]
@@ -64,7 +64,7 @@ class Command:
     retries: Predicate = _never
     prepare: Hook | None = None
     audit: Callable[[argparse.Namespace], dict] | None = None
-    emit: Literal["rows", "document", "none"] = "rows"
+    emit: Literal["rows", "none"] = "rows"
 
     def default_timeout(self, args: argparse.Namespace) -> float | None:
         return self.deadline(args) if callable(self.deadline) else self.deadline
@@ -178,13 +178,6 @@ COMMANDS: dict[str, Command] = {
     "archive rebaseline": _archive_write(handlers.archive_rebaseline),
     # clone
     "clone status": Command(kind="local-read", needs="none", run=handlers.clone_status),
-    "clone export-state": Command(
-        kind="local-read",
-        needs="none",
-        run=handlers.clone_export_state,
-        # CONTRACT: export-state's stdout IS the v2 JSON document (ADR-0060).
-        emit="document",
-    ),
     "clone init": replace(_HANDSHAKE, deadline=None),
     "clone sync": Command(
         kind="write",
@@ -200,16 +193,6 @@ COMMANDS: dict[str, Command] = {
     "draft show": _READ,
     "draft set": _HANDSHAKE,
     "draft clear": _HANDSHAKE,
-    # inbox: Telegram read from local checkpoints, then a local checkpoint write
-    "inbox read": Command(
-        kind="read",
-        needs="network",
-        run=handlers.inbox_read,
-        prepare=preflight.prepare_inbox_read,
-    ),
-    "inbox ack": Command(
-        kind="write", needs="config", run=handlers.inbox_ack, gate="local"
-    ),
     # local housekeeping
     "doctor": Command(kind="local-read", needs="config", run=handlers.doctor),
     "store stats": Command(kind="local-read", needs="none", run=handlers.store_stats),
@@ -241,7 +224,6 @@ COMMANDS: dict[str, Command] = {
         run=handlers.read,
         prepare=preflight.prepare_search,
     ),
-    "thread": replace(_READ, prepare=preflight.limit("thread")),
     "media manifest": Command(
         kind="read",
         needs="network",

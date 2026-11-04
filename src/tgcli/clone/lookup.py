@@ -108,16 +108,3 @@ def cooldown_until(account_user_id: int) -> str | None:
     with Ledger.open() as ledger:
         active = ledger.active_cooldowns(account_user_id)
     return max(active.values()).isoformat() if active else None
-
-
-def export_state(source: str) -> dict:
-    """Readonly rollback/diagnostic path: the v2 JSON document for one clone."""
-    found = [s for s in loaded_states() if matches(s, source)]
-    if not found:
-        raise PolicyError(f"clone not found: {source!r}")
-    if len(found) > 1:
-        raise PolicyError(
-            f"clone export-state matched {len(found)} clones for {source!r}; "
-            "narrow the source filter"
-        )
-    return found[0].to_dict()

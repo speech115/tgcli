@@ -64,7 +64,6 @@ selected account session, does one operation, and exits.
 | The session died / a new machine | `tg --json accounts login ALIAS …` then `tg --json accounts show ALIAS` |
 | List dialogs | `tg --json dialogs --limit 50` (`more: true` means more dialogs match than `--limit`) |
 | List unread dialogs | `tg --json dialogs --unread-only` |
-| New since the last ack | `tg --json inbox read [--limit N]`, then `tg --json inbox ack ACK` |
 | Filter dialogs by kind | `tg --json dialogs --kind channel` |
 | Read recent messages | `tg --json read @channel --limit 20` |
 | Read an older page | `tg --json read @channel --before-id 42 --limit 20` |
@@ -81,7 +80,6 @@ selected account session, does one operation, and exits.
 | Resolve a peer | `tg --json resolve @user` / `tg --json resolve +995…` |
 | List / search contacts | `tg --json contacts list` / `tg --json contacts search "query"` |
 | Media inventory (no download) | `tg --json media manifest @channel --type photo --limit 50` |
-| Reply chain | `tg --json thread CHAT MESSAGE_ID [--replies] [--depth 20]` |
 | Download media | `tg --json media download https://t.me/channel/42 --parallel 4` (unnamed photos and voice notes save as `media-<id>.jpg`/`.oga`) |
 | Bulk download media | `tg --json media download @chan --message-ids 1,2 --type video --since ISO --limit 50 --output DIR` (filters combine; max 100; files are named `<message_id>-<name>`; use one `--output` per chat) |
 | Download story media | `tg --json media download https://t.me/channel/s/937 [--codec h264|hevc|av1]` (stories are not messages; single download only) |
@@ -107,7 +105,6 @@ selected account session, does one operation, and exits.
 | Export subscribers | `tg --json export subscribers @channel --output subscribers.csv` |
 | Export subscriber usernames | `tg --json export subscribers @channel --output usernames.csv --usernames-only` |
 | List channel clones | `tg --json clone status` |
-| Export clone state as v2 JSON | `tg clone export-state SOURCE` |
 | Preview a chat clone | `tg --json clone init SOURCE` |
 | Preview posts-only clone | `tg --json clone init SOURCE --no-comments` |
 | Commit clone destination creation | `tg --json clone init SOURCE --commit p_9f3a` |
@@ -152,18 +149,6 @@ messages newer than the file's last line.
 For a few pages before a point, page
 `tg --json read CHAT --before-id OLDEST_ID --limit 100` with each response's
 `page.oldest_id`, and stop when it is `null`.
-
-### What's new since the last check
-
-`tg --json inbox read` returns the messages after each dialog's checkpoint,
-oldest first (`--limit N` per dialog, default 100). Process them, then run
-`tg --json inbox ack ACK` with the returned `ack` token from the same account;
-only ack moves the checkpoints, so a failed run re-reads the same messages of
-an acked dialog. When `more` is true, ack and read again for the rest. A dialog
-never acked is walked only while unread, starting after Telegram's read marker.
-`ack` writes local state, so `TGCLI_READONLY=1` blocks it. Do not use `unread`
-as a durable cursor: it is a Telegram UI counter, whereas the message id is the
-stable per-dialog boundary.
 
 ### Send with retry
 

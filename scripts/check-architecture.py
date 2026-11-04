@@ -32,7 +32,6 @@ EXCLUSIVE_READ_MODULES = {
     "info",
     "read",
     "search",
-    "thread",
 }
 
 

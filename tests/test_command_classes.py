@@ -26,7 +26,6 @@ READS = {
     "draft show",
     "export messages",
     "export subscribers",
-    "inbox read",
     "info",
     "latest",
     "media download",
@@ -35,7 +34,6 @@ READS = {
     "read",
     "resolve",
     "search",
-    "thread",
 }
 # Commands that touch neither Telegram nor tgcli state.
 LOCAL_READS = {
@@ -46,7 +44,6 @@ LOCAL_READS = {
     "archive read",
     "archive search",
     "archive status",
-    "clone export-state",
     "clone status",
     "doctor",
     "store stats",
@@ -64,7 +61,6 @@ GATED_WRITES = {
     "archive sync": ["archive", "sync"],
     "archive transcribe": ["archive", "transcribe"],
     "clone sync": ["clone", "sync", "@chat"],
-    "inbox ack": ["inbox", "ack", "v1:e30"],
     "run": ["run", "--write", "-"],
     "store cleanup": ["store", "cleanup", "--confirm"],
     "transcribe": ["transcribe", "@chat", "1"],
