@@ -1,7 +1,7 @@
 # clone-watch
 
-`tg clone sync` copies what is new and exits. This example keeps a clone
-current within about half a minute of each new post or comment, without
+`tg clone sync` copies what is new and exits. This example keeps one or more
+clones current within about half a minute of each new post or comment, without
 polling: a read-only `tg run` script listens for new messages in the source
 and its discussion group and runs `clone sync` after each burst.
 
@@ -19,6 +19,8 @@ script that launchd keeps alive.
    `TG` (the absolute path of `tg`), `SCRIPT` (this directory's
    `clone_watch.py`), `ALIAS`, `SOURCE`, and `HOME`, then
    `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.tgcli.clone-watch.plist`.
+   To watch several clones, add a `<string>` per extra source after `SOURCE`;
+   one listener and its two sessions serve them all.
 
 The log is `~/.local/state/tgcli/clone-watch.log`. A sync that fails for a
 non-transient reason, or keeps failing for ten minutes, posts a macOS
@@ -27,8 +29,8 @@ notification.
 ## Behavior
 
 - Each new message waits 25 s (an album or a quick edit lands whole), then
-  `clone sync` runs on the `job` role. Messages that arrive during a sync
-  trigger one more.
+  `clone sync` runs on the `job` role for each source that got one, one
+  source after another. Messages that arrive during a sync trigger one more.
 - A busy `job` session, a lost connection, or a flood cooldown is retried
   every minute.
 - The script syncs on start and after the Mac wakes, and exits after an hour
