@@ -1944,7 +1944,9 @@ a time: a second concurrent `archive transcribe` exits **3** without
 transcribing anything. Successful rows store
 transcript text, engine, and model version in `transcripts` and refresh the
 FTS row. Retryable engine failures remain queued until the attempt cap;
-terminal or exhausted failures become `no_transcript` with the last error,
+terminal or exhausted failures become `no_transcript` with the last error
+(a row whose attempts already reach this run's `--max-attempts`, left
+`retryable` by a run with a higher cap, becomes `no_transcript` first),
 so they remain visible in `status`; the `no_transcript` marker is also
 searchable and every hit reports `transcript` plus `transcript_status`. A
 rebuild or

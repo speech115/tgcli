@@ -301,3 +301,43 @@ def test_write_account_sync_joins_an_open_transaction(conn, clock):
     store_mod.write_account_sync(conn, touch_sync=True)
     assert not conn.in_transaction
     assert _account_row(conn)["last_sync_at"] == _ts(1)
+
+
+async def test_a_catchup_flood_keeps_a_finished_backfill_finished(conn):
+    """STATE-MACHINES F4: `more` says older history remains, and only
+    backfill decides it. A catch-up that flooded mid-page wrote `more: true`
+    onto a channel whose backfill had reached the start, so `status` reported
+    history that is not there and `--private` style skipping stopped."""
+    from telethon import errors as telethon_errors
+    from telethon.tl.types import Channel, PeerChannel
+
+    from tests.fakes.archive import archive_msg
+    from tgcli.archive import sync as sync_mod
+    from tgcli.errors import RateLimitError
+
+    channel = Channel(
+        id=1001, title="News", photo=None, date=None, access_hash=1, broadcast=True
+    )
+    peer = -1001000001001
+    with conn:
+        store_mod.upsert_sync_state(
+            conn, peer, oldest_id=1, newest_id=50, more=False, last_error=None
+        )
+
+    class Tg:
+        async def get_entity(self, ref):
+            return channel
+
+        async def iter_messages(self, entity, **kwargs):
+            yield archive_msg(mid=51, peer=PeerChannel(1001))
+            raise telethon_errors.FloodWaitError(request=None, capture=30)
+
+    with pytest.raises(RateLimitError):
+        await sync_mod._catch_up_peer(
+            Tg(), conn, peer, account_user_id=42, message_budget=50
+        )
+
+    row = store_mod.get_sync_state(conn, peer)
+    assert row["newest_id"] == 51
+    assert row["last_error"] == "FLOOD_WAIT:30"
+    assert row["more"] is False

@@ -45,6 +45,7 @@ from tgcli.archive.sync_state import (
 )
 from tgcli.archive.transcripts import (
     ensure_transcript_queue,
+    exhaust_transcripts,
     list_transcript_queue,
     record_transcript_failure,
     record_transcript_success,
@@ -78,6 +79,7 @@ __all__ = [
     "list_scoped_sync_state",
     "list_sync_identity",
     "list_sync_state",
+    "exhaust_transcripts",
     "list_transcript_queue",
     "read_account_sync",
     "read_meta",

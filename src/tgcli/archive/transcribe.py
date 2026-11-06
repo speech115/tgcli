@@ -148,6 +148,8 @@ def run_queue(
     ``should_stop`` is the `--max-runtime` cap, checked between rows.
     """
     result = _base_result(limit, max_attempts)
+    with conn:
+        store_mod.exhaust_transcripts(conn, max_attempts=max_attempts)
     rows = store_mod.list_transcript_queue(conn, limit=limit, max_attempts=max_attempts)
     result["queued"] = len(rows)
     if not rows:

@@ -190,7 +190,9 @@ async def _catch_up_peer(
                 peer_id,
                 oldest_id=(state or {}).get("oldest_id"),
                 newest_id=max(ids) if ids else (state or {}).get("newest_id"),
-                more=True,
+                # `more` is backfill's: older history remains. A catch-up
+                # reads forward and never learns that (STATE-MACHINES F4).
+                more=bool(state["more"]) if state else False,
                 last_error=f"FLOOD_WAIT:{seconds}",
                 touch_sync=True,
             )
