@@ -113,14 +113,32 @@ def status_rows(data: dict) -> list[tuple]:
     ]
 
 
-def _supersede_status(clone_id: str, replace: bool) -> dict:
-    """Read-only view of the state slot for the preview, without fail-closing on
-    an unreadable (legacy/corrupt) file the way commit does."""
+def _slot_identity(clone_id: str) -> dict:
+    """Which state the slot holds right now, without fail-closing on an
+    unreadable (legacy/corrupt) file the way commit does.
+
+    A `--replace` preview records this, and its commit supersedes the slot
+    only while it still holds that same state: a retried commit then finds
+    the state its own earlier attempt created and resumes it, instead of
+    archiving it and creating another destination.
+    """
     try:
-        existing = state.load(clone_id) is not None
-        readable = True if existing else None
+        loaded = state.load(clone_id)
     except PolicyError:
-        existing, readable = True, False
+        return {"state": "unreadable"}
+    if loaded is None:
+        return {"state": "none"}
+    return {
+        "state": "readable",
+        "created_at": loaded.created_at,
+        "creation_marker": loaded.creation_marker,
+    }
+
+
+def _supersede_status(identity: dict, replace: bool) -> dict:
+    """The preview's read-only view of what `--replace` would archive."""
+    existing = identity["state"] != "none"
+    readable = {"none": None, "readable": True, "unreadable": False}[identity["state"]]
     return {"existing": existing, "readable": readable, "replace": replace}
 
 
@@ -131,6 +149,7 @@ async def preview_init(
     me = await tg.get_me()
     total = (await tg.get_messages(entity, limit=0)).total
     clone_id = state.resolve_slot(me.id, entity.id, source_kind)
+    identity = _slot_identity(clone_id)
     peers_to_create = await _peers_to_create(
         tg,
         entity,
@@ -148,6 +167,7 @@ async def preview_init(
             "source_title": source_title,
             "source_kind": source_kind,
             "replace": replace,
+            "supersedes": identity,
             "no_comments": no_comments,
             "protected": bool(getattr(entity, "noforwards", False)),
             "approximate_message_count": total,
@@ -165,7 +185,7 @@ async def preview_init(
         },
         "approximate_message_count": total,
         "protected": preview["protected"],
-        "supersede": _supersede_status(clone_id, replace),
+        "supersede": _supersede_status(identity, replace),
         "peers_to_create": peers_to_create,
     }
 
@@ -203,8 +223,13 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
 
 
 async def _commit_slot(tg, entity, source_kind, me, account_alias, payload) -> dict:
-    replace = bool(payload.get("replace"))
     clone_id = state.resolve_slot(me.id, entity.id, source_kind)
+    # A preview from a build that did not record `supersedes` keeps the old
+    # unconditional replace.
+    expected = payload.get("supersedes")
+    replace = bool(payload.get("replace")) and (
+        expected is None or _slot_identity(clone_id) == expected
+    )
     if replace and (
         archived := state.supersede(clone_id, (roster.path_for(clone_id),))
     ):

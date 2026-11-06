@@ -7,6 +7,9 @@ a daemon-first stack, so staying small and daemonless is the point.
 - Using the CLI: [SKILL.md](SKILL.md) and `tg COMMAND --help`.
 - CLI law (flags, JSON shapes, exit codes): [docs/CONTRACT.md](docs/CONTRACT.md).
 - Vocabulary: [CONTEXT.md](CONTEXT.md).
+- Persistent state machines, their invariants, and known violations:
+  [docs/STATE-MACHINES.md](docs/STATE-MACHINES.md). A change to one updates
+  its section.
 - Why past decisions were made: [docs/decisions/](docs/decisions/README.md).
   ADRs are dated history, not kept current; CONTRACT and the gate say what
   holds now.

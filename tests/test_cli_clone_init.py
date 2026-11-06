@@ -2077,6 +2077,97 @@ def test_clone_init_replace_does_not_reuse_recorded_destination(
     )
 
 
+class _TitleFailsOnce(CloneInitClient):
+    """Telegram fails the destination's title edit once, after creating it."""
+
+    def __init__(self):
+        super().__init__()
+        self.title_failures = 1
+
+    async def __call__(self, request):
+        if (
+            isinstance(request, functions.channels.EditTitleRequest)
+            and self.title_failures
+        ):
+            self.title_failures -= 1
+            self.requests.append(request)
+            raise telethon_errors.ServerError(
+                request=None, message="INTERNAL", code=500
+            )
+        return await super().__call__(request)
+
+
+def _creations(client):
+    return [
+        request
+        for request in client.requests
+        if isinstance(request, functions.channels.CreateChannelRequest)
+    ]
+
+
+@pytest.mark.parametrize("previous", ["readable", "unreadable", "none"])
+def test_clone_init_replace_commit_retry_resumes_its_own_destination(
+    config_env, monkeypatch, capsys, previous
+):
+    """A `--replace` commit that failed after creating the new destination is
+    re-committed with the same preview (H3): it must resume that destination,
+    not archive it and create a second channel."""
+    cid = state.clone_id(42, 123, "broadcast")
+    if previous == "readable":
+        old = state.CloneState.new(
+            account_user_id=42, source_peer_id=123, source_title="Source channel"
+        )
+        old.creation_marker = f"tgcli-clone-{cid[:12]}-old"
+        old.destination_peer_id = 555
+        state.save(old)
+    elif previous == "unreadable":
+        _write_unreadable_state()
+    client = _TitleFailsOnce()
+    make_session_fake(monkeypatch, client)
+    assert main(["clone", "init", "@source", "--replace", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+
+    assert main(["clone", "init", "@source", "--commit", preview_id, "--json"]) == 1
+    capsys.readouterr()
+    assert len(_creations(client)) == 1
+    marker = state.load(cid).creation_marker
+
+    assert main(["clone", "init", "@source", "--commit", preview_id, "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+
+    assert result["clone"]["destination"]["id"] == 999
+    assert len(_creations(client)) == 1
+    saved = state.load(cid)
+    assert saved.destination_peer_id == 999
+    assert saved.creation_marker == marker
+    archived = list(state.clones_dir().glob(f"{cid}.db.superseded-*"))
+    assert len(archived) == (0 if previous == "none" else 1)
+
+
+def test_clone_init_replace_commit_supersedes_only_the_previewed_state(
+    config_env, monkeypatch, capsys
+):
+    """The preview fixes what `--replace` archives: a state that took the slot
+    after the preview is not the one the owner agreed to supersede."""
+    client = CloneInitClient()
+    make_session_fake(monkeypatch, client)
+    assert main(["clone", "init", "@source", "--replace", "--json"]) == 0
+    preview_id = json.loads(capsys.readouterr().out)["preview_id"]
+    assert main(["clone", "init", "@source", "--json"]) == 0
+    other = json.loads(capsys.readouterr().out)["preview_id"]
+    assert main(["clone", "init", "@source", "--commit", other, "--json"]) == 0
+    capsys.readouterr()
+    cid = state.clone_id(42, 123, "broadcast")
+    first = state.load(cid)
+
+    assert main(["clone", "init", "@source", "--commit", preview_id, "--json"]) == 0
+    capsys.readouterr()
+
+    assert state.load(cid).creation_marker == first.creation_marker
+    assert list(state.clones_dir().glob(f"{cid}.db.superseded-*")) == []
+    assert len(_creations(client)) == 1
+
+
 def test_clone_init_replace_without_existing_state_is_plain_init(
     config_env, monkeypatch, capsys
 ):
