@@ -1,8 +1,14 @@
+import contextlib
+import io
 import json
+import tempfile
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from hypothesis import settings, strategies as st
+from hypothesis.stateful import Bundle, RuleBasedStateMachine, invariant, rule
 from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
@@ -2315,3 +2321,84 @@ def test_clone_init_commit_refuses_while_another_run_holds_the_clone(
     # The refused commit did not spend its preview.
     assert main([*argv, "--json"]) == 0
     assert state.load(clone_id).destination_peer_id == 999
+
+
+class _FlakyTitles(CloneInitClient):
+    """Fails the next destination title edit when `fail_title` is set."""
+
+    fail_title = False
+
+    async def __call__(self, request):
+        if isinstance(request, functions.channels.EditTitleRequest) and (
+            self.fail_title
+        ):
+            self.fail_title = False
+            raise telethon_errors.ServerError(
+                request=None, message="INTERNAL", code=500
+            )
+        return await super().__call__(request)
+
+
+class CloneInitReplaceMachine(RuleBasedStateMachine):
+    """STATE-MACHINES §2/§3 (S3, S4, H3): previews with or without
+    `--replace`, commits Telegram may cut short after the destination
+    exists, and retries of any of them. Each preview creates at most one
+    destination however often it is re-committed, and the slot always
+    loads."""
+
+    previews = Bundle("previews")
+
+    def __init__(self):
+        super().__init__()
+        self.patch = pytest.MonkeyPatch()
+        self.directory = tempfile.TemporaryDirectory()
+        root = Path(self.directory.name)
+        (root / "config.toml").write_text(SAMPLE)
+        self.patch.setenv("TGCLI_CONFIG", str(root / "config.toml"))
+        self.patch.setenv("TGCLI_STATE_DIR", str(root / "state"))
+        self.patch.delenv("TGCLI_READONLY", raising=False)
+        self.client = _FlakyTitles()
+        make_session_fake(self.patch, self.client)
+        self.created_by: dict[str, int] = {}
+
+    def _quiet(self, argv) -> int:
+        with (
+            contextlib.redirect_stdout(io.StringIO()) as out,
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            code = main(argv)
+        self.last_out = out.getvalue()
+        return code
+
+    @rule(target=previews, replace=st.booleans())
+    def preview(self, replace):
+        argv = ["clone", "init", "@source", "--json"]
+        assert self._quiet(argv + (["--replace"] if replace else [])) == 0
+        return json.loads(self.last_out)["preview_id"]
+
+    @rule(preview_id=previews, fail_title=st.booleans())
+    def commit(self, preview_id, fail_title):
+        self.client.fail_title = fail_title
+        before = len(_creations(self.client))
+        self._quiet(["clone", "init", "@source", "--commit", preview_id, "--json"])
+        self.client.fail_title = False
+        made = len(_creations(self.client)) - before
+        self.created_by[preview_id] = self.created_by.get(preview_id, 0) + made
+
+    @invariant()
+    def each_preview_creates_at_most_one_destination(self):
+        assert all(count <= 1 for count in self.created_by.values())
+
+    @invariant()
+    def the_slot_always_loads(self):
+        state.load(state.clone_id(42, 123, "broadcast"))
+
+    def teardown(self):
+        self.patch.undo()
+        self.directory.cleanup()
+
+
+CloneInitReplaceMachine.TestCase.settings = settings(
+    max_examples=40, stateful_step_count=8, derandomize=True, deadline=None
+)
+TestCloneInitReplaceMachine = CloneInitReplaceMachine.TestCase
