@@ -671,6 +671,58 @@ def test_transcribe_queue_stores_parakeet_text_and_metadata(tmp_path, monkeypatc
         conn.close()
 
 
+def test_transcribe_row_exhausted_under_a_lower_cap_becomes_terminal(
+    tmp_path, monkeypatch
+):
+    """STATE-MACHINES F4: three failures under `--max-attempts 5` left a row
+    `retryable`. A run at the default cap of 3 never queued it again, so it
+    stayed `retryable` for good instead of becoming `no_transcript`."""
+    conn = _connection(tmp_path)
+    media_dir = tmp_path / "account" / "media" / "7"
+    media_dir.mkdir(parents=True)
+    (media_dir / "1.ogg").write_bytes(b"voice")
+    try:
+        store.upsert_message(conn, 7, _payload(1, "caption"))
+        media_module.set_media_path(
+            conn, 7, 1, path="media/7/1.ogg", media_kind="voice"
+        )
+        conn.commit()
+        monkeypatch.setattr(
+            transcribe_module.shutil, "which", lambda _: "/bin/transcribe"
+        )
+        monkeypatch.setattr(
+            transcribe_module.subprocess,
+            "run",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                returncode=1, stdout="", stderr="temporary engine failure"
+            ),
+        )
+        for _ in range(3):
+            transcribe_module.run_queue(
+                conn, tmp_path / "account", limit=20, max_attempts=5
+            )
+        assert store.transcript_row(conn, 7, 1)["status"] == "retryable"
+
+        result = transcribe_module.run_queue(
+            conn, tmp_path / "account", limit=20, max_attempts=3
+        )
+
+        row = store.transcript_row(conn, 7, 1)
+        assert row["status"] == "no_transcript"
+        assert row["attempts"] == 3
+        assert "temporary engine failure" in row["last_error"]
+        assert result["remaining"] is False
+        hits = explore_module.search(conn, "no_transcript")["hits"]
+        assert hits[0]["transcript_status"] == "no_transcript"
+        caption_hits = conn.execute(
+            "SELECT peer_id, message_id FROM messages_fts WHERE messages_fts MATCH ?",
+            ("caption",),
+        ).fetchall()
+        assert [(r["peer_id"], r["message_id"]) for r in caption_hits] == [(7, 1)]
+    finally:
+        conn.close()
+
+
 def test_transcribe_retryable_failure_becomes_terminal_at_cap(tmp_path, monkeypatch):
     conn = _connection(tmp_path)
     media_dir = tmp_path / "account" / "media" / "7"

@@ -109,6 +109,36 @@ def list_transcript_queue(
     return [_transcript_row(row) | {"date": row["date"]} for row in rows]
 
 
+def exhaust_transcripts(conn: sqlite3.Connection, *, max_attempts: int) -> int:
+    """Make rows that already spent this run's attempt cap terminal.
+
+    A row a run with a higher `--max-attempts` left `retryable` is never
+    queued at a lower cap; without this it stays `retryable` for good
+    (STATE-MACHINES F4). Returns how many rows became `no_transcript`.
+    """
+    rows = conn.execute(
+        "SELECT peer_id, message_id FROM transcripts "
+        "WHERE status IN ('pending', 'retryable') AND attempts >= ?",
+        (max_attempts,),
+    ).fetchall()
+    now = datetime.now(UTC).isoformat()
+    for row in rows:
+        peer_id, message_id = int(row["peer_id"]), int(row["message_id"])
+        conn.execute(
+            "UPDATE transcripts SET status = 'no_transcript', updated_at = ? "
+            "WHERE peer_id = ? AND message_id = ?",
+            (now, peer_id, message_id),
+        )
+        message = conn.execute(
+            "SELECT text FROM messages WHERE peer_id = ? AND message_id = ?",
+            (peer_id, message_id),
+        ).fetchone()
+        replace_fts_row(
+            conn, peer_id, message_id, message["text"] if message is not None else ""
+        )
+    return len(rows)
+
+
 def record_transcript_success(
     conn: sqlite3.Connection,
     peer_id: int,

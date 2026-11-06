@@ -282,7 +282,7 @@ whether the page was full. A peer is backfill-complete when
 | any | backfill page | range widens downward, `more` = page full |
 | any | backfill flood | checkpoint, `more` true, exit 5 |
 | any | catch-up page (forward from `newest_id`) | `newest` widens, `more` unchanged |
-| any | catch-up flood | checkpoint, `more` set true (F4: should stay unchanged) |
+| any | catch-up flood | checkpoint, `more` unchanged, exit 5 |
 
 Invariants: the id range only widens; a forward catch-up never leaves a hole
 below `newest_id`; only backfill decides `more`.
@@ -298,9 +298,9 @@ Transcript: `pending` → `done` | `retryable` → … → `no_transcript`
 (terminal); `no_media` forces an untranscribed row to `no_transcript`.
 
 Invariant: a row that has spent the attempt cap is terminal. The cap is the
-run's `--max-attempts` (3 by default, at most 5). A row left `retryable` by a
-run with a higher cap, whose attempts already reach this run's cap, is never
-queued again and never becomes `no_transcript` (F4).
+run's `--max-attempts` (3 by default, at most 5); each run first moves rows
+whose attempts already reach it to `no_transcript`, so a row a higher-cap run
+left `retryable` does not stay `retryable` with no way out (F4).
 
 ## 11. Media download checkpoint
 
@@ -378,14 +378,17 @@ single-writer.
 Tests: `tests/test_commands_media.py::test_two_runs_resuming_one_source_never_wedge_it`,
 `tests/test_cli_archive_phase3.py::test_sync_media_rate_limit_still_advances_the_changes_cursor[busy]`.
 
-### F4. Archive status flags drift — open
+### F4. Archive status flags drift — fixed
 
 Machine §9/§10. A catch-up flood writes `more: true` onto a channel whose
 backfill had finished, so `status` reports history left that is not there.
 A transcript that failed three or four times under `--max-attempts 5`
 stays `retryable` forever under the default cap of 3: no run takes it and it
 never becomes `no_transcript`, against CONTRACT's "exhausted failures become
-`no_transcript`".
+`no_transcript`". Fix: a catch-up flood keeps `more`, and `transcribe` first
+makes rows exhausted under its cap terminal.
+Tests: `tests/test_archive_sync_state_writes.py::test_a_catchup_flood_keeps_a_finished_backfill_finished`,
+`tests/test_archive_phase4.py::test_transcribe_row_exhausted_under_a_lower_cap_becomes_terminal`.
 
 ### F5. A short flood can shrink a live governor cooldown — owner's call
 
