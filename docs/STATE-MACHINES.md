@@ -29,7 +29,7 @@ safe under interleaving on its own.
 | `clone.state.slot_lock` (`clones/<id>.lock`) | one clone slot, all roles | `clone init --commit`, `clone sync` | exit 2, "clone … is busy" |
 | `commands.archive._one_run_per_account` (`sync.lock`, `transcribe.lock`) | one archive account | `archive sync`, `rebaseline`, `transcribe` | exit 3 |
 | SQLite WAL + `busy_timeout` 5 s | one database | every archive, clone, governor write | writers serialize |
-| none yet (F3) | one media download checkpoint | — | — |
+| `media.download_lock` (`downloads/<key>.lock`) | one media source | `media download`, archive media tails | exit 3; the archive leaves the row queued |
 
 Two processes on the same account normally serialize on the session lock.
 They run in parallel when they use different `--session-role` sessions
@@ -317,10 +317,12 @@ destination, media identity) beside `<key>.part`.
 | state at size | publish | part renamed onto the destination, state removed |
 | parallel | any interruption | `resumable: false`, restart from 0 |
 
-Invariant: one writer per source checkpoint. Nothing enforces it yet. The
-serial path appends to the part file, so two runs resuming one source
-interleave their chunks, record an offset past the media size, and every
-later run stops at that offset for good (F3).
+Invariant: one writer per source checkpoint, held by `download_lock` from
+resume to publish. The serial path appends to the part file, so without it
+two runs resuming one source interleave their chunks, record an offset past
+the media size, and every later run stops at that offset for good (F3). A
+second run exits 3; an archive media tail skips the item without spending an
+attempt.
 
 ## 12. Login attempt
 
@@ -364,14 +366,17 @@ and a corrupt far-future deadline refused until that date. Both readers now
 share one end, `min(deadline, armed_at + 24 h)` (G3).
 Test: `tests/test_governor_ledger.py::test_no_record_refuses_past_its_cap_after_arming`.
 
-### F3. Two runs resuming one media download wedge it for good — open
+### F3. Two runs resuming one media download wedge it for good — fixed
 
 Machine §11, concurrency. Nothing owns a source's checkpoint. Two resumes
 (`media download`, or an `archive backfill` media tail beside an `archive
 sync` on a job role) append into one `.part`, record an offset past the
 media size, and every later run exits 2 at that offset. For the archive this
 burns the three media attempts and marks the voice note `no_media` and
-`no_transcript` permanently.
+`no_transcript` permanently. Fix: `download_lock` makes the checkpoint
+single-writer.
+Tests: `tests/test_commands_media.py::test_two_runs_resuming_one_source_never_wedge_it`,
+`tests/test_cli_archive_phase3.py::test_sync_media_rate_limit_still_advances_the_changes_cursor[busy]`.
 
 ### F4. Archive status flags drift — open
 

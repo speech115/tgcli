@@ -23,6 +23,7 @@ from tgcli.commands.read import message_to_dict
 from tgcli.errors import PolicyError, RateLimitError
 from tgcli.output import note
 from tgcli.session import RUN_ABORTING_ERRORS
+from tgcli.transfer import DownloadBusyError
 
 CATCHUP_LIMIT = 50
 RECONCILE_SAMPLE = 5
@@ -352,6 +353,12 @@ async def fetch_media(
                 f"rate limited during archive media fetch of {message_id}",
                 retry_after=seconds,
             ) from exc
+        except DownloadBusyError:
+            # Another process is downloading this very item: it owns the
+            # checkpoint, and nothing was learned about the file. Leave the
+            # row queued without spending an attempt.
+            skipped += 1
+            continue
         except RUN_ABORTING_ERRORS:
             # The governor refusing a cooling request type, a lost connection,
             # a dead session: nothing was learned about this item, so no

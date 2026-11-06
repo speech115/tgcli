@@ -1040,3 +1040,59 @@ async def test_download_state_dir_is_private_under_umask_022(tmp_path):
     _, part_path = _state_paths(source)
     assert part_path.parent.stat().st_mode & 0o777 == 0o700
     assert part_path.parent.parent.stat().st_mode & 0o777 == 0o700
+
+
+class _ChunkedSource:
+    """A voice message served in `CHUNK_SIZE` pieces, yielding to the loop
+    between chunks so two downloads interleave; `drop_after` chunks then a
+    dropped connection."""
+
+    SIZE = 4 * 512 * 1024
+    DATA = bytes(range(256)) * (SIZE // 256)
+
+    def __init__(self, drop_after=None):
+        self.drop_after = drop_after
+        self.media = ns(document=ns(id=77))
+
+    async def get_entity(self, ref):
+        return ns(id=5)
+
+    async def get_messages(self, entity, ids):
+        file = ns(name="v.ogg", size=self.SIZE, ext=".ogg")
+        return ns(id=ids, media=self.media, file=file)
+
+    async def iter_download(self, media, offset, request_size):
+        import asyncio
+
+        for count, start in enumerate(range(offset, self.SIZE, request_size)):
+            await asyncio.sleep(0)
+            if self.drop_after is not None and count >= self.drop_after:
+                raise ConnectionError("dropped")
+            yield self.DATA[start : start + request_size]
+
+
+async def test_two_runs_resuming_one_source_never_wedge_it(tmp_path):
+    """STATE-MACHINES F3: both runs appended into one `.part`, recorded an
+    offset past the media size, and every later run stopped there for good.
+    The second run now refuses (exit 3) and the first one publishes."""
+    import asyncio
+
+    from tgcli.commands.media import MediaSource, download_media
+
+    source = MediaSource(chat="5", message_id=9, private_channel_id=None)
+    output = tmp_path / "v.ogg"
+    with pytest.raises(ConnectionError):
+        await download_media(
+            _ChunkedSource(drop_after=1), source, "main", output=str(output)
+        )
+
+    results = await asyncio.gather(
+        download_media(_ChunkedSource(), source, "main", output=str(output)),
+        download_media(_ChunkedSource(), source, "main", output=str(output)),
+        return_exceptions=True,
+    )
+
+    refused = [r for r in results if not isinstance(r, dict)]
+    assert [getattr(r, "exit_code", r) for r in refused] == [3]
+    assert [r["resumed"] for r in results if isinstance(r, dict)] == [True]
+    assert output.read_bytes() == _ChunkedSource.DATA

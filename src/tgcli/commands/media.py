@@ -7,6 +7,8 @@ import os
 import re
 import shutil
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,6 +27,7 @@ from tgcli.errors import (
 from tgcli.output import note
 from tgcli.session import ensure_parent_dir, state_dir
 from tgcli.transfer import (
+    checkpoint_lock,
     download_resumable,
     download_striped,
     media_identity,
@@ -254,6 +257,14 @@ def _state_paths(source: MediaSource) -> tuple[Path, Path]:
     return directory / f"{key}.json", directory / f"{key}.part"
 
 
+@contextmanager
+def download_lock(source: MediaSource) -> Iterator[None]:
+    """One writer per source checkpoint (STATE-MACHINES §11, F3)."""
+    state_path, _ = _state_paths(source)
+    with checkpoint_lock(state_path, _source_label(source)):
+        yield
+
+
 def _message_filename(message, message_id: int) -> str:
     file = getattr(message, "file", None)
     name = getattr(file, "name", None)
@@ -452,6 +463,21 @@ async def download_media(
         raise PolicyError("parallel media download count must be positive")
 
     _, target = await resolve_message(tg, source, account_alias, codec=codec)
+    with download_lock(source):
+        return await _download_target(
+            tg, source, target, output=output, parallel=parallel, progress=progress
+        )
+
+
+async def _download_target(
+    tg,
+    source: MediaSource,
+    target: _DownloadTarget,
+    *,
+    output: str | None,
+    parallel: int,
+    progress,
+) -> dict:
     if source.story_id is not None:
         fallback_id = source.story_id
     elif source.message_id is not None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -55,7 +56,7 @@ from tgcli.archive import (
 )
 from tgcli.archive.changes_cursor import ChangesCursor
 from tgcli.cli import main
-from tgcli.commands import archive as archive_cmd
+from tgcli.commands import archive as archive_cmd, media as media_cmd
 from tgcli.governor import pacing
 
 SAMPLE = """
@@ -1764,8 +1765,9 @@ def _server_error():
         (_connection_lost, 1, "RUNTIME"),
         (_auth_key_unregistered, 1, "RUNTIME"),
         (_server_error, 0, None),
+        (None, 0, None),
     ],
-    ids=["flood", "cooling", "connection", "auth-key", "server"],
+    ids=["flood", "cooling", "connection", "auth-key", "server", "busy"],
 )
 def test_sync_media_rate_limit_still_advances_the_changes_cursor(
     config_env, monkeypatch, capsys, make_error, exit_code, code
@@ -1779,7 +1781,11 @@ def test_sync_media_rate_limit_still_advances_the_changes_cursor(
     dropped connection or a dead session aborts the run, and a Telegram 500
     stops the media pass for the next run. None of them used to be told
     apart from a broken file, so three of them made the row `no_media` for
-    good."""
+    good.
+
+    `busy`: another tg process (a job role, a `media download`) holds this
+    item's download checkpoint (STATE-MACHINES F3). Nothing is learned
+    about the file, so it stays queued with its attempts."""
     user = archive_user()
 
     class CooldownClient(FakeClient):
@@ -1800,6 +1806,12 @@ def test_sync_media_rate_limit_still_advances_the_changes_cursor(
 
         async def get_messages(self, entity, ids=None, limit=None, reply_to=None):
             if ids is not None:
+                if make_error is None:
+                    return SimpleNamespace(
+                        id=ids,
+                        media=object(),
+                        file=SimpleNamespace(name="v.ogg", size=10, ext=".ogg"),
+                    )
                 raise make_error()
             return await super().get_messages(entity, ids, limit, reply_to)
 
@@ -1831,7 +1843,15 @@ def test_sync_media_rate_limit_still_advances_the_changes_cursor(
     finally:
         conn.close()
 
-    assert main(["archive", "sync", "--json"]) == exit_code
+    holder = (
+        media_cmd.download_lock(
+            media_cmd.MediaSource(chat="7", message_id=2, private_channel_id=None)
+        )
+        if make_error is None
+        else contextlib.nullcontext()
+    )
+    with holder:
+        assert main(["archive", "sync", "--json"]) == exit_code
     captured = capsys.readouterr()
     if code is None:
         media = json.loads(captured.out)["media"]

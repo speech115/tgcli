@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import fcntl
 import hashlib
 import os
-from collections.abc import Callable, Coroutine, Iterable
+from collections.abc import Callable, Coroutine, Iterable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from telethon import helpers, utils
 from telethon.tl import functions, types
 
+from tgcli.errors import ConfigError
 from tgcli.session import ensure_parent_dir, restrict_file
 
 CHUNK_SIZE = 512 * 1024
@@ -164,6 +167,32 @@ def _record(handle, checkpoint: Callable[[int], None], current: int) -> None:
     handle.flush()
     os.fsync(handle.fileno())
     checkpoint(current)
+
+
+class DownloadBusyError(ConfigError):
+    """Another tg process is downloading this same source right now."""
+
+
+@contextmanager
+def checkpoint_lock(state_path: Path, label: str) -> Iterator[None]:
+    """Hold the `.lock` beside a download checkpoint for the whole transfer.
+
+    `download_resumable` appends to the shared `.part` file, so two runs
+    resuming one source would interleave their chunks, record an offset past
+    the media size, and wedge every later run at that offset. Never waits:
+    the other run may be a long transfer. The `.lock` file holds no state.
+    """
+    ensure_parent_dir(state_path)
+    lock = state_path.with_suffix(".lock")
+    with os.fdopen(os.open(lock, os.O_WRONLY | os.O_CREAT, 0o600), "w") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise DownloadBusyError(
+                f"media download of {label} is already running in another "
+                "tg process; retry when it finishes"
+            ) from None
+        yield
 
 
 async def download_resumable(
