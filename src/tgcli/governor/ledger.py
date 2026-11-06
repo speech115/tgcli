@@ -8,8 +8,11 @@ that type locally instead of sending into a live penalty.
   private in-memory ledger with ``degraded=True`` and the error kept on
   ``degraded_reason``; ``doctor`` reports it, a governed client notes it on
   stderr, and traffic proceeds without cross-process memory.
-* **Deadlines are clamped at read time**, so a deadline armed under a skewed
-  clock degrades to a bounded wait instead of a permanent refusal.
+* **A row ends at ``min(deadline, armed_at + MAX_COOLDOWN_S)``**, and every
+  reader uses that end, so no record refuses for more than a day after it
+  was armed, however far ahead its deadline says.
+* **The latest arm wins**, as in Telethon's own per-process memory: a fresh
+  420 replaces the stored deadline.
 """
 
 from __future__ import annotations
@@ -100,30 +103,43 @@ class Ledger:
     def __exit__(self, *exc_info: object) -> None:
         self.close()
 
-    def cooldown_deadline(
-        self, account_user_id: int, request_key: str, *, now: datetime | None = None
-    ) -> datetime | None:
-        """The active deadline for this request type, clamped, or ``None``."""
-        moment = datetime.now(UTC) if now is None else now
-        deadline: datetime | None = None
+    def _end(self, account_user_id: int, request_key: str) -> datetime | None:
+        """When this row's cooldown ends: its deadline, capped at
+        ``MAX_COOLDOWN_S`` past its arming. ``None`` when there is no
+        readable row."""
         try:
             row = self._db.execute(
-                "SELECT deadline FROM cooldowns "
+                "SELECT deadline, armed_at FROM cooldowns "
                 "WHERE account_user_id = ? AND request_key = ?",
                 (account_user_id, request_key),
             ).fetchone()
         except sqlite3.Error:
-            row = None
-        if row is not None:
-            try:
-                parsed = datetime.fromisoformat(row[0])
-            except (TypeError, ValueError):
-                parsed = None
-            if parsed is not None and parsed.tzinfo is not None:
-                deadline = parsed.astimezone(UTC)
-        if deadline is None:
             return None
-        clamped = min(deadline, moment + timedelta(seconds=MAX_COOLDOWN_S))
+        if row is None:
+            return None
+        try:
+            deadline = datetime.fromisoformat(row[0])
+            armed = datetime.fromisoformat(row[1])
+        except (TypeError, ValueError):
+            return None
+        if deadline.tzinfo is None or armed.tzinfo is None:
+            return None
+        return min(deadline, armed + timedelta(seconds=MAX_COOLDOWN_S)).astimezone(UTC)
+
+    def cooldown_deadline(
+        self, account_user_id: int, request_key: str, *, now: datetime | None = None
+    ) -> datetime | None:
+        """The active deadline for this request type, clamped, or ``None``.
+
+        Clamped twice: at ``MAX_COOLDOWN_S`` past arming (the row's end) and
+        at ``MAX_COOLDOWN_S`` from now, for a row armed under a clock that has
+        since stepped back.
+        """
+        moment = datetime.now(UTC) if now is None else now
+        end = self._end(account_user_id, request_key)
+        if end is None:
+            return None
+        clamped = min(end, moment + timedelta(seconds=MAX_COOLDOWN_S))
         return clamped if clamped > moment else None
 
     def arm_cooldown(
@@ -156,28 +172,11 @@ class Ledger:
     ) -> bool:
         """Whether this type's last flood cooldown ended at or after ``since``.
 
-        A cooldown still running counts too. The deadline is capped at
-        ``MAX_COOLDOWN_S`` past its arming, as reads of it are.
+        A cooldown still running counts too. The end is the row's capped
+        end, the same one ``cooldown_deadline`` reads.
         """
-        try:
-            row = self._db.execute(
-                "SELECT deadline, armed_at FROM cooldowns "
-                "WHERE account_user_id = ? AND request_key = ?",
-                (account_user_id, request_key),
-            ).fetchone()
-        except sqlite3.Error:
-            return False
-        if row is None:
-            return False
-        try:
-            deadline = datetime.fromisoformat(row[0])
-            armed = datetime.fromisoformat(row[1])
-        except (TypeError, ValueError):
-            return False
-        if deadline.tzinfo is None or armed.tzinfo is None:
-            return False
-        ended = min(deadline, armed + timedelta(seconds=MAX_COOLDOWN_S))
-        return ended >= since
+        end = self._end(account_user_id, request_key)
+        return end is not None and end >= since
 
     def active_cooldowns(
         self, account_user_id: int, *, now: datetime | None = None

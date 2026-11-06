@@ -225,14 +225,13 @@ RPC.
 | cooling | effective end in the future |
 | slow start | free, but the cooldown ended within the last hour |
 
-A row's end is meant to be `min(deadline, armed_at + 24 h)`. Today
-`cooled_since` uses that, but `cooldown_deadline` clamps to `now + 24 h`
-instead (F2).
+A row ends at `min(deadline, armed_at + 24 h)`, and both readers
+(`cooldown_deadline`, `cooled_since`) use that end.
 
 | From | Event | To |
 |---|---|---|
 | free | FloodWait N on this type | cooling until now + N |
-| cooling | FloodWait M on this type (another process, another peer) | cooling until now + M, even when that is earlier (F2) |
+| cooling | FloodWait M on this type (another process, another peer) | cooling until now + M, even when that is earlier (F5) |
 | cooling | request of this type, wait fits `--max-runtime` | sleeps, then sends |
 | cooling | request of this type, wait does not fit | refused locally, exit 5, no RPC |
 | cooling | effective end passes | slow start |
@@ -242,9 +241,9 @@ Invariants:
 
 - **G1.** No request of a cooling type leaves the process.
 - **G2.** A cooldown never ends earlier than the longest live penalty any
-  process recorded for its type. Violated today (F2).
+  process recorded for its type. Violated today by design: the latest arm
+  wins (F5, awaiting the owner's call).
 - **G3.** No record refuses for more than 24 h after it was armed.
-  Violated today (F2).
 - A ledger that cannot open degrades to memory and warns; Telethon's own
   per-process memory still refuses the type for that run (ADR-0090).
 
@@ -356,15 +355,14 @@ account. Fix: the preview records which state it would supersede, and the
 commit supersedes only that state (S4).
 Test: `tests/test_cli_clone_init.py::test_clone_init_replace_commit_retry_resumes_its_own_destination`.
 
-### F2. Governor cooldowns can shrink, and long ones outlive their cap — open
+### F2. Governor cooldowns outlive their one-day cap — fixed
 
-Machine §7, concurrency. `arm_cooldown` overwrites the deadline, so a short
-FloodWait recorded by one process (another peer, another role) replaces a
-long live penalty recorded by another, and the next process sends into it.
-Separately, `cooldown_deadline` clamps to `now + 24 h` while `cooled_since`
-clamps to `armed_at + 24 h`, so a deadline past a day keeps refusing long
-after the slow-start window says it ended, and a corrupt far-future deadline
-refuses until that date.
+Machine §7. `cooldown_deadline` clamped to `now + 24 h`, a window that moves
+with every read, while `cooled_since` clamped to `armed_at + 24 h`. A deadline
+past a day kept refusing long after the slow-start reader said it had ended,
+and a corrupt far-future deadline refused until that date. Both readers now
+share one end, `min(deadline, armed_at + 24 h)` (G3).
+Test: `tests/test_governor_ledger.py::test_no_record_refuses_past_its_cap_after_arming`.
 
 ### F3. Two runs resuming one media download wedge it for good — open
 
@@ -383,6 +381,16 @@ A transcript that failed three or four times under `--max-attempts 5`
 stays `retryable` forever under the default cap of 3: no run takes it and it
 never becomes `no_transcript`, against CONTRACT's "exhausted failures become
 `no_transcript`".
+
+### F5. A short flood can shrink a live governor cooldown — owner's call
+
+Machine §7, concurrency. `arm_cooldown` overwrites the deadline ("latest arm
+wins", pinned by `tests/test_clone_flood.py::test_arm_overwrites_with_the_latest_deadline`).
+The key deliberately excludes the peer, so a 5 s FloodWait one process draws
+on chat B (another role) replaces a 1 h penalty another process recorded on
+chat A, and the next process sends into chat A's live penalty. Proven with
+two ledger connections on one file. Keeping the later end is a behavior
+change, so it waits for the owner.
 
 ### Checked and holding
 

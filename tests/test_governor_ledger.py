@@ -4,9 +4,13 @@ Covers #139's matrix rows L1–L4 and the crash-safety halves of C2 and C5 that
 belong to the store rather than to the seam.
 """
 
+import tempfile
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
+from hypothesis import settings, strategies as st
+from hypothesis.stateful import RuleBasedStateMachine, invariant, rule
 
 from tgcli.governor.ledger import (
     BUSY_TIMEOUT_MS,
@@ -147,3 +151,61 @@ def test_active_cooldowns_lists_only_live_types(ledger):
 def test_the_busy_timeout_is_set_deliberately(ledger):
     """C3: #137 found no pragma set anywhere; this one is chosen, not default."""
     assert ledger._db.execute("PRAGMA busy_timeout").fetchone()[0] == BUSY_TIMEOUT_MS
+
+
+def test_no_record_refuses_past_its_cap_after_arming(ledger):
+    """F2: the cap counts from arming. Read a day and a minute later, a
+    400-day deadline has ended, as the slow-start reader already says."""
+    armed = datetime.now(UTC)
+    ledger.arm_cooldown(ACCOUNT, HISTORY, armed + timedelta(days=400), now=armed)
+    later = armed + timedelta(seconds=MAX_COOLDOWN_S + 60)
+
+    assert ledger.cooldown_deadline(ACCOUNT, HISTORY, now=later) is None
+    assert not ledger.cooled_since(ACCOUNT, HISTORY, later)
+
+
+class LedgerMachine(RuleBasedStateMachine):
+    """STATE-MACHINES §7 over the public ledger API, with a fake clock.
+
+    Model: the latest arm wins, and a row ends at
+    `min(deadline, armed_at + MAX_COOLDOWN_S)`. Both readers must agree with
+    that end at every moment (G3, F2).
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.directory = tempfile.TemporaryDirectory()
+        self.ledger = Ledger.open(Path(self.directory.name) / "governor.db")
+        self.now = datetime(2026, 1, 1, tzinfo=UTC)
+        self.end: datetime | None = None
+
+    @rule(seconds=st.integers(min_value=1, max_value=4 * MAX_COOLDOWN_S))
+    def arm(self, seconds):
+        deadline = self.now + timedelta(seconds=seconds)
+        assert self.ledger.arm_cooldown(ACCOUNT, HISTORY, deadline, now=self.now)
+        self.end = min(deadline, self.now + timedelta(seconds=MAX_COOLDOWN_S))
+
+    @rule(seconds=st.integers(min_value=0, max_value=2 * MAX_COOLDOWN_S))
+    def advance(self, seconds):
+        self.now += timedelta(seconds=seconds)
+
+    @invariant()
+    def readers_agree_with_the_model(self):
+        cooling = self.end is not None and self.end > self.now
+        deadline = self.ledger.cooldown_deadline(ACCOUNT, HISTORY, now=self.now)
+        assert deadline == (self.end if cooling else None)
+        if self.end is not None:
+            assert self.ledger.cooled_since(ACCOUNT, HISTORY, self.end)
+            assert not self.ledger.cooled_since(
+                ACCOUNT, HISTORY, self.end + timedelta(microseconds=1)
+            )
+
+    def teardown(self):
+        self.ledger.close()
+        self.directory.cleanup()
+
+
+LedgerMachine.TestCase.settings = settings(
+    max_examples=100, stateful_step_count=20, derandomize=True, deadline=None
+)
+TestLedgerMachine = LedgerMachine.TestCase
