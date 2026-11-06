@@ -1337,7 +1337,11 @@ so another user could title a peer with it and transfer its ownership to the
 account, and a replaced clone never re-adopts a marker-titled destination left
 by an interrupted prior init. `--replace` against an empty slot is a plain fresh init. `--replace` is
 declared on the preview step and carried in the preview payload; the commit
-honors the payload. Without `--replace`, the version-mismatch exit-2 message
+honors the payload. The payload also records which state the preview saw in
+the slot, and the commit archives the slot only while it still holds that
+state: re-committing a `--replace` preview whose first commit failed after
+creating the new destination resumes that destination instead of archiving
+it and creating another. Without `--replace`, the version-mismatch exit-2 message
 ends `; re-run clone init --replace to supersede it`; a v2 destination is never
 silently reused as if the flag had been passed.
 
