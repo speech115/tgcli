@@ -93,7 +93,7 @@ flag.
 | 0 | success | |
 | 1 | runtime error | network (a lost connection ends `clone sync`/`init` and `archive sync` rather than degrading one item), unexpected exception |
 | 2 | blocked by safety policy | `--readonly` + mutating command, `TGCLI_NO_SEND` |
-| 3 | config/auth error | missing `--account` / `default_account`, dead session (any Telegram `UnauthorizedError`: revoked, expired, unregistered key, deactivated user — `needs reauthentication`), bad api_id, a session still busy after the wait below, an `archive sync`/`rebaseline`/`transcribe` already running for the account |
+| 3 | config/auth error | missing `--account` / `default_account`, dead session (any Telegram `UnauthorizedError`: revoked, expired, unregistered key, deactivated user — `needs reauthentication`), bad api_id, a session still busy after the wait below, an `archive sync`/`rebaseline`/`transcribe` already running for the account, a `media download` of the same message already running in another process |
 | 4 | not found | unknown dialog, message id, media; unknown alias on `accounts show\|remove` (lookup) |
 | 5 | rate limited | FloodWait longer than threshold; `retry_after` in error JSON; also a sticky in-process cooldown after a FloodWait whose durable arm could not persist (ADR-0090) |
 
@@ -410,7 +410,9 @@ to stderr. Single-stream transfer resumes a matching interrupted partial file
 from `~/.local/state/tgcli/downloads/`; `--parallel N` is opt-in, requires a
 positive `N`, and starts a fresh offset-based transfer. A partial file
 recorded under the older `media-<message_id>.bin` name resumes under the
-typed name.
+typed name. One process at a time owns a message's partial file: a second
+`media download` of the same message while the first runs exits **3**
+without touching it.
 
 "Matching" means the media itself, not the path (ADR-0084): the resume record
 carries Telegram's document/photo id and the byte size, and a partial file
@@ -1911,7 +1913,8 @@ cursor are still applied in full. Global `--max-runtime` also bounds this
 media tail (ADR-0107): when the wall clock is exhausted, media acquisition
 stops without starting further downloads, JSON may report
 `stop_reason: "wall_clock_cap"` with media remaining, and exit is **0**.
-Downloads are idempotent: a transcript
+Downloads are idempotent, and an item another tg process is downloading
+right now is left queued without spending an attempt. A transcript
 queue row is marked with its controlled relative `media_path` only after the
 file is published successfully. Media acquisition has an independent fixed
 cap of **3** attempts, separate from transcription attempts. Ordinary
