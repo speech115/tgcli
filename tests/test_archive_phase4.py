@@ -714,6 +714,11 @@ def test_transcribe_row_exhausted_under_a_lower_cap_becomes_terminal(
         assert result["remaining"] is False
         hits = explore_module.search(conn, "no_transcript")["hits"]
         assert hits[0]["transcript_status"] == "no_transcript"
+        caption_hits = conn.execute(
+            "SELECT peer_id, message_id FROM messages_fts WHERE messages_fts MATCH ?",
+            ("caption",),
+        ).fetchall()
+        assert [(r["peer_id"], r["message_id"]) for r in caption_hits] == [(7, 1)]
     finally:
         conn.close()
 
