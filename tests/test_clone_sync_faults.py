@@ -73,13 +73,18 @@ EXIT_FOR = {
 
 
 def _lost_cross_leg_reply(key, expected, got) -> bool:
-    """A post whose reply to a comment F7 lost: sent flat, nothing else differs."""
+    """A post whose reply to a comment F7 lost: sent flat, nothing else differs.
+
+    Without a reply to carry, a post the oracle reuploaded is forwarded as
+    itself, so its copy is either that bare forward or the oracle's own body.
+    """
     return (
         key[0] == "channel"
         and expected[2] is not None
         and expected[2][0] == "group"
         and got[2] is None
         and got[3] is None
+        and (got[:2] == ("ForwardMessagesRequest", None) or got[:2] == expected[:2])
     )
 
 
