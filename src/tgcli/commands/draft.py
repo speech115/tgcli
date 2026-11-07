@@ -6,12 +6,12 @@ from datetime import datetime
 from typing import cast
 
 from telethon.errors import MessageNotModifiedError
-from telethon.helpers import add_surrogate, del_surrogate
+from telethon.helpers import add_surrogate
 from telethon.tl import functions, types
 from telethon.tl.types import MessageEntityCustomEmoji
 
 from tgcli import chatref, formatting, safety
-from tgcli.commands.read import sanitize_plain_text
+from tgcli.commands.read import sanitize_plain_text, utf16_slice
 from tgcli.errors import NotFoundError, PolicyError
 
 
@@ -33,7 +33,7 @@ def _custom_emoji(message: str, entities) -> list[dict]:
     for entity in entities:
         if not isinstance(entity, MessageEntityCustomEmoji):
             continue
-        glyph = del_surrogate(surrogate[entity.offset : entity.offset + entity.length])
+        glyph = utf16_slice(surrogate, entity.offset, entity.length)
         output.append(
             {
                 "id": str(entity.document_id),

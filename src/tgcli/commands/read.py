@@ -1,5 +1,5 @@
 from telethon import utils
-from telethon.helpers import add_surrogate, del_surrogate
+from telethon.helpers import add_surrogate
 from telethon.tl import types
 from telethon.tl.types import MessageEntityCustomEmoji
 
@@ -106,7 +106,7 @@ def _custom_emoji(message) -> list[dict]:
     for entity in entities:
         if not isinstance(entity, MessageEntityCustomEmoji):
             continue
-        glyph = del_surrogate(surrogate[entity.offset : entity.offset + entity.length])
+        glyph = utf16_slice(surrogate, entity.offset, entity.length)
         output.append(
             {
                 "id": str(entity.document_id),
@@ -116,6 +116,17 @@ def _custom_emoji(message) -> list[dict]:
             }
         )
     return output
+
+
+def utf16_slice(surrogate: str, offset: int, length: int) -> str:
+    """The text an entity covers, given Telethon's surrogate form of the body.
+
+    An entity whose offset or length falls inside a UTF-16 pair would leave a
+    lone surrogate, which ``del_surrogate`` refuses to decode and stdout could
+    not encode anyway; that half becomes U+FFFD so the rest of the page prints.
+    """
+    piece = surrogate[offset : offset + length]
+    return piece.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
 
 
 def _forwarded_from(message) -> dict | None:
