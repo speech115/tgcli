@@ -95,7 +95,15 @@ def ledger(tmp_path):
 
 def flooded_ago(ledger, key, minutes, *, cooled_for=None):
     """Record a flood on `key` whose cooldown ended `minutes` ago, armed
-    `cooled_for` minutes before that (one by default)."""
+    `cooled_for` minutes before that (one by default).
+
+    This moves the clock: a row a run already armed in real time is dropped
+    first, since arming keeps the later end and would not move it back."""
+    ledger._db.execute(
+        "DELETE FROM cooldowns WHERE account_user_id = ? AND request_key = ?",
+        (ACCOUNT, key),
+    )
+    ledger._db.commit()
     now = datetime.now(UTC)
     ended = now - timedelta(minutes=minutes)
     armed = ended - timedelta(minutes=1 if cooled_for is None else cooled_for)
