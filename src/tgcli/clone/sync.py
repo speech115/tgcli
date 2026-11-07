@@ -117,9 +117,12 @@ async def _sync_slot(
     posts_exhausted = False
     # STATE-MACHINES F7: a post replying to a comment not copied yet waits for
     # the comments leg (`posts_waiting`), unless that leg has stalled and will
-    # not reach it this run.
+    # not reach it this run. A stall releases only the batch that waited
+    # (`release_waiting`): the posts after it may reply to comments that
+    # copying it unblocks.
     posts_waiting = False
     comments_stalled = clone_state.comments != "enabled"
+    release_waiting = False
 
     async def copy_batch(messages, leg: legs.AnyLeg, source, dest) -> None:
         nonlocal copied, copied_batches, reply_flattened
@@ -225,7 +228,7 @@ async def _sync_slot(
 
     async def run_posts_window(max_batches: int | None) -> int:
         """Copy up to max_batches posts (None = exhaust). Sets more on --limit."""
-        nonlocal more, posts_waiting
+        nonlocal more, posts_waiting, release_waiting
         ran = 0
         async for event in batching.plan(
             tg.iter_messages(source_entity, min_id=posts_leg.cursor, reverse=True)
@@ -261,7 +264,9 @@ async def _sync_slot(
                 posts_leg.cursor = event.message_id
                 state.save(clone_state)
                 continue
-            if not comments_stalled:
+            if release_waiting:
+                release_waiting = False
+            elif not comments_stalled:
                 classified = replies.target(
                     event.messages, posts_leg, source_entity, comments_stalled=False
                 )
@@ -311,7 +316,7 @@ async def _sync_slot(
                 break
             # A waiting post needs the comments leg to move. If this window
             # did not move it, no later one will: the post goes out flat.
-            comments_stalled = (
+            release_waiting = (
                 posts_waiting and clone_state.discussion_cursor == discussion_before
             )
     else:
