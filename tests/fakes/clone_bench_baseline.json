@@ -1,0 +1,153 @@
+[
+  {
+    "scenario": "open-with-comments",
+    "phases": [
+      {
+        "phase": "initial",
+        "exit": 0,
+        "requests": {
+          "ForwardMessagesRequest": 120,
+          "GetDiscussionMessageRequest": 48,
+          "GetFullChannelRequest": 1,
+          "GetHistoryRequest (iter_messages)": 8,
+          "GetParticipantsRequest (iter_participants)": 2,
+          "SendMediaRequest": 7,
+          "SendMessageRequest": 137,
+          "get_entity": 5,
+          "get_messages": 11
+        },
+        "total_requests": 339,
+        "state_saves": 506,
+        "completeness": {
+          "expected": 312,
+          "copied": 312,
+          "duplicated": [],
+          "missing": [],
+          "unexpected": []
+        },
+        "sync": {
+          "copied": 312,
+          "forwarded": 168,
+          "reuploaded": 144,
+          "snapshots": 0,
+          "reply_flattened": 0,
+          "skipped_service": 24,
+          "skipped_autoforward": 216,
+          "cursor": 240,
+          "discussion_cursor": 312,
+          "more": false
+        }
+      },
+      {
+        "phase": "idle",
+        "exit": 0,
+        "requests": {
+          "GetFullChannelRequest": 1,
+          "GetHistoryRequest (iter_messages)": 2,
+          "GetParticipantsRequest (iter_participants)": 2,
+          "get_entity": 5,
+          "get_messages": 2
+        },
+        "total_requests": 12,
+        "state_saves": 2,
+        "completeness": {
+          "expected": 312,
+          "copied": 312,
+          "duplicated": [],
+          "missing": [],
+          "unexpected": []
+        },
+        "sync": {
+          "copied": 0,
+          "forwarded": 0,
+          "reuploaded": 0,
+          "snapshots": 0,
+          "reply_flattened": 0,
+          "skipped_service": 0,
+          "skipped_autoforward": 0,
+          "cursor": 240,
+          "discussion_cursor": 312,
+          "more": false
+        }
+      },
+      {
+        "phase": "incremental",
+        "exit": 0,
+        "requests": {
+          "ForwardMessagesRequest": 7,
+          "GetDiscussionMessageRequest": 3,
+          "GetFullChannelRequest": 1,
+          "GetHistoryRequest (iter_messages)": 2,
+          "GetParticipantsRequest (iter_participants)": 2,
+          "SendMessageRequest": 8,
+          "get_entity": 5,
+          "get_messages": 5
+        },
+        "total_requests": 33,
+        "state_saves": 29,
+        "completeness": {
+          "expected": 329,
+          "copied": 329,
+          "duplicated": [],
+          "missing": [],
+          "unexpected": []
+        },
+        "sync": {
+          "copied": 17,
+          "forwarded": 9,
+          "reuploaded": 8,
+          "snapshots": 0,
+          "reply_flattened": 0,
+          "skipped_service": 1,
+          "skipped_autoforward": 11,
+          "cursor": 252,
+          "discussion_cursor": 329,
+          "more": false
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "protected-reupload",
+    "phases": [
+      {
+        "phase": "initial",
+        "exit": 0,
+        "requests": {
+          "GetFullChannelRequest": 1,
+          "GetHistoryRequest (iter_messages)": 2,
+          "GetParticipantsRequest (iter_participants)": 1,
+          "SaveFilePartRequest": 47,
+          "SendMediaRequest": 11,
+          "SendMessageRequest": 61,
+          "SendMultiMediaRequest": 12,
+          "UploadMediaRequest": 36,
+          "download_media": 47,
+          "get_entity": 2,
+          "get_messages": 2
+        },
+        "total_requests": 222,
+        "state_saves": 98,
+        "completeness": {
+          "expected": 108,
+          "copied": 108,
+          "duplicated": [],
+          "missing": [],
+          "unexpected": []
+        },
+        "sync": {
+          "copied": 108,
+          "forwarded": 0,
+          "reuploaded": 108,
+          "snapshots": 0,
+          "reply_flattened": 0,
+          "skipped_service": 12,
+          "skipped_autoforward": 0,
+          "cursor": 120,
+          "discussion_cursor": 0,
+          "more": false
+        }
+      }
+    ]
+  }
+]

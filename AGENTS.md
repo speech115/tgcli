@@ -21,6 +21,7 @@ a daemon-first stack, so staying small and daemonless is the point.
 uv sync
 git config core.hooksPath .githooks   # once per clone: static gate on push
 ./scripts/gate.sh   # exactly what CI runs, under a minute
+uv run python scripts/bench-clone.py   # clone sync requests/copies vs baseline
 uv run tg --help
 ```
 
