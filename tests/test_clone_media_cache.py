@@ -688,3 +688,38 @@ async def test_partial_download_of_the_same_media_still_resumes(state_dir_env):
     )
 
     assert offsets == [2 * CHUNK_SIZE]
+
+
+class StreamingReuploadClient(CloneReuploadClient):
+    async def download_media(self, message, file=None):
+        raise AssertionError("media over one chunk must stream")
+
+    async def iter_download(self, media, *, offset=0, request_size=None, **kw):
+        size = CHUNK_SIZE + 1
+        position = offset
+        while position < size:
+            chunk = b"P" * min(request_size or size, size - position)
+            position += len(chunk)
+            yield chunk
+
+
+def test_streamed_photo_uploads_under_an_image_name(config_env, monkeypatch, capsys):
+    """A photo over one chunk streams to an extensionless cache file; its
+    upload must still carry an image extension, or Telegram answers
+    PHOTO_EXT_INVALID on every run and the clone never advances."""
+    seed_clone()
+    client = StreamingReuploadClient(
+        [_photo_message(2, size=CHUNK_SIZE + 1)], protected=True
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    capsys.readouterr()
+
+    (sent,) = [
+        request
+        for request in client.requests
+        if isinstance(request, functions.messages.SendMediaRequest)
+    ]
+    assert isinstance(sent.media, types.InputMediaUploadedPhoto)
+    assert sent.media.file.name == "src-2.jpg"

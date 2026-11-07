@@ -91,11 +91,28 @@ def _plain_video(attributes) -> bool:
     )
 
 
+# Telegram takes an uploaded photo's format from its file name and refuses one
+# without an image extension (PHOTO_EXT_INVALID). Telegram serves photos as JPEG.
+PHOTO_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+
+
+def upload_name(message, path) -> str:
+    """The file name the upload declares: the cache file's, except that a photo
+    streamed to the extensionless ``src-<id>`` cache name gets ``.jpg``."""
+    path = Path(path)
+    if isinstance(message.media, types.MessageMediaPhoto) and (
+        path.suffix.lower() not in PHOTO_EXTENSIONS
+    ):
+        return f"{path.stem}.jpg"
+    return path.name
+
+
 async def uploaded_media(tg, message, path, progress=None):
     input_file = await upload_parts(
         tg,
         path,
         parallel=CLONE_TRANSFER_PARALLEL,
+        file_name=upload_name(message, path),
         progress=clone_progress.transfer_of(progress, message, "upload"),
     )
     # A blur the source put on purpose is content: dropping it publishes the
