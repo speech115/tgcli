@@ -1,5 +1,6 @@
 """Fail-closed architecture checks: read ownership, state writes, module size,
-bare clone ``Leg`` annotations, and test modules that import test modules."""
+bare clone ``Leg`` annotations, single-class flood handlers, and test modules
+that import test modules."""
 
 from __future__ import annotations
 
@@ -150,6 +151,28 @@ def _bare_leg_errors(path: Path, relative: str) -> list[str]:
     return errors
 
 
+FLOOD_CLASSES = {"FloodWaitError", "FloodPremiumWaitError"}
+
+
+def _flood_class_errors(path: Path, relative: str) -> list[str]:
+    """Floods are caught through ``session.FLOOD_ERRORS``: one class alone
+    lets the other 420 pass as a refusal (STATE-MACHINES F6)."""
+    tree = ast.parse(path.read_text(), filename=str(path))
+    return [
+        f"{relative}:{node.lineno} names {name}; catch floods through "
+        "tgcli.session.FLOOD_ERRORS"
+        for node in ast.walk(tree)
+        if (
+            name := node.attr
+            if isinstance(node, ast.Attribute)
+            else node.id
+            if isinstance(node, ast.Name)
+            else None
+        )
+        in FLOOD_CLASSES
+    ]
+
+
 def _test_import_errors(path: Path, relative: str) -> list[str]:
     """A test module imports shared helpers from tests/fakes, never a test_*."""
     tree = ast.parse(path.read_text(), filename=str(path))
@@ -192,6 +215,8 @@ def check(root: Path) -> list[str]:
         errors.extend(_state_write_errors(path, relative))
         if relative != "src/tgcli/clone/legs.py":
             errors.extend(_bare_leg_errors(path, relative))
+        if relative != "src/tgcli/session.py":
+            errors.extend(_flood_class_errors(path, relative))
 
     for path in sorted((root / "tests").rglob("*.py")):
         errors.extend(_test_import_errors(path, path.relative_to(root).as_posix()))

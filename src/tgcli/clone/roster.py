@@ -16,7 +16,7 @@ from telethon.tl import types
 from tgcli import atomic
 from tgcli.clone import state
 from tgcli.governor import pacing
-from tgcli.session import TRANSIENT_ERRORS
+from tgcli.session import FLOOD_ERRORS, TRANSIENT_ERRORS
 
 _ACCESS_ERRORS = (
     telethon_errors.ChatAdminRequiredError,
@@ -26,7 +26,7 @@ _ACCESS_ERRORS = (
 
 
 def _deferred_reason(exc: Exception) -> str:
-    if isinstance(exc, telethon_errors.FloodWaitError):
+    if isinstance(exc, FLOOD_ERRORS):
         return "flood_wait"
     return type(exc).__name__
 

@@ -14,6 +14,7 @@ from telethon import errors as telethon_errors, functions
 from tgcli.config import Account
 from tgcli.errors import RateLimitError
 from tgcli.session import (
+    FLOOD_ERRORS,
     build_client,
     create_private,
     ensure_state_dir,
@@ -48,7 +49,7 @@ async def unauthorized_client(path: Path, api_id: int, api_hash: str):
             try:
                 await tg.connect()
                 yield tg
-            except telethon_errors.FloodWaitError as exc:
+            except FLOOD_ERRORS as exc:
                 raise RateLimitError(
                     f"FLOOD_WAIT; retry after {exc.seconds}s",
                     retry_after=exc.seconds,

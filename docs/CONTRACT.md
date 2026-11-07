@@ -95,7 +95,7 @@ flag.
 | 2 | blocked by safety policy | `--readonly` + mutating command, `TGCLI_NO_SEND` |
 | 3 | config/auth error | missing `--account` / `default_account`, dead session (any Telegram `UnauthorizedError`: revoked, expired, unregistered key, deactivated user — `needs reauthentication`), bad api_id, a session still busy after the wait below, an `archive sync`/`rebaseline`/`transcribe` already running for the account, a `media download` of the same message already running in another process |
 | 4 | not found | unknown dialog, message id, media; unknown alias on `accounts show\|remove` (lookup) |
-| 5 | rate limited | FloodWait longer than threshold; `retry_after` in error JSON; also a sticky in-process cooldown after a FloodWait whose durable arm could not persist (ADR-0090) |
+| 5 | rate limited | FloodWait longer than threshold (`FLOOD_WAIT_X`, or `FLOOD_PREMIUM_WAIT_X`, the transfer speed limit of a non-Premium account: every "FloodWait" in this contract means either); `retry_after` in error JSON; also a sticky in-process cooldown after a FloodWait whose durable arm could not persist (ADR-0090) |
 
 A command whose session another `tg` process holds waits up to **120 s** for
 it, with one stderr note, then exits 3. The wait is governed sleep, so

@@ -29,7 +29,7 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
             f"takeout is unavailable for {exc.seconds}s; retry after {exc.seconds}s",
             retry_after=exc.seconds,
         ) from exc
-    except telethon_errors.FloodWaitError as exc:
+    except session.FLOOD_ERRORS as exc:
         raise RateLimitError(
             f"rate limited for {exc.seconds}s", retry_after=exc.seconds
         ) from exc
