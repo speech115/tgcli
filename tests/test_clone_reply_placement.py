@@ -342,3 +342,38 @@ def test_a_post_waits_for_its_comment_after_an_idle_comments_window(
     target, _top = _reply(client.sent[("channel", post_copy)], "channel")
     assert target == ("group", client.copies[("group", 5)])
     assert sync["reply_flattened"] == 0
+
+
+def test_a_stalled_comments_leg_releases_only_the_post_it_blocks(
+    config_env, tmp_path, monkeypatch, capsys
+):
+    """F7's stall bypass covers one batch. Post 2 replies to group message 2,
+    deleted, so the comments leg can never copy it and stalls before post 2's
+    anchor: post 2 goes out flat. Post 3 replies to comment 4 in post 2's
+    thread, which the comments leg can copy once post 2 is out, so post 3
+    still waits for it instead of riding the bypass flat."""
+    world = World(
+        posts=(
+            Post(1, False, False, 1, True, False),
+            Post(2, False, False, 3, True, False, Reply("group", 2)),
+            Post(3, False, False, 5, True, False, Reply("group", 4)),
+        ),
+        comments=(Comment(4, 2, False, Reply("group", 3)),),
+        deleted_group_ids=(2,),
+        posts_cursor=0,
+        discussion_cursor=0,
+        window=2,
+    )
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(legs, "WINDOW", world.window)
+    pacing.reset_runtime()
+    _, client = clone_world.build(world)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    sync = json.loads(capsys.readouterr().out)["sync"]
+    post_copy = client.copies[("channel", 3)]
+    target, _top = _reply(client.sent[("channel", post_copy)], "channel")
+    assert target == ("group", client.copies[("group", 4)])
+    assert sync["reply_flattened"] == 1

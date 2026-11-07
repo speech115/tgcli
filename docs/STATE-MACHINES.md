@@ -190,7 +190,7 @@ Each leg is a cursor (last source id handled) plus an id map
 | batch sent and every `random_id` confirmed | map rows added, cursor = last id | one transaction |
 | batch confirmation incomplete | nothing; exit 2 | no |
 | comment whose parent post is beyond the posts cursor | leg stops (`deferred`), cursor stays | no |
-| post whose parent comment is beyond the discussion cursor | posts window stops, cursor stays; flat once a comments window stalls (F7) | no |
+| post whose parent comment is beyond the discussion cursor | posts window stops, cursor stays; that post alone goes out flat once a comments window stalls (F7) | no |
 | `--limit` / `--max-runtime` | stop between batches | yes |
 | FloodWait / 5xx | run stops; next run resumes from the saved cursor | — |
 
