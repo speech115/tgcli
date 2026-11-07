@@ -12,6 +12,8 @@ fast = ["cryptg>=0.6"]
 
 [project.scripts]
 tg = "tgcli.cli:entrypoint"
+# Read-only MCP adapter over the same commands (ADR-0123).
+tg-mcp = "tgcli.mcp.server:entrypoint"
 
 [dependency-groups]
 dev = [
