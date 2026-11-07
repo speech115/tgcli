@@ -350,3 +350,31 @@ def test_dialogs_with_an_unexpected_document_pass_through():
     fake = FakeTg(document=["odd"])
     [reply] = _session(_server(fake, "@news"), _call("telegram_dialogs", {}))
     assert _payload(reply)["result"] == ["odd"]
+
+
+@pytest.mark.parametrize(
+    ("tool", "arguments", "message"),
+    [
+        ("telegram_read", {"chat": 1234}, "chat must be a string"),
+        ("telegram_search", {"chat": "@news", "query": "   "}, "query must be"),
+        ("telegram_dialogs", {"kind": "bot"}, "kind must be"),
+        ("telegram_dialogs", {"unread_only": 1}, "unread_only must be a boolean"),
+    ],
+)
+def test_typed_arguments_are_checked(tool, arguments, message):
+    fake = FakeTg()
+    [reply] = _session(_server(fake, "@news"), _call(tool, arguments))
+
+    assert fake.calls == []
+    assert message in _payload(reply)["error"]["message"]
+
+
+def test_dialogs_kind_and_unread_flags():
+    fake = FakeTg(document={"dialogs": [], "more": False})
+    _session(
+        _server(fake, "@news"),
+        _call("telegram_dialogs", {"kind": "channel", "unread_only": True}),
+    )
+    assert fake.calls == [
+        ["dialogs", "--limit", "50", "--unread-only", "--kind", "channel"]
+    ]
