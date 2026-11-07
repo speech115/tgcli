@@ -205,7 +205,15 @@ Invariants:
   (exit 2, manual repair). This is the ADR-0017 "at most one duplicated batch"
   bound, made loud.
 - **L3.** The reupload cache (`clones/<id>-media`) is cleared only after the
-  batch's mapping is saved, so a crash resumes the download.
+  batch's mapping is saved, so a crash resumes the download. A finished
+  download is `src-<id>` plus a `src-<id>.done` marker. An empty marker names
+  `src-<id>` itself (a streamed download). A marker holding a file name names
+  the file Telethon chose for a one-chunk download (`src-<id>.jpg`). The next
+  run reuses that file while its byte size matches the message's media, and
+  otherwise deletes it before downloading again: Telethon never overwrites, so
+  a file left behind would send the new download to `src-<id> (1).jpg`.
+  `CacheMachine` (`tests/test_clone_media_cache_machine.py`) checks reuse,
+  replacement and dropped downloads.
 
 ## 6. Clone pin (broadcast only)
 

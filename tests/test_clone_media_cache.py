@@ -688,3 +688,78 @@ async def test_partial_download_of_the_same_media_still_resumes(state_dir_env):
     )
 
     assert offsets == [2 * CHUNK_SIZE]
+
+
+class StreamingReuploadClient(CloneReuploadClient):
+    async def download_media(self, message, file=None):
+        raise AssertionError("media over one chunk must stream")
+
+    async def iter_download(self, media, *, offset=0, request_size=None, **kw):
+        size = CHUNK_SIZE + 1
+        position = offset
+        while position < size:
+            chunk = b"P" * min(request_size or size, size - position)
+            position += len(chunk)
+            yield chunk
+
+
+def test_streamed_photo_uploads_under_an_image_name(config_env, monkeypatch, capsys):
+    """A photo over one chunk streams to an extensionless cache file; its
+    upload must still carry an image extension, or Telegram answers
+    PHOTO_EXT_INVALID on every run and the clone never advances."""
+    seed_clone()
+    client = StreamingReuploadClient(
+        [_photo_message(2, size=CHUNK_SIZE + 1)], protected=True
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    capsys.readouterr()
+
+    (sent,) = [
+        request
+        for request in client.requests
+        if isinstance(request, functions.messages.SendMediaRequest)
+    ]
+    assert isinstance(sent.media, types.InputMediaUploadedPhoto)
+    assert sent.media.file.name == "src-2.jpg"
+
+
+def test_a_small_download_under_telethons_name_is_reused_after_a_failed_run(
+    config_env, monkeypatch, capsys
+):
+    """Telethon names a one-chunk download itself (`src-2` becomes
+    `src-2.jpg`), and never overwrites: a second download of the same photo
+    lands at `src-2 (1).jpg`. The cache must remember that name, or every
+    failed run downloads the photo again and leaves one more copy behind."""
+    clone_state = seed_clone()
+
+    class TelethonNaming(CloneReuploadClient):
+        flood = True
+
+        async def download_media(self, message, file=None):
+            path = Path(f"{file}.jpg")
+            copies = 0
+            while path.exists():
+                copies += 1
+                path = Path(f"{file} ({copies}).jpg")
+            path.write_bytes(b"x" * 100)
+            self.downloads.append(path)
+            return str(path)
+
+        async def __call__(self, request):
+            if self.flood and isinstance(request, functions.upload.SaveFilePartRequest):
+                raise telethon_errors.FloodWaitError(request=request, capture=90)
+            return await super().__call__(request)
+
+    client = TelethonNaming([_photo_message(2, size=100)], protected=True)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+    client.flood = False
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    capsys.readouterr()
+
+    assert client.downloads == [client.downloads[0]]
+    assert client.downloads[0].name == "src-2.jpg"
+    assert state.load(clone_state.clone_id).dest_for(2) is not None
