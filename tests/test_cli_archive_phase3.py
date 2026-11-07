@@ -1745,6 +1745,10 @@ def _governor_cooling():
     return RateLimitError("GetFileRequest is rate limited for 600s", retry_after=600)
 
 
+def _premium_flood_wait_error():
+    return telethon_errors.FloodPremiumWaitError(request=None, capture=30)
+
+
 def _connection_lost():
     return ConnectionError("Connection to Telegram failed 5 time(s)")
 
@@ -1761,13 +1765,22 @@ def _server_error():
     ("make_error", "exit_code", "code"),
     [
         (_flood_wait_error, 5, "FLOOD_WAIT"),
+        (_premium_flood_wait_error, 5, "FLOOD_WAIT"),
         (_governor_cooling, 5, "FLOOD_WAIT"),
         (_connection_lost, 1, "RUNTIME"),
         (_auth_key_unregistered, 1, "RUNTIME"),
         (_server_error, 0, None),
         (None, 0, None),
     ],
-    ids=["flood", "cooling", "connection", "auth-key", "server", "busy"],
+    ids=[
+        "flood",
+        "premium-flood",
+        "cooling",
+        "connection",
+        "auth-key",
+        "server",
+        "busy",
+    ],
 )
 def test_sync_media_rate_limit_still_advances_the_changes_cursor(
     config_env, monkeypatch, capsys, make_error, exit_code, code

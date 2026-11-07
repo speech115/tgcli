@@ -29,21 +29,17 @@ import types
 from datetime import UTC, datetime, timedelta
 from math import ceil
 
-from telethon import errors as telethon_errors
-
 from tgcli.errors import RateLimitError
 from tgcli.governor import pacing, registry
 from tgcli.governor.ledger import Ledger
+from tgcli.session import FLOOD_ERRORS
 
 # Which flood families arm an account-wide, peer-agnostic cooldown.
 # `SlowModeWaitError` is deliberately absent: Telethon's own comment marks it
 # chat-specific, and ADR-0072 decision 1 keys the ledger on the request type
 # with the peer excluded on purpose — arming from a per-chat limit would refuse
 # every other chat for a restriction that never applied to them.
-ARMING_ERRORS = (
-    telethon_errors.FloodWaitError,
-    telethon_errors.FloodPremiumWaitError,
-)
+ARMING_ERRORS = FLOOD_ERRORS
 
 
 def account_id(client) -> int | None:

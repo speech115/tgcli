@@ -402,7 +402,36 @@ later end (2026-11-07): arming now reads and writes inside one
 Regression: `tests/test_governor_ledger.py::test_a_short_flood_in_another_process_keeps_a_long_cooldown`
 and `LedgerMachine`.
 
+### F6. FLOOD_PREMIUM_WAIT counts as a refusal — fixed
+
+Machines §5, §9, §10, and every per-item failure record. Telegram answers a
+non-Premium account that downloads or uploads too fast with
+`FLOOD_PREMIUM_WAIT_X`, a 420 like `FLOOD_WAIT_X` but another Telethon class.
+The governor armed a cooldown for it, yet every handler caught only
+`FloodWaitError`: the run exited 1 instead of 5, an archive media tail spent
+one of the item's three attempts on it (three such floods make a voice note
+`no_media` and `no_transcript` for good), and clone code that maps a refusal
+to a lasting outcome treated it as one (a thumb dropped for good, a reference
+send reuploaded, comments degraded to `unavailable`, a roster reason that was
+not `flood_wait`). Found by `CloneSyncFaultMachine`. Fix: `session.FLOOD_ERRORS`
+names both classes, the transient and run-aborting families include it, and
+`scripts/check-architecture.py` refuses a handler that names one flood class.
+Tests: every `TRANSIENT_ERRORS` case in `tests/conftest.py` (`premium-flood`),
+`tests/test_cli_archive_phase3.py::test_sync_media_rate_limit_still_advances_the_changes_cursor[premium-flood]`.
+
 ### Checked and holding
+
+- A clone sync cut short anywhere, then resumed (`tests/test_clone_sync_faults.py`,
+  `CloneSyncFaultMachine`): a FloodWait of either kind, a 5xx, a timeout, a
+  dropped connection, or a killed process before any operation of a run; a
+  send Telegram ran whose answer was lost, never came, or came without its
+  `random_id` confirmations. After every run the slot loads, each mapping is
+  the copy Telegram made, no source message has two copies, and no cursor
+  passes an unmapped message (L1); an unrecorded copy makes every later run
+  refuse before copying (L2) until the owner repairs the tail; and once the
+  faults stop one run finishes the clone, every copy identical in body and
+  reply target to a run that never failed. 3,000 generated worlds of up to
+  ten runs each held.
 
 - Concurrent `--commit` of one preview (flock + inode check).
 - Crash between a clone batch send and its save (tail verification, L2).

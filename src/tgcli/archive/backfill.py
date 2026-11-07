@@ -5,8 +5,6 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from telethon import errors as telethon_errors
-
 from tgcli import chatref
 from tgcli.archive import (
     private_enum as private_enum_mod,
@@ -16,6 +14,7 @@ from tgcli.archive import (
 from tgcli.commands.read import _dialog_name, message_to_dict
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
 from tgcli.governor import pacing
+from tgcli.session import FLOOD_ERRORS
 
 enumerate_private_dialogs = private_enum_mod.enumerate_private_dialogs
 
@@ -120,7 +119,7 @@ async def backfill_one(
             ids.append(int(payload["id"]))
         # If we filled the page, assume there may be older history.
         more = stored >= limit and limit > 0
-    except telethon_errors.FloodWaitError as exc:
+    except FLOOD_ERRORS as exc:
         seconds = int(exc.seconds)
         # The governed seam already slept out a wait that fit the cap and
         # resent the page; a flood that reaches here ends the run.

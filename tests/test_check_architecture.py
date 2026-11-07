@@ -120,6 +120,30 @@ def test_architecture_check_rejects_a_module_past_the_line_limit(tmp_path):
     assert expected in result.stdout
 
 
+def test_architecture_check_rejects_a_flood_caught_by_one_class(tmp_path):
+    _write_minimal_tree(tmp_path)
+    module = tmp_path / "src/tgcli/archive/media.py"
+    module.parent.mkdir(parents=True, exist_ok=True)
+    module.write_text(
+        "from telethon import errors\n"
+        "try:\n    pass\nexcept errors.FloodWaitError:\n    pass\n"
+    )
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 1
+    assert "media.py:4 names FloodWaitError" in result.stdout
+    assert "tgcli.session.FLOOD_ERRORS" in result.stdout
+
+    session = tmp_path / "src/tgcli/session.py"
+    session.write_text(
+        "from telethon import errors\n"
+        "FLOOD_ERRORS = (errors.FloodWaitError, errors.FloodPremiumWaitError)\n"
+    )
+    module.write_text("")
+    assert _run(tmp_path).returncode == 0
+
+
 def test_repository_passes_architecture_check():
     result = _run(Path(__file__).parents[1])
 
