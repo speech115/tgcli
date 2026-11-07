@@ -1461,7 +1461,12 @@ posts cursor, then the next posts window, until both legs are exhausted.
 An unmapped cross-leg comment parent whose post id lies beyond the posts
 cursor defers (stops the comments leg without sending) rather than
 flattening; a parent behind the cursor and absent from the map still
-flattens as before. Each leg keeps its own cursor (`cursor` /
+flattens as before. The mirror holds for the posts leg: a post replying to a
+discussion-group message beyond `discussion_cursor` ends its posts window
+without sending, so the comments leg copies the parent first, and the post
+then replies to that copy. If a comments window that follows does not move
+`discussion_cursor`, the post no longer waits and goes out flat, counted in
+`reply_flattened`. Each leg keeps its own cursor (`cursor` /
 `discussion_cursor` in state and in the JSON `sync` object; the top-level
 `sync.clone` object itself carries no `comments` field). `--limit N` counts
 batches across both legs — a run may return comments where a pre-ADR-0051

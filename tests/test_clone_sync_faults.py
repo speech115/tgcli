@@ -19,7 +19,7 @@ clone refused. After every run:
 
 And whenever the faults stop, one clean run finishes the clone: every post
 and comment copied exactly once, each copy the one a run of the same world
-that never failed makes (except STATE-MACHINES F7).
+that never failed makes.
 """
 
 from __future__ import annotations
@@ -70,22 +70,6 @@ EXIT_FOR = {
     "kill": None,
     "kill_after": None,
 }
-
-
-def _lost_cross_leg_reply(key, expected, got) -> bool:
-    """A post whose reply to a comment F7 lost: sent flat, nothing else differs.
-
-    Without a reply to carry, a post the oracle reuploaded is forwarded as
-    itself, so its copy is either that bare forward or the oracle's own body.
-    """
-    return (
-        key[0] == "channel"
-        and expected[2] is not None
-        and expected[2][0] == "group"
-        and got[2] is None
-        and got[3] is None
-        and (got[:2] == ("ForwardMessagesRequest", None) or got[:2] == expected[:2])
-    )
 
 
 class CloneSyncFaultMachine(RuleBasedStateMachine):
@@ -222,15 +206,7 @@ class CloneSyncFaultMachine(RuleBasedStateMachine):
         }
         # No fault leaves a lasting mark: every copy is the one a run that
         # never failed makes, down to its body and where its reply points.
-        # One known exception (STATE-MACHINES F7, open): a resumed run starts
-        # with a posts window, so a post replying to a comment the cut-short
-        # run had not copied yet goes out flat instead of quoting it.
-        got = clone_faults.shape(self.client, self._recorded())
-        assert got.keys() == self.oracle.keys()
-        for key, expected in self.oracle.items():
-            if got[key] != expected and _lost_cross_leg_reply(key, expected, got[key]):
-                continue
-            assert got[key] == expected, key
+        assert clone_faults.shape(self.client, self._recorded()) == self.oracle
 
     @invariant()
     def state_maps_what_telegram_made(self):
