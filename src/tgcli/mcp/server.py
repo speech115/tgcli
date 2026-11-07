@@ -22,7 +22,7 @@ from importlib import metadata
 from typing import IO, Any
 
 from tgcli.mcp import untrusted
-from tgcli.mcp.tools import TOOLS, Allowlist, ToolError
+from tgcli.mcp.tools import DIALOGS, TOOLS, Allowlist, ToolError
 
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 DEFAULT_TIMEOUT = 120.0
@@ -136,7 +136,7 @@ class Server:
             document = json.loads(stdout)
         except ValueError:
             return _tool_error("BAD_OUTPUT", f"tg exited {code} without JSON")
-        if tool.name == "telegram_dialogs" and isinstance(document, dict):
+        if tool is DIALOGS:
             document = self._filter_dialogs(document)
         wrapped, report = untrusted.wrap(document)
         if isinstance(wrapped, dict):
@@ -152,9 +152,11 @@ class Server:
             "isError": code != 0,
         }
 
-    def _filter_dialogs(self, document: dict[str, Any]) -> dict[str, Any]:
+    def _filter_dialogs(self, document: Any) -> Any:
+        if self.allowlist.allow_all or not isinstance(document, dict):
+            return document
         rows = document.get("dialogs")
-        if self.allowlist.allow_all or not isinstance(rows, list):
+        if not isinstance(rows, list):
             return document
         kept = [r for r in rows if isinstance(r, dict) and self.allowlist.allows_row(r)]
         return {

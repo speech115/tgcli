@@ -260,6 +260,7 @@ def test_protocol_errors():
         ("https://t.me/c/1234/56", {"1234"}),
         ("-1001234", {"-1001234", "1234"}),
         ("-42", {"-42", "42"}),
+        ("-1234", {"-1234", "1234"}),
         ("1234", {"1234"}),
         ("--commit", set()),
         ("a b", set()),
@@ -324,3 +325,28 @@ def test_real_tg_process_end_to_end(tmp_path, monkeypatch):
     payload = _payload(reply)
     assert payload["error"]["code"] == "CONFIG"
     assert payload["exit_code"] == 3
+
+
+def test_main_serves_with_an_allowlist(monkeypatch):
+    monkeypatch.setattr(
+        mcp_server.sys,
+        "stdin",
+        io.StringIO('{"jsonrpc": "2.0", "id": 1, "method": "ping"}\n'),
+    )
+    out = io.StringIO()
+    monkeypatch.setattr(mcp_server.sys, "stdout", out)
+
+    assert mcp_server.main(["--allow-chat", "@news"]) == 0
+    assert json.loads(out.getvalue())["result"] == {}
+
+
+def test_main_refuses_a_bad_allowlist_entry(capsys):
+    with pytest.raises(SystemExit):
+        mcp_server.main(["--allow-chat", "not a chat"])
+    assert "not a chat reference" in capsys.readouterr().err
+
+
+def test_dialogs_with_an_unexpected_document_pass_through():
+    fake = FakeTg(document=["odd"])
+    [reply] = _session(_server(fake, "@news"), _call("telegram_dialogs", {}))
+    assert _payload(reply)["result"] == ["odd"]
