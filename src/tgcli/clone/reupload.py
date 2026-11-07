@@ -91,11 +91,28 @@ def _plain_video(attributes) -> bool:
     )
 
 
+# Telegram takes an uploaded photo's format from its file name and refuses one
+# without an image extension (PHOTO_EXT_INVALID). Telegram serves photos as JPEG.
+PHOTO_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+
+
+def upload_name(message, path) -> str:
+    """The file name the upload declares: the cache file's, except that a photo
+    streamed to the extensionless ``src-<id>`` cache name gets ``.jpg``."""
+    path = Path(path)
+    if isinstance(message.media, types.MessageMediaPhoto) and (
+        path.suffix.lower() not in PHOTO_EXTENSIONS
+    ):
+        return f"{path.stem}.jpg"
+    return path.name
+
+
 async def uploaded_media(tg, message, path, progress=None):
     input_file = await upload_parts(
         tg,
         path,
         parallel=CLONE_TRANSFER_PARALLEL,
+        file_name=upload_name(message, path),
         progress=clone_progress.transfer_of(progress, message, "upload"),
     )
     # A blur the source put on purpose is content: dropping it publishes the
@@ -137,6 +154,21 @@ def complete_marker(target: Path) -> Path:
     upload as if it were the real media (ADR-0052 cache survives runs).
     """
     return target.with_name(f"{target.name}.done")
+
+
+def completed_download(target: Path) -> Path | None:
+    """The finished download for ``target``, or None.
+
+    The marker names the file when Telethon chose it (a one-chunk download
+    gets an extension); an empty marker means ``target`` itself.
+    """
+    try:
+        name = complete_marker(target).read_text().strip()
+    except OSError:
+        return None
+    if not name or Path(name).name != name:
+        return target
+    return target.with_name(name)
 
 
 def download_checkpoint(part: Path) -> Path:
@@ -189,15 +221,20 @@ async def download_for_reupload(
     target = workdir / f"src-{message.id}"
     marker = complete_marker(target)
     size = media_byte_size(message)
+    cached = completed_download(target)
     if (
         size is not None
-        and marker.is_file()
-        and target.is_file()
-        and target.stat().st_size == size
+        and cached is not None
+        and cached.is_file()
+        and cached.stat().st_size == size
     ):
-        return target
+        return cached
     # Stale name/size (or unpredictable size): drop before re-download so the
-    # partial file and download_media see a free path.
+    # partial file and download_media see a free path. Telethon never
+    # overwrites: a file left at its name sends the next download to
+    # `src-<id> (1).jpg`.
+    if cached is not None:
+        cached.unlink(missing_ok=True)
     target.unlink(missing_ok=True)
     marker.unlink(missing_ok=True)
     if size is not None and size > CHUNK_SIZE:
@@ -236,6 +273,7 @@ async def download_for_reupload(
     if downloaded is None:
         raise PolicyError(f"clone media download failed at source message {message.id}")
     path = Path(downloaded)
-    if path == target:
-        marker.touch()
+    if path.parent == target.parent:
+        # Telethon picks the name (`src-<id>.jpg`): the marker records it.
+        atomic.replace_text(marker, "" if path == target else path.name)
     return path
