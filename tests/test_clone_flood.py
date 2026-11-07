@@ -3,8 +3,8 @@
 The per-account flood record moved from one JSON file under `clones/` to
 the governor's SQLite ledger (ADR-0072 decision 4, plan phase 6). These
 tests pin the ledger's contract: roundtrip, expiry, read-time clamping,
-fail-open reads, and that the latest arm wins (a fresh 420 supersedes an
-older one, matching Telegram's own in-process record).
+fail-open reads, and that the later end wins (a short 420 never shortens a
+live penalty, STATE-MACHINES F5).
 """
 
 from datetime import UTC, datetime, timedelta
@@ -50,19 +50,23 @@ def test_a_corrupt_ledger_fails_open(tmp_path):
         assert store.cooldown_deadline(ACCOUNT, "messages.GetHistoryRequest") is None
 
 
-def test_arm_overwrites_with_the_latest_deadline(ledger):
-    """The ledger records what the server said last: latest arm wins.
+def test_arm_keeps_the_later_deadline(ledger):
+    """A shorter 420 never shortens a live penalty; a longer one extends it.
 
-    The ADR-0045 JSON record kept the later of two deadlines; the governor
-    ledger deliberately does not — a fresh 420 supersedes an older one,
-    matching how Telegram's own `_flood_waited_requests` behaves.
+    The key carries no peer, so the shorter flood may come from another chat
+    while the longer penalty is still running (STATE-MACHINES F5).
     """
     longer = datetime.now(UTC) + timedelta(minutes=30)
     shorter = datetime.now(UTC) + timedelta(minutes=5)
     ledger.arm_cooldown(ACCOUNT, "messages.GetHistoryRequest", longer)
     ledger.arm_cooldown(ACCOUNT, "messages.GetHistoryRequest", shorter)
 
-    assert ledger.cooldown_deadline(ACCOUNT, "messages.GetHistoryRequest") == shorter
+    assert ledger.cooldown_deadline(ACCOUNT, "messages.GetHistoryRequest") == longer
+
+    longest = datetime.now(UTC) + timedelta(hours=2)
+    ledger.arm_cooldown(ACCOUNT, "messages.GetHistoryRequest", longest)
+
+    assert ledger.cooldown_deadline(ACCOUNT, "messages.GetHistoryRequest") == longest
 
 
 def test_absurd_future_deadline_is_clamped_on_read(ledger):

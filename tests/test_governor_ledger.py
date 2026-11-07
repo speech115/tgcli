@@ -164,12 +164,27 @@ def test_no_record_refuses_past_its_cap_after_arming(ledger):
     assert not ledger.cooled_since(ACCOUNT, HISTORY, later)
 
 
+def test_a_short_flood_in_another_process_keeps_a_long_cooldown(tmp_path):
+    """F5: process A recorded an hour on chat A; process B then drew 5 s on
+    chat B. The key has no peer, so B's arm must not shorten A's penalty."""
+    path = tmp_path / "governor.db"
+    now = datetime.now(UTC)
+    with Ledger.open(path) as first, Ledger.open(path) as second:
+        first.arm_cooldown(ACCOUNT, HISTORY, now + timedelta(hours=1), now=now)
+        second.arm_cooldown(ACCOUNT, HISTORY, now + timedelta(seconds=5), now=now)
+
+    with Ledger.open(path) as third:
+        assert third.cooldown_deadline(ACCOUNT, HISTORY, now=now) == now + timedelta(
+            hours=1
+        )
+
+
 class LedgerMachine(RuleBasedStateMachine):
     """STATE-MACHINES §7 over the public ledger API, with a fake clock.
 
-    Model: the latest arm wins, and a row ends at
-    `min(deadline, armed_at + MAX_COOLDOWN_S)`. Both readers must agree with
-    that end at every moment (G3, F2).
+    Model: a row ends at `min(deadline, armed_at + MAX_COOLDOWN_S)`, and an
+    arm keeps whichever end is later. Both readers must agree with that end
+    at every moment (G2, G3, F2, F5).
     """
 
     def __init__(self):
@@ -183,7 +198,8 @@ class LedgerMachine(RuleBasedStateMachine):
     def arm(self, seconds):
         deadline = self.now + timedelta(seconds=seconds)
         assert self.ledger.arm_cooldown(ACCOUNT, HISTORY, deadline, now=self.now)
-        self.end = min(deadline, self.now + timedelta(seconds=MAX_COOLDOWN_S))
+        end = min(deadline, self.now + timedelta(seconds=MAX_COOLDOWN_S))
+        self.end = end if self.end is None else max(self.end, end)
 
     @rule(seconds=st.integers(min_value=0, max_value=2 * MAX_COOLDOWN_S))
     def advance(self, seconds):

@@ -11,8 +11,10 @@ that type locally instead of sending into a live penalty.
 * **A row ends at ``min(deadline, armed_at + MAX_COOLDOWN_S)``**, and every
   reader uses that end, so no record refuses for more than a day after it
   was armed, however far ahead its deadline says.
-* **The latest arm wins**, as in Telethon's own per-process memory: a fresh
-  420 replaces the stored deadline.
+* **The later end wins.** The key has no peer, so a short FloodWait one
+  process draws on chat B must not shorten a long penalty another process
+  recorded on chat A: arming reads the stored end and writes inside one
+  ``BEGIN IMMEDIATE`` transaction, and keeps whichever row ends later.
 """
 
 from __future__ import annotations
@@ -150,20 +152,39 @@ class Ledger:
         *,
         now: datetime | None = None,
     ) -> bool:
-        """Record a server-confirmed deadline; ``False`` when it cannot land."""
+        """Record a server-confirmed deadline; ``False`` when it cannot land.
+
+        A stored row that ends later than this one stays: the read and the
+        write share one ``BEGIN IMMEDIATE`` transaction, so two processes
+        arming at once cannot both read the old row.
+        """
         moment = datetime.now(UTC) if now is None else now
         aware = deadline.astimezone(UTC)
+        end = min(aware, moment + timedelta(seconds=MAX_COOLDOWN_S))
         try:
-            self._db.execute(
-                "INSERT INTO cooldowns "
-                "(account_user_id, request_key, deadline, armed_at) "
-                "VALUES (?, ?, ?, ?) "
-                "ON CONFLICT(account_user_id, request_key) DO UPDATE SET "
-                "deadline = excluded.deadline, armed_at = excluded.armed_at",
-                (account_user_id, request_key, aware.isoformat(), moment.isoformat()),
-            )
+            if not self._db.in_transaction:
+                self._db.execute("BEGIN IMMEDIATE")
+            stored = self._end(account_user_id, request_key)
+            if stored is None or stored <= end:
+                self._db.execute(
+                    "INSERT INTO cooldowns "
+                    "(account_user_id, request_key, deadline, armed_at) "
+                    "VALUES (?, ?, ?, ?) "
+                    "ON CONFLICT(account_user_id, request_key) DO UPDATE SET "
+                    "deadline = excluded.deadline, armed_at = excluded.armed_at",
+                    (
+                        account_user_id,
+                        request_key,
+                        aware.isoformat(),
+                        moment.isoformat(),
+                    ),
+                )
             self._db.commit()
         except sqlite3.Error:
+            try:
+                self._db.rollback()
+            except sqlite3.Error:
+                pass
             return False
         return True
 

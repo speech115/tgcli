@@ -231,7 +231,7 @@ A row ends at `min(deadline, armed_at + 24 h)`, and both readers
 | From | Event | To |
 |---|---|---|
 | free | FloodWait N on this type | cooling until now + N |
-| cooling | FloodWait M on this type (another process, another peer) | cooling until now + M, even when that is earlier (F5) |
+| cooling | FloodWait M on this type (another process, another peer) | cooling until the later of the two ends (F5) |
 | cooling | request of this type, wait fits `--max-runtime` | sleeps, then sends |
 | cooling | request of this type, wait does not fit | refused locally, exit 5, no RPC |
 | cooling | effective end passes | slow start |
@@ -241,8 +241,8 @@ Invariants:
 
 - **G1.** No request of a cooling type leaves the process.
 - **G2.** A cooldown never ends earlier than the longest live penalty any
-  process recorded for its type. Violated today by design: the latest arm
-  wins (F5, awaiting the owner's call).
+  process recorded for its type. `arm_cooldown` reads the stored end and
+  writes inside one `BEGIN IMMEDIATE` transaction and keeps the later row.
 - **G3.** No record refuses for more than 24 h after it was armed.
 - A ledger that cannot open degrades to memory and warns; Telethon's own
   per-process memory still refuses the type for that run (ADR-0090).
@@ -390,15 +390,17 @@ makes rows exhausted under its cap terminal.
 Tests: `tests/test_archive_sync_state_writes.py::test_a_catchup_flood_keeps_a_finished_backfill_finished`,
 `tests/test_archive_phase4.py::test_transcribe_row_exhausted_under_a_lower_cap_becomes_terminal`.
 
-### F5. A short flood can shrink a live governor cooldown — owner's call
+### F5. A short flood can shrink a live governor cooldown — fixed
 
-Machine §7, concurrency. `arm_cooldown` overwrites the deadline ("latest arm
-wins", pinned by `tests/test_clone_flood.py::test_arm_overwrites_with_the_latest_deadline`).
-The key deliberately excludes the peer, so a 5 s FloodWait one process draws
-on chat B (another role) replaces a 1 h penalty another process recorded on
-chat A, and the next process sends into chat A's live penalty. Proven with
-two ledger connections on one file. Keeping the later end is a behavior
-change, so it waits for the owner.
+Machine §7, concurrency. `arm_cooldown` overwrote the deadline ("latest arm
+wins"). The key deliberately excludes the peer, so a 5 s FloodWait one
+process drew on chat B (another role) replaced a 1 h penalty another process
+recorded on chat A, and the next process sent into chat A's live penalty.
+Proven with two ledger connections on one file. The owner chose to keep the
+later end (2026-11-07): arming now reads and writes inside one
+`BEGIN IMMEDIATE` transaction and leaves a row that ends later in place.
+Regression: `tests/test_governor_ledger.py::test_a_short_flood_in_another_process_keeps_a_long_cooldown`
+and `LedgerMachine`.
 
 ### Checked and holding
 
