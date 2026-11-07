@@ -419,6 +419,21 @@ names both classes, the transient and run-aborting families include it, and
 Tests: every `TRANSIENT_ERRORS` case in `tests/conftest.py` (`premium-flood`),
 `tests/test_cli_archive_phase3.py::test_sync_media_rate_limit_still_advances_the_changes_cursor[premium-flood]`.
 
+### F7. A resumed sync can flatten a post's reply to a comment — open
+
+Machine §5, retry. The legs interleave in windows (ADR-0051): posts, then the
+comments the posts copied so far unlock. A post that replies to a comment
+keeps its reply only if the comments leg copied that comment first. Every
+run starts with a posts window, so when a run stops after a posts window but
+before the comments leg catches up (a flood, a 5xx, a kill, `--limit`,
+`--max-runtime`), the next run copies the following posts first and a post
+replying to one of those comments goes out flat (counted in
+`reply_flattened`). An uninterrupted run of the same source keeps the reply.
+Nothing is duplicated or lost, only that reply's link. Found by
+`CloneSyncFaultMachine`, which tolerates exactly this difference until a fix
+is chosen (for example, the posts leg deferring a post whose parent comment
+is not copied yet, as the comments leg defers a comment whose post is not).
+
 ### Checked and holding
 
 - A clone sync cut short anywhere, then resumed (`tests/test_clone_sync_faults.py`,
@@ -430,8 +445,8 @@ Tests: every `TRANSIENT_ERRORS` case in `tests/conftest.py` (`premium-flood`),
   passes an unmapped message (L1); an unrecorded copy makes every later run
   refuse before copying (L2) until the owner repairs the tail; and once the
   faults stop one run finishes the clone, every copy identical in body and
-  reply target to a run that never failed. 3,000 generated worlds of up to
-  ten runs each held.
+  reply target to a run that never failed (except F7). 3,000 generated
+  worlds of up to ten runs each held.
 
 - Concurrent `--commit` of one preview (flock + inode check).
 - Crash between a clone batch send and its save (tail verification, L2).
