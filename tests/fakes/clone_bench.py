@@ -169,6 +169,14 @@ class BenchClient(CloneCommentsClient):
     def _count(self, name: str) -> None:
         self.calls[name] += 1
 
+    async def get_me(self):
+        self._count("get_me")
+        return await super().get_me()
+
+    async def get_input_entity(self, ref):
+        self._count("get_input_entity")
+        return await super().get_input_entity(ref)
+
     async def get_entity(self, ref):
         self._count("get_entity")
         return await super().get_entity(ref)
@@ -358,8 +366,17 @@ SYNC_FIELDS = (
 )
 
 
-def run(scenario: Scenario, *, clock: Callable[[], float] = time.perf_counter):
-    """Sync ``scenario`` phase by phase; one report row per phase."""
+def run(
+    scenario: Scenario,
+    *,
+    clock: Callable[[], float] = time.perf_counter,
+    edit: Callable[[Source], None] | None = None,
+):
+    """Sync ``scenario`` phase by phase; one report row per phase.
+
+    ``edit`` reshapes the source after each phase's posts are added, so a
+    test can plant a message the fixed mix lacks.
+    """
     source = Source()
     client = BenchClient(source, protected=scenario.protected)
     if not scenario.comments:
@@ -372,6 +389,8 @@ def run(scenario: Scenario, *, clock: Callable[[], float] = time.perf_counter):
             group_before = len(source.group)
             source.add_posts(next_id, phase.new_posts, protected=scenario.protected)
             next_id += phase.new_posts
+            if edit is not None:
+                edit(source)
             client.messages[:] = source.posts
             if scenario.comments:
                 client.comments.extend(source.group[group_before:])

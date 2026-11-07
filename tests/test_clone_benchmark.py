@@ -5,6 +5,7 @@
 """
 
 import pytest
+from telethon.tl import types
 
 from tests.fakes import clone_bench
 
@@ -62,35 +63,39 @@ def test_drift_names_each_changed_value():
     assert clone_bench.drift(old, old) == []
 
 
-def test_a_skipped_post_is_reported_missing(monkeypatch):
+def test_a_skipped_post_is_reported_missing():
     """Completeness reads what the destination received, so a post the sync
     passes over without sending shows up even though the run exits 0."""
-    from tgcli.clone import fidelity
 
-    real = fidelity.unsupported_kind
-    monkeypatch.setattr(
-        fidelity,
-        "unsupported_kind",
-        lambda message: "bench" if message.id == 11 else real(message),
-    )
-    [row] = clone_bench.run(clone_bench.SCENARIOS[1])["phases"]
+    def plant_geo(source: clone_bench.Source) -> None:
+        post = next(item for item in source.posts if item.id == 11)
+        post.media = types.MessageMediaGeo(geo=types.GeoPointEmpty())
+
+    [row] = clone_bench.run(clone_bench.SCENARIOS[1], edit=plant_geo)["phases"]
 
     assert row["exit"] == 0
+    assert row["sync"]["copied"] == row["completeness"]["expected"] - 1
     assert row["completeness"]["missing"] == ["post:11"]
 
 
-def test_more_round_trips_show_as_drift(monkeypatch, baseline):
-    """A smaller comments window costs more history reads; the benchmark
-    names the request types that moved."""
-    from tgcli.clone import legs
-
-    monkeypatch.setattr(legs, "WINDOW", 10)
-    report = clone_bench.run(clone_bench.SCENARIOS[0])
+def test_a_longer_history_shows_as_drift(baseline):
+    """More history costs more pages; the benchmark names the request types
+    that moved against the baseline."""
+    longer = clone_bench.Scenario(
+        "protected-reupload",
+        protected=True,
+        comments=False,
+        phases=(clone_bench.Phase("initial", 220),),
+    )
+    report = clone_bench.run(longer)
     drift = clone_bench.drift(
-        [baseline[report["scenario"]]], [clone_bench.deterministic(report)]
+        [baseline[longer.name]], [clone_bench.deterministic(report)]
     )
 
-    assert any("GetHistoryRequest" in line for line in drift), drift
+    assert any(
+        line.startswith("protected-reupload/initial requests.GetHistory")
+        for line in drift
+    ), drift
 
 
 def test_runs_are_deterministic():
