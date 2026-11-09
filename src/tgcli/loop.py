@@ -20,13 +20,24 @@ def run[T](coro: Coroutine[Any, Any, T]) -> T:
     """Run `coro` to completion and return its result."""
     if _loop is None:
         return asyncio.run(coro)
-    future = asyncio.run_coroutine_threadsafe(coro, _loop)
+    started: list[asyncio.Task] = []
+
+    async def step() -> T:
+        task = asyncio.current_task()
+        if task is not None:
+            started.append(task)
+        return await coro
+
+    future = asyncio.run_coroutine_threadsafe(step(), _loop)
     try:
         return future.result()
     except BaseException:
         # A deadline signal or a kill landed while waiting: the coroutine must
-        # not outlive the step that started it.
+        # not outlive the step that started it, so cancel it and, as
+        # asyncio.run would, wait until its cleanup has run.
         future.cancel()
+        if started:
+            asyncio.run_coroutine_threadsafe(asyncio.wait(started), _loop).result()
         raise
 
 

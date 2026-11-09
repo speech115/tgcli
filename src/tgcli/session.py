@@ -389,6 +389,9 @@ async def hold(account: Account, *, role: str | None = None):
 async def _reuse(tg: TelegramClient, label: str, *, mutation_safe: bool):
     if not tg.is_connected():
         await tg.connect()
+    # A fresh client per command used to drop whatever a command installed on
+    # it (`tg run`'s write gate wraps `_call`); the held one must give it back.
+    call = vars(tg).get("_call")
     # A held client is built for reads; a mutation is never retried blind.
     retries = tg._request_retries
     if mutation_safe:
@@ -401,6 +404,10 @@ async def _reuse(tg: TelegramClient, label: str, *, mutation_safe: bool):
         ) from exc
     finally:
         tg._request_retries = retries
+        if call is None:
+            vars(tg).pop("_call", None)
+        else:
+            tg._call = call
 
 
 @asynccontextmanager

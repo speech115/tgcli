@@ -898,6 +898,25 @@ FloodWait exits 5 as in §4. `sys.exit(0)` ends a script normally; any other
 status exits 1. The default `--timeout` (60 s, a hang detector) applies; pass
 a larger one for long scripts.
 
+## 6.1 Held Session (`tg-serve`; ADR-0124)
+
+```
+tg-serve [--account ALIAS] [--session-role NAME]
+```
+
+A second console script for programs that run many commands in a row. It
+holds one session (the file stays locked while it runs) and reads one JSON
+request per line on stdin: `{"argv": [...], "stdin": "..."}`, where `argv` is a
+`tg` command without `--account`/`--session-role` (refused) and `stdin` is what
+that command reads from stdin. Each request runs as a full `tg … --json`
+invocation, so everything in this contract applies to it unchanged; the reply
+line is `{"exit_code": N, "stdout": "...", "stderr": "..."}` with exactly what
+that invocation printed. The first line the server writes is
+`{"ready": true, "account": ..., "role": ...}`, or the error envelope and
+its §4 exit code when the session cannot be opened. A malformed request gets exit
+1 and a `USAGE` error. Closing stdin ends the server. Protocol details:
+[SERVE.md](SERVE.md).
+
 ## 7. Export (phase 5)
 
 ```

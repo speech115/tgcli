@@ -4,6 +4,7 @@ import asyncio
 import datetime as dt
 import io
 import json
+import threading
 
 import pytest
 from telethon import errors as telethon_errors
@@ -223,3 +224,50 @@ def test_failed_start_answers_on_stdout_with_the_contract_error(
     error = json.loads(capsys.readouterr().out)["error"]
     assert code == 3 and error["code"] == "CONFIG"
     assert "not authorized" in error["message"]
+
+
+def test_what_a_command_installs_on_the_client_ends_with_it(env, monkeypatch):
+    client = ConnectingClient(dialogs=[dialog("Alice", 1)])
+    install(monkeypatch, client)
+    calls = []
+    original = serve.handle
+
+    def handle(line, prefix, parser):
+        reply = original(line, prefix, parser)
+        calls.append(client._call)
+        return reply
+
+    monkeypatch.setattr(serve, "handle", handle)
+
+    _, replies = run_serve(
+        [{"argv": ["dialogs"]}, {"argv": ["run", "-"], "stdin": "x = 1\n"}]
+    )
+
+    assert [r["exit_code"] for r in replies[1:]] == [0, 0]
+    assert calls[1] is calls[0], "tg run's read-only gate did not stay on the client"
+
+
+def test_a_timed_out_step_finishes_its_cleanup_before_the_next_starts(monkeypatch):
+    from tgcli import cli, loop
+    from tgcli.errors import CommandTimeoutError
+
+    monkeypatch.setattr(cli, "DEADLINE_GRACE", 0.01)
+    cleaned = []
+
+    async def slow():
+        try:
+            await asyncio.sleep(30)
+        finally:
+            await asyncio.sleep(0.05)
+            cleaned.append(True)
+
+    event_loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=event_loop.run_forever, daemon=True)
+    thread.start()
+    try:
+        with loop.running_on(event_loop), pytest.raises(CommandTimeoutError):
+            cli._run_with_deadline(slow(), 0.05)
+        assert cleaned == [True]
+    finally:
+        event_loop.call_soon_threadsafe(event_loop.stop)
+        thread.join(5)

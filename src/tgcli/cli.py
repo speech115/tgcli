@@ -233,6 +233,9 @@ def _run_with_deadline(coro, timeout):
                         # timing out in the grace window) is the deadline too.
                         raise _DeadlineExpired from None
                 task.cancel()
+                # Let its `finally` blocks run before the next step does:
+                # asyncio.run waited for them, a held loop (tg-serve) would not.
+                await asyncio.wait({task})
                 raise _DeadlineExpired
             done, _ = await asyncio.wait({task}, timeout=remaining)
             if done:
