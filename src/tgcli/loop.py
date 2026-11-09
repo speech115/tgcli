@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import Coroutine, Generator
-from typing import Any
+from typing import Any, cast
 
 _loop: asyncio.AbstractEventLoop | None = None
 
@@ -23,9 +23,8 @@ def run[T](coro: Coroutine[Any, Any, T]) -> T:
     started: list[asyncio.Task] = []
 
     async def step() -> T:
-        task = asyncio.current_task()
-        if task is not None:
-            started.append(task)
+        # Inside run_coroutine_threadsafe there is always a current task.
+        started.append(cast(asyncio.Task, asyncio.current_task()))
         return await coro
 
     future = asyncio.run_coroutine_threadsafe(step(), _loop)
