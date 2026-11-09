@@ -13,6 +13,7 @@ from collections.abc import Callable
 from telethon import errors as telethon_errors
 
 from tgcli.output import note, sanitize
+from tgcli.session import FLOOD_ERRORS
 
 MEGABYTE = 1024 * 1024
 # A transfer line every ~5 MB: frequent enough that a large file never looks
@@ -28,7 +29,7 @@ async def approximate_total(tg, entity) -> int | None:
     """
     try:
         return (await tg.get_messages(entity, limit=0)).total
-    except telethon_errors.FloodWaitError:
+    except FLOOD_ERRORS:
         raise
     except (telethon_errors.RPCError, AttributeError, ValueError):
         return None

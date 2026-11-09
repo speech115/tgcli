@@ -22,7 +22,7 @@ from tgcli.commands import media as media_cmd
 from tgcli.commands.read import message_to_dict
 from tgcli.errors import PolicyError, RateLimitError
 from tgcli.output import note
-from tgcli.session import RUN_ABORTING_ERRORS
+from tgcli.session import FLOOD_ERRORS, RUN_ABORTING_ERRORS
 from tgcli.transfer import DownloadBusyError
 
 CATCHUP_LIMIT = 50
@@ -182,7 +182,7 @@ async def _catch_up_peer(
                 store_mod.upsert_message(conn, peer_id, payload)
             stored += 1
             ids.append(int(payload["id"]))
-    except telethon_errors.FloodWaitError as exc:
+    except FLOOD_ERRORS as exc:
         seconds = int(exc.seconds)
         with conn:
             store_mod.upsert_sync_state(
@@ -349,7 +349,7 @@ async def fetch_media(
                     media_kind=media_kind,
                 )
             downloaded += 1
-        except telethon_errors.FloodWaitError as exc:
+        except FLOOD_ERRORS as exc:
             seconds = int(exc.seconds)
             raise RateLimitError(
                 f"rate limited during archive media fetch of {message_id}",

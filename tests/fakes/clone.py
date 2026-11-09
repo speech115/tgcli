@@ -220,6 +220,18 @@ class CloneSyncClient:
         return SimpleNamespace(updates=updates)
 
 
+# Telegram refuses an uploaded photo whose file name lacks an image extension
+# (PHOTO_EXT_INVALID); the name comes from the InputFile, not the bytes.
+PHOTO_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+
+
+def refuse_unnamed_photo(media) -> None:
+    if isinstance(media, types.InputMediaUploadedPhoto) and not str(
+        media.file.name
+    ).lower().endswith(PHOTO_EXTENSIONS):
+        raise telethon_errors.PhotoExtInvalidError(request=None)
+
+
 class CloneReuploadClient(CloneSyncClient):
     def __init__(self, messages, *, protected=False):
         super().__init__(messages)
@@ -276,6 +288,7 @@ class CloneReuploadClient(CloneSyncClient):
                 functions.messages.SendMediaRequest,
             ),
         ):
+            refuse_unnamed_photo(getattr(request, "media", None))
             self.requests.append(request)
             self.destination_last_id += 1
             return SimpleNamespace(
@@ -286,6 +299,7 @@ class CloneReuploadClient(CloneSyncClient):
                 ]
             )
         if isinstance(request, functions.messages.UploadMediaRequest):
+            refuse_unnamed_photo(request.media)
             self.requests.append(request)
             index = len(
                 [

@@ -23,7 +23,7 @@ selected account session, does one operation, and exits.
 | 2 | blocked by safety policy |
 | 3 | config or authentication error |
 | 4 | not found |
-| 5 | rate limited; JSON error includes `retry_after` |
+| 5 | rate limited (`FLOOD_WAIT`, or `FLOOD_PREMIUM_WAIT`, the non-Premium transfer speed limit); JSON error includes `retry_after` |
 
 - One process uses an account session at a time. A command whose session is
   busy waits up to 120 s for it (a stderr note says so), then exits 3; do not

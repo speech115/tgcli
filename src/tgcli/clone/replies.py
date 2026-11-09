@@ -80,6 +80,7 @@ def _classify_header(
     *,
     posts_cursor: int | None = None,
     posts_exhausted: bool = False,
+    comments_stalled: bool = True,
 ) -> Classification | None:
     if header is None:
         return None
@@ -138,6 +139,15 @@ def _classify_header(
                 and not posts_exhausted
             ):
                 return result("deferred")
+            # Posts leg, the mirror (STATE-MACHINES F7): a comment beyond the
+            # discussion cursor is not copied yet, so the post waits for the
+            # comments leg, unless that leg stalled (it will not get there).
+            if (
+                leg.kind == "posts"
+                and parent_id > leg.other.cursor
+                and not comments_stalled
+            ):
+                return result("deferred")
             return result("flatten")
         return result("foreign-peer")
     if header.forum_topic:
@@ -160,6 +170,7 @@ def target(
     *,
     posts_cursor: int | None = None,
     posts_exhausted: bool = False,
+    comments_stalled: bool = True,
 ) -> Classification | None:
     classifications = [
         _classify_header(
@@ -168,6 +179,7 @@ def target(
             source,
             posts_cursor=posts_cursor,
             posts_exhausted=posts_exhausted,
+            comments_stalled=comments_stalled,
         )
         for message in messages
     ]

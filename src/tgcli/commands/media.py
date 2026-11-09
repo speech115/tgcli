@@ -25,7 +25,7 @@ from tgcli.errors import (
     TgcliError,
 )
 from tgcli.output import note
-from tgcli.session import ensure_parent_dir, state_dir
+from tgcli.session import FLOOD_ERRORS, ensure_parent_dir, state_dir
 from tgcli.transfer import (
     checkpoint_lock,
     download_resumable,
@@ -719,7 +719,7 @@ async def download_media_bulk(
             hard_error = exc
             failed.append({"message_id": source.message_id, "error": str(exc)})
             break
-        except telethon_errors.FloodWaitError as exc:
+        except FLOOD_ERRORS as exc:
             hard_error = exc
             failed.append({"message_id": source.message_id, "error": str(exc)})
             break
@@ -738,7 +738,7 @@ async def download_media_bulk(
         "skipped": skipped,
     }
     if failed or hard_error is not None:
-        if isinstance(hard_error, telethon_errors.FloodWaitError):
+        if isinstance(hard_error, FLOOD_ERRORS):
             cause = RateLimitError(
                 f"rate limited for {hard_error.seconds}s",
                 retry_after=hard_error.seconds,

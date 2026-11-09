@@ -192,7 +192,10 @@ def test_collect_defers_discussion_when_entity_resolve_fails_transiently(
     assert result["discussion"]["status"] == "deferred"
     assert result["discussion"]["reason"] == (
         "flood_wait"
-        if isinstance(error, telethon_errors.FloodWaitError)
+        if isinstance(
+            error,
+            (telethon_errors.FloodWaitError, telethon_errors.FloodPremiumWaitError),
+        )
         else type(error).__name__
     )
     # a roster flood must not arm the per-clone cooldown (ADR-0024)
