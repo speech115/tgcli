@@ -396,10 +396,16 @@ def ns(**kwargs) -> SimpleNamespace:
 
 # "Ask again later", never "Telegram refused": one of each family the client
 # boundary surfaces (session.TRANSIENT_ERRORS). Factories, so each test gets a
-# fresh error; FloodWait is exit 5, the others are an untranslated exit 1.
+# fresh error; a flood of either kind is exit 5, the others an untranslated 1.
 TRANSIENT_ERRORS = [
     pytest.param(
         lambda: telethon_errors.FloodWaitError(request=None, capture=30), id="flood"
+    ),
+    # FLOOD_PREMIUM_WAIT_X: the download/upload speed limit a non-Premium
+    # account meets. Another 420, never a refusal of the item.
+    pytest.param(
+        lambda: telethon_errors.FloodPremiumWaitError(request=None, capture=30),
+        id="premium-flood",
     ),
     pytest.param(
         lambda: telethon_errors.ServerError(request=None, message="INTERNAL", code=500),
@@ -429,4 +435,5 @@ TRANSIENT_ERRORS = [
 
 
 def transient_exit_code(error: Exception) -> int:
-    return 5 if isinstance(error, telethon_errors.FloodWaitError) else 1
+    flood = (telethon_errors.FloodWaitError, telethon_errors.FloodPremiumWaitError)
+    return 5 if isinstance(error, flood) else 1

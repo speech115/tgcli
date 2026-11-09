@@ -21,6 +21,7 @@ from tgcli.clone import (
     pin,
     progress as clone_progress,
     quotes,
+    replies,
     resolve,
     roster,
     send as clone_send,
@@ -114,6 +115,14 @@ async def _sync_slot(
         source_entity.id, copied=len(clone_state.id_map)
     )
     posts_exhausted = False
+    # STATE-MACHINES F7: a post replying to a comment not copied yet waits for
+    # the comments leg (`posts_waiting`), unless that leg has stalled and will
+    # not reach it this run. A stall releases only the batch that waited
+    # (`release_waiting`): the posts after it may reply to comments that
+    # copying it unblocks.
+    posts_waiting = False
+    comments_stalled = clone_state.comments != "enabled"
+    release_waiting = False
 
     async def copy_batch(messages, leg: legs.AnyLeg, source, dest) -> None:
         nonlocal copied, copied_batches, reply_flattened
@@ -219,7 +228,7 @@ async def _sync_slot(
 
     async def run_posts_window(max_batches: int | None) -> int:
         """Copy up to max_batches posts (None = exhaust). Sets more on --limit."""
-        nonlocal more
+        nonlocal more, posts_waiting, release_waiting
         ran = 0
         async for event in batching.plan(
             tg.iter_messages(source_entity, min_id=posts_leg.cursor, reverse=True)
@@ -255,6 +264,15 @@ async def _sync_slot(
                 posts_leg.cursor = event.message_id
                 state.save(clone_state)
                 continue
+            if release_waiting:
+                release_waiting = False
+            elif not comments_stalled:
+                classified = replies.target(
+                    event.messages, posts_leg, source_entity, comments_stalled=False
+                )
+                if classified is not None and classified.kind == "deferred":
+                    posts_waiting = True
+                    break
             await copy_batch(event.messages, posts_leg, source_entity, destination)
             ran += 1
             if max_batches is not None and ran >= max_batches:
@@ -269,10 +287,12 @@ async def _sync_slot(
             # Each interleaved window re-announces its leg so the counters
             # belong to the leg that is running (ADR-0051 interleave, #174).
             progress.phase("posts", copied=len(clone_state.id_map))
+            posts_waiting = False
             ran = await run_posts_window(legs.WINDOW)
             if more or cap_exhausted():
                 break
-            posts_exhausted = ran < legs.WINDOW
+            posts_exhausted = ran < legs.WINDOW and not posts_waiting
+            discussion_before = clone_state.discussion_cursor
             progress.phase("comments", copied=len(clone_state.discussion_id_map))
             more = await comments.sync_phase(
                 tg,
@@ -291,8 +311,14 @@ async def _sync_slot(
             if clone_state.comments != "enabled":
                 # The group refused mid-run and comments degraded (ADR-0061):
                 # the remaining posts copy alone.
+                comments_stalled = True
                 await run_posts_window(None)
                 break
+            # A waiting post needs the comments leg to move. If this window
+            # did not move it, no later one will: the post goes out flat.
+            release_waiting = (
+                posts_waiting and clone_state.discussion_cursor == discussion_before
+            )
     else:
         await run_posts_window(None)
 
