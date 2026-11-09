@@ -165,6 +165,13 @@ For the entity-scoped shapes below (`read`, `search`, `transcribe`,
 `entity.id` — positive; the negative bot-API form appears only in
 `tg dialogs` output.
 
+For `read`, `search`, `message`, `latest`, `info` and `count`, a negative
+numeric chat reference is an exact marked peer id. After entity resolution,
+the command verifies that the resolved peer has that same marked id before
+fetching messages or returning peer data. A cache collision with another
+peer type is refused as `NOT_FOUND` (exit 4), not read. Positive bare ids
+retain the CLI's existing Telethon resolution; they are not type-specific.
+
 `tg read <chat> --json`:
 ```json
 {"dialog": {"id": 3817664407, "name": "Channel"},

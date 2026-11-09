@@ -31,25 +31,23 @@ class ToolError(Exception):
 
 
 def chat_keys(ref: str | int) -> set[str]:
-    """Every allowlist key a chat reference stands for; empty if unparseable.
+    """One canonical CLI reference, preserving the Telegram peer namespace.
 
-    ``@Name``, ``name`` and ``t.me/name`` all mean ``@name``. A numeric id
-    also stands for its bare entity id, so ``-1001234`` matches ``1234``
-    (``tg dialogs`` prints the bot-API form, other commands the entity id).
+    ``@Name``, ``name`` and ``t.me/name`` all mean ``@name``. Numeric ids
+    keep their mark; a private link becomes its channel's marked id, never
+    the bare entity id shared by users, basic groups and channels.
     """
     text = str(ref).strip()
     if _NUMERIC.match(text):
         number = int(text)
-        keys = {str(number)}
-        if number < 0:
-            bare = str(-number)
-            keys.add(bare[3:] if bare.startswith("100") and len(bare) > 3 else bare)
-        return keys
+        return {str(number)} if number else set()
     link = _LINK.match(text)
     if link:
         private, slug = link.groups()
         if private:
-            return {slug} if slug.isdigit() else set()
+            if not _NUMERIC.fullmatch(slug) or int(slug) <= 0:
+                return set()
+            return {str(-(1_000_000_000_000 + int(slug)))}
         text = slug
     username = _USERNAME.match(text)
     if username:
@@ -69,6 +67,11 @@ class Allowlist:
             parsed = chat_keys(entry)
             if not parsed:
                 raise ValueError(f"not a chat reference: {entry!r}")
+            if not allow_all and any(key.isdecimal() for key in parsed):
+                raise ValueError(
+                    "positive numeric chat ids are ambiguous; use @username, "
+                    "a negative dialog id, or a t.me/c/ID link"
+                )
             keys |= parsed
         return cls(frozenset(keys), allow_all)
 
@@ -166,9 +169,12 @@ def _check(args: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
 
 
 def _chat(values: dict[str, Any], allowlist: Allowlist) -> str:
-    chat = values["chat"].strip()
-    if not chat_keys(chat):
+    keys = chat_keys(values["chat"])
+    if not keys:
         raise ToolError("INVALID_ARGUMENTS", "chat is not a chat reference")
+    # Authorize the same unambiguous reference that the CLI will resolve.
+    # In particular, a bare "self" must not become the account-owner alias.
+    chat = next(iter(keys))
     if not allowlist.allows(chat):
         raise ToolError("CHAT_NOT_ALLOWED", f"chat {chat!r} is not on the allowlist")
     return chat
