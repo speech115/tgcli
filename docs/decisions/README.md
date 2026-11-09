@@ -13,7 +13,7 @@ git history keeps them.
 | ADR | Decision | Status |
 |-----|----------|--------|
 | [0001](ADR-0001-python-telethon.md) | Python 3.12 + Telethon, not Go/gotd, not TDLib-first | accepted |
-| [0002](ADR-0002-cli-first-stateless.md) | Stateless CLI core; no daemons; MCP is a v1 non-goal | accepted |
+| [0002](ADR-0002-cli-first-stateless.md) | Stateless CLI core; no daemons; MCP is a v1 non-goal | accepted; MCP allowed as a read-only stdio adapter by ADR-0123 |
 | [0003](ADR-0003-output-contract.md) | stdout=data, stderr=human, fixed exit codes | accepted |
 | [0004](ADR-0004-accounts-and-sessions.md) | SQLiteSession per account + file lock; import from old stack | accepted |
 | [0005](ADR-0005-safety-model.md) | Reads free; writes preview→commit + audit; runtime flags not baked profiles | accepted |
@@ -134,3 +134,4 @@ git history keeps them.
 | [0120](ADR-0120-process-reset.md) | Process reset: closed history, MAP, ISSUES/PROPOSALS, and devlog leave the tree; the docs gate checks docs against the CLI only | accepted |
 | [0121](ADR-0121-github-hosted-ci-for-public-repo.md) | CI runs on GitHub-hosted `macos-latest`, on every PR and on push to `main`; the self-hosted runner leaves CI | accepted |
 | [0122](ADR-0122-pace-sends.md) | Sends (`sendMessage`, `sendMedia`, `sendMultiMedia`, `forwardMessages`) are one paced class at 3 s start-to-start in a shared slot; cooldowns stay per type | accepted; amends ADR-0072 decision 3 |
+| [0123](ADR-0123-readonly-mcp-adapter.md) | `tg-mcp`: read-only stdio MCP adapter, one `tg --readonly` process per call, mandatory chat allowlist, Telegram strings fenced as untrusted | proposed; amends ADR-0002 |
