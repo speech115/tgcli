@@ -7,9 +7,7 @@ taking `(tg, args, account)`. All of them return `(data, rows)`.
 
 from __future__ import annotations
 
-import asyncio
-
-from tgcli import output, preview_commit, read_ops, safety, session
+from tgcli import loop, output, preview_commit, read_ops, safety, session
 from tgcli.clone import sync as sync_clone
 from tgcli.commands import (
     accounts as accounts_cmd,
@@ -86,7 +84,7 @@ def accounts_remove(args, config) -> tuple[dict, list[tuple]]:
 
 def accounts_login(args, config) -> tuple[dict, list[tuple]]:
     if getattr(args, "continue_id", None):
-        data = asyncio.run(
+        data = loop.run(
             login_cmd.continue_login(
                 login_id=args.continue_id,
                 code=getattr(args, "code", None),
@@ -94,7 +92,7 @@ def accounts_login(args, config) -> tuple[dict, list[tuple]]:
             )
         )
     else:
-        data = asyncio.run(
+        data = loop.run(
             login_cmd.start_login(
                 config,
                 args.alias,
@@ -117,7 +115,7 @@ def doctor(args, config) -> tuple[dict, list[tuple]]:
     if connect:
         data = _run_with_deadline(coro, args.timeout)
     else:
-        data = asyncio.run(coro)
+        data = loop.run(coro)
     return data, doctor_cmd.to_rows(data)
 
 

@@ -14,6 +14,8 @@ fast = ["cryptg>=0.6"]
 tg = "tgcli.cli:entrypoint"
 # Read-only MCP adapter over the same commands (ADR-0123).
 tg-mcp = "tgcli.mcp.server:entrypoint"
+# Many commands over one held session, for adapters (ADR-0124).
+tg-serve = "tgcli.serve:entrypoint"
 
 [dependency-groups]
 dev = [

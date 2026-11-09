@@ -361,6 +361,48 @@ def _make_client(
     return build_client(path, account.api_id, account.api_hash, **extra)
 
 
+# Session files a long-lived owner keeps open (`hold`, ADR-0124), and their clients.
+_held: dict[Path, TelegramClient] = {}
+
+
+@asynccontextmanager
+async def hold(account: Account, *, role: str | None = None):
+    """Keep one session connected for the life of the block.
+
+    Every `client()` for the same session file inside it gets this client
+    instead of opening, locking and connecting the file again. The lock is held
+    for the whole block, so other `tg` processes on that file wait or fail as
+    they would against any long command.
+    """
+    path = session_path(account, role)
+    if path in _held:
+        raise ConfigError(f"session {session_label(account, role)!r} is already held")
+    async with client(account, role=role) as tg:
+        _held[path] = tg
+        try:
+            yield tg
+        finally:
+            del _held[path]
+
+
+@asynccontextmanager
+async def _reuse(tg: TelegramClient, label: str, *, mutation_safe: bool):
+    if not tg.is_connected():
+        await tg.connect()
+    # A held client is built for reads; a mutation is never retried blind.
+    retries = tg._request_retries
+    if mutation_safe:
+        tg._request_retries = 0
+    try:
+        yield tg
+    except telethon_errors.UnauthorizedError as exc:
+        raise ConfigError(
+            f"session {label!r} needs reauthentication; authorize it again"
+        ) from exc
+    finally:
+        tg._request_retries = retries
+
+
 @asynccontextmanager
 async def client(
     account: Account,
@@ -371,6 +413,13 @@ async def client(
 ):
     path = session_path(account, role)
     label = session_label(account, role)
+    if path in _held:
+        # The held client already passed the governor gate when it was opened;
+        # `doctor --connect` (govern=False) shares it too, since a second
+        # client would wait on the lock the holder keeps.
+        async with _reuse(_held[path], label, mutation_safe=mutation_safe) as tg:
+            yield tg
+        return
     if role is not None and not path.is_file():
         raise ConfigError(
             f"session role {role!r} for account {account.alias!r} is not authorized; "

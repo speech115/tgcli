@@ -135,3 +135,4 @@ git history keeps them.
 | [0121](ADR-0121-github-hosted-ci-for-public-repo.md) | CI runs on GitHub-hosted `macos-latest`, on every PR and on push to `main`; the self-hosted runner leaves CI | accepted |
 | [0122](ADR-0122-pace-sends.md) | Sends (`sendMessage`, `sendMedia`, `sendMultiMedia`, `forwardMessages`) are one paced class at 3 s start-to-start in a shared slot; cooldowns stay per type | accepted; amends ADR-0072 decision 3 |
 | [0123](ADR-0123-readonly-mcp-adapter.md) | `tg-mcp`: read-only stdio MCP adapter, one `tg --readonly` process per call, mandatory chat allowlist, Telegram strings fenced as untrusted | proposed; amends ADR-0002 |
+| [0124](ADR-0124-held-session-serve.md) | `tg-serve`: many `tg` commands over one held session through stdio, each a full `cli.main` invocation; `session.hold`, `loop.run` and `cli.main(parser=)` are the seams | proposed; amends ADR-0002 |
