@@ -193,6 +193,15 @@ for sends, edits, deletes, and forwards: it shows a preview first.
 Under `--readonly` or `TGCLI_READONLY=1`, `tg run` is refused entirely
 (exit 2): a script holds the authorized client, so it cannot be made read-only.
 
+## Many commands from a program: `tg-serve`
+
+A program that runs `tg` commands one after another (an MCP server, a bot) can
+start `tg-serve --account ALIAS --session-role NAME` once and send each command
+as a JSON line instead of starting `tg` every time: the session stays
+connected, so a command costs its Telegram time instead of seconds of startup.
+Give it its own role (`tg accounts login ALIAS --role NAME --phone PHONE`),
+since the held session stays locked. Protocol: [docs/SERVE.md](docs/SERVE.md).
+
 ## Safety gates
 
 `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` block mutations before

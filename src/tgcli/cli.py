@@ -22,6 +22,7 @@ from contextlib import contextmanager
 from tgcli import (
     dispatch,
     invocations,
+    loop,
     output,
     preflight,
     preview_commit,
@@ -232,13 +233,16 @@ def _run_with_deadline(coro, timeout):
                         # timing out in the grace window) is the deadline too.
                         raise _DeadlineExpired from None
                 task.cancel()
+                # Let its `finally` blocks run before the next step does:
+                # asyncio.run waited for them, a held loop (tg-serve) would not.
+                await asyncio.wait({task})
                 raise _DeadlineExpired
             done, _ = await asyncio.wait({task}, timeout=remaining)
             if done:
                 return task.result()
 
     try:
-        return asyncio.run(run())
+        return loop.run(run())
     except _DeadlineExpired:
         raise CommandTimeoutError(
             f"invocation exceeded the --timeout deadline of {timeout}s"
@@ -352,8 +356,11 @@ def _parse(
         return 1
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
+def main(
+    argv: list[str] | None = None, *, parser: argparse.ArgumentParser | None = None
+) -> int:
+    """Run one invocation. `tg-serve` passes the parser it built once (ADR-0124)."""
+    parser = parser or build_parser()
     parsed = _parse(parser, argv)
     if isinstance(parsed, int):
         return parsed

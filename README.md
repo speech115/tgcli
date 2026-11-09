@@ -123,6 +123,7 @@ Chat references accept `@username`, a `t.me/` link, or a numeric dialog id; `tg 
 | [docs/CONTRACT.md](docs/CONTRACT.md) | flags, JSON shapes, exit codes, and safety behavior |
 | `tg COMMAND --help` | every flag of one command |
 | [docs/MCP.md](docs/MCP.md) | the read-only MCP adapter for agents without a shell |
+| [docs/SERVE.md](docs/SERVE.md) | `tg-serve`: many commands over one held session, for adapters |
 | [docs/FEATURES.md](docs/FEATURES.md) | which Telegram API namespaces are wrapped, reachable from `tg run`, or excluded |
 | [docs/decisions/](docs/decisions/README.md) | why past decisions were made |
 | [AGENTS.md](AGENTS.md) | the rules for changing this repository |
