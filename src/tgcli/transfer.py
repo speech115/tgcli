@@ -195,6 +195,22 @@ def checkpoint_lock(state_path: Path, label: str) -> Iterator[None]:
         yield
 
 
+def keep_proven_bytes(part: Path, offset: object) -> int | None:
+    """Truncate ``part`` to the checkpointed ``offset`` and return it.
+
+    None when the checkpoint cannot describe ``part``: no partial file, or an
+    offset that is not a byte count within it. Bytes past a valid offset were
+    written after the last checkpoint and are not proven, so they are cut.
+    """
+    on_disk = part.stat().st_size if part.is_file() else None
+    if on_disk is None or type(offset) is not int or not 0 <= offset <= on_disk:
+        return None
+    if offset < on_disk:
+        with part.open("r+b") as handle:
+            handle.truncate(offset)
+    return offset
+
+
 async def download_resumable(
     tg,
     media,

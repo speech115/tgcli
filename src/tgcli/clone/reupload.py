@@ -24,6 +24,7 @@ from tgcli.transfer import (
     CHUNK_SIZE,
     CLONE_TRANSFER_PARALLEL,
     download_resumable,
+    keep_proven_bytes,
     media_byte_size,
     media_identity,
     upload_parts,
@@ -199,21 +200,12 @@ def resume_offset(part: Path, size: int, media_id: int | None) -> int:
         recorded = (record["size"], record["media_id"])
     except (OSError, ValueError, KeyError, TypeError):
         offset, recorded = None, None
-    on_disk = part.stat().st_size if part.is_file() else None
-    if (
-        type(offset) is not int
-        or offset < 0
-        or recorded != (size, media_id)
-        or on_disk is None
-        or offset > on_disk
-    ):
+    kept = keep_proven_bytes(part, offset) if recorded == (size, media_id) else None
+    if kept is None:
         part.unlink(missing_ok=True)
         record_path.unlink(missing_ok=True)
         return 0
-    if offset < on_disk:
-        with part.open("r+b") as handle:
-            handle.truncate(offset)
-    return offset
+    return kept
 
 
 async def download_for_reupload(

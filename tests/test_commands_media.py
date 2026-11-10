@@ -592,6 +592,29 @@ def test_resume_offset_discards_uncheckpointed_bytes(tmp_path):
     assert part_path.read_bytes() == b"checkpointed"
 
 
+@pytest.mark.parametrize("offset", [True, -1, 8, 1.0, "1"])
+def test_resume_offset_rejects_an_offset_that_is_not_a_byte_count(tmp_path, offset):
+    """`true` is a JSON boolean, not byte 1 of the partial (clone resume agrees)."""
+    source = MediaSource("@channel", 42, None)
+    destination = tmp_path / "out.bin"
+    state_path = tmp_path / "state.json"
+    part_path = tmp_path / "out.part"
+    part_path.write_bytes(b"partial")
+    state_path.write_text(
+        json.dumps(
+            {
+                "source": _source_label(source),
+                "destination": str(destination),
+                "offset": offset,
+            }
+        )
+    )
+
+    with pytest.raises(PolicyError, match="does not match requested output"):
+        _resume_offset(state_path, part_path, source, destination, _target())
+    assert part_path.read_bytes() == b"partial"
+
+
 async def test_download_restarts_when_partial_has_no_state(tmp_path):
     """A partial nobody checkpointed proves nothing: start over, never wedge."""
     source = MediaSource("@channel", 42, None)

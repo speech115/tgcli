@@ -31,6 +31,7 @@ from tgcli.transfer import (
     checkpoint_lock,
     download_resumable,
     download_striped,
+    keep_proven_bytes,
     media_identity,
 )
 
@@ -438,15 +439,11 @@ def _resume_offset(
         )
         state_path.unlink(missing_ok=True)
         return 0
-    offset = state.get("offset")
-    part_size = part_path.stat().st_size
-    if not isinstance(offset, int) or offset < 0 or offset > part_size:
+    offset = keep_proven_bytes(part_path, state.get("offset"))
+    if offset is None:
         raise PolicyError(
             f"media download state does not match requested output: {state_path}"
         )
-    if offset < part_size:
-        with part_path.open("r+b") as handle:
-            handle.truncate(offset)
     return offset
 
 
