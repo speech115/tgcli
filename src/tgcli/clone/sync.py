@@ -29,6 +29,7 @@ from tgcli.clone import (
     topics,
     transport,
 )
+from tgcli.clone.state import Comments
 from tgcli.errors import PartialFailure, PolicyError
 from tgcli.governor import pacing
 from tgcli.output import note
@@ -55,7 +56,7 @@ async def _sync_slot(
         raise PolicyError("clone is not initialized; run clone init first")
     if clone_state.source_kind != source_kind:
         raise PolicyError("clone source kind no longer matches initialized state")
-    if clone_state.comments == "enabled" and not clone_state.discussion_linked:
+    if clone_state.comments == Comments.ENABLED and not clone_state.discussion_linked:
         raise PolicyError(
             "clone discussion group is not linked yet; finish the clone with: "
             f"tg clone init {source} (then --commit the preview it prints)"
@@ -116,7 +117,7 @@ async def _sync_slot(
     # (`release_waiting`): the posts after it may reply to comments that
     # copying it unblocks.
     posts_waiting = False
-    comments_stalled = clone_state.comments != "enabled"
+    comments_stalled = clone_state.comments != Comments.ENABLED
     release_waiting = False
 
     async def copy_batch(messages, leg: legs.AnyLeg, source, dest) -> None:
@@ -274,7 +275,7 @@ async def _sync_slot(
                 break
         return ran
 
-    if clone_state.comments == "enabled":
+    if clone_state.comments == Comments.ENABLED:
         # ADR-0051: alternate posts×WINDOW with comments until both exhaust.
         # Enter comments only while --limit budget remains; a limit hit during
         # posts ends the run (same as today for limit < WINDOW).
@@ -302,7 +303,7 @@ async def _sync_slot(
             )
             if posts_exhausted:
                 break
-            if clone_state.comments != "enabled":
+            if clone_state.comments != Comments.ENABLED:
                 # The group refused mid-run and comments degraded (ADR-0061):
                 # the remaining posts copy alone.
                 comments_stalled = True

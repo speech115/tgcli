@@ -16,6 +16,7 @@ from tgcli.clone import (
     state,
     topics,
 )
+from tgcli.clone.state import Comments
 from tgcli.errors import PolicyError
 from tgcli.output import note
 from tgcli.tg_errors import unless_refused
@@ -251,9 +252,11 @@ async def _commit_slot(tg, entity, source_kind, me, account_alias, payload) -> d
     )
     if clone_state.source_kind != source_kind:
         raise PolicyError("clone source kind no longer matches initialized state")
-    no_comments = bool(payload.get("no_comments")) or clone_state.comments == "disabled"
-    paused = clone_state.comments == "none" and clone_state.discussion_linked
-    if no_comments and (clone_state.comments == "enabled" or paused):
+    no_comments = (
+        bool(payload.get("no_comments")) or clone_state.comments == Comments.DISABLED
+    )
+    paused = clone_state.comments == Comments.NONE and clone_state.discussion_linked
+    if no_comments and (clone_state.comments == Comments.ENABLED or paused):
         raise PolicyError(
             "clone init --no-comments cannot disable an existing linked discussion; "
             "re-run with --replace to start a fresh posts-only clone"
@@ -331,7 +334,7 @@ async def _commit_slot(tg, entity, source_kind, me, account_alias, payload) -> d
         clone_state,
     )
     if no_comments:
-        clone_state.comments = "disabled"
+        clone_state.comments = Comments.DISABLED
         state.save(clone_state)
     else:
         await init_peers.init_discussion(

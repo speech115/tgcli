@@ -15,6 +15,7 @@ from telethon.tl import types
 
 from tgcli import atomic
 from tgcli.clone import state
+from tgcli.clone.state import Comments
 from tgcli.governor import pacing
 from tgcli.tg_errors import FLOOD_ERRORS, TRANSIENT_ERRORS, unless_refused
 
@@ -110,7 +111,10 @@ def deferred(clone_state: state.CloneState, reason: str) -> dict:
         "count": 0,
         "reason": reason,
     }
-    if clone_state.comments == "enabled" and clone_state.discussion_source_peer_id:
+    if (
+        clone_state.comments == Comments.ENABLED
+        and clone_state.discussion_source_peer_id
+    ):
         discussion = _marker(clone_state, "deferred", reason)
     else:
         discussion = {"peer_id": None, "status": "none", "count": 0, "reason": None}
@@ -134,7 +138,8 @@ async def collect(tg, clone_state: state.CloneState, source_entity) -> dict:
     }
 
     if not (
-        clone_state.comments == "enabled" and clone_state.discussion_source_peer_id
+        clone_state.comments == Comments.ENABLED
+        and clone_state.discussion_source_peer_id
     ):
         discussion = {"peer_id": None, "status": "none", "count": 0, "reason": None}
     elif pacing.wall_clock_exhausted():

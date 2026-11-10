@@ -14,6 +14,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 
 from tgcli.clone import statedb
@@ -111,6 +112,21 @@ def _valid_id_map(mapping: object, minimum: int, *, unique: bool = True) -> bool
     )
 
 
+class Comments(StrEnum):
+    """Whether a clone copies its source's discussion group.
+
+    ``enabled``: comments are copied. ``none``: the source has no linked
+    group (or unlinked it; a relink resumes). ``unavailable``: Telegram
+    refused the group, so the clone degraded to posts only. ``disabled``:
+    the owner turned comments off.
+    """
+
+    ENABLED = "enabled"
+    NONE = "none"
+    UNAVAILABLE = "unavailable"
+    DISABLED = "disabled"
+
+
 @dataclass
 class CloneState:
     account_user_id: int
@@ -141,7 +157,7 @@ class CloneState:
     discussion_cursor: int = 0
     # Keys are str(SourceCommentId).
     discussion_id_map: dict[str, DestCommentId] = field(default_factory=dict)
-    comments: str = "none"
+    comments: Comments = Comments.NONE
     avatar_photo_ids: dict[str, int] = field(default_factory=dict)
     # Source discussion anchor id -> destination anchor id, so a later run
     # places a comment without re-reading either anchor.
@@ -320,13 +336,13 @@ class CloneState:
         discussion_source_peer_id = data.get("discussion_source_peer_id")
         discussion_destination_peer_id = data.get("discussion_destination_peer_id")
         if (
-            comments not in {"enabled", "unavailable", "none", "disabled"}
+            comments not in set(Comments)
             or not _valid_id_map(discussion_id_map, 1)
             or type(discussion_cursor) is not int
             or discussion_cursor < 0
             or type(discussion_linked) is not bool
             or (
-                comments == "enabled"
+                comments == Comments.ENABLED
                 and (discussion_source_peer_id is None or source_kind != "broadcast")
             )
             # Phase-2 progress lives only on an enabled clone, or on a linked
@@ -334,9 +350,9 @@ class CloneState:
             # relink of that group resumes the comments where they stopped.
             or (
                 (discussion_id_map or discussion_cursor)
-                and comments != "enabled"
+                and comments != Comments.ENABLED
                 and not (
-                    comments == "none"
+                    comments == Comments.NONE
                     and discussion_linked
                     and discussion_source_peer_id is not None
                     and source_kind == "broadcast"
@@ -401,7 +417,7 @@ class CloneState:
             discussion_linked=discussion_linked,
             discussion_cursor=discussion_cursor,
             discussion_id_map=dict(discussion_id_map),
-            comments=comments,
+            comments=Comments(comments),
             avatar_photo_ids=dict(data.get("avatar_photo_ids", {})),
             anchor_map=dict(anchor_map),
             pinned_dest_id=pinned_dest_id,

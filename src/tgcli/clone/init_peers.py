@@ -21,6 +21,7 @@ from tgcli.clone import (
     discussion,
     state,
 )
+from tgcli.clone.state import Comments
 from tgcli.errors import PolicyError
 from tgcli.output import note
 from tgcli.tg_errors import unless_refused
@@ -131,18 +132,22 @@ async def init_discussion(
         return
     linked = discussion.linked_chat_id(full_chat)
     if linked is None:
-        if clone_state.comments != "unavailable":
-            clone_state.comments = "none"
+        if clone_state.comments != Comments.UNAVAILABLE:
+            clone_state.comments = Comments.NONE
         return state.save(clone_state)
     # Only "none" (the source unlinked its group for a while) relinks; an
     # "unavailable" degrade cleared the comment map while the destination
     # group still holds the copied comments.
     relinking = (
-        clone_state.comments == "none"
+        clone_state.comments == Comments.NONE
         and clone_state.discussion_linked
         and clone_state.discussion_source_peer_id == linked
     )
-    if clone_state.comments != "enabled" and clone_state.id_map and not relinking:
+    if (
+        clone_state.comments != Comments.ENABLED
+        and clone_state.id_map
+        and not relinking
+    ):
         # ADR-0023: posts copied before the link have no anchors, and there
         # is no backfill, so a posts-only clone is never upgraded in place.
         # A clone that was linked to this same group already has them.
@@ -163,9 +168,9 @@ async def init_discussion(
         # The same degrade as sync's: "unavailable" never relinks, and state
         # holds no comment progress for a clone that is not copying comments.
         clone_state.clear_discussion_progress()
-        clone_state.comments = "unavailable"
+        clone_state.comments = Comments.UNAVAILABLE
         return state.save(clone_state)
-    clone_state.comments = "enabled"
+    clone_state.comments = Comments.ENABLED
     state.save(clone_state)
     group = await discussion.adopt(
         tg,

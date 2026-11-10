@@ -235,3 +235,15 @@ def test_collect_lets_a_dead_session_escape(error, where):
         tg = FakeTg(source=[user(1)], entity_error=error)
     with pytest.raises(type(error)):
         run(tg, clone_state)
+
+
+@pytest.mark.parametrize("comments", ["enabled", "none"])
+def test_a_deferred_roster_defers_the_discussion_only_when_comments_are_on(comments):
+    clone_state = seed(comments=comments)
+    clone_state.discussion_source_peer_id = 55
+
+    result = roster.deferred(clone_state, "wall_clock_cap")
+
+    assert result["source"]["status"] == "deferred"
+    expected = "deferred" if comments == "enabled" else "none"
+    assert result["discussion"]["status"] == expected

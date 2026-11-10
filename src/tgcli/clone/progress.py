@@ -12,6 +12,7 @@ from collections.abc import Callable
 
 from telethon import errors as telethon_errors
 
+from tgcli.clone.state import Comments
 from tgcli.output import note, sanitize
 from tgcli.tg_errors import FLOOD_ERRORS
 
@@ -64,7 +65,7 @@ def comments_unstarted(clone_state) -> bool:
     Returns whether the warning was written, so a single run does not repeat
     it. Informative stderr only (ADR-0049), never contract data.
     """
-    if clone_state.comments != "enabled":
+    if clone_state.comments != Comments.ENABLED:
         return False
     if clone_state.cursor == 0 or clone_state.discussion_cursor != 0:
         return False

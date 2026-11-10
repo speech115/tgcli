@@ -13,6 +13,7 @@ from telethon.tl import types
 
 from tgcli.clone import batching, discussion, legs, replies, state
 from tgcli.clone.ids import SourceCommentId, SourcePostId
+from tgcli.clone.state import Comments
 from tgcli.errors import PolicyError
 from tgcli.governor import pacing
 from tgcli.tg_errors import NOT_REFUSALS, unless_refused
@@ -66,7 +67,7 @@ async def sync_phase(
         # required: state.from_dict rejects comments != enabled with
         # leftover phase-2 progress.
         clone_state.clear_discussion_progress()
-        clone_state.comments = "unavailable"
+        clone_state.comments = Comments.UNAVAILABLE
         state.save(clone_state)
 
     # ADR-0061: one shared ResolveContext spans every window of a sync run
