@@ -25,7 +25,8 @@ from tgcli.errors import (
 )
 from tgcli.messages import dialog_name, media_kind
 from tgcli.output import note
-from tgcli.session import FLOOD_ERRORS, ensure_parent_dir, state_dir
+from tgcli.state_paths import ensure_parent_dir, state_dir
+from tgcli.tg_errors import FLOOD_ERRORS
 from tgcli.transfer import (
     checkpoint_lock,
     download_resumable,

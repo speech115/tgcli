@@ -16,7 +16,8 @@ from pathlib import Path
 
 from tgcli import atomic
 from tgcli.errors import NotFoundError, PolicyError
-from tgcli.session import ensure_state_dir, restrict_file, session_file_lock
+from tgcli.session import session_file_lock
+from tgcli.state_paths import ensure_state_dir, restrict_file
 
 LOGIN_TTL = timedelta(minutes=30)
 _LOGIN_ID_RE = re.compile(r"^l_[A-Za-z0-9_-]+$")

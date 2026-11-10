@@ -26,7 +26,7 @@ from tgcli.clone import (
 from tgcli.clone.legs import AnyLeg
 from tgcli.errors import PolicyError
 from tgcli.output import note
-from tgcli.session import TRANSIENT_ERRORS
+from tgcli.tg_errors import TRANSIENT_ERRORS
 
 
 def _body_text(message, author, plan) -> tuple[str, list | None]:

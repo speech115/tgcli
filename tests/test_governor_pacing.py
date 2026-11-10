@@ -484,7 +484,7 @@ def test_deadline_defaults_match_the_contract(monkeypatch):
 def _journal_lines():
     import json
 
-    from tgcli.session import state_dir
+    from tgcli.state_paths import state_dir
 
     path = state_dir() / "invocations.jsonl"
     if not path.exists():
@@ -784,7 +784,7 @@ def test_journal_records_resolve_phone_cooldown_provenance(
 
     from tgcli import resolve_phone
     from tgcli.cli import main
-    from tgcli.session import state_dir
+    from tgcli.state_paths import state_dir
 
     (state_dir() / "sessions").mkdir(parents=True, exist_ok=True)
     (state_dir() / "sessions" / "main.session").write_bytes(b"x")

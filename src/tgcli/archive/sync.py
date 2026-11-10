@@ -22,7 +22,7 @@ from tgcli.commands import media as media_cmd
 from tgcli.errors import PolicyError, RateLimitError
 from tgcli.messages import message_to_dict
 from tgcli.output import note
-from tgcli.session import FLOOD_ERRORS, RUN_ABORTING_ERRORS
+from tgcli.tg_errors import FLOOD_ERRORS, RUN_ABORTING_ERRORS
 from tgcli.transfer import DownloadBusyError
 
 CATCHUP_LIMIT = 50

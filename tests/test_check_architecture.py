@@ -133,10 +133,10 @@ def test_architecture_check_rejects_a_flood_caught_by_one_class(tmp_path):
 
     assert result.returncode == 1
     assert "media.py:4 names FloodWaitError" in result.stdout
-    assert "tgcli.session.FLOOD_ERRORS" in result.stdout
+    assert "tgcli.tg_errors.FLOOD_ERRORS" in result.stdout
 
-    session = tmp_path / "src/tgcli/session.py"
-    session.write_text(
+    taxonomy = tmp_path / "src/tgcli/tg_errors.py"
+    taxonomy.write_text(
         "from telethon import errors\n"
         "FLOOD_ERRORS = (errors.FloodWaitError, errors.FloodPremiumWaitError)\n"
     )

@@ -18,7 +18,8 @@ from tgcli import atomic
 from tgcli.clone import progress as clone_progress, state
 from tgcli.errors import PolicyError
 from tgcli.output import note
-from tgcli.session import TRANSIENT_ERRORS, ensure_state_dir
+from tgcli.state_paths import ensure_state_dir
+from tgcli.tg_errors import TRANSIENT_ERRORS
 from tgcli.transfer import (
     CHUNK_SIZE,
     CLONE_TRANSFER_PARALLEL,

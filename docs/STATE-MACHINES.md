@@ -422,7 +422,7 @@ one of the item's three attempts on it (three such floods make a voice note
 `no_media` and `no_transcript` for good), and clone code that maps a refusal
 to a lasting outcome treated it as one (a thumb dropped for good, a reference
 send reuploaded, comments degraded to `unavailable`, a roster reason that was
-not `flood_wait`). Found by `CloneSyncFaultMachine`. Fix: `session.FLOOD_ERRORS`
+not `flood_wait`). Found by `CloneSyncFaultMachine`. Fix: `tg_errors.FLOOD_ERRORS`
 names both classes, the transient and run-aborting families include it, and
 `scripts/check-architecture.py` refuses a handler that names one flood class.
 Tests: every `TRANSIENT_ERRORS` case in `tests/conftest.py` (`premium-flood`),

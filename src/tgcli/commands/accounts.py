@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from itertools import chain
 from pathlib import Path
 
-from tgcli import atomic, safety, session
+from tgcli import atomic, safety, session, state_paths
 from tgcli.config import (
     Account,
     Config,
@@ -167,7 +167,7 @@ def remove_account(
     # Role sessions are full-access keys of the same account: they go with it,
     # since `--role` removal is unreachable once the config block is gone.
     role_paths = session.role_session_files(account)
-    session.ensure_state_dir("sessions")
+    state_paths.ensure_state_dir("sessions")
     with _lock_sessions((path, *chain.from_iterable(role_paths.values()))):
         session_existed = path.is_file()
         backup_existed = bak.is_file()
@@ -279,7 +279,7 @@ def _remove_role(
         raise NotFoundError(
             f"session role {role!r} for account {alias!r} does not exist"
         )
-    session.ensure_state_dir("sessions")
+    state_paths.ensure_state_dir("sessions")
     with _lock_sessions(paths):
         statuses = {
             "session": _any_status(paths),
@@ -347,7 +347,7 @@ def _append_config_block(
     """
     _reject_colliding_alias(config_path, alias)
     config_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with session.open_private_append(config_path) as config_file:
+    with state_paths.open_private_append(config_path) as config_file:
         config_file.write(
             f"\n[accounts.{alias}]\napi_id = {api_id}\n"
             f"api_hash = {json.dumps(api_hash)}\nsession = {json.dumps(alias)}\n"

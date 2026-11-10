@@ -7,7 +7,8 @@ from pathlib import Path
 
 from tgcli import atomic
 from tgcli.errors import RateLimitError
-from tgcli.session import state_dir
+from tgcli.governor import pacing
+from tgcli.state_paths import state_dir
 
 # Telegram documents roughly ≤1 resolvePhone call per ~3 seconds client-side.
 RESOLVE_PHONE_COOLDOWN_S = 3.0
@@ -47,8 +48,6 @@ def enforce_resolve_phone_cooldown(*, now: float | None = None) -> None:
             wait = RESOLVE_PHONE_COOLDOWN_S - (moment - last)
             if wait > 0:
                 retry_after = max(1, math.ceil(wait))
-                from tgcli.governor import pacing
-
                 pacing.note_stop(
                     retry_after=retry_after,
                     request_type="contacts.ResolvePhoneRequest",

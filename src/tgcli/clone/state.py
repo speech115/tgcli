@@ -20,7 +20,7 @@ from tgcli.clone import statedb
 from tgcli.clone.ids import DestCommentId, DestPostId, SourceCommentId, SourcePostId
 from tgcli.errors import PolicyError
 from tgcli.output import note
-from tgcli.session import ensure_state_dir, state_dir
+from tgcli.state_paths import ensure_state_dir, state_dir
 
 VERSION = 2
 

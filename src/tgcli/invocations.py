@@ -4,7 +4,7 @@ import json
 from datetime import UTC, datetime
 
 from tgcli.output import note
-from tgcli.session import (
+from tgcli.state_paths import (
     ensure_state_dir,
     open_private_append,
     restrict_file,

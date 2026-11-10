@@ -7,7 +7,7 @@ taking `(tg, args, account)`. All of them return `(data, rows)`.
 
 from __future__ import annotations
 
-from tgcli import loop, output, preview_commit, read_ops, safety, session
+from tgcli import loop, output, preview_commit, read_ops, safety, state_paths
 from tgcli.clone import sync as sync_clone
 from tgcli.commands import (
     accounts as accounts_cmd,
@@ -40,13 +40,13 @@ def clone_status(args) -> tuple[dict, list[tuple]]:
 
 
 def store_stats(args) -> tuple[dict, list[tuple]]:
-    data = store_cmd.stats(session.state_dir())
+    data = store_cmd.stats(state_paths.state_dir())
     return data, store_cmd.stats_rows(data)
 
 
 def store_cleanup(args) -> tuple[dict, list[tuple]]:
     data = store_cmd.cleanup(
-        session.state_dir(),
+        state_paths.state_dir(),
         older_than=getattr(args, "older_than", None),
         include_pending=bool(getattr(args, "include_pending", False)),
         confirm=bool(args.confirm),

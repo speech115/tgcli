@@ -2,7 +2,7 @@ import json
 import os
 
 from tgcli import invocations
-from tgcli.session import state_dir
+from tgcli.state_paths import state_dir
 
 
 def test_invocation_journal_records_metadata_without_message_content():

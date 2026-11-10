@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 import pytest
 import telethon
 
+from tgcli import state_paths
 from tgcli.cli import main
 from tgcli.commands import doctor as doctor_cmd
 from tgcli.config import load_config
@@ -29,9 +30,8 @@ def config_env(tmp_path, monkeypatch):
 
 
 def _touch_session(name: str) -> None:
-    from tgcli import session
 
-    path = session.state_dir() / "sessions" / f"{name}.session"
+    path = state_paths.state_dir() / "sessions" / f"{name}.session"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"session")
     path.chmod(0o600)
@@ -366,10 +366,9 @@ def test_repaired_count_is_never_read_as_a_failed_check():
 
 def test_doctor_flags_loose_session_file_modes(config_env, capsys):
     """A 0644 .session file is full account access for every local reader."""
-    from tgcli import session
 
     _touch_session("main")
-    (session.state_dir() / "sessions" / "main.session").chmod(0o644)
+    (state_paths.state_dir() / "sessions" / "main.session").chmod(0o644)
 
     assert main(["doctor", "--account", "main", "--json"]) == 0
     report = json.loads(capsys.readouterr().out)["accounts"][0]
@@ -378,10 +377,9 @@ def test_doctor_flags_loose_session_file_modes(config_env, capsys):
 
 
 def test_doctor_session_perms_cover_the_backup_file(config_env, capsys):
-    from tgcli import session
 
     _touch_session("main")
-    bak = session.state_dir() / "sessions" / "main.session.bak"
+    bak = state_paths.state_dir() / "sessions" / "main.session.bak"
     bak.write_bytes(b"old")
     bak.chmod(0o644)
 
@@ -407,21 +405,20 @@ def test_mode_ok_rejects_group_and_other_bits(tmp_path):
 def test_doctor_creates_state_tree_private_under_wide_umask(
     config_env, wide_umask, capsys
 ):
-    from tgcli import safety, session
+    from tgcli import safety
 
     _touch_session("main")
 
     assert main(["doctor", "--account", "main", "--json"]) == 0
-    assert session.state_dir().stat().st_mode & 0o777 == 0o700
+    assert state_paths.state_dir().stat().st_mode & 0o777 == 0o700
     assert safety.previews_dir().stat().st_mode & 0o777 == 0o700
 
 
 def test_doctor_flags_unprobeable_lock_as_not_free(config_env, capsys):
     """A lock path that cannot be opened is unhealthy, not silently free."""
-    from tgcli import session
 
     _touch_session("main")
-    (session.state_dir() / "sessions" / "main.lock").mkdir()
+    (state_paths.state_dir() / "sessions" / "main.lock").mkdir()
 
     code = main(["doctor", "--json"])
 

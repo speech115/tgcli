@@ -395,7 +395,7 @@ def ns(**kwargs) -> SimpleNamespace:
 
 
 # "Ask again later", never "Telegram refused": one of each family the client
-# boundary surfaces (session.TRANSIENT_ERRORS). Factories, so each test gets a
+# boundary surfaces (tg_errors.TRANSIENT_ERRORS). Factories, so each test gets a
 # fresh error; a flood of either kind is exit 5, the others an untranslated 1.
 TRANSIENT_ERRORS = [
     pytest.param(

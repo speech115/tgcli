@@ -423,7 +423,7 @@ def test_journal_records_role(config_env):
     import json
 
     from tgcli import invocations
-    from tgcli.session import state_dir
+    from tgcli.state_paths import state_dir
 
     invocations.log_invocation(
         command="dialogs",

@@ -704,7 +704,7 @@ def test_clone_state_and_roster_dirs_are_private_under_umask_022(usual_umask):
     import asyncio
     from types import SimpleNamespace
 
-    from tgcli.session import state_dir
+    from tgcli.state_paths import state_dir
 
     assert not state_dir().exists()
     s = _fresh()

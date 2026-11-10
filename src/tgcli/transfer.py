@@ -16,7 +16,7 @@ from telethon import helpers, utils
 from telethon.tl import functions, types
 
 from tgcli.errors import ConfigError
-from tgcli.session import ensure_parent_dir, restrict_file
+from tgcli.state_paths import ensure_parent_dir, restrict_file
 
 CHUNK_SIZE = 512 * 1024
 CLONE_TRANSFER_PARALLEL = 4

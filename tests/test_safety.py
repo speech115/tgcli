@@ -236,7 +236,7 @@ def test_append_audit_chmod_failure_is_fail_open(monkeypatch):
     def deny(path, mode, *args, **kwargs):
         raise PermissionError("chmod denied")
 
-    monkeypatch.setattr("tgcli.session.os.chmod", deny)
+    monkeypatch.setattr("tgcli.state_paths.os.chmod", deny)
 
     safety.append_audit("send", "main", {"preview_id": "p_test"})
 

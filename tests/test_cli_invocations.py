@@ -6,10 +6,10 @@ import sys
 import pytest
 
 from tests.conftest import FakeClient, make_session_fake
-from tgcli import session
+from tgcli import session, state_paths
 from tgcli.cli import main
 from tgcli.config import load_config, resolve_account
-from tgcli.session import state_dir
+from tgcli.state_paths import state_dir
 
 SAMPLE = """
 default_account = "main"
@@ -94,7 +94,7 @@ def test_busy_session_waits_then_journals_the_lock_as_its_site(
     config_env(tmp_path, monkeypatch)
     monkeypatch.setattr(session, "BUSY_WAIT_SECONDS", 0.2)
     account = resolve_account(load_config(), None)
-    session.ensure_state_dir("sessions")
+    state_paths.ensure_state_dir("sessions")
 
     with session.session_file_lock(session.session_path(account)):
         assert main(["dialogs"]) == 3

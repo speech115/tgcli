@@ -23,12 +23,7 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from tgcli.session import (
-    create_private,
-    ensure_state_dir,
-    restrict_file,
-    state_dir,
-)
+from tgcli.state_paths import create_private, ensure_state_dir, restrict_file, state_dir
 
 # Telegram's longest realistic FloodWait is on the order of a day; anything
 # further ahead is skew or corruption.

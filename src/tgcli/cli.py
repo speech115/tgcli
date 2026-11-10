@@ -32,6 +32,7 @@ from tgcli import (
 from tgcli.config import load_config, resolve_account
 from tgcli.errors import CommandTimeoutError, PartialFailure, TgcliError
 from tgcli.formatting import mask_phones_in_text
+from tgcli.governor import pacing
 from tgcli.parser import build_parser, command_path
 
 LOGGER = logging.getLogger(__name__)
@@ -143,8 +144,6 @@ def _armed(seconds: float | None):
         yield
         return
 
-    from tgcli.governor import pacing
-
     base_slept = pacing.total_governed_sleep()
     started = time.monotonic()
 
@@ -206,7 +205,6 @@ def _run_with_deadline(coro, timeout):
     pacing's slept total on every wake and grants it back, so a run pacing
     itself out of a flood is not killed for doing the right thing.
     """
-    from tgcli.governor import pacing
 
     async def run():
         if timeout is None:
@@ -367,7 +365,6 @@ def main(
     args = parsed
     spec = registry.lookup(args)
     _apply_global_defaults(args)
-    from tgcli.governor import pacing
 
     pacing.reset_runtime(cap=getattr(args, "max_runtime", None))
     verbose_diagnostics = _enable_verbose_diagnostics() if args.verbose else []

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from telethon import errors as telethon_errors
 
-from tgcli import registry, session
+from tgcli import registry, session, tg_errors
 from tgcli.errors import RateLimitError
 
 
@@ -29,7 +29,7 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
             f"takeout is unavailable for {exc.seconds}s; retry after {exc.seconds}s",
             retry_after=exc.seconds,
         ) from exc
-    except session.FLOOD_ERRORS as exc:
+    except tg_errors.FLOOD_ERRORS as exc:
         raise RateLimitError(
             f"rate limited for {exc.seconds}s", retry_after=exc.seconds
         ) from exc

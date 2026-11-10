@@ -7,7 +7,7 @@ import pytest
 from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
-from tgcli import session
+from tgcli import session, state_paths
 from tgcli.config import Account
 from tgcli.errors import ConfigError
 
@@ -137,7 +137,7 @@ async def test_client_session_chmod_failure_is_fail_open(state, monkeypatch):
     def deny(path, mode, *args, **kwargs):
         raise PermissionError("chmod denied")
 
-    monkeypatch.setattr(session.os, "chmod", deny)
+    monkeypatch.setattr(state_paths.os, "chmod", deny)
     async with session.client(ACCOUNT) as tg:
         assert tg.connected is True
     assert fake.connected is False

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from tgcli import atomic
 from tgcli.errors import ConfigError, PolicyError
-from tgcli.session import (
+from tgcli.state_paths import (
     ensure_state_dir,
     open_private_append,
     restrict_file,

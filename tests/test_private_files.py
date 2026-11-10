@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from tgcli import authclient, invocations, safety, session
+from tgcli import authclient, invocations, safety, session, state_paths
 from tgcli.archive import schema
 from tgcli.clone import statedb
 from tgcli.commands import accounts as accounts_cmd
@@ -52,7 +52,7 @@ def test_audit_log_is_created_0600(no_chmod):
 def test_invocation_journal_is_created_0600(no_chmod):
     invocations.log_invocation(command="send", exit_code=0, duration_ms=1)
 
-    assert _mode(session.state_dir() / "invocations.jsonl") == 0o600
+    assert _mode(state_paths.state_dir() / "invocations.jsonl") == 0o600
 
 
 def test_new_config_is_created_0600(no_chmod, tmp_path):
