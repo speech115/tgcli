@@ -1126,6 +1126,8 @@ def test_init_discussion_title_is_idempotent_on_rerun(config_env, monkeypatch, c
     [
         telethon_errors.ChannelPrivateError(request=None),
         telethon_errors.ChatAdminRequiredError(request=None),
+        telethon_errors.ChatForbiddenError(request=None),
+        telethon_errors.ChannelInvalidError(request=None),
         ValueError("no history"),
     ],
 )

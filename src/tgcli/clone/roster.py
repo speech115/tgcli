@@ -16,13 +16,29 @@ from telethon.tl import types
 from tgcli import atomic
 from tgcli.clone import state
 from tgcli.governor import pacing
-from tgcli.tg_errors import FLOOD_ERRORS, TRANSIENT_ERRORS
+from tgcli.tg_errors import FLOOD_ERRORS, TRANSIENT_ERRORS, unless_refused
 
-_ACCESS_ERRORS = (
-    telethon_errors.ChatAdminRequiredError,
-    telethon_errors.ChannelPrivateError,
-    telethon_errors.ChatForbiddenError,
-)
+
+async def _discussion_roster(tg, clone_state, group, refusal, rows: list) -> dict:
+    if refusal is not None:
+        # The roster runs after the copying is done; a refusal here is a
+        # marker, never an exception out of a finished sync.
+        reason = (
+            type(refusal).__name__
+            if isinstance(refusal, telethon_errors.RPCError)
+            else "source discussion group is unresolved"
+        )
+        return _marker(clone_state, "unavailable", reason)
+    group_rows, group_status, group_reason = await _collect_peer(
+        tg, "discussion", group
+    )
+    rows.extend(group_rows)
+    return {
+        "peer_id": clone_state.discussion_source_peer_id,
+        "status": group_status,
+        "count": len(group_rows),
+        "reason": group_reason,
+    }
 
 
 def _deferred_reason(exc: Exception) -> str:
@@ -59,7 +75,7 @@ async def _collect_peer(tg, peer: str, entity) -> tuple[list[dict], str, str | N
             rows.append(_row(peer, participant))
     except TRANSIENT_ERRORS as exc:
         return [], "deferred", _deferred_reason(exc)
-    except _ACCESS_ERRORS as exc:
+    except telethon_errors.RPCError as exc:
         return [], "unavailable", type(exc).__name__
     except ValueError as exc:
         return [], "unavailable", str(exc)
@@ -123,32 +139,13 @@ async def collect(tg, clone_state: state.CloneState, source_entity) -> dict:
         discussion = _marker(clone_state, "deferred", "wall_clock_cap")
     else:
         try:
-            group = await tg.get_entity(
-                types.PeerChannel(clone_state.discussion_source_peer_id)
+            group, refusal = await unless_refused(
+                tg.get_entity(types.PeerChannel(clone_state.discussion_source_peer_id))
             )
         except TRANSIENT_ERRORS as exc:
             discussion = _marker(clone_state, "deferred", _deferred_reason(exc))
-        except _ACCESS_ERRORS as exc:
-            # Telegram refuses to name a peer with an RPCError, not a
-            # ValueError — the same shape that reached `attribution._resolve`
-            # live. The roster runs after the copying is done; a refusal here
-            # is a marker, never an exception out of a finished sync.
-            discussion = _marker(clone_state, "unavailable", type(exc).__name__)
-        except ValueError:
-            discussion = _marker(
-                clone_state, "unavailable", "source discussion group is unresolved"
-            )
         else:
-            group_rows, group_status, group_reason = await _collect_peer(
-                tg, "discussion", group
-            )
-            rows.extend(group_rows)
-            discussion = {
-                "peer_id": clone_state.discussion_source_peer_id,
-                "status": group_status,
-                "count": len(group_rows),
-                "reason": group_reason,
-            }
+            discussion = await _discussion_roster(tg, clone_state, group, refusal, rows)
 
     path = _write(clone_state.clone_id, rows)
     return {"path": str(path), "source": source, "discussion": discussion}

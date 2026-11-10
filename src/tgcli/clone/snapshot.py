@@ -9,7 +9,7 @@ from telethon.tl import functions, types
 
 from tgcli import safety
 from tgcli.output import note
-from tgcli.tg_errors import TRANSIENT_ERRORS
+from tgcli.tg_errors import unless_refused
 
 BREAKDOWN_UNAVAILABLE = "распределение по вариантам недоступно"
 
@@ -225,16 +225,8 @@ async def render(
     assert isinstance(media, types.MessageMediaStory), (
         "render() requires fidelity.supports()"
     )
-    try:
-        peer_entity = await tg.get_entity(media.peer)
-    except TRANSIENT_ERRORS:
-        # A flood or a 500 is not a missing label: swallowing it here would
-        # hide it from the ADR-0045 cooldown and report success.
-        raise
-    except (ValueError, telethon_errors.RPCError):
-        # Same refusal shape as attribution._resolve: a private/deleted peer
-        # is a missing author label, never a failed sync.
-        peer_entity = None
+    # A private/deleted peer is a missing author label, never a failed sync.
+    peer_entity, _ = await unless_refused(tg.get_entity(media.peer))
     title = getattr(peer_entity, "title", None)
     name = " ".join(
         item

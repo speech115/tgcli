@@ -15,7 +15,7 @@ from tgcli.clone import batching, discussion, legs, replies, state
 from tgcli.clone.ids import SourceCommentId, SourcePostId
 from tgcli.errors import PolicyError
 from tgcli.governor import pacing
-from tgcli.tg_errors import TRANSIENT_ERRORS
+from tgcli.tg_errors import TRANSIENT_ERRORS, unless_refused
 
 
 def _anchor_posts(
@@ -79,15 +79,10 @@ async def sync_phase(
     # guard (ADR-0061 review fix).
     source_group = getattr(resolve_ctx, "source_group", None)
     if source_group is None:
-        try:
-            source_group = await tg.get_entity(
-                types.PeerChannel(clone_state.discussion_source_peer_id)
-            )
-        except TRANSIENT_ERRORS:
-            # A flood or a Telegram-side failure is not a refusal: it stops
-            # the run so the next one retries, never degrades.
-            raise
-        except (ValueError, telethon_errors.RPCError):
+        source_group, refusal = await unless_refused(
+            tg.get_entity(types.PeerChannel(clone_state.discussion_source_peer_id))
+        )
+        if refusal is not None:
             degrade()
             return False
     group = getattr(resolve_ctx, "destination_group", None)

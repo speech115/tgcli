@@ -161,19 +161,25 @@ def test_collect_marks_discussion_unavailable_when_entity_unresolved():
     assert result["discussion"]["status"] == "unavailable"
 
 
-def test_collect_marks_discussion_unavailable_when_group_turned_private():
+@pytest.mark.parametrize(
+    "error",
+    [
+        telethon_errors.ChannelPrivateError(request=None),
+        telethon_errors.ChatForbiddenError(request=None),
+        telethon_errors.ChatAdminRequiredError(request=None),
+        telethon_errors.ChannelInvalidError(request=None),
+    ],
+)
+def test_collect_marks_discussion_unavailable_when_group_turned_private(error):
     """Telegram refuses to name the peer with an RPCError, not a ValueError.
     The roster is a best-effort snapshot after the copying is done — an
     access refusal is a marker, never an exception out of `collect`."""
     clone_state = seed(comments="enabled")
-    tg = FakeTg(
-        source=[user(1)],
-        entity_error=telethon_errors.ChannelPrivateError(request=None),
-    )
+    tg = FakeTg(source=[user(1)], entity_error=error)
     result = run(tg, clone_state)
     assert result["source"]["status"] == "collected"
     assert result["discussion"]["status"] == "unavailable"
-    assert result["discussion"]["reason"] == "ChannelPrivateError"
+    assert result["discussion"]["reason"] == type(error).__name__
     assert result["discussion"]["count"] == 0
     # the finished message sync still reports its own rows
     assert [row["id"] for row in read_lines(clone_state)] == [1]

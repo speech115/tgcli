@@ -3,11 +3,11 @@
 from copy import copy
 from dataclasses import dataclass
 
-from telethon import errors as telethon_errors, utils
+from telethon import utils
 from telethon.tl import types
 
 from tgcli.errors import PolicyError
-from tgcli.tg_errors import TRANSIENT_ERRORS
+from tgcli.tg_errors import unless_refused
 
 
 @dataclass(frozen=True)
@@ -139,12 +139,7 @@ async def _resolve(tg, peer, cache: dict):
     """
     key = peer_key(peer)
     if key not in cache:
-        try:
-            cache[key] = await tg.get_entity(peer)
-        except TRANSIENT_ERRORS:
-            raise
-        except (ValueError, telethon_errors.RPCError):
-            cache[key] = None
+        cache[key], _ = await unless_refused(tg.get_entity(peer))
     return cache[key]
 
 
@@ -174,12 +169,7 @@ async def _entity_from_message_forward(message, peer):
         getter = getattr(forward, name, None)
         if getter is None:
             continue
-        try:
-            entity = await getter()
-        except TRANSIENT_ERRORS:
-            raise
-        except (ValueError, telethon_errors.RPCError):
-            continue
+        entity, _ = await unless_refused(getter())
         if entity is not None and _entity_matches_peer(entity, peer):
             return entity
     return None
