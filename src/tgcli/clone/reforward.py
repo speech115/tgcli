@@ -19,7 +19,7 @@ from telethon import errors as telethon_errors
 from telethon.tl import types
 
 from tgcli.clone.legs import AnyLeg
-from tgcli.session import TRANSIENT_ERRORS
+from tgcli.tg_errors import TRANSIENT_ERRORS
 
 # One messages.Search per reposted post against the ADR-0045 flood budget. The
 # window only has to cover the messages a single sender produced within one

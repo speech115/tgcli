@@ -16,7 +16,7 @@ from telethon.tl import types
 from tgcli import atomic
 from tgcli.clone import state
 from tgcli.governor import pacing
-from tgcli.session import FLOOD_ERRORS, TRANSIENT_ERRORS
+from tgcli.tg_errors import FLOOD_ERRORS, TRANSIENT_ERRORS
 
 _ACCESS_ERRORS = (
     telethon_errors.ChatAdminRequiredError,

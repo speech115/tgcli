@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from tgcli import session
+from tgcli import session, state_paths
 from tgcli.config import Account
 from tgcli.errors import ConfigError, PolicyError
 from tgcli.governor import pacing
@@ -17,7 +17,7 @@ ACCOUNT = Account(alias="t", api_id=1, api_hash="h", session="t")
 @pytest.fixture
 def state(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    session.ensure_state_dir("sessions")
+    state_paths.ensure_state_dir("sessions")
     return tmp_path
 
 

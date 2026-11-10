@@ -10,7 +10,7 @@ from tgcli import atomic, chatref
 from tgcli.errors import ExportError, NotFoundError
 from tgcli.messages import dialog_name, message_to_dict
 from tgcli.output import note
-from tgcli.session import RUN_ABORTING_ERRORS
+from tgcli.tg_errors import RUN_ABORTING_ERRORS
 
 SUBSCRIBER_COLUMNS = ("id", "username", "first_name", "last_name", "phone", "is_bot")
 TAKEOUT_MESSAGE_KWARGS = {"chats": True, "megagroups": True, "channels": True}

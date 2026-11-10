@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import pytest
 
 from tests.conftest import ns
+from tgcli import state_paths
 from tgcli.cli import main
 from tgcli.errors import ConfigError
 
@@ -33,9 +34,8 @@ class DoctorClient:
 
 
 def _touch_session(name, *, user_id: int | None = None):
-    from tgcli import session
 
-    path = session.state_dir() / "sessions" / f"{name}.session"
+    path = state_paths.state_dir() / "sessions" / f"{name}.session"
     path.parent.mkdir(parents=True, exist_ok=True)
     if user_id is None:
         path.write_bytes(b"")
@@ -67,7 +67,7 @@ def _fake_client(monkeypatch):
 
 
 def test_doctor_reports_all_accounts(config_env, monkeypatch, capsys):
-    from tgcli import safety, session
+    from tgcli import safety
 
     _touch_session("main")
     _fake_client(monkeypatch)
@@ -80,7 +80,7 @@ def test_doctor_reports_all_accounts(config_env, monkeypatch, capsys):
     assert by_alias["spare"]["checks"]["session_file"] is False
     assert by_alias["spare"]["ok"] is False
     assert data["ok"] is False
-    assert (session.state_dir() / "sessions" / "main.lock").exists()
+    assert (state_paths.state_dir() / "sessions" / "main.lock").exists()
     assert not (safety.previews_dir() / ".doctor-probe").exists()
 
 
@@ -139,9 +139,8 @@ def test_doctor_reports_runtime_error_in_payload(config_env, monkeypatch, capsys
 
 
 def test_doctor_missing_session_does_not_create_lock(config_env, capsys):
-    from tgcli import session
 
-    sessions = session.state_dir() / "sessions"
+    sessions = state_paths.state_dir() / "sessions"
     sessions.mkdir(parents=True)
 
     assert main(["doctor", "--account", "spare", "--json"]) == 0
@@ -233,12 +232,11 @@ def test_doctor_connect_is_exempt_from_governor_cooldowns(
 
 def test_doctor_marks_degraded_governor_as_unhealthy(config_env, monkeypatch, capsys):
     """ADR-0089: governor_degraded must set ok:false — not a silent warning."""
-    from tgcli import session
 
     _touch_session("main", user_id=1)
     _fake_client(monkeypatch)
 
-    corrupt = session.state_dir() / "governor.db"
+    corrupt = state_paths.state_dir() / "governor.db"
     corrupt.write_bytes(b"not-a-database")
 
     assert main(["doctor", "--account", "main", "--json"]) == 0
@@ -251,12 +249,11 @@ def test_doctor_marks_degraded_governor_as_unhealthy(config_env, monkeypatch, ca
 
 
 def test_doctor_plain_lists_governor_degraded_failure(config_env, monkeypatch, capsys):
-    from tgcli import session
 
     _touch_session("main", user_id=1)
     _fake_client(monkeypatch)
 
-    corrupt = session.state_dir() / "governor.db"
+    corrupt = state_paths.state_dir() / "governor.db"
     corrupt.write_bytes(b"not-a-database")
 
     assert main(["doctor", "--account", "main", "--plain"]) == 0
@@ -279,12 +276,11 @@ def test_doctor_connect_still_works_when_governor_is_degraded(
     config_env, monkeypatch, capsys
 ):
     """ADR-0089: --connect stays ungated; ok:false still reports degraded."""
-    from tgcli import session
 
     _touch_session("main", user_id=1)
     _fake_client(monkeypatch)
 
-    corrupt = session.state_dir() / "governor.db"
+    corrupt = state_paths.state_dir() / "governor.db"
     corrupt.write_bytes(b"not-a-database")
 
     assert main(["doctor", "--account", "main", "--connect", "--json"]) == 0

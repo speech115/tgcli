@@ -79,7 +79,7 @@ def test_parse_errors_mask_phones_on_stderr(config_env, capsys, argv, diagnostic
 def test_store_cleanup_confirm_still_deletes_when_spelled_in_full(
     config_env, capsys, tmp_path
 ):
-    from tgcli.session import state_dir
+    from tgcli.state_paths import state_dir
 
     spent = state_dir() / "previews" / "p_spent.used"
     spent.parent.mkdir(parents=True)

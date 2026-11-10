@@ -20,7 +20,7 @@ from telethon.errors import rpcerrorlist
 from tgcli import cli, dispatch, output
 from tgcli.cli import main
 from tgcli.errors import CommandTimeoutError
-from tgcli.session import state_dir
+from tgcli.state_paths import state_dir
 
 SAMPLE = """
 default_account = "main"

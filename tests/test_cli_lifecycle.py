@@ -14,7 +14,7 @@ from tests.conftest import FakeClient, make_session_fake
 from tests.fakes.clone_init import CloneInitClient
 from tgcli import __version__
 from tgcli.cli import main
-from tgcli.session import state_dir
+from tgcli.state_paths import state_dir
 
 SAMPLE = """
 default_account = "main"

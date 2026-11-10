@@ -9,7 +9,7 @@ from telethon.tl import functions, types
 
 from tgcli import safety
 from tgcli.output import note
-from tgcli.session import TRANSIENT_ERRORS
+from tgcli.tg_errors import TRANSIENT_ERRORS
 
 BREAKDOWN_UNAVAILABLE = "распределение по вариантам недоступно"
 

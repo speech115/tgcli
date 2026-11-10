@@ -21,6 +21,7 @@ from tgcli import preview_commit, read_ops, safety
 from tgcli.commands import (
     run as run_cmd,
 )
+from tgcli.config import validate_role_name
 from tgcli.errors import PolicyError
 
 if TYPE_CHECKING:
@@ -79,8 +80,6 @@ def _prepare_session_role(args) -> None:
     role = getattr(args, "session_role", None)
     if role is None:
         return
-    from tgcli.config import validate_role_name
-
     validate_role_name(role)
 
 
@@ -185,6 +184,4 @@ def prepare_login(parser: argparse.ArgumentParser, args) -> None:
         raise PolicyError("--api-id and --api-hash are required together")
     login_role = getattr(args, "login_role", None)
     if login_role is not None:
-        from tgcli.config import validate_role_name
-
         validate_role_name(login_role)

@@ -19,7 +19,7 @@ from tgcli.clone import (
 )
 from tgcli.errors import PolicyError
 from tgcli.output import note
-from tgcli.session import TRANSIENT_ERRORS
+from tgcli.tg_errors import TRANSIENT_ERRORS
 
 
 def _entry(s: state.CloneState, slot_id: str) -> dict:

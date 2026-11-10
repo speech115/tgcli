@@ -6,7 +6,7 @@ from pathlib import Path
 
 import telethon
 
-from tgcli import safety, session
+from tgcli import safety, session, state_paths
 from tgcli.config import Config, default_config_path, resolve_account
 from tgcli.errors import ConfigError, PolicyError
 from tgcli.output import note
@@ -83,12 +83,12 @@ def _repair_preview_perms() -> int:
     until the operator ran a *reaping* command — so the one command whose job
     is to report health was permanently red and its own remedy deleted state
     (#172). Repair is the honest reading of a check doctor already has to
-    stat, and `session.restrict_file` fails open: an unfixable file is
+    stat, and `state_paths.restrict_file` fails open: an unfixable file is
     reported by the check that follows, never a doctor crash.
     """
     repaired = 0
     for path in _loose_previews():
-        session.restrict_file(path)
+        state_paths.restrict_file(path)
         if _mode_ok(path):
             repaired += 1
     return repaired
@@ -114,13 +114,13 @@ def _session_perms_ok(session_file: Path) -> bool:
 
 def _state_writable() -> bool:
     try:
-        return _writable(session.ensure_state_dir("previews"))
+        return _writable(state_paths.ensure_state_dir("previews"))
     except OSError:
         return False
 
 
 def _state_size() -> int:
-    root = session.state_dir()
+    root = state_paths.state_dir()
     if not root.exists():
         return 0
     total = 0

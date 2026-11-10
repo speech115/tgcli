@@ -15,7 +15,7 @@ from tgcli.clone import batching, discussion, legs, replies, state
 from tgcli.clone.ids import SourceCommentId, SourcePostId
 from tgcli.errors import PolicyError
 from tgcli.governor import pacing
-from tgcli.session import TRANSIENT_ERRORS
+from tgcli.tg_errors import TRANSIENT_ERRORS
 
 
 def _anchor_posts(

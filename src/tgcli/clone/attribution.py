@@ -7,7 +7,7 @@ from telethon import errors as telethon_errors, utils
 from telethon.tl import types
 
 from tgcli.errors import PolicyError
-from tgcli.session import TRANSIENT_ERRORS
+from tgcli.tg_errors import TRANSIENT_ERRORS
 
 
 @dataclass(frozen=True)

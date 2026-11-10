@@ -13,16 +13,9 @@ from telethon import errors as telethon_errors, functions
 
 from tgcli.config import Account
 from tgcli.errors import RateLimitError
-from tgcli.session import (
-    FLOOD_ERRORS,
-    build_client,
-    create_private,
-    ensure_state_dir,
-    restrict_file,
-    session_file_lock,
-    session_path,
-    state_dir,
-)
+from tgcli.session import build_client, session_file_lock, session_path
+from tgcli.state_paths import create_private, ensure_state_dir, restrict_file, state_dir
+from tgcli.tg_errors import FLOOD_ERRORS
 
 
 @asynccontextmanager

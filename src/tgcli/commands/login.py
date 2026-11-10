@@ -21,12 +21,8 @@ from tgcli.config import (
 from tgcli.errors import ConfigError, NotFoundError, PolicyError
 from tgcli.formatting import mask_phone
 from tgcli.output import note
-from tgcli.session import (
-    BUSY_WAIT_SECONDS,
-    session_file_lock,
-    session_path,
-    state_dir,
-)
+from tgcli.session import BUSY_WAIT_SECONDS, session_file_lock, session_path
+from tgcli.state_paths import state_dir
 
 
 def login_rows(data: dict) -> list[tuple]:

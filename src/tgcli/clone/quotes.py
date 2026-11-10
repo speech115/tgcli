@@ -17,7 +17,7 @@ from telethon.tl import functions, types
 from tgcli.clone import attribution, discussion, quote_fallback, replies, transport
 from tgcli.clone.ids import DestCommentId, DestPostId, SourceCommentId, SourcePostId
 from tgcli.clone.legs import AnyLeg, DiscussionLeg
-from tgcli.session import TRANSIENT_ERRORS
+from tgcli.tg_errors import TRANSIENT_ERRORS
 
 
 @dataclass

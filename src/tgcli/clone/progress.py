@@ -13,7 +13,7 @@ from collections.abc import Callable
 from telethon import errors as telethon_errors
 
 from tgcli.output import note, sanitize
-from tgcli.session import FLOOD_ERRORS
+from tgcli.tg_errors import FLOOD_ERRORS
 
 MEGABYTE = 1024 * 1024
 # A transfer line every ~5 MB: frequent enough that a large file never looks

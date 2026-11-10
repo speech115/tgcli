@@ -1,7 +1,6 @@
 """Session files, per-account locks, Telethon client lifecycle (ADR-0004/0062)."""
 
 import fcntl
-import os
 import platform
 import sqlite3
 import time
@@ -15,73 +14,12 @@ from telethon import TelegramClient, errors as telethon_errors
 
 from tgcli import __version__
 from tgcli.config import Account, validate_role_name
-from tgcli.errors import ConfigError, RateLimitError
-
-
-def state_dir() -> Path:
-    return Path(os.environ.get("TGCLI_STATE_DIR", "~/.local/state/tgcli")).expanduser()
-
-
-def _repair_mode(path: Path, mode: int) -> None:
-    """Fail-open chmod: permissions are protection, not a new failure mode."""
-    try:
-        if path.stat().st_mode & 0o777 != mode:
-            os.chmod(path, mode)
-    except OSError:
-        pass
-
-
-def ensure_state_dir(*parts: str) -> Path:
-    """Create and mode-repair the state root and each named level under it.
-
-    Everything under the state root is tgcli's property and guards account
-    secrets (a `.session` file is full access to a Telegram account), so
-    every level is forced to 0700. `mkdir(mode=...)` alone is not enough:
-    the mode applies only to the leaf, is masked by umask, and
-    `exist_ok=True` keeps a wrong mode on an existing directory.
-    Directories above the state root are never touched — a custom
-    TGCLI_STATE_DIR's parents are not ours.
-    """
-    path = state_dir()
-    path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    _repair_mode(path, 0o700)
-    for part in parts:
-        path = path / part
-        path.mkdir(mode=0o700, exist_ok=True)
-        _repair_mode(path, 0o700)
-    return path
-
-
-def ensure_parent_dir(path: Path) -> Path:
-    """Create ``path``'s directory: 0700 at every level under the state root
-    (via `ensure_state_dir`), a plain `mkdir -p` anywhere else."""
-    parent = path.parent
-    try:
-        relative = parent.relative_to(state_dir())
-    except ValueError:
-        parent.mkdir(parents=True, exist_ok=True)
-        return parent
-    return ensure_state_dir(*relative.parts)
-
-
-def restrict_file(path: Path) -> None:
-    """Force a tgcli state file to 0600, fail-open (missing file: no-op)."""
-    _repair_mode(path, 0o600)
-
-
-def create_private(path: Path) -> None:
-    """Create `path` empty at 0600 if it is missing; an existing file is untouched.
-
-    Call it before a library (SQLite, Telethon) creates the file, so a new
-    file is never readable by others, not even until `restrict_file` runs.
-    SQLite gives its -wal/-shm sidecars the database file's mode.
-    """
-    os.close(os.open(path, os.O_WRONLY | os.O_CREAT, 0o600))
-
-
-def open_private_append(path: Path) -> IO[str]:
-    """Open `path` for appending text, creating it at 0600 if it is missing."""
-    return os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600), "a")
+from tgcli.errors import ConfigError
+from tgcli.governor import pacing
+from tgcli.governor.gate import install as install_governor
+from tgcli.governor.ledger import Ledger
+from tgcli.output import note
+from tgcli.state_paths import create_private, ensure_state_dir, restrict_file, state_dir
 
 
 def _role_stem(account: Account, role: str) -> str:
@@ -221,8 +159,6 @@ def session_file_lock(
     ``busy_error`` (default ``ConfigError``; mutation paths pass
     ``PolicyError``). Callers must not open the flock themselves.
     """
-    from tgcli.governor import pacing
-    from tgcli.output import note
 
     name = label if label is not None else session_file.stem
     remaining_runtime = pacing.wall_clock_remaining()
@@ -292,41 +228,6 @@ def session_user_id(session_file: Path) -> int | None:
         return None
     value = row[0]
     return value if isinstance(value, int) else None
-
-
-# Telegram's 420 families that say "wait N seconds" about the account, not the
-# request: FLOOD_WAIT_X, and FLOOD_PREMIUM_WAIT_X, the transfer speed limit a
-# non-Premium account meets. Both carry `.seconds`, both arm the governor, and
-# both exit 5. Catch a flood through this tuple, never through one class.
-FLOOD_ERRORS = (
-    telethon_errors.FloodWaitError,
-    telethon_errors.FloodPremiumWaitError,
-)
-
-# "Ask again later", never "Telegram refused". `raise_last_call_error=True`
-# makes a call whose retries ran out raise its own error; without it Telethon
-# raises ValueError, the same type `get_entity` uses for "no such peer", and
-# callers turned one 500 into permanent state. Code that maps refusals to a
-# lasting outcome (a marker, a fallback, a cached miss) re-raises these first.
-TRANSIENT_ERRORS = (
-    *FLOOD_ERRORS,
-    telethon_errors.ServerError,
-    telethon_errors.TimedOutError,
-    # Telethon's own reconnects ran out: the network, not the request.
-    ConnectionError,
-)
-
-# Errors about the run, never about the one item it was working on: a flood
-# or a governor cooldown, a connection Telethon could not restore, a session
-# Telegram no longer accepts. A loop that records a per-item failure (an
-# attempt counter, an `error` field, a skipped peer) re-raises these before
-# its `except Exception`, or one outage marks every item it touched.
-RUN_ABORTING_ERRORS = (
-    *FLOOD_ERRORS,
-    RateLimitError,
-    ConnectionError,
-    telethon_errors.UnauthorizedError,
-)
 
 
 def build_client(path: Path, api_id: int, api_hash: str, **extra) -> TelegramClient:
@@ -439,13 +340,8 @@ async def client(
         # A session made before create_private existed may still be loose.
         restrict_file(path)
         if govern:
-            from tgcli.governor.gate import install as install_governor
-            from tgcli.governor.ledger import Ledger
-
             governor = Ledger.open()
             if governor.degraded_reason is not None:
-                from tgcli.output import note
-
                 note(
                     "warning: governor ledger unavailable "
                     f"({governor.degraded_reason}); flood cooldowns are not "

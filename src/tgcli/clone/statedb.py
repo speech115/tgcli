@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from tgcli.errors import PolicyError
-from tgcli.session import create_private, ensure_parent_dir, restrict_file
+from tgcli.state_paths import create_private, ensure_parent_dir, restrict_file
 
 SCHEMA_VERSION = 3
 

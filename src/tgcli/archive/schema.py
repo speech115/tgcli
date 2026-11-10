@@ -9,7 +9,7 @@ from typing import Any
 
 from tgcli.archive import gaps as gaps_mod
 from tgcli.errors import NotFoundError, PolicyError
-from tgcli.session import create_private, ensure_state_dir, restrict_file
+from tgcli.state_paths import create_private, ensure_state_dir, restrict_file
 
 SCHEMA_VERSION = 12
 DB_NAME = "archive.db"

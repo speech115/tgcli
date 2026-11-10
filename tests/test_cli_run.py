@@ -9,7 +9,7 @@ from telethon.tl import functions, types
 
 from tests.conftest import make_session_fake
 from tgcli.cli import main
-from tgcli.session import state_dir
+from tgcli.state_paths import state_dir
 
 SAMPLE = """
 default_account = "main"

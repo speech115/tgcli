@@ -32,7 +32,8 @@ from math import ceil
 from tgcli.errors import RateLimitError
 from tgcli.governor import pacing, registry
 from tgcli.governor.ledger import Ledger
-from tgcli.session import FLOOD_ERRORS
+from tgcli.output import note
+from tgcli.tg_errors import FLOOD_ERRORS
 
 # Which flood families arm an account-wide, peer-agnostic cooldown.
 # `SlowModeWaitError` is deliberately absent: Telethon's own comment marks it
@@ -183,7 +184,6 @@ def arm_from_flood(
     if not isinstance(seconds, int | float) or seconds <= 0:
         return
     deadline = datetime.now(UTC) + timedelta(seconds=float(seconds))
-    from tgcli.output import note
 
     pacing.note_flood(float(seconds))
     persisted = ledger.arm_cooldown(account, request_key, deadline)

@@ -155,12 +155,12 @@ FLOOD_CLASSES = {"FloodWaitError", "FloodPremiumWaitError"}
 
 
 def _flood_class_errors(path: Path, relative: str) -> list[str]:
-    """Floods are caught through ``session.FLOOD_ERRORS``: one class alone
+    """Floods are caught through ``tg_errors.FLOOD_ERRORS``: one class alone
     lets the other 420 pass as a refusal (STATE-MACHINES F6)."""
     tree = ast.parse(path.read_text(), filename=str(path))
     return [
         f"{relative}:{node.lineno} names {name}; catch floods through "
-        "tgcli.session.FLOOD_ERRORS"
+        "tgcli.tg_errors.FLOOD_ERRORS"
         for node in ast.walk(tree)
         if (
             name := node.attr
@@ -215,7 +215,7 @@ def check(root: Path) -> list[str]:
         errors.extend(_state_write_errors(path, relative))
         if relative != "src/tgcli/clone/legs.py":
             errors.extend(_bare_leg_errors(path, relative))
-        if relative != "src/tgcli/session.py":
+        if relative != "src/tgcli/tg_errors.py":
             errors.extend(_flood_class_errors(path, relative))
 
     for path in sorted((root / "tests").rglob("*.py")):

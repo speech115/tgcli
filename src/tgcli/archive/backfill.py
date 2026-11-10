@@ -14,7 +14,7 @@ from tgcli.archive import (
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
 from tgcli.governor import pacing
 from tgcli.messages import dialog_name, message_to_dict
-from tgcli.session import FLOOD_ERRORS
+from tgcli.tg_errors import FLOOD_ERRORS
 
 enumerate_private_dialogs = private_enum_mod.enumerate_private_dialogs
 
