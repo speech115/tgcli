@@ -104,8 +104,6 @@ def insert_tombstone(
 def find_message_peers(
     conn: sqlite3.Connection,
     message_ids: list[int],
-    *,
-    exclude_channels: bool = True,
 ) -> list[tuple[int, int]]:
     """Return ``(peer_id, message_id)`` rows present for the given ids.
 
@@ -116,15 +114,11 @@ def find_message_peers(
     if not message_ids:
         return []
     placeholders = ",".join("?" for _ in message_ids)
-    channel_clause = ""
-    params: list[int] = [int(mid) for mid in message_ids]
-    if exclude_channels:
-        # Marked channel/supergroup ids are <= -10**12 (-100XXXXXXXXXX).
-        channel_clause = " AND peer_id > ?"
-        params.append(-(10**12))
+    # Marked channel/supergroup ids are <= -10**12 (-100XXXXXXXXXX).
+    params: list[int] = [int(mid) for mid in message_ids] + [-(10**12)]
     rows = conn.execute(
         f"SELECT peer_id, message_id FROM messages "
-        f"WHERE message_id IN ({placeholders}){channel_clause}",
+        f"WHERE message_id IN ({placeholders}) AND peer_id > ?",
         params,
     ).fetchall()
     return [(int(row["peer_id"]), int(row["message_id"])) for row in rows]

@@ -20,7 +20,6 @@ from tgcli.clone import (
     snapshot,
     state,
     topics,
-    transport,
 )
 from tgcli.clone.legs import AnyLeg
 from tgcli.errors import PolicyError
@@ -50,15 +49,12 @@ async def reupload_batch(
     messages,
     random_ids,
     reply_to,
-    author=None,
-    plan=None,
+    author,
+    plan,
     progress=None,
     *,
     by_reference=False,
 ):
-    plan = plan or transport.TransportPlan(
-        mode="reuploaded", reply_to=reply_to, reply_flattened=False, needs_author=False
-    )
 
     def audit() -> None:
         safety.append_audit(
@@ -102,7 +98,7 @@ async def reupload_batch(
     for message in messages:
         if _has_media(message):
             downloads[message.id] = await reupload.download_for_reupload(
-                tg, message, cache, clone_state, progress
+                tg, message, cache, progress
             )
     if not by_reference:
         audit()

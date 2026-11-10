@@ -208,9 +208,7 @@ def resume_offset(part: Path, size: int, media_id: int | None) -> int:
     return kept
 
 
-async def download_for_reupload(
-    tg, message, workdir: Path, clone_state, progress=None
-) -> Path:
+async def download_for_reupload(tg, message, workdir: Path, progress=None) -> Path:
     target = workdir / f"src-{message.id}"
     marker = complete_marker(target)
     size = media_byte_size(message)

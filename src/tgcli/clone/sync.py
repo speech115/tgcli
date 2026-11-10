@@ -299,7 +299,6 @@ async def _sync_slot(
                 clone_state,
                 source_entity,
                 destination,
-                tg,
                 copy_batch,
                 counters,
                 lambda: limit is not None and copied_batches >= limit,

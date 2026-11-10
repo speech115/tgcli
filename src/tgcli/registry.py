@@ -112,7 +112,6 @@ def _archive_read(run: Callable, **kwargs) -> Command:
 
 
 COMMANDS: dict[str, Command] = {
-    # accounts
     "accounts list": Command(
         kind="local-read", needs="config", run=handlers.accounts_list
     ),
@@ -177,7 +176,6 @@ COMMANDS: dict[str, Command] = {
         prepare=_args_only(archive_preflight.apply_sync),
     ),
     "archive rebaseline": _archive_write(handlers.archive_rebaseline),
-    # clone
     "clone status": Command(kind="local-read", needs="none", run=handlers.clone_status),
     "clone init": replace(_HANDSHAKE, deadline=None),
     "clone sync": Command(
@@ -189,7 +187,6 @@ COMMANDS: dict[str, Command] = {
         mutation_safe=_always,
         prepare=preflight.prepare_clone_sync,
     ),
-    # drafts
     "draft list": _READ,
     "draft show": _READ,
     "draft set": _HANDSHAKE,

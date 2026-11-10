@@ -42,7 +42,6 @@ async def sync_phase(
     clone_state,
     source_channel,
     destination,
-    mutate,
     copy_batch,
     counters,
     limited,

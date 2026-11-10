@@ -212,7 +212,7 @@ async def backfill_private(
     account_user_id: int,
 ) -> dict[str, Any]:
     refs, skipped, ref_cursors = await enumerate_private_dialogs(
-        tg, conn, max_dialogs=max_dialogs, skip_complete=True
+        tg, conn, max_dialogs=max_dialogs
     )
     if not refs:
         return {

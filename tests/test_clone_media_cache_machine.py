@@ -121,11 +121,7 @@ class CacheMachine(RuleBasedStateMachine):
         fetches = self.tg.fetches
         self.tg.fail_after = fail_after
         try:
-            path = asyncio.run(
-                reupload.download_for_reupload(
-                    self.tg, msg, self.cache, self.clone_state
-                )
-            )
+            path = asyncio.run(reupload.download_for_reupload(self.tg, msg, self.cache))
         except ConnectionError:
             assert self.finished.get(message_id) != photo_id, (
                 "a finished download was fetched again"
