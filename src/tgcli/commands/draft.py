@@ -8,7 +8,7 @@ from typing import cast
 from telethon.errors import MessageNotModifiedError
 from telethon.tl import functions, types
 
-from tgcli import chatref, formatting, safety
+from tgcli import chatref, confirm, formatting, safety
 from tgcli.errors import NotFoundError, PolicyError
 from tgcli.messages import custom_emoji, sanitize_plain_text
 
@@ -160,18 +160,6 @@ def list_to_rows(data: dict) -> list[tuple]:
     ]
 
 
-def _reply_header(payload: dict):
-    reply_to, topic = payload.get("reply_to"), payload.get("topic")
-    if reply_to is None and topic is None:
-        return None
-    return types.InputReplyToMessage(
-        reply_to_msg_id=cast(int, reply_to if reply_to is not None else topic),
-        top_msg_id=cast(int, topic)
-        if reply_to is not None and topic is not None
-        else None,
-    )
-
-
 async def prepare_set(
     tg,
     chat: str,
@@ -232,7 +220,9 @@ async def _save_draft(tg, payload: dict, *, message: str, entities) -> bool:
                 peer=peer,
                 message=message,
                 entities=entities,
-                reply_to=_reply_header(payload),
+                reply_to=confirm.reply_header(
+                    payload.get("reply_to"), payload.get("topic")
+                ),
             )
         )
     except MessageNotModifiedError:
@@ -275,7 +265,7 @@ def _stale_draft(payload: dict, current_state: dict) -> bool:
 
 
 def _requested_state(message: str, entities, payload: dict) -> dict:
-    reply = _reply_header(payload)
+    reply = confirm.reply_header(payload.get("reply_to"), payload.get("topic"))
     return {
         "text": message,
         "reply_to_msg_id": None if reply is None else reply.reply_to_msg_id,

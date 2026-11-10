@@ -1,5 +1,10 @@
-"""Fail-closed message-id confirmation for random_id-based sends (ADR-0028)."""
+"""Outgoing messages: random_id, reply header, and fail-closed confirmation.
 
+A send carries a random_id so Telegram dedupes a retry, and its message id is
+taken only from Telegram's confirmation of that random_id (ADR-0028).
+"""
+
+import secrets
 from typing import cast
 
 from telethon.errors import RandomIdDuplicateError
@@ -8,7 +13,25 @@ from telethon.tl import types
 from tgcli.errors import PolicyError
 
 
-def confirmed_ids(response, random_ids: list[int]) -> list[int]:
+def random_id() -> int:
+    return secrets.randbelow(2**63 - 1) + 1
+
+
+def reply_header(reply_to: int | None, topic: int | None):
+    """The InputReplyTo for a reply, a forum topic post, or both; None for neither."""
+    if reply_to is None and topic is None:
+        return None
+    return types.InputReplyToMessage(
+        reply_to_msg_id=cast(int, reply_to if reply_to is not None else topic),
+        top_msg_id=cast(int, topic)
+        if reply_to is not None and topic is not None
+        else None,
+    )
+
+
+def confirmed_ids(
+    response, random_ids: list[int], *, what: str = "the send"
+) -> list[int]:
     if isinstance(response, types.UpdateShortSentMessage):
         message_id = response.id
         if (
@@ -18,7 +41,7 @@ def confirmed_ids(response, random_ids: list[int]) -> list[int]:
             and message_id > 0
         ):
             return [message_id]
-        raise PolicyError("Telegram did not confirm the send")
+        raise PolicyError(f"Telegram did not confirm {what}")
     updates = getattr(response, "updates", ())
     confirmations = [
         (update.random_id, update.id)
@@ -36,7 +59,7 @@ def confirmed_ids(response, random_ids: list[int]) -> list[int]:
         )
         or len(set(message_ids)) != len(message_ids)
     ):
-        raise PolicyError("Telegram did not confirm the send")
+        raise PolicyError(f"Telegram did not confirm {what}")
     return cast(list[int], message_ids)
 
 
