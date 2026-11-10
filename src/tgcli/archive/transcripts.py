@@ -44,6 +44,15 @@ def replace_fts_row(
     )
 
 
+def refresh_fts_row(conn: sqlite3.Connection, peer_id: int, message_id: int) -> None:
+    """Rebuild one FTS row from the stored message text and transcript."""
+    message = conn.execute(
+        "SELECT text FROM messages WHERE peer_id = ? AND message_id = ?",
+        (peer_id, message_id),
+    ).fetchone()
+    replace_fts_row(conn, peer_id, message_id, message["text"] if message else "")
+
+
 def ensure_transcript_queue(
     conn: sqlite3.Connection,
     peer_id: int,
@@ -129,13 +138,7 @@ def exhaust_transcripts(conn: sqlite3.Connection, *, max_attempts: int) -> int:
             "WHERE peer_id = ? AND message_id = ?",
             (now, peer_id, message_id),
         )
-        message = conn.execute(
-            "SELECT text FROM messages WHERE peer_id = ? AND message_id = ?",
-            (peer_id, message_id),
-        ).fetchone()
-        replace_fts_row(
-            conn, peer_id, message_id, message["text"] if message is not None else ""
-        )
+        refresh_fts_row(conn, peer_id, message_id)
     return len(rows)
 
 
@@ -155,16 +158,7 @@ def record_transcript_success(
         "WHERE peer_id = ? AND message_id = ?",
         (text, model, model_version, now, peer_id, message_id),
     )
-    message = conn.execute(
-        "SELECT text FROM messages WHERE peer_id = ? AND message_id = ?",
-        (peer_id, message_id),
-    ).fetchone()
-    replace_fts_row(
-        conn,
-        peer_id,
-        message_id,
-        message["text"] if message is not None else "",
-    )
+    refresh_fts_row(conn, peer_id, message_id)
 
 
 def record_transcript_failure(
@@ -183,16 +177,7 @@ def record_transcript_failure(
         "last_error = ?, updated_at = ? WHERE peer_id = ? AND message_id = ?",
         (status, error, now, peer_id, message_id),
     )
-    message = conn.execute(
-        "SELECT text FROM messages WHERE peer_id = ? AND message_id = ?",
-        (peer_id, message_id),
-    ).fetchone()
-    replace_fts_row(
-        conn,
-        peer_id,
-        message_id,
-        message["text"] if message is not None else "",
-    )
+    refresh_fts_row(conn, peer_id, message_id)
 
 
 def transcript_status_counts(conn: sqlite3.Connection) -> dict[str, int]:

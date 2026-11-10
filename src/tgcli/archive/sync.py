@@ -491,11 +491,10 @@ async def sync_archive(
         cursor = changes_cursor.decode(account["changes_cursor"])
         initialized = False
     else:
-        doc = await changes_engine.init_changes(tg, peers=[])
-        cursor = changes_cursor.decode(doc["next_cursor"])
+        cursor = await changes_engine.init_changes(tg, peers=[])
         initialized = True
         store_mod.write_account_sync(
-            conn, changes_cursor=doc["next_cursor"], clear_gap=True
+            conn, changes_cursor=changes_cursor.encode(cursor), clear_gap=True
         )
 
     cursor = await _ensure_channel_subscriptions(tg, conn, cursor)
@@ -539,14 +538,14 @@ async def sync_archive(
     # Checkpoint before the media tail: its queue lives in the database, so
     # a media rate limit (exit 5) must not make the next run re-apply this
     # difference.
-    gap = doc.get("gap")
+    gaps = doc["gaps"]
     encoded = changes_cursor.encode(cursor)
-    # A clean pass does not bring lost edits back, and a new gap joins the
+    # A clean pass does not bring lost edits back, and new gaps join the
     # stored ones: every recorded gap stays until `rebaseline` clears them.
     persisted = store_mod.write_account_sync(
         conn,
         changes_cursor=encoded,
-        gap=gap,
+        gaps=gaps,
         touch_sync=True,
         scope_channels=True,
         pending_catchups=unfinished,
@@ -582,7 +581,8 @@ async def sync_archive(
         },
         "catchups": catchups,
         "media": media,
-        "gap": gap,
+        "gap": gaps[-1] if gaps else None,
+        "gaps": gaps,
         "skipped": doc.get("skipped") or {},
         "next_cursor": encoded,
         "reconcile": reconcile_data,
@@ -637,10 +637,10 @@ async def rebaseline(tg, conn: sqlite3.Connection) -> dict[str, Any]:
         for entry in store_mod.list_scope(conn)
         if has_own_updates(entry)
     ]
-    doc = await changes_engine.init_changes(tg, peers=peers)
+    cursor = await changes_engine.init_changes(tg, peers=peers)
     encoded = store_mod.write_account_sync(
         conn,
-        changes_cursor=doc["next_cursor"],
+        changes_cursor=changes_cursor.encode(cursor),
         clear_gap=True,
         touch_sync=True,
         scope_channels=True,

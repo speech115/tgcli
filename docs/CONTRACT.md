@@ -1912,17 +1912,16 @@ peer (MTProto does not name the peer). A `differenceTooLong`-class gap is
 stored loudly in `account_sync` until `rebaseline` (a later clean sync keeps
 it); exit **0** (a gap is data). Every gap stays stored until `rebaseline`:
 a later pass that hits a different gap adds it rather than replacing the
-older one, and a repeat of a stored gap is kept once. Sync JSON `gap`
-reports only a gap the current pass hit, so a later clean sync returns
-`gap: null`. `archive status` reports the stored gaps: `gaps` lists every
+older one, and a repeat of a stored gap is kept once. Sync JSON `gaps`
+lists the gaps the current pass hit and `gap` is the last of them, so a
+later clean sync returns `gaps: []` and `gap: null`. `archive status` reports the stored gaps: `gaps` lists every
 gap not yet cleared, oldest first, and `gap` is the most recent of them
 (`null` when there is none). A
 subscribed channel the account can no longer read (private, deleted, banned)
 is dropped from the cursor with a `channelUnavailable` gap for that peer; the
 rest of the pass still advances, events read from it before the loss are
-applied, and a later sync resubscribes it if access returns. A pass reports
-one gap: a channel that would need a second one stays in the cursor at its
-last applied pts, and a later pass reports it. Light reconciliation (sampled local vs Telegram
+applied, and a later sync resubscribes it if access returns. One pass
+reports every gap it hits. Light reconciliation (sampled local vs Telegram
 message totals, rotating across in-scope dialogs) runs at the end of sync
 and is reported under `reconcile` / `status.reconcile`. One `sync` or
 `rebaseline` runs per account at a time: while one runs, a second `sync` or
@@ -2064,7 +2063,7 @@ under readonly; `read` and `history` are also offline read-only commands.
  "max_events":500,"max_dialogs":20,"max_media":50,
  "applied":{"events":3,"received":3,"inserted":1,"updated":1,"edits":1,
             "tombstones":1,"skipped_out_of_scope":0,"channel_activity":0},
- "catchups":[],"gap":null,"skipped":{},"next_cursor":"v1:…",
+ "catchups":[],"gap":null,"gaps":[],"skipped":{},"next_cursor":"v1:…",
  "media":{"limit":50,"queued":0,"downloaded":0,"skipped":0,"failed":[],"remaining":false},
  "reconcile":{"sampled":1,"mismatched":0,"next_offset":1,
               "comparisons":[…]},"requests":1,"remaining":false}

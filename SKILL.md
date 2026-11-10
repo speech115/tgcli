@@ -251,10 +251,11 @@ top-level `ok` result.
 - `archive sync` or `archive rebaseline` exiting 3 with "already running"
   means another sync or rebaseline for that account is still running; wait
   for it to finish instead of retrying in a loop.
-- An archive `gap` (lost updates) is stored until
-  `tg --json archive rebaseline`. Later clean syncs keep it and return
-  `gap: null`, so check `archive status`: `gaps` lists every gap not yet
-  cleared, oldest first.
+- `archive sync` returns `gaps`, every gap (lost updates) this pass hit, and
+  `gap`, the last of them. Read `gaps`: one pass can lose more than one
+  stream. A gap is stored until `tg --json archive rebaseline`; later clean
+  syncs keep it and return `gaps: []` and `gap: null`, so check
+  `archive status`: `gaps` lists every gap not yet cleared, oldest first.
 - `clone sync` `participants.source` / `.discussion` with
   `status: "deferred"` is retried next run: `reason` is `"flood_wait"`,
   `"wall_clock_cap"` (`--max-runtime` ran out), or a Telegram error name. `"unavailable"` means Telegram refused access. These

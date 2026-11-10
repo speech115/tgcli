@@ -301,11 +301,9 @@ async def _poll_common(
 
 
 async def _poll_channel(
-    tg, cursor: ChangesCursor, peer: int, *, skipped: dict, may_gap: bool = True
+    tg, cursor: ChangesCursor, peer: int, *, skipped: dict
 ) -> tuple[list[dict], ChangesCursor, dict | None, list]:
-    """Poll one channel. A pass carries one gap, so when ``may_gap`` is false
-    a loss that would need one leaves the peer at its last applied pts
-    instead: no gap, nothing skipped, and a later pass reports it."""
+    """Poll one channel; a loss returns its gap beside the moved cursor."""
     events: list[dict] = []
     requests: list = []
     pts = cursor.channels[peer]
@@ -325,9 +323,6 @@ async def _poll_channel(
                 pts = int(result.pts)
                 break
             if isinstance(result, ChannelDifferenceTooLong):
-                if not may_gap:
-                    note(f"changes: channel {peer} too long; reported by a later pass")
-                    break
                 dialog_pts = getattr(result.dialog, "pts", None)
                 if isinstance(dialog_pts, int):
                     pts = dialog_pts
@@ -351,14 +346,8 @@ async def _poll_channel(
         # must not stop the private chats and the other channels from
         # advancing. Pages read before the loss are kept. The peer is dropped
         # with a gap (its later updates are lost, and archive sync
-        # resubscribes it if access returns), or, when this pass already
-        # carries a gap, kept at the last applied pts for a later pass.
-        lost = f"changes: channel {peer} unavailable ({type(exc).__name__})"
-        if not may_gap:
-            note(f"{lost}; reported by a later pass")
-            kept = changes_cursor.with_channel(cursor, peer, pts)
-            return events, kept, None, requests
-        note(lost)
+        # resubscribes it if access returns).
+        note(f"changes: channel {peer} unavailable ({type(exc).__name__})")
         gap = gaps_mod.gap(peer, reason="channelUnavailable")
         return events, changes_cursor.without_channel(cursor, peer), gap, requests
     return events, changes_cursor.with_channel(cursor, peer, pts), None, requests
@@ -383,7 +372,7 @@ async def once(
     """
     skipped: dict[str, int] = {}
     events: list[dict] = []
-    gap = None
+    gaps: list[dict] = []
     all_requests: list = []
 
     common_events, cursor, common_gap, reqs = await _poll_common(
@@ -392,30 +381,21 @@ async def once(
     events.extend(common_events)
     all_requests.extend(reqs)
     if common_gap is not None:
-        gap = common_gap
+        gaps.append(common_gap)
 
     for peer in sorted(cursor.channels):
         ch_events, cursor, ch_gap, reqs = await _poll_channel(
-            tg, cursor, peer, skipped=skipped, may_gap=gap is None
+            tg, cursor, peer, skipped=skipped
         )
         events.extend(ch_events)
         all_requests.extend(reqs)
         if ch_gap is not None:
-            gap = ch_gap
+            gaps.append(ch_gap)
 
-    return {"events": events, "gap": gap, "skipped": skipped}, cursor, all_requests
-
-
-def _document(doc: dict, cursor: ChangesCursor) -> dict:
-    return {
-        "events": doc["events"],
-        "next_cursor": changes_cursor.encode(cursor),
-        "gap": doc["gap"],
-        "skipped": doc["skipped"],
-    }
+    return {"events": events, "gaps": gaps, "skipped": skipped}, cursor, all_requests
 
 
-async def init_changes(tg, peers: list[str] | None = None) -> dict:
+async def init_changes(tg, peers: list[str] | None = None) -> ChangesCursor:
     state = await tg(GetStateRequest())
     cursor = _from_state(state)
     for ref in peers or ():
@@ -424,4 +404,4 @@ async def init_changes(tg, peers: list[str] | None = None) -> dict:
         pts = await _channel_pts(tg, entity)
         cursor = changes_cursor.with_channel(cursor, peer, pts)
         note(f"subscribed {peer} at pts {pts} (no history replay)")
-    return _document({"events": [], "gap": None, "skipped": {}}, cursor)
+    return cursor

@@ -265,7 +265,7 @@ date/seq plus subscribed channel pts), `gap_json` (list), `pending_catchups`,
 | From | Event | To |
 |---|---|---|
 | uninitialized | first `sync` | cursor = `getState`, gaps cleared |
-| cursor C | `sync`: difference applied in full, catch-ups run | cursor C′, new gap appended, unfinished catch-ups saved, one IMMEDIATE transaction |
+| cursor C | `sync`: difference applied in full, catch-ups run | cursor C′, every gap of the pass appended, unfinished catch-ups saved, one IMMEDIATE transaction |
 | cursor C | `sync` dies before the checkpoint | cursor C (the next run re-applies; applies are idempotent upserts) |
 | any | `differenceTooLong` / `channelDifferenceTooLong` / channel lost | jump to current state, gap recorded |
 | any | `rebaseline` | cursor = now, every gap cleared |

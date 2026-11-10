@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from tgcli.archive import store as store_mod
+from tgcli.archive import store as store_mod, transcripts as transcripts_mod
 
 MAX_MEDIA_ATTEMPTS = 3
 MEDIA_DIR_NAME = "media"
@@ -45,7 +45,7 @@ def set_media_path(
         "WHERE peer_id = ? AND message_id = ?",
         (path, media_kind, now, peer_id, message_id),
     )
-    _refresh_fts(conn, peer_id, message_id)
+    transcripts_mod.refresh_fts_row(conn, peer_id, message_id)
 
 
 def record_media_failure(conn, peer_id: int, message_id: int, *, error: str) -> None:
@@ -67,17 +67,4 @@ def record_media_failure(conn, peer_id: int, message_id: int, *, error: str) -> 
         "WHERE peer_id = ? AND message_id = ?",
         (MAX_MEDIA_ATTEMPTS, MAX_MEDIA_ATTEMPTS, error, now, peer_id, message_id),
     )
-    _refresh_fts(conn, peer_id, message_id)
-
-
-def _refresh_fts(conn, peer_id: int, message_id: int) -> None:
-    message = conn.execute(
-        "SELECT text FROM messages WHERE peer_id = ? AND message_id = ?",
-        (peer_id, message_id),
-    ).fetchone()
-    store_mod.replace_fts_row(
-        conn,
-        peer_id,
-        message_id,
-        message["text"] if message is not None else "",
-    )
+    transcripts_mod.refresh_fts_row(conn, peer_id, message_id)

@@ -37,7 +37,7 @@ from telethon.tl.types.updates import (
     State,
 )
 
-from tgcli.archive import changes as changes_cmd, changes_cursor
+from tgcli.archive import changes as changes_cmd
 from tgcli.archive.changes_cursor import ChangesCursor
 
 
@@ -115,10 +115,7 @@ async def test_init_get_state_and_channel_full_pts():
 
     tg = FakeTg(handler)
     tg.entities["@news"] = channel
-    data = await changes_cmd.init_changes(tg, ["@news"])
-    assert data["events"] == []
-    assert data["gap"] is None
-    cursor = changes_cursor.decode(data["next_cursor"])
+    cursor = await changes_cmd.init_changes(tg, ["@news"])
     assert cursor.pts == 5 and cursor.qts == 1 and cursor.seq == 2
     assert len(cursor.channels) == 1
     peer = next(iter(cursor.channels))
@@ -181,9 +178,10 @@ async def test_difference_too_long_emits_gap_and_rebases():
     tg = FakeTg(handler)
     cursor = ChangesCursor(pts=1, qts=0, date=0, seq=0)
     doc, new_cursor, requests = await changes_cmd.once(tg, cursor)
-    assert doc["gap"]["scope"] == "common"
-    assert doc["gap"]["reason"] == "differenceTooLong"
-    assert doc["gap"]["recover"]["edits_deletes"] == "lost"
+    [gap] = doc["gaps"]
+    assert gap["scope"] == "common"
+    assert gap["reason"] == "differenceTooLong"
+    assert gap["recover"]["edits_deletes"] == "lost"
     assert new_cursor.pts == 100
     assert isinstance(requests[0], GetDifferenceRequest)
     assert isinstance(requests[1], GetStateRequest)
@@ -319,8 +317,9 @@ async def test_channel_too_long_gap():
     tg.entities[peer] = channel
     cursor = ChangesCursor(pts=1, qts=0, date=0, seq=1, channels={peer: 1})
     doc, new_cursor, _ = await changes_cmd.once(tg, cursor)
-    assert doc["gap"]["scope"] == peer
-    assert doc["gap"]["reason"] == "channelDifferenceTooLong"
+    [gap] = doc["gaps"]
+    assert gap["scope"] == peer
+    assert gap["reason"] == "channelDifferenceTooLong"
     assert new_cursor.channels[peer] == 50
 
 
@@ -383,7 +382,8 @@ async def test_lost_channel_is_dropped_with_a_gap_and_the_rest_advance():
         pts=1, qts=0, date=0, seq=1, channels={lost_peer: 3, live_peer: 4}
     )
     doc, new_cursor, _ = await changes_cmd.once(tg, cursor)
-    assert doc["gap"]["scope"] == lost_peer
-    assert doc["gap"]["reason"] == "channelUnavailable"
+    [gap] = doc["gaps"]
+    assert gap["scope"] == lost_peer
+    assert gap["reason"] == "channelUnavailable"
     assert new_cursor.pts == 9
     assert new_cursor.channels == {live_peer: 20}
