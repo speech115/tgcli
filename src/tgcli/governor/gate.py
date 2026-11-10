@@ -29,6 +29,7 @@ import types
 from datetime import UTC, datetime, timedelta
 from math import ceil
 
+from tgcli import resolve_phone
 from tgcli.errors import RateLimitError
 from tgcli.governor import pacing, registry
 from tgcli.governor.ledger import Ledger
@@ -88,6 +89,10 @@ def install(
                 sleep=sleep,
                 clock=clock,
             )
+            if registry.classify(request) is registry.RequestClass.RESOLVE_PHONE:
+                # Pacing is per process; this one spans every `tg` process,
+                # `tg run` scripts included.
+                resolve_phone.enforce_resolve_phone_cooldown()
             pacing.note_request()
         retried = False
         while True:

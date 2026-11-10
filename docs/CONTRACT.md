@@ -113,7 +113,8 @@ total, then 3 s start-to-start, 20 send requests a minute; an album or a
 multi-id forward is one request (ADR-0122). Loops (backfill, clone,
 export, bulk media, `tg run` scripts) are paced, interactive commands are
 not. `contacts.resolvePhone` waits 3 s from its
-first request. A FloodWait records the server's deadline for that request
+first request, and a call within 3 s of one from another `tg` process
+(`tg run` scripts included) exits 5. A FloodWait records the server's deadline for that request
 type in `governor.db`: until it passes, every tgcli process refuses that
 type locally with exit 5 and `retry_after`, sending nothing. Until an hour
 after that cooldown ends, every process paces that type from its first

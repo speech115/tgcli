@@ -286,6 +286,12 @@ async def hold(account: Account, *, role: str | None = None):
             del _held[path]
 
 
+def lock_free(session_file: Path) -> bool:
+    """True when a client here can open this session: no process holds its
+    lock, or this one does through `hold` and `client()` reuses it."""
+    return session_file in _held or lock_held(session_file) is False
+
+
 @asynccontextmanager
 async def _reuse(tg: TelegramClient, label: str, *, mutation_safe: bool):
     if not tg.is_connected():

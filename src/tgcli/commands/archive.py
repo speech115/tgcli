@@ -18,19 +18,13 @@ from tgcli.archive import (
 )
 from tgcli.config import Config, load_config, resolve_account
 from tgcli.errors import ConfigError, NotFoundError, PolicyError
+from tgcli.state_paths import private_dir
 
 
 def archive_root(config: Config | None = None) -> Path:
     cfg = config if config is not None else load_config()
     if cfg.archive_root is not None:
-        root = cfg.archive_root
-        root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        try:
-            if root.stat().st_mode & 0o777 != 0o700:
-                root.chmod(0o700)
-        except OSError:
-            pass
-        return root
+        return private_dir(cfg.archive_root)
     return store_mod.default_archive_root()
 
 
