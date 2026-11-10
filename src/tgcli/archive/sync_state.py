@@ -264,7 +264,7 @@ def write_account_sync(
     conn: sqlite3.Connection,
     *,
     changes_cursor: str | None = None,
-    gap: dict[str, Any] | None = None,
+    gaps: list[dict[str, Any]] | None = None,
     touch_sync: bool = False,
     reconcile: dict[str, Any] | None = None,
     clear_gap: bool = False,
@@ -296,14 +296,16 @@ def write_account_sync(
             columns["changes_cursor"] = cursor
         if clear_gap:
             columns["gap_json"] = None
-        elif gap is not None:
+        elif gaps:
             # Add to, never replace, the gaps a rebaseline has not cleared;
             # a repeat of a stored gap moves it to the end instead.
             row = conn.execute(
                 "SELECT gap_json FROM account_sync WHERE id = 1"
             ).fetchone()
-            gaps = [old for old in gaps_mod.parse(row["gap_json"]) if old != gap]
-            columns["gap_json"] = _json([*gaps, gap])
+            stored = gaps_mod.parse(row["gap_json"])
+            for gap in gaps:
+                stored = [old for old in stored if old != gap] + [gap]
+            columns["gap_json"] = _json(stored)
         if touch_sync:
             columns["last_sync_at"] = now
         if reconcile is not None:

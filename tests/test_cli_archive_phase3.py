@@ -710,13 +710,11 @@ def test_sync_keeps_the_pages_read_before_a_channel_was_lost(
 
 
 @pytest.mark.parametrize("second_failure", ["lost", "too_long"])
-def test_sync_reports_every_channel_gap_one_pass_at_a_time(
+def test_sync_reports_every_channel_gap_of_one_pass(
     config_env, monkeypatch, capsys, second_failure
 ):
-    """A pass reports one gap. A second channel losing updates in the same
-    pass used to be dropped (or jumped ahead) anyway, so its loss was never
-    reported. It now stays at its last applied pts until a later pass can
-    report it."""
+    """Two channels losing updates in one pass are both reported and both
+    stored, and each moves on as its own gap says."""
     first, second, live = _broadcast(1111), _broadcast(2222), _broadcast(3333)
     first_peer, second_peer, live_peer = (
         utils.get_peer_id(first),
@@ -766,17 +764,22 @@ def test_sync_reports_every_channel_gap_one_pass_at_a_time(
 
     assert main(["archive", "sync", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
-    assert data["gap"]["scope"] == second_peer
-    assert data["gap"]["reason"] == "channelUnavailable"
+    assert [(g["scope"], g["reason"]) for g in data["gaps"]] == [
+        (second_peer, "channelUnavailable"),
+        (first_peer, reason),
+    ]
+    assert data["gap"] == data["gaps"][-1]
     saved = _saved_cursor()
     assert second_peer not in saved.channels
-    assert saved.channels[first_peer] == 3
+    if second_failure == "lost":
+        assert first_peer not in saved.channels
+    else:
+        assert saved.channels[first_peer] == 90
     assert saved.channels[live_peer] == 20
 
-    assert main(["archive", "sync", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert data["gap"]["scope"] == first_peer
-    assert data["gap"]["reason"] == reason
+    assert main(["archive", "status", "--json"]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["gaps"] == data["gaps"]
 
 
 def test_rebaseline_and_sync_leave_a_scoped_basic_group_to_the_common_tier(
@@ -911,9 +914,8 @@ def test_a_recorded_gap_survives_later_clean_syncs_until_rebaseline(
 def test_every_uncleared_gap_stays_visible_until_rebaseline(
     config_env, monkeypatch, capsys
 ):
-    """The archive stored one gap: a second pass that hit a different gap
-    overwrote the first before `rebaseline`, so `archive status` silently
-    forgot the earlier loss."""
+    """A clean pass after a gapped one leaves every stored gap in place
+    until `rebaseline`."""
     lost = _broadcast(1111)
     lost_peer = utils.get_peer_id(lost)
 
@@ -943,11 +945,10 @@ def test_every_uncleared_gap_stays_visible_until_rebaseline(
     _seed_channel_cursor([(lost, 3)])
 
     assert main(["archive", "sync", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["gap"]["scope"] == "common"
+    first = json.loads(capsys.readouterr().out)
+    assert [g["scope"] for g in first["gaps"]] == ["common", lost_peer]
     assert main(["archive", "sync", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["gap"]["scope"] == lost_peer
-    assert main(["archive", "sync", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["gap"] is None
+    assert json.loads(capsys.readouterr().out)["gaps"] == []
 
     assert main(["archive", "status", "--json"]) == 0
     status = json.loads(capsys.readouterr().out)
@@ -1546,7 +1547,7 @@ def test_sync_max_runtime_stops_before_catchup_and_media(
         return (
             {
                 "events": [{"type": "channel_activity", "peer": peer}],
-                "gap": None,
+                "gaps": [],
                 "skipped": {},
             },
             current,
