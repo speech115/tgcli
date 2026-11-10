@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import string
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import assume, given, settings, strategies as st
 from telethon.tl.types import MessageEntityBold
 
 from tgcli import chatref
@@ -155,17 +155,34 @@ def long_caption(draw):
 
 @DETERMINISTIC
 @given(long_caption())
-def test_a_cut_caption_fits_and_keeps_entities_inside_it(caption):
-    from tgcli.clone.send import CAPTION_LIMIT, cut_caption
+def test_a_split_caption_fits_loses_no_text_and_keeps_every_entity(caption):
+    from tgcli.clone.send import CAPTION_LIMIT, split_caption
 
     text, entities = caption
+    assume(utf16_units(text) > CAPTION_LIMIT)
     originals = [(entity.offset, entity.length) for entity in entities]
-    cut, kept = cut_caption(text, entities)
+    head, head_entities, rest, rest_entities = split_caption(text, entities)
 
-    assert utf16_units(cut) <= CAPTION_LIMIT
-    assert cut.endswith("…") and text.startswith(cut[:-1])
-    body = utf16_units(cut) - 1
-    assert all(0 <= e.offset and e.length > 0 for e in kept)
-    assert all(e.offset + e.length <= body for e in kept)
-    # Every entity that started inside the kept text survives, clipped.
-    assert len(kept) == sum(1 for offset, _ in originals if offset < body)
+    assert 0 < utf16_units(head) <= CAPTION_LIMIT
+    assert text.startswith(head) and text.endswith(rest)
+    assert text[len(head) : len(text) - len(rest)].strip() == ""
+    # The source entities are not changed in place.
+    assert [(e.offset, e.length) for e in entities] == originals
+    head_end = utf16_units(head)
+    rest_start = utf16_units(text) - utf16_units(rest)
+
+    def covered(spans, shift=0):
+        return {
+            shift + at
+            for offset, length in spans
+            for at in range(offset, offset + length)
+        }
+
+    source = covered(originals)
+    assert all(e.length > 0 for e in head_entities + rest_entities)
+    assert covered((e.offset, e.length) for e in head_entities) == {
+        at for at in source if at < head_end
+    }
+    assert covered(((e.offset, e.length) for e in rest_entities), rest_start) == {
+        at for at in source if at >= rest_start
+    }

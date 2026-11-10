@@ -6,6 +6,7 @@ reads as sync glue rather than transfer mechanics (ADR-0112).
 
 from __future__ import annotations
 
+import copy
 import shutil
 
 from telethon import errors as telethon_errors, utils as telethon_utils
@@ -54,6 +55,7 @@ async def reupload_batch(
     progress=None,
     *,
     by_reference=False,
+    overflow,
 ):
 
     def audit() -> None:
@@ -83,6 +85,7 @@ async def reupload_batch(
                 author,
                 plan,
                 lambda message, album: _referenced(message),
+                overflow,
             )
         except TRANSIENT_ERRORS:
             # A timeout or 500 leaves the send's outcome unknown: reuploading
@@ -128,6 +131,7 @@ async def reupload_batch(
         author,
         plan,
         uploaded,
+        overflow,
     )
 
 
@@ -151,6 +155,7 @@ async def _send(
     author,
     plan,
     media_for,
+    overflow,
 ):
     """One SendMessage/SendMedia/SendMultiMedia for the batch; ``media_for``
     turns a source message into the InputMedia this send carries."""
@@ -174,7 +179,7 @@ async def _send(
                 **common, media=await media_for(message, False)
             )
         return await _send_fitting_captions(
-            tg, request, messages, clone_state, account_alias
+            tg, request, messages, clone_state, account_alias, overflow
         )
     multi_media = []
     for index, (message, random_id) in enumerate(
@@ -195,69 +200,149 @@ async def _send(
         peer=destination, multi_media=multi_media, reply_to=reply_to
     )
     return await _send_fitting_captions(
-        tg, request, messages, clone_state, account_alias
+        tg, request, messages, clone_state, account_alias, overflow
     )
 
 
 # The caption limit without Premium. A Premium author may post up to 4096, so
 # a copy by an account without it is refused MEDIA_CAPTION_TOO_LONG.
 CAPTION_LIMIT = 1024
-_CUT_MARK = "…"
 
 
-async def _send_fitting_captions(tg, request, messages, clone_state, account_alias):
-    """Send ``request``; on MEDIA_CAPTION_TOO_LONG cut every caption past
-    ``CAPTION_LIMIT`` to it, ending in an ellipsis, and retry once. A refusal
-    with no caption past the limit stands."""
+async def _send_fitting_captions(
+    tg, request, messages, clone_state, account_alias, overflow
+):
+    """Send ``request``; on MEDIA_CAPTION_TOO_LONG split every caption past
+    ``CAPTION_LIMIT``, keep the head as the caption, retry once, and append
+    ``(message, rest, entities)`` to ``overflow`` for the caller to send once
+    the batch's mapping is saved. A refusal with no caption past the limit
+    stands."""
     bodies = getattr(request, "multi_media", None) or [request]
     try:
         return await _send_without_unavailable_emoji(
             tg, request, messages, clone_state, account_alias
         )
     except telethon_errors.MediaCaptionTooLongError:
-        cut = {
-            message.id: attribution.utf16_len(body.message)
+        long_ones = [
+            (message, body)
             for message, body in zip(messages, bodies, strict=True)
             if attribution.utf16_len(body.message or "") > CAPTION_LIMIT
-        }
-        if not cut:
+        ]
+        if not long_ones:
             raise
     safety.append_audit(
         "clone-sync-caption-fallback",
         account_alias,
-        {"clone_id": clone_state.clone_id, "source_message_ids": list(cut)},
+        {
+            "clone_id": clone_state.clone_id,
+            "source_message_ids": [message.id for message, _ in long_ones],
+        },
     )
-    for message, body in zip(messages, bodies, strict=True):
-        if message.id in cut:
-            body.message, body.entities = cut_caption(body.message, body.entities)
+    rests = []
+    for message, body in long_ones:
+        body.message, body.entities, rest, rest_entities = split_caption(
+            body.message, body.entities
+        )
+        if rest:
+            rests.append((message, rest, rest_entities))
     response = await _send_without_unavailable_emoji(
         tg, request, messages, clone_state, account_alias
     )
-    for message_id, length in cut.items():
-        note(
-            f"warning: clone source message {message_id}: caption cut from "
-            f"{length} to {CAPTION_LIMIT} characters (longer needs Premium)"
-        )
+    overflow.extend(rests)
     return response
 
 
-def cut_caption(text: str, entities) -> tuple[str, list | None]:
-    """``text`` cut to fit ``CAPTION_LIMIT`` with its mark, entities clipped.
+def split_caption(text: str, entities) -> tuple[str, list | None, str, list | None]:
+    """``text``, longer than ``CAPTION_LIMIT``, split into a head that fits it
+    and the rest, each with the entities inside it, offsets rebased.
 
-    Counted in UTF-16 units, as Telegram counts; a surrogate pair split by the
-    cut is dropped whole.
+    The head ends at the last line break in its second half, else the last
+    space there, else at the limit; whitespace at the seam is dropped. Counted
+    in UTF-16 units, as Telegram counts; a surrogate pair is never split.
     """
-    budget = CAPTION_LIMIT - attribution.utf16_len(_CUT_MARK)
-    kept = text.encode("utf-16-le")[: 2 * budget].decode("utf-16-le", "ignore")
-    end = attribution.utf16_len(kept)
-    clipped = []
-    for entity in entities or ():
-        if entity.offset >= end:
-            continue
-        if entity.offset + entity.length > end:
-            entity.length = end - entity.offset
-        clipped.append(entity)
-    return kept + _CUT_MARK, clipped if entities is not None else None
+    end = 0
+    units = 0
+    for char in text:
+        width = attribution.utf16_len(char)
+        if units + width > CAPTION_LIMIT:
+            break
+        units += width
+        end += 1
+    window = text[:end]
+    floor = end // 2
+    for separator in ("\n", " "):
+        at = window.rfind(separator)
+        if at > floor and window[:at].strip():
+            end = at
+            break
+    head = text[:end].rstrip() or text[:end]
+    rest = text[end:].lstrip()
+    head_end = attribution.utf16_len(head)
+    rest_start = attribution.utf16_len(text) - attribution.utf16_len(rest)
+    if entities is None:
+        return head, None, rest, None
+    head_entities, rest_entities = [], []
+    for entity in entities:
+        stop = entity.offset + entity.length
+        if entity.offset < head_end:
+            clipped = copy.copy(entity)
+            clipped.length = min(stop, head_end) - entity.offset
+            head_entities.append(clipped)
+        if stop > rest_start:
+            moved = copy.copy(entity)
+            moved.offset = max(entity.offset, rest_start) - rest_start
+            moved.length = stop - rest_start - moved.offset
+            rest_entities.append(moved)
+    return head, head_entities, rest, rest_entities
+
+
+async def send_caption_rests(
+    tg, destination, clone_state, account_alias, overflow, destination_of, threaded
+):
+    """Send each caption's rest right after its post, as a reply to it when
+    the batch sits in a thread or topic so the rest stays there too."""
+    if not overflow:
+        return
+    safety.append_audit(
+        "clone-sync-caption-rest",
+        account_alias,
+        {
+            "clone_id": clone_state.clone_id,
+            "source_message_ids": [message.id for message, _, _ in overflow],
+        },
+    )
+    for message, rest, entities in overflow:
+        destination_id = destination_of[message.id]
+        random_id = confirm.random_id()
+        request = functions.messages.SendMessageRequest(
+            peer=destination,
+            message=rest,
+            random_id=random_id,
+            reply_to=types.InputReplyToMessage(reply_to_msg_id=destination_id)
+            if threaded
+            else None,
+            no_webpage=True,
+            entities=entities,
+        )
+        try:
+            response = await _send_without_unavailable_emoji(
+                tg, request, [message], clone_state, account_alias
+            )
+        except Exception:
+            note(
+                f"warning: clone source message {message.id}: caption past "
+                f"{CAPTION_LIMIT} characters was split and its rest was not sent; "
+                f"the post is message {destination_id}"
+            )
+            raise
+        [rest_id] = confirm.confirmed_ids(
+            response, [random_id], what="the caption rest"
+        )
+        note(
+            f"warning: clone source message {message.id}: caption past "
+            f"{CAPTION_LIMIT} characters (longer needs Premium) continues in "
+            f"message {rest_id}"
+        )
 
 
 async def _send_without_unavailable_emoji(
@@ -379,6 +464,7 @@ async def forward_batch(
                 tg, source, messages[0], me, author_cache
             )
     mode = plan.mode
+    overflow = []
     if proven is not None:
         group, group_message_id = proven
         mode = "forwarded"
@@ -462,6 +548,7 @@ async def forward_batch(
             # Protected content is refused by reference, so only bytes copy it.
             by_reference=not getattr(source, "noforwards", False)
             and not any(getattr(m, "noforwards", False) for m in messages),
+            overflow=overflow,
         )
     destination_ids = confirm.confirmed_ids(
         response, random_ids, what="the complete cloned batch"
@@ -470,6 +557,17 @@ async def forward_batch(
         leg.record_raw_mapping(source_id, destination_id)
     leg.cursor = source_ids[-1]
     state.save(clone_state)
+    # After the save: a failed rest must not leave the post unmapped and
+    # copied again by the next run.
+    await send_caption_rests(
+        tg,
+        destination,
+        clone_state,
+        account_alias,
+        overflow,
+        dict(zip(source_ids, destination_ids, strict=True)),
+        threaded=reply_to is not None,
+    )
     if mode == "reuploaded":
         # Only a confirmed send *and* a durable mapping save may clear the
         # cache — an incomplete confirmation or a crash before the save
