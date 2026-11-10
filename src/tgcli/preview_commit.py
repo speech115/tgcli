@@ -15,7 +15,7 @@ from tgcli.commands import (
 )
 from tgcli.config import Account
 from tgcli.errors import PolicyError
-from tgcli.parser import GLOBAL_DESTS
+from tgcli.parser import GLOBAL_DESTS, command_key
 
 Run = Callable[[object, argparse.Namespace, Account], Awaitable[dict]]
 Rows = Callable[[dict], list[tuple]]
@@ -73,7 +73,7 @@ _MESSAGE_AUDIT = Audit(_message_audit_before, _message_audit_after)
 _DRAFT_AUDIT = Audit(_draft_audit_before, _draft_audit_after)
 
 HANDSHAKES = {
-    ("send", None): Handshake(
+    "send": Handshake(
         kind="send",
         preview_call=lambda tg, args, _account: send_cmd.prepare(
             tg,
@@ -99,7 +99,7 @@ HANDSHAKES = {
         ),
         audit=_MESSAGE_AUDIT,
     ),
-    ("edit", None): Handshake(
+    "edit": Handshake(
         kind="edit",
         preview_call=lambda tg, args, _account: mutate_cmd.prepare_edit(
             tg,
@@ -120,7 +120,7 @@ HANDSHAKES = {
         ),
         audit=_MESSAGE_AUDIT,
     ),
-    ("delete", None): Handshake(
+    "delete": Handshake(
         kind="delete",
         preview_call=lambda tg, args, _account: mutate_cmd.prepare_delete(
             tg,
@@ -139,7 +139,7 @@ HANDSHAKES = {
         ),
         audit=_MESSAGE_AUDIT,
     ),
-    ("forward", None): Handshake(
+    "forward": Handshake(
         kind="forward",
         preview_call=lambda tg, args, _account: mutate_cmd.prepare_forward(
             tg,
@@ -160,7 +160,7 @@ HANDSHAKES = {
         ),
         audit=_MESSAGE_AUDIT,
     ),
-    ("clone", "init"): Handshake(
+    "clone init": Handshake(
         kind="clone-init",
         preview_call=lambda tg, args, _account: clone_cmd.preview_init(
             tg,
@@ -179,7 +179,7 @@ HANDSHAKES = {
         source_binding="source",
         mutation_safe=True,
     ),
-    ("draft", "set"): Handshake(
+    "draft set": Handshake(
         kind="draft-set",
         preview_call=lambda tg, args, _account: draft_cmd.prepare_set(
             tg,
@@ -199,7 +199,7 @@ HANDSHAKES = {
         preview_error=("draft set requires CHAT TEXT --preview or --commit PREVIEW_ID"),
         audit=_DRAFT_AUDIT,
     ),
-    ("draft", "clear"): Handshake(
+    "draft clear": Handshake(
         kind="draft-clear",
         preview_call=lambda tg, args, _account: draft_cmd.prepare_clear(
             tg,
@@ -219,9 +219,7 @@ HANDSHAKES = {
 
 
 def spec_for(args: argparse.Namespace) -> Handshake | None:
-    command = args.command
-    subcommand = getattr(args, f"{command}_command", None)
-    return HANDSHAKES.get((command, subcommand))
+    return HANDSHAKES.get(command_key(args))
 
 
 def is_commit(args: argparse.Namespace) -> bool:
