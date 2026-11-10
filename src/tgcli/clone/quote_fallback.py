@@ -78,12 +78,18 @@ def fallback_plan(
 
 
 def apply_body(message, author, plan) -> tuple[str, list | None]:
-    """Quote fallback prefix (if any), then author attribution — one UTF-16 path."""
-    text, entities = attribution.with_prefix(
+    return apply_to_text(
         getattr(message, "message", None) or "",
         getattr(message, "entities", None),
-        plan.body_prefix or "",
-        plan.body_prefix_entities,
+        author,
+        plan,
+    )
+
+
+def apply_to_text(text, entities, author, plan) -> tuple[str, list | None]:
+    """Quote fallback prefix (if any), then author attribution — one UTF-16 path."""
+    text, entities = attribution.with_prefix(
+        text, entities, plan.body_prefix or "", plan.body_prefix_entities
     )
     return attribution.prefixed(text, entities, author)
 
