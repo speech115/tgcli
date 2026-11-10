@@ -3,8 +3,10 @@
     tg --account ALIAS --session-role watch --timeout 5400 run clone_watch.py \
         SOURCE [SOURCE ...] [--sync-role job] [--run-for 3600]
 
-Read-only. Telegram pushes new messages in each SOURCE and its discussion group
-to this session; each burst triggers `tg clone sync SOURCE` for the sources it
+Read-only. Telegram pushes new messages in each SOURCE to this session, and the
+script asks once a minute for the newest message id of each SOURCE and its
+discussion group, because a group the account has not joined pushes nothing;
+each burst triggers `tg clone sync SOURCE` for the sources it
 touched, one at a time on the --sync-role session, because the listener holds
 its own session for the whole run. It syncs
 on start and after the Mac wakes, which covers whatever arrived while it was
@@ -99,33 +101,61 @@ async def sync_all(sources, reason):
 
 
 source_of = {}  # chat id -> the SOURCE argument whose clone it feeds
+watched = []  # the same chats, as GetPeerDialogs takes them
 for ref in args.sources:
     entity = await client.get_entity(int(ref) if ref.lstrip("-").isdigit() else ref)
     full = (await client(functions.channels.GetFullChannelRequest(entity))).full_chat
-    source_of[utils.get_peer_id(entity)] = ref
+    chats = [entity]
     if full.linked_chat_id:  # the discussion group, where comments arrive
-        source_of[utils.get_peer_id(types.PeerChannel(full.linked_chat_id))] = ref
+        chats.append(types.PeerChannel(full.linked_chat_id))
+    for chat in chats:
+        source_of[utils.get_peer_id(chat)] = ref
+        watched.append(types.InputDialogPeer(await client.get_input_entity(chat)))
 wake = asyncio.Event()
 pending = set()
+seen = {}  # chat id -> newest message id noticed there
 
 
 @client.on(events.NewMessage(chats=list(source_of)))
 async def on_new(event):
     log("new message", event.chat_id, event.id)
+    seen[event.chat_id] = max(event.id, seen.get(event.chat_id, 0))
     pending.add(source_of[event.chat_id])
     wake.set()
 
 
+async def poll():
+    # Telegram pushes nothing for a discussion group the account has not
+    # joined, so comments there are found by asking for the newest message id.
+    try:
+        request = functions.messages.GetPeerDialogsRequest(watched)
+        dialogs = (await client(request)).dialogs
+    except Exception as exc:
+        log("poll failed:", type(exc).__name__, exc)  # the next tick asks again
+        return
+    for dialog in dialogs:
+        chat_id = utils.get_peer_id(dialog.peer)
+        if dialog.top_message > seen.setdefault(chat_id, dialog.top_message):
+            log("new message", chat_id, dialog.top_message)
+            seen[chat_id] = dialog.top_message
+            pending.add(source_of[chat_id])
+            wake.set()
+
+
 deadline = time.monotonic() + args.run_for
 log("listening", list(source_of))
+await poll()  # the baseline: what arrives during the start sync counts as new
 await sync_all(args.sources, "start")
 while time.monotonic() < deadline:
     before = time.time()
     try:
         await asyncio.wait_for(wake.wait(), TICK)
     except TimeoutError:
+        await poll()
         # a tick that took far longer on the wall clock means the Mac slept
         if time.time() - before > 2 * TICK:
+            pending.clear()
+            wake.clear()
             await sync_all(args.sources, "wake")
         continue
     await asyncio.sleep(DEBOUNCE)
