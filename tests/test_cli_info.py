@@ -45,6 +45,14 @@ def test_info_json_projects_channel_without_access_hash(
     }
 
 
+def test_info_plain_row_carries_the_username(config_env, monkeypatch, capsys):
+    entity = ns(id=-1001234, title="Channel", username="chan", broadcast=True)
+    make_session_fake(monkeypatch, FakeClient(entities={"@chan": entity}))
+
+    assert main(["info", "@chan", "--plain"]) == 0
+    assert capsys.readouterr().out == "-1001234\tchannel\tchan\tChannel\n"
+
+
 def test_info_accepts_numeric_dialog_id(config_env, monkeypatch, capsys):
     entity = ns(id=-1001234, title="Channel", username=None, broadcast=True)
     make_session_fake(monkeypatch, FakeClient(entities={-1001234: entity}))

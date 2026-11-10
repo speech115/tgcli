@@ -500,6 +500,39 @@ def test_media_download_filter_limit_continues_past_skipped_existing_files(
     assert data["count"] == 2
 
 
+def test_media_download_without_type_takes_every_media_kind(
+    config_env, monkeypatch, tmp_path, capsys
+):
+    """No --type: every message with media is a candidate, whatever its kind."""
+    messages = [
+        media_message(20, "photo", date=datetime(2026, 7, 24, tzinfo=UTC)),
+        media_message(21, "video", date=datetime(2026, 7, 23, tzinfo=UTC)),
+    ]
+    make_session_fake(
+        monkeypatch,
+        FakeClient(messages=messages, entities={"@chan": ns(id=5, title="C")}),
+    )
+    downloaded = []
+
+    async def fake_download(tg, source, account_alias, **kwargs):
+        target = tmp_path / f"{source.message_id}.bin"
+        downloaded.append(source.message_id)
+        target.write_bytes(b"x")
+        return {
+            "source": f"@chan:{source.message_id}",
+            "path": str(target),
+            "bytes": 1,
+            "resumed": False,
+            "parallel": 1,
+        }
+
+    monkeypatch.setattr(media_cmd, "download_media", fake_download)
+
+    argv = ["--json", "media", "download", "@chan", "--limit", "5"]
+    assert main([*argv, "--output", str(tmp_path)]) == 0
+    assert downloaded == [20, 21]
+
+
 def test_media_download_type_filter_skips_text_only_explicit_id(
     config_env, monkeypatch, tmp_path, capsys
 ):
