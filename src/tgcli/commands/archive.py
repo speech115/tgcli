@@ -9,7 +9,6 @@ from pathlib import Path
 
 from tgcli.archive import (
     backfill as backfill_mod,
-    explore as explore_mod,
     limits,
     scope as scope_mod,
     store as store_mod,
@@ -57,7 +56,7 @@ def _open_existing(alias: str, config: Config | None = None):
     return store_mod.connect(path)
 
 
-def _offline(alias: str, operation, *args, config: Config | None = None, **kwargs):
+def offline_read(alias: str, operation, *args, config: Config | None = None, **kwargs):
     conn = _open_existing(alias, config)
     try:
         store_mod.require_bound_alias(conn, alias)
@@ -179,68 +178,6 @@ def status(alias: str, config: Config | None = None) -> dict:
         "reconcile": account_sync["reconcile"],
         "has_cursor": account_sync["changes_cursor"] is not None,
     }
-
-
-def search(
-    alias: str,
-    query: str,
-    *,
-    chat: str | None = None,
-    from_user: str | None = None,
-    since=None,
-    until=None,
-    kind: str | None = None,
-    transcripts_only: bool = False,
-    sort: str = "relevance",
-    limit: int,
-    page: int,
-    config: Config | None = None,
-) -> dict:
-    return _offline(
-        alias,
-        explore_mod.search,
-        query,
-        chat=chat,
-        from_user=from_user,
-        since=since,
-        until=until,
-        kind=kind,
-        transcripts_only=transcripts_only,
-        sort=sort,
-        limit=limit,
-        page=page,
-        config=config,
-    )
-
-
-def read(
-    alias: str,
-    chat: str,
-    *,
-    around_id: int | None = None,
-    around_date=None,
-    since=None,
-    until=None,
-    limit: int,
-    config: Config | None = None,
-) -> dict:
-    return _offline(
-        alias,
-        explore_mod.read,
-        chat,
-        around_id=around_id,
-        around_date=around_date,
-        since=since,
-        until=until,
-        limit=limit,
-        config=config,
-    )
-
-
-def history(
-    alias: str, chat: str, message_id: int, config: Config | None = None
-) -> dict:
-    return _offline(alias, explore_mod.history, chat, message_id, config=config)
 
 
 async def backfill(
@@ -460,11 +397,6 @@ def transcribe_rows(data: dict) -> list[tuple]:
         ("skipped_missing_media", data["skipped_missing_media"]),
         ("remaining", data["remaining"]),
     ]
-
-
-search_rows = explore_mod.search_rows
-read_rows = explore_mod.read_rows
-history_rows = explore_mod.history_rows
 
 
 def backfill_rows(data: dict) -> list[tuple]:
