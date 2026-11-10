@@ -25,7 +25,7 @@ safe under interleaving on its own.
 | Guard | Scope | Held by | On contention |
 |---|---|---|---|
 | `session.session_file_lock` (`<session>.lock`, flock) | one session file | every network command for its whole run | waits up to 120 s, then exit 3 |
-| `safety._lock_pending` (flock on `<preview>.pending`) | one preview | a `--commit` from `begin_commit` to `finish_commit` or exit | exit 2, "commit already in progress" |
+| `safety._lock_pending` (flock on `<preview>.pending`) | one preview | a `--commit` from `begin_commit` to `finish_commit` or the end of its invocation (`cli.main`, so `tg-serve` frees it too) | exit 2, "commit already in progress" |
 | `clone.state.slot_lock` (`clones/<id>.lock`) | one clone slot, all roles | `clone init --commit`, `clone sync` | exit 2, "clone … is busy" |
 | `commands.archive._one_run_per_account` (`sync.lock`, `transcribe.lock`) | one archive account | `archive sync`, `rebaseline`, `transcribe` | exit 3 |
 | SQLite WAL + `busy_timeout` 5 s | one database | every archive, clone, governor write | writers serialize |
@@ -81,7 +81,7 @@ States of `previews/<id>.*`:
 | pending | `--commit` while another process holds the flock | unchanged, exit 2 | `_lock_pending` |
 | pending | `--commit` after TTL | expired (`.pending` → `.json`) | `_expire_pending` |
 | pending | mutation and result audit succeed | used | `preview_commit.audit_after` → `finish_commit` |
-| pending | mutation or audit fails | pending (flock released at exit) | — |
+| pending | mutation or audit fails | pending (flock released when the invocation ends) | `release_commit_locks` |
 | used | `--commit` | unchanged, exit 2 | file not found |
 
 Invariants:
