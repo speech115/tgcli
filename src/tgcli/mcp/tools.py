@@ -33,23 +33,19 @@ class ToolError(Exception):
 def chat_keys(ref: str | int) -> set[str]:
     """Every allowlist key a chat reference stands for; empty if unparseable.
 
-    ``@Name``, ``name`` and ``t.me/name`` all mean ``@name``. A numeric id
-    also stands for its bare entity id, so ``-1001234`` matches ``1234``
-    (``tg dialogs`` prints the bot-API form, other commands the entity id).
+    ``@Name``, ``name`` and ``t.me/name`` all mean ``@name``. A numeric id is
+    compared whole: tg resolves a positive id as a user, so ``-1001234`` (a
+    channel) and ``1234`` (a user) are different chats. ``t.me/c/1234`` is the
+    channel ``-1001234``.
     """
     text = str(ref).strip()
     if _NUMERIC.match(text):
-        number = int(text)
-        keys = {str(number)}
-        if number < 0:
-            bare = str(-number)
-            keys.add(bare[3:] if bare.startswith("100") and len(bare) > 3 else bare)
-        return keys
+        return {str(int(text))}
     link = _LINK.match(text)
     if link:
         private, slug = link.groups()
         if private:
-            return {slug} if slug.isdigit() else set()
+            return {f"-100{int(slug)}"} if slug.isdigit() else set()
         text = slug
     username = _USERNAME.match(text)
     if username:
