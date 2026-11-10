@@ -6,13 +6,11 @@ from datetime import datetime
 from typing import cast
 
 from telethon.errors import MessageNotModifiedError
-from telethon.helpers import add_surrogate
 from telethon.tl import functions, types
-from telethon.tl.types import MessageEntityCustomEmoji
 
 from tgcli import chatref, formatting, safety
-from tgcli.commands.read import sanitize_plain_text, utf16_slice
 from tgcli.errors import NotFoundError, PolicyError
+from tgcli.messages import custom_emoji, sanitize_plain_text
 
 
 def _chat_to_dict(entity) -> dict:
@@ -23,26 +21,6 @@ def _chat_to_dict(entity) -> dict:
         or str(getattr(entity, "id", ""))
     )
     return {"id": entity.id, "name": name}
-
-
-def _custom_emoji(message: str, entities) -> list[dict]:
-    if not entities:
-        return []
-    surrogate = add_surrogate(message)
-    output = []
-    for entity in entities:
-        if not isinstance(entity, MessageEntityCustomEmoji):
-            continue
-        glyph = utf16_slice(surrogate, entity.offset, entity.length)
-        output.append(
-            {
-                "id": str(entity.document_id),
-                "emoji": glyph,
-                "offset": entity.offset,
-                "length": entity.length,
-            }
-        )
-    return output
 
 
 def _reply_fields(draft_tl) -> tuple[int | None, int | None]:
@@ -105,7 +83,7 @@ def draft_to_dict(entity, draft_tl) -> dict:
     return {
         "chat": chat,
         "text": text,
-        "custom_emoji": _custom_emoji(text, draft_tl.entities),
+        "custom_emoji": custom_emoji(text, draft_tl.entities),
         "reply_to_msg_id": reply_to_msg_id,
         "topic_id": topic_id,
         "date": date.isoformat() if date is not None else None,

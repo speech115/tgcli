@@ -11,9 +11,9 @@ from tgcli.archive import (
     scope as scope_mod,
     store as store_mod,
 )
-from tgcli.commands.read import _dialog_name, message_to_dict
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
 from tgcli.governor import pacing
+from tgcli.messages import dialog_name, message_to_dict
 from tgcli.session import FLOOD_ERRORS
 
 enumerate_private_dialogs = private_enum_mod.enumerate_private_dialogs
@@ -164,7 +164,7 @@ async def backfill_one(
         "chat": chat,
         "peer_id": peer,
         "kind": kind,
-        "dialog": {"id": entity.id, "name": _dialog_name(entity, chat)},
+        "dialog": {"id": entity.id, "name": dialog_name(entity, chat)},
         "stored": stored,
         "inserted": inserted,
         "updated": updated,

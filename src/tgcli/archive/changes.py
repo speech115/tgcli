@@ -37,8 +37,8 @@ from telethon.tl.types.updates import (
 from tgcli import chatref
 from tgcli.archive import changes_cursor, gaps as gaps_mod
 from tgcli.archive.changes_cursor import ChangesCursor
-from tgcli.commands.read import message_to_dict
 from tgcli.errors import ConfigError, NotFoundError, PolicyError
+from tgcli.messages import message_to_dict
 from tgcli.output import note
 
 CHANNEL_DIFF_LIMIT = 100

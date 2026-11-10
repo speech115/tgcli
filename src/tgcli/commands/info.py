@@ -1,8 +1,8 @@
 from telethon.tl import functions
 
 from tgcli import chatref
-from tgcli.commands.search import _sanitize_text
 from tgcli.errors import NotFoundError
+from tgcli.messages import sanitize_plain_text
 
 
 async def _entity(tg, chat: str):
@@ -133,7 +133,7 @@ def to_rows(data: dict) -> list[tuple]:
         (
             data["id"],
             data["kind"],
-            _sanitize_text(data["username"] or ""),
-            _sanitize_text(data["name"]),
+            sanitize_plain_text(data["username"] or ""),
+            sanitize_plain_text(data["name"]),
         )
     ]

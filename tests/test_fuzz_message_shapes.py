@@ -20,7 +20,7 @@ from hypothesis import given, settings, strategies as st
 from telethon.helpers import add_surrogate
 from telethon.tl import types
 
-from tgcli.commands.read import message_to_dict, to_rows
+from tgcli.messages import message_rows as to_rows, message_to_dict
 
 DETERMINISTIC = settings(max_examples=300, derandomize=True, deadline=None)
 CHAT = types.PeerChannel(channel_id=1234)
@@ -222,7 +222,7 @@ def test_a_whole_custom_emoji_keeps_its_glyph():
 @DETERMINISTIC
 @given(TEXT.flatmap(lambda text: st.tuples(st.just(text), entities(text))))
 def test_draft_custom_emoji_survive_any_entities(case):
-    from tgcli.commands.draft import _custom_emoji as draft_custom_emoji
+    from tgcli.messages import custom_emoji as draft_custom_emoji
 
     text, found = case
     rows = draft_custom_emoji(text, found)

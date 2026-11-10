@@ -19,9 +19,9 @@ from telethon.tl import functions
 from telethon.tl.tlobject import TLRequest
 
 from tgcli import safety
-from tgcli.commands.read import message_to_dict
 from tgcli.errors import ConfigError, PolicyError, TgcliError
 from tgcli.formatting import mask_phones_in_text
+from tgcli.messages import message_to_dict
 from tgcli.output import note
 
 READ_VERBS = ("get", "search", "check", "resolve")

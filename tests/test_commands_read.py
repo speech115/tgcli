@@ -5,8 +5,9 @@ from types import SimpleNamespace
 import pytest
 
 from tests.conftest import ns
-from tgcli.commands.read import fetch_message, message_to_dict
+from tgcli.commands.read import fetch_message
 from tgcli.errors import NotFoundError
+from tgcli.messages import message_to_dict
 
 
 def _ns(**kwargs):

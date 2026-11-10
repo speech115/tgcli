@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, ClassVar, Literal, NoReturn, TypeAlias
 
+from tgcli import messages
 from tgcli.commands import (
     dialogs as dialogs_cmd,
     draft as draft_cmd,
@@ -217,24 +218,24 @@ _SPECS: dict[str, _Spec] = {
             until=op.until,
             topic=op.topic,
         ),
-        rows=read_cmd.to_rows,
+        rows=messages.message_rows,
     ),
     "search": _Spec(
         cli=lambda a: Search(a.chat, a.query, a.limit, a.all, a.from_user, a.since),
         fetch=_fetch_search,
-        rows=search_cmd.to_rows,
+        rows=messages.message_rows,
     ),
     "latest": _Spec(
         cli=lambda a: Latest(a.chat),
         fetch=lambda tg, op: search_cmd.fetch_latest(tg, op.chat),
-        rows=search_cmd.to_rows,
+        rows=messages.message_rows,
     ),
     "message": _Spec(
         cli=lambda a: Message(a.chat, a.message_id, a.context),
         fetch=lambda tg, op: read_cmd.fetch_message(
             tg, op.chat, op.message_id, context=op.context
         ),
-        rows=search_cmd.to_rows,
+        rows=messages.message_rows,
     ),
     "info": _Spec(
         cli=lambda a: Info(a.chat, a.full),
