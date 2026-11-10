@@ -271,3 +271,17 @@ def test_a_timed_out_step_finishes_its_cleanup_before_the_next_starts(monkeypatc
     finally:
         event_loop.call_soon_threadsafe(event_loop.stop)
         thread.join(5)
+
+
+def test_doctor_connect_checks_the_held_session_instead_of_its_own_lock(
+    env, monkeypatch
+):
+    client = ConnectingClient(me=ns(id=7, username="owner", first_name="O"))
+    install(monkeypatch, client)
+
+    code, replies = run_serve([{"argv": ["--json", "doctor", "--connect"]}])
+
+    [report] = json.loads(replies[1]["stdout"])["accounts"]
+    assert report["checks"]["lock_free"] is True
+    assert report["checks"]["authorized"] is True
+    assert report["user"]["id"] == 7

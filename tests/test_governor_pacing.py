@@ -4,6 +4,7 @@ No test sleeps in real time: a fake clock and a recording sleep stand in.
 """
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 from telethon.tl.functions import messages, updates, upload
@@ -15,6 +16,7 @@ from tests.fakes.archive import (
     archive_user,
     init_archive,
 )
+from tgcli import resolve_phone
 from tgcli.archive import store as store_mod
 from tgcli.governor import gate, pacing
 from tgcli.governor.ledger import Ledger
@@ -117,7 +119,10 @@ def ledger(tmp_path):
 
 
 @pytest.fixture
-def client(ledger, clock, sleeper):
+def client(ledger, clock, sleeper, monkeypatch):
+    # resolvePhone's cross-process throttle reads the wall clock: give it the
+    # same fake clock the pacing sleeps advance.
+    monkeypatch.setattr(resolve_phone, "time", SimpleNamespace(time=lambda: clock["t"]))
     fake = FakeClient(clock=clock, sleep=sleeper)
     gate.install(fake, ledger, sleep=sleeper, clock=lambda: clock["t"])
     return fake
@@ -759,62 +764,14 @@ def test_runtime_bounds_must_be_finite(config_env, capsys, flag):
 
 
 async def test_resolve_twice_within_three_seconds_paces_like_today(client, sleeper):
-    """P6: ResolvePhoneRequest keeps its 3 s pace via the general mechanism.
-
-    The file-based pre-flight gate in resolve_phone.py stays (its own tests
-    pin it); this pins that the seam's pacing covers the same request type
-    at the same interval.
-    """
+    """P6: within one process the pace sleeps; the cross-process throttle
+    behind it then lets the paced call through."""
     from telethon.tl.functions.contacts import ResolvePhoneRequest
 
     await client._call(None, ResolvePhoneRequest(phone="+100"))
     await client._call(None, ResolvePhoneRequest(phone="+200"))
 
     assert sleeper.calls == [3.0]
-
-
-def test_journal_records_resolve_phone_cooldown_provenance(
-    config_env, monkeypatch, capsys
-):
-    """m7 review fix: the third provenance value lands in the journal.
-
-    The pre-flight resolve_phone gate records its own stop; a second
-    resolve within 3 s exits 5 with provenance=resolve_phone_cooldown.
-    """
-
-    from tgcli import resolve_phone
-    from tgcli.cli import main
-    from tgcli.state_paths import state_dir
-
-    (state_dir() / "sessions").mkdir(parents=True, exist_ok=True)
-    (state_dir() / "sessions" / "main.session").write_bytes(b"x")
-
-    clock = {"t": 1_000.0}
-    monkeypatch.setattr(resolve_phone.time, "time", lambda: clock["t"])
-
-    from telethon.tl import types
-
-    from tests.conftest import FakeClient, make_session_fake
-
-    user = archive_me(user_id=42)
-    resolved = types.PeerUser(user_id=42)
-    client = FakeClient(
-        me=user,
-        resolve_phone_result=type(
-            "R", (), {"peer": resolved, "users": [user], "chats": []}
-        )(),
-    )
-    make_session_fake(monkeypatch, client)
-
-    assert main(["resolve", "+99512345678", "--json"]) == 0
-    capsys.readouterr()
-    assert main(["resolve", "+99512345678", "--json"]) == 5
-    capsys.readouterr()
-
-    entry = _journal_lines()[-1]
-    assert entry["provenance"] == "resolve_phone_cooldown"
-    assert entry["request_type"] == "contacts.ResolvePhoneRequest"
-    assert entry["retry_after"] >= 1
 
 
 def test_timeout_must_be_positive(config_env, capsys):

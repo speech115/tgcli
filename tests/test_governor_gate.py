@@ -5,12 +5,14 @@ Covers #139's matrix rows G1, G2, G9, S5 and S7.
 
 import time
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from telethon import TelegramClient, errors as telethon_errors
 from telethon.sessions import StringSession
 from telethon.tl.functions import messages, updates, upload
 
+from tgcli import resolve_phone
 from tgcli.errors import RateLimitError
 from tgcli.governor import gate, pacing
 from tgcli.governor.ledger import Ledger
@@ -567,3 +569,37 @@ async def test_a_local_refusal_is_not_tallied_as_a_flood(ledger):
         await client._call(None, history())
 
     assert pacing.flood_tally() == (0, 0.0)
+
+
+async def test_a_second_process_resolving_a_phone_inside_3s_refuses_before_any_rpc(
+    ledger, monkeypatch
+):
+    """Pacing is per process; resolvePhone's throttle spans processes, so a
+    `tg run` script and `tg resolve` share it."""
+    from telethon.tl.functions.contacts import ResolvePhoneRequest
+
+    wall = {"t": 1_000.0}
+    monkeypatch.setattr(resolve_phone, "time", SimpleNamespace(time=lambda: wall["t"]))
+    first = FakeClient()
+    gate.install(first, ledger)
+    await first._call(None, ResolvePhoneRequest(phone="100"))
+
+    pacing.reset_runtime()
+    second = FakeClient()
+    gate.install(second, ledger)
+    wall["t"] += 1
+    with pytest.raises(RateLimitError) as caught:
+        await second._call(None, ResolvePhoneRequest(phone="200"))
+
+    assert second.sent == []
+    assert caught.value.details["retry_after"] == 2
+    assert pacing.last_stop() == {
+        "retry_after": 2,
+        "request_type": "contacts.ResolvePhoneRequest",
+        "provenance": "resolve_phone_cooldown",
+    }
+
+    pacing.reset_runtime()
+    wall["t"] += 2
+    await second._call(None, ResolvePhoneRequest(phone="200"))
+    assert len(second.sent) == 1

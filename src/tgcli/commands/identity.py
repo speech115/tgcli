@@ -68,9 +68,6 @@ def _entity_from_resolved_peer(response):
 async def resolve(tg, ref: str) -> dict:
     stripped = ref.lstrip()
     if _is_phone(stripped):
-        from tgcli.resolve_phone import enforce_resolve_phone_cooldown
-
-        enforce_resolve_phone_cooldown()
         phone = stripped[1:]
         try:
             response = await tg(functions.contacts.ResolvePhoneRequest(phone=phone))

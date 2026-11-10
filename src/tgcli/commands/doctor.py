@@ -182,7 +182,7 @@ async def _check_role(account, role: str, *, connect: bool) -> dict:
     has_session_file = session_file.is_file()
     checks: dict = {
         "session_file": has_session_file,
-        "lock_free": has_session_file and session.lock_held(session_file) is False,
+        "lock_free": has_session_file and session.lock_free(session_file),
         "session_perms_ok": _session_perms_ok(session_file),
         "authorized": None,
     }
@@ -253,7 +253,7 @@ async def check_account(
     has_session_file = session_file.is_file()
     checks: dict = {
         "session_file": has_session_file,
-        "lock_free": has_session_file and session.lock_held(session_file) is False,
+        "lock_free": has_session_file and session.lock_free(session_file),
         "state_writable": _state_writable(),
         "preview_perms_ok": not _loose_previews(),
         "preview_perms_repaired": preview_perms_repaired,

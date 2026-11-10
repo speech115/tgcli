@@ -72,3 +72,10 @@ def test_resolve_phone_cooldown_reservation_is_concurrency_safe(tmp_path, monkey
         outcomes = list(pool.map(lambda _index: reserve(), range(2)))
 
     assert sorted(outcomes) == ["limited", "reserved"]
+
+
+def test_the_first_resolve_creates_a_private_state_root(tmp_path, monkeypatch):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
+    resolve_phone.enforce_resolve_phone_cooldown()
+
+    assert (tmp_path / "state").stat().st_mode & 0o777 == 0o700

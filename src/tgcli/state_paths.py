@@ -24,6 +24,13 @@ def _repair_mode(path: Path, mode: int) -> None:
         pass
 
 
+def private_dir(path: Path) -> Path:
+    """Create ``path`` (and missing parents) and force the leaf to 0700."""
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _repair_mode(path, 0o700)
+    return path
+
+
 def ensure_state_dir(*parts: str) -> Path:
     """Create and mode-repair the state root and each named level under it.
 
@@ -35,13 +42,9 @@ def ensure_state_dir(*parts: str) -> Path:
     Directories above the state root are never touched — a custom
     TGCLI_STATE_DIR's parents are not ours.
     """
-    path = state_dir()
-    path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    _repair_mode(path, 0o700)
+    path = private_dir(state_dir())
     for part in parts:
-        path = path / part
-        path.mkdir(mode=0o700, exist_ok=True)
-        _repair_mode(path, 0o700)
+        path = private_dir(path / part)
     return path
 
 

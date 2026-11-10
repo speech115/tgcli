@@ -109,8 +109,8 @@ _CLASSES: dict[str, RequestClass] = {
     "contacts.ResolveUsernameRequest": RequestClass.METADATA,
     "messages.GetCommonChatsRequest": RequestClass.METADATA,
     "updates.GetStateRequest": RequestClass.METADATA,
-    # resolve(phone) keeps its own 3 s pace, now as an instance of the
-    # general mechanism rather than a module of its own (ADR-0072 decision 3).
+    # Paced 3 s within a process; the gate adds resolve_phone's cross-process
+    # throttle for this type (ADR-0072 decision 3).
     "contacts.ResolvePhoneRequest": RequestClass.RESOLVE_PHONE,
 }
 
