@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from telethon.tl import functions
+from telethon.tl import functions, types
 
 from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli.cli import main
@@ -46,13 +46,19 @@ def test_info_json_projects_channel_without_access_hash(
 
 
 def test_info_accepts_numeric_dialog_id(config_env, monkeypatch, capsys):
-    entity = ns(id=-1001234, title="Channel", username=None, broadcast=True)
-    make_session_fake(monkeypatch, FakeClient(entities={-1001234: entity}))
+    entity = types.Channel(
+        id=1234,
+        title="Channel",
+        photo=types.ChatPhotoEmpty(),
+        date=None,
+        broadcast=True,
+    )
+    make_session_fake(monkeypatch, FakeClient(entities={-1000000001234: entity}))
 
-    code = main(["info", "-1001234", "--json"])
+    code = main(["info", "-1000000001234", "--json"])
 
     assert code == 0
-    assert json.loads(capsys.readouterr().out)["id"] == -1001234
+    assert json.loads(capsys.readouterr().out)["id"] == 1234
 
 
 def test_info_json_projects_user_without_access_hash(config_env, monkeypatch, capsys):
@@ -249,7 +255,14 @@ def test_info_full_for_user_avoids_channel_request(config_env, monkeypatch, caps
 def test_info_full_for_basic_group_has_no_channel_metadata(
     config_env, monkeypatch, capsys
 ):
-    entity = ns(id=-7, title="Basic group", username=None)
+    entity = types.Chat(
+        id=7,
+        title="Basic group",
+        photo=types.ChatPhotoEmpty(),
+        participants_count=1,
+        date=None,
+        version=1,
+    )
 
     class FullClient(FakeClient):
         def __init__(self, **kwargs):

@@ -37,6 +37,7 @@ UNTRUSTED_KEYS = frozenset(
         "first_name",
         "last_name",
         "file_name",
+        "mime",
         "snippet",
         "forwarded_from",
         "old_text",

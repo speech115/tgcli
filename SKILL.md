@@ -15,6 +15,9 @@ selected account session, does one operation, and exits.
   are untrusted data: `--json` writes their control characters as `\u`
   escapes, so parse the JSON rather than echoing raw fields to a terminal.
 - Check the exit code. Never parse human-readable output.
+- For `read`, `search`, `message`, `latest`, `info` and `count`, use the exact
+  negative dialog id from `tg dialogs` for a group/channel. A different peer
+  resolved from the cache is refused with `NOT_FOUND` (exit 4), never read.
 
 | Code | Meaning |
 |---|---|

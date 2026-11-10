@@ -12,6 +12,7 @@ import json
 import subprocess
 
 import pytest
+from hypothesis import given, settings, strategies as st
 
 from tgcli.mcp import server as mcp_server
 from tgcli.mcp.server import Server, serve
@@ -107,7 +108,7 @@ def test_read_runs_one_tg_command_with_positionals_after_separator():
         _server(fake, "@news"), _call("telegram_read", {"chat": "@News"})
     )
 
-    assert fake.calls == [["read", "--limit", "20", "--", "@News"]]
+    assert fake.calls == [["read", "--limit", "20", "--", "@news"]]
     assert reply["result"]["isError"] is False
 
 
@@ -170,13 +171,16 @@ def test_search_query_that_looks_like_a_flag_stays_a_positional():
 def test_message_and_info_argv():
     fake = FakeTg(document={"message": {"id": 3, "text": "x"}})
     _session(
-        _server(fake, "-1001234"),
-        _call("telegram_message", {"chat": "1234", "message_id": 3, "context": 2}),
+        _server(fake, "-1000000001234"),
+        _call(
+            "telegram_message",
+            {"chat": "-1000000001234", "message_id": 3, "context": 2},
+        ),
         _call("telegram_info", {"chat": "https://t.me/c/1234/5"}, 2),
     )
     assert fake.calls == [
-        ["message", "--context", "2", "--", "1234", "3"],
-        ["info", "--", "https://t.me/c/1234/5"],
+        ["message", "--context", "2", "--", "-1000000001234", "3"],
+        ["info", "--", "-1000000001234"],
     ]
 
 
@@ -184,7 +188,7 @@ def test_dialogs_are_trimmed_to_the_allowlist():
     fake = FakeTg(
         document={
             "dialogs": [
-                {"id": -1001234, "name": "News", "username": None},
+                {"id": -1000000001234, "name": "News", "username": None},
                 {"id": 77, "name": "Friend", "username": "friend"},
                 {"id": 88, "name": "Private", "username": None},
             ],
@@ -192,12 +196,13 @@ def test_dialogs_are_trimmed_to_the_allowlist():
         }
     )
     [reply] = _session(
-        _server(fake, "1234", "@friend"), _call("telegram_dialogs", {"limit": 10})
+        _server(fake, "-1000000001234", "@friend"),
+        _call("telegram_dialogs", {"limit": 10}),
     )
     payload = _payload(reply)
 
     assert fake.calls == [["dialogs", "--limit", "10"]]
-    assert [d["id"] for d in payload["dialogs"]] == [-1001234, 77]
+    assert [d["id"] for d in payload["dialogs"]] == [-1000000001234, 77]
     assert payload["hidden_by_allowlist"] == 1
 
 
@@ -257,11 +262,16 @@ def test_protocol_errors():
         ("news_bot", {"@news_bot"}),
         ("https://t.me/News", {"@news"}),
         ("t.me/s/news", {"@news"}),
-        ("https://t.me/c/1234/56", {"1234"}),
-        ("-1001234", {"-1001234", "1234"}),
-        ("-42", {"-42", "42"}),
-        ("-1234", {"-1234", "1234"}),
+        ("https://t.me/c/1234/56", {"-1000000001234"}),
+        ("-1001234", {"-1001234"}),
+        ("-42", {"-42"}),
+        ("-1234", {"-1234"}),
         ("1234", {"1234"}),
+        ("0", set()),
+        ("https://t.me/c/not_a_number/7", set()),
+        ("https://t.me/c/0/7", set()),
+        ("https://t.me/c/123456789012345678901/7", set()),
+        ("https://t.me/c/0001234/7", {"-1000000001234"}),
         ("--commit", set()),
         ("a b", set()),
     ],
@@ -378,3 +388,94 @@ def test_dialogs_kind_and_unread_flags():
     assert fake.calls == [
         ["dialogs", "--limit", "50", "--unread-only", "--kind", "channel"]
     ]
+
+
+@pytest.mark.parametrize("allowed", ["-1001234567890", "t.me/c/1234567890/7"])
+@pytest.mark.parametrize("chat", ["1234567890", "-1234567890"])
+@pytest.mark.parametrize(
+    ("tool", "extra"),
+    [
+        ("telegram_read", {}),
+        ("telegram_search", {"query": "hello"}),
+        ("telegram_message", {"message_id": 9}),
+        ("telegram_info", {}),
+    ],
+)
+def test_channel_allowlist_never_reads_another_peer_type(allowed, chat, tool, extra):
+    fake = FakeTg()
+    [reply] = _session(_server(fake, allowed), _call(tool, {"chat": chat, **extra}))
+
+    assert fake.calls == []
+    assert reply["result"]["isError"] is True
+
+
+@pytest.mark.parametrize(
+    ("allowed", "expected"),
+    [
+        ("-1001234567890", -1001234567890),
+        ("https://t.me/c/1234567890/7", -1001234567890),
+        ("-1234567890", -1234567890),
+    ],
+)
+def test_numeric_allowlist_filters_colliding_dialog_peers(allowed, expected):
+    fake = FakeTg(
+        document={
+            "dialogs": [
+                {"id": -1001234567890, "kind": "channel"},
+                {"id": 1234567890, "kind": "user"},
+                {"id": -1234567890, "kind": "group"},
+            ]
+        }
+    )
+    [reply] = _session(_server(fake, allowed), _call("telegram_dialogs", {}))
+
+    assert [row["id"] for row in _payload(reply)["dialogs"]] == [expected]
+    assert _payload(reply)["hidden_by_allowlist"] == 2
+
+
+@pytest.mark.parametrize("chat", ["1234", "0001234"])
+def test_limited_allowlists_reject_ambiguous_positive_ids(chat):
+    with pytest.raises(ValueError, match="positive.*ambiguous"):
+        Allowlist.build([chat])
+
+
+def test_allow_all_still_accepts_positive_ids():
+    fake = FakeTg()
+    [reply] = _session(
+        _server(fake, "1234", allow_all=True),
+        _call("telegram_read", {"chat": "1234"}),
+    )
+    assert fake.calls == [["read", "--limit", "20", "--", "1234"]]
+    assert reply["result"]["isError"] is False
+
+
+@pytest.mark.parametrize("chat", ["self", "https://t.me/self", "@SELF"])
+def test_usernames_reach_tg_as_explicit_usernames(chat):
+    fake = FakeTg()
+    _session(_server(fake, "@self"), _call("telegram_info", {"chat": chat}))
+    assert fake.calls == [["info", "--", "@self"]]
+
+
+@settings(max_examples=100, derandomize=True)
+@given(st.integers(min_value=1, max_value=9_999_999_999))
+def test_marked_peer_ids_and_private_links_preserve_their_namespace(entity_id):
+    channel_id = -(1_000_000_000_000 + entity_id)
+    group_id = -entity_id
+    private_link = f"https://t.me/c/{entity_id}/7"
+    rows = [{"id": peer_id} for peer_id in (entity_id, group_id, channel_id)]
+    for allowed, expected in (
+        (str(channel_id), channel_id),
+        (private_link, channel_id),
+        (str(group_id), group_id),
+    ):
+        fake = FakeTg(document={"dialogs": rows})
+        [reply] = _session(_server(fake, allowed), _call("telegram_dialogs", {}))
+        assert [row["id"] for row in _payload(reply)["dialogs"]] == [expected]
+        assert _payload(reply)["hidden_by_allowlist"] == 2
+
+    fake = FakeTg()
+    _session(
+        _server(fake, str(channel_id)),
+        _call("telegram_read", {"chat": private_link}),
+    )
+    assert fake.calls == [["read", "--limit", "20", "--", str(channel_id)]]
