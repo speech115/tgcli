@@ -639,3 +639,17 @@ def test_flattened_reply_kind_keeps_its_post_thread():
     assert resolved.reply_to == types.InputReplyToMessage(reply_to_msg_id=550)
     assert resolved.mode == "reuploaded"
     assert resolved.reply_flattened is True
+
+
+def test_quote_fallback_prefix_leads_the_rendered_body():
+    """The snapshot path and the reupload path share one body rule: the quote
+    fallback prefix, then the source text."""
+    from types import SimpleNamespace
+
+    from tgcli.clone import quote_fallback
+
+    plan = SimpleNamespace(body_prefix="> quoted\n", body_prefix_entities=())
+    text, _ = quote_fallback.apply_to_text("body", None, None, plan)
+    assert text == "> quoted\nbody"
+    bare = SimpleNamespace(body_prefix=None, body_prefix_entities=None)
+    assert quote_fallback.apply_to_text("body", None, None, bare)[0] == "body"
