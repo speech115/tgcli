@@ -48,7 +48,8 @@ class Command:
       `handshake` is enforced by `preview_commit` on the commit leg and
       `handler` by the handler itself.
     deadline: the default `--timeout` (CONTRACT §1); None is no deadline.
-    retries: whether the session may retry a write (`mutation_safe`).
+    mutation_safe: open a session that never retries a request blind, for
+      writes whose resend is not idempotent.
     prepare: argument checks run in preflight, after the gate.
     audit: details of one audit row written before the network call.
     emit: `rows` follows --json/--plain, `none` prints nothing (the command
@@ -61,7 +62,7 @@ class Command:
     gate: Literal["none", "telegram", "local", "handshake", "handler"] = "none"
     gated: Predicate = _always
     deadline: float | None | Callable[[argparse.Namespace], float | None] = 60.0
-    retries: Predicate = _never
+    mutation_safe: Predicate = _never
     prepare: Hook | None = None
     audit: Callable[[argparse.Namespace], dict] | None = None
     emit: Literal["rows", "none"] = "rows"
@@ -97,8 +98,8 @@ _HANDSHAKE = Command(
     needs="network",
     run=handlers.handshake,
     gate="handshake",
-    # Only clone init's commit is safe to retry; the handshake registry says so.
-    retries=preview_commit.mutation_safe,
+    # The handshake registry names the commits that must not be retried blind.
+    mutation_safe=preview_commit.mutation_safe,
 )
 
 
@@ -185,7 +186,7 @@ COMMANDS: dict[str, Command] = {
         run=handlers.clone_sync,
         gate="telegram",
         deadline=None,
-        retries=_always,
+        mutation_safe=_always,
         prepare=preflight.prepare_clone_sync,
     ),
     # drafts
@@ -276,7 +277,7 @@ COMMANDS: dict[str, Command] = {
         run=handlers.run,
         gate="telegram",
         gated=_flag("write"),
-        retries=_flag("write"),
+        mutation_safe=_flag("write"),
         prepare=preflight.prepare_run,
         emit="none",
     ),

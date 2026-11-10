@@ -7,7 +7,7 @@ taking `(tg, args, account)`. All of them return `(data, rows)`.
 
 from __future__ import annotations
 
-from tgcli import loop, output, preview_commit, read_ops, safety, state_paths
+from tgcli import deadline, loop, output, preview_commit, read_ops, safety, state_paths
 from tgcli.clone import sync as sync_clone
 from tgcli.commands import (
     accounts as accounts_cmd,
@@ -107,13 +107,10 @@ def accounts_login(args, config) -> tuple[dict, list[tuple]]:
 
 
 def doctor(args, config) -> tuple[dict, list[tuple]]:
-    # Late import: cli owns the --timeout deadline and imports this module.
-    from tgcli.cli import _run_with_deadline
-
     connect = bool(getattr(args, "connect", False))
     coro = doctor_cmd.run(config, args.account, connect=connect, readonly=args.readonly)
     if connect:
-        data = _run_with_deadline(coro, args.timeout)
+        data = deadline.run(coro, args.timeout)
     else:
         data = loop.run(coro)
     return data, doctor_cmd.to_rows(data)

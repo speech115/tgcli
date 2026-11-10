@@ -6,11 +6,9 @@ invocation and nothing else.
 """
 
 import argparse
-import asyncio
 import contextlib
 import io
 import logging
-import math
 import os
 import signal
 import sys
@@ -20,9 +18,9 @@ import traceback
 from contextlib import contextmanager
 
 from tgcli import (
+    deadline,
     dispatch,
     invocations,
-    loop,
     output,
     preflight,
     preview_commit,
@@ -52,11 +50,6 @@ def _error_site(err: BaseException) -> str | None:
 
 __all__ = ["build_parser", "main", "entrypoint"]
 
-# The deadline is armed before preflight, so it must not preempt a command that
-# owns a graceful asyncio deadline around the network. Those arm later; this
-# margin keeps them first.
-DEADLINE_GRACE = 1.0
-
 # The only argv tokens that may end a run successfully with text on stdout.
 # argparse groups single-dash short options, so the value `-hi` also reaches
 # the help action — that exit is misuse, not a help request.
@@ -64,10 +57,6 @@ HELP_TOKENS = frozenset({"-h", "--help", "--version"})
 
 # Catchable termination signals; SIGKILL cannot be one and is left alone.
 TERMINATION_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
-
-
-class _DeadlineSignal(BaseException):
-    """SIGALRM escape: a BaseException so no `except Exception` swallows it."""
 
 
 class _TerminationSignal(BaseException):
@@ -125,47 +114,6 @@ def _apply_global_defaults(args) -> None:
 
 
 @contextlib.contextmanager
-def _armed(seconds: float | None):
-    """Hold the invocation deadline over the whole body, preflight included.
-
-    asyncio.wait_for covers only the network coroutine; stdin reads etc.
-    would otherwise run with no deadline at all.
-
-    The deadline is a hang detector (ADR-0072 decision 6): on SIGALRM the
-    handler asks pacing how much wall time was governed sleep and re-arms
-    the timer for the remainder instead of killing the run.
-    """
-    if (
-        seconds is None
-        or not math.isfinite(seconds)
-        or seconds <= 0
-        or threading.current_thread() is not threading.main_thread()
-    ):
-        yield
-        return
-
-    base_slept = pacing.total_governed_sleep()
-    started = time.monotonic()
-
-    def fire(signum, frame):
-        elapsed = time.monotonic() - started
-        governed = pacing.total_governed_sleep() - base_slept
-        remaining = seconds - (elapsed - governed)
-        if remaining > 0:
-            signal.setitimer(signal.ITIMER_REAL, remaining + DEADLINE_GRACE)
-            return
-        raise _DeadlineSignal
-
-    previous = signal.signal(signal.SIGALRM, fire)
-    signal.setitimer(signal.ITIMER_REAL, seconds + DEADLINE_GRACE)
-    try:
-        yield
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
-
-
-@contextlib.contextmanager
 def _honest_termination():
     """Let SIGTERM/SIGHUP journal the run, then die by the signal anyway.
 
@@ -188,63 +136,6 @@ def _honest_termination():
     finally:
         for number, handler in previous:
             signal.signal(number, handler)
-
-
-class _DeadlineExpired(Exception):
-    """The `--timeout` deadline ran out inside `_run_with_deadline`.
-
-    Private so that a command's own `TimeoutError` (a script's `wait_for`, a
-    socket timeout) is not mistaken for the invocation deadline.
-    """
-
-
-def _run_with_deadline(coro, timeout):
-    """Run one coroutine under `--timeout` as the documented TIMEOUT error.
-
-    Governed sleep is discounted (ADR-0072 decision 6): the loop re-reads
-    pacing's slept total on every wake and grants it back, so a run pacing
-    itself out of a flood is not killed for doing the right thing.
-    """
-
-    async def run():
-        if timeout is None:
-            return await coro
-        task = asyncio.create_task(coro)
-        started = time.monotonic()
-        base_slept = pacing.total_governed_sleep()
-        while True:
-            governed = pacing.total_governed_sleep() - base_slept
-            remaining = timeout - (time.monotonic() - started - governed)
-            if remaining <= 0:
-                # The command's own deadline (transcribe's wait_for) may still
-                # win inside the grace window and raise its detailed
-                # CommandTimeoutError; fall back to the generic TIMEOUT only
-                # once that window is over. The SIGALRM backstop is disarmed
-                # first so its `seconds + grace` firing cannot race this wait.
-                signal.setitimer(signal.ITIMER_REAL, 0)
-                done, _ = await asyncio.wait({task}, timeout=DEADLINE_GRACE)
-                if done:
-                    try:
-                        return task.result()
-                    except (asyncio.CancelledError, TimeoutError):
-                        # Past the deadline, a builtin TimeoutError (a socket
-                        # timing out in the grace window) is the deadline too.
-                        raise _DeadlineExpired from None
-                task.cancel()
-                # Let its `finally` blocks run before the next step does:
-                # asyncio.run waited for them, a held loop (tg-serve) would not.
-                await asyncio.wait({task})
-                raise _DeadlineExpired
-            done, _ = await asyncio.wait({task}, timeout=remaining)
-            if done:
-                return task.result()
-
-    try:
-        return loop.run(run())
-    except _DeadlineExpired:
-        raise CommandTimeoutError(
-            f"invocation exceeded the --timeout deadline of {timeout}s"
-        ) from None
 
 
 @contextmanager
@@ -303,7 +194,7 @@ def _execute_network(args, config, spec: registry.Command) -> tuple[dict, list[t
     try:
         _audit_before(args, account, spec)
         network = dispatch.run_network(args, account)
-        data, rows = _run_with_deadline(network, args.timeout)
+        data, rows = deadline.run(network, args.timeout)
         preview_commit.audit_after(args, account, data)
         return data, rows
     finally:
@@ -375,7 +266,7 @@ def main(
     result_data: dict | None = None
     try:
         with _honest_termination():
-            with _armed(args.timeout):
+            with deadline.armed(args.timeout):
                 preflight.prepare(parser, args, spec)
                 data, rows = _execute(args, spec)
             result_data = data
@@ -410,7 +301,7 @@ def main(
                 )
             else:
                 output.emit_error(err, as_json=False)
-    except _DeadlineSignal:
+    except deadline.AlarmFired:
         # The whole-body alarm fired; the asyncio deadline is already
         # translated by _run_with_deadline (with its grace window).
         timed_out = CommandTimeoutError("invocation deadline exceeded")
