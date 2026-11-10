@@ -353,6 +353,9 @@ async def _commit_slot(tg, entity, source_kind, me, account_alias, payload) -> d
                 "warning: clone mute skipped for discussion peer "
                 f"{clone_state.discussion_destination_peer_id}: unresolved"
             )
+    # Muting the clone and filing it into the "Clone" folder change the
+    # account's own settings: audited before they leave, like every init write.
+    safety.append_audit("clone-init-ergonomics", account_alias, {"clone_id": clone_id})
     applied = await ergonomics.apply(tg, peers)
     if discussion_unresolved:
         applied["muted"] = False

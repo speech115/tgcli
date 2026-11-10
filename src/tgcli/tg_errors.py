@@ -45,6 +45,12 @@ RUN_ABORTING_ERRORS = (
 )
 
 
+# Never a refusal about one peer: "ask again later", or a session Telegram
+# no longer accepts, which a re-login fixes. A catch site that maps an RPCError
+# to a lasting per-peer outcome re-raises these first.
+NOT_REFUSALS = (*TRANSIENT_ERRORS, telethon_errors.UnauthorizedError)
+
+
 async def unless_refused(awaitable):
     """``(result, None)``, or ``(None, refusal)`` when Telegram said no.
 
@@ -57,7 +63,7 @@ async def unless_refused(awaitable):
     """
     try:
         return await awaitable, None
-    except (*TRANSIENT_ERRORS, telethon_errors.UnauthorizedError):
+    except NOT_REFUSALS:
         raise
     except (ValueError, telethon_errors.RPCError) as exc:
         return None, exc

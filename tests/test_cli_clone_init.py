@@ -287,6 +287,7 @@ def test_clone_init_commit_creates_and_records_destination(
     assert [record["action"] for record in audits] == [
         "clone-init-create",
         "clone-init-title",
+        "clone-init-ergonomics",
     ]
 
 
@@ -415,7 +416,10 @@ def test_clone_init_commit_copies_nonempty_channel_description(
     assert request.peer is client.destination
     assert request.about == "Source description"
     audits = [json.loads(line) for line in safety.audit_path().read_text().splitlines()]
-    assert audits[-1]["action"] == "clone-init-about"
+    assert [record["action"] for record in audits][-2:] == [
+        "clone-init-about",
+        "clone-init-ergonomics",
+    ]
 
 
 def test_clone_init_commit_tolerates_an_unchanged_description(
@@ -520,7 +524,10 @@ def test_clone_init_commit_copies_channel_avatar_and_cleans_tempfile(
         not path.exists() and not path.parent.exists() for path in client.downloads
     )
     audits = [json.loads(line) for line in safety.audit_path().read_text().splitlines()]
-    assert audits[-1]["action"] == "clone-init-avatar"
+    assert [record["action"] for record in audits][-2:] == [
+        "clone-init-avatar",
+        "clone-init-ergonomics",
+    ]
 
 
 def test_clone_init_avatar_download_failure_keeps_destination_retryable(
@@ -712,6 +719,7 @@ def test_clone_init_commit_adopts_plain_forum_marker_then_enables_forum(
     assert [record["action"] for record in audits] == [
         "clone-init-forum",
         "clone-init-title",
+        "clone-init-ergonomics",
     ]
 
 
@@ -1080,6 +1088,42 @@ def test_init_audits_the_discussion_title_edit_before_sending_it(
 
     assert client.audited_at_edit is not None
     assert client.audited_at_edit[-1] == "clone-init-discussion-title"
+
+
+@pytest.mark.parametrize(
+    "request_type",
+    [
+        functions.account.UpdateNotifySettingsRequest,
+        functions.messages.UpdateDialogFilterRequest,
+    ],
+)
+def test_init_audits_the_mute_and_folder_writes_before_sending_them(
+    request_type, config_env, monkeypatch, capsys
+):
+    """Muting the clone and filing it into the Clone folder change the
+    account's settings: an audit row is on disk before either request."""
+
+    class AuditProbeClient(CloneInitClient):
+        audited_at_write: list[str] | None = None
+
+        async def __call__(self, request):
+            if isinstance(request, request_type) and self.audited_at_write is None:
+                path = safety.audit_path()
+                lines = path.read_text().splitlines() if path.exists() else []
+                self.audited_at_write = [json.loads(line)["action"] for line in lines]
+            return await super().__call__(request)
+
+    client = AuditProbeClient()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+
+    assert client.audited_at_write is not None
+    assert client.audited_at_write[-1] == "clone-init-ergonomics"
 
 
 def test_init_discussion_title_is_idempotent_on_rerun(config_env, monkeypatch, capsys):
