@@ -23,6 +23,7 @@ from tgcli.clone import (
 )
 from tgcli.errors import PolicyError
 from tgcli.output import note
+from tgcli.tg_errors import unless_refused
 
 
 def is_private_owned_broadcast(entity, *, title: str | None = None) -> bool:
@@ -153,14 +154,12 @@ async def init_discussion(
         return None
     clone_state.discussion_source_peer_id = linked
 
-    try:
-        source_group = await tg.get_entity(types.PeerChannel(linked))
-        await tg.get_messages(source_group, limit=1)
-    except (
-        ValueError,
-        telethon_errors.ChannelPrivateError,
-        telethon_errors.ChatAdminRequiredError,
-    ):
+    source_group, refusal = await unless_refused(
+        tg.get_entity(types.PeerChannel(linked))
+    )
+    if refusal is None:
+        _, refusal = await unless_refused(tg.get_messages(source_group, limit=1))
+    if refusal is not None:
         # The same degrade as sync's: "unavailable" never relinks, and state
         # holds no comment progress for a clone that is not copying comments.
         clone_state.clear_discussion_progress()

@@ -15,11 +15,10 @@ the unedited original would silently publish different text.
 
 from datetime import timedelta
 
-from telethon import errors as telethon_errors
 from telethon.tl import types
 
 from tgcli.clone.legs import AnyLeg
-from tgcli.tg_errors import TRANSIENT_ERRORS
+from tgcli.tg_errors import unless_refused
 
 # One messages.Search per reposted post against the ADR-0045 flood budget. The
 # window only has to cover the messages a single sender produced within one
@@ -195,12 +194,6 @@ def _media_key(message):
 
 
 async def _guarded(awaitable):
-    """Fall back on any refusal, but never swallow a FloodWait (the governor
-    needs it to arm the cooldown) or a Telegram-side failure (the miss would
-    be cached for the run)."""
-    try:
-        return await awaitable
-    except TRANSIENT_ERRORS:
-        raise
-    except (ValueError, telethon_errors.RPCError):
-        return None
+    """Fall back on any refusal (see `tg_errors.unless_refused`)."""
+    result, _ = await unless_refused(awaitable)
+    return result

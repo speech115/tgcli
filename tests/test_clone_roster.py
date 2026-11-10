@@ -161,19 +161,25 @@ def test_collect_marks_discussion_unavailable_when_entity_unresolved():
     assert result["discussion"]["status"] == "unavailable"
 
 
-def test_collect_marks_discussion_unavailable_when_group_turned_private():
+@pytest.mark.parametrize(
+    "error",
+    [
+        telethon_errors.ChannelPrivateError(request=None),
+        telethon_errors.ChatForbiddenError(request=None),
+        telethon_errors.ChatAdminRequiredError(request=None),
+        telethon_errors.ChannelInvalidError(request=None),
+    ],
+)
+def test_collect_marks_discussion_unavailable_when_group_turned_private(error):
     """Telegram refuses to name the peer with an RPCError, not a ValueError.
     The roster is a best-effort snapshot after the copying is done — an
     access refusal is a marker, never an exception out of `collect`."""
     clone_state = seed(comments="enabled")
-    tg = FakeTg(
-        source=[user(1)],
-        entity_error=telethon_errors.ChannelPrivateError(request=None),
-    )
+    tg = FakeTg(source=[user(1)], entity_error=error)
     result = run(tg, clone_state)
     assert result["source"]["status"] == "collected"
     assert result["discussion"]["status"] == "unavailable"
-    assert result["discussion"]["reason"] == "ChannelPrivateError"
+    assert result["discussion"]["reason"] == type(error).__name__
     assert result["discussion"]["count"] == 0
     # the finished message sync still reports its own rows
     assert [row["id"] for row in read_lines(clone_state)] == [1]
@@ -210,3 +216,22 @@ def test_collect_overwrites_previous_snapshot():
     run(FakeTg(source=[user(9)]), clone_state)
     lines = read_lines(clone_state)
     assert [row["id"] for row in lines] == [9]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        telethon_errors.SessionRevokedError(request=None),
+        telethon_errors.AuthKeyUnregisteredError(request=None),
+    ],
+)
+@pytest.mark.parametrize("where", ["source", "discussion_entity"])
+def test_collect_lets_a_dead_session_escape(error, where):
+    """A dead session is the run's problem: never an "unavailable" marker."""
+    clone_state = seed(comments="enabled")
+    if where == "source":
+        tg = FakeTg(source_error=error)
+    else:
+        tg = FakeTg(source=[user(1)], entity_error=error)
+    with pytest.raises(type(error)):
+        run(tg, clone_state)

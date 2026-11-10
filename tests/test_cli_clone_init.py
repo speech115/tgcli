@@ -1126,6 +1126,8 @@ def test_init_discussion_title_is_idempotent_on_rerun(config_env, monkeypatch, c
     [
         telethon_errors.ChannelPrivateError(request=None),
         telethon_errors.ChatAdminRequiredError(request=None),
+        telethon_errors.ChatForbiddenError(request=None),
+        telethon_errors.ChannelInvalidError(request=None),
         ValueError("no history"),
     ],
 )
@@ -1159,6 +1161,33 @@ def test_init_marks_unreadable_discussion_group_unavailable(
         isinstance(item, functions.channels.SetDiscussionGroupRequest)
         for item in client.requests
     )
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        telethon_errors.SessionRevokedError(request=None),
+        telethon_errors.AuthKeyUnregisteredError(request=None),
+    ],
+)
+def test_init_does_not_mark_comments_unavailable_on_a_dead_session(
+    error, config_env, monkeypatch, capsys
+):
+    """A dead session is the run's problem, not the group's: init fails
+    instead of recording a lasting "unavailable" that a re-login cannot undo."""
+    client = CloneInitClient()
+    client.linked = linked_group()
+    client.linked_history_error = error
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        != 0
+    )
+
+    saved = [state.load(path.stem) for path in state.clones_dir().glob("*.db")]
+    assert all(s is None or s.comments != "unavailable" for s in saved)
 
 
 @pytest.mark.parametrize("marker", ["unavailable", "none"])

@@ -2,7 +2,6 @@
 
 import secrets
 
-from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
 from tgcli import safety
@@ -19,7 +18,7 @@ from tgcli.clone import (
 )
 from tgcli.errors import PolicyError
 from tgcli.output import note
-from tgcli.tg_errors import TRANSIENT_ERRORS
+from tgcli.tg_errors import unless_refused
 
 
 def _entry(s: state.CloneState, slot_id: str) -> dict:
@@ -341,17 +340,14 @@ async def _commit_slot(tg, entity, source_kind, me, account_alias, payload) -> d
     peers = [destination]
     discussion_unresolved = False
     if clone_state.discussion_destination_peer_id is not None:
-        try:
-            peers.append(
-                await tg.get_entity(
-                    types.PeerChannel(clone_state.discussion_destination_peer_id)
-                )
-            )
-        except TRANSIENT_ERRORS:
-            # CONTRACT §4: a genuine flood is exit 5 with retry_after, and a
-            # 500 an error, never a quiet "muted: false" on a successful init.
-            raise
-        except (ValueError, telethon_errors.RPCError):
+        # CONTRACT §4: a genuine flood is exit 5 with retry_after, and a 500
+        # an error, never a quiet "muted: false" on a successful init.
+        group, refusal = await unless_refused(
+            tg.get_entity(types.PeerChannel(clone_state.discussion_destination_peer_id))
+        )
+        if refusal is None:
+            peers.append(group)
+        else:
             discussion_unresolved = True
             note(
                 "warning: clone mute skipped for discussion peer "

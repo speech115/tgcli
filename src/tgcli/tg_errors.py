@@ -43,3 +43,21 @@ RUN_ABORTING_ERRORS = (
     ConnectionError,
     telethon_errors.UnauthorizedError,
 )
+
+
+async def unless_refused(awaitable):
+    """``(result, None)``, or ``(None, refusal)`` when Telegram said no.
+
+    A refusal is a lasting answer about this peer or request: Telethon's
+    ValueError for a peer it cannot resolve, or any RPCError that is neither
+    transient nor about the run. Those propagate, so a flood still arms the
+    governor, a 500 is never cached as a permanent miss, and a dead session
+    asks for a re-login instead of marking the peer. Callers map the
+    refusal to their own lasting outcome (a marker, a fallback, a degrade).
+    """
+    try:
+        return await awaitable, None
+    except (*TRANSIENT_ERRORS, telethon_errors.UnauthorizedError):
+        raise
+    except (ValueError, telethon_errors.RPCError) as exc:
+        return None, exc
