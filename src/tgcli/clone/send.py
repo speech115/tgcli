@@ -410,13 +410,9 @@ async def forward_batch(
         )
         if poll_marker is not None and poll_votes is not None:
             poll_votes.append(poll_marker)
-        text, entities = attribution.with_prefix(
-            rendered_text,
-            rendered_entities,
-            plan.body_prefix or "",
-            plan.body_prefix_entities,
+        text, entities = quote_fallback.apply_to_text(
+            rendered_text, rendered_entities, author, plan
         )
-        text, entities = attribution.prefixed(text, entities, author)
         safety.append_audit(
             "clone-sync-snapshot",
             account_alias,
