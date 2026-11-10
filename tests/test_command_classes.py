@@ -147,10 +147,11 @@ def test_every_command_is_registered_with_its_class():
 
 
 def test_handshake_commits_match_the_preview_commit_registry():
-    registered = {
-        " ".join(part for part in key if part is not None) for key in HANDSHAKES
+    assert set(HANDSHAKES) == set(HANDSHAKE_COMMITS)
+    # One key space: a registry handshake command is looked up by its own key.
+    assert set(HANDSHAKES) == {
+        key for key, spec in COMMANDS.items() if spec.kind == "handshake"
     }
-    assert registered == set(HANDSHAKE_COMMITS)
 
 
 @pytest.mark.parametrize(

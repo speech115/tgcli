@@ -80,7 +80,7 @@ States of `previews/<id>.*`:
 | pending | `--commit` again, no live holder, TTL ok | pending, flock held | `begin_commit` |
 | pending | `--commit` while another process holds the flock | unchanged, exit 2 | `_lock_pending` |
 | pending | `--commit` after TTL | expired (`.pending` → `.json`) | `_expire_pending` |
-| pending | mutation and result audit succeed | used | `preview_commit.audit_after` → `finish_commit` |
+| pending | mutation and result audit succeed | used | `preview_commit.audit_after`, then `preview_commit.finish` → `finish_commit` |
 | pending | mutation or audit fails | pending (flock released when the invocation ends) | `release_commit_locks` |
 | used | `--commit` | unchanged, exit 2 | file not found |
 

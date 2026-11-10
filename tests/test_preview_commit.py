@@ -10,13 +10,13 @@ def test_preview_commit_registry_covers_every_handshake():
     assert {
         selector: spec.kind for selector, spec in preview_commit.HANDSHAKES.items()
     } == {
-        ("send", None): "send",
-        ("edit", None): "edit",
-        ("delete", None): "delete",
-        ("forward", None): "forward",
-        ("clone", "init"): "clone-init",
-        ("draft", "set"): "draft-set",
-        ("draft", "clear"): "draft-clear",
+        "send": "send",
+        "edit": "edit",
+        "delete": "delete",
+        "forward": "forward",
+        "clone init": "clone-init",
+        "draft set": "draft-set",
+        "draft clear": "draft-clear",
     }
 
 
