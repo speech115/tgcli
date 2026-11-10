@@ -184,6 +184,9 @@ async def init_discussion(
     state.save(clone_state)
     title = attribution.destination_title(attribution.display_name(source_group))
     if getattr(group, "title", None) != title:
+        safety.append_audit(
+            "clone-init-discussion-title", account_alias, {"clone_id": clone_id}
+        )
         await tg(functions.channels.EditTitleRequest(channel=group, title=title))
         group.title = title
     await copy_profile(tg, source_group, group, account_alias, clone_state)
