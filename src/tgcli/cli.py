@@ -305,7 +305,7 @@ def main(
                 output.emit_error(err, as_json=False)
     except deadline.AlarmFired:
         # The whole-body alarm fired; the asyncio deadline is already
-        # translated by _run_with_deadline (with its grace window).
+        # translated by deadline.run (with its grace window).
         timed_out = CommandTimeoutError("invocation deadline exceeded")
         error_code = timed_out.code
         exit_code = timed_out.exit_code

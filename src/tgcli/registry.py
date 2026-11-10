@@ -185,7 +185,7 @@ COMMANDS: dict[str, Command] = {
         gate="telegram",
         deadline=None,
         mutation_safe=_always,
-        prepare=preflight.prepare_clone_sync,
+        prepare=preflight.limit("clone sync"),
     ),
     "draft list": _READ,
     "draft show": _READ,
@@ -227,9 +227,7 @@ COMMANDS: dict[str, Command] = {
         needs="network",
         run=handlers.read,
         deadline=None,
-        prepare=_then(
-            preflight.bounds("since", "until"), preflight.limit("media manifest")
-        ),
+        prepare=_then(preflight.bounds("since"), preflight.limit("media manifest")),
     ),
     # Network reads that write the caller's own output files
     "media download": Command(

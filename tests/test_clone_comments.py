@@ -175,7 +175,20 @@ def test_privatized_source_degrades_on_a_cached_window(tmp_path, monkeypatch):
     assert reloaded.comments == "unavailable"
 
 
-@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
+@pytest.mark.parametrize(
+    "make_error",
+    [
+        *TRANSIENT_ERRORS,
+        # A dead session asks for a re-login; it says nothing about the group.
+        pytest.param(
+            lambda: telethon_errors.SessionRevokedError(request=None), id="revoked"
+        ),
+        pytest.param(
+            lambda: telethon_errors.AuthKeyUnregisteredError(request=None),
+            id="unregistered",
+        ),
+    ],
+)
 def test_a_transient_error_from_a_cached_window_read_still_escapes(
     tmp_path, monkeypatch, make_error
 ):

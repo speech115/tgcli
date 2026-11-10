@@ -15,7 +15,7 @@ from tgcli.clone import batching, discussion, legs, replies, state
 from tgcli.clone.ids import SourceCommentId, SourcePostId
 from tgcli.errors import PolicyError
 from tgcli.governor import pacing
-from tgcli.tg_errors import TRANSIENT_ERRORS, unless_refused
+from tgcli.tg_errors import NOT_REFUSALS, unless_refused
 
 
 def _anchor_posts(
@@ -112,8 +112,9 @@ async def sync_phase(
             event = await anext(events)
         except StopAsyncIteration:
             break
-        except TRANSIENT_ERRORS:
-            # Same: a flood or a 500 stops the run, never degrades.
+        except NOT_REFUSALS:
+            # Same: a flood, a 500 or a dead session stops the run, never
+            # degrades.
             raise
         except (ValueError, telethon_errors.RPCError):
             # The window's own reads are where a mid-run privatized source

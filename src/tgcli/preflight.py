@@ -102,7 +102,7 @@ def prepare_search(parser: argparse.ArgumentParser, args) -> None:
     elif args.chat is None or args.query is None:
         parser.error("search requires CHAT QUERY (or --all QUERY)")
     limit("search", allow_zero=True)(parser, args)
-    bounds("since", "until")(parser, args)
+    bounds("since")(parser, args)
 
 
 def limit(command: str, *, allow_zero: bool = False) -> Hook:
@@ -138,11 +138,6 @@ def bounds(*names: str) -> Hook:
             )
 
     return parse
-
-
-def prepare_clone_sync(parser: argparse.ArgumentParser, args) -> None:
-    if args.limit is not None and args.limit <= 0:
-        raise PolicyError("clone sync --limit must be positive")
 
 
 def prepare_login(parser: argparse.ArgumentParser, args) -> None:
