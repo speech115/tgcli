@@ -12,6 +12,7 @@ import json
 import subprocess
 
 import pytest
+from hypothesis import given, strategies as st
 
 from tgcli.mcp import server as mcp_server
 from tgcli.mcp.server import Server, serve
@@ -171,11 +172,11 @@ def test_message_and_info_argv():
     fake = FakeTg(document={"message": {"id": 3, "text": "x"}})
     _session(
         _server(fake, "-1001234"),
-        _call("telegram_message", {"chat": "1234", "message_id": 3, "context": 2}),
+        _call("telegram_message", {"chat": "-1001234", "message_id": 3, "context": 2}),
         _call("telegram_info", {"chat": "https://t.me/c/1234/5"}, 2),
     )
     assert fake.calls == [
-        ["message", "--context", "2", "--", "1234", "3"],
+        ["message", "--context", "2", "--", "-1001234", "3"],
         ["info", "--", "https://t.me/c/1234/5"],
     ]
 
@@ -192,7 +193,7 @@ def test_dialogs_are_trimmed_to_the_allowlist():
         }
     )
     [reply] = _session(
-        _server(fake, "1234", "@friend"), _call("telegram_dialogs", {"limit": 10})
+        _server(fake, "-1001234", "@friend"), _call("telegram_dialogs", {"limit": 10})
     )
     payload = _payload(reply)
 
@@ -257,10 +258,10 @@ def test_protocol_errors():
         ("news_bot", {"@news_bot"}),
         ("https://t.me/News", {"@news"}),
         ("t.me/s/news", {"@news"}),
-        ("https://t.me/c/1234/56", {"1234"}),
-        ("-1001234", {"-1001234", "1234"}),
-        ("-42", {"-42", "42"}),
-        ("-1234", {"-1234", "1234"}),
+        ("https://t.me/c/1234/56", {"-1001234"}),
+        ("-1001234", {"-1001234"}),
+        ("-42", {"-42"}),
+        ("-1234", {"-1234"}),
         ("1234", {"1234"}),
         ("--commit", set()),
         ("a b", set()),
@@ -268,6 +269,26 @@ def test_protocol_errors():
 )
 def test_chat_keys(ref, keys):
     assert chat_keys(ref) == keys
+
+
+@pytest.mark.parametrize("allowed", ["-1001234", "-1234", "https://t.me/c/1234"])
+def test_an_allowed_group_or_channel_does_not_open_the_user_with_its_number(allowed):
+    # tg resolves a positive id as a user, so "1234" is someone's private chat.
+    fake = FakeTg(
+        document={
+            "dialogs": [{"id": 1234, "name": "Someone", "username": None}],
+            "more": False,
+        }
+    )
+    replies = _session(
+        _server(fake, allowed),
+        _call("telegram_read", {"chat": "1234"}),
+        _call("telegram_dialogs", {"limit": 10}, 2),
+    )
+
+    assert _payload(replies[0])["error"]["code"] == "CHAT_NOT_ALLOWED"
+    assert _payload(replies[1])["dialogs"] == []
+    assert fake.calls == [["dialogs", "--limit", "10"]]
 
 
 def test_main_refuses_to_start_without_an_allowlist(capsys):
@@ -378,3 +399,14 @@ def test_dialogs_kind_and_unread_flags():
     assert fake.calls == [
         ["dialogs", "--limit", "50", "--unread-only", "--kind", "channel"]
     ]
+
+
+@given(st.integers(min_value=1, max_value=10**12))
+def test_numeric_ids_of_different_peer_kinds_never_share_a_key(n):
+    user, group, channel = (
+        chat_keys(str(n)),
+        chat_keys(f"-{n}"),
+        chat_keys(f"-100{n}"),
+    )
+    assert not user & group and not user & channel and not group & channel
+    assert chat_keys(f"https://t.me/c/{n}/1") == channel

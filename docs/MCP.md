@@ -11,7 +11,8 @@ tg-mcp --allow-chat @channel --allow-chat -1001234567890 [--account main] [--tim
 ```
 
 - `--allow-chat CHAT` (repeatable): `@username`, `t.me/name`, `t.me/c/ID`, or
-  a numeric id. `-100…` and the bare id match each other.
+  a numeric id as `tg dialogs` prints it (`-100…` for a channel). Ids are
+  compared whole: `1234` is a user, not the channel `-1001234`.
 - `--allow-all-chats`: every chat. Prefer naming chats.
 - `--account`: the tgcli alias; otherwise `TGCLI_ACCOUNT` or the default.
 
