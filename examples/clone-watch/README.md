@@ -1,9 +1,10 @@
 # clone-watch
 
 `tg clone sync` copies what is new and exits. This example keeps one or more
-clones current within about half a minute of each new post or comment, without
-polling: a read-only `tg run` script listens for new messages in the source
-and its discussion group and runs `clone sync` after each burst.
+clones current within about half a minute of each new post and a minute and a
+half of each new comment: a read-only `tg run` script listens for new messages
+in the source, asks once a minute for the newest message id of the source and
+its discussion group, and runs `clone sync` after each burst.
 
 tgcli itself stays daemonless. The listener is user-land: one `tg run`
 script that launchd keeps alive.
@@ -28,6 +29,10 @@ notification.
 
 ## Behavior
 
+- Telegram pushes a new message only for a chat the account has joined.
+  Comments live in the discussion group, which a channel subscriber usually
+  has not joined, so one `messages.GetPeerDialogs` request a minute finds
+  them, whatever the number of sources.
 - Each new message waits 25 s (an album or a quick edit lands whole), then
   `clone sync` runs on the `job` role for each source that got one, one
   source after another. Messages that arrive during a sync trigger one more.
