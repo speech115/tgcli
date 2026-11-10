@@ -454,6 +454,7 @@ def main(
         exit_code = 130 if interrupted else 1
         raise
     finally:
+        safety.release_commit_locks()
         duration_ms = int((time.monotonic() - started) * 1000)
         if args.verbose:
             LOGGER.debug(

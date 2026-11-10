@@ -600,8 +600,9 @@ preview already fixed them, so any of them beside `--commit` — `--format`
 included, and `clone init`'s `--replace` / `--no-comments` — is a usage error
 (`USAGE`, exit 1, "`<command> --commit accepts only a preview id`") before
 those gates.
-A commit holds a lock on its preview until it finishes or its process
-exits. A second `--commit` of the same preview id while another `tg` process
+A commit holds a lock on its preview until it finishes or its invocation
+ends (a `tg-serve` request ends, or a `tg` process exits). A second
+`--commit` of the same preview id while another `tg` process
 holds it exits 2 (`BLOCKED`, "preview commit already in progress in another
 tg process") before configuration, session, audit, or mutation work. A crash
 releases the lock, so re-running the same `--commit` afterwards is safe. A

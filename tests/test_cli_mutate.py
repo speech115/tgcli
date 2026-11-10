@@ -546,6 +546,40 @@ def test_forward_commit_retries_pending_preview_after_network_failure(
     assert pending.with_suffix(".used").exists()
 
 
+def test_failed_commit_releases_its_lock_when_the_invocation_ends(
+    config_env, monkeypatch, capsys
+):
+    """A held process (tg-serve) must not keep a failed commit locked.
+
+    Another tg process probes the same `.pending` flock; a one-shot `tg` frees
+    it by exiting, so the end of one invocation must free it too.
+    """
+    import fcntl
+    import os
+
+    preview = safety.create_preview(
+        {
+            "kind": "forward",
+            "source": "@chan",
+            "message_id": 2,
+            "destination": "@other",
+            "text": "old",
+            "random_id": 555,
+        }
+    )
+    make_session_fake(monkeypatch, make_forward_client(FlakyForwardClient))
+
+    assert main(["forward", "--commit", preview["preview_id"]]) == 1
+    capsys.readouterr()
+
+    pending = safety.previews_dir() / f"{preview['preview_id']}.pending"
+    fd = os.open(pending, os.O_RDONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    finally:
+        os.close(fd)
+
+
 def test_kind_mismatch_is_blocked_without_consuming_preview(monkeypatch):
     from tgcli import cli
 

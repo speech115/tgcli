@@ -203,10 +203,11 @@ def begin_commit(
 
 
 def _lock_pending(preview_id: str, pending: Path) -> None:
-    """Hold the `.pending` flock until finish_commit or process exit.
+    """Hold the `.pending` flock until finish_commit or the invocation ends.
 
-    A crash releases it, so a retry still proceeds. The inode check refuses
-    a lock taken on a file that finish_commit renamed away in between.
+    A crash or a failed invocation releases it, so a retry still proceeds.
+    The inode check refuses a lock taken on a file that finish_commit renamed
+    away in between.
     """
     if preview_id in _COMMIT_LOCKS:
         return
@@ -236,6 +237,16 @@ def _release_commit_lock(preview_id: str) -> None:
     fd = _COMMIT_LOCKS.pop(preview_id, None)
     if fd is not None:
         os.close(fd)
+
+
+def release_commit_locks() -> None:
+    """End-of-invocation release: what process exit does for a one-shot `tg`.
+
+    `tg-serve` runs many invocations in one process, so without this a failed
+    commit would stay locked against every other tg process until it exits.
+    """
+    for preview_id in list(_COMMIT_LOCKS):
+        _release_commit_lock(preview_id)
 
 
 def finish_commit(preview_id: str) -> None:

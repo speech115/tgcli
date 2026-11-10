@@ -1,9 +1,17 @@
+import fcntl
 import json
 import os
 from datetime import UTC, datetime, timedelta
 from unittest.mock import ANY
 
 import pytest
+from hypothesis import settings
+from hypothesis.stateful import (
+    RuleBasedStateMachine,
+    invariant,
+    precondition,
+    rule,
+)
 
 from tgcli import safety
 from tgcli.errors import PolicyError
@@ -251,3 +259,66 @@ def test_begin_commit_rejects_a_naive_expiry(tmp_path, monkeypatch):
 
     with pytest.raises(PolicyError):
         safety.begin_commit("p_naive2")
+
+
+class CommitLockMachine(RuleBasedStateMachine):
+    """The preview -> commit handshake as one-shot and held (tg-serve) runs see it.
+
+    An invocation begins a commit, may finish it, and always ends. Another tg
+    process probes the `.pending` flock: it must be blocked exactly while an
+    invocation holds an unfinished commit, and a finished preview stays spent.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.preview_id = safety.create_preview({"kind": "send", "text": "hi"})[
+            "preview_id"
+        ]
+        self.in_invocation = False
+        self.finished = False
+
+    @rule()
+    def begin(self):
+        if self.finished:
+            with pytest.raises(PolicyError, match="already used"):
+                safety.begin_commit(self.preview_id)
+        else:
+            assert safety.begin_commit(self.preview_id)["text"] == "hi"
+        self.in_invocation = True
+
+    @precondition(lambda self: self.in_invocation and not self.finished)
+    @rule()
+    def finish(self):
+        safety.finish_commit(self.preview_id)
+        self.finished = True
+
+    @rule()
+    def end_invocation(self):
+        safety.release_commit_locks()
+        self.in_invocation = False
+
+    @invariant()
+    def other_process_sees_the_lock_only_while_a_commit_is_open(self):
+        pending = safety.previews_dir() / f"{self.preview_id}.pending"
+        try:
+            fd = os.open(pending, os.O_RDONLY)
+        except FileNotFoundError:
+            assert self.finished or not self.in_invocation
+            return
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            blocked = False
+        except BlockingIOError:
+            blocked = True
+        finally:
+            os.close(fd)
+        assert blocked == (self.in_invocation and not self.finished)
+
+    def teardown(self):
+        safety.release_commit_locks()
+
+
+test_commit_lock_machine = CommitLockMachine.TestCase
+test_commit_lock_machine.settings = settings(
+    max_examples=50, stateful_step_count=10, deadline=None
+)
