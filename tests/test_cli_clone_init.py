@@ -1049,6 +1049,39 @@ def test_init_creates_and_links_discussion_group(config_env, monkeypatch, capsys
     assert "clone-init-discussion-link" in [record["action"] for record in audits]
 
 
+def test_init_audits_the_discussion_title_edit_before_sending_it(
+    config_env, monkeypatch, capsys
+):
+    """The discussion group's rename is a mutation like the channel's: its
+    audit row is on disk before the EditTitleRequest leaves."""
+
+    class AuditProbeClient(CloneInitClient):
+        audited_at_edit: list[str] | None = None
+
+        async def __call__(self, request):
+            if (
+                isinstance(request, functions.channels.EditTitleRequest)
+                and request.channel is self.discussion
+            ):
+                path = safety.audit_path()
+                lines = path.read_text().splitlines() if path.exists() else []
+                self.audited_at_edit = [json.loads(line)["action"] for line in lines]
+            return await super().__call__(request)
+
+    client = AuditProbeClient()
+    client.linked = linked_group()
+    make_session_fake(monkeypatch, client)
+    preview = stored_preview()
+
+    assert (
+        main(["clone", "init", "@source", "--commit", preview["preview_id"], "--json"])
+        == 0
+    )
+
+    assert client.audited_at_edit is not None
+    assert client.audited_at_edit[-1] == "clone-init-discussion-title"
+
+
 def test_init_discussion_title_is_idempotent_on_rerun(config_env, monkeypatch, capsys):
     """Re-init against an already-prefixed discussion group issues no title edit."""
     clone_state = state.CloneState.new(
