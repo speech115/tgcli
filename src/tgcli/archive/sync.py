@@ -118,7 +118,7 @@ def apply_events(
             ids = [int(mid) for mid in (event.get("ids") or [])]
             targets: list[tuple[int, int]]
             if peer is None:
-                targets = store_mod.find_message_peers(conn, ids, exclude_channels=True)
+                targets = store_mod.find_message_peers(conn, ids)
             else:
                 peer_id = int(peer)
                 if not _in_archive_scope(conn, peer_id, None):

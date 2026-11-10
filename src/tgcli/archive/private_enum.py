@@ -99,7 +99,6 @@ async def enumerate_private_dialogs(
     conn: sqlite3.Connection,
     *,
     max_dialogs: int,
-    skip_complete: bool = True,
 ) -> tuple[list[str], int, list[dict[str, Any]]]:
     """Return private chat refs under ``max_dialogs`` with resume cursors.
 
@@ -142,8 +141,7 @@ async def enumerate_private_dialogs(
         peer = scope_mod.peer_id(entity)
         state = store_mod.get_sync_state(conn, peer)
         if (
-            skip_complete
-            and state is not None
+            state is not None
             and state.get("last_backfill_at") is not None
             and not state.get("more", True)
         ):
