@@ -218,7 +218,9 @@ pace: past five in a run, 3 s each (ADR-0122). A FloodWait is remembered
 across processes: until the server's deadline, that request type refuses
 locally (exit 5, `retry_after`) without sending anything, and until an hour
 after it ends every run paces that type from its first request (slow start), so
-the rerun is slower. `tg doctor`
+the rerun is slower. Phone resolution (`tg resolve +PHONE`, or
+`contacts.ResolvePhoneRequest` in a `tg run` script) also refuses with exit 5
+and `retry_after` within 3 s of one from another `tg` process. `tg doctor`
 reports active cooldowns and works even while they refuse. Exit 5 means
 wait out `retry_after`; never retry FloodWait in a loop. The default
 `--timeout` is a hang detector that ignores governed sleep; `--max-runtime`
