@@ -10,9 +10,10 @@ from urllib.parse import quote
 
 from tgcli.archive import limits, peers as peers_mod, search as search_mod
 from tgcli.errors import NotFoundError, PolicyError
+from tgcli.messages import MEDIA_KINDS
 
 SORTS = ("relevance", "date")
-KINDS = ("text", "photo", "video", "video_note", "audio", "voice", "document")
+KINDS = ("text", *MEDIA_KINDS)
 
 
 def _iso(value: datetime | None) -> str | None:

@@ -19,8 +19,8 @@ from tgcli.archive import (
 )
 from tgcli.archive.changes_cursor import ChangesCursor
 from tgcli.commands import media as media_cmd
-from tgcli.commands.read import message_to_dict
 from tgcli.errors import PolicyError, RateLimitError
+from tgcli.messages import message_to_dict
 from tgcli.output import note
 from tgcli.session import FLOOD_ERRORS, RUN_ABORTING_ERRORS
 from tgcli.transfer import DownloadBusyError

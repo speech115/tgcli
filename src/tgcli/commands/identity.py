@@ -4,8 +4,8 @@ from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
 from tgcli import chatref
-from tgcli.commands.read import sanitize_plain_text
 from tgcli.errors import NotFoundError
+from tgcli.messages import sanitize_plain_text
 
 
 def _is_phone(stripped_ref: str) -> bool:

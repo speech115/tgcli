@@ -6,9 +6,9 @@ from telethon.errors import MessageNotModifiedError
 from telethon.tl import functions
 
 from tgcli import chatref, formatting, safety
-from tgcli.commands.read import sanitize_plain_text
 from tgcli.confirm import send_confirmed
 from tgcli.errors import NotFoundError
+from tgcli.messages import sanitize_plain_text
 
 
 async def _entity(tg, chat: str):

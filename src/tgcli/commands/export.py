@@ -7,8 +7,8 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from tgcli import atomic, chatref
-from tgcli.commands.read import _dialog_name, message_to_dict
 from tgcli.errors import ExportError, NotFoundError
+from tgcli.messages import dialog_name, message_to_dict
 from tgcli.output import note
 from tgcli.session import RUN_ABORTING_ERRORS
 
@@ -79,7 +79,7 @@ def _summary(
             "format": export_format,
             "path": str(destination),
             "count": count,
-            "dialog": {"id": entity.id, "name": _dialog_name(entity, chat)},
+            "dialog": {"id": entity.id, "name": dialog_name(entity, chat)},
         }
     }
     if after_id is not None or appended:

@@ -1,5 +1,7 @@
 """Argument grammar owned by the `tg archive` subsystem (ADR-0115)."""
 
+from tgcli.messages import MEDIA_KINDS
+
 
 def add_to(sub, global_flags) -> None:
     parser = sub.add_parser(
@@ -39,7 +41,7 @@ def add_to(sub, global_flags) -> None:
     search.add_argument("--until", help="ISO date/datetime upper bound")
     search.add_argument(
         "--kind",
-        choices=["text", "photo", "video", "video_note", "audio", "voice", "document"],
+        choices=["text", *MEDIA_KINDS],
         help="message media kind",
     )
     search.add_argument(

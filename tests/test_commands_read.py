@@ -5,8 +5,9 @@ from types import SimpleNamespace
 import pytest
 
 from tests.conftest import ns
-from tgcli.commands.read import fetch_message, message_to_dict
+from tgcli.commands.read import fetch_message
 from tgcli.errors import NotFoundError
+from tgcli.messages import message_to_dict
 
 
 def _ns(**kwargs):
@@ -288,6 +289,23 @@ def test_message_to_dict_media_topic_and_private_permalink():
         "width": None,
         "height": None,
     }
+
+
+def test_message_to_dict_plain_reply_has_no_topic():
+    """A reply outside a forum topic names its parent, never a topic id."""
+    message = _ns(
+        id=8,
+        date=None,
+        sender_id=1,
+        sender=None,
+        text="re",
+        media=None,
+        reply_to_msg_id=5,
+        reply_to=_ns(forum_topic=False, reply_to_top_id=None, reply_to_msg_id=5),
+    )
+    data = message_to_dict(message)
+    assert data["reply_to"] == 5
+    assert data["topic_id"] is None
 
 
 def test_message_to_dict_minimal_namespace_still_works():

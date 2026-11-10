@@ -1,8 +1,6 @@
 from tgcli import chatref
-from tgcli.commands.read import _dialog_name, message_to_dict, sanitize_plain_text
 from tgcli.errors import NotFoundError
-
-_sanitize_text = sanitize_plain_text
+from tgcli.messages import dialog_name, message_to_dict
 
 
 async def _entity(tg, chat: str):
@@ -29,7 +27,7 @@ async def fetch_search(
             break
         messages.append(message_to_dict(message, entity))
     return {
-        "dialog": {"id": entity.id, "name": _dialog_name(entity, chat)},
+        "dialog": {"id": entity.id, "name": dialog_name(entity, chat)},
         "query": query,
         "messages": messages,
         "more": more,
@@ -47,7 +45,7 @@ async def fetch_search_all(tg, query: str, limit: int = 20) -> dict:
         entry = message_to_dict(message, chat)
         entry["dialog"] = {
             "id": getattr(message, "chat_id", None),
-            "name": _dialog_name(chat, "") if chat is not None else None,
+            "name": dialog_name(chat, "") if chat is not None else None,
         }
         messages.append(entry)
     return {"query": query, "messages": messages, "more": more}
@@ -57,20 +55,7 @@ async def fetch_latest(tg, chat: str) -> dict:
     entity = await _entity(tg, chat)
     async for message in tg.iter_messages(entity, limit=1):
         return {
-            "dialog": {"id": entity.id, "name": _dialog_name(entity, chat)},
+            "dialog": {"id": entity.id, "name": dialog_name(entity, chat)},
             "message": message_to_dict(message, entity),
         }
     raise NotFoundError(f"no messages found: {chat!r}")
-
-
-def to_rows(data: dict) -> list[tuple]:
-    messages = data["messages"] if "messages" in data else [data["message"]]
-    return [
-        (
-            message["id"],
-            message["date"],
-            sanitize_plain_text(message["from"]["name"]),
-            sanitize_plain_text(message["text"]),
-        )
-        for message in messages
-    ]

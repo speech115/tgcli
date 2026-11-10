@@ -16,7 +16,6 @@ from telethon import errors as telethon_errors, functions
 from telethon.tl import types
 
 from tgcli import atomic, chatref
-from tgcli.commands.read import _media_kind
 from tgcli.errors import (
     NotFoundError,
     PartialFailure,
@@ -24,6 +23,7 @@ from tgcli.errors import (
     RateLimitError,
     TgcliError,
 )
+from tgcli.messages import dialog_name, media_kind
 from tgcli.output import note
 from tgcli.session import FLOOD_ERRORS, ensure_parent_dir, state_dir
 from tgcli.transfer import (
@@ -637,7 +637,6 @@ async def download_media_bulk(
     progress=None,
 ) -> dict:
     """Download many media messages (ADR-0032). Raises PartialFailure if any fail."""
-    from tgcli.commands.read import _dialog_name
 
     try:
         entity = await tg.get_entity(chatref.parse(chat))
@@ -731,7 +730,7 @@ async def download_media_bulk(
             break
 
     data = {
-        "dialog": {"id": entity.id, "name": _dialog_name(entity, chat)},
+        "dialog": {"id": entity.id, "name": dialog_name(entity, chat)},
         "items": items,
         "count": len(items),
         "failed": failed,
@@ -783,7 +782,7 @@ async def _iter_bulk_candidates(
                     message = await tg.get_messages(entity, ids=message_id)
                     if message is None:
                         raise NotFoundError(f"message not found: {message_id}")
-                    if kind is not None and _media_kind(message) != kind:
+                    if kind is not None and media_kind(message) != kind:
                         continue
                     if (
                         since is not None
@@ -807,7 +806,7 @@ async def _iter_bulk_candidates(
     async for message in tg.iter_messages(entity, limit=None):
         if since is not None and message.date is not None and message.date < since:
             break
-        if kind is not None and _media_kind(message) != kind:
+        if kind is not None and media_kind(message) != kind:
             continue
         if not getattr(message, "media", None):
             continue
@@ -825,9 +824,6 @@ async def _iter_bulk_candidates(
 def bulk_to_rows(data: dict) -> list[tuple]:
     """One frozen `media download` row per downloaded item (CONTRACT §5 TSV)."""
     return [(item["path"], item["bytes"], item["resumed"], 1) for item in data["items"]]
-
-
-MEDIA_KINDS = ("photo", "video", "video_note", "audio", "voice", "document")
 
 
 def _manifest_item(message, kind: str) -> dict:
@@ -849,7 +845,6 @@ async def manifest(
     since=None,
     limit: int = 100,
 ) -> dict:
-    from tgcli.commands.read import _dialog_name
 
     try:
         entity = await tg.get_entity(chatref.parse(source))
@@ -860,15 +855,15 @@ async def manifest(
     async for message in tg.iter_messages(entity, limit=limit):
         if since is not None and message.date is not None and message.date < since:
             break
-        media_kind = _media_kind(message)
-        if media_kind is None:
+        found = media_kind(message)
+        if found is None:
             continue
-        if kind is not None and media_kind != kind:
+        if kind is not None and found != kind:
             continue
-        items.append(_manifest_item(message, media_kind))
+        items.append(_manifest_item(message, found))
 
     return {
-        "dialog": {"id": entity.id, "name": _dialog_name(entity, source)},
+        "dialog": {"id": entity.id, "name": dialog_name(entity, source)},
         "items": items,
         "count": len(items),
     }

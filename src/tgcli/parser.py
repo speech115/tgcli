@@ -13,8 +13,9 @@ from pathlib import Path
 
 from tgcli import __version__
 from tgcli.archive import arguments as archive_arguments
-from tgcli.commands import media as media_cmd, store as store_cmd
+from tgcli.commands import store as store_cmd
 from tgcli.formatting import FORMATS, mask_phones_in_text
+from tgcli.messages import MEDIA_KINDS
 
 
 class _Parser(argparse.ArgumentParser):
@@ -280,7 +281,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_download.add_argument(
         "--type",
         dest="media_type",
-        choices=list(media_cmd.MEDIA_KINDS),
+        choices=list(MEDIA_KINDS),
         help="bulk: keep only this media kind",
     )
     p_download.add_argument(
@@ -306,7 +307,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_manifest.add_argument(
         "--type",
         dest="media_type",
-        choices=list(media_cmd.MEDIA_KINDS),
+        choices=list(MEDIA_KINDS),
         help="keep only this media kind",
     )
     p_manifest.add_argument("--since", help="ISO 8601 lower bound on message date")
