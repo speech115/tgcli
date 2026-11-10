@@ -19,8 +19,9 @@ class WatchClient:
     """A channel whose discussion group pushes nothing: only polls see it."""
 
     def __init__(self, discussion_tops):
-        self.tops = iter(discussion_tops)
+        self.tops = list(discussion_tops)  # one per poll; the last one repeats
         self.sent = []
+        self.handler = None
 
     async def get_entity(self, ref):
         return types.PeerChannel(SOURCE)
@@ -29,13 +30,17 @@ class WatchClient:
         return types.InputPeerChannel(peer.channel_id, access_hash=5)
 
     def on(self, event):
-        return lambda handler: handler
+        def register(handler):
+            self.handler = handler
+            return handler
+
+        return register
 
     async def _call(self, sender, request, ordered=False):
         self.sent.append(request)
         if isinstance(request, functions.channels.GetFullChannelRequest):
             return SimpleNamespace(full_chat=SimpleNamespace(linked_chat_id=DISCUSSION))
-        top = next(self.tops, None)
+        top = self.tops.pop(0) if len(self.tops) > 1 else self.tops[0]
         if top is None:
             raise ConnectionError("down")
         return SimpleNamespace(
@@ -49,8 +54,12 @@ class WatchClient:
         return await self._call(None, request)
 
 
-def watch(tmp_path, monkeypatch, capsys, discussion_tops):
-    """Run the script for a few fast ticks; return the client, syncs, stdout."""
+def watch(tmp_path, monkeypatch, capsys, discussion_tops, *, busy_source=False):
+    """Run the script for a few fast ticks; return the client, syncs, stdout.
+
+    ``busy_source``: every sync is followed by a pushed post in the source,
+    so the loop never waits a whole tick.
+    """
     config = tmp_path / "config.toml"
     config.write_text(CONFIG)
     monkeypatch.setenv("TGCLI_CONFIG", str(config))
@@ -61,6 +70,9 @@ def watch(tmp_path, monkeypatch, capsys, discussion_tops):
 
     async def fake_exec(*argv, **kwargs):
         syncs.append(argv)
+        if busy_source:
+            post = SimpleNamespace(chat_id=-(1000000000000 + SOURCE), id=41)
+            await client.handler(post)
         done = {"sync": {"copied": 1, "cursor": 40, "discussion_cursor": 9}}
 
         async def communicate():
@@ -80,7 +92,7 @@ def watch(tmp_path, monkeypatch, capsys, discussion_tops):
 
 
 def test_a_comment_the_poll_finds_triggers_a_sync(tmp_path, monkeypatch, capsys):
-    client, syncs, out = watch(tmp_path, monkeypatch, capsys, [9, 10] + [10] * 50)
+    client, syncs, out = watch(tmp_path, monkeypatch, capsys, [9, 10])
 
     assert out.count("sync (start)") == 1
     assert out.count("sync (new message)") == 1
@@ -100,9 +112,25 @@ def test_a_comment_the_poll_finds_triggers_a_sync(tmp_path, monkeypatch, capsys)
 def test_an_unchanged_chat_and_a_failed_poll_trigger_nothing(
     tmp_path, monkeypatch, capsys
 ):
-    _, syncs, out = watch(tmp_path, monkeypatch, capsys, [9, 9, 9])
+    _, syncs, out = watch(tmp_path, monkeypatch, capsys, [9, 9, 9, None])
 
     assert len(syncs) == 1
     assert "sync (new message)" not in out
     assert "poll failed: ConnectionError down" in out
     assert out.rstrip().endswith("restart")
+
+
+def test_a_busy_source_does_not_starve_the_poll(tmp_path, monkeypatch, capsys):
+    _, _, out = watch(tmp_path, monkeypatch, capsys, [9, 10], busy_source=True)
+
+    assert f"new message -{1000000000000 + DISCUSSION} 10" in out
+
+
+def test_a_poll_that_recovers_after_a_failed_baseline_syncs(
+    tmp_path, monkeypatch, capsys
+):
+    _, syncs, out = watch(tmp_path, monkeypatch, capsys, [None, 9])
+
+    assert "poll failed: ConnectionError down" in out
+    assert out.count("sync (new message)") == 1
+    assert len(syncs) == 2

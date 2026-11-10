@@ -124,7 +124,7 @@ async def on_new(event):
     wake.set()
 
 
-async def poll():
+async def poll(quiet=False):
     # Telegram pushes nothing for a discussion group the account has not
     # joined, so comments there are found by asking for the newest message id.
     try:
@@ -135,27 +135,36 @@ async def poll():
         return
     for dialog in dialogs:
         chat_id = utils.get_peer_id(dialog.peer)
-        if dialog.top_message > seen.setdefault(chat_id, dialog.top_message):
-            log("new message", chat_id, dialog.top_message)
+        # A chat with no baseline counts as new: the first poll failed, and
+        # what arrived since the start sync must not pass as already copied.
+        if dialog.top_message > seen.get(chat_id, 0):
             seen[chat_id] = dialog.top_message
-            pending.add(source_of[chat_id])
-            wake.set()
+            if not quiet:
+                log("new message", chat_id, dialog.top_message)
+                pending.add(source_of[chat_id])
+                wake.set()
+
+
+async def poll_every_tick():
+    # Its own task: a busy source that keeps waking the loop must not starve
+    # the poll that finds another source's comments.
+    while True:
+        await asyncio.sleep(TICK)
+        await poll()
 
 
 deadline = time.monotonic() + args.run_for
 log("listening", list(source_of))
-await poll()  # the baseline: what arrives during the start sync counts as new
+await poll(quiet=True)  # the baseline: the start sync copies what is there
+poller = asyncio.create_task(poll_every_tick())
 await sync_all(args.sources, "start")
 while time.monotonic() < deadline:
     before = time.time()
     try:
         await asyncio.wait_for(wake.wait(), TICK)
     except TimeoutError:
-        await poll()
         # a tick that took far longer on the wall clock means the Mac slept
         if time.time() - before > 2 * TICK:
-            pending.clear()
-            wake.clear()
             await sync_all(args.sources, "wake")
         continue
     await asyncio.sleep(DEBOUNCE)
@@ -163,4 +172,5 @@ while time.monotonic() < deadline:
     touched = [s for s in args.sources if s in pending]
     pending.clear()
     await sync_all(touched, "new message")
+poller.cancel()
 log("restart")
