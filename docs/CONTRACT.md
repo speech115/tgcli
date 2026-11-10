@@ -1675,13 +1675,20 @@ the original error stands.
 
 A media send refused with `MEDIA_CAPTION_TOO_LONG` (a Premium author may
 caption up to 4096 characters; an account without Premium is limited to
-1024) cuts every caption past 1024 UTF-16 units to 1023 plus `…`, never
-splitting a surrogate pair, and clips its entities to the kept text. The
-send is retried once, by file reference or byte copy as before, after a
-fail-closed `clone-sync-caption-fallback` audit row (`source_message_ids`).
-Each affected message prints `warning: clone source message N: caption cut
-from L to 1024 characters (longer needs Premium)` to stderr, and the exit
-code stays 0. When no caption passes 1024, the original error stands.
+1024) splits every caption past 1024 UTF-16 units. The caption keeps the head:
+up to the last line break in its second half, else the last space there, else
+1024 units, never splitting a surrogate pair. The send is retried once, by
+file reference or byte copy as before, after a fail-closed
+`clone-sync-caption-fallback` audit row (`source_message_ids`). Once the
+batch's mapping is saved, each rest is sent as a plain message right after its
+post (a reply to it when the post sits in a thread or topic), with its
+entities rebased, after a fail-closed `clone-sync-caption-rest` audit row.
+Each affected message prints `warning: clone source message N: caption past
+1024 characters (longer needs Premium) continues in message M` to stderr, and
+the exit code stays 0. A rest Telegram refuses prints `... its rest was not
+sent; the post is message M` and fails the run; the post stays mapped, so the
+next run does not copy it again and the rest is not retried.
+When no caption passes 1024, the original error stands.
 
 `--limit N` must be positive and copies at most N message batches. If another
 source row remains, JSON reports `"more":true`; the next run resumes at the
