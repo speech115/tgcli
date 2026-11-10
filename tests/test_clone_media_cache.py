@@ -381,7 +381,7 @@ def test_confirmation_failure_leaves_media_cache_intact(
     config_env, monkeypatch, capsys
 ):
     """T12: a send Telegram never confirms must not lose the downloaded
-    bytes. The cache clears only after `confirmed_destination_ids` and
+    bytes. The cache clears only after `confirm.confirmed_ids` and
     `state.save` both succeed (ADR-0052 intent)."""
     clone_state = seed_clone()
     photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))

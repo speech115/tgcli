@@ -2,15 +2,12 @@
 
 import hashlib
 import mimetypes
-import secrets
 import tempfile
 from pathlib import Path
-from typing import cast
 
 from telethon.tl import functions, types
 
-from tgcli import chatref, formatting, safety
-from tgcli.confirm import send_confirmed
+from tgcli import chatref, confirm, formatting, safety
 from tgcli.errors import NotFoundError, PolicyError
 
 
@@ -22,10 +19,6 @@ def _target_to_dict(entity) -> dict:
         or str(getattr(entity, "id", ""))
     )
     return {"id": entity.id, "name": name}
-
-
-def _random_id() -> int:
-    return secrets.randbelow(2**63 - 1) + 1
 
 
 async def _entity(tg, chat: str):
@@ -103,7 +96,7 @@ async def prepare(
             "reply_to": reply_to,
             "topic": topic,
             "silent": silent,
-            "random_id": _random_id(),
+            "random_id": confirm.random_id(),
             "to": _target_to_dict(entity),
         }
     )
@@ -121,18 +114,6 @@ async def prepare(
         "expires_at",
     )
     return {key: stored[key] for key in keys}
-
-
-def _reply_header(payload: dict):
-    reply_to, topic = payload.get("reply_to"), payload.get("topic")
-    if reply_to is None and topic is None:
-        return None
-    return types.InputReplyToMessage(
-        reply_to_msg_id=cast(int, reply_to if reply_to is not None else topic),
-        top_msg_id=cast(int, topic)
-        if reply_to is not None and topic is not None
-        else None,
-    )
 
 
 def _boxes(stream, end: int):
@@ -246,7 +227,7 @@ async def commit(tg, preview_id: str, payload: dict) -> dict:
         "entities": entities,
         "random_id": random_id,
         "silent": payload.get("silent") or None,
-        "reply_to": _reply_header(payload),
+        "reply_to": confirm.reply_header(payload.get("reply_to"), payload.get("topic")),
     }
     if payload.get("file"):
         original_path = payload["file"]
@@ -259,12 +240,12 @@ async def commit(tg, preview_id: str, payload: dict) -> dict:
             request = functions.messages.SendMediaRequest(
                 **common, media=_uploaded_media(uploaded, original_path, snapshot)
             )
-            sent = await send_confirmed(tg, request, random_id)
+            sent = await confirm.send_confirmed(tg, request, random_id)
         finally:
             snapshot_dir.cleanup()
     else:
         request = functions.messages.SendMessageRequest(**common)
-        sent = await send_confirmed(tg, request, random_id)
+        sent = await confirm.send_confirmed(tg, request, random_id)
     return {"preview_id": preview_id, **sent}
 
 

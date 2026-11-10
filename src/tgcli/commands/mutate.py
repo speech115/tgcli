@@ -1,12 +1,9 @@
 """Preview-to-commit mutations on existing messages (ADR-0028)."""
 
-import secrets
-
 from telethon.errors import MessageNotModifiedError
 from telethon.tl import functions
 
-from tgcli import chatref, formatting, safety
-from tgcli.confirm import send_confirmed
+from tgcli import chatref, confirm, formatting, safety
 from tgcli.errors import NotFoundError
 from tgcli.messages import sanitize_plain_text
 
@@ -30,10 +27,6 @@ async def _message(tg, entity, message_id: int):
     if message is None:
         raise NotFoundError(f"message not found: {message_id}")
     return message
-
-
-def _random_id() -> int:
-    return secrets.randbelow(2**63 - 1) + 1
 
 
 async def prepare_edit(
@@ -112,7 +105,7 @@ async def prepare_forward(tg, source: str, message_id: int, destination: str) ->
             "message_id": message_id,
             "destination": destination,
             "text": message.text or "",
-            "random_id": _random_id(),
+            "random_id": confirm.random_id(),
         }
     )
     keys = (
@@ -133,7 +126,7 @@ async def commit_forward(tg, preview_id: str, payload: dict) -> dict:
         random_id=[payload["random_id"]],
         to_peer=await _input_peer(tg, payload["destination"]),
     )
-    sent = await send_confirmed(tg, request, payload["random_id"])
+    sent = await confirm.send_confirmed(tg, request, payload["random_id"])
     return {"preview_id": preview_id, **sent}
 
 

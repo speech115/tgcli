@@ -6,13 +6,12 @@ reads as sync glue rather than transfer mechanics (ADR-0112).
 
 from __future__ import annotations
 
-import secrets
 import shutil
 
 from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
 
-from tgcli import safety
+from tgcli import confirm, safety
 from tgcli.clone import (
     attribution,
     quote_fallback,
@@ -359,7 +358,7 @@ async def forward_batch(
     reforward_cache: dict | None = None,
 ):
     source_ids = [message.id for message in messages]
-    random_ids = [secrets.randbelow(2**63 - 1) + 1 for _ in messages]
+    random_ids = [confirm.random_id() for _ in messages]
     reply_to = plan.reply_to
     if topic_dest is not None:
         reply_to = topics.place(reply_to, topic_dest)
@@ -472,7 +471,9 @@ async def forward_batch(
             by_reference=not getattr(source, "noforwards", False)
             and not any(getattr(m, "noforwards", False) for m in messages),
         )
-    destination_ids = topics.confirmed_destination_ids(response, random_ids)
+    destination_ids = confirm.confirmed_ids(
+        response, random_ids, what="the complete cloned batch"
+    )
     for source_id, destination_id in zip(source_ids, destination_ids, strict=True):
         leg.record_raw_mapping(source_id, destination_id)
     leg.cursor = source_ids[-1]
