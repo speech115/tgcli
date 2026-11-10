@@ -311,17 +311,20 @@ def audit_before(args: argparse.Namespace, account: Account) -> None:
 
 
 def audit_after(args: argparse.Namespace, account: Account, data: dict) -> None:
-    """Write the result audit before spending a successfully committed preview."""
     spec = spec_for(args)
-    if spec is None or not is_commit(args):
+    if spec is None or not is_commit(args) or spec.audit is None:
         return
-    if spec.audit is not None:
-        safety.append_audit(
-            f"{spec.kind}-result",
-            account.alias,
-            spec.audit.after(args, data),
-        )
-    safety.finish_commit(args.commit)
+    safety.append_audit(
+        f"{spec.kind}-result",
+        account.alias,
+        spec.audit.after(args, data),
+    )
+
+
+def finish(args: argparse.Namespace) -> None:
+    """Spend a successfully committed preview, so it can never commit again."""
+    if spec_for(args) is not None and is_commit(args):
+        safety.finish_commit(args.commit)
 
 
 def _present(value: object) -> bool:

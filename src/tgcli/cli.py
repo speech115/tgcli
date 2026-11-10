@@ -195,7 +195,9 @@ def _execute_network(args, config, spec: registry.Command) -> tuple[dict, list[t
         _audit_before(args, account, spec)
         network = dispatch.run_network(args, account)
         data, rows = deadline.run(network, args.timeout)
+        # H2 (STATE-MACHINES): a preview is spent only after its result audit.
         preview_commit.audit_after(args, account, data)
+        preview_commit.finish(args)
         return data, rows
     finally:
         safety.reset_audit_role(token)
