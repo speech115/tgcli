@@ -301,7 +301,7 @@ def test_the_deadline_does_not_count_governed_sleep(monkeypatch):
     """
     import asyncio
 
-    from tgcli import cli
+    from tgcli import deadline
     from tgcli.governor import pacing
 
     pacing.reset_runtime(cap=120.0)
@@ -318,7 +318,7 @@ def test_the_deadline_does_not_count_governed_sleep(monkeypatch):
 
     # 0.1 s deadline, 0.2 s of governed flood-sleep: the sleep is reserved
     # before it happens, so the deadline grants it back and the run wins.
-    assert cli._run_with_deadline(flood_sleep(), 0.1) is True
+    assert deadline.run(flood_sleep(), 0.1) is True
     assert sleeps == [60.0]
 
 
@@ -366,7 +366,7 @@ def test_a_long_paced_run_is_not_killed_by_the_default_deadline(monkeypatch):
     """
     import asyncio
 
-    from tgcli import cli
+    from tgcli import deadline
     from tgcli.governor import pacing
 
     pacing.reset_runtime(cap=300.0)
@@ -384,7 +384,7 @@ def test_a_long_paced_run_is_not_killed_by_the_default_deadline(monkeypatch):
 
     # 0.3 s deadline, 0.5 s of real wall time spent in governed sleeps: the
     # write-ahead discount lets the run finish instead of being killed.
-    assert cli._run_with_deadline(paced_work(), 0.3) == "done"
+    assert deadline.run(paced_work(), 0.3) == "done"
     assert len(sleeps) == 25
 
 

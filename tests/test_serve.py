@@ -248,10 +248,10 @@ def test_what_a_command_installs_on_the_client_ends_with_it(env, monkeypatch):
 
 
 def test_a_timed_out_step_finishes_its_cleanup_before_the_next_starts(monkeypatch):
-    from tgcli import cli, loop
+    from tgcli import deadline, loop
     from tgcli.errors import CommandTimeoutError
 
-    monkeypatch.setattr(cli, "DEADLINE_GRACE", 0.01)
+    monkeypatch.setattr(deadline, "GRACE", 0.01)
     cleaned = []
 
     async def slow():
@@ -266,7 +266,7 @@ def test_a_timed_out_step_finishes_its_cleanup_before_the_next_starts(monkeypatc
     thread.start()
     try:
         with loop.running_on(event_loop), pytest.raises(CommandTimeoutError):
-            cli._run_with_deadline(slow(), 0.05)
+            deadline.run(slow(), 0.05)
         assert cleaned == [True]
     finally:
         event_loop.call_soon_threadsafe(event_loop.stop)

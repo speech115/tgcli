@@ -21,7 +21,7 @@ async def run_network(args, account) -> tuple[dict, list[tuple]]:
     role = getattr(args, "session_role", None)
     try:
         async with session.client(
-            account, mutation_safe=spec.retries(args), role=role
+            account, mutation_safe=spec.mutation_safe(args), role=role
         ) as tg:
             return await spec.run(tg, args, account)
     except telethon_errors.TakeoutInitDelayError as exc:
