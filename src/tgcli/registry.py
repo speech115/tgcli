@@ -18,7 +18,7 @@ from dataclasses import dataclass, replace
 from typing import Literal
 
 from tgcli import handlers, preflight, preview_commit
-from tgcli.archive import offline as archive_offline, preflight as archive_preflight
+from tgcli.archive import handlers as archive, preflight as archive_preflight
 from tgcli.parser import command_key
 
 Predicate = Callable[[argparse.Namespace], bool]
@@ -135,47 +135,47 @@ COMMANDS: dict[str, Command] = {
     ),
     # archive: local reads and writes of the archive store
     "archive history": _archive_read(
-        archive_offline.history,
+        archive.history,
         prepare=_args_only(archive_preflight.prepare_history),
     ),
-    "archive list": _archive_read(archive_offline.list_scope),
+    "archive list": _archive_read(archive.list_scope),
     "archive read": _archive_read(
-        archive_offline.read,
+        archive.read,
         prepare=_then(
             preflight.bounds("since", "until", "around_date"),
             _args_only(archive_preflight.prepare_read),
         ),
     ),
     "archive search": _archive_read(
-        archive_offline.search,
+        archive.search,
         prepare=_then(
             preflight.bounds("since", "until"),
             _args_only(archive_preflight.prepare_search),
         ),
     ),
-    "archive status": _archive_read(archive_offline.status),
+    "archive status": _archive_read(archive.status),
     "archive transcribe": Command(
         kind="write",
         needs="config",
-        run=archive_offline.transcribe,
+        run=archive.transcribe,
         gate="local",
         deadline=None,
         prepare=_args_only(archive_preflight.prepare_transcribe),
     ),
-    "archive init": _archive_write(handlers.archive_init),
-    "archive add": _archive_write(handlers.archive_add),
-    "archive remove": _archive_write(handlers.archive_remove),
+    "archive init": _archive_write(archive.init),
+    "archive add": _archive_write(archive.add),
+    "archive remove": _archive_write(archive.remove),
     "archive backfill": _archive_write(
-        handlers.archive_backfill,
+        archive.backfill,
         deadline=None,
         prepare=_args_only(archive_preflight.apply_backfill),
     ),
     "archive sync": _archive_write(
-        handlers.archive_sync,
+        archive.sync,
         deadline=None,
         prepare=_args_only(archive_preflight.apply_sync),
     ),
-    "archive rebaseline": _archive_write(handlers.archive_rebaseline),
+    "archive rebaseline": _archive_write(archive.rebaseline),
     "clone status": Command(kind="local-read", needs="none", run=handlers.clone_status),
     "clone init": replace(_HANDSHAKE, deadline=None),
     "clone sync": Command(

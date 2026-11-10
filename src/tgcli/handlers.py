@@ -11,7 +11,6 @@ from tgcli import deadline, loop, output, preview_commit, read_ops, safety, stat
 from tgcli.clone import sync as sync_clone
 from tgcli.commands import (
     accounts as accounts_cmd,
-    archive as archive_cmd,
     clone as clone_cmd,
     doctor as doctor_cmd,
     export as export_cmd,
@@ -22,7 +21,6 @@ from tgcli.commands import (
     transcribe as transcribe_cmd,
 )
 from tgcli.errors import PolicyError
-from tgcli.governor import pacing
 
 # Local commands that need neither config nor Telegram.
 
@@ -179,53 +177,6 @@ async def export_subscribers(tg, args, account) -> tuple[dict, list[tuple]]:
 async def clone_sync(tg, args, account) -> tuple[dict, list[tuple]]:
     data = await sync_clone.sync_text(tg, args.source, account.alias, limit=args.limit)
     return data, sync_clone.sync_rows(data)
-
-
-async def archive_init(tg, args, account) -> tuple[dict, list[tuple]]:
-    data = await archive_cmd.init_archive(tg, account.alias)
-    return data, archive_cmd.init_rows(data)
-
-
-async def archive_add(tg, args, account) -> tuple[dict, list[tuple]]:
-    data = await archive_cmd.add_chat(tg, account.alias, args.chat)
-    return data, archive_cmd.add_rows(data)
-
-
-async def archive_remove(tg, args, account) -> tuple[dict, list[tuple]]:
-    data = await archive_cmd.remove_chat(tg, account.alias, args.chat)
-    return data, archive_cmd.remove_rows(data)
-
-
-async def archive_backfill(tg, args, account) -> tuple[dict, list[tuple]]:
-    data = await archive_cmd.backfill(
-        tg,
-        account.alias,
-        list(getattr(args, "chats", None) or []),
-        limit=args.limit,
-        private=bool(getattr(args, "private", False)),
-        max_dialogs=args.max_dialogs,
-        should_stop=pacing.wall_clock_exhausted,
-    )
-    return data, archive_cmd.backfill_rows(data)
-
-
-async def archive_sync(tg, args, account) -> tuple[dict, list[tuple]]:
-    data = await archive_cmd.sync(
-        tg,
-        account.alias,
-        max_events=args.max_events,
-        max_dialogs=args.max_dialogs,
-        max_media=args.max_media,
-        should_stop=pacing.wall_clock_exhausted,
-    )
-    if data.get("remaining") and pacing.wall_clock_exhausted():
-        data["stop_reason"] = "wall_clock_cap"
-    return data, archive_cmd.sync_rows(data)
-
-
-async def archive_rebaseline(tg, args, account) -> tuple[dict, list[tuple]]:
-    data = await archive_cmd.rebaseline(tg, account.alias)
-    return data, archive_cmd.rebaseline_rows(data)
 
 
 async def media_download(tg, args, account) -> tuple[dict, list[tuple]]:
