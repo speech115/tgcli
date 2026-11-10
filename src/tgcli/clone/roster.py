@@ -75,6 +75,8 @@ async def _collect_peer(tg, peer: str, entity) -> tuple[list[dict], str, str | N
             rows.append(_row(peer, participant))
     except TRANSIENT_ERRORS as exc:
         return [], "deferred", _deferred_reason(exc)
+    except telethon_errors.UnauthorizedError:
+        raise
     except telethon_errors.RPCError as exc:
         return [], "unavailable", type(exc).__name__
     except ValueError as exc:
