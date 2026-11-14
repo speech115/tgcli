@@ -130,11 +130,8 @@ class CloneSyncFaultMachine(RuleBasedStateMachine):
 
     def _recorded(self) -> set[tuple[str, int, int]]:
         saved = self._state()
-        return {
-            ("channel", int(source), dest) for source, dest in saved.id_map.items()
-        } | {
-            ("group", int(source), dest)
-            for source, dest in saved.discussion_id_map.items()
+        return {("channel", source, dest) for source, dest in saved.id_map.items()} | {
+            ("group", source, dest) for source, dest in saved.discussion_id_map.items()
         }
 
     def _strays(self) -> list[tuple[str, int, int]]:
@@ -196,10 +193,8 @@ class CloneSyncFaultMachine(RuleBasedStateMachine):
         sync = json.loads(self.out)["sync"]
         assert sync["more"] is False
         saved = self._state()
-        assert {int(key) for key in saved.id_map} == {
-            post.id for post in self.world.posts
-        }
-        assert {int(key) for key in saved.discussion_id_map} == {
+        assert set(saved.id_map) == {post.id for post in self.world.posts}
+        assert set(saved.discussion_id_map) == {
             comment.id for comment in self.world.comments
         }
         # No fault leaves a lasting mark: every copy is the one a run that
@@ -232,13 +227,13 @@ class CloneSyncFaultMachine(RuleBasedStateMachine):
         if not hasattr(self, "client"):
             return
         saved = self._state()
-        mapped_posts = {int(key) for key in saved.id_map}
+        mapped_posts = set(saved.id_map)
         for post in self.world.posts:
             if post.id <= saved.cursor:
                 assert post.id in mapped_posts, (
                     f"posts cursor {saved.cursor} passed unmapped post {post.id}"
                 )
-        mapped_comments = {int(key) for key in saved.discussion_id_map}
+        mapped_comments = set(saved.discussion_id_map)
         for comment in self.world.comments:
             if comment.id <= saved.discussion_cursor:
                 assert comment.id in mapped_comments, (

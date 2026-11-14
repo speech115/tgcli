@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from tests.fakes.clone import save_under
 from tgcli.clone import state
 
 
@@ -394,8 +395,7 @@ def test_status_probes_a_pre_adr_0103_slot_under_its_own_file_name(capsys):
         account_user_id=100000001, source_peer_id=111, source_title="Alpha"
     )
     legacy_id = state._kind_blind_clone_id(100000001, 111)
-    state.ensure_clones_dir()
-    state.statedb.persist(state.path_for(legacy_id), saved.to_dict(), full=True)
+    save_under(saved, legacy_id)
 
     code, out = _run(capsys, ["clone", "status", "--json"])
     assert code == 0

@@ -1,29 +1,12 @@
 import os
+import sqlite3
 import stat
 
 import pytest
 
+from tests.fakes.clone import corrupt_slot, save_under
 from tgcli.clone import roster, state, statedb
 from tgcli.errors import PolicyError
-
-
-def _valid_payload(**overrides):
-    payload = {
-        "version": state.VERSION,
-        "account_user_id": 1,
-        "source_peer_id": 2,
-        "source_title": "S",
-        "source_kind": "broadcast",
-        "destination_kind": "broadcast",
-        "topic_map": {},
-    }
-    payload.update(overrides)
-    return payload
-
-
-def _hydrate(data: dict) -> state.CloneState:
-    """The validation `state.load` runs on every document it reads."""
-    return state._hydrate(data, path_name="slot.db")
 
 
 def _fresh() -> state.CloneState:
@@ -80,7 +63,7 @@ def test_resolve_slot_migrates_a_pre_adr_0100_slot_in_place(tmp_path, monkeypatc
         account_user_id=1, source_peer_id=2, source_title="Legacy", source_kind="basic"
     )
     saved.record_mapping(7, 70)
-    state.statedb.persist(state.path_for(legacy_id), saved.to_dict(), full=True)
+    save_under(saved, legacy_id)
 
     canonical_id = state.resolve_slot(1, 2, "basic")
 
@@ -106,7 +89,7 @@ def test_resolve_slot_migrates_across_a_channel_kind_toggle(tmp_path, monkeypatc
         source_title="Team chat",
         source_kind="megagroup",
     )
-    state.statedb.persist(state.path_for(legacy_id), saved.to_dict(), full=True)
+    save_under(saved, legacy_id)
 
     canonical_id = state.resolve_slot(1, 2, "forum")
 
@@ -126,7 +109,7 @@ def test_resolve_slot_ignores_a_legacy_slot_of_a_different_kind(tmp_path, monkey
         source_title="A dialog",
         source_kind="dialog",
     )
-    state.statedb.persist(state.path_for(legacy_id), saved.to_dict(), full=True)
+    save_under(saved, legacy_id)
 
     canonical_id = state.resolve_slot(1, 2, "broadcast")
 
@@ -168,15 +151,6 @@ def test_save_then_load_round_trip():
     assert loaded.source_kind == "megagroup"
 
 
-def test_load_legacy_state_defaults_source_kind_to_broadcast(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    s = _fresh()
-    data = s.to_dict()
-    del data["source_kind"]
-
-    assert _hydrate(data).source_kind == "broadcast"
-
-
 def test_state_accepts_basic_source_kind(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     saved = state.CloneState.new(
@@ -189,14 +163,20 @@ def test_state_accepts_basic_source_kind(tmp_path, monkeypatch):
     assert state.load(saved.clone_id).source_kind == "basic"
 
 
-def test_invalid_source_kind_is_policy_error(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    s = _fresh()
-    data = s.to_dict()
-    data["source_kind"] = "unknown"
+def _forum() -> state.CloneState:
+    return state.CloneState.new(
+        account_user_id=1, source_peer_id=2, source_title="Forum", source_kind="forum"
+    )
 
-    with pytest.raises(PolicyError):
-        _hydrate(data)
+
+def _assert_load_fails(saved: state.CloneState, *statements: str) -> None:
+    corrupt_slot(saved, *statements)
+    with pytest.raises(PolicyError, match="invalid"):
+        state.load(saved.clone_id)
+
+
+def test_invalid_source_kind_is_policy_error():
+    _assert_load_fails(_fresh(), "UPDATE meta SET source_kind = 'unknown'")
 
 
 def test_state_round_trips_forum_fields(tmp_path, monkeypatch):
@@ -216,146 +196,61 @@ def test_state_round_trips_forum_fields(tmp_path, monkeypatch):
     assert loaded.max_destination_id() == 1007
 
 
-def test_state_defaults_forum_fields_for_legacy_files(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    saved = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="Old"
-    )
-    data = saved.to_dict()
-    del data["destination_kind"], data["topic_map"]
-    loaded = _hydrate(data)
-    assert loaded.destination_kind == "broadcast"
-    assert loaded.topic_map == {}
-
-
-def test_state_rejects_unknown_destination_kind(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    saved = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="Old"
-    )
-    data = saved.to_dict()
-    data["destination_kind"] = "group"
-    with pytest.raises(PolicyError):
-        _hydrate(data)
-
-
-def test_state_rejects_non_dict_topic_map(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    saved = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="Old"
-    )
-    data = saved.to_dict()
-    data["topic_map"] = [["7", 1007]]
-    with pytest.raises(PolicyError):
-        _hydrate(data)
-
-
-@pytest.mark.parametrize("value", [True, "1007"])
-def test_state_rejects_non_int_topic_destination(tmp_path, monkeypatch, value):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    saved = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="Forum", source_kind="forum"
-    )
-    data = saved.to_dict()
-    data["topic_map"] = {"7": value}
-    with pytest.raises(PolicyError):
-        _hydrate(data)
-
-
-@pytest.mark.parametrize("value", [0, -1])
-def test_state_rejects_nonpositive_topic_destination(tmp_path, monkeypatch, value):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    saved = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="Forum", source_kind="forum"
-    )
-    data = saved.to_dict()
-    data["topic_map"] = {"7": value}
-    with pytest.raises(PolicyError):
-        _hydrate(data)
-
-
-@pytest.mark.parametrize("key", ["", "topic", "01", "0", "-1", "١", "１"])
-def test_state_rejects_noncanonical_topic_key(tmp_path, monkeypatch, key):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    saved = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="Forum", source_kind="forum"
-    )
-    data = saved.to_dict()
-    data["topic_map"] = {key: 1007}
-    with pytest.raises(PolicyError):
-        _hydrate(data)
+def test_state_rejects_unknown_destination_kind():
+    _assert_load_fails(_fresh(), "UPDATE meta SET destination_kind = 'group'")
 
 
 @pytest.mark.parametrize(
-    ("source_kind", "destination_kind", "topic_map"),
+    ("source_kind", "destination_kind", "topic_rows"),
     [
-        ("forum", "broadcast", {}),
-        ("broadcast", "forum", {}),
-        ("broadcast", "broadcast", {"7": 1007}),
+        ("forum", "broadcast", ()),
+        ("broadcast", "forum", ()),
+        ("broadcast", "broadcast", ((7, 1007),)),
     ],
 )
 def test_state_rejects_inconsistent_forum_fields(
-    tmp_path, monkeypatch, source_kind, destination_kind, topic_map
+    source_kind, destination_kind, topic_rows
 ):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     saved = state.CloneState.new(
         account_user_id=1,
         source_peer_id=2,
         source_title="Source",
         source_kind=source_kind,
     )
-    data = saved.to_dict()
-    data["destination_kind"] = destination_kind
-    data["topic_map"] = topic_map
-    with pytest.raises(PolicyError):
-        _hydrate(data)
+    _assert_load_fails(
+        saved,
+        f"UPDATE meta SET destination_kind = '{destination_kind}'",
+        *(f"INSERT INTO topic_map VALUES ({s}, {d})" for s, d in topic_rows),
+    )
 
 
 @pytest.mark.parametrize(
     ("source_topic_id", "destination_topic_id"),
-    [("2147483648", 1), ("1", 2147483648)],
-)
-def test_state_rejects_topic_ids_above_tl_int_range(
-    tmp_path, monkeypatch, source_topic_id, destination_topic_id
-):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    saved = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="Forum", source_kind="forum"
-    )
-    data = saved.to_dict()
-    data["topic_map"] = {source_topic_id: destination_topic_id}
-    with pytest.raises(PolicyError):
-        _hydrate(data)
-
-
-def test_state_accepts_max_tl_int_topic_ids(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    maximum = 2_147_483_647
-    saved = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="Forum", source_kind="forum"
-    )
-    data = saved.to_dict()
-    data["topic_map"] = {str(maximum): maximum}
-    loaded = _hydrate(data)
-    assert loaded.topic_dest_for(maximum) == maximum
-
-
-@pytest.mark.parametrize(
-    "topic_map",
     [
-        {"1": 1001},
-        {"2": 1},
-        {"2": 1001, "3": 1001},
+        (1, 1001),
+        (2, 1),
+        (2, 0),
+        (2, -1),
+        (2_147_483_648, 1001),
+        (7, 2_147_483_648),
     ],
 )
-def test_state_rejects_non_bijective_non_general_topic_map(topic_map):
-    data = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="Forum", source_kind="forum"
-    ).to_dict()
-    data["topic_map"] = topic_map
+def test_state_rejects_topic_ids_outside_the_tl_range(
+    source_topic_id, destination_topic_id
+):
+    _assert_load_fails(
+        _forum(),
+        f"INSERT INTO topic_map VALUES ({source_topic_id}, {destination_topic_id})",
+    )
 
-    with pytest.raises(ValueError, match="invalid topic map"):
-        state.CloneState.from_dict(data)
+
+def test_state_accepts_max_tl_int_topic_ids():
+    maximum = 2_147_483_647
+    saved = _forum()
+    saved.record_topic(maximum, maximum)
+    state.save(saved)
+
+    assert state.load(saved.clone_id).topic_dest_for(maximum) == maximum
 
 
 @pytest.mark.parametrize(
@@ -365,9 +260,7 @@ def test_state_rejects_non_bijective_non_general_topic_map(topic_map):
 def test_record_topic_rejects_non_general_or_non_tl_int_ids(
     source_topic_id, destination_topic_id
 ):
-    saved = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="Forum", source_kind="forum"
-    )
+    saved = _forum()
 
     with pytest.raises(ValueError, match="invalid topic mapping"):
         saved.record_topic(source_topic_id, destination_topic_id)
@@ -376,22 +269,13 @@ def test_record_topic_rejects_non_general_or_non_tl_int_ids(
 
 
 def test_record_topic_rejects_duplicate_destination():
-    saved = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="Forum", source_kind="forum"
-    )
+    saved = _forum()
     saved.record_topic(2, 1001)
 
     with pytest.raises(ValueError, match="invalid topic mapping"):
         saved.record_topic(3, 1001)
 
-    assert saved.topic_map == {"2": 1001}
-
-
-def test_state_rejects_non_string_topic_key():
-    data = _fresh().to_dict()
-    data["topic_map"] = {7: 1007}
-    with pytest.raises(ValueError, match="invalid topic map"):
-        state.CloneState.from_dict(data)
+    assert saved.topic_map == {2: 1001}
 
 
 def test_load_missing_returns_none():
@@ -456,14 +340,12 @@ def test_corrupted_file_is_policy_error(tmp_path, monkeypatch):
         state.load(s.clone_id)
 
 
-def test_incomplete_state_is_policy_error(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    s = _fresh()
-    data = s.to_dict()
-    del data["source_title"]
+def test_a_database_without_its_meta_row_is_policy_error():
+    saved = _fresh()
+    corrupt_slot(saved, "DELETE FROM meta")
 
-    with pytest.raises(PolicyError):
-        _hydrate(data)
+    with pytest.raises(PolicyError, match="no meta row"):
+        state.load(saved.clone_id)
 
 
 def test_record_mapping_and_dest_for():
@@ -526,38 +408,44 @@ def test_max_destination_id_excludes_discussion_ids():
     assert clone_state.max_discussion_destination_id() == 900
 
 
-def test_from_dict_rejects_unknown_comments_value():
-    with pytest.raises(ValueError):
-        state.CloneState.from_dict(_valid_payload(comments="maybe"))
+def test_unknown_comments_value_fails_to_load():
+    _assert_load_fails(_fresh(), "UPDATE meta SET comments = 'maybe'")
 
 
-def test_from_dict_rejects_enabled_comments_without_discussion_source():
-    with pytest.raises(ValueError):
-        state.CloneState.from_dict(_valid_payload(comments="enabled"))
+def test_enabled_comments_without_a_discussion_source_fail_to_load():
+    saved = _fresh()
+    saved.comments = state.Comments.ENABLED
+    _assert_load_fails(saved)
 
 
-def test_from_dict_rejects_discussion_map_without_enabled_comments():
-    with pytest.raises(ValueError):
-        state.CloneState.from_dict(_valid_payload(discussion_id_map={"1": 2}))
+def test_a_discussion_map_without_enabled_comments_fails_to_load():
+    saved = _fresh()
+    saved.record_discussion_mapping(1, 2)
+    _assert_load_fails(saved)
 
 
-def _paused_discussion(**overrides):
+def _paused_discussion(**overrides) -> state.CloneState:
     """A linked clone whose source unlinked its group, with comment progress."""
-    fields = {
-        "comments": "none",
-        "discussion_linked": True,
-        "discussion_source_peer_id": 55,
-        "discussion_destination_peer_id": 888,
-        "discussion_cursor": 12,
-        "discussion_id_map": {"12": 5},
-    }
-    fields.update(overrides)
-    return _valid_payload(**fields)
+    saved = _fresh()
+    saved.discussion_linked = True
+    saved.discussion_source_peer_id = 55
+    saved.discussion_destination_peer_id = 888
+    saved.discussion_cursor = 12
+    saved.record_discussion_mapping(12, 5)
+    for name, value in overrides.items():
+        setattr(saved, name, value)
+    return saved
 
 
-def test_from_dict_accepts_comment_progress_on_a_paused_linked_clone():
-    loaded = state.CloneState.from_dict(_paused_discussion())
+def test_comment_progress_on_a_paused_linked_clone_loads():
+    saved = _paused_discussion()
+    state.save(saved)
+
+    loaded = state.load(saved.clone_id)
+
+    assert loaded.comments == "none"
     assert loaded.discussion_cursor == 12
+    assert loaded.discussion_dest_for(12) == 5
 
 
 @pytest.mark.parametrize(
@@ -565,80 +453,56 @@ def test_from_dict_accepts_comment_progress_on_a_paused_linked_clone():
     [
         {"discussion_source_peer_id": None},
         {"discussion_linked": False, "discussion_destination_peer_id": None},
-        {"source_kind": "megagroup", "destination_kind": "broadcast"},
+        {"source_kind": "megagroup"},
     ],
     ids=["no-discussion-source", "unlinked", "non-broadcast"],
 )
-def test_from_dict_rejects_comment_progress_that_cannot_resume(overrides):
-    with pytest.raises(ValueError, match="inconsistent discussion state"):
-        state.CloneState.from_dict(_paused_discussion(**overrides))
+def test_comment_progress_that_cannot_resume_fails_to_load(overrides):
+    _assert_load_fails(_paused_discussion(**overrides))
 
 
-def test_from_dict_rejects_duplicate_discussion_destinations():
-    with pytest.raises(ValueError):
-        state.CloneState.from_dict(
-            _valid_payload(
-                comments="enabled",
-                discussion_source_peer_id=55,
-                discussion_id_map={"1": 2, "3": 2},
-            )
-        )
+@pytest.mark.parametrize("table", ["id_map", "anchor_map"])
+@pytest.mark.parametrize(
+    ("source", "dest"),
+    [(1, 0), (1, -1), (1, 2_147_483_648), (0, 5), (-1, 5), (2_147_483_648, 5)],
+)
+def test_map_ids_outside_the_tl_range_fail_to_load(table, source, dest):
+    _assert_load_fails(_fresh(), f"INSERT INTO {table} VALUES ({source}, {dest})")
 
 
-@pytest.mark.parametrize("value", [True, "2", None, 2.0])
-def test_from_dict_rejects_non_int_id_map_destination(value):
-    with pytest.raises(ValueError):
-        state.CloneState.from_dict(_valid_payload(id_map={"1": value}))
+def test_discussion_ids_outside_the_tl_range_fail_to_load():
+    saved = _fresh()
+    saved.comments = state.Comments.ENABLED
+    saved.discussion_source_peer_id = 55
+    _assert_load_fails(saved, "INSERT INTO discussion_id_map VALUES (1, 0)")
 
 
-@pytest.mark.parametrize("value", [0, -1, 2_147_483_648])
-def test_from_dict_rejects_out_of_range_id_map_destination(value):
-    with pytest.raises(ValueError):
-        state.CloneState.from_dict(_valid_payload(id_map={"1": value}))
-
-
-@pytest.mark.parametrize("key", ["", "one", "01", "0", "-1", "１"])
-def test_from_dict_rejects_noncanonical_id_map_key(key):
-    with pytest.raises(ValueError):
-        state.CloneState.from_dict(_valid_payload(id_map={key: 5}))
-
-
-def test_from_dict_rejects_duplicate_id_map_destinations():
-    with pytest.raises(ValueError):
-        state.CloneState.from_dict(_valid_payload(id_map={"1": 2, "3": 2}))
-
-
-def test_from_dict_rejects_non_dict_id_map():
-    with pytest.raises(ValueError):
-        state.CloneState.from_dict(_valid_payload(id_map=[["1", 2]]))
+def test_a_negative_discussion_cursor_fails_to_load():
+    saved = _fresh()
+    saved.comments = state.Comments.ENABLED
+    saved.discussion_source_peer_id = 55
+    _assert_load_fails(saved, "UPDATE meta SET discussion_cursor = -1")
 
 
 @pytest.mark.parametrize(
-    "value", ["soon", "2026-07-15T12:00:00", 42, "2026-07-15T12:00:00+25:00"]
+    "value",
+    ["'soon'", "'2026-07-15T12:00:00'", "42", "'2026-07-15T12:00:00+25:00'"],
 )
-def test_from_dict_rejects_invalid_retry_not_before(value):
-    with pytest.raises(ValueError):
-        state.CloneState.from_dict(_valid_payload(retry_not_before=value))
+def test_an_invalid_or_naive_retry_not_before_fails_to_load(value):
+    _assert_load_fails(_fresh(), f"UPDATE meta SET retry_not_before = {value}")
 
 
-def test_load_converts_invalid_id_map_to_policy_error(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    s = _fresh()
-    data = s.to_dict()
-    data["id_map"] = {"1": "2"}
-
-    with pytest.raises(PolicyError):
-        _hydrate(data)
-
-
-def test_load_converts_naive_retry_not_before_to_policy_error(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    s = _fresh()
-    data = s.to_dict()
-    data["retry_not_before"] = "2026-07-15T12:00:00"
-
-    with pytest.raises(PolicyError):
-        _hydrate(data)
+def test_a_duplicate_destination_cannot_be_stored_at_all():
+    """The schema refuses it, so load never has to check."""
+    saved = _fresh()
+    saved.record_mapping(1, 2)
+    state.save(saved)
+    conn = sqlite3.connect(state.path_for(saved.clone_id))
+    try:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO id_map VALUES (3, 2)")
+    finally:
+        conn.close()
 
 
 def test_supersede_missing_slot_is_noop():

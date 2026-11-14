@@ -64,7 +64,7 @@ async def sync_phase(
         # crash a sync whose posts have already copied. Degrade to the
         # ADR-0023 honest marker; never join the source on the user's
         # behalf. Clearing discussion_cursor / discussion_id_map is
-        # required: state.from_dict rejects comments != enabled with
+        # required: state.load rejects comments != enabled with
         # leftover phase-2 progress.
         clone_state.clear_discussion_progress()
         clone_state.comments = Comments.UNAVAILABLE

@@ -133,7 +133,7 @@ Telegram step that depends on it, so a crash resumes from the last one:
 Invariants:
 
 - **S1.** One writer per slot across roles (`slot_lock`).
-- **S2.** Every saved state loads: `CloneState.from_dict` rejects
+- **S2.** Every saved state loads: `state.load` rejects
   combinations such as `comments == "enabled"` on a non-broadcast source,
   phase-2 progress on a clone that is not copying comments, or a pin that is
   both set and occupied. `state.save` does not validate, so each writer must

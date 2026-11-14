@@ -1,5 +1,7 @@
 """Shared clone fakes: the source channel, clients and state seeds."""
 
+import os
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -7,7 +9,7 @@ from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
 from tests.fakes import messages
-from tgcli.clone import legs, state
+from tgcli.clone import legs, state, statedb
 
 SAMPLE = """
 default_account = "main"
@@ -99,13 +101,43 @@ def poll_media(*, multiple_choice=False, results=None, total_voters=10, **poll_f
     )
 
 
+def save_under(clone_state, slot_id):
+    """Save ``clone_state``, then move its database to ``slot_id``'s path."""
+    state.save(clone_state)
+    source = state.path_for(clone_state.clone_id)
+    target = state.path_for(slot_id)
+    for old, new in zip(
+        (source, *statedb.sidecar_paths(source)),
+        (target, *statedb.sidecar_paths(target)),
+        strict=True,
+    ):
+        if old.exists():
+            os.replace(old, new)
+
+
+def corrupt_slot(clone_state, *statements):
+    """Save ``clone_state``, then run raw SQL on its database: a row no
+    writer of this build would produce."""
+    state.save(clone_state)
+    conn = sqlite3.connect(state.path_for(clone_state.clone_id))
+    try:
+        for statement in statements:
+            conn.execute(statement)
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def seed_clone(*, kind="broadcast", title="Source channel"):
+    """A fresh clone slot: a state that was never saved owns no rows yet, so
+    any earlier database in the slot goes first."""
     clone_state = state.CloneState.new(
         account_user_id=42,
         source_peer_id=123,
         source_title=title,
         source_kind=kind,
     )
+    state.path_for(clone_state.clone_id).unlink(missing_ok=True)
     clone_state.destination_peer_id = 999
     state.save(clone_state)
     return clone_state
