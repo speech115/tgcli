@@ -44,7 +44,7 @@ the same `tg` on PATH; see the archive row in [SKILL.md](../SKILL.md) and
 cd ~/Projects/tools/tgcli-prod
 git fetch origin main
 git merge --ff-only origin/main
-uv sync --extra fast         # keep the extra: a bare uv sync uninstalls cryptg
+uv sync --frozen --extra fast   # frozen: never rewrite uv.lock; the extra keeps cryptg
 launchctl kickstart -k gui/$(id -u)/com.tgcli.clone-watch   # only if installed
 ```
 
@@ -70,7 +70,7 @@ right after the ship:
 ```bash
 cd ~/Projects/tools/tgcli-prod
 git reset --keep <commit noted before>
-uv sync --extra fast
+uv sync --frozen --extra fast
 launchctl kickstart -k gui/$(id -u)/com.tgcli.clone-watch   # only if installed
 ```
 
@@ -119,7 +119,7 @@ stderr.
 | `clone init --commit` stops partway (a flood on the discussion link, say) | the preview is spent only on success | rerun the same `--commit PREVIEW_ID` while it is unexpired (5 minutes); it resumes |
 | exit 2, `BLOCKED` | a safety gate refused (`--readonly`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`), or an argument was refused (a bad `--limit`), or a busy session on `accounts login`/`remove` | for the gates: intended in agent sessions. For an owner-approved write, prefix that one command with `TGCLI_READONLY=0`; `TGCLI_NO_SEND=1` must be unset too |
 | state directory keeps growing | old previews, login attempts, abandoned clone media caches | `tg --json store stats`, then `tg --json store cleanup --older-than 7d` to see what would go, and add `--confirm` to delete. Sessions and their `.bak` are never deleted |
-| `doctor` shows `runtime.aes: "pyaes"` | slow pure-Python crypto | `uv sync --extra fast` in `tgcli-prod` installs `cryptg` |
+| `doctor` shows `runtime.aes: "pyaes"` | slow pure-Python crypto | `uv sync --frozen --extra fast` in `tgcli-prod` installs `cryptg` |
 
 If none of these fits, keep the journal line and the stderr output, and open
 an issue. Never open a `.session` file with bare `python3` to look inside: the
