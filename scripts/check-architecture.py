@@ -1,6 +1,6 @@
 """Fail-closed architecture checks: read ownership, state writes, module size,
-bare clone ``Leg`` annotations, single-class flood handlers, and test modules
-that import test modules."""
+bare clone ``Leg`` annotations, single-class flood handlers, history reads
+with no page wait, and test modules that import test modules."""
 
 from __future__ import annotations
 
@@ -173,6 +173,21 @@ def _flood_class_errors(path: Path, relative: str) -> list[str]:
     ]
 
 
+def _unpaced_history_errors(path: Path, relative: str) -> list[str]:
+    """Telethon reads history 100 messages a request, back to back unless it
+    is told to wait; nothing else spaces those pages (ADR-0125)."""
+    tree = ast.parse(path.read_text(), filename=str(path))
+    return [
+        f"{relative}:{node.lineno} calls iter_messages without wait_time; pass "
+        "wait_time=pace.PAGE_WAIT_S so every page after the first waits"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "iter_messages"
+        and not any(keyword.arg == "wait_time" for keyword in node.keywords)
+    ]
+
+
 def _test_import_errors(path: Path, relative: str) -> list[str]:
     """A test module imports shared helpers from tests/fakes, never a test_*."""
     tree = ast.parse(path.read_text(), filename=str(path))
@@ -217,6 +232,7 @@ def check(root: Path) -> list[str]:
             errors.extend(_bare_leg_errors(path, relative))
         if relative != "src/tgcli/tg_errors.py":
             errors.extend(_flood_class_errors(path, relative))
+        errors.extend(_unpaced_history_errors(path, relative))
 
     for path in sorted((root / "tests").rglob("*.py")):
         errors.extend(_test_import_errors(path, path.relative_to(root).as_posix()))

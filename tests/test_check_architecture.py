@@ -144,6 +144,32 @@ def test_architecture_check_rejects_a_flood_caught_by_one_class(tmp_path):
     assert _run(tmp_path).returncode == 0
 
 
+def test_architecture_check_rejects_a_history_read_with_no_page_wait(tmp_path):
+    _write_minimal_tree(tmp_path)
+    module = tmp_path / "src/tgcli/commands/read.py"
+    module.parent.mkdir(parents=True, exist_ok=True)
+    module.write_text(
+        "async def fetch(tg, entity):\n"
+        "    async for message in tg.iter_messages(entity, limit=500):\n"
+        "        yield message\n"
+    )
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 1
+    assert "read.py:2 calls iter_messages without wait_time" in result.stdout
+    assert "wait_time=pace.PAGE_WAIT_S" in result.stdout
+
+    module.write_text(
+        "async def fetch(tg, entity):\n"
+        "    async for message in tg.iter_messages(\n"
+        "        entity, limit=500, wait_time=pace.PAGE_WAIT_S\n"
+        "    ):\n"
+        "        yield message\n"
+    )
+    assert _run(tmp_path).returncode == 0
+
+
 def test_repository_passes_architecture_check():
     result = _run(Path(__file__).parents[1])
 
