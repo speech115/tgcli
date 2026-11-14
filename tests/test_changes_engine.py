@@ -329,7 +329,7 @@ def _fake_session(monkeypatch, tg):
     from tgcli import session
 
     @asynccontextmanager
-    async def fake_session(account, *, mutation_safe=False, role=None, govern=True):
+    async def fake_session(account, *, mutation_safe=False, role=None):
         yield tg
 
     monkeypatch.setattr(session, "client", fake_session)

@@ -8,11 +8,11 @@ and session role and talks JSON lines over stdin/stdout:
     -> {"exit_code": 0, "stdout": "...", "stderr": "..."}
 
 Each request is a full `tg` invocation through `cli.main` (parsing, preflight,
-readonly gates, preview -> commit, audit, the invocation journal, the
-governor), with `--account`/`--session-role` fixed by the server and `--json`
-added. What differs from a `tg` process: the session stays connected and
-locked between requests, the coroutines run on one loop, and the parser is
-built once. The server opens no socket and exits when stdin closes.
+readonly gates, preview -> commit, audit, the invocation journal), with
+`--account`/`--session-role` fixed by the server and `--json` added. What
+differs from a `tg` process: the session stays connected and locked between
+requests, the coroutines run on one loop, and the parser is built once. The
+server opens no socket and exits when stdin closes.
 """
 
 from __future__ import annotations

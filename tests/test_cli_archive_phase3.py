@@ -46,6 +46,7 @@ from tests.fakes.archive import (
     archive_user,
     init_archive,
 )
+from tgcli import pace
 from tgcli.archive import (
     backfill as backfill_mod,
     changes_cursor,
@@ -57,7 +58,6 @@ from tgcli.archive import (
 from tgcli.archive.changes_cursor import ChangesCursor
 from tgcli.cli import main
 from tgcli.commands import archive as archive_cmd, media as media_cmd
-from tgcli.governor import pacing
 
 SAMPLE = """
 default_account = "main"
@@ -202,7 +202,7 @@ def test_backfill_max_runtime_does_not_start_media_tail(
         raise AssertionError("expired backfill must not start media")
 
     monkeypatch.setattr(sync_mod.media_cmd, "download_media", unexpected_download)
-    monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: 0.0)
+    monkeypatch.setattr(pace, "remaining", lambda: 0.0)
 
     assert (
         main(
@@ -1563,7 +1563,7 @@ def test_sync_max_runtime_stops_before_catchup_and_media(
     monkeypatch.setattr(sync_mod, "_ensure_channel_subscriptions", keep_subscriptions)
     monkeypatch.setattr(sync_mod.changes_engine, "once", one_activity)
     monkeypatch.setattr(sync_mod.media_cmd, "download_media", unexpected_download)
-    monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: 0.0)
+    monkeypatch.setattr(pace, "remaining", lambda: 0.0)
 
     assert main(["archive", "sync", "--max-runtime", "0.001", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
@@ -1739,11 +1739,11 @@ def _flood_wait_error():
     return flood_wait
 
 
-def _governor_cooling():
-    # What the governed client raises for a cooling request type, before any RPC.
+def _rate_limit_error():
+    # A flood the download already translated into the CLI's own error.
     from tgcli.errors import RateLimitError
 
-    return RateLimitError("GetFileRequest is rate limited for 600s", retry_after=600)
+    return RateLimitError("rate limited for 600s", retry_after=600)
 
 
 def _premium_flood_wait_error():
@@ -1767,7 +1767,7 @@ def _server_error():
     [
         (_flood_wait_error, 5, "FLOOD_WAIT"),
         (_premium_flood_wait_error, 5, "FLOOD_WAIT"),
-        (_governor_cooling, 5, "FLOOD_WAIT"),
+        (_rate_limit_error, 5, "FLOOD_WAIT"),
         (_connection_lost, 1, "RUNTIME"),
         (_auth_key_unregistered, 1, "RUNTIME"),
         (_server_error, 0, None),
@@ -1776,7 +1776,7 @@ def _server_error():
     ids=[
         "flood",
         "premium-flood",
-        "cooling",
+        "rate-limit",
         "connection",
         "auth-key",
         "server",

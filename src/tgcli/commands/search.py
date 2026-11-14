@@ -1,4 +1,4 @@
-from tgcli import chatref
+from tgcli import chatref, pace
 from tgcli.errors import NotFoundError
 from tgcli.messages import dialog_name, message_to_dict
 
@@ -18,7 +18,11 @@ async def fetch_search(
     more = False
     # One hit past the limit tells a full page from a complete answer.
     async for message in tg.iter_messages(
-        entity, search=query, limit=limit + 1, from_user=from_user
+        entity,
+        search=query,
+        limit=limit + 1,
+        from_user=from_user,
+        wait_time=pace.PAGE_WAIT_S,
     ):
         if since is not None and message.date is not None and message.date < since:
             break
@@ -37,7 +41,9 @@ async def fetch_search(
 async def fetch_search_all(tg, query: str, limit: int = 20) -> dict:
     messages = []
     more = False
-    async for message in tg.iter_messages(None, search=query, limit=limit + 1):
+    async for message in tg.iter_messages(
+        None, search=query, limit=limit + 1, wait_time=pace.PAGE_WAIT_S
+    ):
         if len(messages) >= limit:
             more = True
             break
@@ -53,7 +59,7 @@ async def fetch_search_all(tg, query: str, limit: int = 20) -> dict:
 
 async def fetch_latest(tg, chat: str) -> dict:
     entity = await _entity(tg, chat)
-    async for message in tg.iter_messages(entity, limit=1):
+    async for message in tg.iter_messages(entity, limit=1, wait_time=pace.PAGE_WAIT_S):
         return {
             "dialog": {"id": entity.id, "name": dialog_name(entity, chat)},
             "message": message_to_dict(message, entity),

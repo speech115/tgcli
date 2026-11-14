@@ -97,61 +97,13 @@ def test_status_plain_falls_back_to_the_destination_id(capsys):
     assert "222" in out
 
 
-def test_status_survives_an_armed_governor_cooldown(capsys):
-    """Status is read-only: an armed ledger cooldown must not block it."""
-    from datetime import UTC, datetime, timedelta
-
-    from tgcli.governor.ledger import Ledger
-
-    _seed(42, 111, "Alpha", dest=222)
-    with Ledger.open() as ledger:
-        ledger.arm_cooldown(
-            42,
-            "messages.GetHistoryRequest",
-            datetime.now(UTC) + timedelta(minutes=10),
-        )
-
-    code, out = _run(capsys, ["clone", "status", "--json"])
-    assert code == 0
-    payload = json.loads(out)
-    assert [c["source"]["title"] for c in payload["clones"]] == ["Alpha"]
-    assert not any(c.get("unreadable") for c in payload["clones"])
-
-
-def test_status_reports_the_accounts_governor_cooldown(capsys):
-    """`cooldown_until` is the latest live ledger deadline for that account."""
-    from datetime import UTC, datetime, timedelta
-
-    from tgcli.governor.ledger import Ledger
-
-    _seed(42, 111, "Alpha", dest=222)
-    _seed(43, 333, "Beta", dest=444)
-    later = datetime.now(UTC) + timedelta(minutes=20)
-    with Ledger.open() as ledger:
-        ledger.arm_cooldown(
-            42, "messages.GetHistoryRequest", later - timedelta(minutes=10)
-        )
-        ledger.arm_cooldown(42, "messages.SendMessageRequest", later)
-        ledger.arm_cooldown(
-            43, "messages.GetHistoryRequest", datetime.now(UTC) - timedelta(minutes=1)
-        )
-
-    code, out = _run(capsys, ["clone", "status", "--json"])
-    assert code == 0
-    clones = {c["source"]["title"]: c for c in json.loads(out)["clones"]}
-    assert datetime.fromisoformat(clones["Alpha"]["cooldown_until"]) == later
-    assert clones["Beta"]["cooldown_until"] is None  # expired, not cooling
-
-
-def test_status_does_not_create_the_governor_ledger(capsys):
-    from tgcli.governor.ledger import default_path
-
+def test_status_reports_no_cooldown_field(capsys):
+    """Flood waits are not stored: a flooded command reports `retry_after`."""
     _seed(42, 111, "Alpha", dest=222)
 
     code, out = _run(capsys, ["clone", "status", "--json"])
     assert code == 0
-    assert json.loads(out)["clones"][0]["cooldown_until"] is None
-    assert not default_path().exists()
+    assert "cooldown_until" not in json.loads(out)["clones"][0]
 
 
 def test_status_empty_when_no_clones(capsys):

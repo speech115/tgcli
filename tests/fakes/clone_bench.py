@@ -23,6 +23,7 @@ per sync invocation ("phase"):
 from __future__ import annotations
 
 import contextlib
+import functools
 import io
 import json
 import os
@@ -185,7 +186,7 @@ class BenchClient(CloneCommentsClient):
         self._count("get_messages")
         return await super().get_messages(entity, limit=limit, ids=ids)
 
-    async def iter_messages(self, entity, *, min_id=0, reverse=False):
+    async def iter_messages(self, entity, *, min_id=0, reverse=False, wait_time=None):
         read = 0
         async for item in super().iter_messages(entity, min_id=min_id, reverse=reverse):
             if read % PAGE == 0:
@@ -304,19 +305,22 @@ def _seed(scenario: Scenario) -> None:
 @contextlib.contextmanager
 def _isolated(client: BenchClient) -> Iterator[None]:
     """A fresh config and state dir, and session.client routed to ``client``."""
-    from tgcli import session
-    from tgcli.governor import pacing
+    from tgcli import pace, session
 
     saved_env = dict(os.environ)
     saved_client = session.client
     saved_save = state.save
+    saved_pace = pace.Pace
+
+    async def no_wait(seconds: float) -> None:
+        return None
 
     def counting_save(clone_state: state.CloneState) -> None:
         client.state_saves += 1
         saved_save(clone_state)
 
     @contextlib.asynccontextmanager
-    async def fake_session(account, *, mutation_safe=False, role=None, govern=True):
+    async def fake_session(account, *, mutation_safe=False, role=None):
         yield client
 
     with tempfile.TemporaryDirectory(prefix="tgcli-bench-") as scratch:
@@ -329,21 +333,22 @@ def _isolated(client: BenchClient) -> Iterator[None]:
         os.environ["TGCLI_STATE_DIR"] = str(Path(scratch) / "state")
         session.client = fake_session  # type: ignore[assignment]
         state.save = counting_save
+        # The report counts requests and CPU time, not the gaps between sends.
+        pace.Pace = functools.partial(saved_pace, sleep=no_wait)  # type: ignore[assignment,misc]
         try:
             yield
         finally:
+            pace.Pace = saved_pace  # type: ignore[misc]
             state.save = saved_save
             session.client = saved_client
             os.environ.clear()
             os.environ.update(saved_env)
-            pacing.reset_runtime()
+            pace.reset()
 
 
 def _sync(clock: Callable[[], float]) -> tuple[int, dict, float]:
     from tgcli.cli import main
-    from tgcli.governor import pacing
 
-    pacing.reset_runtime()
     out = io.StringIO()
     started = clock()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):

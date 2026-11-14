@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 
 from telethon.tl import types
 
+from tgcli import pace
 from tgcli.clone import (
     batching,
     comments,
@@ -31,7 +32,6 @@ from tgcli.clone import (
 )
 from tgcli.clone.state import Comments
 from tgcli.errors import PartialFailure, PolicyError
-from tgcli.governor import pacing
 from tgcli.output import note
 
 
@@ -104,6 +104,7 @@ async def _sync_slot(
     poll_votes: list[dict] = []
     author_cache = {}
     reforward_cache: dict = {}
+    paces = clone_send.RunPace()
     more = False
     posts_leg = legs.posts(clone_state)
     resolve_ctx = quotes.ResolveContext(tg=tg, mutate=tg, destination=destination)
@@ -186,6 +187,7 @@ async def _sync_slot(
                 poll_votes=poll_votes,
                 progress=progress,
                 reforward_cache=reforward_cache,
+                paces=paces,
             ),
             list(messages),
             plan,
@@ -227,12 +229,17 @@ async def _sync_slot(
         nonlocal more, posts_waiting, release_waiting
         ran = 0
         async for event in batching.plan(
-            tg.iter_messages(source_entity, min_id=posts_leg.cursor, reverse=True)
+            tg.iter_messages(
+                source_entity,
+                min_id=posts_leg.cursor,
+                reverse=True,
+                wait_time=pace.PAGE_WAIT_S,
+            )
         ):
             if limit is not None and copied_batches >= limit:
                 more = True
                 break
-            if pacing.wall_clock_exhausted():
+            if pace.exhausted():
                 break
             if isinstance(event, batching.ServiceSkip):
                 source_message = event.message
@@ -279,13 +286,13 @@ async def _sync_slot(
         # ADR-0051: alternate posts×WINDOW with comments until both exhaust.
         # Enter comments only while --limit budget remains; a limit hit during
         # posts ends the run (same as today for limit < WINDOW).
-        while not more and not pacing.wall_clock_exhausted():
+        while not more and not pace.exhausted():
             # Each interleaved window re-announces its leg so the counters
             # belong to the leg that is running (ADR-0051 interleave, #174).
             progress.phase("posts", copied=len(clone_state.id_map))
             posts_waiting = False
             ran = await run_posts_window(legs.WINDOW)
-            if more or pacing.wall_clock_exhausted():
+            if more or pace.exhausted():
                 break
             posts_exhausted = ran < legs.WINDOW and not posts_waiting
             discussion_before = clone_state.discussion_cursor
@@ -319,7 +326,7 @@ async def _sync_slot(
 
     # A run the cap stopped stopped early: no pin phase and no roster listing
     # (CONTRACT §11), and `remaining` reflects the copy, not later phases.
-    capped = pacing.wall_clock_exhausted()
+    capped = pace.exhausted()
     # ADR-0055: pin carry-over is broadcast-only; forum sync JSON omits `pinned`.
     pinned_result = None
     if not forum:
@@ -340,7 +347,7 @@ async def _sync_slot(
     # The pin phase may have spent the rest of the cap.
     participants = (
         roster.deferred(clone_state, "wall_clock_cap")
-        if pacing.wall_clock_exhausted()
+        if pace.exhausted()
         else await roster.collect(tg, clone_state, source_entity)
     )
     clone_state.last_synced_at = datetime.now(UTC).isoformat()
@@ -381,7 +388,7 @@ async def _sync_slot(
         )
     if capped and not more:
         # --max-runtime exhausted: a normal stop, not an error — the cursor
-        # advanced and the next invocation resumes (ADR-0072 decision 6).
+        # advanced and the next invocation resumes (ADR-0107).
         data["stop_reason"] = "wall_clock_cap"  # type: ignore[index]
         data["resume"] = {"cursor": clone_state.cursor}
     return data

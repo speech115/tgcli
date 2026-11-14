@@ -11,11 +11,11 @@ from typing import cast
 from telethon import errors as telethon_errors
 from telethon.tl import types
 
+from tgcli import pace
 from tgcli.clone import batching, discussion, legs, replies, state
 from tgcli.clone.ids import SourceCommentId, SourcePostId
 from tgcli.clone.state import Comments
 from tgcli.errors import PolicyError
-from tgcli.governor import pacing
 from tgcli.tg_errors import NOT_REFUSALS, unless_refused
 
 
@@ -106,7 +106,14 @@ async def sync_phase(
     resolve_ctx.destination = destination
 
     events = aiter(
-        batching.plan(tg.iter_messages(source_group, min_id=leg.cursor, reverse=True))
+        batching.plan(
+            tg.iter_messages(
+                source_group,
+                min_id=leg.cursor,
+                reverse=True,
+                wait_time=pace.PAGE_WAIT_S,
+            )
+        )
     )
     while True:
         try:
@@ -126,7 +133,7 @@ async def sync_phase(
             return False
         if limited():
             return True
-        if pacing.wall_clock_exhausted():
+        if pace.exhausted():
             # --max-runtime bounds this leg as it bounds the posts leg: stop
             # normally, the cursor stays where the next run resumes.
             return False

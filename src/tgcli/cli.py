@@ -22,6 +22,7 @@ from tgcli import (
     dispatch,
     invocations,
     output,
+    pace,
     preflight,
     preview_commit,
     registry,
@@ -30,7 +31,6 @@ from tgcli import (
 from tgcli.config import load_config, resolve_account
 from tgcli.errors import CommandTimeoutError, PartialFailure, TgcliError
 from tgcli.formatting import mask_phones_in_text
-from tgcli.governor import pacing
 from tgcli.parser import build_parser, command_path
 
 LOGGER = logging.getLogger(__name__)
@@ -96,8 +96,7 @@ def _restore_diagnostics(configured) -> None:
 def _apply_global_defaults(args) -> None:
     """Backfill global flags argparse suppressed on the subparser it matched.
 
-    The default deadline (CONTRACT §1) is 60 s, a hang detector: governed
-    sleep never counts against it (ADR-0072 decision 6), and long-running
+    The default deadline (CONTRACT §1) is 60 s of wall time; long-running
     commands keep none — each command declares its own in `tgcli.registry`.
     """
     defaults = {
@@ -259,12 +258,13 @@ def main(
     spec = registry.lookup(args)
     _apply_global_defaults(args)
 
-    pacing.reset_runtime(cap=getattr(args, "max_runtime", None))
+    pace.reset(getattr(args, "max_runtime", None))
     verbose_diagnostics = _enable_verbose_diagnostics() if args.verbose else []
     started = time.monotonic()
     exit_code = 1
     error_code = None
     error_site = error_type = None
+    retry_after = None
     result_data: dict | None = None
     try:
         with _honest_termination():
@@ -294,6 +294,7 @@ def main(
         # envelope must not replace the real failure in the journal.
         error_code = err.code
         exit_code = err.exit_code
+        retry_after = err.cause.details.get("retry_after")
         with _tolerate_hangup():
             if args.json:
                 output.emit_json(err.data)
@@ -321,6 +322,7 @@ def main(
         error_code = err.code
         error_site = _error_site(err)
         exit_code = err.exit_code
+        retry_after = err.details.get("retry_after")
         with _tolerate_hangup():
             output.emit_error(err, as_json=args.json)
     except Exception as err:
@@ -356,20 +358,6 @@ def main(
         stop_reason = None
         if isinstance(result_data, dict):
             stop_reason = result_data.get("stop_reason")
-        if stop_reason is not None:
-            stop_fields = {"stop_reason": stop_reason}
-        elif exit_code == 5 or error_code == "FLOOD_WAIT":
-            # CONTRACT §9 / thermos T16: flood metadata only on flood exits.
-            # A survived flood then NOT_FOUND/CONFIG/TIMEOUT must not inherit
-            # last_stop() fields from an earlier arm.
-            stop_fields = pacing.last_stop() or {}
-        else:
-            stop_fields = {}
-        # Governor accounting only belongs on runs that actually governed
-        # requests (review fix m1): offline commands carry neither field.
-        slept_ms = int(pacing.total_governed_sleep() * 1000)
-        requests = pacing.request_count()
-        floods, flood_seconds = pacing.flood_tally()
         invocations.log_invocation(
             command=command_path(parser, args),
             account=args.account,
@@ -379,11 +367,8 @@ def main(
             error_site=error_site,
             error_type=error_type,
             duration_ms=duration_ms,
-            governed_sleep_ms=slept_ms if requests else None,
-            request_count=requests or None,
-            floods=floods or None,
-            flood_wait_s=flood_seconds if floods else None,
-            **stop_fields,
+            retry_after=retry_after,
+            stop_reason=stop_reason,
         )
         _restore_diagnostics(verbose_diagnostics)
     return exit_code

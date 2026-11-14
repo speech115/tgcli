@@ -135,6 +135,25 @@ def test_write_flag_audits_then_sends(tmp_path, monkeypatch):
     )
 
 
+def test_writes_past_the_first_five_are_spaced(tmp_path, monkeypatch, pace_clock):
+    client, path = setup(tmp_path, monkeypatch, SEND * 7)
+
+    assert main(["run", "--write", path]) == 0
+
+    assert len(client.sent) == 7
+    assert pace_clock.sleeps == [3.0, 3.0]
+
+
+def test_reads_are_never_spaced(tmp_path, monkeypatch, pace_clock):
+    read = "await client(functions.updates.GetStateRequest())\n"
+    client, path = setup(tmp_path, monkeypatch, read * 7)
+
+    assert main(["run", path]) == 0
+
+    assert len(client.sent) == 7
+    assert pace_clock.sleeps == []
+
+
 def test_account_writes_are_denied_even_with_the_flag(tmp_path, monkeypatch):
     client, path = setup(
         tmp_path,

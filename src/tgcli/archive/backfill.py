@@ -5,14 +5,13 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from tgcli import chatref
+from tgcli import chatref, pace
 from tgcli.archive import (
     private_enum as private_enum_mod,
     scope as scope_mod,
     store as store_mod,
 )
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
-from tgcli.governor import pacing
 from tgcli.messages import dialog_name, message_to_dict
 from tgcli.tg_errors import FLOOD_ERRORS
 
@@ -42,10 +41,11 @@ async def backfill_dialogs(
     report, never an error.
     """
     results: list[dict[str, Any]] = []
+    between_dialogs = pace.Pace(pace.PAGE_WAIT_S)
     for chat in chats:
-        remaining = pacing.wall_clock_remaining()
-        if remaining is not None and remaining <= 0:
+        if pace.exhausted():
             return results, "wall_clock_cap"
+        await between_dialogs.wait()
         results.append(
             await backfill_one(
                 tg,
@@ -107,7 +107,9 @@ async def backfill_one(
         peer = scope_mod.peer_id(entity)
         state = store_mod.get_sync_state(conn, peer)
         offset_id = int(state["oldest_id"]) if state and state.get("oldest_id") else 0
-        async for message in tg.iter_messages(entity, limit=limit, offset_id=offset_id):
+        async for message in tg.iter_messages(
+            entity, limit=limit, offset_id=offset_id, wait_time=pace.PAGE_WAIT_S
+        ):
             payload = message_to_dict(message, entity)
             with conn:
                 action = store_mod.upsert_message(conn, peer, payload)
@@ -121,8 +123,6 @@ async def backfill_one(
         more = stored >= limit and limit > 0
     except FLOOD_ERRORS as exc:
         seconds = int(exc.seconds)
-        # The governed seam already slept out a wait that fit the cap and
-        # resent the page; a flood that reaches here ends the run.
         _checkpoint_flood(conn, peer, ids, state, seconds)
         raise RateLimitError(
             f"rate limited during archive backfill of {chat!r}",

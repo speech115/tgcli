@@ -29,7 +29,7 @@ class FakeTelethonClient:
         self.connected = False
 
     async def _call(self, sender, request, *args, **kwargs):
-        """Present because the real client has it — the governor wraps it."""
+        """Present because the real client has it: `tg run` wraps it."""
         return None
 
 
@@ -230,7 +230,7 @@ def test_make_client_sets_stable_telegram_device_identity(tmp_path, monkeypatch)
     assert result is not None
     assert captured["args"] == (str(tmp_path / "regular"), 1, "h")
     assert captured["kwargs"] == {
-        "flood_sleep_threshold": 0,
+        "flood_sleep_threshold": 30,
         "raise_last_call_error": True,
         "device_model": "tgcli",
         "system_version": "TestOS",
@@ -341,17 +341,68 @@ async def test_mutation_safe_telethon_client_surfaces_short_flood_wait_without_s
     assert sleeps == []
 
 
-def test_regular_telethon_client_never_sleeps_off_a_flood(tmp_path):
-    """ADR-0072 decision 2: threshold 0 on every client, not just mutations.
+class FloodingSender:
+    """Answers the first send with a FloodWait, every later one with a result."""
 
-    Telethon's own sleeping is what made the incident invisible — it absorbed
-    shorter waits silently, so nothing upstream could record the flood it was
-    hiding. Read retries stay at Telethon's default; only the sleeping goes.
-    """
+    def __init__(self, seconds):
+        self.seconds = seconds
+        self.calls = 0
+
+    def send(self, request, *, ordered=False):
+        del ordered
+        self.calls += 1
+        future = asyncio.get_running_loop().create_future()
+        if self.calls == 1:
+            future.set_exception(
+                telethon_errors.FloodWaitError(request=request, capture=self.seconds)
+            )
+        else:
+            future.set_result(types.messages.AffectedMessages(pts=1, pts_count=1))
+        return future
+
+
+def _read_request():
+    return functions.messages.ReadMessageContentsRequest(id=[1])
+
+
+async def test_regular_telethon_client_sleeps_a_short_flood_and_resends(
+    tmp_path, monkeypatch
+):
+    """ADR-0125: a flood of up to 30 s costs a read its wait, not exit 5."""
+    sleeps = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("telethon.client.users.asyncio.sleep", fake_sleep)
     tg = session._make_client(Path(tmp_path / "regular"), ACCOUNT)
+    sender = FloodingSender(30)
 
-    assert tg._request_retries == 5
-    assert tg.flood_sleep_threshold == 0
+    result = await tg._call(sender, _read_request())
+
+    assert isinstance(result, types.messages.AffectedMessages)
+    assert sender.calls == 2
+    assert sleeps == [30]
+
+
+async def test_regular_telethon_client_raises_a_long_flood_unslept(
+    tmp_path, monkeypatch
+):
+    sleeps = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("telethon.client.users.asyncio.sleep", fake_sleep)
+    tg = session._make_client(Path(tmp_path / "regular"), ACCOUNT)
+    sender = FloodingSender(31)
+
+    with pytest.raises(telethon_errors.FloodWaitError) as raised:
+        await tg._call(sender, _read_request())
+
+    assert raised.value.seconds == 31
+    assert sender.calls == 1
+    assert sleeps == []
 
 
 def test_real_telethon_creates_the_session_file_during_construction(tmp_path):
@@ -417,24 +468,7 @@ def test_lock_held_unprobeable_lock_is_none(tmp_path):
     assert session.lock_held(session_file) is None
 
 
-async def test_a_governed_client_on_a_degraded_ledger_says_so_once(
-    state, monkeypatch, capsys
-):
-    """Traffic proceeds without flood memory; the operator must hear why."""
-    (state / "governor.db").write_bytes(b"this is not a database")
-    fake = FakeTelethonClient()
-    monkeypatch.setattr(
-        session, "_make_client", lambda path, account, *, mutation_safe=False: fake
-    )
-    async with session.client(ACCOUNT):
-        pass
-
-    [line] = capsys.readouterr().err.splitlines()
-    assert "governor ledger unavailable" in line
-    assert "not a database" in line
-
-
-async def test_a_healthy_ledger_adds_no_note(state, monkeypatch, capsys):
+async def test_opening_a_client_writes_nothing_to_stderr(state, monkeypatch, capsys):
     fake = FakeTelethonClient()
     monkeypatch.setattr(
         session, "_make_client", lambda path, account, *, mutation_safe=False: fake

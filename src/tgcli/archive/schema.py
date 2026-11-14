@@ -15,8 +15,8 @@ SCHEMA_VERSION = 12
 DB_NAME = "archive.db"
 TRANSCRIBABLE_MEDIA_KINDS = ("voice", "video_note")
 NO_TRANSCRIPT_MARKER = "no_transcript no transcript"
-# Explicitly pin archive contention behavior alongside the governor
-# (ADR-0096); do not inherit the driver's timeout default.
+# Explicitly pin archive contention behavior (ADR-0096); do not inherit the
+# driver's timeout default.
 BUSY_TIMEOUT_MS = 5_000
 
 _FTS_TOKENIZER = 'tokenize = "unicode61 remove_diacritics 2"'
@@ -130,7 +130,7 @@ def connect(path: Path) -> sqlite3.Connection:
 
     Concurrent sync + search/transcribe on the same file is supported at the
     SQLite level via WAL + ``busy_timeout``; writers still serialize. Prefer
-    one sync writer at a time for predictable pacing.
+    one sync writer at a time.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     created = not path.exists()

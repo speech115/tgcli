@@ -41,7 +41,7 @@ class FakeTg:
             return self.destination_group
         raise AssertionError(f"unexpected peer {peer.channel_id}")
 
-    async def iter_messages(self, entity, *, min_id=0, reverse=False):
+    async def iter_messages(self, entity, *, min_id=0, reverse=False, wait_time=None):
         self.iterated = True
         if False:  # pragma: no cover — async generator shape
             yield None
@@ -139,7 +139,9 @@ def test_privatized_source_degrades_on_a_cached_window(tmp_path, monkeypatch):
         async def get_messages(self, destination, limit=1):
             return []
 
-        async def iter_messages(self, entity, *, min_id=0, reverse=False):
+        async def iter_messages(
+            self, entity, *, min_id=0, reverse=False, wait_time=None
+        ):
             self.windows += 1
             if self.windows >= 2:
                 raise telethon_errors.ChannelPrivateError(request=None)
@@ -203,7 +205,9 @@ def test_a_transient_error_from_a_cached_window_read_still_escapes(
         async def get_messages(self, destination, limit=1):
             return []
 
-        async def iter_messages(self, entity, *, min_id=0, reverse=False):
+        async def iter_messages(
+            self, entity, *, min_id=0, reverse=False, wait_time=None
+        ):
             raise error
             if False:  # pragma: no cover — async generator shape
                 yield None

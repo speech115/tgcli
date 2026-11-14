@@ -1,9 +1,9 @@
 """`tg run`: a Python script with the authenticated client.
 
 The long tail no wrapped command covers runs as ordinary Telethon code. The
-script gets the same governed client every command uses, so pacing, flood
-cooldowns, and the busy-session wait still apply. It may only read unless
-`--write` is given; every write is audited before it leaves.
+script gets the same client every command uses, so Telethon's flood handling
+and the busy-session wait still apply. It may only read unless `--write` is
+given; every write is audited before it leaves, and writes are spaced.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from telethon import errors as telethon_errors, types
 from telethon.tl import functions
 from telethon.tl.tlobject import TLRequest
 
-from tgcli import safety
+from tgcli import pace, safety
 from tgcli.errors import ConfigError, PolicyError, TgcliError
 from tgcli.formatting import mask_phones_in_text
 from tgcli.messages import message_to_dict
@@ -108,8 +108,9 @@ def read_methods() -> list[str]:
 
 
 def install_write_gate(client, account: str, *, write: bool) -> None:
-    """Refuse writes unless `--write`; audit each allowed write first."""
+    """Refuse writes unless `--write`; audit and space each allowed write."""
     inner = client._call
+    between_writes = pace.Pace(pace.SEND_INTERVAL_S)
 
     async def gated(sender, request, *args, **kwargs):
         requests = request if isinstance(request, list) else [request]
@@ -131,6 +132,7 @@ def install_write_gate(client, account: str, *, write: bool) -> None:
                     f"tg run is read-only: {name} writes; re-run with --write"
                 )
             safety.append_audit("run-write", account, {"method": name})
+            await between_writes.wait()
         return await inner(sender, request, *args, **kwargs)
 
     client._call = gated

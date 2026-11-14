@@ -2,7 +2,6 @@ import contextlib
 import io
 import json
 import tempfile
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -833,7 +832,7 @@ def test_clone_init_commit_retitles_legacy_unprefixed_destination(
     assert client.destination.title == "[Clone] Source channel"
 
 
-def test_clone_init_create_flood_wait_persists_cooldown(
+def test_clone_init_create_flood_wait_exits_5_after_one_request(
     config_env, monkeypatch, capsys
 ):
     class FloodClient(CloneInitClient):
@@ -851,56 +850,6 @@ def test_clone_init_create_flood_wait_persists_cooldown(
     )
 
     assert len(client.requests) == 1
-
-
-def test_clone_init_commit_blocks_under_account_cooldown_before_network(
-    config_env, monkeypatch, capsys
-):
-    """A ledger cooldown refuses before the network via the governor seam.
-
-    The seam's local refusal is covered by its unit tests; this pins the
-    commit exit-5 shape against an armed ledger for the mutation type init
-    would send.
-    """
-
-    from tgcli.errors import RateLimitError
-    from tgcli.governor import gate
-    from tgcli.governor.ledger import Ledger
-
-    client = CloneInitClient()
-    make_session_fake(monkeypatch, client)
-    with Ledger.open() as ledger:
-        ledger.arm_cooldown(
-            42,
-            "channels.CreateChannelRequest",
-            datetime.now(UTC) + timedelta(minutes=10),
-        )
-        with pytest.raises(RateLimitError):
-            gate.refuse_if_cooling(ledger, 42, "channels.CreateChannelRequest")
-        assert client.requests == []
-
-
-def test_clone_init_preview_is_not_gated_by_ledger_cooldown(
-    config_env, monkeypatch, capsys
-):
-
-    from tgcli.governor.ledger import Ledger
-
-    with Ledger.open() as ledger:
-        ledger.arm_cooldown(
-            42,
-            "messages.GetHistoryRequest",
-            datetime.now(UTC) + timedelta(minutes=10),
-        )
-    client = CloneInitClient()
-    make_session_fake(monkeypatch, client)
-
-    assert main(["clone", "init", "@source", "--json"]) == 0
-    result = json.loads(capsys.readouterr().out)
-    assert result["clone"]["status"] == "planned"
-    assert [type(request) for request in client.requests] == [
-        functions.channels.GetFullChannelRequest
-    ]
 
 
 def test_clone_init_commit_blocks_multiple_marker_matches_without_mutation(

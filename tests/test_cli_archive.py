@@ -382,32 +382,6 @@ def test_backfill_flood_wait_persists_checkpoint_and_exits_5(
     assert status["dialogs"][0]["newest_id"] == 3
 
 
-def test_backfill_respects_armed_account_cooldown(config_env, monkeypatch, capsys):
-    """A ledger cooldown refuses the run locally before any network call.
-
-    The gate itself is the governor seam (covered by its unit tests); this
-    pins the local-refusal shape with zero RPCs against a live ledger.
-    """
-    from datetime import timedelta
-
-    from tgcli.errors import RateLimitError
-    from tgcli.governor import gate
-    from tgcli.governor.ledger import Ledger
-
-    user = archive_user()
-    client = archive_client(entities={"@alice": user, 7: user}, messages=[_msg()])
-    client._self_id = 42
-    with Ledger.open() as ledger:
-        ledger.arm_cooldown(
-            42,
-            "messages.GetHistoryRequest",
-            datetime.now(UTC) + timedelta(minutes=10),
-        )
-        with pytest.raises(RateLimitError):
-            gate.refuse_if_cooling(ledger, 42, "messages.GetHistoryRequest")
-        assert client.iter_messages_calls == []
-
-
 def test_network_command_verifies_live_account_id(config_env, monkeypatch, capsys):
     make_session_fake(monkeypatch, archive_client(me=archive_me(user_id=42)))
     assert main(["archive", "init", "--json"]) == 0
@@ -587,3 +561,25 @@ def test_archive_v1_store_migrates_fts_tokenizer(config_env, monkeypatch):
         assert "remove_diacritics" in sql
     finally:
         conn.close()
+
+
+def test_backfill_spaces_dialogs_and_history_pages(
+    config_env, monkeypatch, capsys, pace_clock
+):
+    """The 2026-07-31 flood was one history read per dialog with no gap."""
+    users = [
+        archive_user(user_id=index, username=f"user{index}") for index in range(1, 8)
+    ]
+    entities = {f"@user{user.id}": user for user in users}
+    entities.update({user.id: user for user in users})
+    client = archive_client(entities=entities, messages=[_msg()])
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+
+    chats = [f"@user{user.id}" for user in users]
+    assert main(["archive", "backfill", *chats, "--json"]) == 0
+
+    assert len(json.loads(capsys.readouterr().out)["dialogs"]) == 7
+    assert pace_clock.sleeps == [3.0, 3.0]
+    assert client.iter_messages_kwargs["wait_time"] == 3.0

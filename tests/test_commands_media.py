@@ -751,7 +751,7 @@ async def test_bulk_download_filter_limit_counts_successes_not_skipped_attempts(
         (),
         {
             "get_entity": lambda self, chat: _async_result(entity),
-            "iter_messages": lambda self, requested_entity, limit=None: _iter_messages(
+            "iter_messages": lambda self, requested_entity, **kwargs: _iter_messages(
                 list(messages.values())
             ),
         },

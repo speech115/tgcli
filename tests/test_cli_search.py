@@ -97,6 +97,7 @@ def test_search_from_filters_by_sender(config_env, monkeypatch, capsys):
 
     data = json.loads(capsys.readouterr().out)
     assert client.iter_messages_kwargs["from_user"] == "@alice"
+    assert client.iter_messages_kwargs["wait_time"] == 3.0
     assert all(message["from"]["username"] == "alice" for message in data["messages"])
 
 

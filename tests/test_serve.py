@@ -31,6 +31,7 @@ class ConnectingClient(FakeClient):
         self.connected = False
         self.connects = 0
         self._request_retries = 5
+        self.flood_sleep_threshold = 30
         self.retries_seen = []
 
     async def connect(self):
@@ -174,13 +175,18 @@ def test_mutations_on_the_held_client_are_never_retried_blind(env, monkeypatch):
     async def scenario():
         async with session.hold(account):
             async with session.client(account, mutation_safe=True) as tg:
-                client.retries_seen.append(tg._request_retries)
+                client.retries_seen.append(
+                    (tg._request_retries, tg.flood_sleep_threshold)
+                )
             async with session.client(account) as tg:
-                client.retries_seen.append(tg._request_retries)
+                client.retries_seen.append(
+                    (tg._request_retries, tg.flood_sleep_threshold)
+                )
 
     asyncio.run(scenario())
 
-    assert client.retries_seen == [0, 5]
+    # No resend and no flood sleep for a mutation; the read settings come back.
+    assert client.retries_seen == [(0, 0), (5, 30)]
 
 
 def test_held_client_reconnects_after_a_drop(env, monkeypatch):
@@ -244,7 +250,7 @@ def test_what_a_command_installs_on_the_client_ends_with_it(env, monkeypatch):
     )
 
     assert [r["exit_code"] for r in replies[1:]] == [0, 0]
-    assert calls[1] is calls[0], "tg run's read-only gate did not stay on the client"
+    assert calls[1] == calls[0], "tg run's read-only gate stayed on the client"
 
 
 def test_a_timed_out_step_finishes_its_cleanup_before_the_next_starts(monkeypatch):

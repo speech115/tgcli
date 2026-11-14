@@ -222,3 +222,13 @@ def test_read_custom_emoji_offsets_index_the_raw_message_not_formatted_text(
     assert item["custom_emoji"] == [
         {"id": "99", "emoji": "🔥", "offset": 4, "length": 2}
     ]
+
+
+def test_read_asks_telethon_to_space_history_pages(config_env, monkeypatch, capsys):
+    """One page is read at once; every further page waits (ADR-0125)."""
+    client = make_fake()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["--json", "read", "@chan", "--limit", "300"]) == 0
+
+    assert client.iter_messages_kwargs["wait_time"] == 3.0

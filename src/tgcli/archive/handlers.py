@@ -6,10 +6,10 @@ account)`` inside the session dispatch opens. Each returns ``(data, rows)``.
 
 from __future__ import annotations
 
+from tgcli import pace
 from tgcli.archive import explore as explore_mod
 from tgcli.commands import archive as archive_cmd
 from tgcli.config import Config
-from tgcli.governor import pacing
 
 
 def list_scope(args, config: Config) -> tuple[dict, list[tuple]]:
@@ -31,7 +31,7 @@ def transcribe(args, config: Config) -> tuple[dict, list[tuple]]:
         limit=args.limit,
         max_attempts=args.max_attempts,
         config=config,
-        should_stop=pacing.wall_clock_exhausted,
+        should_stop=pace.exhausted,
     )
     return data, archive_cmd.transcribe_rows(data)
 
@@ -103,7 +103,7 @@ async def backfill(tg, args, account) -> tuple[dict, list[tuple]]:
         limit=args.limit,
         private=bool(getattr(args, "private", False)),
         max_dialogs=args.max_dialogs,
-        should_stop=pacing.wall_clock_exhausted,
+        should_stop=pace.exhausted,
     )
     return data, archive_cmd.backfill_rows(data)
 
@@ -115,9 +115,9 @@ async def sync(tg, args, account) -> tuple[dict, list[tuple]]:
         max_events=args.max_events,
         max_dialogs=args.max_dialogs,
         max_media=args.max_media,
-        should_stop=pacing.wall_clock_exhausted,
+        should_stop=pace.exhausted,
     )
-    if data.get("remaining") and pacing.wall_clock_exhausted():
+    if data.get("remaining") and pace.exhausted():
         data["stop_reason"] = "wall_clock_cap"
     return data, archive_cmd.sync_rows(data)
 

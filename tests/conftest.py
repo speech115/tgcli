@@ -1,3 +1,4 @@
+import functools
 import os
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -108,6 +109,7 @@ class FakeClient:
         offset_date=None,
         reply_to=None,
         from_user=None,
+        wait_time=None,
     ):
         self.iter_messages_calls.append((entity, search, limit))
         self.iter_messages_reverse_calls.append(reverse)
@@ -117,6 +119,7 @@ class FakeClient:
             "offset_date": offset_date,
             "reply_to": reply_to,
             "from_user": from_user,
+            "wait_time": wait_time,
         }
         if self.iter_messages_error is not None:
             raise self.iter_messages_error
@@ -339,12 +342,35 @@ def state_dir_env(request, tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_CONFIG", str(tmp_path / "no-config.toml"))
 
 
-@pytest.fixture(autouse=True)
-def fresh_pacing():
-    """Pacing counts requests per process; each test is its own invocation."""
-    from tgcli.governor import pacing
+class PaceClock:
+    """Fake time for every `pace.Pace`: a wait advances it instead of sleeping."""
 
-    pacing.reset_runtime()
+    def __init__(self):
+        self.now = 0.0
+        self.sleeps = []
+
+    def clock(self) -> float:
+        return self.now
+
+    async def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+@pytest.fixture(autouse=True)
+def pace_clock(monkeypatch):
+    """Paced loops run on fake time; `.sleeps` lists the waits they asked for.
+
+    Each test is its own invocation, so the `--max-runtime` cap starts unset.
+    """
+    from tgcli import pace
+
+    fake = PaceClock()
+    monkeypatch.setattr(
+        pace, "Pace", functools.partial(pace.Pace, sleep=fake.sleep, clock=fake.clock)
+    )
+    pace.reset()
+    return fake
 
 
 @pytest.fixture
@@ -383,7 +409,7 @@ def make_session_fake(monkeypatch, fake_client):
     from tgcli import session
 
     @asynccontextmanager
-    async def fake_session(account, *, mutation_safe=False, role=None, govern=True):
+    async def fake_session(account, *, mutation_safe=False, role=None):
         fake_client.session_mutation_safe = mutation_safe
         yield fake_client
 

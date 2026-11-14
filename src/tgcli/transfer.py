@@ -262,7 +262,7 @@ async def download_resumable(
         except BaseException:
             # Bookkeeping must never replace the exception being unwound: a
             # FloodWait that leaves as an OSError loses its `retry_after`,
-            # and with it the exit-5 contract ADR-0072 exists to keep
+            # and with it the exit-5 contract (CONTRACT §4)
             # (review finding). Losing the last few chunks is the cheaper
             # failure — the next run re-fetches them.
             with contextlib.suppress(Exception):
