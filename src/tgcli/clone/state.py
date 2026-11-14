@@ -10,20 +10,23 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import os
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import Any, cast
 
 from tgcli.clone import statedb
 from tgcli.clone.ids import DestCommentId, DestPostId, SourceCommentId, SourcePostId
+from tgcli.clone.statedb import MapTable, Pending
 from tgcli.errors import PolicyError
 from tgcli.output import note
 from tgcli.state_paths import ensure_state_dir, state_dir
 
 VERSION = 2
+_TL_INT_MAX = 2_147_483_647
 
 
 # Peer class per source kind (ADR-0103): a User/Chat/Channel can share a
@@ -86,29 +89,11 @@ def slot_lock(clone_id: str) -> Iterator[None]:
         yield
 
 
-def _require_aware(value: datetime) -> datetime:
-    if value.tzinfo is None or value.utcoffset() is None:
-        raise ValueError("datetime must be timezone-aware")
-    return value.astimezone(UTC)
-
-
-def _valid_id_map(mapping: object, minimum: int, *, unique: bool = True) -> bool:
-    """A canonical decimal-string source id → TL-int destination id table, with
-    both sides at least ``minimum`` and, when ``unique``, no destination reused
-    across sources."""
-    return (
-        type(mapping) is dict
-        and not any(
-            type(k) is not str
-            or not k.isascii()
-            or not k.isdecimal()
-            or k.startswith("0")
-            or not minimum <= int(k) <= 2_147_483_647
-            or type(v) is not int
-            or not minimum <= v <= 2_147_483_647
-            for k, v in mapping.items()
-        )
-        and (not unique or len(set(mapping.values())) == len(mapping))
+def _in_tl_range(pairs: Iterable[tuple[int, int]], minimum: int) -> bool:
+    """Both sides of every pair are TL ints of at least ``minimum``."""
+    return all(
+        minimum <= source <= _TL_INT_MAX and minimum <= dest <= _TL_INT_MAX
+        for source, dest in pairs
     )
 
 
@@ -134,7 +119,7 @@ class CloneState:
     source_title: str
     source_kind: str = "broadcast"
     destination_kind: str = "broadcast"
-    topic_map: dict[str, int] = field(default_factory=dict)
+    topic_map: dict[int, int] = field(default_factory=dict)
     version: int = VERSION
     destination_peer_id: int | None = None
     # Last name the destination was seen under, recorded by clone init and
@@ -145,8 +130,7 @@ class CloneState:
     destination_username: str | None = None
     creation_marker: str | None = None
     cursor: int = 0
-    # Keys are str(SourcePostId); persisted as plain ints.
-    id_map: dict[str, DestPostId] = field(default_factory=dict)
+    id_map: dict[SourcePostId, DestPostId] = field(default_factory=dict)
     # Legacy ADR-0045 deadline: kept and reported, no longer written or enforced.
     retry_not_before: str | None = None
     created_at: str = ""
@@ -155,33 +139,20 @@ class CloneState:
     discussion_destination_peer_id: int | None = None
     discussion_linked: bool = False
     discussion_cursor: int = 0
-    # Keys are str(SourceCommentId).
-    discussion_id_map: dict[str, DestCommentId] = field(default_factory=dict)
+    discussion_id_map: dict[SourceCommentId, DestCommentId] = field(
+        default_factory=dict
+    )
     comments: Comments = Comments.NONE
-    avatar_photo_ids: dict[str, int] = field(default_factory=dict)
+    avatar_photo_ids: dict[int, int] = field(default_factory=dict)
     # Source discussion anchor id -> destination anchor id, so a later run
     # places a comment without re-reading either anchor.
-    anchor_map: dict[str, DestCommentId] = field(default_factory=dict)
+    anchor_map: dict[SourceCommentId, DestCommentId] = field(default_factory=dict)
     pinned_dest_id: int | None = None
     pin_occupied: bool = False
-    _persisted: bool = field(default=False, init=False, repr=False, compare=False)
-    _dirty_id_map: set[str] = field(
-        default_factory=set, init=False, repr=False, compare=False
-    )
-    _dirty_discussion_id_map: set[str] = field(
-        default_factory=set, init=False, repr=False, compare=False
-    )
-    _dirty_topic_map: set[str] = field(
-        default_factory=set, init=False, repr=False, compare=False
-    )
-    _dirty_avatar_photo_ids: set[str] = field(
-        default_factory=set, init=False, repr=False, compare=False
-    )
-    _dirty_anchor_map: set[str] = field(
-        default_factory=set, init=False, repr=False, compare=False
-    )
-    _deleted_discussion_id_map: set[str] = field(
-        default_factory=set, init=False, repr=False, compare=False
+    # Map writes since the last save; ``save`` applies them in order. A state
+    # that was never saved starts empty, so its pending list is its whole map.
+    _pending: list[Pending] = field(
+        default_factory=list, init=False, repr=False, compare=False
     )
 
     @classmethod
@@ -209,65 +180,67 @@ class CloneState:
     def record_mapping(
         self, source_id: SourcePostId, destination_id: DestPostId
     ) -> None:
-        key = str(source_id)
-        self.id_map[key] = destination_id
-        self._dirty_id_map.add(key)
+        self.id_map[source_id] = destination_id
+        self._pending.append((MapTable.ID_MAP, source_id, destination_id))
 
     def record_avatar(self, source_peer_id: int, photo_id: int) -> None:
-        key = str(source_peer_id)
-        self.avatar_photo_ids[key] = photo_id
-        self._dirty_avatar_photo_ids.add(key)
+        self.avatar_photo_ids[source_peer_id] = photo_id
+        self._pending.append((MapTable.AVATAR_PHOTO_IDS, source_peer_id, photo_id))
 
     def avatar_for(self, source_peer_id: int) -> int | None:
-        return self.avatar_photo_ids.get(str(source_peer_id))
+        return self.avatar_photo_ids.get(source_peer_id)
 
     def record_anchor(
         self, source_anchor_id: SourceCommentId, destination_anchor_id: DestCommentId
     ) -> None:
-        key = str(source_anchor_id)
-        self.anchor_map[key] = destination_anchor_id
-        self._dirty_anchor_map.add(key)
+        self.anchor_map[source_anchor_id] = destination_anchor_id
+        self._pending.append(
+            (MapTable.ANCHOR_MAP, source_anchor_id, destination_anchor_id)
+        )
 
     def anchor_dest_for(
         self, source_anchor_id: SourceCommentId
     ) -> DestCommentId | None:
-        return self.anchor_map.get(str(source_anchor_id))
+        return self.anchor_map.get(source_anchor_id)
 
     def dest_for(self, source_id: SourcePostId) -> DestPostId | None:
-        return self.id_map.get(str(source_id))
+        return self.id_map.get(source_id)
 
     def record_topic(self, source_topic_id: int, destination_topic_id: int) -> None:
         if (
             type(source_topic_id) is not int
             or type(destination_topic_id) is not int
-            or not 2 <= source_topic_id <= 2_147_483_647
-            or not 2 <= destination_topic_id <= 2_147_483_647
+            or not 2 <= source_topic_id <= _TL_INT_MAX
+            or not 2 <= destination_topic_id <= _TL_INT_MAX
             or any(
-                value == destination_topic_id and key != str(source_topic_id)
+                value == destination_topic_id and key != source_topic_id
                 for key, value in self.topic_map.items()
             )
         ):
             raise ValueError("invalid topic mapping")
-        key = str(source_topic_id)
-        self.topic_map[key] = destination_topic_id
-        self._dirty_topic_map.add(key)
+        self.topic_map[source_topic_id] = destination_topic_id
+        self._pending.append(
+            (MapTable.TOPIC_MAP, source_topic_id, destination_topic_id)
+        )
 
     def topic_dest_for(self, source_topic_id: int) -> int | None:
-        return self.topic_map.get(str(source_topic_id))
+        return self.topic_map.get(source_topic_id)
 
     def record_discussion_mapping(
         self, source_id: SourceCommentId, destination_id: DestCommentId
     ) -> None:
-        key = str(source_id)
-        self.discussion_id_map[key] = destination_id
-        self._dirty_discussion_id_map.add(key)
+        self.discussion_id_map[source_id] = destination_id
+        self._pending.append((MapTable.DISCUSSION_ID_MAP, source_id, destination_id))
 
     def discussion_dest_for(self, source_id: SourceCommentId) -> DestCommentId | None:
-        return self.discussion_id_map.get(str(source_id))
+        return self.discussion_id_map.get(source_id)
 
     def clear_discussion_progress(self) -> None:
         """Drop phase-2 cursor/map so comments can degrade to unavailable."""
-        self._deleted_discussion_id_map.update(self.discussion_id_map)
+        self._pending.extend(
+            (MapTable.DISCUSSION_ID_MAP, source, None)
+            for source in self.discussion_id_map
+        )
         self.discussion_id_map.clear()
         self.discussion_cursor = 0
 
@@ -277,162 +250,83 @@ class CloneState:
     def max_discussion_destination_id(self) -> int | None:
         return max(self.discussion_id_map.values(), default=None)
 
-    def to_dict(self) -> dict:
-        return {
-            "version": self.version,
-            "account_user_id": self.account_user_id,
-            "source_peer_id": self.source_peer_id,
-            "source_title": self.source_title,
-            "source_kind": self.source_kind,
-            "destination_kind": self.destination_kind,
-            "topic_map": self.topic_map,
-            "destination_peer_id": self.destination_peer_id,
-            "destination_title": self.destination_title,
-            "destination_username": self.destination_username,
-            "creation_marker": self.creation_marker,
-            "cursor": self.cursor,
-            "id_map": self.id_map,
-            "retry_not_before": self.retry_not_before,
-            "created_at": self.created_at,
-            "last_synced_at": self.last_synced_at,
-            "discussion_source_peer_id": self.discussion_source_peer_id,
-            "discussion_destination_peer_id": self.discussion_destination_peer_id,
-            "discussion_linked": self.discussion_linked,
-            "discussion_cursor": self.discussion_cursor,
-            "discussion_id_map": self.discussion_id_map,
-            "comments": self.comments,
-            "avatar_photo_ids": self.avatar_photo_ids,
-            "anchor_map": self.anchor_map,
-            "pinned_dest_id": self.pinned_dest_id,
-            "pin_occupied": self.pin_occupied,
-        }
 
-    def _clear_dirty(self) -> None:
-        self._dirty_id_map.clear()
-        self._dirty_discussion_id_map.clear()
-        self._dirty_topic_map.clear()
-        self._dirty_avatar_photo_ids.clear()
-        self._dirty_anchor_map.clear()
-        self._deleted_discussion_id_map.clear()
-        self._persisted = True
-
-    @classmethod
-    def from_dict(cls, data: dict) -> CloneState:
-        source_kind = data.get("source_kind", "broadcast")
-        if source_kind not in {"broadcast", "megagroup", "dialog", "basic", "forum"}:
-            raise ValueError("invalid source kind")
-        destination_kind = data.get("destination_kind", "broadcast")
-        topic_map = data.get("topic_map", {})
-        if not _valid_id_map(topic_map, 2):
-            raise ValueError("invalid topic map")
-        if destination_kind != ("forum" if source_kind == "forum" else "broadcast") or (
-            topic_map and source_kind != "forum"
-        ):
-            raise ValueError("inconsistent forum state")
-        comments = data.get("comments", "none")
-        discussion_id_map = data.get("discussion_id_map", {})
-        discussion_cursor = data.get("discussion_cursor", 0)
-        discussion_linked = data.get("discussion_linked", False)
-        discussion_source_peer_id = data.get("discussion_source_peer_id")
-        discussion_destination_peer_id = data.get("discussion_destination_peer_id")
-        if (
-            comments not in set(Comments)
-            or not _valid_id_map(discussion_id_map, 1)
-            or type(discussion_cursor) is not int
-            or discussion_cursor < 0
-            or type(discussion_linked) is not bool
-            or (
-                comments == Comments.ENABLED
-                and (discussion_source_peer_id is None or source_kind != "broadcast")
+def _check_discussion(state: CloneState) -> None:
+    """Phase-2 progress lives only on an enabled clone, or on a linked one
+    whose source unlinked its group for a while ("none"): a relink of that
+    group resumes the comments where they stopped."""
+    progress = state.discussion_id_map or state.discussion_cursor
+    resumable = (
+        state.comments == Comments.NONE
+        and state.discussion_linked
+        and state.discussion_source_peer_id is not None
+        and state.source_kind == "broadcast"
+    )
+    if (
+        state.discussion_cursor < 0
+        or not _in_tl_range(state.discussion_id_map.items(), 1)
+        or (
+            state.comments == Comments.ENABLED
+            and (
+                state.discussion_source_peer_id is None
+                or state.source_kind != "broadcast"
             )
-            # Phase-2 progress lives only on an enabled clone, or on a linked
-            # one whose source unlinked its group for a while ("none"): a
-            # relink of that group resumes the comments where they stopped.
-            or (
-                (discussion_id_map or discussion_cursor)
-                and comments != Comments.ENABLED
-                and not (
-                    comments == Comments.NONE
-                    and discussion_linked
-                    and discussion_source_peer_id is not None
-                    and source_kind == "broadcast"
-                )
-            )
-            or (discussion_linked and discussion_destination_peer_id is None)
-        ):
-            raise ValueError("inconsistent discussion state")
-        pinned_dest_id = data.get("pinned_dest_id")
-        pin_occupied = data.get("pin_occupied", False)
-        if (
-            type(pin_occupied) is not bool
-            or (
-                pinned_dest_id is not None
-                and (
-                    type(pinned_dest_id) is not int
-                    or pinned_dest_id < 1
-                    or pinned_dest_id > 2_147_483_647
-                )
-            )
-            or (pin_occupied and pinned_dest_id is not None)
-        ):
-            raise ValueError("inconsistent pin state")
-        destination_title = data.get("destination_title")
-        destination_username = data.get("destination_username")
-        if any(
-            value is not None and type(value) is not str
-            for value in (destination_title, destination_username)
-        ):
-            raise ValueError("invalid destination name")
-        id_map = data.get("id_map", {})
-        if not _valid_id_map(id_map, 1):
-            raise ValueError("invalid id map")
-        anchor_map = data.get("anchor_map", {})
-        if not _valid_id_map(anchor_map, 1, unique=False):
-            raise ValueError("invalid anchor map")
-        retry_not_before = data.get("retry_not_before")
-        if retry_not_before is not None:
-            try:
-                _require_aware(datetime.fromisoformat(retry_not_before))
-            except (TypeError, ValueError) as exc:
-                raise ValueError("invalid cooldown deadline") from exc
-        return cls(
-            version=data["version"],
-            account_user_id=data["account_user_id"],
-            source_peer_id=data["source_peer_id"],
-            source_title=data["source_title"],
-            source_kind=source_kind,
-            destination_kind=destination_kind,
-            topic_map=dict(topic_map),
-            destination_peer_id=data.get("destination_peer_id"),
-            destination_title=destination_title,
-            destination_username=destination_username,
-            creation_marker=data.get("creation_marker"),
-            cursor=data.get("cursor", 0),
-            id_map=dict(id_map),
-            retry_not_before=retry_not_before,
-            created_at=data.get("created_at", ""),
-            last_synced_at=data.get("last_synced_at"),
-            discussion_source_peer_id=discussion_source_peer_id,
-            discussion_destination_peer_id=discussion_destination_peer_id,
-            discussion_linked=discussion_linked,
-            discussion_cursor=discussion_cursor,
-            discussion_id_map=dict(discussion_id_map),
-            comments=Comments(comments),
-            avatar_photo_ids=dict(data.get("avatar_photo_ids", {})),
-            anchor_map=dict(anchor_map),
-            pinned_dest_id=pinned_dest_id,
-            pin_occupied=pin_occupied,
         )
+        or (progress and state.comments != Comments.ENABLED and not resumable)
+        or (state.discussion_linked and state.discussion_destination_peer_id is None)
+    ):
+        raise ValueError("inconsistent discussion state")
 
 
-def _hydrate(data: dict, *, path_name: str) -> CloneState:
-    try:
-        loaded = CloneState.from_dict(data)
-    except (KeyError, TypeError, ValueError) as exc:
-        raise PolicyError(
-            f"clone state {path_name} is invalid; manual repair is required"
-        ) from exc
-    loaded._clear_dirty()
+def _check(state: CloneState) -> None:
+    """The invariants the schema cannot express; a state failing one is never
+    handed to a caller (ADR-0017)."""
+    if state.source_kind not in _PEER_CLASS:
+        raise ValueError("invalid source kind")
+    if not _in_tl_range(state.topic_map.items(), 2):
+        raise ValueError("invalid topic map")
+    if state.destination_kind != (
+        "forum" if state.source_kind == "forum" else "broadcast"
+    ) or (state.topic_map and state.source_kind != "forum"):
+        raise ValueError("inconsistent forum state")
+    _check_discussion(state)
+    if (
+        state.pinned_dest_id is not None
+        and not 1 <= state.pinned_dest_id <= _TL_INT_MAX
+    ) or (state.pin_occupied and state.pinned_dest_id is not None):
+        raise ValueError("inconsistent pin state")
+    if not _in_tl_range(state.id_map.items(), 1) or not _in_tl_range(
+        state.anchor_map.items(), 1
+    ):
+        raise ValueError("invalid id map")
+    if (
+        state.retry_not_before is not None
+        and datetime.fromisoformat(state.retry_not_before).utcoffset() is None
+    ):
+        raise ValueError("invalid cooldown deadline")
+
+
+def _from_rows(
+    meta: dict[str, Any], maps: dict[MapTable, dict[int, int]]
+) -> CloneState:
+    loaded = CloneState(
+        **{
+            **meta,
+            "comments": Comments(meta["comments"]),
+            "discussion_linked": bool(meta["discussion_linked"]),
+            "pin_occupied": bool(meta["pin_occupied"]),
+        },
+        topic_map=maps[MapTable.TOPIC_MAP],
+        id_map=cast("dict[SourcePostId, DestPostId]", maps[MapTable.ID_MAP]),
+        discussion_id_map=cast(
+            "dict[SourceCommentId, DestCommentId]", maps[MapTable.DISCUSSION_ID_MAP]
+        ),
+        avatar_photo_ids=maps[MapTable.AVATAR_PHOTO_IDS],
+        anchor_map=cast(
+            "dict[SourceCommentId, DestCommentId]", maps[MapTable.ANCHOR_MAP]
+        ),
+    )
+    _check(loaded)
     return loaded
 
 
@@ -441,7 +335,12 @@ def load(clone_id: str) -> CloneState | None:
     db_path = path_for(clone_id)
     if not db_path.exists():
         return None
-    return _hydrate(statedb.load_dict(db_path), path_name=db_path.name)
+    try:
+        return _from_rows(*statedb.load(db_path))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise PolicyError(
+            f"clone state {db_path.name} is invalid; manual repair is required"
+        ) from exc
 
 
 def resolve_slot(account_user_id: int, source_peer_id: int, source_kind: str) -> str:
@@ -488,17 +387,8 @@ def supersede(clone_id: str, sidecars: tuple[Path, ...] = ()) -> list[Path]:
 
 
 def save(state: CloneState) -> None:
-    """Persist dirty mutations (or a full first write) in one SQLite transaction."""
+    """Persist the meta row and every pending map write in one transaction."""
     ensure_clones_dir()
-    statedb.persist(
-        path_for(state.clone_id),
-        state.to_dict(),
-        full=not state._persisted,
-        dirty_id_map=set(state._dirty_id_map),
-        dirty_discussion_id_map=set(state._dirty_discussion_id_map),
-        dirty_topic_map=set(state._dirty_topic_map),
-        dirty_avatar_photo_ids=set(state._dirty_avatar_photo_ids),
-        deleted_discussion_id_map=set(state._deleted_discussion_id_map),
-        dirty_anchor_map=set(state._dirty_anchor_map),
-    )
-    state._clear_dirty()
+    meta = {name: getattr(state, name) for name in statedb.META_FIELDS}
+    statedb.persist(path_for(state.clone_id), meta, state._pending)
+    state._pending.clear()

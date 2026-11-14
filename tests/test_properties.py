@@ -8,12 +8,15 @@ keeps the gate deterministic — the suite must never be flaky (ADR-0059).
 
 from __future__ import annotations
 
+import contextlib
+import sqlite3
 import string
 
-from hypothesis import assume, given, settings, strategies as st
+from hypothesis import HealthCheck, assume, given, settings, strategies as st
 from telethon.tl.types import MessageEntityBold
 
 from tgcli import chatref
+from tgcli.clone import state, statedb
 from tgcli.clone.state import CloneState
 from tgcli.errors import PolicyError
 from tgcli.formatting import render
@@ -114,31 +117,59 @@ def test_chatref_parse_is_total_and_typed(chat):
         assert result == chat
 
 
-JSONISH = st.recursive(
-    st.none()
-    | st.booleans()
-    | st.integers(min_value=-(2**53), max_value=2**53)
-    | st.text(max_size=12),
-    lambda children: (
-        st.lists(children, max_size=4)
-        | st.dictionaries(st.text(max_size=8), children, max_size=4)
+ROW_VALUE = st.one_of(
+    st.none(),
+    st.booleans(),
+    st.integers(-3, 2**31 + 2),
+    st.text(max_size=6),
+    st.sampled_from(
+        ["enabled", "none", "forum", "broadcast", "2026-07-15T12:00:00+00:00"]
     ),
-    max_leaves=12,
 )
 
 
-@DETERMINISTIC
-@given(st.dictionaries(st.text(max_size=16), JSONISH, max_size=8))
-def test_clone_state_from_dict_fails_closed(data):
-    """af-08 class: `load()` — from_dict's only caller — wraps exactly
-    (KeyError, TypeError, ValueError) into the documented PolicyError.
-    Anything outside that set (AttributeError, IndexError, ...) would
-    escape as a traceback, so from_dict must never raise it."""
+@given(
+    meta=st.dictionaries(st.sampled_from(statedb.META_FIELDS), ROW_VALUE, max_size=6),
+    rows=st.lists(
+        st.tuples(
+            st.sampled_from(list(statedb.MapTable)),
+            st.integers(-2, 2**31 + 1),
+            st.integers(-2, 2**31 + 1),
+        ),
+        max_size=6,
+    ),
+)
+@settings(
+    max_examples=200,
+    derandomize=True,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+def test_clone_state_load_fails_closed(meta, rows):
+    """af-08 class: whatever a damaged database holds, `load` returns a state
+    or raises the documented PolicyError. Anything else (AttributeError,
+    OverflowError, ...) would escape as a traceback."""
+    base = CloneState.new(account_user_id=1, source_peer_id=2, source_title="S")
+    path = state.path_for(base.clone_id)
+    path.unlink(missing_ok=True)
+    state.save(base)
+    conn = sqlite3.connect(path)
     try:
-        state = CloneState.from_dict(data)
-    except (KeyError, TypeError, ValueError):
+        for column, value in meta.items():
+            with contextlib.suppress(sqlite3.IntegrityError):
+                conn.execute(f"UPDATE meta SET {column} = ?", (value,))
+        for table, source, dest in rows:
+            with contextlib.suppress(sqlite3.IntegrityError):
+                conn.execute(f"INSERT INTO {table} VALUES (?, ?)", (source, dest))
+        conn.commit()
+    finally:
+        conn.close()
+
+    try:
+        loaded = state.load(base.clone_id)
+    except PolicyError:
         return
-    assert isinstance(state, CloneState)
+    assert isinstance(loaded, CloneState)
 
 
 @st.composite

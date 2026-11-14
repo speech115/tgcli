@@ -1,15 +1,18 @@
 """Per-clone SQLite/WAL state backend (ADR-0060).
 
-Owns schema, open/close, full and dirty-tracked writes, and integrity
-checks. ``clone.state`` keeps the public ``CloneState`` / ``load`` /
-``save`` seam; this module is the file format behind it.
+Owns schema, open/close, one-transaction writes of a meta row plus pending
+map changes, and integrity checks. ``clone.state`` keeps the public
+``CloneState`` / ``load`` / ``save`` seam; this module is the file format
+behind it.
 """
 
 from __future__ import annotations
 
 import os
 import sqlite3
+from collections.abc import Iterable
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +21,7 @@ from tgcli.state_paths import create_private, ensure_parent_dir, restrict_file
 
 SCHEMA_VERSION = 3
 
-_META_FIELDS = (
+META_FIELDS = (
     "version",
     "account_user_id",
     "source_peer_id",
@@ -42,13 +45,20 @@ _META_FIELDS = (
     "pin_occupied",
 )
 
-_MAP_TABLES = (
-    "id_map",
-    "discussion_id_map",
-    "topic_map",
-    "avatar_photo_ids",
-    "anchor_map",
-)
+
+class MapTable(StrEnum):
+    """The five ``(source, dest)`` tables; the value is the SQL table name."""
+
+    ID_MAP = "id_map"
+    DISCUSSION_ID_MAP = "discussion_id_map"
+    TOPIC_MAP = "topic_map"
+    AVATAR_PHOTO_IDS = "avatar_photo_ids"
+    ANCHOR_MAP = "anchor_map"
+
+
+# One queued write: upsert ``source -> dest``, or delete ``source`` when
+# ``dest`` is None.
+Pending = tuple[MapTable, int, int | None]
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -202,122 +212,6 @@ def _require_integrity(conn: sqlite3.Connection, path: Path) -> None:
         )
 
 
-def read_dict(conn: sqlite3.Connection) -> dict[str, Any]:
-    row = conn.execute("SELECT * FROM meta WHERE id = 1").fetchone()
-    if row is None:
-        raise PolicyError("clone state database has no meta row")
-    data: dict[str, Any] = {name: row[name] for name in _META_FIELDS}
-    data["discussion_linked"] = bool(data["discussion_linked"])
-    data["pin_occupied"] = bool(data["pin_occupied"])
-    for table in _MAP_TABLES:
-        data[table] = {
-            str(source): int(dest)
-            for source, dest in conn.execute(f"SELECT source, dest FROM {table}")
-        }
-    return data
-
-
-def write_full(conn: sqlite3.Connection, data: dict[str, Any]) -> None:
-    """Replace the entire database contents with ``data`` (one transaction)."""
-    with conn:
-        for table in _MAP_TABLES:
-            conn.execute(f"DELETE FROM {table}")
-        conn.execute("DELETE FROM meta")
-        _upsert_meta(conn, data)
-        for table in _MAP_TABLES:
-            rows = [(int(k), int(v)) for k, v in data.get(table, {}).items()]
-            conn.executemany(f"INSERT INTO {table}(source, dest) VALUES (?, ?)", rows)
-
-
-def write_dirty(
-    conn: sqlite3.Connection,
-    data: dict[str, Any],
-    *,
-    dirty_id_map: set[str],
-    dirty_discussion_id_map: set[str],
-    dirty_topic_map: set[str],
-    dirty_avatar_photo_ids: set[str],
-    deleted_discussion_id_map: set[str] | None = None,
-    dirty_anchor_map: set[str] | None = None,
-) -> None:
-    """Commit meta + only the dirty map keys in one transaction."""
-    with conn:
-        _upsert_meta(conn, data)
-        _upsert_map_keys(conn, "id_map", data.get("id_map", {}), dirty_id_map)
-        _upsert_map_keys(
-            conn,
-            "discussion_id_map",
-            data.get("discussion_id_map", {}),
-            dirty_discussion_id_map,
-        )
-        if deleted_discussion_id_map:
-            conn.executemany(
-                "DELETE FROM discussion_id_map WHERE source = ?",
-                [(int(key),) for key in deleted_discussion_id_map],
-            )
-        _upsert_map_keys(conn, "topic_map", data.get("topic_map", {}), dirty_topic_map)
-        _upsert_map_keys(
-            conn,
-            "avatar_photo_ids",
-            data.get("avatar_photo_ids", {}),
-            dirty_avatar_photo_ids,
-        )
-        _upsert_map_keys(
-            conn, "anchor_map", data.get("anchor_map", {}), dirty_anchor_map or set()
-        )
-
-
-def _upsert_meta(conn: sqlite3.Connection, data: dict[str, Any]) -> None:
-    cols = ", ".join(("id", *_META_FIELDS))
-    placeholders = ", ".join("?" for _ in range(len(_META_FIELDS) + 1))
-    values: list[Any] = [1]
-    for name in _META_FIELDS:
-        value = data[name]
-        if name in {"discussion_linked", "pin_occupied"}:
-            value = int(bool(value))
-        values.append(value)
-    conn.execute(
-        f"INSERT OR REPLACE INTO meta ({cols}) VALUES ({placeholders})",
-        values,
-    )
-
-
-def _upsert_map_keys(
-    conn: sqlite3.Connection,
-    table: str,
-    mapping: dict[str, int],
-    dirty: set[str],
-) -> None:
-    """Upsert dirty ``(source, dest)`` rows without ever silently dropping a
-    prior mapping.
-
-    ``INSERT OR REPLACE`` resolves a UNIQUE(dest) collision by deleting
-    whichever row already held that destination before inserting the new
-    one — recording a duplicate destination for a new source would delete
-    an existing source's mapping with no exception and no PolicyError,
-    contrary to the loud duplicate-destination rejection ``from_dict``
-    already guarantees on load. ``ON CONFLICT(source)`` still allows a
-    legitimate same-source update (e.g. ``record_avatar`` re-recording a
-    changed source avatar id); a genuine UNIQUE(dest) violation still
-    raises, and the caller's transaction rolls back so prior state survives.
-    """
-    rows = [(int(key), int(mapping[key])) for key in dirty if key in mapping]
-    if not rows:
-        return
-    try:
-        conn.executemany(
-            f"INSERT INTO {table}(source, dest) VALUES (?, ?) "
-            "ON CONFLICT(source) DO UPDATE SET dest = excluded.dest",
-            rows,
-        )
-    except sqlite3.IntegrityError as exc:
-        raise PolicyError(
-            f"clone state {table} entry would map a source to a destination "
-            "already used by another source; duplicate destination is not "
-            "allowed"
-        ) from exc
-
-
 def sidecar_paths(db_path: Path) -> tuple[Path, Path]:
     return Path(f"{db_path}-wal"), Path(f"{db_path}-shm")
 
@@ -332,41 +226,62 @@ def _restrict_sidecars(db_path: Path) -> None:
             restrict_file(sidecar)
 
 
-def load_dict(db_path: Path) -> dict[str, Any]:
+def load(db_path: Path) -> tuple[dict[str, Any], dict[MapTable, dict[int, int]]]:
+    """The meta row and every map table, read raw; ``clone.state`` validates."""
     conn = connect(db_path)
     try:
-        return read_dict(conn)
+        row = conn.execute("SELECT * FROM meta WHERE id = 1").fetchone()
+        if row is None:
+            raise PolicyError("clone state database has no meta row")
+        meta = {name: row[name] for name in META_FIELDS}
+        maps = {
+            table: {
+                int(source): int(dest)
+                for source, dest in conn.execute(f"SELECT source, dest FROM {table}")
+            }
+            for table in MapTable
+        }
     finally:
         conn.close()
+    return meta, maps
 
 
-def persist(
-    db_path: Path,
-    data: dict[str, Any],
-    *,
-    full: bool,
-    dirty_id_map: set[str] | None = None,
-    dirty_discussion_id_map: set[str] | None = None,
-    dirty_topic_map: set[str] | None = None,
-    dirty_avatar_photo_ids: set[str] | None = None,
-    deleted_discussion_id_map: set[str] | None = None,
-    dirty_anchor_map: set[str] | None = None,
-) -> None:
+def persist(db_path: Path, meta: dict[str, Any], pending: Iterable[Pending]) -> None:
+    """Upsert the meta row and apply ``pending`` in one transaction.
+
+    An upsert never silently drops a prior mapping: ``INSERT OR REPLACE``
+    resolves a UNIQUE(dest) collision by deleting the row that held that
+    destination, so recording a duplicate destination for a new source would
+    lose an existing source's mapping with no error. ``ON CONFLICT(source)``
+    still allows a same-source update (``record_avatar`` re-recording a
+    changed avatar id); a genuine UNIQUE(dest) violation raises and the
+    transaction rolls back, so prior state survives.
+    """
+    columns = ", ".join(("id", *META_FIELDS))
+    marks = ", ".join("?" for _ in range(len(META_FIELDS) + 1))
     conn = connect(db_path, create=True)
     try:
-        if full:
-            write_full(conn, data)
-        else:
-            write_dirty(
-                conn,
-                data,
-                dirty_id_map=dirty_id_map or set(),
-                dirty_discussion_id_map=dirty_discussion_id_map or set(),
-                dirty_topic_map=dirty_topic_map or set(),
-                dirty_avatar_photo_ids=dirty_avatar_photo_ids or set(),
-                deleted_discussion_id_map=deleted_discussion_id_map or set(),
-                dirty_anchor_map=dirty_anchor_map or set(),
+        with conn:
+            conn.execute(
+                f"INSERT OR REPLACE INTO meta ({columns}) VALUES ({marks})",
+                [1, *(meta[name] for name in META_FIELDS)],
             )
+            for table, source, dest in pending:
+                if dest is None:
+                    conn.execute(f"DELETE FROM {table} WHERE source = ?", (source,))
+                    continue
+                try:
+                    conn.execute(
+                        f"INSERT INTO {table}(source, dest) VALUES (?, ?) "
+                        "ON CONFLICT(source) DO UPDATE SET dest = excluded.dest",
+                        (source, dest),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    raise PolicyError(
+                        f"clone state {table} entry would map a source to a "
+                        "destination already used by another source; duplicate "
+                        "destination is not allowed"
+                    ) from exc
     finally:
         conn.close()
     restrict_file(db_path)

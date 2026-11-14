@@ -256,12 +256,12 @@ def test_every_clone_reply_lands_with_its_parent_or_is_counted_flat(
         assert final is not None
         # Clone state must record each copy where Telegram put it.
         assert final.id_map == {
-            str(source): dest
+            source: dest
             for (chat, source), dest in client.copies.items()
             if chat == "channel"
         }
         assert final.discussion_id_map == {
-            str(source): dest
+            source: dest
             for (chat, source), dest in client.copies.items()
             if chat == "group"
         }

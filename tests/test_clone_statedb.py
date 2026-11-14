@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import sqlite3
 import stat
@@ -51,6 +52,23 @@ def test_connect_applies_wal_pragmas_and_schema(tmp_path, monkeypatch):
         conn.close()
 
 
+def test_meta_columns_match_the_table_and_the_dataclass(tmp_path, monkeypatch):
+    """``save`` writes ``META_FIELDS`` off the dataclass and ``load`` reads them
+    back, so a column added to one place and not the others is caught here."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    path = tmp_path / "clones" / "x.db"
+    path.parent.mkdir(parents=True)
+    conn = statedb.connect(path, create=True)
+    try:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(meta)")}
+    finally:
+        conn.close()
+    maps = {table.value for table in statedb.MapTable}
+    scalars = {f.name for f in dataclasses.fields(state.CloneState) if f.init} - maps
+
+    assert columns - {"id"} == set(statedb.META_FIELDS) == scalars
+
+
 def test_unknown_user_version_is_policy_error(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     path = tmp_path / "clones" / "bad.db"
@@ -82,8 +100,7 @@ def test_save_then_load_round_trip_uses_sqlite(tmp_path, monkeypatch):
     assert state.path_for(s.clone_id).is_file()
 
     loaded = state.load(s.clone_id)
-    assert loaded is not None
-    assert loaded.to_dict() == s.to_dict()
+    assert loaded == s
     mode = stat.S_IMODE(state.path_for(s.clone_id).stat().st_mode)
     assert mode == 0o600
 
@@ -263,11 +280,9 @@ def test_record_save_reload_equals_memory(pairs, tmp_path_factory, monkeypatch):
     for source, dest in pairs:
         s.record_mapping(source, dest)
         s.cursor = source
-    expected = s.to_dict()
     state.save(s)
     loaded = state.load(s.clone_id)
-    assert loaded is not None
-    assert loaded.to_dict() == expected
+    assert loaded == s
 
 
 def test_failed_integrity_check_is_policy_error(tmp_path, monkeypatch):
@@ -283,8 +298,8 @@ def test_failed_integrity_check_is_policy_error(tmp_path, monkeypatch):
 
 
 def _duplicate_dest_setup(table: str, s: state.CloneState) -> None:
-    """Extra fields ``from_dict`` requires before a table's map may be
-    non-empty (discussion_id_map needs an enabled discussion leg)."""
+    """Extra fields ``load`` requires before a table's map may be non-empty
+    (discussion_id_map needs an enabled discussion leg)."""
     if table == "discussion_id_map":
         s.comments = "enabled"
         s.discussion_source_peer_id = 55

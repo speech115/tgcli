@@ -18,7 +18,7 @@ def test_posts_leg_reads_and_writes_post_fields():
     leg.record_mapping(1, 10)
     leg.cursor = 1
     assert leg.dest_for(1) == 10
-    assert clone_state.id_map == {"1": 10}
+    assert clone_state.id_map == {1: 10}
     assert clone_state.cursor == 1
     assert leg.source_kind == "broadcast"
     assert leg.destination_kind == "broadcast"
@@ -37,7 +37,7 @@ def test_discussion_leg_reads_and_writes_discussion_fields():
     leg.record_mapping(1, 10)
     leg.cursor = 1
     assert leg.dest_for(1) == 10
-    assert clone_state.discussion_id_map == {"1": 10}
+    assert clone_state.discussion_id_map == {1: 10}
     assert clone_state.discussion_cursor == 1
     assert clone_state.id_map == {}
     assert clone_state.cursor == 0

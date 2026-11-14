@@ -8,8 +8,10 @@ import pytest
 from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
 
+from tests.fakes.clone import corrupt_slot
 from tgcli import safety
 from tgcli.clone import pin, state
+from tgcli.errors import PolicyError
 
 
 def _pin_state(**overrides) -> pin.PinState:
@@ -19,31 +21,31 @@ def _pin_state(**overrides) -> pin.PinState:
 
 
 def test_decide_unmapped_when_source_has_no_pin():
-    decision = pin.decide(None, {"12": 9}, _pin_state())
+    decision = pin.decide(None, {12: 9}, _pin_state())
     assert decision.status == "unmapped"
     assert decision.destination_id is None
 
 
 def test_decide_unmapped_when_source_pin_absent_from_id_map():
-    decision = pin.decide(12, {"1": 1}, _pin_state())
+    decision = pin.decide(12, {1: 1}, _pin_state())
     assert decision.status == "unmapped"
     assert decision.destination_id is None
 
 
 def test_decide_set_when_mapped_and_never_resolved():
-    decision = pin.decide(12, {"12": 9}, _pin_state())
+    decision = pin.decide(12, {12: 9}, _pin_state())
     assert decision.status == "set"
     assert decision.destination_id == 9
 
 
 def test_decide_unchanged_when_clone_already_pinned_even_if_source_moved():
-    decision = pin.decide(99, {"12": 9, "99": 50}, _pin_state(pinned_dest_id=9))
+    decision = pin.decide(99, {12: 9, 99: 50}, _pin_state(pinned_dest_id=9))
     assert decision.status == "unchanged"
     assert decision.destination_id == 9
 
 
 def test_decide_occupied_when_destination_was_recorded_occupied():
-    decision = pin.decide(12, {"12": 9}, _pin_state(pin_occupied=True))
+    decision = pin.decide(12, {12: 9}, _pin_state(pin_occupied=True))
     assert decision.status == "occupied"
     assert decision.destination_id is None
 
@@ -66,43 +68,18 @@ def test_clone_state_round_trips_pin_fields(tmp_path, monkeypatch):
     assert state.load(occupied.clone_id).pinned_dest_id is None
 
 
-def test_clone_state_defaults_pin_fields_for_legacy_files(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    saved = state.CloneState.new(
-        account_user_id=1, source_peer_id=2, source_title="Old"
-    )
-    data = saved.to_dict()
-    del data["pinned_dest_id"], data["pin_occupied"]
-    loaded = state.CloneState.from_dict(data)
-    assert loaded.pinned_dest_id is None
-    assert loaded.pin_occupied is False
+def test_a_non_positive_pinned_dest_id_fails_to_load():
+    saved = state.CloneState.new(account_user_id=1, source_peer_id=2, source_title="S")
+    corrupt_slot(saved, "UPDATE meta SET pinned_dest_id = 0")
+    with pytest.raises(PolicyError):
+        state.load(saved.clone_id)
 
 
-def test_from_dict_rejects_non_positive_pinned_dest_id():
-    with pytest.raises(ValueError):
-        state.CloneState.from_dict(
-            {
-                "version": state.VERSION,
-                "account_user_id": 1,
-                "source_peer_id": 2,
-                "source_title": "S",
-                "pinned_dest_id": 0,
-            }
-        )
-
-
-def test_from_dict_rejects_pin_occupied_with_pinned_dest_id():
-    with pytest.raises(ValueError):
-        state.CloneState.from_dict(
-            {
-                "version": state.VERSION,
-                "account_user_id": 1,
-                "source_peer_id": 2,
-                "source_title": "S",
-                "pinned_dest_id": 9,
-                "pin_occupied": True,
-            }
-        )
+def test_a_pin_both_set_and_occupied_fails_to_load():
+    saved = state.CloneState.new(account_user_id=1, source_peer_id=2, source_title="S")
+    corrupt_slot(saved, "UPDATE meta SET pinned_dest_id = 9, pin_occupied = 1")
+    with pytest.raises(PolicyError):
+        state.load(saved.clone_id)
 
 
 def test_snapshot_from_state_without_live_check():

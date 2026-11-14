@@ -12,6 +12,7 @@ mappable — and the source is read on every completing run until then.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,6 +20,7 @@ from telethon.tl import functions, types
 
 from tgcli import safety
 from tgcli.clone import state as clone_state_mod
+from tgcli.clone.ids import SourcePostId
 
 
 @dataclass(frozen=True)
@@ -35,7 +37,7 @@ class PinDecision:
 
 def decide(
     source_pinned_msg_id: int | None,
-    id_map: dict[str, int],
+    id_map: Mapping[SourcePostId, int],
     pin_state: PinState,
 ) -> PinDecision:
     """Pure intent: whether this clone should pin, and which destination id."""
@@ -45,7 +47,7 @@ def decide(
         return PinDecision(status="unchanged", destination_id=pin_state.pinned_dest_id)
     if source_pinned_msg_id is None:
         return PinDecision(status="unmapped", destination_id=None)
-    mapped = id_map.get(str(source_pinned_msg_id))
+    mapped = id_map.get(SourcePostId(source_pinned_msg_id))
     if mapped is None:
         return PinDecision(status="unmapped", destination_id=None)
     return PinDecision(status="set", destination_id=mapped)

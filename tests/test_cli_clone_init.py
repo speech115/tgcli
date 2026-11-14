@@ -1329,7 +1329,7 @@ def test_reinit_while_source_unlinked_keeps_copied_comments_loadable(
     assert json.loads(capsys.readouterr().out)["clone"]["comments"] == "enabled"
     saved = state.load(clone_state.clone_id)
     assert saved.discussion_cursor == 12
-    assert saved.discussion_id_map == {"12": 5}
+    assert saved.discussion_id_map == {12: 5}
 
 
 def test_reinit_with_unreadable_group_after_copied_comments_stays_loadable(
@@ -1838,7 +1838,7 @@ def test_clone_init_no_comments_over_paused_comments_is_policy_error(
     assert "--no-comments" in capsys.readouterr().err
     saved = state.load(clone_state.clone_id)
     assert saved.comments == "none"
-    assert saved.discussion_id_map == {"12": 5}
+    assert saved.discussion_id_map == {12: 5}
 
 
 def test_clone_init_recommit_keeps_disabled_comments_without_flag(
