@@ -54,11 +54,20 @@ class WatchClient:
         return await self._call(None, request)
 
 
-def watch(tmp_path, monkeypatch, capsys, discussion_tops, *, busy_source=False):
+def watch(
+    tmp_path,
+    monkeypatch,
+    capsys,
+    discussion_tops,
+    *,
+    busy_source=False,
+    flood=None,
+):
     """Run the script for a few fast ticks; return the client, syncs, stdout.
 
     ``busy_source``: every sync is followed by a pushed post in the source,
-    so the loop never waits a whole tick.
+    so the loop never waits a whole tick. ``flood``: every sync exits 5 asking
+    for that many seconds.
     """
     config = tmp_path / "config.toml"
     config.write_text(CONFIG)
@@ -74,11 +83,15 @@ def watch(tmp_path, monkeypatch, capsys, discussion_tops, *, busy_source=False):
             post = SimpleNamespace(chat_id=-(1000000000000 + SOURCE), id=41)
             await client.handler(post)
         done = {"sync": {"copied": 1, "cursor": 40, "discussion_cursor": 9}}
+        if flood is not None:
+            done = {"error": {"code": "FLOOD_WAIT", "retry_after": flood}}
 
         async def communicate():
             return json.dumps(done).encode(), b""
 
-        return SimpleNamespace(communicate=communicate, returncode=0)
+        return SimpleNamespace(
+            communicate=communicate, returncode=0 if flood is None else 5
+        )
 
     real_wait_for, real_sleep = asyncio.wait_for, asyncio.sleep
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
@@ -107,6 +120,15 @@ def test_a_comment_the_poll_finds_triggers_a_sync(tmp_path, monkeypatch, capsys)
             types.InputDialogPeer(types.InputPeerChannel(DISCUSSION, access_hash=5)),
         ]
     )
+
+
+def test_no_sync_starts_while_telegrams_flood_wait_runs(tmp_path, monkeypatch, capsys):
+    """tgcli keeps no flood state: the caller is what honors `retry_after`."""
+    _, syncs, out = watch(tmp_path, monkeypatch, capsys, [9, 10], flood=600)
+
+    assert len(syncs) == 1
+    assert "sync (start): exit 5" in out
+    assert "sync (new message): skipped, flood wait outlasts this run" in out
 
 
 def test_an_unchanged_chat_and_a_failed_poll_trigger_nothing(

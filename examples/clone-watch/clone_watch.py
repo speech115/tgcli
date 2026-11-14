@@ -50,9 +50,22 @@ def log(*parts):
 
 
 def retryable(code, output):
-    # 1 network, 2 clone lock held by another sync, 5 flood cooldown,
+    # 1 network, 2 clone lock held by another sync, 5 FloodWait,
     # 3 only while another tg process holds the sync session.
     return code in (1, 2, 5) or (code == 3 and "is busy" in output)
+
+
+def flood_wait(out):
+    """Seconds Telegram asked for in an exit 5 error document."""
+    try:
+        return max(RETRY_DELAY, json.loads(out)["error"]["retry_after"])
+    except (ValueError, KeyError, TypeError):
+        return RETRY_DELAY
+
+
+# tgcli stores no flood: a sync started before Telegram's wait is over sends
+# into the live penalty and may draw a longer one.
+flood_until = 0.0
 
 
 async def notify(text):
@@ -64,7 +77,12 @@ async def notify(text):
 
 
 async def sync(source, reason):
+    global flood_until
     for attempt in itertools.count(1):
+        if flood_until > deadline:
+            log(f"sync ({reason}): skipped, flood wait outlasts this run", source)
+            return
+        await asyncio.sleep(max(flood_until - time.monotonic(), 0))
         proc = await asyncio.create_subprocess_exec(
             *SYNC,
             source,
@@ -85,6 +103,9 @@ async def sync(source, reason):
         if not retryable(proc.returncode, output):
             await notify(f"clone sync {source} exit {proc.returncode}")
             return
+        if proc.returncode == 5:
+            flood_until = time.monotonic() + flood_wait(out)
+            continue
         if time.monotonic() + RETRY_DELAY > deadline:
             # the next start syncs again; one busy minute before it is no alarm
             if attempt >= ALERT_AFTER:
