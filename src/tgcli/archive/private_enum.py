@@ -9,6 +9,7 @@ from typing import Any
 from telethon import utils
 from telethon.tl import types
 
+from tgcli import pace
 from tgcli.archive import scope as scope_mod, store as store_mod
 from tgcli.errors import PolicyError
 
@@ -125,7 +126,7 @@ async def enumerate_private_dialogs(
     # so max_dialogs lookahead cannot persist a later skip and orphan the
     # still-pending peer (ADR-0118 decision 2 / thermos Wave E).
     safe_walked: dict[str, Any] | None = resume
-    async for dialog in tg.iter_dialogs(**kwargs):
+    async for dialog in pace.paged(tg.iter_dialogs(**kwargs), pace.DIALOGS_PAGE):
         candidate = cursor_from_dialog(dialog)
         entity = dialog.entity
         try:

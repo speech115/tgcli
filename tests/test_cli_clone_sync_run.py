@@ -182,7 +182,7 @@ def test_clone_sync_limit_reports_more_and_next_run_resumes(
     assert state.load(clone_state.clone_id).dest_for(4) == 4
 
 
-def test_clone_sync_flood_wait_persists_cooldown_without_advancing(
+def test_clone_sync_flood_wait_sends_once_without_advancing(
     config_env, monkeypatch, capsys
 ):
     clone_state = seed_clone()
@@ -204,11 +204,81 @@ def test_clone_sync_flood_wait_persists_cooldown_without_advancing(
     assert client.session_mutation_safe is True
 
 
+class FloodingClient(CloneSyncClient):
+    """Raises one FloodWait per entry of ``floods`` on a forward, then sends."""
+
+    def __init__(self, messages, floods):
+        super().__init__(messages)
+        self.floods = list(floods)
+
+    async def __call__(self, request):
+        if isinstance(request, functions.messages.ForwardMessagesRequest):
+            self.requests.append(request)
+            if self.floods:
+                raise telethon_errors.FloodWaitError(
+                    request=request, capture=self.floods.pop(0)
+                )
+            self.requests.pop()
+        return await super().__call__(request)
+
+
+def _forwards(client):
+    return [
+        (type(request), request.id)
+        for request in client.requests
+        if isinstance(request, functions.messages.ForwardMessagesRequest)
+    ]
+
+
+def test_clone_sync_resends_a_send_once_after_a_short_flood(
+    config_env, monkeypatch, capsys, pace_clock
+):
+    clone_state = seed_clone()
+    client = FloodingClient([message(2)], floods=[5])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 1
+    assert _forwards(client) == [(functions.messages.ForwardMessagesRequest, [2])] * 2
+    assert client.requests[0].to_dict() == client.requests[1].to_dict()
+    assert pace_clock.sleeps == [5]
+    assert state.load(clone_state.clone_id).dest_for(2) is not None
+
+
+def test_clone_sync_does_not_wait_out_a_flood_past_the_threshold(
+    config_env, monkeypatch, capsys, pace_clock
+):
+    seed_clone()
+    client = FloodingClient([message(2)], floods=[60])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+
+    assert json.loads(capsys.readouterr().err)["error"]["retry_after"] == 60
+    assert len(_forwards(client)) == 1
+    assert pace_clock.sleeps == []
+
+
+def test_clone_sync_resends_only_once_for_two_floods_in_a_row(
+    config_env, monkeypatch, capsys, pace_clock
+):
+    clone_state = seed_clone()
+    client = FloodingClient([message(2)], floods=[5, 7])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+
+    assert json.loads(capsys.readouterr().err)["error"]["retry_after"] == 7
+    assert len(_forwards(client)) == 2
+    assert pace_clock.sleeps == [5]
+    assert state.load(clone_state.clone_id).cursor == 0
+
+
 def test_clone_sync_flood_wait_exits_5_without_advancing(
     config_env, monkeypatch, capsys
 ):
-    """A flood exits 5 locally; the governor's seam arms the per-type
-    cooldown (covered by the governor unit tests) and the cursor stays put."""
+    """A flood exits 5 and the cursor stays put."""
     seed_clone()
     other = state.CloneState.new(
         account_user_id=42,
@@ -536,10 +606,10 @@ def test_sync_with_nothing_to_copy_asks_for_no_approximate_total(
     assert client.total_requests == 0
 
 
-def test_sync_flood_wait_on_the_approximate_total_arms_the_cooldown(
+def test_sync_flood_wait_on_the_approximate_total_exits_5(
     config_env, monkeypatch, capsys
 ):
-    """The best-effort total must never swallow FloodWait (ADR-0072)."""
+    """The best-effort total must never swallow FloodWait."""
     seed_clone()
 
     class FloodingTotalClient(CloneSyncClient):
@@ -648,8 +718,8 @@ def test_forum_sync_omits_pinned_key(config_env, monkeypatch, capsys):
 def test_sync_short_flood_wait_exits_5_without_foreground_retry(
     config_env, monkeypatch, capsys
 ):
-    """ADR-0072 decision 6: no foreground short-wait retry — the governor arms
-    the cooldown and the run exits 5; the schedule resumes it later."""
+    """A flood Telethon raised is never retried by tgcli itself: the run exits
+    5 and the schedule resumes it later."""
     seed_clone()
 
     class FloodClient(CloneSyncClient):
@@ -670,15 +740,30 @@ def test_sync_short_flood_wait_exits_5_without_foreground_retry(
     assert "flood wait: retrying" not in captured.err
 
 
+def test_clone_sync_spaces_sends_past_the_first_five(
+    config_env, monkeypatch, capsys, pace_clock
+):
+    """Twenty sends a minute, in one slot for the whole run (ADR-0122)."""
+    seed_clone()
+    client = CloneSyncClient([message(index) for index in range(2, 9)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 7
+    assert pace_clock.sleeps == [3.0, 3.0]
+    assert client.page_waits == [3.0]
+
+
 def test_clone_sync_max_runtime_stops_normally_with_resume(
     config_env, monkeypatch, capsys
 ):
     """M5 review fix: --max-runtime bounds clone sync as a normal stop."""
-    from tgcli.governor import pacing
+    from tgcli import pace
 
     # Deterministic: the cap is always exhausted at the first check, whatever
     # the real wall clock says (`main` re-arms the runtime from the flag).
-    monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: 0.0)
+    monkeypatch.setattr(pace, "remaining", lambda: 0.0)
     seed_clone()
     client = CloneSyncClient([message(2), message(3)])
     make_session_fake(monkeypatch, client)
@@ -718,10 +803,10 @@ def test_clone_sync_cap_hit_in_copy_skips_pin_and_roster(
     """A run the cap stops early is a run that stops early: CONTRACT says it
     never calls the pin phase, and the roster listing is deferred, not run
     past the cap."""
+    from tgcli import pace
     from tgcli.clone import roster
-    from tgcli.governor import pacing
 
-    monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: 0.0)
+    monkeypatch.setattr(pace, "remaining", lambda: 0.0)
     clone_state = seed_clone()
     sidecar = roster.path_for(clone_state.clone_id)
     sidecar.write_text('{"peer": "source", "id": 1}\n')
@@ -756,10 +841,10 @@ def test_clone_sync_cap_hit_in_roster_defers_roster_and_reports_done(
     """Every post copied, then the cap runs out inside the participant
     listing: the listing stops at the cap and the run is not reported as
     having copy work remaining."""
-    from tgcli.governor import pacing
+    from tgcli import pace
 
     cap = {"remaining": 100.0}
-    monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: cap["remaining"])
+    monkeypatch.setattr(pace, "remaining", lambda: cap["remaining"])
     seed_clone()
 
     def exhaust():
@@ -785,10 +870,10 @@ def test_clone_sync_cap_spent_by_pin_phase_skips_roster(
 ):
     """The pin phase can spend the rest of the cap; the roster listing must
     not start after it."""
-    from tgcli.governor import pacing
+    from tgcli import pace
 
     cap = {"remaining": 100.0}
-    monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: cap["remaining"])
+    monkeypatch.setattr(pace, "remaining", lambda: cap["remaining"])
     seed_clone()
 
     class SlowPinClient(RosterClient):
@@ -816,10 +901,10 @@ def test_clone_sync_cap_hit_in_source_roster_defers_discussion_roster(
 ):
     """Once the cap runs out while listing the source, the discussion group
     is deferred too, never resolved or listed."""
-    from tgcli.governor import pacing
+    from tgcli import pace
 
     cap = {"remaining": 100.0}
-    monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: cap["remaining"])
+    monkeypatch.setattr(pace, "remaining", lambda: cap["remaining"])
     seed_comments_clone()
 
     class CappedRosterClient(CloneCommentsClient):
@@ -980,10 +1065,10 @@ def test_clone_sync_cap_hit_in_comments_leg_stops_the_leg(
     """The comments leg honours --max-runtime like the posts leg: once the cap
     runs out mid-leg, no further comment is copied, the pin phase never runs,
     the roster is deferred, and the run reports the stop with work left."""
-    from tgcli.governor import pacing
+    from tgcli import pace
 
     cap = {"remaining": 100.0}
-    monkeypatch.setattr(pacing, "wall_clock_remaining", lambda: cap["remaining"])
+    monkeypatch.setattr(pace, "remaining", lambda: cap["remaining"])
     seed_comments_clone()
 
     def comment(message_id):
@@ -1024,3 +1109,22 @@ def test_clone_sync_cap_hit_in_comments_leg_stops_the_leg(
     assert data["stop_reason"] == "wall_clock_cap"
     assert client.full_requests == []
     assert data["sync"]["participants"]["source"]["reason"] == "wall_clock_cap"
+
+
+def test_clone_sync_with_comments_reads_nothing_once_the_cap_is_spent(
+    config_env, monkeypatch, capsys
+):
+    """A run that starts with no --max-runtime left sends no history read."""
+    from tgcli import pace
+
+    monkeypatch.setattr(pace, "remaining", lambda: 0.0)
+    seed_comments_clone()
+    client = CloneCommentsClient([message(2)], [anchor(10, 2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--max-runtime", "0.001", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["stop_reason"] == "wall_clock_cap"
+    assert data["sync"]["copied"] == 0
+    assert client.iter_messages_calls == []

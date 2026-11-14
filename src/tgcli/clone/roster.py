@@ -2,9 +2,8 @@
 
 Runs at the end of `sync`, after message copying, and records who is in the
 source channel and its linked discussion group where Telegram permits. Access
-refusals are honest markers, never errors; a FloodWait defers a peer, and the
-cooldown it arms covers participant listing only, so it never blocks the next
-message sync.
+refusals are honest markers, never errors; a FloodWait defers a peer and never
+fails the sync it follows.
 """
 
 import json
@@ -13,10 +12,9 @@ from pathlib import Path
 from telethon import errors as telethon_errors
 from telethon.tl import types
 
-from tgcli import atomic
+from tgcli import atomic, pace
 from tgcli.clone import state
 from tgcli.clone.state import Comments
-from tgcli.governor import pacing
 from tgcli.tg_errors import FLOOD_ERRORS, TRANSIENT_ERRORS, unless_refused
 
 
@@ -66,11 +64,13 @@ def _row(peer: str, participant) -> dict:
 
 async def _collect_peer(tg, peer: str, entity) -> tuple[list[dict], str, str | None]:
     rows = []
-    if pacing.wall_clock_exhausted():
+    if pace.exhausted():
         return [], "deferred", "wall_clock_cap"
     try:
-        async for participant in tg.iter_participants(entity):
-            if pacing.wall_clock_exhausted():
+        async for participant in pace.paged(
+            tg.iter_participants(entity), pace.PARTICIPANTS_PAGE
+        ):
+            if pace.exhausted():
                 # --max-runtime bounds the whole sync, the listing included.
                 return [], "deferred", "wall_clock_cap"
             rows.append(_row(peer, participant))
@@ -142,7 +142,7 @@ async def collect(tg, clone_state: state.CloneState, source_entity) -> dict:
         and clone_state.discussion_source_peer_id
     ):
         discussion = {"peer_id": None, "status": "none", "count": 0, "reason": None}
-    elif pacing.wall_clock_exhausted():
+    elif pace.exhausted():
         discussion = _marker(clone_state, "deferred", "wall_clock_cap")
     else:
         try:

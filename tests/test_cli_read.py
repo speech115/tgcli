@@ -222,3 +222,13 @@ def test_read_custom_emoji_offsets_index_the_raw_message_not_formatted_text(
     assert item["custom_emoji"] == [
         {"id": "99", "emoji": "🔥", "offset": 4, "length": 2}
     ]
+
+
+def test_read_leaves_page_spacing_to_telethon(config_env, monkeypatch, capsys):
+    """An owner's read of one chat waits on no page below 3000 messages."""
+    client = make_fake()
+    make_session_fake(monkeypatch, client)
+
+    assert main(["--json", "read", "@chan", "--limit", "300"]) == 0
+
+    assert client.iter_messages_kwargs["wait_time"] is None

@@ -13,7 +13,7 @@ defined in [CONTRACT.md](CONTRACT.md), which wins where the two differ.
 | `~/Projects/tools/tgcli-prod` | git worktree of the same repository on branch `main`; this is what runs |
 | `~/.local/bin/tg` | symlink to `tgcli-prod/.venv/bin/tg` (made by `scripts/install-link.sh`) |
 | `~/.config/tgcli/` | config: accounts, `api_id` |
-| `~/.local/state/tgcli/` | sessions, previews, audit, journal, governor ledger, clone and archive state |
+| `~/.local/state/tgcli/` | sessions, previews, audit, journal, clone and archive state |
 
 Scheduled work (archive sync, transcription, clone watch) is launchd calling
 the same `tg` on PATH; see the archive row in [SKILL.md](../SKILL.md) and
@@ -102,7 +102,7 @@ tail -n 20 ~/.local/state/tgcli/invocations.jsonl
 ```
 
 Each line has `command`, `exit_code`, `error` (the code only, such as
-`CONFIG`), `error_site` (where in tgcli it failed) and, for exit 5, `retry_after` and `request_type`. It never holds
+`CONFIG`), `error_site` (where in tgcli it failed) and, for exit 5, `retry_after`. It never holds
 message text. Rerun the failing command with `-v` for Telethon debug logs on
 stderr.
 
@@ -111,8 +111,8 @@ stderr.
 | exit 3, `error.message` says `needs reauthentication` | the session is dead: revoked, expired, or the key is unregistered | `tg --json accounts login ALIAS --phone PHONE`, then `--continue LOGIN_ID --code …`; check with `tg --json accounts show ALIAS`. A role session (`--session-role job`) needs its own login with `--role job` |
 | exit 3 after a wait (up to 120 s, less if `--max-runtime` is shorter), `error_site` `session:session_file_lock` | another tg run holds this session. `accounts login` and `accounts remove` do not wait: they exit 2 at once | wait for it, or find it with `pgrep -fl 'bin/tg '`. Scheduled jobs that overlap with manual work should use `--session-role job` |
 | exit 3 from `archive sync`, `rebaseline` or `transcribe` | the same command is already running for this account (`sync` and `rebaseline` share one lock, `transcribe` has its own) | nothing; the next scheduled run continues |
-| exit 5 with `retry_after` | Telegram FloodWait; the deadline is stored per request type and every run refuses that type locally until then | wait `retry_after` seconds; an earlier rerun sends nothing and exits 5 again. Under `--max-runtime` (the scheduled jobs) a wait that fits the cap is slept out instead. `tg --json doctor` lists active cooldowns under `governor_cooldowns` |
-| `doctor` shows `governor_degraded: true` | the governor ledger cannot be opened, so flood memory across runs is gone | read `governor_degraded_reason`; usually permissions or a full disk under `~/.local/state/tgcli/` |
+| exit 5 with `retry_after` | Telegram FloodWait longer than 30 s, or any FloodWait in `clone init --commit`, `clone sync` or `tg run --write`. Nothing is stored: the wait is only in this error and in the journal row | wait `retry_after` seconds before the next run; an earlier rerun sends the request again and may draw a longer wait. A scheduler should skip its next start until then |
+| exit 1 `TIMEOUT` with a `session … is busy; waiting` note on stderr | another tg run held the session for longer than `--timeout` (60 s by default) | wait for it, or pass a larger `--timeout`; the busy wait itself gives up after 120 s with exit 3 |
 | `clone sync` or `archive sync` exits 1 mid-run | lost connection or an untranslated server error; the run stops rather than marking items failed | rerun the same command; both resume from their saved cursor |
 | a run exits 0 with `stop_reason: "wall_clock_cap"` or `remaining: true` | it hit `--max-runtime` or a budget, not an error | nothing; the next run continues from the resume pointer |
 | `archive status` lists `gaps` | Telegram could not deliver part of the update history (`differenceTooLong`, or `channelUnavailable` when a channel went private) | `tg --json archive rebaseline` restarts the cursor and clears the gap. It does not refetch what the gap lost: compare `tg --json archive read CHAT` with a live `tg --json read CHAT` if it matters |

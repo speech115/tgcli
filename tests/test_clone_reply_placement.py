@@ -30,7 +30,6 @@ from tests.fakes.clone_env import config_env as config_env
 from tests.fakes.clone_world import Comment, Post, Reply, World
 from tgcli.cli import main
 from tgcli.clone import legs, state
-from tgcli.governor import pacing
 
 _CHATS = {
     clone_world.DESTINATION_CHANNEL: "channel",
@@ -246,7 +245,6 @@ def test_every_clone_reply_lands_with_its_parent_or_is_counted_flat(
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path_factory.mktemp("state")))
         monkeypatch.setattr(legs, "WINDOW", world.window)
-        pacing.reset_runtime()
         seeded, client = clone_world.build(world)
         make_session_fake(monkeypatch, client)
         capsys.readouterr()
@@ -292,13 +290,11 @@ def test_a_resumed_sync_keeps_a_posts_reply_to_a_comment_not_copied_yet(
     )
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setattr(legs, "WINDOW", world.window)
-    pacing.reset_runtime()
     _, client = clone_world.build(world)
     make_session_fake(monkeypatch, client)
 
     assert main(["clone", "sync", "@source", "--limit", "1", "--json"]) == 0
     assert set(client.copies) == {("channel", 1)}
-    pacing.reset_runtime()
     assert main(["clone", "sync", "@source", "--json"]) == 0
 
     sync = json.loads(capsys.readouterr().out.splitlines()[-1])["sync"]
@@ -331,7 +327,6 @@ def test_a_post_waits_for_its_comment_after_an_idle_comments_window(
     )
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setattr(legs, "WINDOW", world.window)
-    pacing.reset_runtime()
     _, client = clone_world.build(world)
     make_session_fake(monkeypatch, client)
 
@@ -366,7 +361,6 @@ def test_a_stalled_comments_leg_releases_only_the_post_it_blocks(
     )
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setattr(legs, "WINDOW", world.window)
-    pacing.reset_runtime()
     _, client = clone_world.build(world)
     make_session_fake(monkeypatch, client)
 

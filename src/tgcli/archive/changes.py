@@ -34,7 +34,7 @@ from telethon.tl.types.updates import (
     DifferenceTooLong,
 )
 
-from tgcli import chatref
+from tgcli import chatref, pace
 from tgcli.archive import changes_cursor, gaps as gaps_mod
 from tgcli.archive.changes_cursor import ChangesCursor
 from tgcli.errors import ConfigError, NotFoundError, PolicyError
@@ -383,7 +383,9 @@ async def once(
     if common_gap is not None:
         gaps.append(common_gap)
 
+    between_channels = pace.Pace(pace.PAGE_WAIT_S)
     for peer in sorted(cursor.channels):
+        await between_channels.wait()
         ch_events, cursor, ch_gap, reqs = await _poll_channel(
             tg, cursor, peer, skipped=skipped
         )

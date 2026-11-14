@@ -46,7 +46,6 @@ from tests.fakes import clone_faults, clone_world
 from tests.fakes.clone import SAMPLE, message
 from tgcli.cli import main
 from tgcli.clone import legs, state
-from tgcli.governor import pacing
 
 # The n-th operation of a run, and the n-th send: a run makes a few dozen
 # operations and a handful of sends, so both counters reach every step.
@@ -110,7 +109,6 @@ class CloneSyncFaultMachine(RuleBasedStateMachine):
         self.client = self._client(world)
 
     def _run(self, plan, sends=None) -> int | None:
-        pacing.reset_runtime()
         self.client.arm(plan, sends)
         with (
             contextlib.redirect_stdout(io.StringIO()) as out,

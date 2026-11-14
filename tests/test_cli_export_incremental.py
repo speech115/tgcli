@@ -235,3 +235,19 @@ def test_export_messages_resume_missing_file_exits_1(config_env, monkeypatch, tm
         )
         == 1
     )
+
+
+def test_export_messages_reads_takeout_pages_without_a_gap(
+    config_env, monkeypatch, tmp_path
+):
+    """A takeout session lifts the history limits; spacing it would only slow it."""
+    fake = make_export_fake(messages=[make_message(1, "x")])
+    make_session_fake(monkeypatch, fake)
+
+    assert (
+        main(["export", "messages", "@chan", "--output", str(tmp_path / "m.jsonl")])
+        == 0
+    )
+
+    assert fake.takeout_calls, "the export did not open a takeout"
+    assert fake.iter_messages_kwargs["wait_time"] == 0

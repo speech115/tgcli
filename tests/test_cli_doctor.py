@@ -33,26 +33,10 @@ class DoctorClient:
         return ns(id=1, username="me", first_name="Me")
 
 
-def _touch_session(name, *, user_id: int | None = None):
-
+def _touch_session(name):
     path = state_paths.state_dir() / "sessions" / f"{name}.session"
     path.parent.mkdir(parents=True, exist_ok=True)
-    if user_id is None:
-        path.write_bytes(b"")
-    else:
-        import sqlite3
-
-        connection = sqlite3.connect(str(path))
-        try:
-            connection.execute(
-                "CREATE TABLE entities (id integer primary key, hash integer not null)"
-            )
-            connection.execute(
-                "INSERT INTO entities (id, hash) VALUES (0, ?)", (user_id,)
-            )
-            connection.commit()
-        finally:
-            connection.close()
+    path.write_bytes(b"")
     path.chmod(0o600)
 
 
@@ -60,7 +44,7 @@ def _fake_client(monkeypatch):
     from tgcli import session
 
     @asynccontextmanager
-    async def fake_session(account, *, mutation_safe=False, role=None, govern=True):
+    async def fake_session(account, *, mutation_safe=False, role=None):
         yield DoctorClient()
 
     monkeypatch.setattr(session, "client", fake_session)
@@ -100,9 +84,7 @@ def test_doctor_reports_config_error_in_payload(config_env, monkeypatch, capsys)
     _touch_session("main")
 
     @asynccontextmanager
-    async def unavailable_session(
-        account, *, mutation_safe=False, role=None, govern=True
-    ):
+    async def unavailable_session(account, *, mutation_safe=False, role=None):
         raise ConfigError("session 'main' is not authorized")
         yield
 
@@ -123,7 +105,7 @@ def test_doctor_reports_runtime_error_in_payload(config_env, monkeypatch, capsys
     _touch_session("main")
 
     @asynccontextmanager
-    async def failing_session(account, *, mutation_safe=False, role=None, govern=True):
+    async def failing_session(account, *, mutation_safe=False, role=None):
         raise RuntimeError("unexpected transport failure")
         yield
 
@@ -150,146 +132,6 @@ def test_doctor_missing_session_does_not_create_lock(config_env, capsys):
     assert report["checks"]["lock_free"] is False
     assert report["checks"]["authorized"] is None
     assert not (sessions / "spare.lock").exists()
-
-
-def test_doctor_reports_active_governor_cooldowns(config_env, monkeypatch, capsys):
-    """G4/L5: doctor exits 0 and reports the cooldown with every type armed."""
-    from datetime import UTC, datetime, timedelta
-
-    from tgcli.governor.ledger import Ledger
-
-    _touch_session("main", user_id=1)
-    _fake_client(monkeypatch)
-
-    with Ledger.open() as ledger:
-        ledger.arm_cooldown(
-            1, "messages.GetHistoryRequest", datetime.now(UTC) + timedelta(hours=2)
-        )
-
-    assert main(["doctor", "--connect", "--account", "main", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    report = data["accounts"][0]
-    assert report["ok"] is True
-    cooldowns = report["checks"]["governor_cooldowns"]
-    assert "messages.GetHistoryRequest" in cooldowns
-    assert report["checks"]["governor_degraded"] is False
-    assert report["checks"]["governor_degraded_reason"] is None
-
-
-def test_doctor_works_while_every_gated_type_is_cooling(
-    config_env, monkeypatch, capsys
-):
-    """G4: doctor stays the one command usable precisely when all refuse."""
-    from datetime import UTC, datetime, timedelta
-
-    from tgcli.governor.ledger import Ledger
-
-    _touch_session("main", user_id=1)
-    _fake_client(monkeypatch)
-
-    with Ledger.open() as ledger:
-        for seconds, key in (
-            (7200, "messages.GetHistoryRequest"),
-            (3600, "messages.GetDialogsRequest"),
-            (1800, "messages.SendMessageRequest"),
-        ):
-            ledger.arm_cooldown(1, key, datetime.now(UTC) + timedelta(seconds=seconds))
-
-    assert main(["doctor", "--connect", "--account", "main", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    report = data["accounts"][0]
-    assert report["ok"] is True
-    assert len(report["checks"]["governor_cooldowns"]) == 3
-
-
-def test_doctor_connect_is_exempt_from_governor_cooldowns(
-    config_env, monkeypatch, capsys
-):
-    """m3 review fix: doctor --connect is the one command exempt from the
-    governor (ADR-0072 decision 1) — a users.GetUsersRequest cooldown must
-    not block the diagnosis."""
-    from datetime import UTC, datetime, timedelta
-
-    from tgcli.governor.ledger import Ledger
-
-    _touch_session("main", user_id=1)
-    _fake_client(monkeypatch)
-
-    with Ledger.open() as ledger:
-        ledger.arm_cooldown(
-            1, "users.GetUsersRequest", datetime.now(UTC) + timedelta(hours=2)
-        )
-
-    assert main(["doctor", "--connect", "--account", "main", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    report = data["accounts"][0]
-    # The get_me probe is ungoverned, so authorization is still confirmed
-    # and the run reports the cooldown it was exempt from.
-    assert report["checks"]["authorized"] is True
-    assert "users.GetUsersRequest" in report["checks"]["governor_cooldowns"]
-    assert report["ok"] is True
-
-
-def test_doctor_marks_degraded_governor_as_unhealthy(config_env, monkeypatch, capsys):
-    """ADR-0089: governor_degraded must set ok:false — not a silent warning."""
-
-    _touch_session("main", user_id=1)
-    _fake_client(monkeypatch)
-
-    corrupt = state_paths.state_dir() / "governor.db"
-    corrupt.write_bytes(b"not-a-database")
-
-    assert main(["doctor", "--account", "main", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    report = data["accounts"][0]
-    assert report["checks"]["governor_degraded"] is True
-    assert "not a database" in report["checks"]["governor_degraded_reason"]
-    assert report["ok"] is False
-    assert data["ok"] is False
-
-
-def test_doctor_plain_lists_governor_degraded_failure(config_env, monkeypatch, capsys):
-
-    _touch_session("main", user_id=1)
-    _fake_client(monkeypatch)
-
-    corrupt = state_paths.state_dir() / "governor.db"
-    corrupt.write_bytes(b"not-a-database")
-
-    assert main(["doctor", "--account", "main", "--plain"]) == 0
-    out = capsys.readouterr().out
-    assert "governor_degraded" in out
-
-
-def test_doctor_plain_omits_governor_degraded_when_healthy(
-    config_env, monkeypatch, capsys
-):
-    _touch_session("main", user_id=1)
-    _fake_client(monkeypatch)
-
-    assert main(["doctor", "--account", "main", "--plain"]) == 0
-    out = capsys.readouterr().out
-    assert "governor_degraded" not in out
-
-
-def test_doctor_connect_still_works_when_governor_is_degraded(
-    config_env, monkeypatch, capsys
-):
-    """ADR-0089: --connect stays ungated; ok:false still reports degraded."""
-
-    _touch_session("main", user_id=1)
-    _fake_client(monkeypatch)
-
-    corrupt = state_paths.state_dir() / "governor.db"
-    corrupt.write_bytes(b"not-a-database")
-
-    assert main(["doctor", "--account", "main", "--connect", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    report = data["accounts"][0]
-    assert report["checks"]["authorized"] is True
-    assert report["checks"]["governor_degraded"] is True
-    assert report["ok"] is False
-    assert data["ok"] is False
 
 
 def test_a_hand_made_config_is_tightened_to_0600(config_env, tmp_path, capsys):
@@ -327,3 +169,13 @@ def test_doctor_flags_a_config_it_cannot_tighten(
     assert report["checks"]["config_perms_ok"] is False
     assert report["ok"] is False
     assert data["ok"] is False
+
+
+def test_doctor_plain_names_the_failed_checks(config_env, capsys):
+    """An account with no session file: the failures column says which checks."""
+    code = main(["doctor", "--account", "main", "--plain"])
+
+    [row] = capsys.readouterr().out.splitlines()
+    alias, status, _user, failures = row.split("\t")
+    assert (code, alias, status) == (0, "main", "fail")
+    assert failures.split(", ") == ["session_file", "lock_free"]

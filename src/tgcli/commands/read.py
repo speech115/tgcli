@@ -1,4 +1,4 @@
-from tgcli import chatref
+from tgcli import chatref, pace
 from tgcli.errors import NotFoundError
 from tgcli.messages import dialog_name, message_to_dict
 
@@ -54,6 +54,7 @@ async def fetch_messages(
         min_id=after_id or 0,
         offset_date=until,
         reply_to=topic,
+        wait_time=pace.INTERACTIVE_PAGE_WAIT,
     ):
         if since is not None and message.date is not None and message.date < since:
             break

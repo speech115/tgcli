@@ -6,10 +6,9 @@ import time
 
 import pytest
 
-from tgcli import session, state_paths
+from tgcli import pace, session, state_paths
 from tgcli.config import Account
 from tgcli.errors import ConfigError, PolicyError
-from tgcli.governor import pacing
 
 ACCOUNT = Account(alias="t", api_id=1, api_hash="h", session="t")
 
@@ -69,7 +68,6 @@ def _hold(path):
 def test_a_busy_session_is_waited_for_then_reported(state, capsys):
     path = session.session_path(ACCOUNT)
     holder = _hold(path)
-    pacing.reset_runtime()
     started = time.monotonic()
     try:
         with pytest.raises(ConfigError, match=r"session 't' is busy.*after 0.3s"):
@@ -79,8 +77,6 @@ def test_a_busy_session_is_waited_for_then_reported(state, capsys):
         holder.close()
     assert time.monotonic() - started >= 0.3
     assert capsys.readouterr().err.count("waiting up to 0.3s") == 1
-    # Waiting is governed sleep: the --timeout hang detector does not count it.
-    assert pacing.total_governed_sleep() > 0
 
 
 def test_a_session_freed_during_the_wait_is_taken(state):
@@ -94,7 +90,7 @@ def test_a_session_freed_during_the_wait_is_taken(state):
 def test_the_wait_never_outlasts_max_runtime(state):
     path = session.session_path(ACCOUNT)
     holder = _hold(path)
-    pacing.reset_runtime(cap=0.05)
+    pace.reset(0.05)
     started = time.monotonic()
     try:
         with pytest.raises(ConfigError, match="busy"):
@@ -102,5 +98,5 @@ def test_the_wait_never_outlasts_max_runtime(state):
                 pass
     finally:
         holder.close()
-        pacing.reset_runtime()
+        pace.reset()
     assert time.monotonic() - started < 1

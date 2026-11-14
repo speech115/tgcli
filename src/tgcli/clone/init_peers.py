@@ -15,7 +15,7 @@ from typing import Any
 from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
-from tgcli import safety
+from tgcli import pace, safety
 from tgcli.clone import (
     attribution,
     discussion,
@@ -45,7 +45,7 @@ def is_private_owned_broadcast(entity, *, title: str | None = None) -> bool:
 async def marker_candidates(tg, marker: str, shape_ok) -> tuple[list[Any], list[Any]]:
     valid = []
     wrong_shape = []
-    async for dialog in tg.iter_dialogs():
+    async for dialog in pace.paged(tg.iter_dialogs(), pace.DIALOGS_PAGE):
         entity = getattr(dialog, "entity", None)
         if getattr(entity, "title", None) != marker:
             continue

@@ -61,6 +61,32 @@ def test_subcommand_is_journaled_by_its_full_path(tmp_path, monkeypatch, argv, c
     assert entry["command"] == command
 
 
+def test_a_flood_exit_journals_the_wait_telegram_asked_for(tmp_path, monkeypatch):
+    from telethon import errors as telethon_errors
+
+    config_env(tmp_path, monkeypatch)
+    client = FakeClient(entities={"@chan": object()})
+    client.iter_messages_error = telethon_errors.FloodWaitError(
+        request=None, capture=42
+    )
+    make_session_fake(monkeypatch, client)
+
+    assert main(["read", "@chan"]) == 5
+
+    [entry] = read_journal()
+    assert set(entry) == {
+        "timestamp",
+        "command",
+        "account",
+        "exit_code",
+        "error",
+        "error_site",
+        "duration_ms",
+        "retry_after",
+    }
+    assert (entry["error"], entry["retry_after"]) == ("FLOOD_WAIT", 42)
+
+
 def test_policy_block_writes_the_structured_error_code():
     assert main(["--readonly", "run", "--write", "-"]) == 2
 

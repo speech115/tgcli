@@ -123,19 +123,12 @@ def test_collect_marks_channel_unavailable_when_not_admin():
 
 @pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
 def test_collect_defers_on_a_transient_error_and_discards_partial(make_error):
-    from tgcli.governor.ledger import Ledger
-
     clone_state = seed()
     tg = FakeTg(source=[user(1), user(2), user(3)], source_error=make_error())
     result = run(tg, clone_state)
     assert result["source"]["status"] == "deferred"
     assert result["source"]["count"] == 0
     assert read_lines(clone_state) == []
-    # a roster flood must not arm the per-clone cooldown
-    # nor anything in the governor's ledger: roster RPCs do not run under
-    # the governed seam, so no type is armed (ADR-0072)
-    with Ledger.open() as ledger:
-        assert ledger.active_cooldowns(clone_state.account_user_id) == {}
 
 
 def test_collect_gathers_discussion_group_when_comments_enabled():
@@ -189,8 +182,6 @@ def test_collect_marks_discussion_unavailable_when_group_turned_private(error):
 def test_collect_defers_discussion_when_entity_resolve_fails_transiently(
     make_error,
 ):
-    from tgcli.governor.ledger import Ledger
-
     clone_state = seed(comments="enabled")
     error = make_error()
     tg = FakeTg(source=[user(1)], entity_error=error)
@@ -204,10 +195,6 @@ def test_collect_defers_discussion_when_entity_resolve_fails_transiently(
         )
         else type(error).__name__
     )
-    # a roster flood must not arm the per-clone cooldown (ADR-0024)
-    # nor the governor's ledger (roster RPCs are not governed)
-    with Ledger.open() as ledger:
-        assert ledger.active_cooldowns(clone_state.account_user_id) == {}
 
 
 def test_collect_overwrites_previous_snapshot():

@@ -126,6 +126,8 @@ class CloneSyncClient:
         # Which history reads happened, as (leg, min_id): order is observed
         # through what the destination receives, never through call flags.
         self.iter_messages_calls = []
+        # The `wait_time` each history read asked Telethon for.
+        self.page_waits = []
         self.source_pinned_msg_id = None
         self.destination_pinned_msg_id = None
         self.full_requests = []
@@ -170,9 +172,10 @@ class CloneSyncClient:
             )
         ]
 
-    async def iter_messages(self, entity, *, min_id=0, reverse=False):
+    async def iter_messages(self, entity, *, min_id=0, reverse=False, wait_time=None):
         assert entity is self.source
         self.iter_messages_calls.append(("posts", min_id))
+        self.page_waits.append(wait_time)
         for item in history(self.messages, self.source, min_id=min_id, reverse=reverse):
             yield item
 
@@ -495,14 +498,15 @@ class CloneCommentsClient(CloneReuploadClient):
             ]
         return await super().get_messages(entity, limit=limit)
 
-    async def iter_messages(self, entity, *, min_id=0, reverse=False):
+    async def iter_messages(self, entity, *, min_id=0, reverse=False, wait_time=None):
         if entity is not self.source_group:
             async for item in super().iter_messages(
-                entity, min_id=min_id, reverse=reverse
+                entity, min_id=min_id, reverse=reverse, wait_time=wait_time
             ):
                 yield item
             return
         self.iter_messages_calls.append(("group", min_id))
+        self.page_waits.append(wait_time)
         for item in history(
             self.comments, self.source_group, min_id=min_id, reverse=reverse
         ):

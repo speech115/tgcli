@@ -584,7 +584,7 @@ def test_media_download_session_revoked_keeps_auth_exit_code(
     client = FakeClient(entities={"@chan": ns(id=5, title="C")})
 
     @asynccontextmanager
-    async def fake_session(account, *, mutation_safe=False, role=None, govern=True):
+    async def fake_session(account, *, mutation_safe=False, role=None):
         try:
             yield client
         except telethon_errors.UnauthorizedError as exc:
@@ -732,3 +732,45 @@ def test_media_download_bulk_resumes_an_unprefixed_bin_checkpoint(
         }
     ]
     assert (out / "42-media-42.jpg").read_bytes() == b"abc"
+
+
+def test_media_download_bulk_spaces_files_past_the_first_five(
+    config_env, monkeypatch, tmp_path, capsys, pace_clock
+):
+    make_session_fake(monkeypatch, FakeClient(entities={"@chan": ns(id=5, title="C")}))
+    started = []
+
+    async def fake_download(tg, source, account_alias, **kwargs):
+        started.append((source.message_id, pace_clock.now))
+        path = tmp_path / f"{source.message_id}.bin"
+        path.write_bytes(b"x")
+        return {
+            "source": f"@chan:{source.message_id}",
+            "path": str(path),
+            "bytes": 1,
+            "resumed": False,
+            "parallel": 1,
+        }
+
+    async def fake_resolve(tg, source, account_alias):
+        return ns(id=5), media_cmd._DownloadTarget(
+            media=None, filename=f"{source.message_id}.bin", size=None
+        )
+
+    monkeypatch.setattr(media_cmd, "download_media", fake_download)
+    monkeypatch.setattr(media_cmd, "resolve_message", fake_resolve)
+
+    ids = "10,11,12,13,14,15,16"
+    argv = ["media", "download", "@chan", "--message-ids", ids, "--json"]
+    assert main([*argv, "--output", str(tmp_path)]) == 0
+
+    assert json.loads(capsys.readouterr().out)["count"] == 7
+    assert started == [
+        (10, 0.0),
+        (11, 0.0),
+        (12, 0.0),
+        (13, 0.0),
+        (14, 0.0),
+        (15, 3.0),
+        (16, 6.0),
+    ]

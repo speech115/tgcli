@@ -38,7 +38,7 @@ on PATH yet, and restart the shell), or start Claude from an activated `.venv`.
 - Writes: `preview_commit.py` (the handshake table) and `safety.py` (gates,
   audit).
 - Features: `commands/` (one module per command group), `clone/`, `archive/`
-  (local store, sync, changes), `governor/` (per-account flood pacing).
+  (local store, sync, changes), `pace.py` (request spacing for bulk loops).
 - Tests: `FakeClient` in `tests/conftest.py` is the shared fake Telegram;
   `tests/fakes/` holds message factories and clone fakes; `tests/live/` is
   opt-in.
@@ -64,6 +64,7 @@ is wrong, fix the check.
 | Every mutation goes through preview → commit and the readonly gates; every command is classified | `src/tgcli/preview_commit.py` registry, `tests/test_command_classes.py`, `tests/test_preview_commit.py`, `tests/test_safety.py` |
 | Audit is written before the mutation, and an unwritable audit blocks it | `tests/test_safety.py`, `tests/test_cli_mutate.py` |
 | Every Telethon namespace is classified; `tg run` refuses writes without `--write` and auth/account always | `scripts/check-coverage.py` with `docs/FEATURES.md`, `tests/test_cli_run.py` |
+| Every `iter_messages` call passes `wait_time`, so history pages after the first wait | `scripts/check-architecture.py` |
 | README and SKILL.md name only real flags, commands, and links | `scripts/check-docs.py` |
 | Sessions, `.env`, audit and journal files never enter git | `.gitignore` |
 | Agent sessions here run with `TGCLI_READONLY=1`, and a bare `python3` near a `.session` file is refused (the pinned Telethon writes a schema older versions crash on) | `.claude/settings.json`, `tests/test_agent_guardrails.py` |
@@ -82,8 +83,8 @@ Nothing fails if you skip these, so they stay few.
   pattern and fix it in the same PR.
 - **Test behavior at public seams**: CLI arguments in; stdout, stderr, JSON,
   and exit code out. Mock only the Telegram client, time, and the filesystem.
-  The governor is the exception: CLI fakes never install it, so its tests
-  drive the gate-installed `_call` and its public module API.
+  Paced loops run on the `pace_clock` fixture's fake time; assert its
+  `.sleeps`.
   A test for a new or changed RPC asserts the exact `functions.*Request` and
   `types.Input*` it sends.
 - **A CLI contract change** (flags, JSON, exit codes) updates
@@ -120,7 +121,7 @@ mistake can no longer happen is deleted.
   - Logic over a wide input space (parsing, formatting, entity offsets, id and
     range math, state migration) gets a Hypothesis property, as in
     `tests/test_properties.py`. A change to a state machine (the preview →
-    commit handshake, clone resume, the governor ledger) gets a Hypothesis
+    commit handshake, clone resume) gets a Hypothesis
     `RuleBasedStateMachine` over its public API.
   - A change to what a command does against Telegram runs the
     [verify skill](.claude/skills/verify/SKILL.md).

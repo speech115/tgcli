@@ -125,8 +125,7 @@ async def _capture_breakdown(
     async def retract_vote() -> None:
         # A FloodWait is not special here: propagating it would kill the run
         # before the poll_votes tail and leave the vote standing silently
-        # (ADR-0048 decisions 2/4). The governor's seam already armed the
-        # per-type cooldown, so nothing is lost by disclosing instead.
+        # (ADR-0048 decisions 2/4).
         try:
             await tg(retract)
         except (telethon_errors.RPCError, OSError) as exc:

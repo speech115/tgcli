@@ -36,8 +36,10 @@ notification.
 - Each new message waits 25 s (an album or a quick edit lands whole), then
   `clone sync` runs on the `job` role for each source that got one, one
   source after another. Messages that arrive during a sync trigger one more.
-- A busy `job` session, a lost connection, or a flood cooldown is retried
-  every minute.
+- A busy `job` session or a lost connection is retried every minute. After
+  a FloodWait (exit 5) no sync starts until `retry_after` has passed, since
+  tgcli itself remembers no flood; one that outlasts the hour is skipped
+  until the restart.
 - The script syncs on start and after the Mac wakes, and exits after an hour
   so launchd restarts it. Posts that appear while the Mac sleeps are copied
   on wake.

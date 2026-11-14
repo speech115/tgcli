@@ -10,6 +10,7 @@ from typing import Any
 
 from telethon import errors as telethon_errors
 
+from tgcli import pace
 from tgcli.archive import (
     changes as changes_engine,
     changes_cursor,
@@ -175,7 +176,11 @@ async def _catch_up_peer(
         # stored, so `newest_id` never skips past a hole. A peer with no
         # history yet keeps its newest page; backfill owns older messages.
         async for message in tg.iter_messages(
-            entity, limit=limit, min_id=min_id, reverse=forward
+            entity,
+            limit=limit,
+            min_id=min_id,
+            reverse=forward,
+            wait_time=pace.PAGE_WAIT_S,
         ):
             payload = message_to_dict(message, entity)
             with conn:
@@ -296,6 +301,7 @@ async def fetch_media(
     skipped = 0
     failed: list[dict[str, Any]] = []
     rows = _media_candidates(conn, account_dir, limit)
+    between_files = pace.Pace(pace.MEDIA_INTERVAL_S)
     for row in rows:
         if should_stop is not None and should_stop():
             break
@@ -327,6 +333,7 @@ async def fetch_media(
                 skipped += 1
                 continue
             destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            await between_files.wait()
             await media_cmd.download_media(
                 tg,
                 media_cmd.MediaSource(
@@ -362,9 +369,8 @@ async def fetch_media(
             skipped += 1
             continue
         except RUN_ABORTING_ERRORS:
-            # The governor refusing a cooling request type, a lost connection,
-            # a dead session: nothing was learned about this item, so no
-            # attempt is recorded.
+            # A lost connection, a dead session: nothing was learned about
+            # this item, so no attempt is recorded.
             raise
         except (telethon_errors.ServerError, telethon_errors.TimedOutError) as exc:
             # Telegram failing, not the file: stop the pass, keep the row's
@@ -513,6 +519,7 @@ async def sync_archive(
     unfinished: list[int] = []
     budget = max_events
     stopped = False
+    between_peers = pace.Pace(pace.PAGE_WAIT_S)
     for index, peer in enumerate(queue):
         if index >= max_dialogs:
             unfinished.extend(queue[index:])
@@ -521,6 +528,7 @@ async def sync_archive(
             stopped = True
             unfinished.extend(queue[index:])
             break
+        await between_peers.wait()
         result = await _catch_up_peer(
             tg,
             conn,

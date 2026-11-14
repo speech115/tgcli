@@ -16,7 +16,6 @@ from tgcli.archive import schema
 from tgcli.clone import statedb
 from tgcli.commands import accounts as accounts_cmd
 from tgcli.config import Account
-from tgcli.governor.ledger import Ledger
 
 
 def _mode(path: Path) -> int:
@@ -76,7 +75,7 @@ async def test_session_file_exists_at_0600_before_telethon_opens_it(
     monkeypatch.setattr(session, "_make_client", make_client)
     account = Account(alias="t", api_id=1, api_hash="h", session="t")
 
-    async with session.client(account, govern=False):
+    async with session.client(account):
         pass
 
     assert seen == [0o600]
@@ -123,12 +122,3 @@ def test_clone_state_and_sidecars_are_created_0600(no_chmod, tmp_path):
         conn.close()
 
     assert modes == [0o600] * 3
-
-
-def test_governor_ledger_is_created_0600(no_chmod, tmp_path):
-    path = tmp_path / "ledger.db"
-
-    ledger = Ledger.open(path)
-    ledger.close()
-
-    assert _mode(path) == 0o600

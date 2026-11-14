@@ -12,7 +12,7 @@ import shutil
 from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
 
-from tgcli import confirm, safety
+from tgcli import confirm, pace, safety
 from tgcli.clone import (
     attribution,
     quote_fallback,
@@ -26,6 +26,16 @@ from tgcli.clone.legs import AnyLeg
 from tgcli.errors import PolicyError
 from tgcli.output import note
 from tgcli.tg_errors import TRANSIENT_ERRORS
+
+
+class RunPace:
+    """Request spacing for one sync run, shared by both of its legs."""
+
+    def __init__(self) -> None:
+        # One slot for every send: Telegram counts the messages that land,
+        # whichever method put them there (ADR-0122).
+        self.send = pace.Pace(pace.SEND_INTERVAL_S)
+        self.media = pace.Pace(pace.MEDIA_INTERVAL_S)
 
 
 def _body_text(message, author, plan) -> tuple[str, list | None]:
@@ -56,6 +66,7 @@ async def reupload_batch(
     *,
     by_reference=False,
     overflow,
+    paces: RunPace,
 ):
 
     def audit() -> None:
@@ -86,6 +97,7 @@ async def reupload_batch(
                 plan,
                 lambda message, album: _referenced(message),
                 overflow,
+                paces,
             )
         except TRANSIENT_ERRORS:
             # A timeout or 500 leaves the send's outcome unknown: reuploading
@@ -100,6 +112,7 @@ async def reupload_batch(
     downloads = {}
     for message in messages:
         if _has_media(message):
+            await paces.media.wait()
             downloads[message.id] = await reupload.download_for_reupload(
                 tg, message, cache, progress
             )
@@ -132,6 +145,7 @@ async def reupload_batch(
         plan,
         uploaded,
         overflow,
+        paces,
     )
 
 
@@ -156,6 +170,7 @@ async def _send(
     plan,
     media_for,
     overflow,
+    paces: RunPace,
 ):
     """One SendMessage/SendMedia/SendMultiMedia for the batch; ``media_for``
     turns a source message into the InputMedia this send carries."""
@@ -179,7 +194,7 @@ async def _send(
                 **common, media=await media_for(message, False)
             )
         return await _send_fitting_captions(
-            tg, request, messages, clone_state, account_alias, overflow
+            tg, request, messages, clone_state, account_alias, overflow, paces
         )
     multi_media = []
     for index, (message, random_id) in enumerate(
@@ -200,7 +215,7 @@ async def _send(
         peer=destination, multi_media=multi_media, reply_to=reply_to
     )
     return await _send_fitting_captions(
-        tg, request, messages, clone_state, account_alias, overflow
+        tg, request, messages, clone_state, account_alias, overflow, paces
     )
 
 
@@ -210,7 +225,7 @@ CAPTION_LIMIT = 1024
 
 
 async def _send_fitting_captions(
-    tg, request, messages, clone_state, account_alias, overflow
+    tg, request, messages, clone_state, account_alias, overflow, paces: RunPace
 ):
     """Send ``request``; on MEDIA_CAPTION_TOO_LONG split every caption past
     ``CAPTION_LIMIT``, keep the head as the caption, retry once, and append
@@ -220,7 +235,7 @@ async def _send_fitting_captions(
     bodies = getattr(request, "multi_media", None) or [request]
     try:
         return await _send_without_unavailable_emoji(
-            tg, request, messages, clone_state, account_alias
+            tg, request, messages, clone_state, account_alias, paces
         )
     except telethon_errors.MediaCaptionTooLongError:
         long_ones = [
@@ -246,7 +261,7 @@ async def _send_fitting_captions(
         if rest:
             rests.append((message, rest, rest_entities))
     response = await _send_without_unavailable_emoji(
-        tg, request, messages, clone_state, account_alias
+        tg, request, messages, clone_state, account_alias, paces
     )
     overflow.extend(rests)
     return response
@@ -297,7 +312,14 @@ def split_caption(text: str, entities) -> tuple[str, list | None, str, list | No
 
 
 async def send_caption_rests(
-    tg, destination, clone_state, account_alias, overflow, destination_of, threaded
+    tg,
+    destination,
+    clone_state,
+    account_alias,
+    overflow,
+    destination_of,
+    threaded,
+    paces: RunPace,
 ):
     """Send each caption's rest right after its post, as a reply to it when
     the batch sits in a thread or topic so the rest stays there too."""
@@ -326,7 +348,7 @@ async def send_caption_rests(
         )
         try:
             response = await _send_without_unavailable_emoji(
-                tg, request, [message], clone_state, account_alias
+                tg, request, [message], clone_state, account_alias, paces
             )
         except Exception:
             note(
@@ -346,14 +368,14 @@ async def send_caption_rests(
 
 
 async def _send_without_unavailable_emoji(
-    tg, request, messages, clone_state, account_alias
+    tg, request, messages, clone_state, account_alias, paces: RunPace
 ):
     """Send ``request``; on DOCUMENT_INVALID drop the custom emoji Telegram can
     no longer resolve and retry once. Their Unicode text stays, so the copy
     loses only the custom look. If none proves unavailable, the error stands."""
     bodies = getattr(request, "multi_media", None) or [request]
     try:
-        return await tg(request)
+        return await paces.send.call(lambda: tg(request))
     except telethon_errors.DocumentInvalidError:
         wanted = {
             entity.document_id
@@ -384,7 +406,7 @@ async def _send_without_unavailable_emoji(
             "document_ids": sorted(unavailable),
         },
     )
-    response = await tg(request)
+    response = await paces.send.call(lambda: tg(request))
     for message_id, count in dropped.items():
         note(
             f"warning: clone source message {message_id}: {count} unavailable "
@@ -437,6 +459,7 @@ async def forward_batch(
     poll_votes: list | None = None,
     progress=None,
     reforward_cache: dict | None = None,
+    paces: RunPace,
 ):
     source_ids = [message.id for message in messages]
     random_ids = [confirm.random_id() for _ in messages]
@@ -477,15 +500,17 @@ async def forward_batch(
                 "group_message_ids": [group_message_id],
             },
         )
-        response = await tg(
-            functions.messages.ForwardMessagesRequest(
-                from_peer=group,
-                id=[group_message_id],
-                random_id=random_ids,
-                to_peer=destination,
-                drop_author=False,
-                top_msg_id=top_msg_id,
-            ),
+        response = await paces.send.call(
+            lambda: tg(
+                functions.messages.ForwardMessagesRequest(
+                    from_peer=group,
+                    id=[group_message_id],
+                    random_id=random_ids,
+                    to_peer=destination,
+                    drop_author=False,
+                    top_msg_id=top_msg_id,
+                ),
+            )
         )
     elif plan.mode == "snapshots":
         rendered_text, rendered_entities, poll_marker = await snapshot.render(
@@ -517,6 +542,7 @@ async def forward_batch(
             messages,
             clone_state,
             account_alias,
+            paces,
         )
     elif plan.mode == "forwarded":
         safety.append_audit(
@@ -532,7 +558,7 @@ async def forward_batch(
             drop_author=_drops_author(leg, messages),
             top_msg_id=top_msg_id,
         )
-        response = await tg(request)
+        response = await paces.send.call(lambda: tg(request))
     else:
         response = await reupload_batch(
             tg,
@@ -549,6 +575,7 @@ async def forward_batch(
             by_reference=not getattr(source, "noforwards", False)
             and not any(getattr(m, "noforwards", False) for m in messages),
             overflow=overflow,
+            paces=paces,
         )
     destination_ids = confirm.confirmed_ids(
         response, random_ids, what="the complete cloned batch"
@@ -567,6 +594,7 @@ async def forward_batch(
         overflow,
         dict(zip(source_ids, destination_ids, strict=True)),
         threaded=reply_to is not None,
+        paces=paces,
     )
     if mode == "reuploaded":
         # Only a confirmed send *and* a durable mapping save may clear the

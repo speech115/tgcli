@@ -1,7 +1,7 @@
 """tgcli's state root and the private-file primitives every state owner uses.
 
-Depends on nothing in tgcli, so config, the governor ledger, audit and the
-session layer can all build on it without importing one another.
+Depends on nothing in tgcli, so config, audit and the session layer can all
+build on it without importing one another.
 """
 
 from __future__ import annotations

@@ -15,7 +15,7 @@ from pathlib import Path
 from telethon import errors as telethon_errors, functions
 from telethon.tl import types
 
-from tgcli import atomic, chatref
+from tgcli import atomic, chatref, pace
 from tgcli.errors import (
     NotFoundError,
     PartialFailure,
@@ -659,6 +659,7 @@ async def download_media_bulk(
     failed = []
     skipped = []
     hard_error = None
+    between_files = pace.Pace(pace.MEDIA_INTERVAL_S)
     async for source, target, resolve_error in _iter_bulk_candidates(
         tg,
         entity,
@@ -692,6 +693,7 @@ async def download_media_bulk(
             output_dir / name,
         )
         try:
+            await between_files.wait()
             result = await download_media(
                 tg,
                 source,
@@ -801,7 +803,9 @@ async def _iter_bulk_candidates(
             yield source, target, None
         return
 
-    async for message in tg.iter_messages(entity, limit=None):
+    async for message in tg.iter_messages(
+        entity, limit=None, wait_time=pace.PAGE_WAIT_S
+    ):
         if since is not None and message.date is not None and message.date < since:
             break
         if kind is not None and media_kind(message) != kind:
@@ -850,7 +854,9 @@ async def manifest(
         raise NotFoundError(f"dialog not found: {source!r}") from None
 
     items = []
-    async for message in tg.iter_messages(entity, limit=limit):
+    async for message in tg.iter_messages(
+        entity, limit=limit, wait_time=pace.INTERACTIVE_PAGE_WAIT
+    ):
         if since is not None and message.date is not None and message.date < since:
             break
         found = media_kind(message)

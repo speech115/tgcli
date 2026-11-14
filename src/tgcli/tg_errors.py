@@ -12,8 +12,8 @@ from tgcli.errors import RateLimitError
 
 # Telegram's 420 families that say "wait N seconds" about the account, not the
 # request: FLOOD_WAIT_X, and FLOOD_PREMIUM_WAIT_X, the transfer speed limit a
-# non-Premium account meets. Both carry `.seconds`, both arm the governor, and
-# both exit 5. Catch a flood through this tuple, never through one class.
+# non-Premium account meets. Both carry `.seconds` and both exit 5. Catch a
+# flood through this tuple, never through one class.
 FLOOD_ERRORS = (
     telethon_errors.FloodWaitError,
     telethon_errors.FloodPremiumWaitError,
@@ -32,9 +32,9 @@ TRANSIENT_ERRORS = (
     ConnectionError,
 )
 
-# Errors about the run, never about the one item it was working on: a flood
-# or a governor cooldown, a connection Telethon could not restore, a session
-# Telegram no longer accepts. A loop that records a per-item failure (an
+# Errors about the run, never about the one item it was working on: a flood,
+# a connection Telethon could not restore, a session Telegram no longer
+# accepts. A loop that records a per-item failure (an
 # attempt counter, an `error` field, a skipped peer) re-raises these before
 # its `except Exception`, or one outage marks every item it touched.
 RUN_ABORTING_ERRORS = (
@@ -56,9 +56,9 @@ async def unless_refused(awaitable):
 
     A refusal is a lasting answer about this peer or request: Telethon's
     ValueError for a peer it cannot resolve, or any RPCError that is neither
-    transient nor about the run. Those propagate, so a flood still arms the
-    governor, a 500 is never cached as a permanent miss, and a dead session
-    asks for a re-login instead of marking the peer. Callers map the
+    transient nor about the run. Those propagate, so a flood still exits 5, a
+    500 is never cached as a permanent miss, and a dead session asks for a
+    re-login instead of marking the peer. Callers map the
     refusal to their own lasting outcome (a marker, a fallback, a degrade).
     """
     try:

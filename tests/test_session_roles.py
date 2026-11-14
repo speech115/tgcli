@@ -68,7 +68,7 @@ class FakeTelethonClient:
         self.connected = False
 
     async def _call(self, sender, request, *args, **kwargs):
-        """Present because the real client has it — the governor wraps it."""
+        """Present because the real client has it: `tg run` wraps it."""
         return None
 
 

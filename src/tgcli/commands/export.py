@@ -6,7 +6,7 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-from tgcli import atomic, chatref
+from tgcli import atomic, chatref, pace
 from tgcli.errors import ExportError, NotFoundError
 from tgcli.messages import dialog_name, message_to_dict
 from tgcli.output import note
@@ -147,8 +147,10 @@ async def export_messages(
         destination.parent.mkdir(parents=True, exist_ok=True)
     with _atomic_text_destination(destination, preserve_existing=append) as handle:
         async with _message_takeout(tg) as takeout:
+            # A takeout session lifts the history limits, which is what it
+            # is for: its pages need no gap.
             async for message in takeout.iter_messages(
-                entity, limit=limit, reverse=True, min_id=min_id
+                entity, limit=limit, reverse=True, min_id=min_id, wait_time=0
             ):
                 handle.write(
                     json.dumps(message_to_dict(message, entity), ensure_ascii=False)
@@ -207,9 +209,9 @@ async def _iter_all_channel_members(tg, entity, alphabet):
     empty query and, whenever a query fills a full page, refine it with an extra
     character. Requests go through the raw ``GetParticipantsRequest`` (Telethon's
     ``iter_participants`` fires a second request per query just to compute a
-    total we don't need) and run sequentially — issuing them concurrently trips
-    the server's flood-wait, which is far slower than a steady ~0.4s/query. We
-    stop as soon as we have seen the reported member total.
+    total we don't need) and run one at a time, spaced: a burst trips the
+    server's flood-wait, which is far slower than a steady pace. We stop as
+    soon as we have seen the reported member total.
     """
     from telethon.tl import functions, types
 
@@ -231,8 +233,10 @@ async def _iter_all_channel_members(tg, entity, alphabet):
 
     named = queries = 0
     pending: list[tuple[str, set[int] | None]] = [("", None)]
+    between_queries = pace.Pace(pace.PAGE_WAIT_S)
     while pending:
         prefix, parent_ids = pending.pop()
+        await between_queries.wait()
         users = await query(prefix)
         queries += 1
         for user in users:
@@ -302,7 +306,9 @@ async def export_subscribers(
             for subscriber in members:
                 count += write(subscriber)
         else:
-            async for subscriber in tg.iter_participants(entity, limit=limit):
+            async for subscriber in pace.paged(
+                tg.iter_participants(entity, limit=limit), pace.PARTICIPANTS_PAGE
+            ):
                 count += write(subscriber)
     return _summary("subscribers", "csv", destination, count, entity, channel)
 

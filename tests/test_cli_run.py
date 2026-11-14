@@ -5,6 +5,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
 from tests.conftest import make_session_fake
@@ -24,11 +25,16 @@ session = "main"
 class ScriptClient:
     """Routes ``client(request)`` through ``_call`` as Telethon does."""
 
-    def __init__(self):
+    def __init__(self, floods=()):
         self.sent = []
+        self.floods = list(floods)
 
     async def _call(self, sender, request, ordered=False):
         self.sent.append(request)
+        if self.floods:
+            raise telethon_errors.FloodWaitError(
+                request=request, capture=self.floods.pop(0)
+            )
         return True
 
     async def __call__(self, request):
@@ -45,11 +51,11 @@ class ScriptClient:
         ]
 
 
-def setup(tmp_path, monkeypatch, script: str):
+def setup(tmp_path, monkeypatch, script: str, floods=()):
     config = tmp_path / "config.toml"
     config.write_text(SAMPLE)
     monkeypatch.setenv("TGCLI_CONFIG", str(config))
-    client = ScriptClient()
+    client = ScriptClient(floods)
     make_session_fake(monkeypatch, client)
     path = tmp_path / "script.py"
     path.write_text(script)
@@ -133,6 +139,61 @@ def test_write_flag_audits_then_sends(tmp_path, monkeypatch):
         "main",
         "messages.sendMessage",
     )
+
+
+def test_writes_past_the_first_five_are_spaced(tmp_path, monkeypatch, pace_clock):
+    client, path = setup(tmp_path, monkeypatch, SEND * 7)
+
+    assert main(["run", "--write", path]) == 0
+
+    assert len(client.sent) == 7
+    assert pace_clock.sleeps == [3.0, 3.0]
+
+
+def test_a_script_write_is_resent_once_after_a_short_flood(
+    tmp_path, monkeypatch, pace_clock
+):
+    client, path = setup(tmp_path, monkeypatch, SEND, floods=[5])
+
+    assert main(["run", "--write", path]) == 0
+
+    assert [type(r) for r in client.sent] == [functions.messages.SendMessageRequest] * 2
+    assert client.sent[0].to_dict() == client.sent[1].to_dict()
+    assert pace_clock.sleeps == [5]
+    assert len(audit_lines()) == 1
+
+
+def test_a_script_write_hit_by_two_floods_exits_5(
+    tmp_path, monkeypatch, capsys, pace_clock
+):
+    client, path = setup(tmp_path, monkeypatch, SEND, floods=[5, 6])
+
+    assert main(["--json", "run", "--write", path]) == 5
+
+    assert len(client.sent) == 2
+    assert json.loads(capsys.readouterr().err)["error"]["retry_after"] == 6
+
+
+def test_a_script_write_hit_by_a_long_flood_exits_5_unsent_twice(
+    tmp_path, monkeypatch, capsys, pace_clock
+):
+    client, path = setup(tmp_path, monkeypatch, SEND, floods=[60])
+
+    assert main(["--json", "run", "--write", path]) == 5
+
+    assert len(client.sent) == 1
+    assert pace_clock.sleeps == []
+    assert json.loads(capsys.readouterr().err)["error"]["retry_after"] == 60
+
+
+def test_reads_are_never_spaced(tmp_path, monkeypatch, pace_clock):
+    read = "await client(functions.updates.GetStateRequest())\n"
+    client, path = setup(tmp_path, monkeypatch, read * 7)
+
+    assert main(["run", path]) == 0
+
+    assert len(client.sent) == 7
+    assert pace_clock.sleeps == []
 
 
 def test_account_writes_are_denied_even_with_the_flag(tmp_path, monkeypatch):

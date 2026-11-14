@@ -202,6 +202,7 @@ def test_catchup_cut_by_its_page_limit_resumes_without_new_activity(
     first = _sync(capsys, "--max-events", "2")
     assert first["catchups"] == [{"peer_id": peer, "stored": 2, "more": True}]
     assert first["remaining"] is True
+    assert "stop_reason" not in first, "a budget stop is not a --max-runtime stop"
     assert _stored_ids(peer) == [6, 7]
 
     second = _sync(capsys, "--max-events", "2")

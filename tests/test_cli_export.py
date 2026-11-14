@@ -353,6 +353,36 @@ def test_export_broadcast_stops_refining_a_page_its_parent_returned(
     )
 
 
+def test_export_broadcast_spaces_prefix_queries_past_the_first_five(
+    config_env, monkeypatch, tmp_path, pace_clock
+):
+    """The prefix union is one query per prefix: thousands on a large channel."""
+    from telethon.tl import functions
+
+    from tgcli.commands import export as export_mod
+
+    monkeypatch.setattr(export_mod, "_PARTICIPANTS_PAGE", 1)
+    monkeypatch.setattr(export_mod, "_SEARCH_REFINE_ALPHABET", "abcdef")
+    entity = ns(id=-1001234, title="Channel", broadcast=True)
+    fake = FakeClient(
+        entities={"@chan": entity},
+        participants_count=50,
+        participant_search={"": [ns(id=1, username="alice")]},
+    )
+    make_session_fake(monkeypatch, fake)
+
+    argv = ["export", "subscribers", "@chan", "--output", str(tmp_path / "s.csv")]
+    assert main(argv) == 0
+
+    queries = [
+        request
+        for request in fake.call_requests
+        if isinstance(request, functions.channels.GetParticipantsRequest)
+    ]
+    assert len(queries) == 7
+    assert pace_clock.sleeps == [3.0, 3.0]
+
+
 def test_export_broadcast_usernames_only_crawls_username_prefixes(
     config_env, monkeypatch, tmp_path, capsys
 ):
@@ -646,7 +676,7 @@ def test_takeout_delay_is_a_retryable_exit_5(config_env, monkeypatch, tmp_path, 
 
 
 def test_export_takes_the_uniform_default_deadline(config_env, monkeypatch, tmp_path):
-    """D2: export no longer keeps a deadline exemption; governed sleep exempts it."""
+    """D2: export keeps no deadline exemption of its own."""
     fake = make_export_fake()
     make_session_fake(monkeypatch, fake)
 

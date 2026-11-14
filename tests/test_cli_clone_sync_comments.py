@@ -282,7 +282,9 @@ def test_sync_comments_phase_stops_at_anchor_beyond_posts_cursor(
             super().__init__(*args, **kwargs)
             self.scans: list[list[int]] = []
 
-        async def iter_messages(self, entity, *, min_id=0, reverse=False):
+        async def iter_messages(
+            self, entity, *, min_id=0, reverse=False, wait_time=None
+        ):
             if entity is not self.source_group:
                 async for item in super().iter_messages(
                     entity, min_id=min_id, reverse=reverse
@@ -823,8 +825,7 @@ def test_sync_defers_cross_leg_comment_beyond_posts_cursor(
     assert mid.cursor == 3
     assert mid.dest_for(5) is None
 
-    # Clear the per-clone cooldown so the resume run can proceed. The
-    # governor's ledger cooldowns expire on their own; no sidecar to delete.
+    # Clear the per-clone cooldown so the resume run can proceed.
     mid.retry_not_before = None
     state.save(mid)
 
@@ -1339,7 +1340,9 @@ def test_sync_keeps_comments_enabled_after_a_transient_group_read_failure(
     error = make_error()
 
     class FailingGroupClient(CloneCommentsClient):
-        async def iter_messages(self, entity, *, min_id=0, reverse=False):
+        async def iter_messages(
+            self, entity, *, min_id=0, reverse=False, wait_time=None
+        ):
             if entity is self.source_group:
                 raise error
             async for item in super().iter_messages(
@@ -1373,7 +1376,9 @@ def test_sync_copies_remaining_posts_alone_after_comments_degrade_mid_run(
     class TurnsPrivateOnce(CloneCommentsClient):
         refused = False
 
-        async def iter_messages(self, entity, *, min_id=0, reverse=False):
+        async def iter_messages(
+            self, entity, *, min_id=0, reverse=False, wait_time=None
+        ):
             if entity is self.source_group and not self.refused:
                 self.refused = True
                 self.iter_messages_calls.append(("group", min_id))

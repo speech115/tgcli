@@ -23,24 +23,15 @@ def log_invocation(
     error_type: str | None = None,
     role: str | None = None,
     retry_after: int | None = None,
-    request_type: str | None = None,
-    provenance: str | None = None,
     stop_reason: str | None = None,
-    governed_sleep_ms: int | None = None,
-    request_count: int | None = None,
-    floods: int | None = None,
-    flood_wait_s: float | None = None,
 ) -> None:
     """Append one completed invocation.
 
-    ``retry_after``, ``request_type``, ``provenance``, ``stop_reason``,
-    ``governed_sleep_ms``, ``request_count``, ``floods`` and
-    ``flood_wait_s`` come from the governor's
-    per-invocation accounting (ADR-0072 decision 4, plan phase 6).
-    ``error_site`` (``module:function``) and ``error_type`` (an exception
-    class name) tell failures apart without their text. No message text, no
-    chat refs, no request parameters — a request *type* is not a chat
-    reference.
+    ``retry_after`` is the wait a flood error asked for; ``stop_reason`` says
+    why a run stopped normally before its work was done. ``error_site``
+    (``module:function``) and ``error_type`` (an exception class name) tell
+    failures apart without their text. No message text, no chat refs, no
+    request parameters.
     """
     entry = {
         "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -53,13 +44,7 @@ def log_invocation(
         "error_type": error_type,
         "duration_ms": duration_ms,
         "retry_after": retry_after,
-        "request_type": request_type,
-        "provenance": provenance,
         "stop_reason": stop_reason,
-        "governed_sleep_ms": governed_sleep_ms,
-        "request_count": request_count,
-        "floods": floods,
-        "flood_wait_s": flood_wait_s,
     }
     path = state_dir() / "invocations.jsonl"
     try:

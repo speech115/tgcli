@@ -113,7 +113,7 @@ class FaultyWorldClient(clone_world.WorldClient):
         self._next(f"get_messages {getattr(entity, 'id', entity)} {limit} {ids}")
         return await super().get_messages(entity, limit=limit, ids=ids)
 
-    async def iter_messages(self, entity, *, min_id=0, reverse=False):
+    async def iter_messages(self, entity, *, min_id=0, reverse=False, wait_time=None):
         async for item in super().iter_messages(entity, min_id=min_id, reverse=reverse):
             self._next(f"history {getattr(entity, 'id', entity)} #{item.id}")
             yield item
