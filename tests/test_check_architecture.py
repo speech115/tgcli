@@ -159,6 +159,7 @@ def test_architecture_check_rejects_a_history_read_with_no_page_wait(tmp_path):
     assert result.returncode == 1
     assert "read.py:2 calls iter_messages without wait_time" in result.stdout
     assert "wait_time=pace.PAGE_WAIT_S" in result.stdout
+    assert "wait_time=pace.INTERACTIVE_PAGE_WAIT" in result.stdout
 
     module.write_text(
         "async def fetch(tg, entity):\n"

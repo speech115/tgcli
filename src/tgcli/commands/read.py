@@ -54,7 +54,7 @@ async def fetch_messages(
         min_id=after_id or 0,
         offset_date=until,
         reply_to=topic,
-        wait_time=pace.PAGE_WAIT_S,
+        wait_time=pace.INTERACTIVE_PAGE_WAIT,
     ):
         if since is not None and message.date is not None and message.date < since:
             break

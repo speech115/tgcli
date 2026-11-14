@@ -179,7 +179,9 @@ def _unpaced_history_errors(path: Path, relative: str) -> list[str]:
     tree = ast.parse(path.read_text(), filename=str(path))
     return [
         f"{relative}:{node.lineno} calls iter_messages without wait_time; pass "
-        "wait_time=pace.PAGE_WAIT_S so every page after the first waits"
+        "wait_time=pace.PAGE_WAIT_S in a loop or bulk walk, or "
+        "wait_time=pace.INTERACTIVE_PAGE_WAIT for one chat read at the "
+        "owner's request"
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)

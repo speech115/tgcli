@@ -16,6 +16,9 @@ from collections.abc import AsyncIterable, AsyncIterator
 # of a loop that walks many. The 2026-07-31 flood was 791 dialogs read with
 # no gap at all.
 PAGE_WAIT_S = 3.0
+# A command that reads one chat at the owner's request. `None` is Telethon's
+# own default: no wait up to 3000 messages, 1 s a page beyond.
+INTERACTIVE_PAGE_WAIT = None
 # 20 sends a minute, the pace a clone held without a flood (ADR-0122).
 SEND_INTERVAL_S = 3.0
 MEDIA_INTERVAL_S = 3.0
@@ -66,7 +69,7 @@ async def paged[T](
     """Yield ``rows``, waiting before each further page.
 
     For the Telethon iterators that take no ``wait_time``: dialogs and
-    participants. ``iter_messages`` takes ``wait_time=PAGE_WAIT_S`` instead.
+    participants. ``iter_messages`` takes ``wait_time`` instead.
     """
     pace = pace or Pace(PAGE_WAIT_S)
     seen = 0

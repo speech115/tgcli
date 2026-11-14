@@ -855,7 +855,7 @@ async def manifest(
 
     items = []
     async for message in tg.iter_messages(
-        entity, limit=limit, wait_time=pace.PAGE_WAIT_S
+        entity, limit=limit, wait_time=pace.INTERACTIVE_PAGE_WAIT
     ):
         if since is not None and message.date is not None and message.date < since:
             break

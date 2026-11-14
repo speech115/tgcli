@@ -22,7 +22,7 @@ async def fetch_search(
         search=query,
         limit=limit + 1,
         from_user=from_user,
-        wait_time=pace.PAGE_WAIT_S,
+        wait_time=pace.INTERACTIVE_PAGE_WAIT,
     ):
         if since is not None and message.date is not None and message.date < since:
             break
@@ -42,7 +42,7 @@ async def fetch_search_all(tg, query: str, limit: int = 20) -> dict:
     messages = []
     more = False
     async for message in tg.iter_messages(
-        None, search=query, limit=limit + 1, wait_time=pace.PAGE_WAIT_S
+        None, search=query, limit=limit + 1, wait_time=pace.INTERACTIVE_PAGE_WAIT
     ):
         if len(messages) >= limit:
             more = True
@@ -59,7 +59,9 @@ async def fetch_search_all(tg, query: str, limit: int = 20) -> dict:
 
 async def fetch_latest(tg, chat: str) -> dict:
     entity = await _entity(tg, chat)
-    async for message in tg.iter_messages(entity, limit=1, wait_time=pace.PAGE_WAIT_S):
+    async for message in tg.iter_messages(
+        entity, limit=1, wait_time=pace.INTERACTIVE_PAGE_WAIT
+    ):
         return {
             "dialog": {"id": entity.id, "name": dialog_name(entity, chat)},
             "message": message_to_dict(message, entity),
