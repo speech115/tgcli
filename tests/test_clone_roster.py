@@ -1,5 +1,7 @@
 import asyncio
 import json
+import os
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -234,3 +236,80 @@ def test_a_deferred_roster_defers_the_discussion_only_when_comments_are_on(comme
     assert result["source"]["status"] == "deferred"
     expected = "deferred" if comments == "enabled" else "none"
     assert result["discussion"]["status"] == expected
+
+
+def age(clone_state, seconds):
+    path = roster.path_for(clone_state.clone_id)
+    then = time.time() - seconds
+    os.utime(path, (then, then))
+
+
+def test_a_roster_is_due_when_missing_and_again_after_a_day():
+    clone_state = seed()
+    assert roster.due(clone_state)
+
+    run(FakeTg(source=[user(1)]), clone_state)
+
+    assert not roster.due(clone_state)
+    age(clone_state, roster.REFRESH_S - 60)
+    assert not roster.due(clone_state)
+    age(clone_state, roster.REFRESH_S)
+    assert roster.due(clone_state)
+
+
+def test_a_roster_stamped_in_the_future_is_due():
+    clone_state = seed()
+    run(FakeTg(source=[user(1)]), clone_state)
+    age(clone_state, -3600)
+
+    assert roster.due(clone_state)
+
+
+def test_the_fresh_marker_names_each_peer_and_touches_no_file():
+    clone_state = seed(comments="enabled")
+
+    result = roster.fresh(clone_state)
+
+    assert result["source"] == {
+        "peer_id": 123,
+        "status": "fresh",
+        "count": 0,
+        "reason": "collected_within_24h",
+    }
+    assert result["discussion"]["status"] == "fresh"
+    assert not roster.path_for(clone_state.clone_id).exists()
+
+
+@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
+def test_a_deferred_listing_keeps_the_last_snapshot_and_its_age(make_error):
+    clone_state = seed()
+    run(FakeTg(source=[user(1), user(2)]), clone_state)
+    age(clone_state, roster.REFRESH_S + 600)
+    path = roster.path_for(clone_state.clone_id)
+    before = (path.read_text(), path.stat().st_mtime)
+
+    result = run(
+        FakeTg(source=[user(9), user(8)], source_error=make_error()), clone_state
+    )
+
+    assert result["source"]["status"] == "deferred"
+    assert (path.read_text(), path.stat().st_mtime) == before
+    assert roster.due(clone_state)
+
+
+def test_a_deferred_discussion_keeps_the_snapshot_too():
+    clone_state = seed(comments="enabled")
+    run(FakeTg(source=[user(1)], discussion=[user(10)]), clone_state)
+    path = roster.path_for(clone_state.clone_id)
+    before = path.read_text()
+
+    result = run(
+        FakeTg(
+            source=[user(1)],
+            entity_error=telethon_errors.FloodWaitError(request=None, capture=30),
+        ),
+        clone_state,
+    )
+
+    assert result["discussion"]["status"] == "deferred"
+    assert path.read_text() == before

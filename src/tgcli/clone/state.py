@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import fcntl
 import hashlib
+import math
 import os
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, cast
@@ -27,6 +28,10 @@ from tgcli.state_paths import ensure_state_dir, state_dir
 
 VERSION = 2
 _TL_INT_MAX = 2_147_483_647
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
 
 
 # Peer class per source kind (ADR-0103): a User/Chat/Channel can share a
@@ -43,7 +48,12 @@ _PEER_CLASS = {
 
 def clone_id(account_user_id: int, source_peer_id: int, source_kind: str) -> str:
     """Peer-class-aware clone identity (ADR-0103)."""
-    peer_class = _PEER_CLASS[source_kind]
+    return peer_clone_id(account_user_id, _PEER_CLASS[source_kind], source_peer_id)
+
+
+def peer_clone_id(account_user_id: int, peer_class: str, source_peer_id: int) -> str:
+    """The identity from a peer class (`user`, `chat`, `channel`) alone, for a
+    caller that holds an input peer and not yet the source's kind."""
     identity = f"{account_user_id}:{peer_class}:{source_peer_id}".encode()
     return hashlib.sha256(identity).hexdigest()
 
@@ -131,7 +141,10 @@ class CloneState:
     creation_marker: str | None = None
     cursor: int = 0
     id_map: dict[SourcePostId, DestPostId] = field(default_factory=dict)
-    # Legacy ADR-0045 deadline: kept and reported, no longer written or enforced.
+    # When a FloodWait this clone could not ride out ends (ADR-0126). `clone
+    # sync` writes it on exit 5, refuses before any request while it lies in
+    # the future, and clears it on a completed run. ADR-0045 introduced the
+    # field; ADR-0125 left it unused.
     retry_not_before: str | None = None
     created_at: str = ""
     last_synced_at: str | None = None
@@ -243,6 +256,16 @@ class CloneState:
         )
         self.discussion_id_map.clear()
         self.discussion_cursor = 0
+
+    def flood_left(self) -> int | None:
+        """Whole seconds until the remembered flood ends, or None once it has."""
+        if self.retry_not_before is None:
+            return None
+        left = (datetime.fromisoformat(self.retry_not_before) - _now()).total_seconds()
+        return max(math.ceil(left), 1) if left > 0 else None
+
+    def remember_flood(self, seconds: int) -> None:
+        self.retry_not_before = (_now() + timedelta(seconds=seconds)).isoformat()
 
     def max_destination_id(self) -> int | None:
         return max([*self.id_map.values(), *self.topic_map.values()], default=None)

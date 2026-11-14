@@ -15,9 +15,53 @@ defined in [CONTRACT.md](CONTRACT.md), which wins where the two differ.
 | `~/.config/tgcli/` | config: accounts, `api_id` |
 | `~/.local/state/tgcli/` | sessions, previews, audit, journal, clone and archive state |
 
-Scheduled work (archive sync, transcription, clone watch) is launchd calling
+Scheduled work (archive sync, transcription, clone sync) is launchd calling
 the same `tg` on PATH; see the archive row in [SKILL.md](../SKILL.md) and
-[examples/clone-watch](../examples/clone-watch/README.md).
+[Keeping clones current](#keeping-clones-current).
+
+## Keeping clones current
+
+One launchd job per clone runs `clone sync` on a short interval. tgcli keeps no
+daemon: the job starts, finds out whether the source has anything new, and
+exits.
+
+```xml
+<key>Label</key>
+<string>com.tgcli.clone-sync.SOURCE</string>
+<key>ProgramArguments</key>
+<array>
+  <string>/Users/you/.local/bin/tg</string>
+  <string>--account</string><string>A</string>
+  <string>--session-role</string><string>job</string>
+  <string>--max-runtime</string><string>240</string>
+  <string>--json</string>
+  <string>clone</string><string>sync</string><string>SOURCE</string>
+</array>
+<key>StartInterval</key>
+<integer>120</integer>
+```
+
+The command is `tg --account A [--session-role job] --max-runtime 240 --json
+clone sync SOURCE`. Leave out `--session-role job` if no one else uses the
+account's primary session. With a role, authorize it once (`tg accounts login A
+--role job --phone PHONE`), so a sync never holds the session your own
+commands need.
+
+Why it is safe and cheap to run this often:
+
+- An idle run costs the session check plus one one-message history read of the
+  source, and of its discussion group when comments are copied. It copies
+  nothing, opens no destination and lists no roster, and says
+  `"up_to_date":true`. A full run happens when something is new, and once a
+  day for the roster (`participants`).
+- A FloodWait that ends a sync (exit 5) is written into the clone as
+  `retry_not_before`. Every run before that time exits 5 with the remaining
+  `retry_after` and sends no request, so a short interval never sends into a
+  live ban. `tg clone status` shows the field.
+- `--max-runtime 240` ends a long copy as a normal stop (exit 0, `remaining`
+  true); the next run resumes at the saved cursor. launchd starts no second
+  instance while one runs, and the clone's own lock refuses an overlap with a
+  manual run (exit 2).
 
 ## Shipping a merged change
 
@@ -32,9 +76,6 @@ the same `tg` on PATH; see the archive row in [SKILL.md](../SKILL.md) and
       started by hand or by launchd is running right now
       (`pgrep -fl 'bin/tg '`). A run picks up the new code only on its next
       start, but swapping files under a running process is not worth it.
-- [ ] If the clone watcher (`com.tgcli.clone-watch`) is installed, it is
-      always running and keeps the old code until it exits (up to its
-      `--timeout`, 90 minutes in the example). Restart it after the ship.
 - [ ] Note the current commit, so a rollback is one command:
       `git -C ~/Projects/tools/tgcli-prod rev-parse --short HEAD`.
 
@@ -45,7 +86,6 @@ cd ~/Projects/tools/tgcli-prod
 git fetch origin main
 git merge --ff-only origin/main
 uv sync --frozen --extra fast   # frozen: never rewrite uv.lock; the extra keeps cryptg
-launchctl kickstart -k gui/$(id -u)/com.tgcli.clone-watch   # only if installed
 ```
 
 The merge refuses anything but a fast-forward. If it refuses, someone
@@ -71,7 +111,6 @@ right after the ship:
 cd ~/Projects/tools/tgcli-prod
 git reset --keep <commit noted before>
 uv sync --frozen --extra fast
-launchctl kickstart -k gui/$(id -u)/com.tgcli.clone-watch   # only if installed
 ```
 
 Then open an issue or a fix PR. The next ship fast-forwards past the bad

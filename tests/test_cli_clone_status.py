@@ -403,3 +403,17 @@ def test_status_probes_a_pre_adr_0103_slot_under_its_own_file_name(capsys):
     assert entry["clone_id"] == legacy_id
     assert entry["integrity"] == "ok"
     assert entry["schema_version"] == state.statedb.SCHEMA_VERSION
+
+
+def test_status_reports_the_end_of_a_remembered_flood(capsys):
+    held = _seed(100000001, 111, "Alpha", dest=222)
+    _seed(100000001, 333, "Beta", dest=444)
+    held.retry_not_before = "2026-11-14T12:10:00+00:00"
+    state.save(held)
+
+    code, out = _run(capsys, ["clone", "status", "--json"])
+
+    assert code == 0
+    by_title = {c["source"]["title"]: c for c in json.loads(out)["clones"]}
+    assert by_title["Alpha"]["retry_not_before"] == "2026-11-14T12:10:00+00:00"
+    assert by_title["Beta"]["retry_not_before"] is None

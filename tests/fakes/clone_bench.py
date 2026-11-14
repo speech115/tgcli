@@ -170,9 +170,9 @@ class BenchClient(CloneCommentsClient):
     def _count(self, name: str) -> None:
         self.calls[name] += 1
 
-    async def get_me(self):
+    async def get_me(self, input_peer=False):
         self._count("get_me")
-        return await super().get_me()
+        return await super().get_me(input_peer=input_peer)
 
     async def get_input_entity(self, ref):
         self._count("get_input_entity")

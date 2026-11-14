@@ -598,3 +598,32 @@ def test_clone_media_cache_dir_is_private_under_umask_022(usual_umask):
     assert cache == reupload.cache_dir(s)
     assert _mode(cache) == 0o700
     assert _mode(state.clones_dir()) == 0o700
+
+
+def test_a_remembered_flood_is_left_until_its_wait_is_over(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    start = datetime(2026, 11, 14, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(state, "_now", lambda: start)
+    saved = _fresh()
+    assert saved.flood_left() is None
+
+    saved.remember_flood(600)
+
+    assert saved.retry_not_before == "2026-11-14T12:10:00+00:00"
+    assert saved.flood_left() == 600
+    monkeypatch.setattr(state, "_now", lambda: start + timedelta(seconds=599.2))
+    assert saved.flood_left() == 1
+    monkeypatch.setattr(state, "_now", lambda: start + timedelta(seconds=600))
+    assert saved.flood_left() is None
+
+
+def test_a_remembered_flood_survives_save_and_load():
+    saved = _fresh()
+    saved.remember_flood(90)
+    state.save(saved)
+
+    loaded = state.load(saved.clone_id)
+
+    assert loaded.retry_not_before == saved.retry_not_before
+    assert 0 < loaded.flood_left() <= 90

@@ -167,6 +167,13 @@ class CloneSyncClient:
         # Telegram puts ``ChannelForbidden`` for a quoted channel (quotes.py).
         self.history_chats = []
         self.history_requests = []
+        # The one-message reads that tell an idle sync it has nothing to copy.
+        self.newest_requests = []
+
+    def _history_of(self, peer):
+        """The messages the fake holds for an input peer, for the idle probe."""
+        peer_id = getattr(peer, "channel_id", None) or peer.chat_id
+        return self.messages if peer_id == self.source.id else []
 
     async def get_entity(self, ref):
         if isinstance(ref, types.PeerChannel):
@@ -179,13 +186,21 @@ class CloneSyncClient:
         return self.source
 
     async def get_input_entity(self, ref):
+        if ref == "@source" or (
+            isinstance(ref, types.PeerChannel) and ref.channel_id == self.source.id
+        ):
+            ref = self.source
         if ref is self.destination:
             return types.InputPeerChannel(channel_id=999, access_hash=1)
         if ref is self.source:
-            return types.InputPeerChannel(channel_id=123, access_hash=1)
+            if isinstance(ref, types.Chat):
+                return types.InputPeerChat(chat_id=ref.id)
+            return types.InputPeerChannel(channel_id=ref.id, access_hash=1)
         raise ValueError("no input peer")
 
-    async def get_me(self):
+    async def get_me(self, input_peer=False):
+        if input_peer:
+            return types.InputPeerUser(user_id=42, access_hash=1)
         return SimpleNamespace(id=42)
 
     async def get_messages(self, entity, limit=None):
@@ -235,6 +250,17 @@ class CloneSyncClient:
             self.full_requests.append(request)
             return SimpleNamespace(
                 full_chat=SimpleNamespace(pinned_msg_id=self.source_pinned_msg_id)
+            )
+        if isinstance(request, functions.messages.GetHistoryRequest) and isinstance(
+            request.peer, (types.InputPeerChannel, types.InputPeerChat)
+        ):
+            self.newest_requests.append(request)
+            held = self._history_of(request.peer)
+            return types.messages.Messages(
+                messages=[max(held, key=lambda item: item.id)] if held else [],
+                chats=[],
+                users=[],
+                topics=[],
             )
         if isinstance(request, functions.messages.GetHistoryRequest):
             self.history_requests.append(request)
@@ -508,6 +534,16 @@ class CloneCommentsClient(CloneReuploadClient):
             if ref.channel_id == 888:
                 return self.destination_group
         return await super().get_entity(ref)
+
+    async def get_input_entity(self, ref):
+        if isinstance(ref, types.PeerChannel) and ref.channel_id == 55:
+            return types.InputPeerChannel(channel_id=55, access_hash=1)
+        return await super().get_input_entity(ref)
+
+    def _history_of(self, peer):
+        if getattr(peer, "channel_id", None) == self.source_group.id:
+            return self.comments
+        return super()._history_of(peer)
 
     async def get_messages(self, entity, limit=None, ids=None):
         if ids is not None:

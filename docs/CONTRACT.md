@@ -115,9 +115,13 @@ run --write` script sleep a flood of up to 30 s, within what `--max-runtime`
 has left, and send the request once more. A longer flood, or a second one
 on the resend, exits 5 with its own `retry_after`. Every other request in
 those sessions, `clone init --commit` included, exits 5 on its first
-FloodWait. tgcli keeps no flood state between invocations: after exit 5 the
-caller waits `retry_after` seconds before the next run. A run started
-sooner sends the request again and may draw a longer wait.
+FloodWait. tgcli keeps no flood state between invocations, with one
+exception: a `clone sync` that ends in exit 5 writes the end of the wait into
+that clone (`retry_not_before`, §11), and until it has passed the next `clone
+sync` of that clone exits 5 at once with the remaining `retry_after` and sends
+no request. For every other command, after exit 5 the caller waits
+`retry_after` seconds before the next run, and a run started sooner sends
+the request again and may draw a longer wait.
 
 **Pacing (ADR-0125).** A command that sends a handful of requests never
 waits; a loop spaces its own. A read of one chat at the owner's request
@@ -1206,8 +1210,12 @@ case-insensitive title substring. A token from another peer class does not
 match (ADR-0104). JSON:
 
 ```json
-{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source","username":null},"cursor":42,"copied":40,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"comments":"enabled","discussion_linked":true,"schema_version":3,"integrity":"ok"}]}
+{"clones":[{"clone_id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source","username":null},"cursor":42,"copied":40,"created_at":"2026-07-15T12:00:00+00:00","last_synced_at":null,"retry_not_before":null,"comments":"enabled","discussion_linked":true,"schema_version":3,"integrity":"ok"}]}
 ```
+
+`retry_not_before` is the ISO-8601 UTC time a FloodWait that ended a
+`clone sync` runs out, or `null`. It is reported as stored, so a time in the
+past stays until the next completed sync clears it.
 
 `discussion_linked` is whether the clone's discussion group was actually
 linked. `comments: "enabled"` with `discussion_linked: false` is a
@@ -1381,8 +1389,8 @@ fail-closed shared audit record before dispatch. A profile-copy failure exits 2
 while retaining the recorded destination for a new-preview retry; it never
 creates a second destination. A Telegram FloodWait during profile reads,
 downloads, uploads, or edits exits 5 with `retry_after` (§4); nothing is
-stored, and the legacy per-clone `retry_not_before` field (ADR-0045) is
-neither written nor reported. Read-only surfaces
+stored; `clone init` does not write `retry_not_before` (that is `clone sync`,
+below). Read-only surfaces
 (`clone status`, init preview) are never blocked by readonly gates. A roster
 FloodWait (ADR-0024) defers the listing and never fails message
 sync. `clone init` and `clone sync` keep no implicit deadline (CONTRACT §1);
@@ -1685,8 +1693,32 @@ a normal stop (exit 0) with `stop_reason: "wall_clock_cap"` and a resume
 pointer. A flood exits 5 without advancing the current message. JSON:
 
 ```json
-{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"markup_dropped":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"pinned":{"source_id":12,"destination_id":9,"status":"set"},"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}},"remaining":false}
+{"clone":{"id":"hex","source":{"id":123,"title":"Source","kind":"broadcast"},"destination":{"id":999,"title":"[Clone] Source"}},"sync":{"copied":2,"skipped_unsupported":[{"id":4,"kind":"MessageMediaDice"}],"forwarded":1,"reuploaded":1,"snapshots":0,"topics_created":0,"skipped_service":1,"skipped_autoforward":0,"reply_flattened":0,"quote_flattened":[],"markup_dropped":[],"poll_votes":[],"cursor":5,"discussion_cursor":0,"more":false,"up_to_date":false,"pinned":{"source_id":12,"destination_id":9,"status":"set"},"participants":{"path":"~/.local/state/tgcli/clones/hex-participants.jsonl","source":{"peer_id":123,"status":"unavailable","count":0,"reason":"ChatAdminRequiredError"},"discussion":{"peer_id":55,"status":"collected","count":42,"reason":null}}},"remaining":false}
 ```
+
+**Idle runs (ADR-0126).** Before it opens the destination, `clone sync` reads
+the newest message of the source with one `messages.GetHistory` (`limit=1`),
+and of the source discussion group when comments are copied. When neither is
+past the clone's `cursor` and `discussion_cursor`, and the roster sidecar is
+under a day old, the run copies nothing and ends at once: exit 0, `sync.up_to_date`
+`true`, every counter zero, `more` and `remaining` `false`, `pinned` from state
+alone, `participants` `fresh`, and `last_synced_at` set. It resolves no
+destination, checks no tail and lists no roster. A clone with no destination
+or with comments enabled but unlinked is never idle: the full run refuses it as
+before. Every other run reports `up_to_date` `false`. The session still opens
+and checks its authorization; with the account known from the session an idle
+run sends only those history reads.
+
+**Flood memory (ADR-0126).** A FloodWait that ends a `clone sync` (exit 5)
+first writes `now + retry_after` to the clone as `retry_not_before`, in the
+same state a completed run saves; copies and cursors saved before the flood are
+kept. While that time lies in the future, `clone sync` of the clone exits 5
+with the remaining `retry_after` (rounded up, at least 1) once it holds the
+clone lock and has found its slot from the peer the session already knows,
+before any request about the source or destination: no pin, no read, no
+send. Finding the slot can ask Telegram only for a source named by a
+username the session has never seen. A run that completes, idle or not,
+clears the field; a wall-clock stop (`--max-runtime`) is such a run.
 
 On a broadcast destination, `sync.pinned` reports the pin carry-over
 (ADR-0055). Forum destinations omit the key entirely. Status values:
@@ -1727,8 +1759,12 @@ channel/chat, `discussion` = its linked comment group when
 `comments == "enabled"`), a `status` of `"collected"`, `"unavailable"`
 (Telegram refused — a broadcast channel you do not administer always refuses),
 `"deferred"` (FloodWait, `reason` `"flood_wait"`, or a Telegram-side failure,
-`reason` its error name; retried next run, partial results discarded), or `"none"`
-(no discussion group). `--max-runtime` bounds the listing too: when the cap
+`reason` its error name; retried next run, partial results discarded and the
+sidecar left as it was), `"fresh"` (`reason` `"collected_within_24h"`: the
+sidecar was written under a day ago, so this run did not list again; `count` is
+`0` and the sidecar holds the rows), or `"none"`
+(no discussion group). A roster is listed at most once a day by a run that
+copies, and a day-old roster also keeps a run from being idle. `--max-runtime` bounds the listing too: when the cap
 runs out during copying the roster is not listed at all (every peer
 `"deferred"` with `reason` `"wall_clock_cap"`, sidecar left as it was), and
 when it runs out after copying (in the pin phase or during the listing) the

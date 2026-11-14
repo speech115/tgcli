@@ -55,6 +55,7 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
         "cursor": 3,
         "discussion_cursor": 0,
         "more": False,
+        "up_to_date": False,
     }
     # a broadcast source the account does not administer reports no roster
     assert participants["source"]["status"] == "unavailable"
@@ -76,8 +77,9 @@ def test_clone_sync_copies_plain_text_oldest_first_and_reruns_idempotently(
     assert main(["clone", "sync", "@source", "--json"]) == 0
     rerun = json.loads(capsys.readouterr().out)
     assert rerun["sync"]["copied"] == 0
+    assert rerun["sync"]["up_to_date"] is True
     assert len(client.requests) == 2
-    assert client.iter_messages_calls == [("posts", 0), ("posts", 3)]
+    assert client.iter_messages_calls == [("posts", 0)]
 
 
 def test_clone_sync_keeps_native_forward_header_for_reforwarded_broadcast_post(
