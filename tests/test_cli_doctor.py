@@ -169,3 +169,13 @@ def test_doctor_flags_a_config_it_cannot_tighten(
     assert report["checks"]["config_perms_ok"] is False
     assert report["ok"] is False
     assert data["ok"] is False
+
+
+def test_doctor_plain_names_the_failed_checks(config_env, capsys):
+    """An account with no session file: the failures column says which checks."""
+    code = main(["doctor", "--account", "main", "--plain"])
+
+    [row] = capsys.readouterr().out.splitlines()
+    alias, status, _user, failures = row.split("\t")
+    assert (code, alias, status) == (0, "main", "fail")
+    assert failures.split(", ") == ["session_file", "lock_free"]

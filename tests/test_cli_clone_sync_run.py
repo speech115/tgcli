@@ -1038,3 +1038,22 @@ def test_clone_sync_cap_hit_in_comments_leg_stops_the_leg(
     assert data["stop_reason"] == "wall_clock_cap"
     assert client.full_requests == []
     assert data["sync"]["participants"]["source"]["reason"] == "wall_clock_cap"
+
+
+def test_clone_sync_with_comments_reads_nothing_once_the_cap_is_spent(
+    config_env, monkeypatch, capsys
+):
+    """A run that starts with no --max-runtime left sends no history read."""
+    from tgcli import pace
+
+    monkeypatch.setattr(pace, "remaining", lambda: 0.0)
+    seed_comments_clone()
+    client = CloneCommentsClient([message(2)], [anchor(10, 2)])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--max-runtime", "0.001", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["stop_reason"] == "wall_clock_cap"
+    assert data["sync"]["copied"] == 0
+    assert client.iter_messages_calls == []
