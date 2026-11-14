@@ -2,7 +2,7 @@
 
 tgcli is stateless per process, but almost everything it keeps on disk is a
 state machine: a preview moves from `.json` to `.used`, a clone slot moves from
-"planned" to "linked", a governor row from "cooling" to "free". This file names
+"planned" to "linked". This file names
 each machine, its states, the invariants that must hold in every state, and
 every transition the code performs, with the retry and concurrency story for
 each.
@@ -28,7 +28,7 @@ safe under interleaving on its own.
 | `safety._lock_pending` (flock on `<preview>.pending`) | one preview | a `--commit` from `begin_commit` to `finish_commit` or the end of its invocation (`cli.main`, so `tg-serve` frees it too) | exit 2, "commit already in progress" |
 | `clone.state.slot_lock` (`clones/<id>.lock`) | one clone slot, all roles | `clone init --commit`, `clone sync` | exit 2, "clone … is busy" |
 | `commands.archive._one_run_per_account` (`sync.lock`, `transcribe.lock`) | one archive account | `archive sync`, `rebaseline`, `transcribe` | exit 3 |
-| SQLite WAL + `busy_timeout` 5 s | one database | every archive, clone, governor write | writers serialize |
+| SQLite WAL + `busy_timeout` 5 s | one database | every archive and clone write | writers serialize |
 | `media.download_lock` (`downloads/<key>.lock`) | one media source | `media download`, archive media tails | exit 3; the archive leaves the row queued |
 
 Two processes on the same account normally serialize on the session lock.
@@ -49,7 +49,7 @@ States: parsed → preflighted → executed → emitted → journaled.
 | preflighted | handler returns | executed | network commands hold the session lock |
 | executed | emit succeeds | journaled, exit 0 | |
 | any | `TgcliError` | journaled, its exit code | |
-| any | `--timeout` passes (governed sleep not counted) | journaled, `TIMEOUT` | |
+| any | `--timeout` passes | journaled, `TIMEOUT` | |
 | any | SIGTERM/SIGHUP | journaled `TERMINATED`, then dies by the signal | |
 
 Invariant: exactly one journal row per parsed command (CONTRACT §9), and
@@ -223,38 +223,13 @@ mutually exclusive. A crash between the pin RPC and the save is recovered by
 reading the destination's pin: exactly our id adopts `set` without a second
 RPC.
 
-## 7. Governor cooldown
+## 7. Governor cooldown — removed
 
-`governor.ledger` (`governor.db`) and `governor.gate.install`. One row per
-(account, request type).
-
-| State | Condition |
-|---|---|
-| free | no row, or the row's effective end has passed |
-| cooling | effective end in the future |
-| slow start | free, but the cooldown ended within the last hour |
-
-A row ends at `min(deadline, armed_at + 24 h)`, and both readers
-(`cooldown_deadline`, `cooled_since`) use that end.
-
-| From | Event | To |
-|---|---|---|
-| free | FloodWait N on this type | cooling until now + N |
-| cooling | FloodWait M on this type (another process, another peer) | cooling until the later of the two ends (F5) |
-| cooling | request of this type, wait fits `--max-runtime` | sleeps, then sends |
-| cooling | request of this type, wait does not fit | refused locally, exit 5, no RPC |
-| cooling | effective end passes | slow start |
-| slow start | an hour passes | free |
-
-Invariants:
-
-- **G1.** No request of a cooling type leaves the process.
-- **G2.** A cooldown never ends earlier than the longest live penalty any
-  process recorded for its type. `arm_cooldown` reads the stored end and
-  writes inside one `BEGIN IMMEDIATE` transaction and keeps the later row.
-- **G3.** No record refuses for more than 24 h after it was armed.
-- A ledger that cannot open degrades to memory and warns; Telethon's own
-  per-process memory still refuses the type for that run (ADR-0090).
+ADR-0125 removed the request governor and its `governor.db` ledger. tgcli
+keeps no flood state between invocations: within one process Telethon
+remembers a FloodWait per request type until it passes, and a command that
+exits 5 hands `retry_after` to its caller. The number stays so the later
+sections keep theirs.
 
 ## 8. Archive account cursor
 
@@ -366,14 +341,11 @@ account. Fix: the preview records which state it would supersede, and the
 commit supersedes only that state (S4).
 Test: `tests/test_cli_clone_init.py::test_clone_init_replace_commit_retry_resumes_its_own_destination`.
 
-### F2. Governor cooldowns outlive their one-day cap — fixed
+### F2. Governor cooldowns outlive their one-day cap — fixed, then removed
 
-Machine §7. `cooldown_deadline` clamped to `now + 24 h`, a window that moves
-with every read, while `cooled_since` clamped to `armed_at + 24 h`. A deadline
-past a day kept refusing long after the slow-start reader said it had ended,
-and a corrupt far-future deadline refused until that date. Both readers now
-share one end, `min(deadline, armed_at + 24 h)` (G3).
-Test: `tests/test_governor_ledger.py::test_no_record_refuses_past_its_cap_after_arming`.
+Machine §7. The two readers of a cooldown row clamped it differently, so a
+deadline past a day kept refusing after the other reader said it had ended.
+The machine is gone (ADR-0125).
 
 ### F3. Two runs resuming one media download wedge it for good — fixed
 
@@ -399,24 +371,18 @@ makes rows exhausted under its cap terminal.
 Tests: `tests/test_archive_sync_state_writes.py::test_a_catchup_flood_keeps_a_finished_backfill_finished`,
 `tests/test_archive_phase4.py::test_transcribe_row_exhausted_under_a_lower_cap_becomes_terminal`.
 
-### F5. A short flood can shrink a live governor cooldown — fixed
+### F5. A short flood can shrink a live governor cooldown — fixed, then removed
 
-Machine §7, concurrency. `arm_cooldown` overwrote the deadline ("latest arm
-wins"). The key deliberately excludes the peer, so a 5 s FloodWait one
-process drew on chat B (another role) replaced a 1 h penalty another process
-recorded on chat A, and the next process sent into chat A's live penalty.
-Proven with two ledger connections on one file. The owner chose to keep the
-later end (2026-11-07): arming now reads and writes inside one
-`BEGIN IMMEDIATE` transaction and leaves a row that ends later in place.
-Regression: `tests/test_governor_ledger.py::test_a_short_flood_in_another_process_keeps_a_long_cooldown`
-and `LedgerMachine`.
+Machine §7, concurrency. Arming overwrote the stored deadline, so a 5 s
+FloodWait one process drew on chat B replaced a 1 h penalty another process
+recorded on chat A. The machine is gone (ADR-0125).
 
 ### F6. FLOOD_PREMIUM_WAIT counts as a refusal — fixed
 
 Machines §5, §9, §10, and every per-item failure record. Telegram answers a
 non-Premium account that downloads or uploads too fast with
 `FLOOD_PREMIUM_WAIT_X`, a 420 like `FLOOD_WAIT_X` but another Telethon class.
-The governor armed a cooldown for it, yet every handler caught only
+Every handler caught only
 `FloodWaitError`: the run exited 1 instead of 5, an archive media tail spent
 one of the item's three attempts on it (three such floods make a voice note
 `no_media` and `no_transcript` for good), and clone code that maps a refusal
@@ -467,8 +433,5 @@ Test: `tests/test_clone_reply_placement.py::test_a_resumed_sync_keeps_a_posts_re
 
 ### Suspected, not proven
 
-- A governed request that slept out a cooldown does not re-read the ledger
-  before sending, so a longer cooldown armed meanwhile by another process is
-  not honoured for that one request.
 - Two `accounts login --continue` of one attempt can leave an empty staged
   `.session` without its json, which `store cleanup` never lists.

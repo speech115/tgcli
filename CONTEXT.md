@@ -78,18 +78,18 @@ secret.
 **relic** — a directory left behind by a removed surface, produced by no
 current code path (ADR-0040).
 
-## Request governor
+## Floods and pacing
 
-**governor** — the per-account pacing and flood layer around every
-authenticated request (ADR-0072). It spaces paced request classes
-start-to-start and refuses locally while a type is cooling.
+**FloodWait** — Telegram's "wait N seconds" answer to a request. Telethon
+sleeps one of up to 30 s and sends the request again; a longer one ends the
+command with exit 5 and `retry_after` (ADR-0125). tgcli stores none of it.
 
-**cooldown** — a server-confirmed FloodWait deadline for one account and one
-request type, kept in the governor ledger (`governor.db`). Only that type
-waits; `doctor` lists the live ones.
+**pace** — the gap a loop leaves between its own requests (`tgcli.pace.Pace`):
+3 s start-to-start past the first five. Each loop holds its own; nothing
+spaces requests across loops or processes.
 
-**governed sleep** — time spent waiting on pacing or a cooldown. It does not
-count against `--timeout` and does count against `--max-runtime`.
+**page wait** — the 3 s Telethon waits before each history page after the
+first, set by `wait_time` on every `iter_messages` call.
 
 ## Archive
 

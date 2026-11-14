@@ -169,7 +169,7 @@ chat instead of making a new preview. `forward --commit` works the same way.
 ## `tg run` — anything without a command
 
 When no wrapped command covers the task, write a short Python script. It gets
-`client` (Telethon, already authorized and paced), `functions`, `types`,
+`client` (Telethon, already authorized), `functions`, `types`,
 `account`, and `msg(message)`, which returns the same JSON object as `tg read`.
 Bundle related calls into one script instead of one process per call.
 
@@ -209,24 +209,31 @@ network work. A block is exit 2; do not retry it until the safety condition is
 intentionally changed. The variables also accept `true`/`yes`/`on` (and
 `0`/`false`/`no`/`off` for off); any other value is exit 3.
 
-### Request governor (ADR-0072)
+### Floods and pacing (ADR-0125)
 
-A single command runs unpaced. Loops are paced: past five requests of one
-type in a run, history reads wait 3 s each, so prefer one script or one
-bulk command over hundreds of separate reads. Sends and forwards share one
-pace: past five in a run, 3 s each (ADR-0122). A FloodWait is remembered
-across processes: until the server's deadline, that request type refuses
-locally (exit 5, `retry_after`) without sending anything, and until an hour
-after it ends every run paces that type from its first request (slow start), so
-the rerun is slower. Phone resolution (`tg resolve +PHONE`, or
-`contacts.ResolvePhoneRequest` in a `tg run` script) also refuses with exit 5
-and `retry_after` within 3 s of one from another `tg` process. `tg doctor`
-reports active cooldowns and works even while they refuse. Exit 5 means
-wait out `retry_after`; never retry FloodWait in a loop. The default
-`--timeout` is a hang detector that ignores governed sleep; `--max-runtime`
-bounds a long run as a normal stop, and a FloodWait that fits it is slept
-out instead of exiting 5 — give long runs (`clone sync`, bulk media,
-`tg run` loops) a `--max-runtime`.
+A FloodWait of up to 30 s is slept out and the request sent again. A longer
+one exits 5 with `retry_after`, and so does any FloodWait in `clone init
+--commit`, `clone sync` and `tg run --write`, which never send a request
+twice. Nothing remembers a flood between runs: after exit 5, wait
+`retry_after` seconds before the next run, and never retry in a loop. A run
+started sooner sends the request again and may draw a longer wait.
+
+A single command is not slowed, except that a history or search read waits
+3 s before each page after the first (100 messages a page): `read --limit
+300` takes at least 6 s, and a limit above about 1500 needs a larger
+`--timeout`. Bulk commands space their own requests 3 s apart past the first
+five: dialogs in `archive backfill|sync`, files in bulk `media download`,
+sends in `clone sync` (20 a minute, ADR-0122), prefix queries in `export
+subscribers`. Prefer one bulk command over hundreds of separate reads.
+
+A `tg run` script spaces only its writes. A script that reads many chats
+waits between them itself: `await asyncio.sleep(3)` per chat, and
+`wait_time=3` on `client.iter_messages`. Leave a few seconds between two
+`tg resolve +PHONE` calls.
+
+`--timeout` is wall time, waits included. `--max-runtime` bounds a long run
+as a normal stop with a resume pointer: give long runs (`clone sync`, bulk
+media, `archive sync`) one.
 
 ### Clone peer budget (ADR-0045)
 
