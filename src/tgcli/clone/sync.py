@@ -2,7 +2,10 @@
 
 The run behind `tg clone sync` (ADR-0017/0021): it checks the recorded
 destination, alternates the posts and comments legs (ADR-0051), carries pins
-over and lists the roster, then reports the sync document.
+over and lists the roster, then reports the sync document. A run with nothing
+new finishes early (ADR-0126, `clone.idle`), and one that ends in a FloodWait
+it cannot ride out remembers it in the clone, so the next run asks nothing of
+Telegram until it has passed.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from tgcli.clone import (
     comments,
     discussion,
     fidelity,
+    idle,
     init_peers,
     legs,
     pin,
@@ -31,21 +35,66 @@ from tgcli.clone import (
     transport,
 )
 from tgcli.clone.state import Comments
-from tgcli.errors import PartialFailure, PolicyError
+from tgcli.errors import PartialFailure, PolicyError, RateLimitError
 from tgcli.output import note
+from tgcli.tg_errors import FLOOD_ERRORS
 
 
 async def sync_text(
     tg, source: str, account_alias: str, *, limit: int | None = None
 ) -> dict:
-    me = await tg.get_me()
-    source_entity, source_kind, _ = await resolve.resolve_source(
-        tg, source, account_user_id=me.id
-    )
-    with state.slot_lock(state.clone_id(me.id, source_entity.id, source_kind)):
-        return await _sync_slot(
-            tg, source, account_alias, me, source_entity, source_kind, limit=limit
+    me_id = await idle.account_id(tg)
+    peer = await idle.source_peer(tg, source, me_id)
+    resolved = None
+    if peer is None:
+        resolved = await resolve.resolve_source(tg, source, account_user_id=me_id)
+        slot = state.clone_id(me_id, resolved[0].id, resolved[1])
+    else:
+        slot = idle.slot_id(peer, me_id)
+    with state.slot_lock(slot):
+        try:
+            if peer is not None and (done := await _finish_if_idle(tg, slot, peer)):
+                return done
+            if resolved is None:
+                resolved = await resolve.resolve_source(
+                    tg, source, account_user_id=me_id
+                )
+            me = await tg.get_me()
+            source_entity, source_kind, _ = resolved
+            return await _sync_slot(
+                tg, source, account_alias, me, source_entity, source_kind, limit=limit
+            )
+        except FLOOD_ERRORS as flood:
+            _remember_flood(slot, flood.seconds)
+            raise
+
+
+async def _finish_if_idle(tg, slot: str, peer) -> dict | None:
+    held = state.load(slot)
+    if held is None:
+        return None
+    _refuse_during_flood(held)
+    if not await idle.up_to_date(tg, held, peer):
+        return None
+    idle.finish(held)
+    return _idle_document(held)
+
+
+def _refuse_during_flood(clone_state: state.CloneState) -> None:
+    left = clone_state.flood_left()
+    if left is not None:
+        raise RateLimitError(
+            f"clone is rate limited for {left}s; no request was sent", retry_after=left
         )
+
+
+def _remember_flood(slot: str, seconds: int) -> None:
+    """Record a flood this run could not ride out. The state is read afresh:
+    what the run held in memory but never saved stays unsaved, as before."""
+    clone_state = state.load(slot)
+    if clone_state is not None:
+        clone_state.remember_flood(seconds)
+        state.save(clone_state)
 
 
 async def _sync_slot(
@@ -54,6 +103,7 @@ async def _sync_slot(
     clone_state = state.load(state.resolve_slot(me.id, source_entity.id, source_kind))
     if clone_state is None or clone_state.destination_peer_id is None:
         raise PolicyError("clone is not initialized; run clone init first")
+    _refuse_during_flood(clone_state)
     if clone_state.source_kind != source_kind:
         raise PolicyError("clone source kind no longer matches initialized state")
     if clone_state.comments == Comments.ENABLED and not clone_state.discussion_linked:
@@ -343,26 +393,21 @@ async def _sync_slot(
             pinned_result = pin.snapshot(clone_state)
     if not warned_unstarted:
         clone_progress.comments_unstarted(clone_state)
-    progress.phase("roster")
     # The pin phase may have spent the rest of the cap.
-    participants = (
-        roster.deferred(clone_state, "wall_clock_cap")
-        if pace.exhausted()
-        else await roster.collect(tg, clone_state, source_entity)
-    )
+    if pace.exhausted():
+        participants = roster.deferred(clone_state, "wall_clock_cap")
+    elif not roster.due(clone_state):
+        participants = roster.fresh(clone_state)
+    else:
+        progress.phase("roster")
+        participants = await roster.collect(tg, clone_state, source_entity)
     clone_state.last_synced_at = datetime.now(UTC).isoformat()
+    clone_state.retry_not_before = None
     state.save(clone_state)
-    data: dict = {
-        "clone": {
-            "id": clone_state.clone_id,
-            "source": {
-                "id": source_entity.id,
-                "title": clone_state.source_title,
-                "kind": clone_state.source_kind,
-            },
-            "destination": {"id": destination.id, "title": destination.title},
-        },
-        "sync": {
+    data = _document(
+        clone_state,
+        {"id": destination.id, "title": destination.title},
+        {
             "copied": copied,
             "skipped_unsupported": skipped_unsupported,
             **transport_counts,
@@ -371,13 +416,11 @@ async def _sync_slot(
             "quote_flattened": quote_flattened,
             "markup_dropped": markup_dropped,
             "poll_votes": poll_votes,
-            "cursor": clone_state.cursor,
-            "discussion_cursor": clone_state.discussion_cursor,
-            "more": more,
-            "participants": participants,
-            **({"pinned": pinned_result} if pinned_result is not None else {}),
         },
-    }
+        more=more,
+        participants=participants,
+        pinned=pinned_result,
+    )
     data["remaining"] = bool(more or capped)
     if quote_flattened:
         raise PartialFailure(
@@ -391,6 +434,69 @@ async def _sync_slot(
         # advanced and the next invocation resumes (ADR-0107).
         data["stop_reason"] = "wall_clock_cap"  # type: ignore[index]
         data["resume"] = {"cursor": clone_state.cursor}
+    return data
+
+
+def _document(
+    clone_state: state.CloneState,
+    destination: dict,
+    copy: dict,
+    *,
+    more: bool,
+    participants: dict,
+    pinned: dict | None,
+    up_to_date: bool = False,
+) -> dict:
+    return {
+        "clone": {
+            "id": clone_state.clone_id,
+            "source": {
+                "id": clone_state.source_peer_id,
+                "title": clone_state.source_title,
+                "kind": clone_state.source_kind,
+            },
+            "destination": destination,
+        },
+        "sync": {
+            **copy,
+            "cursor": clone_state.cursor,
+            "discussion_cursor": clone_state.discussion_cursor,
+            "more": more,
+            "up_to_date": up_to_date,
+            "participants": participants,
+            **({"pinned": pinned} if pinned is not None else {}),
+        },
+    }
+
+
+def _idle_document(clone_state: state.CloneState) -> dict:
+    data = _document(
+        clone_state,
+        {"id": clone_state.destination_peer_id, "title": clone_state.destination_title},
+        {
+            "copied": 0,
+            "skipped_unsupported": [],
+            "forwarded": 0,
+            "reuploaded": 0,
+            "snapshots": 0,
+            "topics_created": 0,
+            "skipped_service": 0,
+            "skipped_autoforward": 0,
+            "reply_flattened": 0,
+            "quote_flattened": [],
+            "markup_dropped": [],
+            "poll_votes": [],
+        },
+        more=False,
+        participants=roster.fresh(clone_state),
+        pinned=(
+            None
+            if clone_state.destination_kind == "forum"
+            else pin.snapshot(clone_state)
+        ),
+        up_to_date=True,
+    )
+    data["remaining"] = False
     return data
 
 

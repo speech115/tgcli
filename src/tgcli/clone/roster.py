@@ -7,6 +7,7 @@ fails the sync it follows.
 """
 
 import json
+import time
 from pathlib import Path
 
 from telethon import errors as telethon_errors
@@ -48,6 +49,20 @@ def _deferred_reason(exc: Exception) -> str:
 
 def path_for(clone_id: str) -> Path:
     return state.clones_dir() / f"{clone_id}-participants.jsonl"
+
+
+# The sidecar's own mtime says when the roster was last written, so no state
+# records it.
+REFRESH_S = 24 * 60 * 60
+
+
+def due(clone_state: state.CloneState) -> bool:
+    """Whether the sidecar is missing or at least a day old."""
+    try:
+        age = time.time() - path_for(clone_state.clone_id).stat().st_mtime
+    except FileNotFoundError:
+        return True
+    return not 0 <= age < REFRESH_S
 
 
 def _row(peer: str, participant) -> dict:
@@ -103,11 +118,11 @@ def _marker(clone_state: state.CloneState, status: str, reason: str) -> dict:
     }
 
 
-def deferred(clone_state: state.CloneState, reason: str) -> dict:
-    """The roster this run skipped: every peer deferred, sidecar untouched."""
+def _skipped(clone_state: state.CloneState, status: str, reason: str) -> dict:
+    """The roster this run did not list: every peer ``status``, sidecar untouched."""
     source = {
         "peer_id": clone_state.source_peer_id,
-        "status": "deferred",
+        "status": status,
         "count": 0,
         "reason": reason,
     }
@@ -115,11 +130,20 @@ def deferred(clone_state: state.CloneState, reason: str) -> dict:
         clone_state.comments == Comments.ENABLED
         and clone_state.discussion_source_peer_id
     ):
-        discussion = _marker(clone_state, "deferred", reason)
+        discussion = _marker(clone_state, status, reason)
     else:
         discussion = {"peer_id": None, "status": "none", "count": 0, "reason": None}
     path = path_for(clone_state.clone_id)
     return {"path": str(path), "source": source, "discussion": discussion}
+
+
+def deferred(clone_state: state.CloneState, reason: str) -> dict:
+    return _skipped(clone_state, "deferred", reason)
+
+
+def fresh(clone_state: state.CloneState) -> dict:
+    """The roster a run left alone because the sidecar is under a day old."""
+    return _skipped(clone_state, "fresh", "collected_within_24h")
 
 
 async def collect(tg, clone_state: state.CloneState, source_entity) -> dict:
@@ -154,5 +178,9 @@ async def collect(tg, clone_state: state.CloneState, source_entity) -> dict:
         else:
             discussion = await _discussion_roster(tg, clone_state, group, refusal, rows)
 
-    path = _write(clone_state.clone_id, rows)
+    path = path_for(clone_state.clone_id)
+    if "deferred" not in (source["status"], discussion["status"]):
+        # A deferral keeps the last full snapshot and its age, so the next run
+        # retries instead of waiting out `REFRESH_S`.
+        path = _write(clone_state.clone_id, rows)
     return {"path": str(path), "source": source, "discussion": discussion}

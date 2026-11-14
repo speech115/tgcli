@@ -14,10 +14,11 @@
           "SendMediaRequest": 7,
           "SendMessageRequest": 137,
           "get_entity": 5,
-          "get_me": 1,
+          "get_input_entity": 1,
+          "get_me": 2,
           "get_messages": 11
         },
-        "total_requests": 340,
+        "total_requests": 342,
         "state_saves": 506,
         "completeness": {
           "expected": 312,
@@ -43,15 +44,12 @@
         "phase": "idle",
         "exit": 0,
         "requests": {
-          "GetFullChannelRequest": 1,
-          "GetHistoryRequest (iter_messages)": 2,
-          "GetParticipantsRequest (iter_participants)": 2,
-          "get_entity": 5,
-          "get_me": 1,
-          "get_messages": 2
+          "GetHistoryRequest": 2,
+          "get_input_entity": 2,
+          "get_me": 1
         },
-        "total_requests": 13,
-        "state_saves": 2,
+        "total_requests": 5,
+        "state_saves": 1,
         "completeness": {
           "expected": 312,
           "copied": 312,
@@ -79,11 +77,12 @@
           "ForwardMessagesRequest": 7,
           "GetDiscussionMessageRequest": 3,
           "GetFullChannelRequest": 1,
+          "GetHistoryRequest": 1,
           "GetHistoryRequest (iter_messages)": 2,
-          "GetParticipantsRequest (iter_participants)": 2,
           "SendMessageRequest": 8,
-          "get_entity": 5,
-          "get_me": 1,
+          "get_entity": 4,
+          "get_input_entity": 1,
+          "get_me": 2,
           "get_messages": 5
         },
         "total_requests": 34,
@@ -127,10 +126,11 @@
           "UploadMediaRequest": 36,
           "download_media": 47,
           "get_entity": 2,
-          "get_me": 1,
+          "get_input_entity": 1,
+          "get_me": 2,
           "get_messages": 2
         },
-        "total_requests": 223,
+        "total_requests": 225,
         "state_saves": 98,
         "completeness": {
           "expected": 108,

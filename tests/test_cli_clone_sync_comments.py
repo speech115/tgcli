@@ -1,6 +1,7 @@
 """clone sync: the comments leg, discussion threads and windows."""
 
 import json
+import os
 
 import pytest
 from telethon import errors as telethon_errors
@@ -26,7 +27,7 @@ from tests.fakes.clone import (
 # A fixture: the redundant alias marks an explicit re-export for ruff.
 from tests.fakes.clone_env import config_env as config_env
 from tgcli.cli import main
-from tgcli.clone import state
+from tgcli.clone import roster, state
 
 
 def test_sync_copies_posts_before_comments(config_env, monkeypatch, capsys):
@@ -399,8 +400,6 @@ def test_sync_snapshots_discussion_roster_when_comments_enabled(
 ):
     """The source channel refuses its roster (not admin) but its readable
     discussion group is snapshotted to the participant sidecar."""
-    from tgcli.clone import roster
-
     clone_state = seed_comments_clone()
     client = CloneCommentsClient([message(2)], [anchor(10, 2)])
     make_session_fake(monkeypatch, client)
@@ -1028,9 +1027,12 @@ def test_sync_advances_the_discussion_cursor_per_batch(config_env, monkeypatch, 
     assert saved.discussion_cursor == 13
     assert [saved.discussion_dest_for(12), saved.discussion_dest_for(13)] == [501, 502]
 
+    # A day-old roster makes the rerun a full one that reads from the cursors.
+    os.utime(roster.path_for(clone_state.clone_id), (0, 0))
     assert main(["clone", "sync", "@source", "--json"]) == 0
     rerun = json.loads(capsys.readouterr().out)["sync"]
     assert rerun["copied"] == 0
+    assert rerun["up_to_date"] is False
     assert rerun["skipped_autoforward"] == 0
     assert [send.message for send in group_sends(client)] == [
         "Source chat: \n\none",

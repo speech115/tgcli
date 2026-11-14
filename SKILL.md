@@ -215,9 +215,11 @@ A FloodWait of up to 30 s is slept out and the request sent again. A longer
 one exits 5 with `retry_after`. `clone sync` sends and `tg run --write`
 writes get the same one resend after a flood of up to 30 s; a second flood
 on the resend exits 5, and so does any FloodWait in `clone init --commit`.
-Nothing remembers a flood between runs: after exit 5, wait `retry_after`
-seconds before the next run, and never retry in a loop. A run started
-sooner sends the request again and may draw a longer wait.
+After exit 5, wait `retry_after` seconds before the next run, and never retry
+in a loop: a run started sooner sends the request again and may draw a longer
+wait. `clone sync` is the exception. It writes the end of the wait into the
+clone (`retry_not_before`, shown by `clone status`), and until then each run
+of it exits 5 at once with the remaining `retry_after`, sending nothing.
 
 A single command is not slowed: `read`, `search` and the other reads of one
 chat leave page spacing to Telethon (no wait up to 3000 messages), so `read
@@ -263,8 +265,14 @@ top-level `ok` result.
   stream. A gap is stored until `tg --json archive rebaseline`; later clean
   syncs keep it and return `gaps: []` and `gap: null`, so check
   `archive status`: `gaps` lists every gap not yet cleared, oldest first.
+- `clone sync` with `sync.up_to_date: true` found nothing past the clone's
+  cursors and did no other work: exit 0, no destination check, no roster, no
+  pin read. It is the normal result of a scheduled run (see
+  [docs/OPERATIONS.md](docs/OPERATIONS.md)); a day-old roster makes a run
+  full again.
 - `clone sync` `participants.source` / `.discussion` with
-  `status: "deferred"` is retried next run: `reason` is `"flood_wait"`,
+  `status: "fresh"` was not listed again because the sidecar is under a day
+  old. With `status: "deferred"` it is retried next run: `reason` is `"flood_wait"`,
   `"wall_clock_cap"` (`--max-runtime` ran out), or a Telegram error name. `"unavailable"` means Telegram refused access. These
   roster outcomes do not fail a sync whose messages copied.
 

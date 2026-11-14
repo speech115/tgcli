@@ -189,6 +189,8 @@ def test_clone_sync_flood_wait_sends_once_without_advancing(
 
     class FloodClient(CloneSyncClient):
         async def __call__(self, request):
+            if isinstance(request, functions.messages.GetHistoryRequest):
+                return await super().__call__(request)
             self.requests.append(request)
             raise telethon_errors.FloodWaitError(request=request, capture=600)
 
@@ -291,6 +293,8 @@ def test_clone_sync_flood_wait_exits_5_without_advancing(
 
     class FloodClient(CloneSyncClient):
         async def __call__(self, request):
+            if isinstance(request, functions.messages.GetHistoryRequest):
+                return await super().__call__(request)
             self.requests.append(request)
             raise telethon_errors.FloodWaitError(request=request, capture=600)
 

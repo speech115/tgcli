@@ -72,6 +72,7 @@ def test_clone_sync_skips_service_and_reports_unsupported_messages(
         "cursor": 4,
         "discussion_cursor": 0,
         "more": False,
+        "up_to_date": False,
     }
     assert [request.id for request in client.requests] == [[4]]
     saved = state.load(clone_state.clone_id)
@@ -355,6 +356,7 @@ def test_clone_sync_keeps_grouped_id_zero_album_atomic_and_in_position(
         "cursor": 5,
         "discussion_cursor": 0,
         "more": False,
+        "up_to_date": False,
     }
     assert [request.id for request in client.requests] == [[2], [3, 4], [5]]
     assert len(client.requests[1].random_id) == 2

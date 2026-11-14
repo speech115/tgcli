@@ -1,6 +1,7 @@
 """Persistent clone reupload media cache (ADR-0052 task 4)."""
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -753,6 +754,8 @@ def test_a_small_download_under_telethons_name_is_reused_after_a_failed_run(
 
     assert main(["clone", "sync", "@source", "--json"]) == 5
     client.flood = False
+    after_the_wait = datetime.now(UTC) + timedelta(seconds=91)
+    monkeypatch.setattr(state, "_now", lambda: after_the_wait)
     assert main(["clone", "sync", "@source", "--json"]) == 0
     capsys.readouterr()
 

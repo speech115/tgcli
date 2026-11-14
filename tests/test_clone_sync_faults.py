@@ -15,7 +15,9 @@ clone refused. After every run:
 - every message at or below a leg's cursor is mapped (L1);
 - a copy the clone did not record makes every later run exit 2 before it
   copies into that chat (L2), until the owner repairs the tail;
-- a run that fails exits as its fault says: 5 for a flood of either kind.
+- a run that fails exits as its fault says: 5 for a flood of either kind;
+- a run that ended in a flood remembers it (ADR-0126): every run before its
+  wait is over exits 5 and asks Telegram for nothing.
 
 And whenever the faults stop, one clean run finishes the clone: every post
 and comment copied exactly once, each copy the one a run of the same world
@@ -28,6 +30,7 @@ import contextlib
 import io
 import json
 import tempfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -57,6 +60,10 @@ send_plans = st.dictionaries(
 )
 
 
+FLOOD_SECONDS = 30  # what `clone_faults` raises
+WAIT_SECONDS = FLOOD_SECONDS + 1
+
+
 EXIT_FOR = {
     "flood": 5,
     "premium_flood": 5,
@@ -82,6 +89,12 @@ class CloneSyncFaultMachine(RuleBasedStateMachine):
         self.patch.setenv("TGCLI_STATE_DIR", str(root / "state"))
         self.patch.delenv("TGCLI_READONLY", raising=False)
         self.repaired: set[tuple[str, int]] = set()
+        self.epoch = datetime.now(UTC)
+        self.clock = 0
+        self.flood_until: int | None = None
+        self.patch.setattr(
+            state, "_now", lambda: self.epoch + timedelta(seconds=self.clock)
+        )
 
     def _client(self, world):
         seeded, plain = clone_world.build(world)
@@ -143,13 +156,25 @@ class CloneSyncFaultMachine(RuleBasedStateMachine):
             if item not in recorded and (item[0], item[2]) not in self.repaired
         ]
 
+    def _flooded(self) -> bool:
+        return self.flood_until is not None and self.clock < self.flood_until
+
     @rule(plan=plans, sends=send_plans)
     def sync(self, plan, sends):
         strays = self._strays()
         created = len(self.client.created)
+        flooded = self._flooded()
         code = self._run(plan, sends)
         fired = self.fired
-        event(f"fired {sorted(set(fired))} exit {code}")
+        event(f"fired {sorted(set(fired))} exit {code} flooded {flooded}")
+        if flooded:
+            assert code == 5 and not self.log, (code, self.log, self.err)
+            assert json.loads(self.err)["error"]["retry_after"] == (
+                self.flood_until - self.clock
+            )
+            return
+        if code == 5:
+            self.flood_until = self.clock + FLOOD_SECONDS
         if strays:
             # L2: a copy the clone lost track of stops the next copy into
             # that chat cold, and the run says so (exit 2, manual repair).
@@ -167,6 +192,17 @@ class CloneSyncFaultMachine(RuleBasedStateMachine):
             # flood of either kind is 5 with retry_after, a lost or failed
             # request 1, a send Telegram did not confirm 2.
             assert code == EXIT_FOR[fired[-1]], (fired, code, self.err)
+
+    @rule()
+    def wait(self):
+        self.clock += WAIT_SECONDS
+
+    @invariant()
+    def a_flood_is_remembered_until_its_wait_is_over(self):
+        if not hasattr(self, "client") or self.flood_until is None:
+            return
+        expected = self.flood_until - self.clock if self._flooded() else None
+        assert self._state().flood_left() == expected
 
     @precondition(lambda self: self._strays())
     @rule()
@@ -187,6 +223,7 @@ class CloneSyncFaultMachine(RuleBasedStateMachine):
     def finish(self):
         """With the faults over and the tail repaired, one run completes."""
         self.repair()
+        self.clock += WAIT_SECONDS
         event("finish")
         code = self._run({})
         assert code == 0, self.err

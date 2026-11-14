@@ -6,13 +6,16 @@ plain dicts says what the database must hold. After every step:
 
 - a fresh ``load`` equals what the last ``save`` was given, nothing newer;
 - a state that was never saved has no database at all;
-- the live object still holds everything recorded on it, saved or not.
+- the live object still holds everything recorded on it, saved or not;
+- a remembered flood (ADR-0126) is saved with the rest and survives a crash,
+  and reads as over exactly when its wait has passed.
 """
 
 from __future__ import annotations
 
 import copy
 import tempfile
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from hypothesis import settings, strategies as st
@@ -33,6 +36,11 @@ class _Machine(RuleBasedStateMachine):
         self.patch = pytest.MonkeyPatch()
         self.directory = tempfile.TemporaryDirectory()
         self.patch.setenv("TGCLI_STATE_DIR", self.directory.name)
+        self.epoch = datetime(2026, 11, 14, tzinfo=UTC)
+        self.clock = 0
+        self.patch.setattr(
+            state, "_now", lambda: self.epoch + timedelta(seconds=self.clock)
+        )
         self.state = self._new_state()
         self.clone_id = self.state.clone_id
         self.live = self._empty()
@@ -56,6 +64,7 @@ class _Machine(RuleBasedStateMachine):
             "anchor_map": {},
             "cursor": 0,
             "discussion_cursor": 0,
+            "retry_not_before": None,
         }
 
     def _fresh_dest(self) -> int:
@@ -71,6 +80,7 @@ class _Machine(RuleBasedStateMachine):
             "anchor_map": dict(held.anchor_map),
             "cursor": held.cursor,
             "discussion_cursor": held.discussion_cursor,
+            "retry_not_before": held.retry_not_before,
         }
 
     @rule(source=SOURCES)
@@ -86,6 +96,31 @@ class _Machine(RuleBasedStateMachine):
         photo = self._fresh_dest()
         self.state.record_avatar(peer, photo)
         self.live["avatar_photo_ids"][peer] = photo
+
+    @rule(seconds=st.integers(min_value=1, max_value=900))
+    def flood(self, seconds):
+        self.state.remember_flood(seconds)
+        until = self.epoch + timedelta(seconds=self.clock + seconds)
+        self.live["retry_not_before"] = until.isoformat()
+
+    @rule()
+    def complete_a_run(self):
+        self.state.retry_not_before = None
+        self.live["retry_not_before"] = None
+
+    @rule(seconds=st.integers(min_value=1, max_value=900))
+    def wait(self, seconds):
+        self.clock += seconds
+
+    @invariant()
+    def a_flood_is_left_until_its_wait_is_over(self):
+        marker = self.live["retry_not_before"]
+        if marker is None:
+            assert self.state.flood_left() is None
+            return
+        left = (datetime.fromisoformat(marker) - self.epoch).total_seconds()
+        left -= self.clock
+        assert self.state.flood_left() == (int(left) if left > 0 else None)
 
     @rule()
     def save(self):
