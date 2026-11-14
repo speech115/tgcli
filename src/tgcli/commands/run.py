@@ -114,6 +114,7 @@ def install_write_gate(client, account: str, *, write: bool) -> None:
 
     async def gated(sender, request, *args, **kwargs):
         requests = request if isinstance(request, list) else [request]
+        writes = 0
         for item in requests:
             name = method_name(item)
             if name in PLUMBING:
@@ -132,8 +133,14 @@ def install_write_gate(client, account: str, *, write: bool) -> None:
                     f"tg run is read-only: {name} writes; re-run with --write"
                 )
             safety.append_audit("run-write", account, {"method": name})
+            writes += 1
+        if not writes:
+            return await inner(sender, request, *args, **kwargs)
+        for _ in range(writes - 1):
             await between_writes.wait()
-        return await inner(sender, request, *args, **kwargs)
+        return await between_writes.call(
+            lambda: inner(sender, request, *args, **kwargs)
+        )
 
     client._call = gated
 

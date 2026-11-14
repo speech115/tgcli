@@ -212,17 +212,17 @@ intentionally changed. The variables also accept `true`/`yes`/`on` (and
 ### Floods and pacing (ADR-0125)
 
 A FloodWait of up to 30 s is slept out and the request sent again. A longer
-one exits 5 with `retry_after`, and so does any FloodWait in `clone init
---commit`, `clone sync` and `tg run --write`, which never send a request
-twice. Nothing remembers a flood between runs: after exit 5, wait
-`retry_after` seconds before the next run, and never retry in a loop. A run
-started sooner sends the request again and may draw a longer wait.
+one exits 5 with `retry_after`. `clone sync` sends and `tg run --write`
+writes get the same one resend after a flood of up to 30 s; a second flood
+on the resend exits 5, and so does any FloodWait in `clone init --commit`.
+Nothing remembers a flood between runs: after exit 5, wait `retry_after`
+seconds before the next run, and never retry in a loop. A run started
+sooner sends the request again and may draw a longer wait.
 
-A single command is not slowed, except that a history or search read waits
-3 s before each page after the first (100 messages a page): `read --limit
-300` takes at least 6 s, and a limit above about 1500 needs a larger
-`--timeout`. Bulk commands space their own requests 3 s apart past the first
-five: dialogs in `archive backfill|sync`, files in bulk `media download`,
+A single command is not slowed: `read`, `search` and the other reads of one
+chat leave page spacing to Telethon (no wait up to 3000 messages), so `read
+--limit 300` is quick. Bulk commands space their own requests 3 s apart past
+the first five: dialogs in `archive backfill|sync`, files in bulk `media download`,
 sends in `clone sync` (20 a minute, ADR-0122), prefix queries in `export
 subscribers`. Prefer one bulk command over hundreds of separate reads.
 

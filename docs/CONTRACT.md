@@ -95,7 +95,7 @@ flag.
 | 2 | blocked by safety policy | `--readonly` + mutating command, `TGCLI_NO_SEND` |
 | 3 | config/auth error | missing `--account` / `default_account`, dead session (any Telegram `UnauthorizedError`: revoked, expired, unregistered key, deactivated user — `needs reauthentication`), bad api_id, a session still busy after the wait below, an `archive sync`/`rebaseline`/`transcribe` already running for the account, a `media download` of the same message already running in another process |
 | 4 | not found | unknown dialog, message id, media; unknown alias on `accounts show\|remove` (lookup) |
-| 5 | rate limited | FloodWait longer than 30 s, or any FloodWait in a mutation-safe session (`FLOOD_WAIT_X`, or `FLOOD_PREMIUM_WAIT_X`, the transfer speed limit of a non-Premium account: every "FloodWait" in this contract means either); `retry_after` in error JSON |
+| 5 | rate limited | FloodWait longer than 30 s, or, in a mutation-safe session, a FloodWait longer than 30 s or a second one on the same send (`FLOOD_WAIT_X`, or `FLOOD_PREMIUM_WAIT_X`, the transfer speed limit of a non-Premium account: every "FloodWait" in this contract means either); `retry_after` in error JSON |
 
 A command whose session another `tg` process holds waits up to **120 s** for
 it, with one stderr note, then exits 3. The wait counts against `--timeout`
@@ -107,19 +107,28 @@ wait.
 **Floods (ADR-0125).** A FloodWait of up to 30 s is slept out and the
 request is sent again: the command succeeds, later. A longer one exits 5
 with `retry_after`. `clone init --commit`, `clone sync` and `tg run --write`
-open a mutation-safe session, which never sends a request twice, so any
-FloodWait in them exits 5 at once. tgcli keeps no flood state between
-invocations: after exit 5 the caller waits `retry_after` seconds before the
-next run. A run started sooner sends the request again and may draw a
-longer wait.
+open a mutation-safe session, which never retries a request blind, so
+Telethon raises a FloodWait there at once. A FloodWait means Telegram did
+not run the request, so the paced sends of `clone sync` (each `sendMessage`,
+`sendMedia`, `sendMultiMedia` and `forwardMessages`) and the writes of a `tg
+run --write` script sleep a flood of up to 30 s, within what `--max-runtime`
+has left, and send the request once more. A longer flood, or a second one
+on the resend, exits 5 with its own `retry_after`. Every other request in
+those sessions, `clone init --commit` included, exits 5 on its first
+FloodWait. tgcli keeps no flood state between invocations: after exit 5 the
+caller waits `retry_after` seconds before the next run. A run started
+sooner sends the request again and may draw a longer wait.
 
 **Pacing (ADR-0125).** A command that sends a handful of requests never
-waits; a loop spaces its own. Every history or search read waits 3 s before
-each page after the first (100 messages a page), in every command, so
-`read --limit 300` takes at least 6 s and a limit above about 1500 needs a
-larger `--timeout`. `export messages` reads inside a takeout session and is
-not spaced. Past the first five in one run, each of these waits 3 s after
-the one before it started:
+waits; a loop spaces its own. A read of one chat at the owner's request
+(`read`, `search`, `latest`, `media manifest`) leaves page spacing to
+Telethon: no wait up to 3000 messages, 1 s a page beyond, so `read --limit
+300` is three requests back to back. A history walk inside a loop waits 3 s
+before each page after the first (100 messages a page): `archive backfill`
+and `archive sync`, a bulk `media download` of a whole chat, and `clone
+sync`. `export messages` reads inside a takeout session and is not spaced.
+Past the first five in one run, each of these waits 3 s after the one
+before it started:
 
 - the dialogs of `archive backfill`, and the channels and catch-ups of
   `archive sync`;

@@ -192,16 +192,11 @@ def session_file_lock(
         handle.close()
 
 
-# Telethon sleeps a FloodWait up to this long and sends the request again; a
-# longer one raises, and the command exits 5 with `retry_after` (ADR-0125).
-# It also remembers the wait per request type for the rest of the process: a
-# further request of that type sleeps out what is left, or raises unsent.
-FLOOD_SLEEP_THRESHOLD = 30
-
 # A mutation is never retried blind: a timeout or a 500 leaves its outcome
 # unknown. Telethon has no setting that resends after a flood only, and with
 # no retries it would sleep the flood and raise it anyway, so a session that
-# may write raises a flood at once.
+# may write raises a flood at once. The call site that knows a send is safe
+# to repeat resends it once through `pace.Pace.call`.
 _NO_RESEND = {"request_retries": 0, "flood_sleep_threshold": 0}
 
 
@@ -217,7 +212,7 @@ def build_client(path: Path, api_id: int, api_hash: str, **extra) -> TelegramCli
     """
     device_model, system_version, app_version = client_identity()
     options = {
-        "flood_sleep_threshold": FLOOD_SLEEP_THRESHOLD,
+        "flood_sleep_threshold": pace.FLOOD_SLEEP_THRESHOLD,
         "raise_last_call_error": True,
         "device_model": device_model,
         "system_version": system_version,

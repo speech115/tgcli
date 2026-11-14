@@ -1,16 +1,25 @@
 """Request spacing for bulk loops, and the `--max-runtime` cap (ADR-0125).
 
-Telethon sleeps a FloodWait of up to `session.FLOOD_SLEEP_THRESHOLD` seconds
-and raises a longer one, which exits 5 with `retry_after`. Neither keeps a
-loop from drawing the flood, so every loop that sends many requests spaces
-them here. A command that sends a handful never waits.
+Telethon sleeps a FloodWait of up to `FLOOD_SLEEP_THRESHOLD` seconds and
+raises a longer one, which exits 5 with `retry_after`. Neither keeps a loop
+from drawing the flood, so every loop that sends many requests spaces them
+here. A command that sends a handful never waits.
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterable, AsyncIterator
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
+
+from tgcli.tg_errors import FLOOD_ERRORS
+
+# Telethon sleeps a FloodWait up to this long and sends the request again; a
+# longer one raises, and the command exits 5 with `retry_after` (ADR-0125).
+# It also remembers the wait per request type for the rest of the process: a
+# further request of that type sleeps out what is left, or raises unsent.
+# `Pace.call` resends a write after a flood of up to this long as well.
+FLOOD_SLEEP_THRESHOLD = 30
 
 # Between the pages of one history or enumeration walk, and between the peers
 # of a loop that walks many. The 2026-07-31 flood was 791 dialogs read with
@@ -61,6 +70,26 @@ class Pace:
         self._last = start
         if start > now:
             await self._sleep(start - now)
+
+    async def call[T](self, send: Callable[[], Awaitable[T]]) -> T:
+        """Let ``send()`` through, and resend it once after a short flood.
+
+        A FloodWait means Telegram did not run the request, so sending it
+        again cannot duplicate it; a timeout or a 500 could, and propagates.
+        A second flood, or one past the threshold or the `--max-runtime`
+        cap, propagates unchanged.
+        """
+        await self.wait()
+        try:
+            return await send()
+        except FLOOD_ERRORS as flood:
+            left = remaining()
+            if flood.seconds > FLOOD_SLEEP_THRESHOLD or (
+                left is not None and flood.seconds > left
+            ):
+                raise
+            await self._sleep(flood.seconds)
+        return await send()
 
 
 async def paged[T](

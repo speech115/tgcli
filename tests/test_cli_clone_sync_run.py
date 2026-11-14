@@ -204,6 +204,77 @@ def test_clone_sync_flood_wait_sends_once_without_advancing(
     assert client.session_mutation_safe is True
 
 
+class FloodingClient(CloneSyncClient):
+    """Raises one FloodWait per entry of ``floods`` on a forward, then sends."""
+
+    def __init__(self, messages, floods):
+        super().__init__(messages)
+        self.floods = list(floods)
+
+    async def __call__(self, request):
+        if isinstance(request, functions.messages.ForwardMessagesRequest):
+            self.requests.append(request)
+            if self.floods:
+                raise telethon_errors.FloodWaitError(
+                    request=request, capture=self.floods.pop(0)
+                )
+            self.requests.pop()
+        return await super().__call__(request)
+
+
+def _forwards(client):
+    return [
+        (type(request), request.id)
+        for request in client.requests
+        if isinstance(request, functions.messages.ForwardMessagesRequest)
+    ]
+
+
+def test_clone_sync_resends_a_send_once_after_a_short_flood(
+    config_env, monkeypatch, capsys, pace_clock
+):
+    clone_state = seed_clone()
+    client = FloodingClient([message(2)], floods=[5])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 1
+    assert _forwards(client) == [(functions.messages.ForwardMessagesRequest, [2])] * 2
+    assert client.requests[0].to_dict() == client.requests[1].to_dict()
+    assert pace_clock.sleeps == [5]
+    assert state.load(clone_state.clone_id).dest_for(2) is not None
+
+
+def test_clone_sync_does_not_wait_out_a_flood_past_the_threshold(
+    config_env, monkeypatch, capsys, pace_clock
+):
+    seed_clone()
+    client = FloodingClient([message(2)], floods=[60])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+
+    assert json.loads(capsys.readouterr().err)["error"]["retry_after"] == 60
+    assert len(_forwards(client)) == 1
+    assert pace_clock.sleeps == []
+
+
+def test_clone_sync_resends_only_once_for_two_floods_in_a_row(
+    config_env, monkeypatch, capsys, pace_clock
+):
+    clone_state = seed_clone()
+    client = FloodingClient([message(2)], floods=[5, 7])
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--json"]) == 5
+
+    assert json.loads(capsys.readouterr().err)["error"]["retry_after"] == 7
+    assert len(_forwards(client)) == 2
+    assert pace_clock.sleeps == [5]
+    assert state.load(clone_state.clone_id).cursor == 0
+
+
 def test_clone_sync_flood_wait_exits_5_without_advancing(
     config_env, monkeypatch, capsys
 ):

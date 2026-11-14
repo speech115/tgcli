@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
 from hypothesis import given, settings, strategies as st
+from telethon import errors as telethon_errors
 
 from tgcli import pace
 from tgcli.pace import Pace
@@ -123,3 +125,95 @@ def test_a_spent_max_runtime_is_exhausted():
     pace.reset(0)
 
     assert pace.exhausted() is True
+
+
+class Sender:
+    """A ``send`` that raises one flood per entry of ``floods``, then answers."""
+
+    def __init__(self, *floods):
+        self.floods = list(floods)
+        self.calls = 0
+
+    async def __call__(self):
+        self.calls += 1
+        if self.floods:
+            raise self.floods.pop(0)
+        return "sent"
+
+
+def _flood(seconds, premium=False):
+    kind = (
+        telethon_errors.FloodPremiumWaitError
+        if premium
+        else telethon_errors.FloodWaitError
+    )
+    return kind(request=None, capture=seconds)
+
+
+@pytest.mark.parametrize("premium", [False, True], ids=["flood", "premium-flood"])
+async def test_call_resends_once_after_a_flood_it_can_sleep(premium):
+    time = Clock()
+    spacing = Pace(3.0, sleep=time.sleep, clock=time.clock)
+    send = Sender(_flood(pace.FLOOD_SLEEP_THRESHOLD, premium))
+
+    assert await spacing.call(send) == "sent"
+
+    assert send.calls == 2
+    assert time.sleeps == [pace.FLOOD_SLEEP_THRESHOLD]
+
+
+async def test_call_without_a_flood_sends_once_and_sleeps_nothing():
+    time = Clock()
+    send = Sender()
+
+    assert await Pace(3.0, sleep=time.sleep, clock=time.clock).call(send) == "sent"
+
+    assert send.calls == 1
+    assert time.sleeps == []
+
+
+async def test_call_raises_a_flood_past_the_threshold_unchanged():
+    time = Clock()
+    flood = _flood(pace.FLOOD_SLEEP_THRESHOLD + 1)
+    send = Sender(flood)
+
+    with pytest.raises(telethon_errors.FloodWaitError) as raised:
+        await Pace(3.0, sleep=time.sleep, clock=time.clock).call(send)
+
+    assert raised.value is flood
+    assert send.calls == 1
+    assert time.sleeps == []
+
+
+async def test_call_raises_a_second_flood():
+    time = Clock()
+    second = _flood(5)
+    send = Sender(_flood(5), second)
+
+    with pytest.raises(telethon_errors.FloodWaitError) as raised:
+        await Pace(3.0, sleep=time.sleep, clock=time.clock).call(send)
+
+    assert raised.value is second
+    assert send.calls == 2
+
+
+async def test_call_does_not_sleep_past_the_max_runtime_cap():
+    time = Clock()
+    pace.reset(4)
+    send = Sender(_flood(5))
+
+    with pytest.raises(telethon_errors.FloodWaitError):
+        await Pace(3.0, sleep=time.sleep, clock=time.clock).call(send)
+
+    assert send.calls == 1
+    assert time.sleeps == []
+
+
+async def test_call_sleeps_a_flood_that_fits_the_max_runtime_cap():
+    time = Clock()
+    pace.reset(60)
+    send = Sender(_flood(5))
+
+    assert await Pace(3.0, sleep=time.sleep, clock=time.clock).call(send) == "sent"
+
+    assert time.sleeps == [5]

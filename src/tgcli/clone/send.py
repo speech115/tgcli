@@ -375,8 +375,7 @@ async def _send_without_unavailable_emoji(
     loses only the custom look. If none proves unavailable, the error stands."""
     bodies = getattr(request, "multi_media", None) or [request]
     try:
-        await paces.send.wait()
-        return await tg(request)
+        return await paces.send.call(lambda: tg(request))
     except telethon_errors.DocumentInvalidError:
         wanted = {
             entity.document_id
@@ -407,8 +406,7 @@ async def _send_without_unavailable_emoji(
             "document_ids": sorted(unavailable),
         },
     )
-    await paces.send.wait()
-    response = await tg(request)
+    response = await paces.send.call(lambda: tg(request))
     for message_id, count in dropped.items():
         note(
             f"warning: clone source message {message_id}: {count} unavailable "
@@ -502,16 +500,17 @@ async def forward_batch(
                 "group_message_ids": [group_message_id],
             },
         )
-        await paces.send.wait()
-        response = await tg(
-            functions.messages.ForwardMessagesRequest(
-                from_peer=group,
-                id=[group_message_id],
-                random_id=random_ids,
-                to_peer=destination,
-                drop_author=False,
-                top_msg_id=top_msg_id,
-            ),
+        response = await paces.send.call(
+            lambda: tg(
+                functions.messages.ForwardMessagesRequest(
+                    from_peer=group,
+                    id=[group_message_id],
+                    random_id=random_ids,
+                    to_peer=destination,
+                    drop_author=False,
+                    top_msg_id=top_msg_id,
+                ),
+            )
         )
     elif plan.mode == "snapshots":
         rendered_text, rendered_entities, poll_marker = await snapshot.render(
@@ -559,8 +558,7 @@ async def forward_batch(
             drop_author=_drops_author(leg, messages),
             top_msg_id=top_msg_id,
         )
-        await paces.send.wait()
-        response = await tg(request)
+        response = await paces.send.call(lambda: tg(request))
     else:
         response = await reupload_batch(
             tg,
