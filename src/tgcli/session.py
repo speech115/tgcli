@@ -226,7 +226,9 @@ def build_client(path: Path, api_id: int, api_hash: str, **extra) -> Client:
 def _make_client(
     path: Path, account: Account, *, mutation_safe: bool = False
 ) -> TelegramClient:
-    extra = _NO_RESEND if mutation_safe else {}
+    # An authorized session never needs pushed updates (see `Client`); login
+    # keeps them, since sign-in flows may wait on one.
+    extra = {"receive_updates": False, **(_NO_RESEND if mutation_safe else {})}
     return build_client(path, account.api_id, account.api_hash, **extra)
 
 
@@ -264,6 +266,8 @@ def lock_free(session_file: Path) -> bool:
 async def _reuse(tg: TelegramClient, label: str, *, mutation_safe: bool):
     if not tg.is_connected():
         await tg.connect()
+    # Each command sees its own `get_me()`, as a fresh connection would.
+    vars(tg).pop("_cached_me", None)
     # A fresh client per command used to drop whatever a command installed on
     # it (`tg run`'s write gate wraps `_call`); the held one must give it back.
     call = vars(tg).get("_call")
