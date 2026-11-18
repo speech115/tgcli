@@ -40,12 +40,6 @@ def prepare_read(args) -> None:
     args.limit = limits.bounded("read", "--limit", getattr(args, "limit", None))
 
 
-def prepare_history(args) -> None:
-    if not str(args.chat).strip():
-        raise PolicyError("archive history CHAT must be non-empty")
-    args.message_id = explore_mod.validate_message_id(args.message_id)
-
-
 def apply_sync(args) -> None:
     args.max_dialogs = limits.bounded(
         "sync", "--max-dialogs", getattr(args, "max_dialogs", None)

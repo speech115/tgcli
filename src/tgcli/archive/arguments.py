@@ -61,13 +61,6 @@ def add_to(sub, global_flags) -> None:
     read.add_argument("--since", help="ISO date/datetime lower bound")
     read.add_argument("--until", help="ISO date/datetime upper bound")
     read.add_argument("--limit", type=int, help="timeline rows (default 20, cap 50)")
-    history = commands.add_parser(
-        "history",
-        help="Read local revisions and deletion history offline",
-        parents=[global_flags],
-    )
-    history.add_argument("chat", help="archived peer scope")
-    history.add_argument("message_id", type=int)
     backfill = commands.add_parser(
         "backfill",
         help="Backfill dialogs into the archive (CHAT list or --private)",

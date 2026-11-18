@@ -299,43 +299,7 @@ def test_archive_read_is_offline_and_can_center_on_id_or_date(
     assert [message["id"] for message in data["messages"]] == [2]
 
 
-def test_archive_history_exposes_revisions_and_tombstone(
-    config_env, monkeypatch, capsys
-):
-    _seed_phase5_corpus(monkeypatch)
-    capsys.readouterr()
-    conn = store_mod.connect(archive_cmd.db_path("main"))
-    try:
-        store_mod.upsert_message(
-            conn,
-            7,
-            {
-                "id": 2,
-                "date": "2026-01-03T00:00:00+00:00",
-                "from": {"id": 7, "name": "Alice", "username": "alice"},
-                "text": "edited current",
-                "media_kind": "voice",
-            },
-            media_kind="voice",
-        )
-        store_mod.insert_tombstone(conn, 7, 2, deleted_at="2026-01-05T00:00:00+00:00")
-        conn.commit()
-    finally:
-        conn.close()
-    block_telegram_session(monkeypatch)
-
-    assert main(["archive", "history", "@alice", "2", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert data["status"] == "deleted"
-    assert data["current"]["text"] == "edited current"
-    assert data["revisions"][0]["message"]["text"] == "common common voice"
-    assert data["tombstone"]["deleted_at"] == "2026-01-05T00:00:00+00:00"
-    assert data["current"]["tg_link"].startswith("tg://")
-
-
-def test_archive_read_and_history_validate_caps_and_readonly(
-    config_env, monkeypatch, capsys
-):
+def test_archive_read_validates_caps_and_readonly(config_env, monkeypatch, capsys):
     _seed_phase5_corpus(monkeypatch)
     capsys.readouterr()
     assert main(["archive", "read", "@alice", "--limit", "0", "--json"]) == 2
@@ -356,7 +320,5 @@ def test_archive_read_and_history_validate_caps_and_readonly(
         == 2
     )
     assert "around" in capsys.readouterr().err.lower()
-    assert main(["archive", "history", "@alice", "0", "--json"]) == 2
-    assert "message" in capsys.readouterr().err.lower()
     assert main(["--readonly", "archive", "read", "@alice", "--json"]) == 0
     capsys.readouterr()

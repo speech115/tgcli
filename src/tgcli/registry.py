@@ -134,10 +134,6 @@ COMMANDS: dict[str, Command] = {
         prepare=preflight.prepare_login,
     ),
     # archive: local reads and writes of the archive store
-    "archive history": _archive_read(
-        archive.history,
-        prepare=_args_only(archive_preflight.prepare_history),
-    ),
     "archive list": _archive_read(archive.list_scope),
     "archive read": _archive_read(
         archive.read,
