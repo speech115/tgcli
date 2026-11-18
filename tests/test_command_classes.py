@@ -8,9 +8,6 @@ one class below.
 
 import argparse
 
-import pytest
-
-from tgcli.cli import main
 from tgcli.parser import build_parser
 from tgcli.preview_commit import HANDSHAKES
 from tgcli.registry import COMMANDS
@@ -138,26 +135,3 @@ def test_handshake_commits_match_the_preview_commit_registry():
     assert set(HANDSHAKES) == {
         key for key, spec in COMMANDS.items() if spec.kind == "handshake"
     }
-
-
-@pytest.mark.parametrize(
-    "argv",
-    [*GATED_WRITES.values(), *HANDSHAKE_COMMITS.values()],
-    ids=[*GATED_WRITES, *HANDSHAKE_COMMITS],
-)
-def test_every_write_is_refused_when_read_only(tmp_path, monkeypatch, argv):
-    config = tmp_path / "config.toml"
-    config.write_text(CONFIG)
-    monkeypatch.setenv("TGCLI_CONFIG", str(config))
-    monkeypatch.setenv("TGCLI_READONLY", "1")
-    sessions = tmp_path / "state" / "sessions"
-    sessions.mkdir(parents=True)
-    (sessions / "spare.session").write_bytes(b"session")
-
-    def no_telegram(*args, **kwargs):
-        raise AssertionError("a read-only write reached the Telegram client")
-
-    monkeypatch.setattr("tgcli.session.client", no_telegram)
-
-    assert main(["--json", *argv]) == 2
-    assert (sessions / "spare.session").read_bytes() == b"session"

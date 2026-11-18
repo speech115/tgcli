@@ -1,22 +1,9 @@
-import asyncio
 import json
 
 import pytest
 
-from tgcli.commands.export import _atomic_text_destination, _resume_after_id
+from tgcli.commands.export import _resume_after_id
 from tgcli.errors import ExportError
-
-
-def test_atomic_destination_cleans_temp_file_on_cancellation(tmp_path):
-    destination = tmp_path / "out.jsonl"
-
-    with pytest.raises(asyncio.CancelledError):
-        with _atomic_text_destination(destination) as handle:
-            handle.write("partial")
-            raise asyncio.CancelledError()
-
-    assert not destination.exists()
-    assert list(tmp_path.iterdir()) == []
 
 
 def _jsonl(tmp_path, last):

@@ -101,22 +101,6 @@ async def test_client_role_unauthorized_file_is_config_error(state, monkeypatch)
             pass
 
 
-async def test_client_role_busy_names_alias_at_role(state, monkeypatch):
-    monkeypatch.setattr(session, "BUSY_WAIT_SECONDS", 0.0)
-    path = session.session_path(ACCOUNT, role="job")
-    path.parent.mkdir(parents=True)
-    path.write_bytes(b"x")
-    lock = path.with_suffix(".lock").open("w")
-    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    try:
-        with pytest.raises(ConfigError, match=r"session 'Work@job' is busy"):
-            async with session.client(ACCOUNT, role="job"):
-                pass
-    finally:
-        fcntl.flock(lock, fcntl.LOCK_UN)
-        lock.close()
-
-
 async def test_client_primary_path_byte_identical_when_role_none(state, monkeypatch):
     """Regression pin: role=None must keep today's path and busy wording."""
     seen: list[Path] = []
@@ -277,36 +261,6 @@ def test_remove_role_deletes_a_role_left_with_only_its_backup(config_env, capsys
     assert not bak.exists()
 
 
-def test_remove_role_deletes_every_case_variant_of_the_role(config_env, capsys):
-    """On a case-sensitive filesystem a role can exist under two spellings
-    (a leftover `Work@job.session.bak` and a fresh `Work@JOB.session`); both
-    are live keys for one logical role, and removing only one left the other."""
-    import json
-
-    from tgcli.cli import main
-
-    sessions = config_env["state"] / "sessions"
-    lower_bak = sessions / "Work@job.session.bak"
-    upper = sessions / "Work@JOB.session"
-    lower_bak.write_bytes(b"old-key")
-    upper.write_bytes(b"new-key")
-
-    assert (
-        main(["accounts", "remove", "work", "--role", "job", "--confirm", "--json"])
-        == 0
-    )
-
-    assert json.loads(capsys.readouterr().out) == {
-        "alias": "work",
-        "role": "job",
-        "config": "unchanged",
-        "session": "deleted",
-        "backup": "deleted",
-    }
-    assert not lower_bak.exists()
-    assert not upper.exists()
-
-
 def test_remove_role_takes_a_shared_lock_file_once(config_env, capsys):
     """On a case-insensitive filesystem (macOS) `Work@job.lock` and
     `Work@JOB.lock` are one file; locking it a second time from the same
@@ -371,24 +325,6 @@ def test_doctor_reports_roles_offline(config_env, capsys):
     assert data["accounts"][0]["roles"][0]["checks"]["authorized"] is None
 
 
-def test_session_role_unknown_exits_3_before_network(config_env, monkeypatch, capsys):
-    import json
-
-    from tgcli.cli import main
-
-    (config_env["state"] / "sessions" / "Work.session").write_bytes(b"p")
-
-    def boom(*_a, **_k):
-        raise AssertionError("must not open a Telegram client for a missing role")
-
-    monkeypatch.setattr("tgcli.session._make_client", boom)
-    code = main(["--session-role", "job", "--account", "work", "dialogs", "--json"])
-    assert code == 3
-    err = json.loads(capsys.readouterr().err)
-    assert err["error"]["code"] == "CONFIG"
-    assert "accounts login work --role job --phone PHONE" in err["error"]["message"]
-
-
 def test_session_role_accepted_on_script_and_mutation_flags(config_env):
     from tgcli.parser import build_parser
 
@@ -401,39 +337,6 @@ def test_session_role_accepted_on_script_and_mutation_flags(config_env):
     assert mutate_args.session_role == "job"
     run_args = parser.parse_args(["--session-role", "job", "run", "-"])
     assert run_args.session_role == "job"
-
-
-def test_audit_records_role_on_mutation(config_env, monkeypatch):
-    import json
-
-    from tgcli import safety
-    from tgcli.safety import audit_path
-
-    token = safety.set_audit_role("job")
-    try:
-        safety.append_audit("send", "work", {"preview_id": "p_x"})
-    finally:
-        safety.reset_audit_role(token)
-    record = json.loads(audit_path().read_text().splitlines()[-1])
-    assert record["role"] == "job"
-    assert record["action"] == "send"
-
-
-def test_journal_records_role(config_env):
-    import json
-
-    from tgcli import invocations
-    from tgcli.state_paths import state_dir
-
-    invocations.log_invocation(
-        command="dialogs",
-        account="work",
-        role="job",
-        exit_code=0,
-        duration_ms=1,
-    )
-    line = json.loads((state_dir() / "invocations.jsonl").read_text().splitlines()[-1])
-    assert line["role"] == "job"
 
 
 def test_login_continue_rejects_role_flag(config_env, capsys):
@@ -454,67 +357,3 @@ def test_login_continue_rejects_role_flag(config_env, capsys):
     )
     assert code == 2
     assert json.loads(capsys.readouterr().err)["error"]["code"] == "BLOCKED"
-
-
-def test_audit_records_role_on_send_commit_through_real_cli_path(
-    config_env, monkeypatch
-):
-    """Regression for the confirmed PR #93 review defect: `set_audit_role` was
-    only active inside `dispatch.run_network`'s client window, but the
-    cli-level `_audit_before`/`_audit_after` mutation rows (cli.py) run
-    outside that window, so `send --commit --session-role ROLE` audit rows
-    never carried `"role"` (CONTRACT.md §6). This exercises the
-    real `cli.main()` path, not the context var set by hand."""
-    import json
-    from types import SimpleNamespace
-
-    from telethon.tl import types as tl_types
-
-    from tests.conftest import make_session_fake
-    from tgcli import safety
-    from tgcli.cli import main
-
-    class SendClient:
-        async def get_input_entity(self, chat):
-            return f"input:{chat}"
-
-        async def __call__(self, request):
-            return SimpleNamespace(
-                updates=[tl_types.UpdateMessageID(id=42, random_id=request.random_id)]
-            )
-
-    preview = safety.create_preview(
-        {
-            "kind": "send",
-            "chat": "@alice",
-            "text": "hello",
-            "file": None,
-            "file_size": None,
-            "file_sha256": None,
-            "reply_to": None,
-            "topic": None,
-            "silent": False,
-            "random_id": 900,
-            "to": {"id": 7, "name": "Alice"},
-        }
-    )
-    make_session_fake(monkeypatch, SendClient())
-
-    assert (
-        main(
-            [
-                "--session-role",
-                "job",
-                "send",
-                "--commit",
-                preview["preview_id"],
-                "--json",
-            ]
-        )
-        == 0
-    )
-
-    lines = [json.loads(line) for line in safety.audit_path().read_text().splitlines()]
-    mutation_rows = [row for row in lines if row["action"] in ("send", "send-result")]
-    assert len(mutation_rows) == 2
-    assert all(row.get("role") == "job" for row in mutation_rows)

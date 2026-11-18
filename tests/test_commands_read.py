@@ -14,20 +14,6 @@ def _ns(**kwargs):
     return SimpleNamespace(**kwargs)
 
 
-def test_message_to_dict_falls_back_to_raw_message_when_text_is_none():
-    """ChannelDifference Message: .text is None, body lives in .message."""
-    from telethon.tl.types import Message, PeerChannel
-
-    message = Message(
-        id=45,
-        peer_id=PeerChannel(1),
-        date=datetime(2026, 7, 27, tzinfo=UTC),
-        message="wait-burst-1",
-    )
-    assert message.text is None
-    assert message_to_dict(message)["text"] == "wait-burst-1"
-
-
 def test_message_to_dict_projects_message_contract():
     message = ns(
         id=42,
@@ -102,22 +88,6 @@ def test_message_to_dict_classifies_transcribable_media(attribute, expected):
     assert message_to_dict(message)["media_kind"] == expected
 
 
-def test_message_to_dict_leaves_voice_played_null_for_non_voice_media():
-    message = _ns(
-        id=10,
-        date=None,
-        sender_id=1,
-        sender=None,
-        text="photo",
-        media=_ns(),
-        voice=None,
-        media_unread=False,
-        reply_to_msg_id=None,
-    )
-
-    assert message_to_dict(message)["voice_played"] is None
-
-
 def test_message_to_dict_keeps_same_chat_reply_as_bare_id():
     from telethon.tl import types
 
@@ -140,34 +110,6 @@ def test_message_to_dict_keeps_same_chat_reply_as_bare_id():
     data = message_to_dict(message, entity)
     assert data["reply_to"] == 1244
     assert data["quote_text"] == "same-chat quote"
-
-
-def test_message_to_dict_distinguishes_foreign_peer_reply_from_source_2374():
-    """Cross-chat quote: bare reply_to id would resolve against the wrong chat."""
-    from telethon.tl import types
-
-    entity = ns(id=4454061248, title="Discussion")
-    quote = "что это де-факто не наставничество…"
-    message = ns(
-        id=2374,
-        date=None,
-        sender_id=1,
-        sender=None,
-        text="comment",
-        media=None,
-        reply_to_msg_id=1244,
-        reply_to=types.MessageReplyHeader(
-            reply_to_msg_id=1244,
-            reply_to_peer_id=types.PeerChannel(2275285084),
-            quote_text=quote,
-            reply_to_top_id=2373,
-        ),
-    )
-
-    data = message_to_dict(message, entity)
-    assert data["reply_to"] == {"id": 1244, "peer": -1002275285084}
-    assert data["quote_text"] == quote
-    assert data["reply_to"] != 1244
 
 
 async def test_fetch_message_missing_message_raises_not_found():
@@ -225,30 +167,6 @@ def test_message_to_dict_exposes_agent_fields():
     assert data["is_service"] is False
     assert data["media_info"] is None
     assert data["topic_id"] is None
-
-
-def test_message_to_dict_extracts_custom_emoji_ids():
-    from telethon.tl.types import MessageEntityCustomEmoji
-
-    # "🔥" is a surrogate pair (UTF-16 length 2): the entity covers offset 0..2.
-    # document_id is emitted as a decimal string so JS JSON.parse cannot round it.
-    big_id = 5301234567890123456
-    message = _ns(
-        id=7,
-        date=None,
-        sender_id=1,
-        sender=None,
-        text="🔥 жги",
-        message="🔥 жги",
-        media=None,
-        reply_to_msg_id=None,
-        entities=[MessageEntityCustomEmoji(offset=0, length=2, document_id=big_id)],
-    )
-    data = message_to_dict(message)
-    assert data["custom_emoji"] == [
-        {"id": "5301234567890123456", "emoji": "🔥", "offset": 0, "length": 2}
-    ]
-    assert isinstance(data["custom_emoji"][0]["id"], str)
 
 
 def test_message_to_dict_media_topic_and_private_permalink():

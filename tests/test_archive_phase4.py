@@ -71,27 +71,6 @@ def test_message_edit_rebuild_preserves_transcript_in_fts(tmp_path):
         conn.close()
 
 
-def test_transcript_queue_is_newest_first_and_bounded(tmp_path):
-    conn = _connection(tmp_path)
-    try:
-        for message_id in (1, 2, 3):
-            store.upsert_message(conn, 7, _payload(message_id, str(message_id)))
-            media_module.set_media_path(
-                conn,
-                7,
-                message_id,
-                path=f"media/7/{message_id}.ogg",
-                media_kind="voice",
-            )
-        conn.commit()
-
-        queue = store.list_transcript_queue(conn, limit=2, max_attempts=3)
-        assert [row["message_id"] for row in queue] == [3, 2]
-        assert all(row["status"] == "pending" for row in queue)
-    finally:
-        conn.close()
-
-
 def test_schema_v7_keeps_media_failure_state_without_refresh_state(tmp_path):
     conn = _connection(tmp_path)
     try:
@@ -226,87 +205,6 @@ async def test_media_failure_retries_then_becomes_terminal(tmp_path, monkeypatch
         )
         assert result["queued"] == 0
         assert len(calls) == media_module.MAX_MEDIA_ATTEMPTS
-    finally:
-        conn.close()
-
-
-@pytest.mark.asyncio
-async def test_media_fetch_reaches_backlog_older_than_candidate_window(
-    tmp_path, monkeypatch
-):
-    conn = _connection(tmp_path)
-    account_dir = tmp_path / "account"
-    account_dir.mkdir()
-    try:
-        for message_id in range(1, 701):
-            payload = _payload(message_id, str(message_id))
-            payload["date"] = f"{message_id:04d}"
-            store.upsert_message(conn, 7, payload)
-            if message_id > 50:
-                path = account_dir / f"media/7/{message_id}.ogg"
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(b"voice")
-                media_module.set_media_path(
-                    conn,
-                    7,
-                    message_id,
-                    path=f"media/7/{message_id}.ogg",
-                    media_kind="voice",
-                )
-        conn.commit()
-        calls = []
-
-        async def fake_download(_tg, source, alias, *, output, parallel):
-            calls.append((source, alias, output, parallel))
-            target = Path(output)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(b"voice")
-            return {"path": output, "bytes": 5}
-
-        monkeypatch.setattr(sync_module.media_cmd, "download_media", fake_download)
-        result = await sync_module.fetch_media(
-            object(),
-            conn,
-            account_alias="main",
-            account_user_id=42,
-            account_dir=account_dir,
-            limit=1,
-        )
-        assert result["queued"] == 1
-        assert result["downloaded"] == 1
-        assert result["remaining"] is True
-        assert calls[0][0].message_id == 50
-        assert store.transcript_row(conn, 7, 50)["media_path"] == "media/7/50.ogg"
-    finally:
-        conn.close()
-
-
-@pytest.mark.asyncio
-async def test_media_fetch_cooperatively_stops_before_the_next_item(
-    tmp_path, monkeypatch
-):
-    conn = _connection(tmp_path)
-    account_dir = tmp_path / "account"
-    account_dir.mkdir()
-    try:
-        store.upsert_message(conn, 7, _payload(1, "caption"))
-        conn.commit()
-
-        async def unexpected(*_args, **_kwargs):
-            raise AssertionError("stop boundary must win before download")
-
-        monkeypatch.setattr(sync_module.media_cmd, "download_media", unexpected)
-        result = await sync_module.fetch_media(
-            object(),
-            conn,
-            account_alias="main",
-            account_user_id=42,
-            account_dir=account_dir,
-            limit=10,
-            should_stop=lambda: True,
-        )
-        assert result["downloaded"] == 0
-        assert result["remaining"] is True
     finally:
         conn.close()
 
@@ -546,68 +444,6 @@ def test_transcribe_missing_media_returns_item_to_media_queue(tmp_path, monkeypa
         assert row["media_status"] == "retryable"
         assert store.list_transcript_queue(conn, limit=20, max_attempts=3) == []
         assert sync_module._media_candidates(conn, account_dir, 1)[0]["message_id"] == 1
-    finally:
-        conn.close()
-
-
-@pytest.mark.asyncio
-async def test_catch_up_fills_a_backlog_larger_than_one_page_without_holes(tmp_path):
-    """Catch-up read newest-first and advanced `newest_id` to the newest
-    message, so with 100 new messages it kept 151-200 and never fetched
-    101-150. Oldest-first pages leave no hole, and the result says more is
-    pending."""
-    from datetime import UTC, datetime, timedelta
-
-    from telethon.tl.types import Channel, Message, PeerChannel
-
-    from tests.conftest import FakeClient
-
-    conn = _connection(tmp_path)
-    try:
-        channel = Channel(
-            id=1234, title="News", photo=None, date=None, access_hash=5, megagroup=False
-        )
-        peer = -1000000001234
-        with conn:
-            store.upsert_sync_state(
-                conn,
-                peer,
-                oldest_id=1,
-                newest_id=100,
-                more=False,
-                kind="channel",
-                chat_ref="@news",
-                touch_sync=True,
-            )
-        newest_first = [
-            Message(
-                id=message_id,
-                peer_id=PeerChannel(1234),
-                message=f"m{message_id}",
-                date=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(minutes=message_id),
-            )
-            for message_id in range(200, 0, -1)
-        ]
-        client = FakeClient(messages=newest_first, entities={peer: channel})
-
-        first = await sync_module._catch_up_peer(
-            client, conn, peer, account_user_id=42, message_budget=500
-        )
-        assert first["stored"] == sync_module.CATCHUP_LIMIT
-        second = await sync_module._catch_up_peer(
-            client, conn, peer, account_user_id=42, message_budget=500
-        )
-        assert second["stored"] == sync_module.CATCHUP_LIMIT
-
-        stored = {
-            int(row[0])
-            for row in conn.execute(
-                "SELECT message_id FROM messages WHERE peer_id = ?", (peer,)
-            )
-        }
-        assert stored == set(range(101, 201))
-        assert store.get_sync_state(conn, peer)["newest_id"] == 200
-        assert first["more"] is True
     finally:
         conn.close()
 

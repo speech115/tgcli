@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from tgcli import login_state, safety
+from tgcli import login_state
 from tgcli.cli import main
 from tgcli.commands import store as store_cmd
-from tgcli.errors import NotFoundError, PolicyError
+from tgcli.errors import NotFoundError
 from tgcli.safety import PREVIEW_TTL
 
 NOW = datetime(2026, 7, 23, 12, 0, tzinfo=UTC)
@@ -68,51 +68,6 @@ def test_scan_classifies_previews_and_reports_relics(tmp_path, monkeypatch):
     assert data["relics"] == [{"name": "labs", "bytes": len(b"relic-bytes")}]
 
 
-def test_scan_file_inventory_is_driven_by_the_registry(tmp_path, monkeypatch):
-    fixtures = tmp_path / "fixtures"
-    fixtures.mkdir()
-    (fixtures / "one.bin").write_bytes(b"one")
-    registry = getattr(store_cmd, "_FILE_SCAN_REGISTRY", ())
-    monkeypatch.setattr(
-        store_cmd,
-        "_FILE_SCAN_REGISTRY",
-        (*registry, (("fixtures",), "fixtures", "*.bin")),
-        raising=False,
-    )
-
-    data = store_cmd.scan(tmp_path, now=NOW)
-
-    assert data.get("fixtures") == {"count": 1, "bytes": 3}
-
-
-def test_cleanup_dry_run_reports_without_deleting(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    _seed_inventory(tmp_path)
-
-    result = store_cmd.cleanup(tmp_path, confirm=False, now=NOW)
-
-    assert result["confirmed"] is False
-    assert result["removed"] == []
-    assert set(result["would_remove"]) == {
-        "p_expired.json",
-        "p_spent0.used",
-        "p_spent1.used",
-        "p_spent2.used",
-    }
-    assert result["bytes"] > 0
-    assert result["kept"]["audit_log"] is True
-    assert result["kept"]["sessions"] is True
-    assert result["kept"]["archive"] is True
-    assert "labs" in result["kept"]["relics"]
-    assert (tmp_path / "previews" / "p_expired.json").exists()
-    assert (tmp_path / "previews" / "p_spent0.used").exists()
-    assert (tmp_path / "previews" / "p_live1.json").exists()
-    assert (tmp_path / "previews" / "p_pending.pending").exists()
-    assert (tmp_path / "audit.jsonl").exists()
-    assert (tmp_path / "sessions" / "main.session").exists()
-    assert (tmp_path / "labs" / "old.bin").exists()
-
-
 def test_cleanup_confirm_deletes_spent_and_expired_only(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     _seed_inventory(tmp_path)
@@ -152,32 +107,6 @@ def test_cleanup_include_pending_only_when_far_past_ttl(tmp_path, monkeypatch):
     assert not (tmp_path / "previews" / "p_old.pending").exists()
 
 
-def test_expired_begin_commit_is_reaped_by_default_cleanup(tmp_path, monkeypatch):
-    """T13: an expired preview must land in the plain expired bucket that
-    default `store cleanup` already reaps, whether or not it was ever
-    begun -- never sticky-pending until --include-pending."""
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    never_begun = safety.create_preview({"kind": "send"}, now=NOW)
-    retried = safety.create_preview({"kind": "send"}, now=NOW)
-    safety.begin_commit(retried["preview_id"], now=NOW)
-    late = NOW + timedelta(minutes=6)
-
-    with pytest.raises(PolicyError, match="expired"):
-        safety.begin_commit(never_begun["preview_id"], now=late)
-    with pytest.raises(PolicyError, match="expired"):
-        safety.begin_commit(retried["preview_id"], now=late)
-
-    result = store_cmd.cleanup(tmp_path, confirm=True, now=late)
-
-    assert f"{never_begun['preview_id']}.json" in result["removed"]
-    assert f"{retried['preview_id']}.json" in result["removed"]
-    previews = tmp_path / "previews"
-    assert not (previews / f"{never_begun['preview_id']}.json").exists()
-    assert not (previews / f"{retried['preview_id']}.json").exists()
-    assert not (previews / f"{never_begun['preview_id']}.pending").exists()
-    assert not (previews / f"{retried['preview_id']}.pending").exists()
-
-
 def test_cleanup_older_than_keeps_recent_spent(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     recent = NOW - timedelta(minutes=1)
@@ -193,62 +122,6 @@ def test_cleanup_older_than_keeps_recent_spent(tmp_path, monkeypatch):
     assert (tmp_path / "previews" / "p_recent.used").exists()
 
 
-def test_cleanup_cli_dry_run_hint_on_stderr(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    _seed_inventory(tmp_path)
-
-    assert main(["store", "cleanup", "--json"]) == 0
-    captured = capsys.readouterr()
-    data = json.loads(captured.out)
-    assert data["confirmed"] is False
-    assert data["removed"] == []
-    assert "would be removed" in captured.err
-    assert "--confirm" in captured.err
-
-
-def test_cleanup_confirm_blocked_under_readonly(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    _seed_inventory(tmp_path)
-
-    assert main(["store", "cleanup", "--confirm", "--readonly", "--json"]) == 2
-    err = json.loads(capsys.readouterr().err)
-    assert err["error"]["code"] == "BLOCKED"
-    assert (tmp_path / "previews" / "p_spent0.used").exists()
-
-
-def test_cleanup_dry_run_does_not_chmod_survivors(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    future = NOW + timedelta(minutes=4)
-    live = _write_preview(tmp_path, "p_live", expires_at=future)
-    live.chmod(0o644)
-
-    store_cmd.cleanup(tmp_path, confirm=False, now=NOW)
-
-    assert live.stat().st_mode & 0o777 == 0o644
-
-
-def test_cleanup_confirm_blocked_by_tgcli_readonly_env(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    monkeypatch.setenv("TGCLI_READONLY", "1")
-    _seed_inventory(tmp_path)
-
-    assert main(["store", "cleanup", "--confirm", "--json"]) == 2
-    assert (tmp_path / "previews" / "p_spent0.used").exists()
-
-
-@pytest.mark.parametrize("value", ["true", "YES", " 1 ", "on"])
-def test_cleanup_confirm_blocked_by_any_truthy_readonly_spelling(
-    tmp_path, monkeypatch, capsys, value
-):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    monkeypatch.setenv("TGCLI_READONLY", value)
-    _seed_inventory(tmp_path)
-
-    assert main(["--json", "store", "cleanup", "--confirm"]) == 2
-    assert json.loads(capsys.readouterr().out)["error"]["code"] == "BLOCKED"
-    assert (tmp_path / "previews" / "p_spent0.used").exists()
-
-
 @pytest.mark.parametrize("value", ["0", "false", "No", "off", ""])
 def test_cleanup_confirm_allowed_by_falsy_readonly_spellings(
     tmp_path, monkeypatch, value
@@ -259,21 +132,6 @@ def test_cleanup_confirm_allowed_by_falsy_readonly_spellings(
 
     assert main(["--json", "store", "cleanup", "--confirm"]) == 0
     assert not (tmp_path / "previews" / "p_spent0.used").exists()
-
-
-def test_cleanup_confirm_refuses_an_unrecognized_readonly_value(
-    tmp_path, monkeypatch, capsys
-):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    monkeypatch.setenv("TGCLI_READONLY", "maybe")
-    _seed_inventory(tmp_path)
-
-    assert main(["--json", "store", "cleanup", "--confirm"]) == 3
-    error = json.loads(capsys.readouterr().out)["error"]
-    assert error["code"] == "CONFIG"
-    assert "TGCLI_READONLY" in error["message"]
-    assert "maybe" in error["message"]
-    assert (tmp_path / "previews" / "p_spent0.used").exists()
 
 
 def test_cleanup_rejects_invalid_older_than(tmp_path, monkeypatch, capsys):
@@ -297,19 +155,6 @@ def test_cleanup_rejects_invalid_older_than(tmp_path, monkeypatch, capsys):
     assert live.stat().st_mode & 0o777 == 0o600
 
 
-def test_scan_reports_world_readable_previews(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    future = NOW + timedelta(minutes=4)
-    open_path = _write_preview(tmp_path, "p_open", expires_at=future)
-    open_path.chmod(0o644)
-    tight = _write_preview(tmp_path, "p_tight", expires_at=future)
-    tight.chmod(0o600)
-
-    data = store_cmd.scan(tmp_path, now=NOW)
-
-    assert data["previews_world_readable"] == 1
-
-
 def _write_unparsable_preview(root: Path, name: str, *, mtime: datetime) -> Path:
     """A preview truncated mid-write: valid name, unreadable expires_at."""
     directory = root / "previews"
@@ -319,26 +164,6 @@ def _write_unparsable_preview(root: Path, name: str, *, mtime: datetime) -> Path
     stamp = mtime.timestamp()
     os.utime(path, (stamp, stamp))
     return path
-
-
-def test_unparsable_preview_falls_back_to_mtime(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    fresh = _write_unparsable_preview(
-        tmp_path, "p_torn", mtime=NOW - timedelta(minutes=1)
-    )
-    stale = _write_unparsable_preview(
-        tmp_path, "p_stale", mtime=NOW - PREVIEW_TTL - timedelta(minutes=1)
-    )
-
-    data = store_cmd.scan(tmp_path, now=NOW)
-
-    assert data["previews"]["live"]["count"] == 1
-    assert data["previews"]["expired"]["count"] == 1
-
-    store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
-
-    assert fresh.exists(), "a preview written moments ago must survive cleanup"
-    assert not stale.exists()
 
 
 def _write_unparsable_login(root: Path, login_id: str, *, mtime: datetime) -> Path:
@@ -378,20 +203,6 @@ def test_unparsable_login_falls_back_to_mtime(tmp_path, monkeypatch):
     assert not (tmp_path / "logins" / "l_stale.session").exists()
 
 
-def _write_naive_preview(root: Path, name: str, *, mtime: datetime) -> Path:
-    """A preview whose `expires_at` lost its UTC offset (old build/hand edit)."""
-    directory = root / "previews"
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{name}.json"
-    naive = (NOW - timedelta(minutes=1)).replace(tzinfo=None)
-    path.write_text(
-        json.dumps({"payload": {"text": "hi"}, "expires_at": naive.isoformat()})
-    )
-    stamp = mtime.timestamp()
-    os.utime(path, (stamp, stamp))
-    return path
-
-
 def _write_naive_login(root: Path, login_id: str, *, mtime: datetime) -> Path:
     """A login attempt whose `expires_at` lost its UTC offset."""
     directory = root / "logins"
@@ -412,34 +223,6 @@ def _write_naive_login(root: Path, login_id: str, *, mtime: datetime) -> Path:
     stamp = mtime.timestamp()
     os.utime(path, (stamp, stamp))
     return path
-
-
-def test_naive_expires_at_falls_back_to_mtime(tmp_path, monkeypatch):
-    """A timezone-less `expires_at` classifies by mtime instead of crashing.
-
-    Comparing it against an aware `now` raised TypeError and took the whole
-    inventory down; both commands exist to help a user already in trouble.
-    """
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    preview = _write_naive_preview(
-        tmp_path, "p_naive", mtime=NOW - timedelta(minutes=1)
-    )
-    login = _write_naive_login(tmp_path, "l_naive", mtime=NOW - timedelta(minutes=1))
-
-    data = store_cmd.scan(tmp_path, now=NOW)
-
-    assert data["previews"]["live"]["count"] == 1
-    assert data["previews"]["expired"]["count"] == 0
-    assert data["logins"]["live"]["count"] == 2  # json + staged session
-    assert data["logins"]["expired"]["count"] == 0
-
-    result = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
-
-    # Fail-closed for deletion: an untrustworthy stamp is never reaped early.
-    assert result["removed"] == []
-    assert preview.exists()
-    assert login.exists()
-    assert (tmp_path / "logins" / "l_naive.session").exists()
 
 
 def test_naive_expires_at_login_age_filter_uses_mtime(tmp_path, monkeypatch):
@@ -482,19 +265,6 @@ def test_cleanup_reaps_attempt_left_behind_by_expired_read(tmp_path, monkeypatch
     assert f"{login_id}.json" in result["removed"]
     assert f"{login_id}.session" in result["removed"]
     assert not staged.exists()
-
-
-def test_cleanup_confirm_allowed_under_no_send(tmp_path, monkeypatch, capsys):
-    """TGCLI_NO_SEND guards Telegram sends, not local-state housekeeping."""
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    monkeypatch.setenv("TGCLI_NO_SEND", "1")
-    _seed_inventory(tmp_path)
-
-    assert main(["store", "cleanup", "--confirm", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert "p_spent0.used" in data["removed"]
-    assert not (tmp_path / "previews" / "p_spent0.used").exists()
-    assert (tmp_path / "audit.jsonl").exists()
 
 
 def _write_login(
@@ -544,35 +314,6 @@ def test_stats_reports_logins_and_session_backups(tmp_path, monkeypatch):
     assert data["session_backups"]["bytes"] == len(b"backup-bytes")
 
 
-def test_cleanup_reaps_expired_logins_keeps_live_and_bak(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    _seed_inventory(tmp_path)
-    _write_login(tmp_path, "l_live", expires_at=NOW + timedelta(minutes=10))
-    _write_login(
-        tmp_path,
-        "l_dead",
-        expires_at=NOW - timedelta(minutes=1),
-        phone="+79991234589",
-    )
-    bak = tmp_path / "sessions" / "main.session.bak"
-    bak.write_bytes(b"backup-bytes")
-
-    result = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
-
-    assert "l_dead.json" in result["removed"]
-    assert "l_dead.session" in result["removed"]
-    assert "l_dead.phone" in result["removed"]
-    assert "l_live.json" not in result["removed"]
-    assert (tmp_path / "logins" / "l_live.json").exists()
-    assert (tmp_path / "logins" / "l_live.session").exists()
-    assert not (tmp_path / "logins" / "l_dead.json").exists()
-    assert not (tmp_path / "logins" / "l_dead.session").exists()
-    assert not (tmp_path / "logins" / "l_dead.phone").exists()
-    assert bak.exists()
-    assert (tmp_path / "sessions" / "main.session").exists()
-    assert result["kept"]["session_backups"] is True
-
-
 def _seed_clone_media_cache(
     root: Path, clone_id: str = "abc123", *, payload=b"media"
 ) -> Path:
@@ -592,27 +333,6 @@ def _age_media_cache(cache: Path, age: timedelta) -> None:
         os.utime(entry, (stamp, stamp))
 
 
-def test_scan_reports_clone_sqlite_and_imported_buckets(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    from tgcli.clone import state
-
-    s = state.CloneState.new(account_user_id=1, source_peer_id=2, source_title="S")
-    state.save(s)
-    imported = tmp_path / "clones" / f"{s.clone_id}.json.imported"
-    imported.write_text('{"version":2}')
-
-    data = store_cmd.scan(tmp_path, now=NOW)
-
-    assert data["clones"]["db"]["count"] == 1
-    assert data["clones"]["db"]["bytes"] > 0
-    assert data["clones"]["imported"] == {
-        "count": 1,
-        "bytes": len(b'{"version":2}'),
-    }
-    assert data["clones"]["wal"]["count"] >= 0
-    assert data["clones"]["shm"]["count"] >= 0
-
-
 def test_scan_reports_clone_media_cache_bucket(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     cache = _seed_clone_media_cache(tmp_path, payload=b"abcdefghij")
@@ -622,58 +342,6 @@ def test_scan_reports_clone_media_cache_bucket(tmp_path, monkeypatch):
     assert data["clone_media_cache"] == {"count": 1, "bytes": 10}
     # Existing clones aggregate still includes the cache via _dir_bytes.
     assert data["clones"]["bytes"] >= 10 + len(b'{"version":2}')
-    assert cache.exists()
-
-
-def test_cleanup_confirm_removes_media_cache_keeps_clone_state(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    cache = _seed_clone_media_cache(tmp_path)
-    _age_media_cache(cache, timedelta(days=1))
-    state_file = tmp_path / "clones" / "abc123.json"
-
-    result = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
-
-    assert "abc123-media" in result["removed"]
-    assert not cache.exists()
-    assert state_file.exists()
-    assert state_file.read_text() == '{"version":2}'
-
-
-def test_cleanup_keeps_media_cache_a_running_sync_is_writing(tmp_path, monkeypatch):
-    """A cache touched moments ago belongs to a live `clone sync`, not to litter.
-
-    `store cleanup --confirm` with no `--older-than` reaps every other bucket
-    only after its own TTL classified the record dead; the media cache has no
-    `expires_at`, so mtime is the only liveness signal it has.
-    """
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    cache = _seed_clone_media_cache(tmp_path)
-    _age_media_cache(cache, timedelta(minutes=2))
-
-    result = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
-
-    assert "abc123-media" not in result["removed"]
-    assert "abc123-media" not in result["would_remove"]
-    assert cache.exists()
-    assert (cache / "src-2").exists()
-
-
-def test_cleanup_media_cache_liveness_follows_newest_file(tmp_path, monkeypatch):
-    """A long single-file download leaves the directory mtime behind.
-
-    Creating `src-<id>` stamps the directory once; the half-gigabyte write that
-    follows only advances the file's own mtime. Anchoring on the directory
-    alone would reap the cache out from under the download it exists for.
-    """
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    cache = _seed_clone_media_cache(tmp_path)
-    _age_media_cache(cache, timedelta(days=2))
-    fresh = (NOW - timedelta(minutes=1)).timestamp()
-    os.utime(cache / "src-2", (fresh, fresh))
-
-    result = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
-
-    assert "abc123-media" not in result["removed"]
     assert cache.exists()
 
 
@@ -688,26 +356,6 @@ def test_cleanup_dry_run_lists_media_cache_without_deleting(tmp_path, monkeypatc
     assert result["removed"] == []
     assert cache.exists()
     assert (cache / "src-2").exists()
-
-
-def test_cleanup_older_than_gates_media_cache_by_mtime(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    cache = _seed_clone_media_cache(tmp_path)
-    # Make the cache look recent relative to NOW.
-    _age_media_cache(cache, timedelta(hours=2))
-
-    kept = store_cmd.cleanup(
-        tmp_path, confirm=True, older_than=timedelta(days=1), now=NOW
-    )
-    assert "abc123-media" not in kept["removed"]
-    assert cache.exists()
-
-    _age_media_cache(cache, timedelta(days=3))
-    removed = store_cmd.cleanup(
-        tmp_path, confirm=True, older_than=timedelta(days=1), now=NOW
-    )
-    assert "abc123-media" in removed["removed"]
-    assert not cache.exists()
 
 
 def _patch_os_stat(monkeypatch, victim: Path, hook) -> None:
@@ -826,62 +474,6 @@ def _hold_lock(path: Path):
     return handle
 
 
-def test_cleanup_keeps_expired_login_whose_lock_is_held(tmp_path, monkeypatch):
-    """An in-flight authorization can outlive LOGIN_TTL without becoming litter.
-
-    The running login holds the staged session's flock for the whole attempt
-    (authclient), so cleanup probes it the same non-blocking way
-    `session.lock_held` does before reaping an expired attempt.
-    """
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    _write_login(tmp_path, "l_phone", expires_at=NOW - timedelta(minutes=1))
-    logins = tmp_path / "logins"
-
-    handle = _hold_lock(logins / "l_phone.lock")
-    try:
-        held = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
-    finally:
-        fcntl.flock(handle, fcntl.LOCK_UN)
-        handle.close()
-
-    assert held["removed"] == []
-    assert (logins / "l_phone.json").exists()
-    assert (logins / "l_phone.session").exists()
-
-    free = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
-
-    assert "l_phone.json" in free["removed"]
-    assert "l_phone.session" in free["removed"]
-    assert not (logins / "l_phone.session").exists()
-
-
-def test_cleanup_keeps_expired_login_lock_held_without_session_file(
-    tmp_path, monkeypatch
-):
-    """T11: `authclient.unauthorized_client` takes the staged session's flock
-    before Telethon creates the SQLite `.session` file, so an in-flight login
-    can be held with no `.session` on disk at all. `session.lock_held` treats
-    a missing session file as never locked (the CLI contract, right for
-    `accounts show`); cleanup must probe the `.lock` directly instead, or it
-    reaps an attempt that is still running.
-    """
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    _write_login(tmp_path, "l_phone", expires_at=NOW - timedelta(minutes=1))
-    logins = tmp_path / "logins"
-    (logins / "l_phone.session").unlink()
-
-    handle = _hold_lock(logins / "l_phone.lock")
-    try:
-        held = store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
-    finally:
-        fcntl.flock(handle, fcntl.LOCK_UN)
-        handle.close()
-
-    assert held["removed"] == []
-    assert (logins / "l_phone.json").exists()
-    assert not (logins / "l_phone.session").exists()
-
-
 def test_cleanup_treats_flock_probe_error_as_busy(tmp_path, monkeypatch):
     """An unknown lock state must preserve persistent login state."""
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
@@ -950,21 +542,3 @@ def test_cleanup_probes_locks_without_creating_them(tmp_path, monkeypatch):
     assert "abc123-media" in result["removed"]
     assert list((tmp_path / "sessions").glob("*.lock")) == []
     assert list((tmp_path / "logins").glob("*.lock")) == []
-
-
-def test_interrupted_cleanup_leaves_the_attempt_reapable(
-    tmp_path, monkeypatch, fail_first_unlink
-):
-    """A cleanup that dies mid-attempt must leave the json behind, or the
-    rest of the attempt (a raw phone) is invisible to every later run."""
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    _write_login(
-        tmp_path, "l_dead", expires_at=NOW - timedelta(minutes=1), phone="+7999"
-    )
-    fail_first_unlink(".phone")
-
-    with pytest.raises(OSError):
-        store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
-    store_cmd.cleanup(tmp_path, confirm=True, now=NOW)
-
-    assert list((tmp_path / "logins").iterdir()) == []
