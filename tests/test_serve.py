@@ -9,7 +9,8 @@ import threading
 import pytest
 from telethon import errors as telethon_errors
 
-from tests.conftest import FakeClient, ns
+from tests.conftest import ns
+from tests.fakes.connecting import ConnectingClient, install
 from tgcli import serve, session
 from tgcli.config import Account
 
@@ -20,35 +21,6 @@ default_account = "main"
 api_id = 12345
 api_hash = "abcdef0123456789"
 """
-
-
-class ConnectingClient(FakeClient):
-    """FakeClient plus the connection surface `session.client` drives."""
-
-    def __init__(self, *args, authorized=True, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.authorized = authorized
-        self.connected = False
-        self.connects = 0
-        self._request_retries = 5
-        self.flood_sleep_threshold = 30
-        self.retries_seen = []
-
-    async def connect(self):
-        self.connected = True
-        self.connects += 1
-
-    def is_connected(self):
-        return self.connected
-
-    async def is_user_authorized(self):
-        return self.authorized
-
-    async def disconnect(self):
-        self.connected = False
-
-    async def _call(self, sender, request, *args, **kwargs):
-        return None
 
 
 @pytest.fixture
@@ -70,17 +42,6 @@ def dialog(name: str, id_: int):
         unread_count=0,
         date=dt.datetime(2026, 11, 9, 12, 0, tzinfo=dt.UTC),
     )
-
-
-def install(monkeypatch, client: ConnectingClient) -> list:
-    made = []
-
-    def make(path, account, *, mutation_safe=False):
-        made.append(path)
-        return client
-
-    monkeypatch.setattr(session, "_make_client", make)
-    return made
 
 
 def run_serve(requests: list, role=None) -> tuple[int, list[dict]]:

@@ -57,7 +57,6 @@ def request_argv(request: object) -> list[str]:
 
 def handle(line: str, prefix: list[str], parser: argparse.ArgumentParser) -> dict:
     """Run one request line as a `tg` invocation and capture what it printed."""
-    out, err = io.StringIO(), io.StringIO()
     try:
         request = json.loads(line)
         argv = request_argv(request)
@@ -65,13 +64,19 @@ def handle(line: str, prefix: list[str], parser: argparse.ArgumentParser) -> dic
         message = exc.msg if isinstance(exc, json.JSONDecodeError) else str(exc)
         error = {"error": {"code": "USAGE", "message": f"bad request: {message}"}}
         return {"exit_code": 1, "stdout": json.dumps(error) + "\n", "stderr": ""}
+    return invoke([*prefix, "--json", *argv], parser, request.get("stdin", ""))
+
+
+def invoke(argv: list[str], parser: argparse.ArgumentParser, stdin: str = "") -> dict:
+    """Run one `tg` invocation in this process and capture what it printed."""
+    out, err = io.StringIO(), io.StringIO()
     # stdin is the request pipe: a command that reads stdin gets the request's text.
     with (
         contextlib.redirect_stdout(out),
         contextlib.redirect_stderr(err),
-        _stdin(io.StringIO(request.get("stdin", ""))),
+        _stdin(io.StringIO(stdin)),
     ):
-        code = cli.main([*prefix, "--json", *argv], parser=parser)
+        code = cli.main(argv, parser=parser)
     return {"exit_code": code, "stdout": out.getvalue(), "stderr": err.getvalue()}
 
 

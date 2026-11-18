@@ -7,7 +7,8 @@ chat allowlist. Why it exists and what it may never do: [ADR-0123](decisions/ADR
 ## Run it
 
 ```bash
-tg-mcp --allow-chat @channel --allow-chat -1001234567890 [--account main] [--timeout 120]
+tg-mcp --allow-chat @channel --allow-chat -1001234567890 [--account main]
+       [--session-role NAME] [--idle 60] [--timeout 120]
 ```
 
 - `--allow-chat CHAT` (repeatable): `@username`, `t.me/name`, `t.me/c/ID`, or
@@ -15,6 +16,12 @@ tg-mcp --allow-chat @channel --allow-chat -1001234567890 [--account main] [--tim
   compared whole: `1234` is a user, not the channel `-1001234`.
 - `--allow-all-chats`: every chat. Prefer naming chats.
 - `--account`: the tgcli alias; otherwise `TGCLI_ACCOUNT` or the default.
+- `--session-role NAME`: hold that session role instead of the account's main
+  session (`tg accounts login main --role NAME --phone …`), so `tg` commands
+  and launchd jobs on the main session never wait for the agent.
+- `--idle SECONDS` (default 60): release the session after this long without
+  a tool call. While held, the session file stays locked.
+- `--timeout SECONDS` (default 120): the `--timeout` of each call.
 
 Client config, for example Claude Code's `.mcp.json`:
 
@@ -33,8 +40,10 @@ Client config, for example Claude Code's `.mcp.json`:
 | `telegram_message` `{chat, message_id, context?}` | `tg message` |
 | `telegram_info` `{chat}` | `tg info` |
 
-Every call runs `tg --json --readonly` with `TGCLI_READONLY=1` and
-`TGCLI_NO_SEND=1`. A non-zero exit becomes `isError: true` with tgcli's own
+Every call runs `tg --json --readonly` inside the server process, with
+`TGCLI_READONLY=1` and `TGCLI_NO_SEND=1` forced for the whole process. The
+first call connects; later calls reuse that connection until the server has
+been idle for `--idle` seconds, so a burst of agent calls pays one connect. A non-zero exit becomes `isError: true` with tgcli's own
 error envelope and `exit_code`.
 
 ## Untrusted content
