@@ -1,0 +1,9 @@
+{
+  "exit": 0,
+  "stdout": {
+    "id": 111,
+    "kind": "user",
+    "name": "Alice Smith",
+    "username": "alice"
+  }
+}

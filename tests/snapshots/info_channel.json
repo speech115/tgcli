@@ -1,0 +1,9 @@
+{
+  "exit": 0,
+  "stdout": {
+    "id": -1001234,
+    "kind": "channel",
+    "name": "Channel",
+    "username": "chan"
+  }
+}

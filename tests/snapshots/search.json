@@ -1,0 +1,63 @@
+{
+  "exit": 0,
+  "stdout": {
+    "dialog": {
+      "id": -1001234,
+      "name": "Channel"
+    },
+    "messages": [
+      {
+        "custom_emoji": [],
+        "date": "2026-07-06T10:02:00+00:00",
+        "edited_at": null,
+        "forwarded_from": null,
+        "from": {
+          "id": 111,
+          "name": "Alice",
+          "username": "alice"
+        },
+        "grouped_id": null,
+        "id": 42,
+        "is_service": false,
+        "media": null,
+        "media_info": null,
+        "media_kind": null,
+        "outgoing": false,
+        "permalink": "https://t.me/chan/42",
+        "quote_text": null,
+        "reactions": [],
+        "reply_to": null,
+        "text": "hello again",
+        "topic_id": null,
+        "voice_played": null
+      },
+      {
+        "custom_emoji": [],
+        "date": "2026-07-06T10:00:00+00:00",
+        "edited_at": null,
+        "forwarded_from": null,
+        "from": {
+          "id": 111,
+          "name": "Alice",
+          "username": "alice"
+        },
+        "grouped_id": null,
+        "id": 41,
+        "is_service": false,
+        "media": null,
+        "media_info": null,
+        "media_kind": null,
+        "outgoing": false,
+        "permalink": "https://t.me/chan/41",
+        "quote_text": null,
+        "reactions": [],
+        "reply_to": null,
+        "text": "hello",
+        "topic_id": null,
+        "voice_played": null
+      }
+    ],
+    "more": false,
+    "query": "hello"
+  }
+}
