@@ -48,7 +48,7 @@ class _FakeTg:
 async def test_unauthorized_client_takes_and_releases_lock(tmp_path, monkeypatch):
     path = tmp_path / "staged.session"
     fake = _FakeTg()
-    monkeypatch.setattr(session, "TelegramClient", lambda *a, **k: fake)
+    monkeypatch.setattr(session, "Client", lambda *a, **k: fake)
 
     async with authclient.unauthorized_client(path, 1, "hash") as client:
         assert client is fake
@@ -85,7 +85,7 @@ async def test_unauthorized_client_sets_same_telegram_device_identity(
         captured["kwargs"] = kwargs
         return fake
 
-    monkeypatch.setattr(session, "TelegramClient", fake_client)
+    monkeypatch.setattr(session, "Client", fake_client)
     monkeypatch.setattr(
         session,
         "client_identity",
@@ -120,7 +120,7 @@ async def test_unauthorized_client_sleeps_only_short_floods(tmp_path, monkeypatc
         captured["kwargs"] = kwargs
         return fake
 
-    monkeypatch.setattr(session, "TelegramClient", fake_client)
+    monkeypatch.setattr(session, "Client", fake_client)
 
     async with authclient.unauthorized_client(path, 1, "hash"):
         pass
@@ -150,7 +150,7 @@ async def test_unauthorized_client_tightens_session_file_before_connect(
         await original_connect()
 
     fake.connect = connect
-    monkeypatch.setattr(session, "TelegramClient", fake_client)
+    monkeypatch.setattr(session, "Client", fake_client)
 
     async with authclient.unauthorized_client(path, 1, "hash"):
         pass
@@ -163,7 +163,7 @@ async def test_unauthorized_client_busy_lock_raises(tmp_path, monkeypatch):
     path = tmp_path / "staged.session"
     lock = path.with_suffix(".lock").open("w")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    monkeypatch.setattr(session, "TelegramClient", lambda *a, **k: _FakeTg())
+    monkeypatch.setattr(session, "Client", lambda *a, **k: _FakeTg())
     try:
         with pytest.raises(ConfigError, match="busy"):
             async with authclient.unauthorized_client(path, 1, "hash"):
@@ -177,7 +177,7 @@ async def test_unauthorized_client_busy_lock_raises(tmp_path, monkeypatch):
 async def test_unauthorized_client_disconnects_on_body_error(tmp_path, monkeypatch):
     path = tmp_path / "staged.session"
     fake = _FakeTg()
-    monkeypatch.setattr(session, "TelegramClient", lambda *a, **k: fake)
+    monkeypatch.setattr(session, "Client", lambda *a, **k: fake)
 
     with pytest.raises(RuntimeError, match="boom"):
         async with authclient.unauthorized_client(path, 1, "hash"):
@@ -192,7 +192,7 @@ async def test_unauthorized_client_skips_disconnect_if_already_closed(
 ):
     path = tmp_path / "staged.session"
     fake = _FakeTg()
-    monkeypatch.setattr(session, "TelegramClient", lambda *a, **k: fake)
+    monkeypatch.setattr(session, "Client", lambda *a, **k: fake)
 
     async with authclient.unauthorized_client(path, 1, "hash") as client:
         await client.disconnect()
@@ -209,7 +209,7 @@ async def test_probe_authorized_maps_revoked_to_false(tmp_path, monkeypatch):
     (sessions / "main.session").write_bytes(b"x")
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     fake = _FakeTg(revoke=True)
-    monkeypatch.setattr(session, "TelegramClient", lambda *a, **k: fake)
+    monkeypatch.setattr(session, "Client", lambda *a, **k: fake)
 
     assert await authclient.probe_authorized(account) is False
     assert len(fake.requests) == 1
@@ -229,7 +229,7 @@ async def test_probe_authorized_repairs_loose_sessions_dir(
     (sessions / "main.session").write_bytes(b"x")
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     fake = _FakeTg()
-    monkeypatch.setattr(session, "TelegramClient", lambda *a, **k: fake)
+    monkeypatch.setattr(session, "Client", lambda *a, **k: fake)
 
     await authclient.probe_authorized(account)
 

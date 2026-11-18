@@ -11,6 +11,7 @@ from typing import IO
 from telethon import TelegramClient, errors as telethon_errors
 
 from tgcli import __version__, pace
+from tgcli.client import Client
 from tgcli.config import Account, validate_role_name
 from tgcli.errors import ConfigError
 from tgcli.output import note
@@ -205,7 +206,7 @@ def client_identity() -> tuple[str, str, str]:
     return "tgcli", platform.system(), __version__
 
 
-def build_client(path: Path, api_id: int, api_hash: str, **extra) -> TelegramClient:
+def build_client(path: Path, api_id: int, api_hash: str, **extra) -> Client:
     """The one TelegramClient constructor: every client, login included.
 
     `raise_last_call_error=True`: see TRANSIENT_ERRORS.
@@ -219,7 +220,7 @@ def build_client(path: Path, api_id: int, api_hash: str, **extra) -> TelegramCli
         "app_version": app_version,
         **extra,
     }
-    return TelegramClient(str(path), api_id, api_hash, **options)
+    return Client(str(path), api_id, api_hash, **options)
 
 
 def _make_client(
