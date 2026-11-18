@@ -116,9 +116,14 @@ class HeldRunner:
         self._prefix = ["--account", account.alias, *role_flag]
 
     def _release(self) -> None:
-        held, self._held = self._held, None
-        if held is not None:
+        # `holding` turns false only once the session lock is released.
+        held = self._held
+        if held is None:
+            return
+        try:
             loop.run(held.__aexit__(None, None, None))
+        finally:
+            self._held = None
 
     def _timeout_flag(self) -> list[str]:
         return ["--timeout", str(self._timeout)] if self._timeout else []

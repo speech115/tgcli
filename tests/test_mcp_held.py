@@ -92,6 +92,30 @@ def test_calls_share_one_connection_and_keep_the_lock(env, monkeypatch, runner_f
     assert locked_between is True
 
 
+def test_holding_stays_true_until_the_session_lock_is_released(
+    env, monkeypatch, runner_factory
+):
+    """`holding` turning false is the signal that a `tg` process may open the
+    session; it used to turn false before the lock was released."""
+    client = ConnectingClient(dialogs=[dialog("Alice", 1)])
+    install(monkeypatch, client)
+    run = runner_factory(idle=60)
+    seen_while_releasing = []
+    disconnect = client.disconnect
+
+    async def recording_disconnect():
+        seen_while_releasing.append(run.holding)
+        await disconnect()
+
+    monkeypatch.setattr(client, "disconnect", recording_disconnect)
+
+    assert run(["dialogs"])[0] == 0
+    run.close()
+
+    assert seen_while_releasing == [True]
+    assert not run.holding
+
+
 def test_the_session_is_released_when_idle_and_reopened_on_the_next_call(
     env, monkeypatch, runner_factory
 ):
