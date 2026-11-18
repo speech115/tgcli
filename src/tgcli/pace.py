@@ -127,6 +127,11 @@ def remaining() -> float | None:
     return _cap - (time.monotonic() - _started)
 
 
+class CapReached(Exception):
+    """`--max-runtime` ran out inside one step (a long download): the step
+    kept what it had and the run stops as a normal wall-clock cap."""
+
+
 def exhausted() -> bool:
     """Whether `--max-runtime` was set and has run out."""
     left = remaining()

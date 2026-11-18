@@ -488,22 +488,29 @@ class _Run:
                 self.counters,
                 account_alias=self.account_alias,
             )
-        batch_copied, mode, flattened, flattened_quote = await quotes.send_with_degrade(
-            lambda active_plan: clone_send.forward_batch(
-                self.send,
-                source,
-                dest,
-                leg,
+        try:
+            sent = await quotes.send_with_degrade(
+                lambda active_plan: clone_send.forward_batch(
+                    self.send,
+                    source,
+                    dest,
+                    leg,
+                    list(messages),
+                    active_plan,
+                    topic_dest=topic_dest,
+                ),
                 list(messages),
-                active_plan,
-                topic_dest=topic_dest,
-            ),
-            list(messages),
-            plan,
-            leg,
-            source,
-            self.resolve_ctx,
-        )
+                plan,
+                leg,
+                source,
+                self.resolve_ctx,
+            )
+        except pace.CapReached as paused:
+            # Nothing was sent: the cursor stays and the callers' cap checks
+            # end the run as a normal wall-clock stop.
+            note(str(paused))
+            return
+        batch_copied, mode, flattened, flattened_quote = sent
         self.copied += batch_copied
         self.transport_counts[mode] += batch_copied
         # Only a native forward carries a keyboard; every other transport

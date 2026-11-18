@@ -13,7 +13,7 @@ from pathlib import Path
 
 from telethon.tl import types
 
-from tgcli import atomic
+from tgcli import atomic, pace
 from tgcli.clone import progress as clone_progress, state
 from tgcli.errors import PolicyError
 from tgcli.output import note
@@ -247,7 +247,14 @@ async def download_for_reupload(tg, message, workdir: Path, progress=None) -> Pa
             size=size,
             checkpoint=lambda current: _write_checkpoint(part, size, media_id, current),
             progress=clone_progress.transfer_of(progress, message, "download"),
+            should_stop=pace.exhausted,
         )
+        if written != size and pace.exhausted():
+            # The checkpoint keeps what arrived; the next run resumes it.
+            raise pace.CapReached(
+                f"clone media download paused at {written}/{size} bytes for "
+                f"source message {message.id}"
+            )
         if written != size:
             # A stream that ended early is not a complete file, and the final
             # name means complete. Keep the partial for the next run's resume.
