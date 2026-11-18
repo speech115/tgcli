@@ -199,19 +199,14 @@ def read_account_sync(conn: sqlite3.Connection) -> dict[str, Any]:
             "gap": None,
             "gaps": [],
             "last_sync_at": None,
-            "private_enum": None,
             "pending_catchups": [],
         }
     gaps = gaps_mod.parse(row["gap_json"])
-    private_enum = None
-    if row["private_enum_json"]:
-        private_enum = json.loads(row["private_enum_json"])
     return {
         "changes_cursor": row["changes_cursor"],
         "gap": gaps[-1] if gaps else None,
         "gaps": gaps,
         "last_sync_at": row["last_sync_at"],
-        "private_enum": private_enum,
         "pending_catchups": [
             int(peer) for peer in json.loads(row["pending_catchups_json"] or "[]")
         ],
@@ -229,16 +224,13 @@ def write_account_sync(
     gaps: list[dict[str, Any]] | None = None,
     touch_sync: bool = False,
     clear_gap: bool = False,
-    private_enum: dict[str, Any] | None = None,
-    clear_private_enum: bool = False,
     pending_catchups: list[int] | None = None,
 ) -> str | None:
     """Update only the named account_sync columns; return the stored cursor.
 
-    A None argument leaves its column alone; `clear_gap` and
-    `clear_private_enum` set theirs to NULL. The read of the stored cursor
-    and the write share one IMMEDIATE transaction, so there is no stale
-    read-modify-write window.
+    A None argument leaves its column alone; `clear_gap` sets its to NULL.
+    The read of the stored cursor and the write share one IMMEDIATE
+    transaction, so there is no stale read-modify-write window.
     """
     if not conn.in_transaction:
         conn.execute("BEGIN IMMEDIATE")
@@ -262,10 +254,6 @@ def write_account_sync(
             columns["gap_json"] = _json(stored)
         if touch_sync:
             columns["last_sync_at"] = now
-        if clear_private_enum:
-            columns["private_enum_json"] = None
-        elif private_enum is not None:
-            columns["private_enum_json"] = _json(private_enum)
         if pending_catchups is not None:
             columns["pending_catchups_json"] = (
                 json.dumps(pending_catchups) if pending_catchups else None
