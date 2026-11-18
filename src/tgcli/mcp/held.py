@@ -26,6 +26,9 @@ from tgcli.errors import TgcliError
 from tgcli.parser import build_parser
 
 DEFAULT_IDLE = 60.0
+# The session role tg-mcp holds unless told otherwise, so `tg` and launchd jobs
+# on the account's main session never wait for an agent.
+DEFAULT_ROLE = "mcp"
 
 
 class HeldRunner:
@@ -38,12 +41,14 @@ class HeldRunner:
         role: str | None = None,
         timeout: float | None = None,
         idle: float = DEFAULT_IDLE,
+        fallback_to_main: bool = False,
     ) -> None:
         # The process exists to serve read-only tools: no call may write.
         os.environ["TGCLI_READONLY"] = "1"
         os.environ["TGCLI_NO_SEND"] = "1"
         self._alias = account
         self._role = role
+        self._fallback_to_main = fallback_to_main
         self._timeout = timeout
         self._idle = idle
         self._parser = build_parser()
@@ -92,11 +97,23 @@ class HeldRunner:
         if self._held is not None:
             return
         account = resolve_account(load_config(), self._alias)
-        held = session.hold(account, role=self._role)
+        role = self._role
+        if (
+            role is not None
+            and self._fallback_to_main
+            and not session.session_path(account, role).is_file()
+        ):
+            output.note(
+                f"tg-mcp: session role {role!r} is not authorized, so the main "
+                f"session is held and tg waits while it is; run: tg accounts "
+                f"login {account.alias} --role {role} --phone PHONE"
+            )
+            role = None
+        held = session.hold(account, role=role)
         loop.run(held.__aenter__())
         self._held = held
-        role = ["--session-role", self._role] if self._role else []
-        self._prefix = ["--account", account.alias, *role]
+        role_flag = ["--session-role", role] if role else []
+        self._prefix = ["--account", account.alias, *role_flag]
 
     def _release(self) -> None:
         held, self._held = self._held, None

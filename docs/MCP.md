@@ -8,7 +8,7 @@ chat allowlist. Why it exists and what it may never do: [ADR-0123](decisions/ADR
 
 ```bash
 tg-mcp --allow-chat @channel --allow-chat -1001234567890 [--account main]
-       [--session-role NAME] [--idle 60] [--timeout 120]
+       [--session-role mcp | --main-session] [--idle 60] [--timeout 120]
 ```
 
 - `--allow-chat CHAT` (repeatable): `@username`, `t.me/name`, `t.me/c/ID`, or
@@ -16,9 +16,12 @@ tg-mcp --allow-chat @channel --allow-chat -1001234567890 [--account main]
   compared whole: `1234` is a user, not the channel `-1001234`.
 - `--allow-all-chats`: every chat. Prefer naming chats.
 - `--account`: the tgcli alias; otherwise `TGCLI_ACCOUNT` or the default.
-- `--session-role NAME`: hold that session role instead of the account's main
-  session (`tg accounts login main --role NAME --phone …`), so `tg` commands
-  and launchd jobs on the main session never wait for the agent.
+- `--session-role NAME` (default `mcp`): the session role to hold, so `tg`
+  commands and launchd jobs on the account's main session never wait for the
+  agent. Log the role in once: `tg accounts login main --role mcp --phone …`.
+  Until the default `mcp` role is logged in, tg-mcp holds the main session and
+  says so on stderr; a role named with `--session-role` must exist (exit 3).
+- `--main-session`: hold the account's main session on purpose.
 - `--idle SECONDS` (default 60): release the session after this long without
   a tool call. While held, the session file stays locked.
 - `--timeout SECONDS` (default 120): the `--timeout` of each call.

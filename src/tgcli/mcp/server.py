@@ -20,7 +20,7 @@ from importlib import metadata
 from typing import IO, Any
 
 from tgcli.mcp import untrusted
-from tgcli.mcp.held import DEFAULT_IDLE, HeldRunner
+from tgcli.mcp.held import DEFAULT_IDLE, DEFAULT_ROLE, HeldRunner
 from tgcli.mcp.tools import DIALOGS, TOOLS, Allowlist, ToolError
 
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -182,8 +182,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--session-role",
         dest="session_role",
         metavar="NAME",
-        help="Session role to hold (its own login), so tg on the main session "
-        "never waits for the agent.",
+        help=f"Session role to hold (its own login), so tg on the main session "
+        f"never waits for the agent (default {DEFAULT_ROLE!r}; the main session "
+        f"while that role is not logged in).",
+    )
+    parser.add_argument(
+        "--main-session",
+        action="store_true",
+        help="Hold the account's main session instead of a role.",
     )
     parser.add_argument(
         "--idle",
@@ -210,8 +216,15 @@ def main(argv: list[str] | None = None) -> int:
         allowlist = Allowlist.build(args.allow_chat, args.allow_all_chats)
     except ValueError as err:
         parser.error(str(err))
+    if args.main_session and args.session_role:
+        parser.error("--main-session and --session-role are exclusive")
+    role = None if args.main_session else args.session_role or DEFAULT_ROLE
     runner = HeldRunner(
-        args.account, role=args.session_role, timeout=args.timeout, idle=args.idle
+        args.account,
+        role=role,
+        timeout=args.timeout,
+        idle=args.idle,
+        fallback_to_main=not args.main_session and args.session_role is None,
     )
     try:
         serve(Server(allowlist, runner), sys.stdin, sys.stdout)

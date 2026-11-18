@@ -162,3 +162,47 @@ def test_mcp_tool_call_end_to_end_over_the_held_session(
     assert result["isError"] is False
     assert [d["id"] for d in payload["dialogs"]] == [1]
     assert payload["hidden_by_allowlist"] == 1
+
+
+def _role_file(role: str):
+    return session.session_path(Account("main", 12345, "h", "main"), role)
+
+
+def test_the_default_role_is_held_once_it_is_logged_in(
+    env, monkeypatch, runner_factory
+):
+    role_file = _role_file(held.DEFAULT_ROLE)
+    role_file.parent.mkdir(parents=True, exist_ok=True)
+    role_file.touch()
+    made = install(monkeypatch, ConnectingClient(dialogs=[dialog("Alice", 1)]))
+    run = runner_factory(role=held.DEFAULT_ROLE, fallback_to_main=True)
+
+    assert run(["dialogs"])[0] == 0
+    assert made == [role_file]
+    assert session.lock_held(role_file) is True
+    assert session.lock_held(_session_file()) is False
+
+
+def test_the_default_role_falls_back_to_main_until_it_is_logged_in(
+    env, monkeypatch, runner_factory, capsys
+):
+    made = install(monkeypatch, ConnectingClient(dialogs=[dialog("Alice", 1)]))
+    run = runner_factory(role=held.DEFAULT_ROLE, fallback_to_main=True)
+
+    assert run(["dialogs"])[0] == 0
+    assert made == [_session_file()]
+    err = capsys.readouterr().err
+    assert f"tg accounts login main --role {held.DEFAULT_ROLE}" in err
+
+
+def test_a_named_role_that_is_not_logged_in_is_an_error_not_a_fallback(
+    env, monkeypatch, runner_factory
+):
+    made = install(monkeypatch, ConnectingClient())
+    run = runner_factory(role="agent")
+
+    code, out = run(["dialogs"])
+
+    assert code == 3
+    assert "not authorized" in json.loads(out)["error"]["message"]
+    assert made == []

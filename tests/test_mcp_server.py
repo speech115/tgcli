@@ -360,3 +360,36 @@ def test_numeric_ids_of_different_peer_kinds_never_share_a_key(n):
     )
     assert not user & group and not user & channel and not group & channel
     assert chat_keys(f"https://t.me/c/{n}/1") == channel
+
+
+@pytest.mark.parametrize(
+    ("argv", "role", "fallback"),
+    [
+        ([], "mcp", True),
+        (["--session-role", "agent"], "agent", False),
+        (["--main-session"], None, False),
+    ],
+)
+def test_main_holds_the_mcp_role_by_default(monkeypatch, argv, role, fallback):
+    seen = {}
+
+    class Runner:
+        def __init__(self, account, **kwargs):
+            seen.update(kwargs)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(mcp_server, "HeldRunner", Runner)
+    monkeypatch.setattr(mcp_server, "serve", lambda *args: None)
+
+    assert mcp_server.main(["--allow-chat", "@news", *argv]) == 0
+    assert (seen["role"], seen["fallback_to_main"]) == (role, fallback)
+
+
+def test_main_refuses_main_session_with_a_role(capsys):
+    with pytest.raises(SystemExit):
+        mcp_server.main(
+            ["--allow-chat", "@news", "--main-session", "--session-role", "x"]
+        )
+    assert "exclusive" in capsys.readouterr().err
