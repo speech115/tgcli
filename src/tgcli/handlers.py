@@ -151,6 +151,9 @@ async def export_messages(tg, args, account) -> tuple[dict, list[tuple]]:
 
 
 async def clone_sync(tg, args, account) -> tuple[dict, list[tuple]]:
+    if args.all:
+        data = await sync_clone.sync_all(tg, account.alias, limit=args.limit)
+        return data, sync_clone.sync_all_rows(data)
     data = await sync_clone.sync_text(tg, args.source, account.alias, limit=args.limit)
     return data, sync_clone.sync_rows(data)
 

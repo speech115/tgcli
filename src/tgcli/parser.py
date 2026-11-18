@@ -394,7 +394,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="create a posts-only clone without a discussion-group peer",
     )
     p_clone_sync = clone_sub.add_parser("sync", parents=[global_flags])
-    p_clone_sync.add_argument("source", help="source channel, supergroup, or dialog")
+    clone_sync_what = p_clone_sync.add_mutually_exclusive_group(required=True)
+    clone_sync_what.add_argument(
+        "source", nargs="?", help="source channel, supergroup, or dialog"
+    )
+    clone_sync_what.add_argument(
+        "--all",
+        action="store_true",
+        help="sync every clone of this account in one run",
+    )
     p_clone_sync.add_argument("--limit", type=int)
     return parser
 

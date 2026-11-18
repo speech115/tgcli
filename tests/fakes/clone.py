@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
-from telethon import errors as telethon_errors
+from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
 
 from tests.fakes import messages
@@ -169,6 +169,15 @@ class CloneSyncClient:
         self.history_requests = []
         # The one-message reads that tell an idle sync it has nothing to copy.
         self.newest_requests = []
+        # The batched newest-id reads of `clone sync --all`.
+        self.peer_dialog_requests = []
+
+    def _source_marked(self) -> int:
+        """The source as a kind-marked peer id, as `clone sync --all` names it."""
+        peer_class = (
+            types.PeerChat if isinstance(self.source, types.Chat) else types.PeerChannel
+        )
+        return telethon_utils.get_peer_id(peer_class(self.source.id))
 
     def _history_of(self, peer):
         """The messages the fake holds for an input peer, for the idle probe."""
@@ -182,12 +191,18 @@ class CloneSyncClient:
             raise ValueError("peer not found")
         if isinstance(ref, (types.PeerUser, types.PeerChat)):
             raise ValueError("peer not found")
+        if isinstance(ref, int):
+            if ref == self._source_marked():
+                return self.source
+            raise ValueError("peer not found")
         assert ref == "@source"
         return self.source
 
     async def get_input_entity(self, ref):
-        if ref == "@source" or (
-            isinstance(ref, types.PeerChannel) and ref.channel_id == self.source.id
+        if (
+            ref == "@source"
+            or ref == self._source_marked()
+            or (isinstance(ref, types.PeerChannel) and ref.channel_id == self.source.id)
         ):
             ref = self.source
         if ref is self.destination:
@@ -270,6 +285,20 @@ class CloneSyncClient:
         if isinstance(request, functions.messages.UpdatePinnedMessageRequest):
             self.requests.append(request)
             return True
+        if isinstance(request, functions.messages.GetPeerDialogsRequest):
+            self.peer_dialog_requests.append(request)
+            return SimpleNamespace(
+                dialogs=[
+                    SimpleNamespace(
+                        peer=telethon_utils.get_peer(item.peer),
+                        top_message=max(
+                            (held.id for held in self._history_of(item.peer)),
+                            default=0,
+                        ),
+                    )
+                    for item in request.peers
+                ]
+            )
         assert isinstance(request, functions.messages.ForwardMessagesRequest)
         self.requests.append(request)
         updates = []

@@ -92,3 +92,9 @@ def recorded_source_ref(account_user_id: int, source: str):
         )
     peer = _SOURCE_PEERS.get(found[0].source_kind, types.PeerChannel)
     return peer(found[0].source_peer_id)
+
+
+def source_ref(s: state.CloneState) -> str:
+    """The clone's source as a kind-marked peer id, the form SOURCE accepts."""
+    peer = _SOURCE_PEERS.get(s.source_kind, types.PeerChannel)
+    return str(telethon_utils.get_peer_id(peer(s.source_peer_id)))

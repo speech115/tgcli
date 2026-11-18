@@ -217,13 +217,16 @@ the same `tg` on PATH; see the archive row in [SKILL.md](SKILL.md) and
 
 ### Keeping clones current
 
-One launchd job per clone runs `clone sync` on a short interval. tgcli keeps no
-daemon: the job starts, finds out whether the source has anything new, and
-exits.
+One launchd job per account runs `clone sync --all` on a short interval (or
+one job per clone runs `clone sync SOURCE`). tgcli keeps no daemon: the job
+starts, finds out whether any source has anything new, and exits. `--all`
+answers that for every clone with one `GetPeerDialogs` per 100 peers, treats
+a FloodWait as the account's (no clone runs until it is over), and goes on to
+the next clone when one refuses.
 
 ```xml
 <key>Label</key>
-<string>com.tgcli.clone-sync.SOURCE</string>
+<string>com.tgcli.clone-sync.A</string>
 <key>ProgramArguments</key>
 <array>
   <string>/Users/you/.local/bin/tg</string>
@@ -231,14 +234,14 @@ exits.
   <string>--session-role</string><string>job</string>
   <string>--max-runtime</string><string>240</string>
   <string>--json</string>
-  <string>clone</string><string>sync</string><string>SOURCE</string>
+  <string>clone</string><string>sync</string><string>--all</string>
 </array>
 <key>StartInterval</key>
 <integer>120</integer>
 ```
 
 The command is `tg --account A [--session-role job] --max-runtime 240 --json
-clone sync SOURCE`. Leave out `--session-role job` if no one else uses the
+clone sync --all`. Leave out `--session-role job` if no one else uses the
 account's primary session. With a role, authorize it once (`tg accounts login A
 --role job --phone PHONE`), so a sync never holds the session your own
 commands need.
