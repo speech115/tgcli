@@ -1,4 +1,4 @@
-"""`tg archive` Phase 3 boundary tests (ADR-0068): private resolve, --private, sync."""
+"""`tg archive` Phase 3 boundary tests: private resolve, --private, sync."""
 
 from __future__ import annotations
 

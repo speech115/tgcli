@@ -1,4 +1,4 @@
-"""Read-only environment and session health checks (ADR-0028 / ADR-0040 / ADR-0062)."""
+"""Read-only environment and session health checks."""
 
 import stat
 import sys
@@ -55,7 +55,7 @@ def _loose_previews() -> list[Path]:
 
 
 def _repair_allowed(readonly: bool) -> bool:
-    """The ADR-0040 local-mutation gate, asked rather than enforced.
+    """The local-mutation gate, asked rather than enforced.
 
     `doctor` reports health, so a blocked repair is a check result and not a
     failed command — but the *rule* must stay the single one every other

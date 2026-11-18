@@ -1,7 +1,7 @@
 """Network dispatch: one open session, one command, one (data, rows) pair.
 
 The command's handler comes from `tgcli.registry`; read commands go through
-the `read_ops` seam (ADR-0034). Telethon rate-limit errors are translated
+the `read_ops` seam. Telethon rate-limit errors are translated
 into the CLI's own error contract at this boundary.
 """
 

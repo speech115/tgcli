@@ -35,7 +35,7 @@ def config_env(tmp_path, monkeypatch):
 def test_media_download_rejects_codec_on_message_source(
     config_env, monkeypatch, capsys
 ):
-    """ADR-0078: --codec is story-only; a message source must not silently ignore it."""
+    """--codec is story-only; a message source must not silently ignore it."""
     make_session_fake(monkeypatch, FakeClient())
 
     assert (

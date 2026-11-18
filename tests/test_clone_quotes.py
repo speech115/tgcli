@@ -1,5 +1,5 @@
 # tests/test_clone_quotes.py
-"""Resolver unit tests for clone quote replies (ADR-0036 slice 2)."""
+"""Resolver unit tests for clone quote replies."""
 
 import asyncio
 from types import SimpleNamespace
@@ -467,7 +467,7 @@ def _threaded_ctx(client):
 
 
 def test_quiet_trap_a_foreign_parent_id_is_never_walked_against_the_group():
-    """ADR-0036 §4: the group's own 1244 must not capture a foreign quote."""
+    """The group's own 1244 must not capture a foreign quote."""
     header = types.MessageReplyHeader(
         reply_to_msg_id=1244,
         reply_to_peer_id=types.PeerChannel(2275285084),

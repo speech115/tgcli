@@ -1,4 +1,4 @@
-"""Unit tests for the clone sync stderr progress emitter (ADR-0049)."""
+"""Unit tests for the clone sync stderr progress emitter."""
 
 from __future__ import annotations
 
@@ -213,7 +213,7 @@ def test_transfer_line_strips_control_characters_from_the_filename():
 
 
 async def test_a_leg_resolves_its_total_once_per_run_not_once_per_window():
-    """ADR-0051 interleaves posts and comments; re-entering a leg must not
+    """The interleave alternates posts and comments; re-entering a leg must not
     re-ask GetHistory for a number it already has (review finding)."""
     lines, write = collector()
     reporter = progress.SyncProgress(123, write=write)

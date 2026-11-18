@@ -2,7 +2,7 @@
 
 Every command tests its own exits locally; this file pins the shared law so a
 new command cannot silently redefine a code (the exit-3-vs-4 unknown-alias
-drift caught in the ADR-0042 review is the motivating case).
+drift caught in a login review is the motivating case).
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ def _stdout_error(stream: str) -> str:
 
 
 def test_unknown_alias_lookup_is_exit_4(env, capsys):
-    """`accounts show|remove` look up a registry entry (ADR-0042 §11)."""
+    """`accounts show|remove` look up a registry entry."""
     assert main(["accounts", "show", "ghost", "--json"]) == 4
     captured = capsys.readouterr()
     assert captured.out == captured.err

@@ -74,7 +74,7 @@ def test_replace_text_survives_an_unopenable_parent(tmp_path, monkeypatch):
 
 
 def test_fsync_directory_is_the_public_parent_helper():
-    """Cross-module callers must use the public name (ADR-0108 helper)."""
+    """Cross-module callers must use the public name."""
     assert callable(atomic.fsync_directory)
     assert not hasattr(atomic, "_fsync_directory")
 

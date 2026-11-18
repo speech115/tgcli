@@ -1,4 +1,4 @@
-"""Session files, per-account locks, Telethon client lifecycle (ADR-0004/0062)."""
+"""Session files, per-account locks, Telethon client lifecycle."""
 
 import fcntl
 import platform
@@ -147,7 +147,7 @@ def session_file_lock(
     busy_error: type[BaseException] = ConfigError,
     wait: float = 0.0,
 ) -> Iterator[IO[str]]:
-    """Acquire the ``.lock`` beside ``session_file`` (ADR-0099).
+    """Acquire the ``.lock`` beside ``session_file``.
 
     ``LOCK_EX``, polling up to ``wait`` seconds while another process holds
     it. The wait counts against `--timeout` like any other time, and it never
@@ -232,7 +232,7 @@ def _make_client(
     return build_client(path, account.api_id, account.api_hash, **extra)
 
 
-# Session files a long-lived owner keeps open (`hold`, ADR-0124), and their clients.
+# Session files a long-lived owner keeps open (`hold`), and their clients.
 _held: dict[Path, TelegramClient] = {}
 
 

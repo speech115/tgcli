@@ -694,7 +694,7 @@ def test_clone_sync_reupload_upload_issues_save_file_part_requests(
 def test_clone_sync_reupload_streams_large_media_in_one_pass(
     config_env, monkeypatch, capsys
 ):
-    """ADR-0083: the download leg is serial and checkpointed, not striped.
+    """the download leg is serial and checkpointed, not striped.
 
     One `iter_download` from the resume offset, no stride: a parallel
     transfer scatters its stripes and no byte count describes what it has,
@@ -818,7 +818,7 @@ def test_clone_sync_reupload_part_flood_wait_exits_5_without_send(
     assert saved.cursor == 0
 
 
-# --- ADR-0050 Part B: native re-forward of a proven original --------------
+# --- native re-forward of a proven original --------------
 
 
 def seed_clone_with_discussion_source(*, discussion_source_peer_id=55):
@@ -832,7 +832,7 @@ def seed_clone_with_discussion_source(*, discussion_source_peer_id=55):
 
 class CloneReforwardClient(CloneReuploadClient):
     """A protected-broadcast clone whose source also has a discussion group
-    reachable at ``source_group_id``, serving the ADR-0050 Part B search."""
+    reachable at ``source_group_id``, serving the re-forward proof search."""
 
     def __init__(
         self,
@@ -898,7 +898,7 @@ def _reposted_message(**overrides):
 def test_clone_sync_reforwards_protected_repost_with_proven_original(
     config_env, monkeypatch, capsys
 ):
-    """ADR-0050 Part B: an unedited group copy lets the clone forward the
+    """an unedited group copy lets the clone forward the
     real original instead of describing it with a text prefix."""
     seed_clone_with_discussion_source()
     photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
@@ -1044,7 +1044,7 @@ def test_clone_sync_reforward_search_flood_wait_exits_5_without_send(
 ):
     """A FloodWait from the reforward search RPC must not be swallowed into
     a Part A fallback — it arms the cooldown, saves state, and stops the
-    run, same as any other cooldown-wrapped RPC (ADR-0045)."""
+    run, same as any other cooldown-wrapped RPC."""
     clone_state = seed_clone_with_discussion_source()
     post = _reposted_message()
 
@@ -1126,7 +1126,7 @@ def test_clone_sync_declines_a_proven_original_whose_keyboard_differs(
     """#183: the group copy is the same post, but Telegram did not carry the
     channel's buttons into the group. Forwarding it would publish the wrong
     keyboard under a genuine header, and the native-forward path is the one
-    ADR-0085 stays silent about — so the proof is declined, the batch falls
+    no transport reports — so the proof is declined, the batch falls
     back to the reupload prefix, and the loss is reported like any other."""
     seed_clone_with_discussion_source()
     photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))

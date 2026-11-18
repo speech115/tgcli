@@ -1,4 +1,4 @@
-"""`tg-serve`: run `tg` commands one after another over one held session (ADR-0124).
+"""`tg-serve`: run `tg` commands one after another over one held session.
 
 A parent process (an adapter such as an MCP server) starts it for one account
 and session role and talks JSON lines over stdin/stdout:
@@ -122,14 +122,14 @@ def _reply(replies: IO[str], payload: dict) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="tg-serve", description="Run tg commands over one held session (ADR-0124)."
+        prog="tg-serve", description="Run tg commands over one held session."
     )
     parser.add_argument("--account", help="account alias from config")
     parser.add_argument(
         "--session-role",
         dest="session_role",
         metavar="NAME",
-        help="session role to hold (ADR-0062)",
+        help="session role to hold",
     )
     args = parser.parse_args(argv)
     # Replies own the real stdout; whatever else a command prints is captured.

@@ -1,4 +1,4 @@
-"""Unit tests for accounts login (ADR-0042 Slices 2–3)."""
+"""Unit tests for accounts login."""
 
 from __future__ import annotations
 
@@ -151,7 +151,7 @@ def test_mask_phones_in_text_leaves_non_phone_text_untouched():
 
 @pytest.mark.asyncio
 async def test_attempt_json_has_no_raw_phone_on_disk(env, fake_client):
-    """T08 / ADR-0042 §5: the attempt json on disk must never carry the raw
+    """The attempt json on disk must never carry the raw
     phone, only the continue path may resolve it (from its own sidecar)."""
     pending = await login_cmd.start_login(
         load_config(),
@@ -1045,7 +1045,7 @@ def test_failed_code_request_leaves_no_attempt(
 
 def test_unrecorded_code_request_leaves_no_phone(env, fake_client, monkeypatch, capsys):
     """The phone sidecar lands before phone_code_hash is recorded; a failure
-    between the two writes left the raw phone on disk (ADR-0042)."""
+    between the two writes left the raw phone on disk."""
     from tgcli import atomic
 
     replace_text = atomic.replace_text

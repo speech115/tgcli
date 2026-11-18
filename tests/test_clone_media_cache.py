@@ -1,4 +1,4 @@
-"""Persistent clone reupload media cache (ADR-0052 task 4)."""
+"""Persistent clone reupload media cache."""
 
 import json
 from datetime import UTC, datetime, timedelta
@@ -80,7 +80,7 @@ async def test_download_reuses_matching_name_and_size(state_dir_env, monkeypatch
 @pytest.mark.asyncio
 async def test_unmarked_full_size_cache_file_is_redownloaded(state_dir_env):
     """A pre-fix binary killed mid-stripe left a full-size sparse file at the
-    final name; size alone must never license reuse (ADR-0052)."""
+    final name; size alone must never license reuse."""
     clone_state = state.CloneState.new(
         account_user_id=1, source_peer_id=2, source_title="S"
     )
@@ -383,7 +383,7 @@ def test_confirmation_failure_leaves_media_cache_intact(
 ):
     """T12: a send Telegram never confirms must not lose the downloaded
     bytes. The cache clears only after `confirm.confirmed_ids` and
-    `state.save` both succeed (ADR-0052 intent)."""
+    `state.save` both succeed."""
     clone_state = seed_clone()
     photo = types.MessageMediaPhoto(photo=types.PhotoEmpty(id=7))
 

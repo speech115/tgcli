@@ -1,4 +1,4 @@
-"""Authorize a session via phone, code, and optional password (ADR-0088)."""
+"""Authorize a session via phone, code, and optional password."""
 
 from __future__ import annotations
 

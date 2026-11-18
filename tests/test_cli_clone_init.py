@@ -1187,7 +1187,7 @@ def test_init_does_not_mark_comments_unavailable_on_a_dead_session(
 def test_plain_reinit_keeps_posts_only_clone_with_copied_posts(
     marker, config_env, monkeypatch, capsys
 ):
-    """ADR-0023: posts copied before a link have no anchors, so a posts-only
+    """posts copied before a link have no anchors, so a posts-only
     clone with copied posts is never upgraded in place. A plain re-init once
     the linked group reads fine keeps the marker, links nothing, and points
     to --replace."""
@@ -1533,7 +1533,7 @@ def test_clone_init_mutes_created_peers_forever(config_env, monkeypatch, capsys)
 def test_clone_init_unresolved_discussion_marks_muted_false(
     error, config_env, monkeypatch, capsys
 ):
-    """Discussion get_entity failures must warn and keep exit 0 (ADR-0046)."""
+    """Discussion get_entity failures must warn and keep exit 0."""
     client = CloneInitClient()
     client.linked = linked_group()
     make_session_fake(monkeypatch, client)

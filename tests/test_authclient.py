@@ -111,7 +111,7 @@ async def test_unauthorized_client_sets_same_telegram_device_identity(
 
 @pytest.mark.asyncio
 async def test_unauthorized_client_sleeps_only_short_floods(tmp_path, monkeypatch):
-    """T20: login clients must match session._make_client (ADR-0125)."""
+    """T20: login clients must match session._make_client."""
     path = tmp_path / "staged.session"
     fake = _FakeTg()
     captured = {}

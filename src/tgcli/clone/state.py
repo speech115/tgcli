@@ -1,8 +1,7 @@
-"""Per-clone state with fail-closed validation (ADR-0017/0060).
+"""Per-clone state with fail-closed validation.
 
 Public seam: ``CloneState``, ``load``, ``save``, ``supersede``, ``clone_id``,
-``path_for``, ``slot_lock``. Storage is SQLite/WAL via ``clone.statedb``
-(ADR-0060).
+``path_for``, ``slot_lock``. Storage is SQLite/WAL via ``clone.statedb``.
 
 Slot invariants:
 
@@ -47,7 +46,7 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-# Peer class per source kind (ADR-0103): a User/Chat/Channel can share a
+# Peer class per source kind: a User/Chat/Channel can share a
 # bare numeric id; not split further, since a megagroup toggling into a
 # forum keeps its channel_id and must stay one slot.
 _PEER_CLASS = {
@@ -60,7 +59,7 @@ _PEER_CLASS = {
 
 
 def clone_id(account_user_id: int, source_peer_id: int, source_kind: str) -> str:
-    """Peer-class-aware clone identity (ADR-0103)."""
+    """Peer-class-aware clone identity."""
     return peer_clone_id(account_user_id, _PEER_CLASS[source_kind], source_peer_id)
 
 
@@ -72,7 +71,7 @@ def peer_clone_id(account_user_id: int, peer_class: str, source_peer_id: int) ->
 
 
 def _kind_blind_clone_id(account_user_id: int, source_peer_id: int) -> str:
-    """Pre-ADR-0103 identity; import-only migration lookup."""
+    """Pre-kind-aware identity; import-only migration lookup."""
     identity = f"{account_user_id}:{source_peer_id}".encode()
     return hashlib.sha256(identity).hexdigest()
 
@@ -87,7 +86,7 @@ def ensure_clones_dir() -> Path:
 
 
 def path_for(clone_id: str) -> Path:
-    """Active SQLite state path for a clone (ADR-0060)."""
+    """Active SQLite state path for a clone."""
     return clones_dir() / f"{clone_id}.db"
 
 
@@ -154,10 +153,10 @@ class CloneState:
     creation_marker: str | None = None
     cursor: int = 0
     id_map: dict[SourcePostId, DestPostId] = field(default_factory=dict)
-    # When a FloodWait this clone could not ride out ends (ADR-0126). `clone
+    # When a FloodWait this clone could not ride out ends. `clone
     # sync` writes it on exit 5, refuses before any request while it lies in
-    # the future, and clears it on a completed run. ADR-0045 introduced the
-    # field; ADR-0125 left it unused.
+    # the future, and clears it on a completed run. An older flood
+    # budget introduced the field.
     retry_not_before: str | None = None
     created_at: str = ""
     last_synced_at: str | None = None
@@ -355,7 +354,7 @@ def _check_discussion(state: CloneState) -> None:
 
 def _check(state: CloneState) -> None:
     """The invariants the schema cannot express; a state failing one is never
-    handed to a caller (ADR-0017)."""
+    handed to a caller."""
     if state.source_kind not in _PEER_CLASS:
         raise ValueError("invalid source kind")
     if not _in_tl_range(state.topic_map.items(), 2):
@@ -450,7 +449,7 @@ def load(clone_id: str) -> CloneState | None:
 
 def resolve_slot(account_user_id: int, source_peer_id: int, source_kind: str) -> str:
     """Canonical clone id, migrating a same-class legacy slot onto it once
-    (ADR-0103); a different-class legacy slot is left for its own class."""
+    ; a different-class legacy slot is left for its own class."""
     canonical = clone_id(account_user_id, source_peer_id, source_kind)
     legacy = _kind_blind_clone_id(account_user_id, source_peer_id)
     canonical_taken = path_for(canonical).exists()
@@ -475,7 +474,7 @@ def resolve_slot(account_user_id: int, source_peer_id: int, source_kind: str) ->
     ):
         if src.exists():
             os.replace(src, dst)
-    note(f"migrated clone state {legacy} -> {canonical} (ADR-0103)")
+    note(f"migrated clone state {legacy} -> {canonical}")
     return canonical
 
 

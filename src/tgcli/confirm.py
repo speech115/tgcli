@@ -1,7 +1,7 @@
 """Outgoing messages: random_id, reply header, and fail-closed confirmation.
 
 A send carries a random_id so Telegram dedupes a retry, and its message id is
-taken only from Telegram's confirmation of that random_id (ADR-0028).
+taken only from Telegram's confirmation of that random_id.
 """
 
 import secrets

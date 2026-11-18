@@ -1,5 +1,5 @@
 # tests/test_clone_replies.py
-"""Direct unit tests for clone reply classification (ADR-0036)."""
+"""Direct unit tests for clone reply classification."""
 
 from types import SimpleNamespace
 
@@ -139,7 +139,7 @@ def test_cross_leg_target_not_yet_mapped_flattens():
 def test_cross_leg_parent_beyond_posts_cursor_defers():
     """Discussion-leg comment whose channel parent is newer than the posts
     cursor must defer — not flatten — so windowed interleaving cannot plant
-    a permanent flat reply (ADR-0051)."""
+    a permanent flat reply."""
     header = types.MessageReplyHeader(
         reply_to_msg_id=789,
         reply_to_peer_id=types.PeerChannel(2),

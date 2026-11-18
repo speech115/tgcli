@@ -1,4 +1,4 @@
-"""Telethon client for a session that is not yet authorized (ADR-0042).
+"""Telethon client for a session that is not yet authorized.
 
 `session.client()` refuses unauthorized sessions; login starts from that
 state, so it needs its own lock + connect/disconnect seam.

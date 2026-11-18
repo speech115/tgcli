@@ -267,7 +267,7 @@ class Scenario:
 
 SCENARIOS = (
     # An open channel with comments: posts forward, comments interleave in
-    # windows (ADR-0051), then a sync with nothing new, then a small catch-up.
+    # windows, then a sync with nothing new, then a small catch-up.
     Scenario(
         "open-with-comments",
         protected=False,

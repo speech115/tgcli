@@ -225,7 +225,7 @@ def _write_corrupt(clone_id):
 
 
 def test_status_ignores_a_legacy_json_document(capsys):
-    """Pre-SQLite JSON state is no longer read or imported (ADR-0060)."""
+    """Pre-SQLite JSON state is no longer read or imported."""
     _seed(100000001, 111, "Alpha", dest=222)
     directory = state.clones_dir()
     (directory / f"{'a' * 64}.json").write_text(json.dumps({"version": 2}))
@@ -389,7 +389,7 @@ def test_status_reports_an_empty_slot_without_writing_a_schema_into_it(capsys):
 
 def test_status_probes_a_pre_adr_0103_slot_under_its_own_file_name(capsys):
     """A slot still under its kind-blind id (migrated only by the next
-    init/sync, ADR-0103) is reported under that file and probed there,
+    init/sync) is reported under that file and probed there,
     not as `missing` under the kind-aware id it has not moved to yet."""
     saved = state.CloneState.new(
         account_user_id=100000001, source_peer_id=111, source_title="Alpha"

@@ -1,4 +1,4 @@
-"""Classify clone reply headers (ADR-0019/0021/0036).
+"""Classify clone reply headers.
 
 Resolution of classifications into ``InputReplyToMessage`` lives in
 ``clone.quotes``; rendered degradation lives in ``clone.quote_fallback``.
@@ -128,7 +128,7 @@ def _classify_header(
         if _peer_matches_id(peer, leg.other.source_peer_id):
             if leg.other.dest_for_raw(parent_id) is not None:
                 return result("mapped-cross-leg")
-            # Discussion leg only (ADR-0051): parent beyond the posts cursor
+            # Discussion leg only: parent beyond the posts cursor
             # means "not copied yet" → defer, unless the posts leg is already
             # exhausted (parent will never arrive) → flatten. Parent behind
             # the cursor and absent means permanently gone → flatten.

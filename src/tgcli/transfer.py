@@ -1,4 +1,4 @@
-"""Shared striped download and parallel part upload (ADR-0043 / ADR-0047)."""
+"""Shared striped download and parallel part upload."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from tgcli.state_paths import ensure_parent_dir, restrict_file
 
 CHUNK_SIZE = 512 * 1024
 CLONE_TRANSFER_PARALLEL = 4
-# One chunk cadence for every transfer that reports progress (ADR-0043/0049):
+# One chunk cadence for every transfer that reports progress:
 # `media download`, the striped download, and the clone reupload legs.
 PROGRESS_EVERY_CHUNKS = 16
 
@@ -134,8 +134,8 @@ async def download_striped(
             # `truncate(size)` above already gave the file its final byte
             # count, so a stream that stopped without raising (server closed
             # the connection, no FloodWait, no worker exception) would
-            # otherwise leave a full-size *sparse* file that looks complete
-            # (ADR-0083 decision 3). The caller's `_publish` must never see
+            # otherwise leave a full-size *sparse* file that looks complete.
+            # The caller's `_publish` must never see
             # this path succeed.
             raise RuntimeError(f"striped download ended at {downloaded}/{size} bytes")
     except BaseException:

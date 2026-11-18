@@ -188,7 +188,7 @@ def _execute_network(args, config, spec: registry.Command) -> tuple[dict, list[t
     # not just the network coroutine's client window: the before/after audits
     # below run outside dispatch.run_network, so setting it only there (as
     # dispatch used to) left the cli-level mutation audit rows without "role"
-    # (CONTRACT.md §6, ADR-0062).
+    # (CONTRACT.md §6).
     token = safety.set_audit_role(getattr(args, "session_role", None))
     try:
         _audit_before(args, account, spec)
@@ -249,7 +249,7 @@ def _parse(
 def main(
     argv: list[str] | None = None, *, parser: argparse.ArgumentParser | None = None
 ) -> int:
-    """Run one invocation. `tg-serve` passes the parser it built once (ADR-0124)."""
+    """Run one invocation. `tg-serve` passes the parser it built once."""
     parser = parser or build_parser()
     parsed = _parse(parser, argv)
     if isinstance(parsed, int):

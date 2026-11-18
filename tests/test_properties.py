@@ -3,7 +3,7 @@
 Line coverage never sees these classes (bf-01 silent HTML truncation, bf-02
 astral-offset desync, af-08 crash-on-malformed-state): each property pins an
 invariant over generated input instead of an example. ``derandomize=True``
-keeps the gate deterministic — the suite must never be flaky (ADR-0059).
+keeps the gate deterministic — the suite must never be flaky.
 """
 
 from __future__ import annotations

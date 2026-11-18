@@ -1,4 +1,4 @@
-"""tg-serve: many `tg` invocations over one held session (ADR-0124)."""
+"""tg-serve: many `tg` invocations over one held session."""
 
 import asyncio
 import datetime as dt

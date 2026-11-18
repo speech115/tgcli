@@ -1,1 +1,1 @@
-"""Local Telegram archive package (ADR-0068)."""
+"""Local Telegram archive package."""

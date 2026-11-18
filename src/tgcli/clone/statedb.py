@@ -1,4 +1,4 @@
-"""Per-clone SQLite/WAL state backend (ADR-0060).
+"""Per-clone SQLite/WAL state backend.
 
 Owns schema, open/close, one-transaction writes of a meta row plus pending
 map changes, and integrity checks. ``clone.state`` keeps the public
@@ -149,7 +149,7 @@ _MIGRATIONS: dict[int, tuple[str, ...]] = {
 
 
 def connect(path: Path, *, create: bool = False) -> sqlite3.Connection:
-    """Open a clone DB with the ADR-0060 pragmas and schema.
+    """Open a clone DB with its pragmas and schema.
 
     Only a writer (``create``) lays the schema into a new or still-empty
     file. A reader refuses a file without it: the slot holds no state, and a

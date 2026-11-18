@@ -1,4 +1,4 @@
-"""Pinned-message carry-over: pure decide + live sync_phase (ADR-0055)."""
+"""Pinned-message carry-over: pure decide + live sync_phase."""
 
 from __future__ import annotations
 
@@ -368,7 +368,7 @@ async def test_sync_phase_recovers_own_pin_after_crash_before_save(monkeypatch):
         for r in client.requests
         if isinstance(r, functions.channels.GetFullChannelRequest)
     ]
-    assert len(fulls) == 2  # ADR-0055 budget: recovery adds no extra RPCs
+    assert len(fulls) == 2  # Pin budget: recovery adds no extra RPCs
     assert not any(
         isinstance(r, functions.messages.UpdatePinnedMessageRequest)
         for r in client.requests
@@ -380,7 +380,7 @@ async def test_sync_phase_recovers_own_pin_after_crash_before_save(monkeypatch):
 async def test_sync_phase_occupied_when_destination_pins_other_cloned_post(
     monkeypatch,
 ):
-    """ADR-0055 decision 2: a human-chosen pin outranks the mirrored one.
+    """A human-chosen pin outranks the mirrored one.
 
     Recovery is strictly the exact destination id this run intended to set; a
     different pinned message still latches occupied even when it is itself a

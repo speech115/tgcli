@@ -1,4 +1,4 @@
-"""Local-state inventory and cleanup (ADR-0040)."""
+"""Local-state inventory and cleanup."""
 
 import errno
 import fcntl
@@ -644,7 +644,7 @@ def test_cleanup_keeps_media_cache_a_running_sync_is_writing(tmp_path, monkeypat
 
     `store cleanup --confirm` with no `--older-than` reaps every other bucket
     only after its own TTL classified the record dead; the media cache has no
-    `expires_at`, so mtime is the only liveness signal it has (ADR-0052).
+    `expires_at`, so mtime is the only liveness signal it has.
     """
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     cache = _seed_clone_media_cache(tmp_path)
@@ -904,9 +904,9 @@ def test_cleanup_treats_flock_probe_error_as_busy(tmp_path, monkeypatch):
 def test_cleanup_keeps_media_cache_while_a_session_lock_is_held(tmp_path, monkeypatch):
     """A long upload-only phase writes nothing, so mtime alone is not liveness.
 
-    `clone sync` holds its account session lock for the whole run; while any
-    session lock is held, a `*-media` cache may still belong to that run
-    (ADR-0052), whatever its mtime says.
+     `clone sync` holds its account session lock for the whole run; while any
+     session lock is held, a `*-media` cache may still belong to that run
+    , whatever its mtime says.
     """
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     cache = _seed_clone_media_cache(tmp_path)

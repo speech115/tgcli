@@ -1,4 +1,4 @@
-"""Durable private-dialog enumeration resume token (ADR-0118)."""
+"""Durable private-dialog enumeration resume token."""
 
 from __future__ import annotations
 
@@ -105,7 +105,7 @@ async def enumerate_private_dialogs(
     the entities the walk saw, so backfill never resolves a ref it already holds.
 
     Resumes ``iter_dialogs`` from the durable account_sync private-enum token
-    so job quanta do not re-walk a completed head (ADR-0118).
+    so job quanta do not re-walk a completed head.
     """
     refs: list[str] = []
     ref_cursors: list[dict[str, Any]] = []
@@ -126,7 +126,7 @@ async def enumerate_private_dialogs(
     # safe_walked advances only past dialogs we may skip forever (non-private
     # or completed). Once any incomplete private is queued in refs, freeze it
     # so max_dialogs lookahead cannot persist a later skip and orphan the
-    # still-pending peer (ADR-0118 decision 2 / thermos Wave E).
+    # still-pending peer.
     safe_walked: dict[str, Any] | None = resume
     async for dialog in pace.paged(tg.iter_dialogs(**kwargs), pace.DIALOGS_PAGE):
         candidate = cursor_from_dialog(dialog)

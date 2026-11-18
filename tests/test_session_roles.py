@@ -1,4 +1,4 @@
-"""Named session roles (ADR-0062)."""
+"""Named session roles."""
 
 from __future__ import annotations
 
@@ -463,7 +463,7 @@ def test_audit_records_role_on_send_commit_through_real_cli_path(
     only active inside `dispatch.run_network`'s client window, but the
     cli-level `_audit_before`/`_audit_after` mutation rows (cli.py) run
     outside that window, so `send --commit --session-role ROLE` audit rows
-    never carried `"role"` (CONTRACT.md §6 / ADR-0062). This exercises the
+    never carried `"role"` (CONTRACT.md §6). This exercises the
     real `cli.main()` path, not the context var set by hand."""
     import json
     from types import SimpleNamespace

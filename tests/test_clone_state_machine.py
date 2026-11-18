@@ -1,4 +1,4 @@
-"""Clone state across saves and crashes (ADR-0017/0060).
+"""Clone state across saves and crashes.
 
 The machines drive ``CloneState`` the way successive `clone sync` runs do:
 record copies, save now and then, and sometimes die between saves. A model of
@@ -7,7 +7,7 @@ plain dicts says what the database must hold. After every step:
 - a fresh ``load`` equals what the last ``save`` was given, nothing newer;
 - a state that was never saved has no database at all;
 - the live object still holds everything recorded on it, saved or not;
-- a remembered flood (ADR-0126) is saved with the rest and survives a crash,
+- a remembered flood is saved with the rest and survives a crash,
   and reads as over exactly when its wait has passed.
 """
 

@@ -1,4 +1,4 @@
-"""Request spacing for bulk loops, and the `--max-runtime` cap (ADR-0125).
+"""Request spacing for bulk loops, and the `--max-runtime` cap.
 
 Telethon sleeps a FloodWait of up to `FLOOD_SLEEP_THRESHOLD` seconds and
 raises a longer one, which exits 5 with `retry_after`. Neither keeps a loop
@@ -15,7 +15,7 @@ from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
 from tgcli.tg_errors import FLOOD_ERRORS
 
 # Telethon sleeps a FloodWait up to this long and sends the request again; a
-# longer one raises, and the command exits 5 with `retry_after` (ADR-0125).
+# longer one raises, and the command exits 5 with `retry_after`.
 # It also remembers the wait per request type for the rest of the process: a
 # further request of that type sleeps out what is left, or raises unsent.
 # `Pace.call` resends a write after a flood of up to this long as well.
@@ -28,7 +28,7 @@ PAGE_WAIT_S = 3.0
 # A command that reads one chat at the owner's request. `None` is Telethon's
 # own default: no wait up to 3000 messages, 1 s a page beyond.
 INTERACTIVE_PAGE_WAIT = None
-# 20 sends a minute, the pace a clone held without a flood (ADR-0122).
+# 20 sends a minute, the pace a clone held without a flood.
 SEND_INTERVAL_S = 3.0
 MEDIA_INTERVAL_S = 3.0
 

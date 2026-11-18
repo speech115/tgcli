@@ -52,7 +52,7 @@ async def sync_phase(
 ) -> bool:
     """Copy the source discussion group into the clone's. Parent posts that
     this phase needs must already be mapped, or a cross-leg comment whose
-    parent sits beyond the posts cursor defers (ADR-0051) instead of
+    parent sits beyond the posts cursor defers instead of
     flattening — unless the posts leg is already exhausted, in which case
     that parent is permanently gone and flattens. Returns True when the
     --limit stop landed inside this phase."""
@@ -62,7 +62,7 @@ async def sync_phase(
         # Same refusal shape as attribution._resolve / roster.collect
         # (1.2.8): a linked group that turned private after init must not
         # crash a sync whose posts have already copied. Degrade to the
-        # ADR-0023 honest marker; never join the source on the user's
+        # Honest marker; never join the source on the user's
         # behalf. Clearing discussion_cursor / discussion_id_map is
         # required: state.load rejects comments != enabled with
         # leftover phase-2 progress.
@@ -70,13 +70,13 @@ async def sync_phase(
         clone_state.comments = Comments.UNAVAILABLE
         state.save(clone_state)
 
-    # ADR-0061: one shared ResolveContext spans every window of a sync run
-    # (ADR-0051 interleave), and the discussion peers cannot change identity
+    # one shared ResolveContext spans every window of a sync run
+    # , and the discussion peers cannot change identity
     # mid-run — later windows reuse the first window's entities instead of
     # re-paying two GetChannels RPCs. Because that skips the per-window
     # re-resolve, a group that turns private between windows now surfaces on
     # the window's own reads — the iterator below carries the same degrade
-    # guard (ADR-0061 review fix).
+    # guard.
     source_group = getattr(resolve_ctx, "source_group", None)
     if source_group is None:
         source_group, refusal = await unless_refused(
@@ -127,7 +127,7 @@ async def sync_phase(
             raise
         except (ValueError, telethon_errors.RPCError):
             # The window's own reads are where a mid-run privatized source
-            # surfaces once entities are cached (ADR-0061 review fix). Only
+            # surfaces once entities are cached. Only
             # the source iterator gets the degrade guard: copy_batch failures
             # below keep escaping exactly as before.
             degrade()
@@ -142,7 +142,7 @@ async def sync_phase(
             counters["skipped_service"] += 1
             leg.cursor = event.message_id
         elif (posts := _anchor_posts(event.messages, source_channel.id)) is not None:
-            # ADR-0051: stop before an anchor whose source post is newer than
+            # stop before an anchor whose source post is newer than
             # the posts cursor — but only while more posts may still arrive.
             # Once the posts leg is exhausted, beyond-cursor anchors are
             # orphans (deleted/never-seen) and must not stall the leg.

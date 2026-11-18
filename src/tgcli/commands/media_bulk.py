@@ -51,7 +51,7 @@ async def download_media_bulk(
     output: str | None = None,
     progress=None,
 ) -> dict:
-    """Download many media messages (ADR-0032). Raises PartialFailure if any fail."""
+    """Download many media messages. Raises PartialFailure if any fail."""
 
     try:
         entity = await tg.get_entity(chatref.parse(chat))

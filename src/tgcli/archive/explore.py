@@ -1,4 +1,4 @@
-"""Offline archive search, timeline, and history queries (ADR-0068)."""
+"""Offline archive search, timeline, and history queries."""
 
 from __future__ import annotations
 

@@ -205,7 +205,7 @@ def body_text(message) -> str:
 
     ``updates.getChannelDifference`` yields patched ``Message`` objects whose
     ``.text`` property is ``None`` even when the TL ``message`` field holds the
-    body — live acceptance of ``tg changes`` hit this (ADR-0063).
+    body — live acceptance of ``tg changes`` hit this.
     """
     text = getattr(message, "text", None)
     if text is not None:

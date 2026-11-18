@@ -1,4 +1,4 @@
-"""Untrusted-content fencing for the MCP adapter (ADR-0123)."""
+"""Untrusted-content fencing for the MCP adapter."""
 
 from __future__ import annotations
 

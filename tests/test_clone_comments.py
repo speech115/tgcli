@@ -81,7 +81,7 @@ def run(tg, clone_state):
 
 
 def test_sync_phase_reuses_discussion_entities_across_windows(tmp_path, monkeypatch):
-    """ADR-0061: the ADR-0051 interleave calls sync_phase once per 50-batch
+    """the interleave calls sync_phase once per 50-batch
     window with one shared ResolveContext; the discussion peers cannot change
     identity mid-run, so later windows must not re-pay the two GetChannels
     RPCs the first window already made."""
@@ -124,7 +124,7 @@ def test_sync_phase_reuses_discussion_entities_across_windows(tmp_path, monkeypa
 
 
 def test_privatized_source_degrades_on_a_cached_window(tmp_path, monkeypatch):
-    """ADR-0061 review fix: with entities cached after window 1, a source
+    """With entities cached after window 1, a source
     group that turns private before window 2 surfaces on the window's own
     reads — it must degrade to comments: unavailable exactly like the
     first-window resolve guard, never escape as a raw traceback."""
@@ -194,7 +194,7 @@ def test_privatized_source_degrades_on_a_cached_window(tmp_path, monkeypatch):
 def test_a_transient_error_from_a_cached_window_read_still_escapes(
     tmp_path, monkeypatch, make_error
 ):
-    """FloodWait must keep reaching the ADR-0045 cooldown wrapper, and one
+    """FloodWait must keep reaching the cooldown wrapper, and one
     Telegram 500 must not switch comments off for good: the degrade guard may
     swallow neither."""
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
@@ -301,7 +301,7 @@ def test_sync_phase_marks_unavailable_when_source_group_forbidden(
 def test_sync_phase_propagates_a_transient_error_from_source_resolve(
     tmp_path, monkeypatch, make_error
 ):
-    """FloodWait must still escape so the ADR-0045 cooldown wrapper arms, and
+    """FloodWait must still escape so the cooldown wrapper arms, and
     a Telegram 500 must escape so the next run retries instead of degrading."""
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     clone_state = seed()

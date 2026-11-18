@@ -1,4 +1,4 @@
-"""Per-account archive SQLite/WAL store facade (ADR-0068/0116).
+"""Per-account archive SQLite/WAL store facade.
 
 Persistence lives in peer modules; this module re-exports the historical
 ``tgcli.archive.store`` public surface so callers stay stable.

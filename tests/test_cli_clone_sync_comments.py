@@ -34,7 +34,7 @@ def test_sync_copies_posts_before_comments(config_env, monkeypatch, capsys):
     """Phase 1 sends every post before phase 2 sends any comment.
 
     For a source smaller than one window this remains byte-identical to the
-    pre-ADR-0051 sequential ordering.
+    old sequential ordering.
     """
     seed_comments_clone()
     client = CloneCommentsClient(
@@ -88,8 +88,8 @@ def test_sync_interleaves_posts_and_comments_in_windows(
     config_env, monkeypatch, capsys
 ):
     """More posts than WINDOW with comments on early posts: request order is
-    posts×WINDOW, then comments for those posts, then the next posts window
-    (ADR-0051)."""
+    posts×WINDOW, then comments for those posts, then the next posts window.
+    """
     from tgcli.clone import legs
 
     monkeypatch.setattr(legs, "WINDOW", 2)
@@ -190,7 +190,7 @@ def test_sync_flood_mid_window_keeps_prior_window_comments(
     their comments durably mapped, both cursors resumable.
 
     The capture is past `SHORT_WAIT` on purpose: this pins the exit-5 path, not
-    ADR-0052's foreground retry, and a shorter one would make the suite sleep.
+    the foreground retry, and a shorter one would make the suite sleep.
     """
     from tgcli.clone import legs
 
@@ -272,7 +272,7 @@ def test_sync_comments_phase_stops_at_anchor_beyond_posts_cursor(
     config_env, monkeypatch, capsys
 ):
     """Phase-2 scan stops at the first anchor whose source post id is newer
-    than the posts cursor and does not read past it (ADR-0051 bound)."""
+    than the posts cursor and does not read past it."""
     from tgcli.clone import legs
 
     monkeypatch.setattr(legs, "WINDOW", 2)
@@ -777,7 +777,7 @@ def test_sync_defers_cross_leg_comment_beyond_posts_cursor(
 ):
     """Comment quoting a channel post newer than the posts cursor must leave
     discussion_cursor unmoved past that comment and send nothing; once the
-    post is mapped, the next run copies it (ADR-0051 defer)."""
+    post is mapped, the next run copies it."""
     from tgcli.clone import legs
 
     monkeypatch.setattr(legs, "WINDOW", 2)
@@ -1050,7 +1050,7 @@ def test_sync_limit_spends_phase_one_first(config_env, monkeypatch, capsys):
     """--limit 1 with pending posts and comments: only a post batch is
     copied, more is True, discussion_cursor unchanged.
 
-    Under ADR-0051 the shared budget still ends the run when posts exhaust
+    Under the interleave the shared budget still ends the run when posts exhaust
     it inside a window (limit < WINDOW); comments are not entered.
     """
     clone_state = seed_comments_clone()
@@ -1087,7 +1087,7 @@ def test_sync_limit_spans_both_legs_and_may_return_comments(
     config_env, monkeypatch, capsys
 ):
     """--limit N counts batches across both legs; with WINDOW < limit a run
-    may return comments where pre-ADR-0051 returned only posts."""
+    may return comments where the old order returned only posts."""
     from tgcli.clone import legs
 
     monkeypatch.setattr(legs, "WINDOW", 2)
@@ -1305,7 +1305,7 @@ def test_sync_marks_comments_unavailable_when_source_group_turns_private(
     config_env, monkeypatch, capsys
 ):
     """Enabled comments whose source group later refuses access must exit 0
-    with posts copied and the ADR-0023 marker persisted — not a traceback
+    with posts copied and the honest marker persisted — not a traceback
     through cli.py's unrecognized-exception path."""
     clone_state = seed_comments_clone()
     client = CloneCommentsClient([message(2)], [anchor(10, 2), message(12)])
@@ -1366,7 +1366,7 @@ def test_sync_keeps_comments_enabled_after_a_transient_group_read_failure(
 def test_sync_copies_remaining_posts_alone_after_comments_degrade_mid_run(
     config_env, monkeypatch, capsys
 ):
-    """A group that turns private in window 1 degrades comments (ADR-0061).
+    """A group that turns private in window 1 degrades comments.
     The interleave loop used to call the comments leg again in window 2: it
     re-read the group from cursor 0 into a clone marked "unavailable", and
     that state no longer loaded."""

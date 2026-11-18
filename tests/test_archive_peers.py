@@ -1,4 +1,4 @@
-"""Archive peer-identity read seam (thermos T30 / ADR-0116)."""
+"""Archive peer-identity read seam ."""
 
 from __future__ import annotations
 

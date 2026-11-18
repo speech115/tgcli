@@ -1,4 +1,4 @@
-"""The read-only MCP adapter at its public seams (ADR-0123).
+"""The read-only MCP adapter at its public seams.
 
 JSON-RPC lines in, JSON-RPC lines out. The fake runner stands in for `tg` and
 records every argv; `test_mcp_held.py` drives the real in-process runner.

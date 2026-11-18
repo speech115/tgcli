@@ -1,4 +1,4 @@
-"""Archive transcript queue and FTS transcript column (ADR-0068/0116)."""
+"""Archive transcript queue and FTS transcript column."""
 
 from __future__ import annotations
 

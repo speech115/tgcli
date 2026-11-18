@@ -103,7 +103,7 @@ def test_forum_placement_only_reply_is_not_flattened():
 
 
 def test_broadcast_reupload_of_forward_needs_author():
-    """ADR-0050: a reposted broadcast post on the reupload path needs the prefix."""
+    """a reposted broadcast post on the reupload path needs the prefix."""
     fwd = types.MessageFwdHeader(date=None, from_id=types.PeerUser(user_id=7))
     plan = transport.decide(
         [_msg(fwd_from=fwd)], _clone_state(), _source(noforwards=True)

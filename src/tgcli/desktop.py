@@ -1,4 +1,4 @@
-"""Platform escape hatch for native dialogs and notifications (ADR-0042/0087).
+"""Platform escape hatch for native dialogs and notifications.
 
 Nothing else in the project may call `osascript`.
 """

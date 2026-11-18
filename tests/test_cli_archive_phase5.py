@@ -1,4 +1,4 @@
-"""Phase 5 archive search and exploration boundary tests (ADR-0068)."""
+"""Phase 5 archive search and exploration boundary tests."""
 
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 # tests/test_clone_reforward.py
-"""Direct unit tests for ADR-0050 Part B native re-forward proof."""
+"""Direct unit tests for the native re-forward proof."""
 
 import asyncio
 from datetime import UTC, datetime, timedelta
@@ -419,7 +419,7 @@ def test_locate_none_when_the_candidate_carries_a_different_keyboard():
     Telegram does not carry every button class into the linked group.
     Forwarding the original anyway would publish someone else's buttons under
     a genuine header — and silently, since a native forward is the one
-    transport ADR-0085 reports nothing for."""
+    transport that reports no dropped markup."""
     fwd = _fwd(from_id=types.PeerUser(user_id=9))
     post = _post(fwd_from=fwd, message="body")
     post.reply_markup = _keyboard(url="https://source.example")

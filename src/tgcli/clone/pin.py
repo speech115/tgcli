@@ -1,10 +1,10 @@
-"""Pinned-message carry-over for broadcast clones (ADR-0055).
+"""Pinned-message carry-over for broadcast clones.
 
-RPC-count note. ADR-0055's Consequences budgets "two extra RPCs per completing
+RPC-count note. The design budgeted "two extra RPCs per completing
 run (GetFullChannelRequest on the source, and the pin itself when needed)".
 Decision 2 also needs the destination's current pin, which is a third
-GetFullChannelRequest the ADR's rough estimate omits. Steady-state cost still
-matches the ADR: once ``pinned_dest_id`` or ``pin_occupied`` is set, later
+GetFullChannelRequest that estimate omits. Steady-state cost still
+matches it: once ``pinned_dest_id`` or ``pin_occupied`` is set, later
 completing syncs answer from state alone (zero RPCs). The destination read
 happens exactly once per clone — the run the source pin first becomes
 mappable — and the source is read on every completing run until then.
@@ -135,7 +135,7 @@ async def sync_phase(
         # state, no mutation, no audit row (the CLI contract reserves "set" for a
         # mutation this run performed). Strictly the exact intended id: any
         # other pinned message — even a cloned post from ``id_map`` — is the
-        # owner's choice and still latches occupied (ADR-0055 decision 2).
+        # owner's choice and still latches occupied.
         clone_state.pinned_dest_id = decision.destination_id
         clone_state_mod.save(clone_state)
         return {

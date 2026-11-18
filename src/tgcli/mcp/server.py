@@ -1,7 +1,7 @@
 """`tg-mcp`: a stdio MCP server that exposes read-only tgcli commands.
 
-The MCP client starts this process and owns its lifetime; it opens no socket
-(ADR-0123). Each ``tools/call`` runs one ``tg --json --readonly`` invocation
+The MCP client starts this process and owns its lifetime; it opens no socket.
+Each ``tools/call`` runs one ``tg --json --readonly`` invocation
 in-process with ``TGCLI_READONLY=1`` and ``TGCLI_NO_SEND=1`` forced, over a
 session held between calls and released when idle (`tgcli.mcp.held`), marks
 Telegram-authored strings as untrusted, and returns the document.

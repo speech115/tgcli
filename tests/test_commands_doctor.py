@@ -1,4 +1,4 @@
-"""Offline-first doctor checks (ADR-0040)."""
+"""Offline-first doctor checks."""
 
 import json
 import sys
@@ -203,7 +203,7 @@ def test_doctor_reports_no_repair_when_previews_are_already_tight(config_env, ca
 def test_doctor_readonly_reports_loose_previews_without_touching_them(
     config_env, capsys
 ):
-    """--readonly forbids local state mutation (ADR-0040), repair included."""
+    """--readonly forbids local state mutation, repair included."""
     _touch_session("main")
     legacy = _loose_preview()
 
@@ -221,7 +221,7 @@ def test_doctor_readonly_reports_loose_previews_without_touching_them(
 def test_doctor_env_readonly_reports_loose_previews_without_touching_them(
     config_env, capsys, monkeypatch
 ):
-    """TGCLI_READONLY=1 is the same gate as --readonly (ADR-0040).
+    """TGCLI_READONLY=1 is the same gate as --readonly.
 
     Every other local mutation asks `safety.enforce_local_mutation_allowed`,
     which reads both; a hand-rolled `if readonly` here honoured only the flag.

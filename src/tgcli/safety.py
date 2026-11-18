@@ -72,7 +72,7 @@ def enforce_mutation_allowed(readonly: bool) -> None:
 
 
 def enforce_local_mutation_allowed(readonly: bool) -> None:
-    """Block a local-state mutation (ADR-0040).
+    """Block a local-state mutation.
 
     `TGCLI_NO_SEND` deliberately does not apply: it guards Telegram sends, and
     housekeeping under the state root reaches no network.
@@ -147,8 +147,8 @@ def begin_commit(
     """Move a preview to .pending, lock it, and return its payload.
 
     A .pending preview may be begun again after the process that began it
-    is gone: the stored random_id makes a retried network send idempotent
-    (ADR-0028). While that process is alive it holds the `.pending` flock,
+    is gone: the stored random_id makes a retried network send idempotent.
+    While that process is alive it holds the `.pending` flock,
     so a concurrent commit of the same preview is refused instead of
     running the mutation twice. Kind and TTL are both validated before any
     rename to `.pending`, and an already-pending preview found expired here

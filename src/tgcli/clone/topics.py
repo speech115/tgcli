@@ -1,4 +1,4 @@
-"""Forum destinations and topic maps for forum clones (ADR-0022)."""
+"""Forum destinations and topic maps for forum clones."""
 
 from telethon.tl import functions, types
 

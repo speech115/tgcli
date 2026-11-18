@@ -25,7 +25,7 @@ from tgcli.messages import message_to_dict
 from tgcli.output import note
 
 READ_VERBS = ("get", "search", "check", "resolve")
-# Getters with a side effect (ADR-0010's rejected list): pressing a bot button
+# Getters with a side effect: pressing a bot button
 # or querying an inline bot, publishing a location, counting a view, an ad
 # impression.
 SIDE_EFFECT_GETTERS = frozenset(
@@ -42,7 +42,7 @@ SIDE_EFFECT_GETTERS = frozenset(
 PLUMBING = frozenset({"auth.exportAuthorization"})
 # Credentials and account lifecycle stay with `tg accounts`: refused even to
 # read, since auth.checkPassword and account.getTmpPassword only look like
-# reads (ADR-0010, ADR-0092).
+# reads.
 DENIED_NAMESPACES = frozenset({"account", "auth"})
 # The root namespace is MTProto session plumbing: `destroyAuthKey` and
 # `destroySession` end the session like a logout, the rest is key exchange.

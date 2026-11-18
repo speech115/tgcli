@@ -29,7 +29,7 @@ def test_new_clone_has_expected_defaults():
 
 
 def test_clone_id_differs_by_peer_class_for_the_same_numeric_id():
-    """ADR-0103: a User, a basic group, and a Channel can share one integer
+    """a User, a basic group, and a Channel can share one integer
     id; the clone identity must not collide just because the numeric peer
     id matches."""
     ids = {state.clone_id(1, 2, kind) for kind in ("dialog", "basic", "broadcast")}
@@ -99,7 +99,7 @@ def test_resolve_slot_migrates_across_a_channel_kind_toggle(tmp_path, monkeypatc
 
 
 def test_resolve_slot_ignores_a_legacy_slot_of_a_different_kind(tmp_path, monkeypatch):
-    """A numeric-id collision across kinds (the bug ADR-0103 fixes) must not
+    """A numeric-id collision across kinds (a bug kind-aware slots fix) must not
     make one kind's resolution silently adopt the other kind's slot."""
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     legacy_id = state._kind_blind_clone_id(1, 2)
@@ -538,7 +538,7 @@ def test_supersede_state_only_when_no_sidecar(tmp_path, monkeypatch):
 
 
 def test_save_writes_sqlite_database(tmp_path, monkeypatch):
-    """ADR-0060: active state is a mode-0600 SQLite database, not JSON."""
+    """active state is a mode-0600 SQLite database, not JSON."""
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     s = _fresh()
     s.record_mapping(7, 70)

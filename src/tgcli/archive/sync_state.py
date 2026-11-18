@@ -1,4 +1,4 @@
-"""Archive scope rows, peer sync_state, and account_sync (ADR-0068/0116)."""
+"""Archive scope rows, peer sync_state, and account_sync."""
 
 from __future__ import annotations
 

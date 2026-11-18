@@ -1,4 +1,4 @@
-"""The clone reupload cache across failed and repeated downloads (ADR-0052).
+"""The clone reupload cache across failed and repeated downloads.
 
 ``CacheMachine`` drives ``reupload.download_for_reupload`` the way successive
 `clone sync` runs do: the same source messages downloaded again and again,

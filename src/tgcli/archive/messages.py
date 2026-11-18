@@ -1,4 +1,4 @@
-"""Archive message rows, FTS text column, tombstones (ADR-0068/0116)."""
+"""Archive message rows, FTS text column, tombstones."""
 
 from __future__ import annotations
 

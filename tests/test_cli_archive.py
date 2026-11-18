@@ -1,4 +1,4 @@
-"""`tg archive` Phase 1 boundary tests (ADR-0068)."""
+"""`tg archive` Phase 1 boundary tests."""
 
 from __future__ import annotations
 
