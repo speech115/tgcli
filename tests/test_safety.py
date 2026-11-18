@@ -123,10 +123,8 @@ def test_begin_commit_enforces_ttl_and_id_shape():
 
 
 def test_begin_commit_leaves_an_expired_fresh_preview_as_json():
-    """An expired preview must never become sticky-pending (T13): default
-    `store cleanup` skips .pending outright, so a preview that was never
-    begun must stay a plain .json to land in the expired bucket cleanup
-    already reaps without --include-pending."""
+    """An expired preview that was never begun must stay a plain .json, not
+    become sticky-pending."""
     preview = safety.create_preview({"kind": "send"})
     late = datetime.now(UTC) + timedelta(minutes=6)
 

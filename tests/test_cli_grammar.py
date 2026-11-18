@@ -25,8 +25,8 @@ def config_env(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_CONFIG", str(path))
 
 
-def test_store_cleanup_confirm_must_be_spelled_in_full(config_env, capsys):
-    assert main(["store", "cleanup", "--c", "--json"]) == 1
+def test_confirm_must_be_spelled_in_full(config_env, capsys):
+    assert main(["accounts", "remove", "main", "--c", "--json"]) == 1
 
     captured = capsys.readouterr()
     assert captured.out == ""

@@ -94,9 +94,8 @@ tg --json send --commit p_9f3a             # nothing leaves without this
 tg --json media download https://t.me/channel/42 --parallel 4
 tg --json export messages @channel --output messages.jsonl --resume
 
-# 5. Health and local state
+# 5. Health
 tg --json doctor
-tg --json store cleanup --older-than 7d
 ```
 
 Chat references accept `@username`, a `t.me/` link, or a numeric dialog id. `--json` is contract data, `--plain` is TSV; anything else is for humans and may change.
@@ -139,7 +138,7 @@ tg --json send --commit p_9f3a
 
 - After a failed commit, retry the same preview id; never make a second preview. A `send` carries its stored `random_id`, so the retry confirms the first dispatch instead of duplicating it.
 - `--readonly`, `TGCLI_READONLY=1` and `TGCLI_NO_SEND=1` block mutations with exit 2 before any request. `clone sync` and `tg run --write` mint no preview but are gated the same way.
-- Every committed mutation is in the audit log, which `tg store cleanup` never deletes.
+- Every committed mutation is in the audit log.
 
 ## Operations
 
@@ -248,7 +247,6 @@ stderr.
 | `archive status` lists `gaps` | Telegram could not deliver part of the update history (`differenceTooLong`), or the stored cursor did not decode | nothing; `archive sync` re-reads every chat that moved and clears the gap once no catch-up is left. Edits and deletions inside the lost stretch stay lost |
 | `clone init --commit` stops partway (a flood on the discussion link, say) | the preview is spent only on success | rerun the same `--commit PREVIEW_ID` while it is unexpired (5 minutes); it resumes |
 | exit 2, `BLOCKED` | a safety gate refused (`--readonly`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`), or an argument was refused (a bad `--limit`), or a busy session on `accounts login`/`remove` | for the gates: intended in agent sessions. For an owner-approved write, prefix that one command with `TGCLI_READONLY=0`; `TGCLI_NO_SEND=1` must be unset too |
-| state directory keeps growing | old previews, login attempts, abandoned clone media caches | `tg --json store cleanup --older-than 7d` to see what would go, and add `--confirm` to delete. Sessions and their `.bak` are never deleted |
 | `doctor` shows `runtime.aes: "pyaes"` | slow pure-Python crypto | `uv sync --frozen --extra fast` in `tgcli-prod` installs `cryptg` |
 
 If none of these fits, keep the journal line and the stderr output, and open

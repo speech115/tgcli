@@ -123,14 +123,8 @@ def _validate_preview_kind(payload: dict, expected_kind: str | None) -> None:
 
 
 def _expire_pending(pending: Path, path: Path) -> None:
-    """Return an expired preview to the plain .json expired bucket.
-
-    Default `store cleanup` skips `.pending` outright and only reaps it
-    under `--include-pending` after a second full TTL. An expired preview
-    must never sit sticky-pending until then (T13), so it is renamed back
-    to `.json` the moment expiry is detected here, landing in the same
-    expired bucket a never-begun preview would.
-    """
+    """Rename an expired preview back to `.json` the moment expiry is seen,
+    so it never sits as `.pending`, which reads as a commit in progress."""
     try:
         pending.replace(path)
         os.chmod(path, 0o600)

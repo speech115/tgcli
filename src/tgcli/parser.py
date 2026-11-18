@@ -13,7 +13,6 @@ from pathlib import Path
 
 from tgcli import __version__
 from tgcli.archive import arguments as archive_arguments
-from tgcli.commands import store as store_cmd
 from tgcli.formatting import FORMATS, mask_phones_in_text
 from tgcli.messages import MEDIA_KINDS
 
@@ -37,13 +36,6 @@ class _Parser(argparse.ArgumentParser):
 
     def error(self, message):
         super().error(mask_phones_in_text(message))
-
-
-def _older_than_type(value: str):
-    try:
-        return store_cmd.parse_older_than(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def _global_flags() -> _Parser:
@@ -166,30 +158,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--connect",
         action="store_true",
         help="also probe Telegram authorization (live)",
-    )
-
-    p_store = sub.add_parser(
-        "store", help="Inspect and clean local state", parents=[global_flags]
-    )
-    store_sub = p_store.add_subparsers(dest="store_command", required=True)
-    p_cleanup = store_sub.add_parser(
-        "cleanup", help="Reap spent/expired previews", parents=[global_flags]
-    )
-    p_cleanup.add_argument(
-        "--older-than",
-        dest="older_than",
-        type=_older_than_type,
-        help="only artefacts older than N days (or Nd/Nh)",
-    )
-    p_cleanup.add_argument(
-        "--include-pending",
-        action="store_true",
-        help="also remove .pending previews far past TTL",
-    )
-    p_cleanup.add_argument(
-        "--confirm",
-        action="store_true",
-        help="actually delete; without this, dry-run only",
     )
 
     archive_arguments.add_to(sub, global_flags)

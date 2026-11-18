@@ -49,7 +49,6 @@ GATED_WRITES = {
     "archive transcribe": ["archive", "transcribe"],
     "clone sync": ["clone", "sync", "@chat"],
     "run": ["run", "--write", "-"],
-    "store cleanup": ["store", "cleanup", "--confirm"],
 }
 # Preview → commit writes: the commit leg must exit 2 when read-only.
 HANDSHAKE_COMMITS = {

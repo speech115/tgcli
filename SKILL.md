@@ -51,7 +51,7 @@ command is in `tg COMMAND --help`; this page is what the help does not say.
 | Archive upkeep | `archive init` · `archive add/remove/list CHAT` · `archive backfill CHAT… \| --private` · `archive sync` · `archive transcribe` |
 | Clone a chat | `tg --json clone init SOURCE [--no-comments]`, then `clone init SOURCE --commit PREVIEW_ID`; copy with `tg --max-runtime 3600 --json clone sync SOURCE` or `--all`; `clone status` |
 | Accounts | `accounts list` · `accounts show ALIAS` · `accounts login` · `accounts remove ALIAS [--role job] --confirm` |
-| Health / cleanup | `tg --json doctor [--connect]` · `tg --json store cleanup --older-than 7d [--confirm]` |
+| Health | `tg --json doctor [--connect]` |
 | Anything else | `tg run SCRIPT` (below) |
 
 `more: true` on `dialogs` and `search` means more rows match than `--limit`.

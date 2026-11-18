@@ -123,9 +123,8 @@ def lock_held(session_file: Path) -> bool | None:
     aware: a missing session is never locked and creates no lock file
     (the CLI contract), because opening the lock path would create it.
 
-    A held flock with no session file at all (a login in flight — see
-    `_attempt_lock_held` in `commands/store.py`) is a different question with
-    a different caller; this one stays scoped to "does this account's
+    A held flock with no session file at all (a login in flight) is a
+    different question; this one stays scoped to "does this account's
     session look locked".
     """
     if not session_file.is_file():

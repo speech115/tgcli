@@ -184,13 +184,6 @@ COMMANDS: dict[str, Command] = {
     ),
     # local housekeeping
     "doctor": Command(kind="local-read", needs="config", run=handlers.doctor),
-    "store cleanup": Command(
-        kind="write",
-        needs="none",
-        run=handlers.store_cleanup,
-        gate="local",
-        gated=_flag("confirm"),
-    ),
     # Telegram reads
     "dialogs": replace(_READ, prepare=preflight.limit("dialogs", allow_zero=True)),
     "info": _READ,
