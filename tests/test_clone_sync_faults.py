@@ -14,8 +14,9 @@ clone refused. After every run:
   that source message, in that chat;
 - no source message has two copies in the destination;
 - every message at or below a leg's cursor is mapped (L1);
-- a copy the clone did not record makes every later run exit 2 before it
-  copies into that chat (L2), until the owner repairs the tail;
+- a copy the clone did not record is adopted by the next run when the
+  leg's send intent names it, and otherwise makes every later run exit 2
+  before it copies into that chat (L2), until the owner repairs the tail;
 - a run that fails exits as its fault says: 5 for a flood of either kind;
 - a run that ended in a flood remembers it (ADR-0126): every run before its
   wait is over exits 5 and asks Telegram for nothing.
@@ -177,15 +178,19 @@ class CloneSyncFaultMachine(RuleBasedStateMachine):
         if code == 5:
             self.flood_until = self.clock + FLOOD_SECONDS
         if strays:
-            # L2: a copy the clone lost track of stops the next copy into
-            # that chat cold, and the run says so (exit 2, manual repair).
-            chats = {chat for chat, _source, _dest in strays}
+            # L2: a copy the clone lost track of is adopted when the leg's
+            # saved send intent names it; one it cannot explain stops the
+            # next copy into that chat cold, and the run says so (exit 2,
+            # manual repair).
+            now = self._strays()
+            left = [item for item in strays if item in now]
+            chats = {chat for chat, _source, _dest in left}
             new = self.client.created[created:]
             assert not [item for item in new if item[0] in chats], (
-                f"copied into {chats} past unrecorded {strays}"
+                f"copied into {chats} past unrecorded {left}"
             )
             if not fired:
-                assert code == 2, (code, self.err)
+                assert code == (2 if left else 0), (code, self.err)
         elif not fired:
             assert code == 0, (code, self.err)
         if fired and code != 0:

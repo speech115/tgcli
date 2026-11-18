@@ -15,6 +15,7 @@ from telethon.tl import functions, types
 from tgcli import confirm, pace, safety
 from tgcli.clone import (
     attribution,
+    journal,
     quote_fallback,
     reforward,
     reupload,
@@ -348,6 +349,7 @@ async def send_caption_rests(
             no_webpage=True,
             entities=entities,
         )
+        journal.begin(clone_state, leg, "rest", [message.id])
         try:
             response = await _send_without_unavailable_emoji(
                 tg, request, [message], clone_state, account_alias, paces
@@ -363,6 +365,7 @@ async def send_caption_rests(
             response, [random_id], what="the caption rest"
         )
         leg.record_raw_caption_rest(message.id, rest_id)
+        journal.settle(clone_state, leg)
         state.save(clone_state)
         note(
             f"warning: clone source message {message.id}: caption past "
@@ -492,6 +495,7 @@ async def forward_batch(
             )
     mode = plan.mode
     overflow = []
+    journal.begin(clone_state, leg, "batch", source_ids)
     if proven is not None:
         group, group_message_id = proven
         mode = "forwarded"
@@ -587,6 +591,7 @@ async def forward_batch(
     for source_id, destination_id in zip(source_ids, destination_ids, strict=True):
         leg.record_raw_mapping(source_id, destination_id)
     leg.cursor = source_ids[-1]
+    journal.settle(clone_state, leg)
     state.save(clone_state)
     # After the save: a failed rest must not leave the post unmapped and
     # copied again by the next run.

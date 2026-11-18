@@ -12,7 +12,7 @@ from telethon import errors as telethon_errors
 from telethon.tl import types
 
 from tgcli import pace
-from tgcli.clone import batching, discussion, legs, replies, state
+from tgcli.clone import batching, discussion, journal, legs, replies, state
 from tgcli.clone.ids import SourceCommentId, SourcePostId
 from tgcli.clone.state import Comments
 from tgcli.errors import PolicyError
@@ -91,9 +91,10 @@ async def sync_phase(
             tg, clone_state.discussion_destination_peer_id
         )
         resolve_ctx.destination_group = group
-    await discussion.verify_tail(
+    await journal.guard_tail(
         tg,
         group,
+        leg,
         clone_state.max_discussion_destination_id(),
         "discussion destination",
         lambda item: (
