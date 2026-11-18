@@ -23,9 +23,11 @@ from tgcli.errors import (
 from tgcli.output import note
 from tgcli.state_paths import ensure_parent_dir, state_dir
 from tgcli.transfer import (
+    CHUNK_SIZE,
+    CLONE_TRANSFER_PARALLEL,
     checkpoint_lock,
     download_resumable,
-    download_striped,
+    download_resumable_windowed,
     keep_proven_bytes,
     media_identity,
 )
@@ -305,8 +307,6 @@ def _write_state(
     destination: Path,
     target: _DownloadTarget,
     offset: int,
-    *,
-    resumable: bool = True,
 ) -> None:
     atomic.replace_text(
         path,
@@ -316,7 +316,6 @@ def _write_state(
                 "destination": str(destination),
                 **_media_fingerprint(target),
                 "offset": offset,
-                "resumable": resumable,
             }
         ),
     )
@@ -395,10 +394,8 @@ def _resume_offset(
     if not isinstance(state, dict):
         raise PolicyError(f"media download state is invalid: {state_path}")
     if state.get("resumable") is False:
-        # A parallel transfer writes its stripes at scattered offsets, so no
-        # byte count describes what it already has: the state says so, and the
-        # partial file is worth nothing. Drop both and restart from zero
-        # instead of wedging the message on an unresumable leftover.
+        # Left by an older tgcli whose parallel transfer could not resume:
+        # the partial file is worth nothing, so restart from zero.
         part_path.unlink(missing_ok=True)
         state_path.unlink(missing_ok=True)
         return 0
@@ -448,7 +445,7 @@ async def download_media(
     account_alias: str,
     *,
     output: str | None = None,
-    parallel: int = 1,
+    parallel: int = CLONE_TRANSFER_PARALLEL,
     progress=None,
     codec: str | None = None,
 ) -> dict:
@@ -492,38 +489,37 @@ async def _download_target(
 
     ensure_parent_dir(part_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if parallel > 1:
-        if resumed:
-            raise PolicyError(
-                "parallel media download cannot resume an interrupted transfer"
-            )
-        _write_state(state_path, source, destination, target, 0, resumable=False)
-        return await _download_parallel(
-            tg,
-            target,
-            source,
-            destination,
-            state_path,
-            part_path,
-            parallel,
-            progress,
-        )
-
+    # Small files and files of unknown size take one request at a time.
+    size = target.size
+    large = isinstance(size, int) and size > CHUNK_SIZE
+    streams = parallel if large else 1
     if not resumed:
         _write_state(state_path, source, destination, target, offset)
 
     def checkpoint(current: int) -> None:
         _write_state(state_path, source, destination, target, current)
 
-    current = await download_resumable(
-        tg,
-        target.media,
-        part_path,
-        offset=offset,
-        size=target.size,
-        checkpoint=checkpoint,
-        progress=progress,
-    )
+    if isinstance(size, int) and streams > 1:
+        current = await download_resumable_windowed(
+            tg,
+            target.media,
+            part_path,
+            offset=offset,
+            size=size,
+            parallel=streams,
+            checkpoint=checkpoint,
+            progress=progress,
+        )
+    else:
+        current = await download_resumable(
+            tg,
+            target.media,
+            part_path,
+            offset=offset,
+            size=target.size,
+            checkpoint=checkpoint,
+            progress=progress,
+        )
 
     if target.size is not None and current != target.size:
         # The final name means complete; a stream that ended early is not.
@@ -542,48 +538,7 @@ async def _download_target(
         "path": str(destination),
         "bytes": destination.stat().st_size,
         "resumed": resumed,
-        "parallel": 1,
-    }
-    if target.codec is not None:
-        data["codec"] = target.codec
-    return data
-
-
-async def _download_parallel(
-    tg,
-    target: _DownloadTarget,
-    source: MediaSource,
-    destination: Path,
-    state_path: Path,
-    part_path: Path,
-    parallel: int,
-    progress,
-) -> dict:
-    total = target.size
-    if not isinstance(total, int) or total <= 0:
-        raise NotFoundError(
-            f"media size is unavailable for parallel download: {_source_label(source)}"
-        )
-
-    try:
-        await download_striped(
-            tg,
-            target.media,
-            part_path,
-            size=total,
-            parallel=parallel,
-            progress=progress,
-        )
-    except RuntimeError as exc:
-        raise PolicyError(str(exc)) from exc
-    _publish(part_path, destination)
-    state_path.unlink(missing_ok=True)
-    data = {
-        "source": _source_label(source),
-        "path": str(destination),
-        "bytes": destination.stat().st_size,
-        "resumed": False,
-        "parallel": parallel,
+        "parallel": streams,
     }
     if target.codec is not None:
         data["codec"] = target.codec

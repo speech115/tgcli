@@ -152,29 +152,24 @@ class FakeParallelTelegram(FakeDownloadTelegram):
         yield bytes([65 + offset // (512 * 1024)]) * (512 * 1024)
 
 
+class ShortParallelTelegram(FakeParallelTelegram):
+    """The second stream ends with no bytes and no error."""
+
+    async def iter_download(self, media, *, offset=0, request_size=None, **kwargs):
+        self.iter_download_calls.append(
+            {"media": media, "offset": offset, "request_size": request_size, **kwargs}
+        )
+        if offset == 0:
+            yield bytes([65]) * (512 * 1024)
+
+
 async def test_parallel_download_maps_a_short_stream_to_policy_error(tmp_path):
-    """CONTRACT: --parallel short stream exits 2 (PolicyError), never publishes."""
-
-    class ShortParallelTelegram(FakeParallelTelegram):
-        async def iter_download(self, media, *, offset=0, request_size=None, **kwargs):
-            self.iter_download_calls.append(
-                {
-                    "media": media,
-                    "offset": offset,
-                    "request_size": request_size,
-                    **kwargs,
-                }
-            )
-            if offset == 0:
-                yield bytes([65]) * (512 * 1024)
-            # Second stripe ends with no bytes and no error.
-
-    fake = ShortParallelTelegram()
+    """CONTRACT: a short stream exits 2 (PolicyError), never publishes."""
     target = tmp_path / "out.bin"
 
-    with pytest.raises(PolicyError, match=r"ended at .* bytes"):
+    with pytest.raises(PolicyError, match=r"stopped at 524288/1048576 bytes"):
         await download_media(
-            fake,
+            ShortParallelTelegram(),
             MediaSource("@channel", 42, None),
             "main",
             output=str(target),
@@ -184,20 +179,38 @@ async def test_parallel_download_maps_a_short_stream_to_policy_error(tmp_path):
     assert not target.exists()
 
 
-async def test_parallel_download_refuses_resuming_partial_transfer(tmp_path):
+async def test_parallel_download_resumes_an_interrupted_transfer(tmp_path):
     source = MediaSource("@channel", 42, None)
     target = tmp_path / "out.bin"
-    interrupted = FakeDownloadTelegram([b"old"], fail_after_first=True)
-    # Same media as the parallel client below, so the guard under test is the
-    # parallel-resume refusal and not the #180 changed-media restart.
-    interrupted.message.file.size = 2 * 512 * 1024
-    with pytest.raises(RuntimeError):
-        await download_media(interrupted, source, "main", output=str(target))
-
-    with pytest.raises(PolicyError, match="cannot resume"):
+    with pytest.raises(PolicyError, match="stopped at"):
         await download_media(
-            FakeParallelTelegram(), source, "main", output=str(target), parallel=2
+            ShortParallelTelegram(), source, "main", output=str(target), parallel=2
         )
+
+    fake = FakeParallelTelegram()
+    result = await download_media(fake, source, "main", output=str(target), parallel=2)
+
+    assert result["resumed"] is True
+    assert [call["offset"] for call in fake.iter_download_calls] == [512 * 1024]
+    assert target.read_bytes() == b"A" * (512 * 1024) + b"B" * (512 * 1024)
+
+
+async def test_download_uses_four_streams_by_default(tmp_path):
+    source = MediaSource("@channel", 42, None)
+    target = tmp_path / "out.bin"
+    fake = FakeParallelTelegram()
+    fake.message.file.size = 4 * 512 * 1024
+
+    result = await download_media(fake, source, "main", output=str(target))
+
+    assert result["parallel"] == 4
+    assert sorted(call["offset"] for call in fake.iter_download_calls) == [
+        index * 512 * 1024 for index in range(4)
+    ]
+    assert {call["stride"] for call in fake.iter_download_calls} == {4 * 512 * 1024}
+    assert target.read_bytes() == b"".join(
+        bytes([65 + index]) * (512 * 1024) for index in range(4)
+    )
 
 
 def _cross_filesystem_publish(monkeypatch) -> list[tuple[Path, Path]]:

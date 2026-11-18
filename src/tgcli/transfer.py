@@ -1,4 +1,4 @@
-"""Shared striped download and parallel part upload."""
+"""Shared resumable download and parallel part upload."""
 
 from __future__ import annotations
 
@@ -19,9 +19,11 @@ from tgcli.errors import ConfigError
 from tgcli.state_paths import ensure_parent_dir, restrict_file
 
 CHUNK_SIZE = 512 * 1024
+# Chunk requests in flight for one large file, on one DC connection. Official
+# clients keep at least this many going; more only brings floods sooner.
 CLONE_TRANSFER_PARALLEL = 4
 # One chunk cadence for every transfer that reports progress:
-# `media download`, the striped download, and the clone reupload legs.
+# `media download` and the clone reupload legs.
 PROGRESS_EVERY_CHUNKS = 16
 
 
@@ -78,75 +80,6 @@ async def _run_workers(coros: Iterable[Coroutine[Any, Any, None]]) -> None:
     except ExceptionGroup as eg:
         # Surface the first worker cause so FloodWait keeps the exit-5 path.
         raise eg.exceptions[0] from eg
-
-
-async def download_striped(
-    tg,
-    media,
-    destination: Path,
-    *,
-    size: int,
-    parallel: int,
-    progress: Callable[[int, int], None] | None = None,
-) -> Path:
-    """Write ``media`` into ``destination`` with stride-based parallel GetFile.
-
-    ``parallel`` workers each iterate ``iter_download`` with a shared stride.
-    A failure cancels siblings and deletes the partial file.
-    """
-    if parallel < 1:
-        raise ValueError("parallel must be positive")
-    if not isinstance(size, int) or size <= 0:
-        raise ValueError("size must be a positive int")
-
-    media = _photo_with_largest_size_last(media)
-
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with destination.open("xb") as handle:
-        handle.truncate(size)
-    descriptor = os.open(destination, os.O_WRONLY)
-    downloaded = 0
-    chunks_since_progress = 0
-    chunk_count = max(1, (size + CHUNK_SIZE - 1) // CHUNK_SIZE)
-    worker_count = min(parallel, chunk_count)
-
-    async def worker(index: int) -> None:
-        nonlocal downloaded, chunks_since_progress
-        offset = index * CHUNK_SIZE
-        async for chunk in tg.iter_download(
-            media,
-            offset=offset,
-            stride=worker_count * CHUNK_SIZE,
-            request_size=CHUNK_SIZE,
-        ):
-            data = bytes(chunk)
-            os.pwrite(descriptor, data, offset)
-            offset += worker_count * CHUNK_SIZE
-            downloaded += len(data)
-            chunks_since_progress += 1
-            if progress is not None and chunks_since_progress >= PROGRESS_EVERY_CHUNKS:
-                progress(downloaded, size)
-                chunks_since_progress = 0
-
-    try:
-        await _run_workers(worker(index) for index in range(worker_count))
-        if downloaded != size:
-            # `truncate(size)` above already gave the file its final byte
-            # count, so a stream that stopped without raising (server closed
-            # the connection, no FloodWait, no worker exception) would
-            # otherwise leave a full-size *sparse* file that looks complete.
-            # The caller's `_publish` must never see
-            # this path succeed.
-            raise RuntimeError(f"striped download ended at {downloaded}/{size} bytes")
-    except BaseException:
-        destination.unlink(missing_ok=True)
-        raise
-    finally:
-        os.close(descriptor)
-
-    if progress is not None and chunks_since_progress:
-        progress(downloaded, size)
-    return destination
 
 
 # One checkpoint per this many chunks. Frequent enough that a killed run
@@ -317,6 +250,7 @@ async def download_resumable_windowed(
             progress=progress,
             should_stop=should_stop,
         )
+    media = _photo_with_largest_size_last(media)
     ensure_parent_dir(part)
     descriptor = os.open(part, os.O_WRONLY | os.O_CREAT, 0o600)
     restrict_file(part)

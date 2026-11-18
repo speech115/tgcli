@@ -213,7 +213,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_download.add_argument(
         "--output", help="final output path or bulk output directory"
     )
-    p_download.add_argument("--parallel", type=int, default=1)
+    p_download.add_argument(
+        "--parallel",
+        type=int,
+        default=4,
+        help="chunk requests in flight for one large file (default 4)",
+    )
     p_download.add_argument(
         "--message-ids",
         dest="message_ids",

@@ -9,7 +9,7 @@ from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli.cli import main
 from tgcli.commands import media as media_cmd
 from tgcli.commands.media import MediaSource, parse_source, resolve_message
-from tgcli.errors import NotFoundError
+from tgcli.errors import NotFoundError, PolicyError
 
 CHANNEL = types.Channel(
     id=3817664407,
@@ -229,28 +229,16 @@ def make_photo_story_with_sizes(story_id):
     return types.StoryItem(id=story_id, date=None, expire_date=None, media=media)
 
 
-async def test_parallel_photo_story_download_uses_progressive_size(
-    tmp_path, monkeypatch
-):
-    """A photo story must report a countable size so --parallel works
-    (mirrors Telethon's own byte-count computation)."""
+async def test_photo_story_download_counts_the_progressive_size(tmp_path):
+    """A photo story reports a countable size (mirrors Telethon's own
+    byte-count computation), so a stream shorter than it is refused."""
     fake = StoryTelegram(make_photo_story_with_sizes(937))
-    calls = []
-
-    async def fake_striped(tg, media, path, *, size, parallel, progress):
-        calls.append((size, parallel))
-        path.write_bytes(b"data")
-
-    monkeypatch.setattr(media_cmd, "download_striped", fake_striped)
     source = parse_source("https://t.me/kazbeksocrates/s/937", None)
 
-    result = await media_cmd.download_media(
-        fake, source, "main", parallel=2, output=str(tmp_path / "s.jpg")
-    )
-
-    assert result["parallel"] == 2
-    assert result["bytes"] == 4
-    assert calls == [(8192, 2)]
+    with pytest.raises(PolicyError, match=r"stopped at 3/8192 bytes"):
+        await media_cmd.download_media(
+            fake, source, "main", output=str(tmp_path / "s.jpg")
+        )
 
 
 async def test_story_download_writes_file_and_reports_codec(tmp_path):
