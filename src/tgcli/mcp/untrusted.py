@@ -24,7 +24,7 @@ import secrets
 from dataclasses import dataclass, field
 from typing import Any
 
-# Keys whose string values come from other Telegram users (CONTRACT §5, §8).
+# Keys whose string values come from other Telegram users (CONTRACT §5).
 UNTRUSTED_KEYS = frozenset(
     {
         "text",

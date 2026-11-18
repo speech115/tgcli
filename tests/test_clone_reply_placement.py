@@ -271,7 +271,7 @@ def test_every_clone_reply_lands_with_its_parent_or_is_counted_flat(
 def test_a_resumed_sync_keeps_a_posts_reply_to_a_comment_not_copied_yet(
     config_env, tmp_path, monkeypatch, capsys
 ):
-    """STATE-MACHINES F7. Post 3 replies to comment 4 under post 1. A run
+    """Post 3 replies to comment 4 under post 1. A run
     that stops after the posts window that copied post 1, before the comments
     leg caught up (here `--limit 1`; a flood or a kill alike), used to leave
     the next run copying post 3 first, flat. The posts leg now waits for the

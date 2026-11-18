@@ -116,7 +116,7 @@ def _apply_global_defaults(args) -> None:
 def _honest_termination():
     """Let SIGTERM/SIGHUP journal the run, then die by the signal anyway.
 
-    CONTRACT §9 promises one object per parsed command; a default-disposition
+    CONTRACT §6 promises one object per parsed command; a default-disposition
     kill appends none. Raising from the handler lets main's `finally` write the
     honest row, and `entrypoint` then restores the default disposition and
     re-raises so the shell still sees a signal death. Nothing else is done
@@ -188,13 +188,13 @@ def _execute_network(args, config, spec: registry.Command) -> tuple[dict, list[t
     # not just the network coroutine's client window: the before/after audits
     # below run outside dispatch.run_network, so setting it only there (as
     # dispatch used to) left the cli-level mutation audit rows without "role"
-    # (CONTRACT.md §9, ADR-0062).
+    # (CONTRACT.md §6, ADR-0062).
     token = safety.set_audit_role(getattr(args, "session_role", None))
     try:
         _audit_before(args, account, spec)
         network = dispatch.run_network(args, account)
         data, rows = deadline.run(network, args.timeout)
-        # H2 (STATE-MACHINES): a preview is spent only after its result audit.
+        # A preview is spent only after its result audit.
         preview_commit.audit_after(args, account, data)
         preview_commit.finish(args)
         return data, rows

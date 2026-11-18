@@ -6,7 +6,7 @@ import sys
 from tgcli.errors import TgcliError
 from tgcli.formatting import mask_phones_in_text
 
-# CONTRACT.md §8: human/plain output strips control characters from untrusted
+# the CLI contract: human/plain output strips control characters from untrusted
 # content. C0 (including tab and newline), DEL, and C1 all go — a name that
 # smuggles its own tab or newline would also forge a TSV column or row, and the
 # separators are the writer's to produce. --json keeps the data verbatim.
@@ -62,7 +62,7 @@ def note(message: str) -> None:
 
 def emit_error(err: TgcliError, *, as_json: bool) -> None:
     # The one boundary every error leaves through, so phones are masked here
-    # (CONTRACT §10), whichever layer wrote the message.
+    # (the CLI contract), whichever layer wrote the message.
     message = mask_phones_in_text(str(err))
     if as_json:
         payload = {"error": {"code": err.code, "message": message, **err.details}}

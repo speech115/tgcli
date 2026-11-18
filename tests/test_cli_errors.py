@@ -1,4 +1,4 @@
-"""Failure paths of the invocation lifecycle (CONTRACT §2/§4, ADR-0053).
+"""Failure paths of the invocation lifecycle (CONTRACT §2/§4).
 
 A `--timeout` expiry, an untranslated network failure, and a stdout pipe the
 reader closed are all contract outcomes: one envelope on stdout, the identical

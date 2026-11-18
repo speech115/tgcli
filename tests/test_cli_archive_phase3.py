@@ -1831,7 +1831,7 @@ def test_sync_media_rate_limit_still_advances_the_changes_cursor(
     good.
 
     `busy`: another tg process (a job role, a `media download`) holds this
-    item's download checkpoint (STATE-MACHINES F3). Nothing is learned
+    item's download checkpoint. Nothing is learned
     about the file, so it stays queued with its attempts."""
     user = archive_user()
 

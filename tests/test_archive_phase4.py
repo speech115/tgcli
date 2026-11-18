@@ -674,7 +674,7 @@ def test_transcribe_queue_stores_parakeet_text_and_metadata(tmp_path, monkeypatc
 def test_transcribe_row_exhausted_under_a_lower_cap_becomes_terminal(
     tmp_path, monkeypatch
 ):
-    """STATE-MACHINES F4: three failures under `--max-attempts 5` left a row
+    """Three failures under `--max-attempts 5` left a row
     `retryable`. A run at the default cap of 3 never queued it again, so it
     stayed `retryable` for good instead of becoming `no_transcript`."""
     conn = _connection(tmp_path)

@@ -7,7 +7,7 @@ with a negative size. `message_to_dict` turns every message `tg read`,
 `tg search`, `tg message` and `tg changes` print, so one bad message must not
 take the page down with it.
 
-Real `telethon.tl.types` objects only (CONTRACT §5): a SimpleNamespace would
+Real `telethon.tl.types` objects only (the CLI contract): a SimpleNamespace would
 let the serializer read fields Telegram never omits.
 """
 

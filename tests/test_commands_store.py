@@ -873,7 +873,7 @@ def test_cleanup_keeps_expired_login_lock_held_without_session_file(
     """T11: `authclient.unauthorized_client` takes the staged session's flock
     before Telethon creates the SQLite `.session` file, so an in-flight login
     can be held with no `.session` on disk at all. `session.lock_held` treats
-    a missing session file as never locked (CONTRACT §5.1, right for
+    a missing session file as never locked (the CLI contract, right for
     `accounts show`); cleanup must probe the `.lock` directly instead, or it
     reaps an attempt that is still running.
     """

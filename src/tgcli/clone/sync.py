@@ -6,6 +6,17 @@ over and lists the roster, then reports the sync document. A run with nothing
 new finishes early (ADR-0126, `clone.idle`), and one that ends in a FloodWait
 it cannot ride out remembers it in the clone, so the next run asks nothing of
 Telegram until it has passed.
+
+Invariants (tests: test_clone_sync_faults' CloneSyncFaultMachine):
+
+- L1. A batch's cursor and map rows land in one SQLite transaction after
+  Telegram confirmed every message; the cursor never passes an unmapped copy.
+- L2. A copy Telegram made but tgcli did not record (a crash between send and
+  save) is caught before the next copy: ``discussion.verify_tail`` refuses
+  any destination message above the highest mapped id (exit 2, manual
+  repair).
+- L3. The reupload cache is cleared only after the batch's mapping is saved,
+  so a crash resumes the download.
 """
 
 from __future__ import annotations
@@ -162,7 +173,7 @@ async def _sync_slot(
         source_entity.id, copied=len(clone_state.id_map)
     )
     posts_exhausted = False
-    # STATE-MACHINES F7: a post replying to a comment not copied yet waits for
+    # A post replying to a comment not copied yet waits for
     # the comments leg (`posts_waiting`), unless that leg has stalled and will
     # not reach it this run. A stall releases only the batch that waited
     # (`release_waiting`): the posts after it may reply to comments that
@@ -375,7 +386,7 @@ async def _sync_slot(
         await run_posts_window(None)
 
     # A run the cap stopped stopped early: no pin phase and no roster listing
-    # (CONTRACT §11), and `remaining` reflects the copy, not later phases.
+    # (the CLI contract), and `remaining` reflects the copy, not later phases.
     capped = pace.exhausted()
     # ADR-0055: pin carry-over is broadcast-only; forum sync JSON omits `pinned`.
     pinned_result = None

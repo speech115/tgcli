@@ -282,7 +282,7 @@ def test_status_filter_excludes_unreadable(capsys):
 
 
 def test_status_unreadable_entry_reports_null_created_at(capsys):
-    """CONTRACT §11: an unreadable entry carries the clone_id and nulls — no
+    """the CLI contract: an unreadable entry carries the clone_id and nulls — no
     field of it is an empty string. It still sorts beside readable entries."""
     _seed(100000001, 111, "Alpha", dest=222)
     _write_corrupt("e" * 64)

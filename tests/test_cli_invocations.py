@@ -189,7 +189,7 @@ cli.entrypoint()
 def test_termination_signal_journals_an_honest_row_and_dies_by_signal(
     tmp_path, monkeypatch, signum
 ):
-    """CONTRACT §9: a killed run still owes the journal one honest object."""
+    """CONTRACT §6: a killed run still owes the journal one honest object."""
     config_env(tmp_path, monkeypatch)
     with subprocess.Popen(
         [sys.executable, "-c", TERMINATION_PROGRAM],

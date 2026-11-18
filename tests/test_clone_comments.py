@@ -323,7 +323,7 @@ def test_sync_phase_propagates_a_transient_error_from_source_resolve(
 def test_sync_phase_maps_unreachable_discussion_destination_to_policy(
     tmp_path, monkeypatch, error
 ):
-    """CONTRACT §11: an unavailable destination discussion group is exit 2.
+    """the CLI contract: an unavailable destination discussion group is exit 2.
     Only ValueError was mapped, so a destination the account was removed from
     escaped as a raw Telethon traceback."""
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))

@@ -78,7 +78,7 @@ def test_hook_blocks_a_bare_python_near_session_files(command):
         "uv run tg --json accounts list",
         "uv run python scripts/probe.py main.session",
         ".venv/bin/python -c \"open('main.session')\"",
-        "python3 scripts/check-docs.py",
+        "python3 scripts/check-bans.py",
         "ls ~/.local/state/tgcli/sessions/",
         "cat > notes.txt <<'EOF'\npython3 read.py main.session\nEOF",
     ],

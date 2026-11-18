@@ -28,7 +28,7 @@ class _Parser(argparse.ArgumentParser):
 
     Parse errors quote the caller's argv, and argparse writes them to stderr
     itself, past `output.emit_error`; they are masked here so a phone typed as
-    an argument stays masked too (CONTRACT §10).
+    an argument stays masked too (the CLI contract).
     """
 
     def __init__(self, *args, **kwargs):
