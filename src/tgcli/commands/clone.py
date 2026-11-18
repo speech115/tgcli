@@ -223,7 +223,57 @@ async def commit_init(tg, source: str, account_alias: str, payload: dict) -> dic
 
 
 async def _commit_slot(tg, entity, source_kind, me, account_alias, payload) -> dict:
+    """Commit an init preview, in phases that each save before the next write:
+    supersede on --replace, load or start the clone, find or create its
+    destination, title it, copy the profile and discussion, then mute and
+    file the peers."""
     clone_id = state.resolve_slot(me.id, entity.id, source_kind)
+    _supersede_if_asked(clone_id, account_alias, payload)
+    clone_state, no_comments = _load_for_commit(
+        clone_id, entity, source_kind, me, payload
+    )
+    destination = await _destination(tg, clone_state, clone_id, account_alias)
+    titled = await _shape_destination(
+        tg, clone_state, destination, clone_id, account_alias
+    )
+    full_chat = await init_peers.copy_profile(
+        tg,
+        entity,
+        destination,
+        account_alias,
+        clone_state,
+    )
+    if no_comments:
+        clone_state.comments = Comments.DISABLED
+        state.save(clone_state)
+    else:
+        await init_peers.init_discussion(
+            tg, destination, clone_state, full_chat, account_alias, clone_id
+        )
+    applied = await _apply_ergonomics(
+        tg, clone_state, destination, clone_id, account_alias
+    )
+    return {
+        "clone": {
+            "id": clone_state.clone_id,
+            "source": {
+                "id": clone_state.source_peer_id,
+                "title": clone_state.source_title,
+                "kind": clone_state.source_kind,
+            },
+            "destination": {
+                "id": clone_state.destination_peer_id,
+                "title": getattr(destination, "title", titled),
+            },
+            "comments": clone_state.comments,
+            "status": "ready",
+            "commit_required": False,
+        },
+        "ergonomics": applied,
+    }
+
+
+def _supersede_if_asked(clone_id: str, account_alias: str, payload: dict) -> None:
     # A preview from a build that did not record `supersedes` keeps the old
     # unconditional replace.
     expected = payload.get("supersedes")
@@ -238,6 +288,13 @@ async def _commit_slot(tg, entity, source_kind, me, account_alias, payload) -> d
             account_alias,
             {"clone_id": clone_id, "archived": [path.name for path in archived]},
         )
+
+
+def _load_for_commit(
+    clone_id: str, entity, source_kind, me, payload: dict
+) -> tuple[state.CloneState, bool]:
+    """The clone to commit into, with its creation marker saved, and whether
+    it copies posts only."""
     try:
         existing = state.load(clone_id)
     except PolicyError as exc:
@@ -269,50 +326,63 @@ async def _commit_slot(tg, entity, source_kind, me, account_alias, payload) -> d
         # the previous init's.
         nonce = secrets.token_hex(3)
         clone_state.creation_marker = f"tgcli-clone-{clone_id[:12]}-{nonce}"
-    marker = clone_state.creation_marker
     state.save(clone_state)
+    return clone_state, no_comments
+
+
+async def _destination(
+    tg, clone_state: state.CloneState, clone_id: str, account_alias: str
+):
+    """The recorded destination, else the one a crashed init created under
+    this clone's marker, else a new one; recorded before it is returned."""
     forum = clone_state.destination_kind == "forum"
     shape_ok = (
         topics.is_forum_destination if forum else init_peers.is_private_owned_broadcast
     )
-    kind_name = "forum megagroup" if forum else "broadcast channel"
     if clone_state.destination_peer_id is not None:
         destination = await resolve.resolve_destination(
             tg, clone_state.destination_peer_id
         )
         if not shape_ok(destination):
+            kind_name = "forum megagroup" if forum else "broadcast channel"
             raise PolicyError(f"clone destination is not a private owned {kind_name}")
+        return destination
+    marker = clone_state.creation_marker
+    assert marker is not None
+    valid, wrong_shape = await init_peers.marker_candidates(tg, marker, shape_ok)
+    if len(valid) + len(wrong_shape) > 1:
+        raise PolicyError("clone destination marker matched multiple channels")
+    if wrong_shape:
+        raise PolicyError("clone destination marker matched a channel with wrong shape")
+    if valid:
+        destination = valid[0]
     else:
-        valid, wrong_shape = await init_peers.marker_candidates(tg, marker, shape_ok)
-        if len(valid) + len(wrong_shape) > 1:
-            raise PolicyError("clone destination marker matched multiple channels")
-        if wrong_shape:
-            raise PolicyError(
-                "clone destination marker matched a channel with wrong shape"
-            )
-        if valid:
-            destination = valid[0]
-        else:
-            safety.append_audit(
-                "clone-init-create", account_alias, {"clone_id": clone_id}
-            )
-            update = await tg(
-                topics.create_request(marker)
-                if forum
-                else functions.channels.CreateChannelRequest(
-                    title=marker, about="", broadcast=True, megagroup=False
-                ),
-            )
-            candidates = [
-                item
-                for item in getattr(update, "chats", ())
-                if shape_ok(item, title=marker)
-            ]
-            if len(candidates) != 1:
-                raise PolicyError("Telegram did not return the created private channel")
-            destination = candidates[0]
-        clone_state.destination_peer_id = destination.id
-        state.save(clone_state)
+        safety.append_audit("clone-init-create", account_alias, {"clone_id": clone_id})
+        update = await tg(
+            topics.create_request(marker)
+            if forum
+            else functions.channels.CreateChannelRequest(
+                title=marker, about="", broadcast=True, megagroup=False
+            ),
+        )
+        candidates = [
+            item
+            for item in getattr(update, "chats", ())
+            if shape_ok(item, title=marker)
+        ]
+        if len(candidates) != 1:
+            raise PolicyError("Telegram did not return the created private channel")
+        destination = candidates[0]
+    clone_state.destination_peer_id = destination.id
+    state.save(clone_state)
+    return destination
+
+
+async def _shape_destination(
+    tg, clone_state: state.CloneState, destination, clone_id: str, account_alias: str
+) -> str:
+    """Turn a forum destination's topics on and give it the clone's title."""
+    forum = clone_state.destination_kind == "forum"
     if forum and not getattr(destination, "forum", False):
         safety.append_audit("clone-init-forum", account_alias, {"clone_id": clone_id})
     if forum:
@@ -326,20 +396,14 @@ async def _commit_slot(tg, entity, source_kind, me, account_alias, payload) -> d
         destination.title = titled
     resolve.record_destination_name(clone_state, destination)
     state.save(clone_state)
-    full_chat = await init_peers.copy_profile(
-        tg,
-        entity,
-        destination,
-        account_alias,
-        clone_state,
-    )
-    if no_comments:
-        clone_state.comments = Comments.DISABLED
-        state.save(clone_state)
-    else:
-        await init_peers.init_discussion(
-            tg, destination, clone_state, full_chat, account_alias, clone_id
-        )
+    return titled
+
+
+async def _apply_ergonomics(
+    tg, clone_state: state.CloneState, destination, clone_id: str, account_alias: str
+) -> dict:
+    """Mute the destination and its discussion group and file them in the
+    "Clone" folder."""
     peers = [destination]
     discussion_unresolved = False
     if clone_state.discussion_destination_peer_id is not None:
@@ -362,24 +426,7 @@ async def _commit_slot(tg, entity, source_kind, me, account_alias, payload) -> d
     applied = await ergonomics.apply(tg, peers)
     if discussion_unresolved:
         applied["muted"] = False
-    return {
-        "clone": {
-            "id": clone_state.clone_id,
-            "source": {
-                "id": clone_state.source_peer_id,
-                "title": clone_state.source_title,
-                "kind": clone_state.source_kind,
-            },
-            "destination": {
-                "id": clone_state.destination_peer_id,
-                "title": getattr(destination, "title", titled),
-            },
-            "comments": clone_state.comments,
-            "status": "ready",
-            "commit_required": False,
-        },
-        "ergonomics": applied,
-    }
+    return applied
 
 
 def init_rows(data: dict) -> list[tuple]:
