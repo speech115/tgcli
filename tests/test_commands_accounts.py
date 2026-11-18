@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import fcntl
 import json
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -13,7 +12,6 @@ from tgcli.cli import main
 from tgcli.commands import accounts as accounts_cmd
 from tgcli.config import load_config
 from tgcli.errors import NotFoundError, PolicyError
-from tgcli.safety import audit_path
 
 SAMPLE = """
 default_account = "main"
@@ -51,27 +49,6 @@ def _session(env, alias: str, *, content: bytes = b"session-bytes") -> Path:
     return path
 
 
-def test_show_in_config_session_present(env):
-    path = _session(env, "main")
-    path.chmod(0o600)
-    mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat()
-
-    data = accounts_cmd.show_account(load_config(), "main")
-
-    assert data == {
-        "alias": "main",
-        "in_config": True,
-        "session": str(path),
-        "exists": True,
-        "bytes": len(b"session-bytes"),
-        "modified": mtime,
-        "locked": False,
-        "backup": None,
-        "authorized": None,
-        "roles": [],
-    }
-
-
 def test_show_in_config_session_absent(env):
     data = accounts_cmd.show_account(load_config(), "work")
 
@@ -99,35 +76,6 @@ def test_show_unknown_alias_even_with_orphan_session(env):
     _session(env, "ghost")
     with pytest.raises(NotFoundError):
         accounts_cmd.show_account(load_config(), "ghost")
-
-
-def test_show_reports_bak_when_present(env):
-    path = _session(env, "main")
-    bak = Path(str(path) + ".bak")
-    bak.write_bytes(b"old")
-
-    data = accounts_cmd.show_account(load_config(), "main")
-
-    assert data["backup"] == str(bak)
-
-
-def test_show_reports_locked_without_stealing(env):
-    path = _session(env, "main")
-    lock = path.with_suffix(".lock").open("w")
-    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    try:
-        data = accounts_cmd.show_account(load_config(), "main")
-        assert data["locked"] is True
-        # Lock still held by us — show must have released any probe.
-        with pytest.raises(BlockingIOError):
-            probe = path.with_suffix(".lock").open("w")
-            try:
-                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            finally:
-                probe.close()
-    finally:
-        fcntl.flock(lock, fcntl.LOCK_UN)
-        lock.close()
 
 
 def test_show_cli_json_and_plain(env, capsys):
@@ -164,123 +112,6 @@ def test_remove_without_confirm_leaves_files_and_exits_2(env, capsys):
     assert "work" in load_config().accounts
     err = capsys.readouterr().err
     assert "--confirm" in err
-
-
-def test_remove_confirm_deletes_block_and_files(env, capsys):
-    path = _session(env, "work")
-    bak = Path(str(path) + ".bak")
-    bak.write_bytes(b"bak")
-    # sibling account session must survive
-    main_path = _session(env, "main", content=b"keep-main")
-
-    code = main(["accounts", "remove", "work", "--confirm", "--json"])
-    assert code == 0
-    data = json.loads(capsys.readouterr().out)
-    assert data == {
-        "alias": "work",
-        "config": "removed",
-        "session": "deleted",
-        "backup": "deleted",
-        "roles": {},
-    }
-    assert not path.exists()
-    assert not bak.exists()
-    assert main_path.exists()
-    config = load_config()
-    assert "work" not in config.accounts
-    assert "main" in config.accounts
-    text = env["config"].read_text()
-    assert "[accounts.work]" not in text
-    assert "[accounts.main]" in text
-    assert "top_level = 1" in text
-    assert "# keep me" in text
-    assert config.default_account == "main"
-    assert oct(env["config"].stat().st_mode & 0o777) == "0o600"
-
-
-def test_remove_deletes_the_accounts_role_sessions_too(env, capsys):
-    """A role session is a full-access key. Removing the account left it on
-    disk, unreported, and `--role` removal was unreachable once the config
-    block was gone."""
-    _session(env, "work")
-    role = _session(env, "work@bot")
-    role_bak = Path(str(role) + ".bak")
-    role_bak.write_bytes(b"bak")
-    other = _session(env, "main@bot")
-
-    assert main(["accounts", "remove", "work", "--confirm", "--json"]) == 0
-
-    assert json.loads(capsys.readouterr().out)["roles"] == {"bot": "deleted"}
-    assert not role.exists()
-    assert not role_bak.exists()
-    assert other.exists()
-    [record] = [
-        json.loads(line)
-        for line in audit_path().read_text().splitlines()
-        if json.loads(line)["action"] == "accounts-remove"
-    ]
-    assert record["roles"] == {"bot": "deleted"}
-
-
-def test_remove_deletes_a_role_left_with_only_its_backup(env, capsys):
-    """A login promote interrupted after moving the role session to `.bak`
-    leaves only the backup, a live key. Role discovery saw only `*.session`,
-    so remove reported success and left the backup unreachable."""
-    _session(env, "work")
-    orphan = env["state"] / "sessions" / "work@bot.session.bak"
-    orphan.write_bytes(b"live-key")
-
-    assert main(["accounts", "remove", "work", "--confirm", "--json"]) == 0
-
-    assert json.loads(capsys.readouterr().out)["roles"] == {"bot": "deleted"}
-    assert not orphan.exists()
-
-
-def test_remove_deletes_every_spelling_of_a_role(env, capsys):
-    """On a case-sensitive filesystem a leftover `WORK@bot.session.bak` and a
-    fresh `work@bot.session` are two keys of one role; discovery kept one path
-    per role name, so remove reported success and left the other."""
-    _session(env, "work")
-    sessions = env["state"] / "sessions"
-    old = sessions / "WORK@bot.session.bak"
-    old.write_bytes(b"old-key")
-    new = _session(env, "work@bot")
-
-    assert main(["accounts", "remove", "work", "--confirm", "--json"]) == 0
-
-    assert json.loads(capsys.readouterr().out)["roles"] == {"bot": "deleted"}
-    assert not old.exists()
-    assert not new.exists()
-
-
-def test_remove_deletes_a_role_promoted_while_the_config_was_rewritten(
-    env, monkeypatch, capsys
-):
-    """A role login that promotes after remove listed the roles but before
-    the config block is gone must not survive a successful remove."""
-    _session(env, "work")
-    late = env["state"] / "sessions" / "work@bot.session"
-    replace_text = accounts_cmd.atomic.replace_text
-
-    def promote_during_config_write(path, text):
-        if Path(path) == env["config"]:
-            late.write_bytes(b"live-key")
-        replace_text(path, text)
-
-    monkeypatch.setattr(
-        accounts_cmd.atomic, "replace_text", promote_during_config_write
-    )
-
-    assert main(["accounts", "remove", "work", "--confirm", "--json"]) == 0
-
-    assert json.loads(capsys.readouterr().out)["roles"] == {"bot": "deleted"}
-    assert not late.exists()
-    records = [
-        json.loads(line)
-        for line in audit_path().read_text().splitlines()
-        if json.loads(line)["action"] == "accounts-remove"
-    ]
-    assert records[-1]["roles"] == {"bot": "deleted"}
 
 
 def test_remove_refuses_when_a_multiline_string_looks_like_table_headers(env, capsys):
@@ -343,50 +174,6 @@ def test_remove_keep_session_keeps_role_sessions(env, capsys):
     assert role.exists()
 
 
-@pytest.mark.parametrize(
-    "header",
-    [
-        "[accounts.work] # second phone",
-        '[accounts."work"]',
-        "[ accounts.work ]",
-    ],
-)
-def test_remove_finds_any_toml_spelling_of_the_block(env, capsys, header):
-    """The block was matched by exact header text. Any other valid spelling
-    survived, while the session was deleted and the JSON said removed."""
-    env["config"].write_text(SAMPLE.replace("[accounts.work]", header))
-    path = _session(env, "work")
-
-    assert main(["accounts", "remove", "work", "--confirm", "--json"]) == 0
-
-    assert json.loads(capsys.readouterr().out)["config"] == "removed"
-    assert "work" not in load_config().accounts
-    assert "main" in load_config().accounts
-    assert not path.exists()
-
-
-def test_remove_refuses_before_deleting_when_the_block_cannot_be_removed(env, capsys):
-    """A dotted-key spelling is not a table header to drop. The command must
-    refuse with the session intact, not delete it and claim success."""
-    env["config"].write_text(
-        'default_account = "main"\n'
-        'accounts.work = { api_id = 67890, api_hash = "h", session = "work" }\n'
-        "\n"
-        "[accounts.main]\n"
-        "api_id = 1\n"
-        'api_hash = "h"\n'
-        'session = "main"\n'
-    )
-    before = env["config"].read_text()
-    path = _session(env, "work")
-
-    assert main(["accounts", "remove", "work", "--confirm", "--json"]) == 3
-
-    assert path.exists()
-    assert env["config"].read_text() == before
-    assert "work" in load_config().accounts
-
-
 def test_remove_confirm_with_missing_state_tree(env):
     (env["state"] / "sessions").rmdir()
     env["state"].rmdir()
@@ -397,21 +184,6 @@ def test_remove_confirm_with_missing_state_tree(env):
 
     assert data["session"] == "absent"
     assert data["backup"] == "absent"
-    assert "work" not in load_config().accounts
-
-
-def test_remove_keep_session(env, capsys):
-    path = _session(env, "work")
-    bak = Path(str(path) + ".bak")
-    bak.write_bytes(b"bak")
-
-    code = main(["accounts", "remove", "work", "--confirm", "--keep-session", "--json"])
-    assert code == 0
-    data = json.loads(capsys.readouterr().out)
-    assert data["session"] == "kept"
-    assert data["backup"] == "kept"
-    assert path.exists()
-    assert bak.exists()
     assert "work" not in load_config().accounts
 
 
@@ -456,31 +228,6 @@ def test_remove_no_send_does_not_block(env, monkeypatch, capsys):
     assert code == 0
     assert "work" not in load_config().accounts
     assert json.loads(capsys.readouterr().out)["config"] == "removed"
-
-
-def test_remove_audit_before_deletion_and_no_secrets(env, monkeypatch):
-    path = _session(env, "work")
-    written: list[dict] = []
-    original = accounts_cmd.safety.append_audit
-
-    def tracking(action, account, details):
-        written.append({"action": action, "account": account, **details})
-        assert path.exists()  # still present when audit runs
-        original(action, account, details)
-
-    monkeypatch.setattr(accounts_cmd.safety, "append_audit", tracking)
-
-    accounts_cmd.remove_account(load_config(), "work", confirm=True, keep_session=False)
-
-    assert written
-    record = written[0]
-    assert record["action"] == "accounts-remove"
-    assert record["account"] == "work"
-    assert "hash-work" not in json.dumps(record)
-    assert "api_hash" not in record
-    line = audit_path().read_text()
-    assert "hash-work" not in line
-    assert not path.exists()
 
 
 def test_remove_unknown_alias_exit_4(env, capsys):

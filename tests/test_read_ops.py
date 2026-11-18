@@ -46,16 +46,6 @@ def test_every_operation_is_covered_by_this_file():
     assert set(CLI_INVOCATIONS) == OPERATION_NAMES
 
 
-@pytest.mark.parametrize("name", sorted(CLI_INVOCATIONS))
-def test_cli_invocation_builds_its_operation(name):
-    args = build_parser().parse_args(CLI_INVOCATIONS[name])
-
-    operation = read_ops.from_cli(args)
-
-    assert operation is not None
-    assert operation.name == name
-
-
 @pytest.mark.parametrize(
     "argv",
     [

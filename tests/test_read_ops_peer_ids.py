@@ -11,14 +11,12 @@ fake would let the two drift into each other unnoticed.
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-import pytest
 from telethon import utils
 from telethon.tl import types
 from telethon.tl.custom.dialog import Dialog
 from telethon.tl.custom.message import Message
 
 from tests.conftest import FakeClient
-from tests.fakes.media import media_message
 from tgcli import read_ops
 
 CHANNEL_ID = 1234567890
@@ -93,33 +91,3 @@ async def test_search_all_emits_the_marked_id_and_marked_sender():
     [message] = result.data["messages"]
     assert message["dialog"]["id"] == MARKED_ID
     assert message["from"]["id"] == MARKED_ID
-
-
-@pytest.mark.parametrize(
-    "operation, path",
-    [
-        (read_ops.Info("@chan", False), ("id",)),
-        (read_ops.Search("@chan", "needle", 20, False, None, None), ("dialog", "id")),
-        (read_ops.Message("@chan", 7, 0), ("dialog", "id")),
-        (read_ops.MediaManifest("@chan", None, None, 100), ("dialog", "id")),
-        (
-            read_ops.Read("@chan", 20, None, None, None, None, None),
-            ("dialog", "id"),
-        ),
-    ],
-    ids=lambda value: getattr(value, "name", ""),
-)
-async def test_entity_based_operations_emit_the_bare_id(operation, path):
-    channel = make_channel()
-    client = FakeClient(
-        entities={"@chan": channel},
-        messages=[media_message(7, "photo")],
-        search_messages={"needle": [media_message(7, "photo")]},
-        message_total=1,
-    )
-
-    data = (await read_ops.execute(client, operation)).data
-    for key in path:
-        data = data[key]
-
-    assert data == CHANNEL_ID

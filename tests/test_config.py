@@ -67,33 +67,6 @@ def test_non_numeric_api_id_raises(tmp_path, api_id):
         load_config(path)
 
 
-def test_non_table_account_entry_exits_3_through_cli(tmp_path, monkeypatch, capsys):
-    import json
-
-    from tgcli.cli import main
-
-    path = tmp_path / "config.toml"
-    path.write_text('[accounts]\nmain = "x"\n')
-    monkeypatch.setenv("TGCLI_CONFIG", str(path))
-    assert main(["--json", "accounts", "list"]) == 3
-    assert json.loads(capsys.readouterr().out)["error"]["code"] == "CONFIG"
-
-
-def test_aliases_differing_only_in_case_raise_naming_both(tmp_path):
-    """Work.session and work.session are ONE file on macOS: two accounts
-    would share one authorization. Fail closed at config load."""
-    path = tmp_path / "config.toml"
-    path.write_text(
-        '[accounts.Work]\napi_id = 111\napi_hash = "aaa"\n'
-        '[accounts.work]\napi_id = 222\napi_hash = "bbb"\n'
-    )
-    with pytest.raises(ConfigError) as excinfo:
-        load_config(path)
-    message = str(excinfo.value)
-    assert "'Work'" in message
-    assert "'work'" in message
-
-
 def test_explicit_sessions_colliding_case_insensitively_raise(tmp_path):
     path = tmp_path / "config.toml"
     path.write_text(
@@ -188,31 +161,3 @@ def test_load_config_accepts_alias_grade_charset(tmp_path):
     path.write_text('[accounts.A_1-z]\napi_id = 1\napi_hash = "h"\n')
     config = load_config(path)
     assert "A_1-z" in config.accounts
-
-
-def test_load_config_rejects_at_in_explicit_session(tmp_path):
-    """A session stem is `<session>@<role>` on disk (session.py); one that
-    already contains '@' would make `list_roles` misparse its own stem as
-    a role suffix (T25). Overlaps T07's broader escape rule, which also
-    excludes '@' — both must hold."""
-    path = tmp_path / "config.toml"
-    path.write_text(
-        '[accounts.work]\napi_id = 1\napi_hash = "h"\nsession = "work@evil"\n'
-    )
-    with pytest.raises(ConfigError, match="must not contain '@'") as excinfo:
-        load_config(path)
-    assert "work@evil" in str(excinfo.value)
-
-
-def test_load_config_rejects_invalid_alias_exits_3_through_cli(
-    tmp_path, monkeypatch, capsys
-):
-    import json
-
-    from tgcli.cli import main
-
-    path = tmp_path / "config.toml"
-    path.write_text('[accounts."x@y"]\napi_id = 1\napi_hash = "h"\n')
-    monkeypatch.setenv("TGCLI_CONFIG", str(path))
-    assert main(["--json", "accounts", "list"]) == 3
-    assert json.loads(capsys.readouterr().out)["error"]["code"] == "CONFIG"

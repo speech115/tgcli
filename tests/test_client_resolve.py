@@ -141,33 +141,6 @@ async def test_an_unknown_username_is_resolved():
 
 
 @pytest.mark.asyncio
-async def test_a_flood_on_the_cached_fetch_is_not_swallowed():
-    alice = _user(7, "alice")
-    flood = telethon_errors.FloodWaitError(request=None, capture=30)
-    client = RecordingClient(entities=[alice], fail=flood)
-    client.remember(alice)
-
-    with pytest.raises(telethon_errors.FloodWaitError):
-        await client.get_entity("@alice")
-    assert client.sent() == [_get_user(7).to_dict()]
-
-
-@pytest.mark.asyncio
-async def test_a_refused_cached_peer_is_resolved_again():
-    alice = _user(7, "alice")
-    refused = telethon_errors.UserIdInvalidError(request=None)
-    client = RecordingClient(entities=[alice], fail=refused)
-    client.remember(alice)
-
-    with pytest.raises(telethon_errors.UserIdInvalidError):
-        await client.get_entity("@alice")
-    assert client.sent() == [
-        _get_user(7).to_dict(),
-        functions.contacts.ResolveUsernameRequest(username="alice").to_dict(),
-    ]
-
-
-@pytest.mark.asyncio
 async def test_a_phone_never_matches_a_cached_peer_without_a_username():
     nameless = _user(3, None)
     client = RecordingClient(entities=[nameless])

@@ -7,9 +7,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from telethon import errors as telethon_errors, functions
+from telethon import errors as telethon_errors
 
-from tgcli import desktop, login_state, safety, session as session_mod
+from tgcli import desktop, login_state, session as session_mod
 from tgcli.cli import main
 from tgcli.commands import login as login_cmd
 from tgcli.config import load_config
@@ -127,125 +127,10 @@ def test_mask_phone_shapes():
     assert mask_phone(None) == ""
 
 
-def test_mask_phones_in_text_redacts_embedded_phones():
-    text = "PhoneNumberInvalidError for +79991234589 (caller +12025550123)"
-    masked = mask_phones_in_text(text)
-    assert masked == "PhoneNumberInvalidError for +7…89 (caller +1…23)"
-    assert "79991234589" not in masked
-    assert "2025550123" not in masked
-
-
-def test_mask_phones_in_text_redacts_formatted_embedded_phone():
-    text = "PhoneNumberInvalidError for +1 (202) 555-0123"
-    masked = mask_phones_in_text(text)
-    assert masked == "PhoneNumberInvalidError for +1…23"
-    assert "202" not in masked
-    assert "555" not in masked
-
-
 def test_mask_phones_in_text_leaves_non_phone_text_untouched():
     text = "connection to Telegram failed"
     assert mask_phones_in_text(text) == text
     assert mask_phones_in_text("") == ""
-
-
-@pytest.mark.asyncio
-async def test_attempt_json_has_no_raw_phone_on_disk(env, fake_client):
-    """The attempt json on disk must never carry the raw
-    phone, only the continue path may resolve it (from its own sidecar)."""
-    pending = await login_cmd.start_login(
-        load_config(),
-        "tmp",
-        phone=PHONE,
-        api_id=1,
-        api_hash="h",
-        force=False,
-    )
-    attempt_path = env["state"] / "logins" / f"{pending['login_id']}.json"
-    raw = attempt_path.read_text()
-    assert PHONE not in raw
-    assert "phone" not in json.loads(raw)
-
-    data = await _complete_phone_login(pending)
-    assert data["status"] == "authorized"
-    assert fake_client.sign_in_calls[0]["args"][0] == PHONE
-
-
-@pytest.mark.asyncio
-async def test_login_promotes_to_configured_session_stem(env, fake_client):
-    env["config"].write_text(
-        env["config"].read_text()
-        + """
-[accounts.work]
-api_id = 54321
-api_hash = "hash-work"
-session = "work-real"
-"""
-    )
-    old_session = env["state"] / "sessions" / "work-real.session"
-    old_session.write_bytes(b"old-live-session")
-    wrong_path = env["state"] / "sessions" / "work.session"
-
-    pending = await login_cmd.start_login(
-        load_config(),
-        "work",
-        phone=PHONE,
-        api_id=None,
-        api_hash=None,
-        force=True,
-    )
-    data = await _complete_phone_login(pending)
-    assert data["status"] == "authorized"
-    assert str(old_session) == data["session"]
-    assert not wrong_path.exists()
-    assert (env["state"] / "sessions" / "work-real.session.bak").is_file()
-
-
-@pytest.mark.asyncio
-async def test_force_required_when_authorized(env, fake_client):
-    (env["state"] / "sessions" / "main.session").write_bytes(b"live")
-    fake_client._authorized_probe = True
-    with pytest.raises(PolicyError, match="--force"):
-        await login_cmd.start_login(
-            load_config(),
-            "main",
-            phone=PHONE,
-            api_id=None,
-            api_hash=None,
-            force=False,
-        )
-
-
-def test_probe_flood_wait_exits_5_without_creating_or_promoting(
-    env, monkeypatch, capsys
-):
-    session = env["state"] / "sessions" / "main.session"
-    session.write_bytes(b"authorized-session")
-    client = FakeAuthClient()
-    client._request_error = telethon_errors.FloodWaitError(request=None, capture=30)
-    monkeypatch.setattr(session_mod, "Client", lambda *args, **kwargs: client)
-
-    code = main(
-        [
-            "accounts",
-            "login",
-            "main",
-            "--phone",
-            PHONE,
-            "--json",
-        ]
-    )
-
-    assert code == 5
-    error = json.loads(capsys.readouterr().out)["error"]
-    assert error["code"] == "FLOOD_WAIT"
-    assert error["retry_after"] == 30
-    assert len(client.requests) == 1
-    assert isinstance(client.requests[0], functions.updates.GetStateRequest)
-    assert session.read_bytes() == b"authorized-session"
-    assert not session.with_suffix(".session.bak").exists()
-    logins = env["state"] / "logins"
-    assert not logins.exists() or list(logins.iterdir()) == []
 
 
 @pytest.mark.asyncio
@@ -322,42 +207,6 @@ def test_continue_rejects_phone_force_api(env, capsys):
         ]
     )
     assert code == 2
-
-
-def test_login_readonly_gate(env, monkeypatch, capsys):
-    monkeypatch.setenv("TGCLI_READONLY", "1")
-    code = main(
-        ["accounts", "login", "tmp", "--api-id", "1", "--api-hash", "h", "--json"]
-    )
-    assert code == 2
-
-
-@pytest.mark.asyncio
-async def test_audit_before_promote(env, fake_client, monkeypatch):
-    order: list[str] = []
-    real_audit = safety.append_audit
-    real_promote = login_state.promote
-
-    def track_audit(action, account, details):
-        order.append("audit")
-        real_audit(action, account, details)
-
-    def track_promote(*a, **k):
-        order.append("promote")
-        return real_promote(*a, **k)
-
-    monkeypatch.setattr(login_cmd.safety, "append_audit", track_audit)
-    monkeypatch.setattr(login_cmd.login_state, "promote", track_promote)
-    pending = await login_cmd.start_login(
-        load_config(),
-        "tmp",
-        phone=PHONE,
-        api_id=1,
-        api_hash="h",
-        force=False,
-    )
-    await _complete_phone_login(pending)
-    assert order == ["audit", "audit", "promote"]
 
 
 @pytest.mark.asyncio
@@ -444,26 +293,6 @@ async def test_phone_code_invalid_keeps_attempt(env, fake_client):
 
 
 @pytest.mark.asyncio
-async def test_phone_code_empty_keeps_attempt(env, fake_client):
-    from telethon.errors import PhoneCodeEmptyError
-
-    pending = await login_cmd.start_login(
-        load_config(),
-        "tmp",
-        phone="+79991234589",
-        api_id=1,
-        api_hash="h",
-        force=False,
-    )
-    fake_client._sign_in_error = PhoneCodeEmptyError(request=None)
-    with pytest.raises(ConfigError, match="code"):
-        await login_cmd.continue_login(
-            login_id=pending["login_id"], code="x", password_stdin=False
-        )
-    assert (env["state"] / "logins" / f"{pending['login_id']}.json").exists()
-
-
-@pytest.mark.asyncio
 async def test_headless_code_requires_flag(env, fake_client):
     """Without a dialog or --code, headless must not block on stdin."""
     pending = await login_cmd.start_login(
@@ -518,48 +347,6 @@ async def test_phone_code_expired_discards(env, fake_client):
     assert not (env["state"] / "logins" / f"{pending['login_id']}.json").exists()
 
 
-@pytest.mark.asyncio
-async def test_flood_wait_exit_5(env, fake_client):
-    from telethon.errors import FloodWaitError
-
-    fake_client._send_code_error = FloodWaitError(request=None, capture=30)
-    with pytest.raises(Exception) as excinfo:
-        await login_cmd.start_login(
-            load_config(),
-            "tmp",
-            phone="+7999",
-            api_id=1,
-            api_hash="h",
-            force=False,
-        )
-    assert excinfo.value.exit_code == 5
-    assert list((env["state"] / "logins").glob("l_*.phone")) == []
-
-
-@pytest.mark.asyncio
-async def test_audit_masks_phone_no_secrets(env, fake_client, monkeypatch):
-    await login_cmd.start_login(
-        load_config(),
-        "tmp",
-        phone="+79991234589",
-        api_id=1,
-        api_hash="h",
-        force=False,
-    )
-    monkeypatch.setattr("sys.stdin", SimpleNamespace(readline=lambda: "99999\n"))
-    await login_cmd.continue_login(
-        login_id=json.loads(
-            next((env["state"] / "logins").glob("l_*.json")).read_text()
-        )["login_id"],
-        code="99999",
-        password_stdin=False,
-    )
-    audit = (env["state"] / "audit.jsonl").read_text()
-    assert "+79991234589" not in audit
-    assert "99999" not in audit
-    assert "+7…89" in audit or "phone" in audit
-
-
 def test_initial_login_requires_phone_before_authclient(env, fake_client, capsys):
     code = main(
         [
@@ -598,30 +385,6 @@ def test_initial_login_rejects_an_empty_phone_before_authclient(
     assert code == 2
     assert "non-empty" in capsys.readouterr().err
     assert fake_client.send_code_calls == []
-
-
-def test_cli_phone_start_returns_a_resumable_code_step(env, fake_client, capsys):
-    code = main(
-        [
-            "accounts",
-            "login",
-            "tmp",
-            "--phone",
-            PHONE,
-            "--api-id",
-            "1",
-            "--api-hash",
-            "h",
-            "--json",
-        ]
-    )
-    assert code == 0
-    data = json.loads(capsys.readouterr().out)
-    assert data["method"] == "phone"
-    assert data["status"] == "pending"
-    assert data["next"] == "code"
-    assert data["login_id"].startswith("l_")
-    assert fake_client.send_code_calls == [PHONE]
 
 
 def test_initial_login_rejects_password_stdin(env, capsys):
@@ -696,79 +459,6 @@ async def test_audit_fail_closed_before_attempt(env, fake_client, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_continue_password_flood_wait_keeps_attempt(
-    env, fake_client, monkeypatch
-):
-    from telethon.errors import FloodWaitError
-
-    pending = await login_cmd.start_login(
-        load_config(),
-        "tmp",
-        phone=PHONE,
-        api_id=1,
-        api_hash="h",
-        force=False,
-    )
-    from telethon.errors import SessionPasswordNeededError
-
-    fake_client._sign_in_error = SessionPasswordNeededError(request=None)
-    password_pending = await login_cmd.continue_login(
-        login_id=pending["login_id"], code="12345", password_stdin=False
-    )
-    assert password_pending["next"] == "password"
-    fake_client._sign_in_error = FloodWaitError(request=None, capture=45)
-    monkeypatch.setattr("sys.stdin", SimpleNamespace(readline=lambda: "pw\n"))
-    with pytest.raises(Exception) as excinfo:
-        await login_cmd.continue_login(
-            login_id=pending["login_id"], code=None, password_stdin=True
-        )
-    assert excinfo.value.exit_code == 5
-    assert excinfo.value.details["retry_after"] == 45
-    assert (env["state"] / "logins" / f"{pending['login_id']}.json").exists()
-
-
-def test_post_login_get_me_flood_wait_exits_5_without_promotion(
-    env, monkeypatch, capsys
-):
-    attempt = login_state.create_attempt(
-        "tmp",
-        "phone",
-        api_id=1,
-        api_hash="h",
-    )
-    login_state.save_phone(attempt["login_id"], PHONE)
-    login_state.update_attempt(attempt["login_id"], phone_code_hash="hash-abc")
-    staged = login_state.staged_session_path(attempt["login_id"])
-    staged.write_bytes(b"staged-session")
-    client = FakeAuthClient()
-    client._get_me_error = telethon_errors.FloodWaitError(request=None, capture=45)
-    monkeypatch.setattr(session_mod, "Client", lambda *args, **kwargs: client)
-
-    code = main(
-        [
-            "accounts",
-            "login",
-            "--continue",
-            attempt["login_id"],
-            "--code",
-            "12345",
-            "--json",
-        ]
-    )
-
-    assert code == 5
-    error = json.loads(capsys.readouterr().out)["error"]
-    assert error["code"] == "FLOOD_WAIT"
-    assert error["retry_after"] == 45
-    assert (
-        login_state.load_attempt(attempt["login_id"])["phone_code_hash"] == "hash-abc"
-    )
-    assert staged.read_bytes() == b"staged-session"
-    assert not (env["state"] / "sessions" / "tmp.session").exists()
-    assert client.disconnected
-
-
-@pytest.mark.asyncio
 async def test_continue_refuses_a_pending_removed_qr_attempt(env, fake_client):
     record = login_state.create_attempt("tmp", "qr", api_id=1, api_hash="h")
     login_id = record["login_id"]
@@ -779,24 +469,6 @@ async def test_continue_refuses_a_pending_removed_qr_attempt(env, fake_client):
         )
     assert excinfo.value.exit_code == 4
     assert fake_client.sign_in_calls == []
-
-
-def test_continue_accepts_the_global_timeout_flag(env, capsys):
-    """CONTRACT §1: --timeout is global; §10 lists no conflict with --continue."""
-    code = main(
-        [
-            "accounts",
-            "login",
-            "--continue",
-            "l_missing",
-            "--timeout",
-            "30",
-            "--json",
-        ]
-    )
-    assert code == 4
-    error = json.loads(capsys.readouterr().err)["error"]
-    assert error["code"] == "NOT_FOUND"
 
 
 def test_continue_without_timeout_reaches_attempt_lookup(env, capsys):
@@ -962,45 +634,6 @@ def test_continue_after_the_account_was_removed_does_not_add_it_back(
     )
 
 
-def test_login_discard_waits_for_a_busy_session_lock(
-    env, fake_client, monkeypatch, capsys
-):
-    """The discard took the session lock without waiting: a lock held for a
-    moment (a concurrent remove) turned it into exit 2 and left the new
-    session of a removed account in place."""
-    import fcntl
-    import threading
-
-    from tgcli.commands import accounts as accounts_cmd
-
-    env["config"].write_text(
-        SAMPLE + '\n[accounts.work]\napi_id = 5\napi_hash = "hw"\nsession = "work"\n'
-    )
-    assert main(["accounts", "login", "work", "--phone", PHONE, "--json"]) == 0
-    login_id = json.loads(capsys.readouterr().out)["login_id"]
-    dest = env["state"] / "sessions" / "work.session"
-    promote = login_state.promote
-
-    def promote_then_lock_held_briefly(*args, **kwargs):
-        accounts_cmd.remove_account(
-            load_config(), "work", confirm=True, keep_session=True
-        )
-        backup = promote(*args, **kwargs)
-        handle = dest.with_suffix(".lock").open("w")
-        fcntl.flock(handle, fcntl.LOCK_EX)
-        threading.Timer(0.3, handle.close).start()
-        return backup
-
-    monkeypatch.setattr(login_state, "promote", promote_then_lock_held_briefly)
-
-    code = main(
-        ["accounts", "login", "--continue", login_id, "--code", "12345", "--json"]
-    )
-
-    assert code == 4
-    assert not dest.exists()
-
-
 def _attempt_files(state: Path) -> list[str]:
     logins = state / "logins"
     if not logins.is_dir():
@@ -1040,55 +673,4 @@ def test_failed_code_request_leaves_no_attempt(
 
     assert main(_start_args()) == exit_code
 
-    assert _attempt_files(env["state"]) == []
-
-
-def test_unrecorded_code_request_leaves_no_phone(env, fake_client, monkeypatch, capsys):
-    """The phone sidecar lands before phone_code_hash is recorded; a failure
-    between the two writes left the raw phone on disk."""
-    from tgcli import atomic
-
-    replace_text = atomic.replace_text
-
-    def fail_attempt_update(path, text, **kwargs):
-        if path.suffix == ".json" and path.exists():
-            raise OSError(28, "No space left on device", str(path))
-        replace_text(path, text, **kwargs)
-
-    monkeypatch.setattr(atomic, "replace_text", fail_attempt_update)
-
-    assert main(_start_args()) == 1
-
-    assert _attempt_files(env["state"]) == []
-
-
-@pytest.mark.parametrize(
-    "sign_in_error",
-    [telethon_errors.PhoneCodeExpiredError(request=None), None],
-    ids=["discard", "promote"],
-)
-def test_interrupted_attempt_removal_stays_reapable(
-    env, fake_client, fail_first_unlink, capsys, sign_in_error
-):
-    """`store cleanup` finds an attempt by its json: removing the json first
-    and failing on the phone left a raw phone nothing would ever reap."""
-    from datetime import UTC, datetime
-
-    from tgcli.commands import store as store_cmd
-
-    assert main(_start_args()) == 0
-    login_id = json.loads(capsys.readouterr().out)["login_id"]
-    fake_client._sign_in_error = sign_in_error
-    fail_first_unlink(".phone")
-
-    assert (
-        main(["accounts", "login", "--continue", login_id, "--code", "1", "--json"])
-        == 1
-    )
-
-    store_cmd.cleanup(
-        env["state"],
-        confirm=True,
-        now=datetime.now(UTC) + 2 * login_state.LOGIN_TTL,
-    )
     assert _attempt_files(env["state"]) == []

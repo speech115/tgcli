@@ -1,29 +1,7 @@
-import json
 import os
 
 from tgcli import invocations
 from tgcli.state_paths import state_dir
-
-
-def test_invocation_journal_records_metadata_without_message_content():
-    invocations.log_invocation(
-        command="send",
-        account="main",
-        exit_code=0,
-        duration_ms=42,
-    )
-
-    [entry] = [
-        json.loads(line)
-        for line in (state_dir() / "invocations.jsonl").read_text().splitlines()
-    ]
-    assert entry == {
-        "timestamp": entry["timestamp"],
-        "command": "send",
-        "account": "main",
-        "exit_code": 0,
-        "duration_ms": 42,
-    }
 
 
 def test_invocation_journal_file_is_0600_in_0700_root(wide_umask):

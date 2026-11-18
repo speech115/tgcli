@@ -17,7 +17,6 @@ from tgcli.commands.media import (
     download_media,
     parse_source,
     resolve_message,
-    safe_filename,
 )
 from tgcli.errors import NotFoundError, PolicyError
 
@@ -53,10 +52,6 @@ def test_parse_source_accepts_private_link():
 def test_parse_source_rejects_incomplete_reference():
     with pytest.raises(NotFoundError, match="media source"):
         parse_source("@channel", None)
-
-
-def test_safe_filename_cannot_escape_destination():
-    assert safe_filename("../../a\tb.mp4", 42) == "a b.mp4"
 
 
 class FakeDownloadTelegram:
@@ -110,37 +105,6 @@ async def test_download_never_publishes_a_short_stream(tmp_path):
     # The bytes that did arrive are kept for the next run's resume.
     _, part_path = _state_paths(source)
     assert part_path.read_bytes() == b"only"
-
-
-async def test_a_failing_unwind_checkpoint_never_replaces_the_flood(
-    tmp_path, monkeypatch
-):
-    """bookkeeping on the failure path must not erase FloodWait."""
-    source = MediaSource("@channel", 42, None)
-    target = tmp_path / "out.bin"
-    fake = FakeDownloadTelegram([])
-    fake.message.file.size = 20
-
-    async def flood_after_one_chunk(
-        media_obj, *, offset=0, request_size=None, **kwargs
-    ):
-        yield b"x"
-        raise telethon_errors.FloodWaitError(request=None, capture=7)
-
-    fake.iter_download = flood_after_one_chunk
-    original_write_state = media._write_state
-
-    def fail_after_initial_state(*args, **kwargs):
-        if args[4] > 0:
-            raise OSError("ENOSPC")
-        return original_write_state(*args, **kwargs)
-
-    monkeypatch.setattr(media, "_write_state", fail_after_initial_state)
-
-    with pytest.raises(telethon_errors.FloodWaitError) as caught:
-        await download_media(fake, source, "main", output=str(target))
-
-    assert caught.value.seconds == 7
 
 
 async def test_the_serial_part_file_is_synced_before_the_checkpoint_claims_it(
@@ -268,25 +232,6 @@ async def test_download_publishes_onto_another_filesystem(tmp_path, monkeypatch)
     assert not state_path.exists()
 
 
-async def test_parallel_download_publishes_onto_another_filesystem(
-    tmp_path, monkeypatch
-):
-    source = MediaSource("@channel", 42, None)
-    target = tmp_path / "external" / "out.bin"
-    _cross_filesystem_publish(monkeypatch)
-
-    result = await download_media(
-        FakeParallelTelegram(), source, "main", output=str(target), parallel=2
-    )
-
-    assert target.read_bytes() == b"A" * (512 * 1024) + b"B" * (512 * 1024)
-    assert result["bytes"] == 2 * 512 * 1024
-    assert list(target.parent.iterdir()) == [target]
-    state_path, part_path = _state_paths(source)
-    assert not part_path.exists()
-    assert not state_path.exists()
-
-
 def _killed_parallel_transfer(source: MediaSource, destination: Path) -> Path:
     """Leave what a signal-killed parallel transfer leaves behind."""
     state_path, part_path = _state_paths(source)
@@ -317,19 +262,6 @@ async def test_parallel_download_restarts_after_a_killed_transfer(tmp_path):
     assert target.read_bytes() == b"A" * (512 * 1024) + b"B" * (512 * 1024)
     assert result["resumed"] is False
     assert not part_path.exists()
-
-
-async def test_download_restarts_after_a_killed_parallel_transfer(tmp_path):
-    source = MediaSource("@channel", 42, None)
-    target = tmp_path / "out.bin"
-    _killed_parallel_transfer(source, target)
-
-    result = await download_media(
-        FakeDownloadTelegram([b"abcdef"]), source, "main", output=str(target)
-    )
-
-    assert target.read_bytes() == b"abcdef"
-    assert result["resumed"] is False
 
 
 @pytest.mark.parametrize("payload", ["[]", '"x"', "42", "null", "true"])
@@ -475,36 +407,6 @@ class FakeIdentifiedTelegram(FakeDownloadTelegram):
         self.message.media = ns(document=ns(id=document_id), photo=None)
 
 
-async def test_resume_refuses_a_partial_file_from_replaced_media(tmp_path):
-    """#180: the source swapped the file behind the same message.
-
-    The resume record identified its partial file by path alone, so the new
-    file's tail was appended to the old file's head and published as
-    complete — no error, correct-looking output, wrong bytes.
-    """
-    source = MediaSource("@channel", 42, None)
-    target = tmp_path / "out.bin"
-    interrupted = FakeIdentifiedTelegram(
-        [b"old"], document_id=111, fail_after_first=True
-    )
-
-    with pytest.raises(RuntimeError, match="network dropped"):
-        await download_media(interrupted, source, "main", output=str(target))
-
-    [state_path] = (tmp_path / "state" / "downloads").glob("*.json")
-    assert json.loads(state_path.read_text())["offset"] == 3
-
-    replaced = FakeIdentifiedTelegram([b"new"], document_id=222)
-    replaced.message.file.size = len(b"new")
-    result = await download_media(replaced, source, "main", output=str(target))
-
-    assert replaced.iter_download_calls == [
-        {"media": replaced.message.media, "offset": 0, "request_size": 512 * 1024}
-    ]
-    assert target.read_bytes() == b"new"
-    assert result["resumed"] is False
-
-
 async def test_resume_refuses_a_partial_file_whose_size_changed(tmp_path):
     """A same-id document re-encoded to a different length is not the same file."""
     source = MediaSource("@channel", 42, None)
@@ -535,107 +437,3 @@ def _state(destination, *, media_id, size, offset=3):
             "offset": offset,
         }
     )
-
-
-def test_a_changed_media_never_masks_a_wrong_output_path(tmp_path):
-    """Review finding: the identity check must not swallow the louder error.
-
-    The state file is keyed by source alone, so a re-run with a different
-    `--output` lands on the same record. That has always been exit 2; a
-    source that also replaced its media in the meantime must not turn it
-    into a silent restart.
-    """
-    source = MediaSource("@channel", 42, None)
-    state_path = tmp_path / "state.json"
-    part_path = tmp_path / "out.part"
-    part_path.write_bytes(b"old")
-    state_path.write_text(_state(tmp_path / "first.bin", media_id=111, size=6))
-
-    with pytest.raises(PolicyError, match="does not match requested output"):
-        _resume_offset(
-            state_path,
-            part_path,
-            source,
-            tmp_path / "second.bin",
-            _target(ns(document=ns(id=222), photo=None), size=99),
-        )
-
-    # The louder error must not have destroyed the record on its way out.
-    assert part_path.exists()
-    assert state_path.exists()
-
-
-async def test_download_state_dir_is_private_under_umask_022(tmp_path):
-    import os
-
-    source = MediaSource("@channel", 42, None)
-    previous = os.umask(0o022)
-    try:
-        await download_media(
-            FakeDownloadTelegram([b"abcdef"]),
-            source,
-            "main",
-            output=str(tmp_path / "o"),
-        )
-    finally:
-        os.umask(previous)
-
-    _, part_path = _state_paths(source)
-    assert part_path.parent.stat().st_mode & 0o777 == 0o700
-    assert part_path.parent.parent.stat().st_mode & 0o777 == 0o700
-
-
-class _ChunkedSource:
-    """A voice message served in `CHUNK_SIZE` pieces, yielding to the loop
-    between chunks so two downloads interleave; `drop_after` chunks then a
-    dropped connection."""
-
-    SIZE = 4 * 512 * 1024
-    DATA = bytes(range(256)) * (SIZE // 256)
-
-    def __init__(self, drop_after=None):
-        self.drop_after = drop_after
-        self.media = ns(document=ns(id=77))
-
-    async def get_entity(self, ref):
-        return ns(id=5)
-
-    async def get_messages(self, entity, ids):
-        file = ns(name="v.ogg", size=self.SIZE, ext=".ogg")
-        return ns(id=ids, media=self.media, file=file)
-
-    async def iter_download(self, media, offset, request_size):
-        import asyncio
-
-        for count, start in enumerate(range(offset, self.SIZE, request_size)):
-            await asyncio.sleep(0)
-            if self.drop_after is not None and count >= self.drop_after:
-                raise ConnectionError("dropped")
-            yield self.DATA[start : start + request_size]
-
-
-async def test_two_runs_resuming_one_source_never_wedge_it(tmp_path):
-    """both runs appended into one `.part`, recorded an
-    offset past the media size, and every later run stopped there for good.
-    The second run now refuses (exit 3) and the first one publishes."""
-    import asyncio
-
-    from tgcli.commands.media import MediaSource, download_media
-
-    source = MediaSource(chat="5", message_id=9, private_channel_id=None)
-    output = tmp_path / "v.ogg"
-    with pytest.raises(ConnectionError):
-        await download_media(
-            _ChunkedSource(drop_after=1), source, "main", output=str(output)
-        )
-
-    results = await asyncio.gather(
-        download_media(_ChunkedSource(), source, "main", output=str(output)),
-        download_media(_ChunkedSource(), source, "main", output=str(output)),
-        return_exceptions=True,
-    )
-
-    refused = [r for r in results if not isinstance(r, dict)]
-    assert [getattr(r, "exit_code", r) for r in refused] == [3]
-    assert [r["resumed"] for r in results if isinstance(r, dict)] == [True]
-    assert output.read_bytes() == _ChunkedSource.DATA

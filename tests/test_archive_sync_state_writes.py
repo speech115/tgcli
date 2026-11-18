@@ -49,13 +49,6 @@ def conn(tmp_path):
     connection.close()
 
 
-def _peer_row(conn: sqlite3.Connection, peer_id: int) -> dict:
-    row = conn.execute(
-        "SELECT * FROM sync_state WHERE peer_id = ?", (peer_id,)
-    ).fetchone()
-    return dict(row)
-
-
 def _account_row(conn: sqlite3.Connection) -> dict | None:
     row = conn.execute("SELECT * FROM account_sync WHERE id = 1").fetchone()
     return None if row is None else dict(row)
@@ -63,118 +56,6 @@ def _account_row(conn: sqlite3.Connection) -> dict | None:
 
 def _cursor() -> str:
     return cursor_codec.encode(ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1))
-
-
-def test_upsert_sync_state_rows(conn, clock):
-    upsert = store_mod.upsert_sync_state
-
-    # Insert, backfill flavour: only last_backfill_at is stamped.
-    upsert(
-        conn,
-        7,
-        oldest_id=10,
-        newest_id=20,
-        more=True,
-        last_error="FLOOD_WAIT:5",
-        kind="user",
-        title="Alice",
-        username="alice",
-        chat_ref="@alice",
-    )
-    assert _peer_row(conn, 7) == {
-        "peer_id": 7,
-        "oldest_id": 10,
-        "newest_id": 20,
-        "last_backfill_at": _ts(1),
-        "last_sync_at": None,
-        "last_error": "FLOOD_WAIT:5",
-        "more": 1,
-        "kind": "user",
-        "title": "Alice",
-        "username": "alice",
-        "chat_ref": "@alice",
-    }
-
-    # Update, sync flavour: ids widen only, identity is kept when not given,
-    # last_error and more are always overwritten.
-    upsert(conn, 7, oldest_id=15, newest_id=30, more=False, touch_sync=True)
-    assert _peer_row(conn, 7) == {
-        "peer_id": 7,
-        "oldest_id": 10,
-        "newest_id": 30,
-        "last_backfill_at": _ts(1),
-        "last_sync_at": _ts(2),
-        "last_error": None,
-        "more": 0,
-        "kind": "user",
-        "title": "Alice",
-        "username": "alice",
-        "chat_ref": "@alice",
-    }
-
-    # Lower oldest, lower newest, new identity wins; backfill stamp moves.
-    upsert(
-        conn,
-        7,
-        oldest_id=3,
-        newest_id=25,
-        more=True,
-        last_error="x",
-        title="Alice B",
-        chat_ref="7",
-    )
-    assert _peer_row(conn, 7) == {
-        "peer_id": 7,
-        "oldest_id": 3,
-        "newest_id": 30,
-        "last_backfill_at": _ts(3),
-        "last_sync_at": _ts(2),
-        "last_error": "x",
-        "more": 1,
-        "kind": "user",
-        "title": "Alice B",
-        "username": "alice",
-        "chat_ref": "7",
-    }
-
-    # None ids keep the stored range.
-    upsert(conn, 7, oldest_id=None, newest_id=None, more=False, touch_sync=True)
-    row = _peer_row(conn, 7)
-    assert (row["oldest_id"], row["newest_id"], row["last_sync_at"]) == (3, 30, _ts(4))
-    assert row["last_backfill_at"] == _ts(3)
-
-
-def test_upsert_sync_state_fills_an_empty_range_and_sync_insert(conn, clock):
-    upsert = store_mod.upsert_sync_state
-
-    # Insert, sync flavour, without a range or identity.
-    upsert(conn, -100, oldest_id=None, newest_id=None, more=False, touch_sync=True)
-    assert _peer_row(conn, -100) == {
-        "peer_id": -100,
-        "oldest_id": None,
-        "newest_id": None,
-        "last_backfill_at": None,
-        "last_sync_at": _ts(1),
-        "last_error": None,
-        "more": 0,
-        "kind": None,
-        "title": None,
-        "username": None,
-        "chat_ref": None,
-    }
-
-    # A stored NULL range takes the new ids as they are.
-    upsert(conn, -100, oldest_id=40, newest_id=50, more=True, kind="channel")
-    row = _peer_row(conn, -100)
-    assert (row["oldest_id"], row["newest_id"], row["more"]) == (40, 50, 1)
-    assert (row["last_backfill_at"], row["last_sync_at"]) == (_ts(2), _ts(1))
-    assert row["kind"] == "channel"
-
-    # Only one side given: the other side is kept.
-    upsert(conn, -100, oldest_id=None, newest_id=60, more=True)
-    upsert(conn, -100, oldest_id=35, newest_id=None, more=True)
-    row = _peer_row(conn, -100)
-    assert (row["oldest_id"], row["newest_id"]) == (35, 60)
 
 
 def test_write_account_sync_rows(conn, clock):

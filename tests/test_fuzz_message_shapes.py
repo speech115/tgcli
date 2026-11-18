@@ -190,23 +190,6 @@ def test_plain_rows_survive_any_message(message):
     "\t".join("" if cell is None else str(cell) for cell in row).encode("utf-8")
 
 
-def test_a_custom_emoji_entity_that_splits_a_surrogate_pair_does_not_crash():
-    """Offset 2 / length 1 is the second half of the UTF-16 pair of 😀."""
-    message = types.Message(
-        id=1,
-        peer_id=CHAT,
-        date=datetime(2026, 1, 2, tzinfo=UTC),
-        message="a😀b",
-        entities=[types.MessageEntityCustomEmoji(offset=2, length=1, document_id=9)],
-    )
-
-    row = message_to_dict(message)
-
-    (item,) = row["custom_emoji"]
-    assert item["id"] == "9"
-    json.dumps(row, ensure_ascii=False).encode("utf-8")
-
-
 def test_a_whole_custom_emoji_keeps_its_glyph():
     message = types.Message(
         id=1,

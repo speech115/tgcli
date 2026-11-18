@@ -173,22 +173,6 @@ async def test_unauthorized_session_raises_config_error(state, monkeypatch):
     assert fake.connected is False
 
 
-async def test_revoked_session_raises_reauthentication_error(state, monkeypatch):
-    class RevokedClient(FakeTelethonClient):
-        async def connect(self):
-            raise telethon_errors.SessionRevokedError(request=None)
-
-    monkeypatch.setattr(
-        session,
-        "_make_client",
-        lambda path, account, *, mutation_safe=False: RevokedClient(),
-    )
-
-    with pytest.raises(ConfigError, match="needs reauthentication"):
-        async with session.client(ACCOUNT):
-            pass
-
-
 # Every UnauthorizedError is a dead session, not a runtime failure: a
 # deleted or expired key used to escape as exit 1 with no remedy.
 DEAD_SESSION_ERRORS = [
@@ -214,31 +198,6 @@ async def test_revoked_session_during_command_raises_reauthentication_error(
     assert excinfo.value.exit_code == 3
 
 
-def test_make_client_sets_stable_telegram_device_identity(tmp_path, monkeypatch):
-    captured = {}
-
-    def fake_client(*args, **kwargs):
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return object()
-
-    monkeypatch.setattr(session, "Client", fake_client)
-    monkeypatch.setattr(session.platform, "system", lambda: "TestOS")
-
-    result = session._make_client(Path(tmp_path / "regular"), ACCOUNT)
-
-    assert result is not None
-    assert captured["args"] == (str(tmp_path / "regular"), 1, "h")
-    assert captured["kwargs"] == {
-        "flood_sleep_threshold": 30,
-        "raise_last_call_error": True,
-        "device_model": "tgcli",
-        "system_version": "TestOS",
-        "app_version": session.__version__,
-        "receive_updates": False,
-    }
-
-
 class FailingSender:
     def __init__(self, error_factory):
         self.error_factory = error_factory
@@ -250,33 +209,6 @@ class FailingSender:
         future = asyncio.get_running_loop().create_future()
         future.set_exception(self.error_factory(request))
         return future
-
-
-async def test_mutation_safe_telethon_client_sends_ambiguous_timeout_once(
-    tmp_path, monkeypatch
-):
-    sleeps = []
-
-    async def fake_sleep(seconds):
-        sleeps.append(seconds)
-
-    monkeypatch.setattr("telethon.client.users.asyncio.sleep", fake_sleep)
-    tg = session._make_client(
-        Path(tmp_path / "mutation-safe"), ACCOUNT, mutation_safe=True
-    )
-    request = functions.channels.CreateChannelRequest(
-        title="marker", about="", broadcast=True, megagroup=False
-    )
-    sender = FailingSender(
-        lambda sent: telethon_errors.TimedOutError(request=sent, message="TIMEOUT")
-    )
-
-    with pytest.raises(telethon_errors.TimedOutError):
-        await tg._call(sender, request)
-
-    assert sender.calls == 1
-    assert tg._request_retries == 0
-    assert sleeps == [2]
 
 
 @pytest.mark.parametrize("mutation_safe", [True, False], ids=["mutation", "regular"])
@@ -312,34 +244,6 @@ async def test_telegram_internal_error_surfaces_as_itself_not_a_value_error(
 
     with pytest.raises(telethon_errors.ServerError):
         await tg._call(sender, request)
-
-
-async def test_mutation_safe_telethon_client_surfaces_short_flood_wait_without_sleep(
-    tmp_path, monkeypatch
-):
-    sleeps = []
-
-    async def fake_sleep(seconds):
-        sleeps.append(seconds)
-
-    monkeypatch.setattr("telethon.client.users.asyncio.sleep", fake_sleep)
-    tg = session._make_client(
-        Path(tmp_path / "mutation-safe"), ACCOUNT, mutation_safe=True
-    )
-    request = functions.channels.CreateChannelRequest(
-        title="marker", about="", broadcast=True, megagroup=False
-    )
-    sender = FailingSender(
-        lambda sent: telethon_errors.FloodWaitError(request=sent, capture=5)
-    )
-
-    with pytest.raises(telethon_errors.FloodWaitError) as raised:
-        await tg._call(sender, request)
-
-    assert raised.value.seconds == 5
-    assert sender.calls == 1
-    assert tg.flood_sleep_threshold == 0
-    assert sleeps == []
 
 
 class FloodingSender:

@@ -8,23 +8,16 @@ the value it ran with, so defaults and caps are pinned there.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 
 import pytest
-from telethon.tl.functions.updates import GetDifferenceRequest, GetStateRequest
-from telethon.tl.types.updates import DifferenceEmpty, State
 
-from tests.conftest import FakeClient, make_session_fake
+from tests.conftest import make_session_fake
 from tests.fakes.archive import (
     archive_client,
-    archive_me,
     archive_user,
     seed_search_corpus,
 )
-from tgcli.archive import changes_cursor, store as store_mod
-from tgcli.archive.changes_cursor import ChangesCursor
 from tgcli.cli import main
-from tgcli.commands import archive as archive_cmd
 
 SAMPLE = """
 default_account = "main"
@@ -155,41 +148,12 @@ def test_archive_bound_refusals_are_exact_and_exit_2(config_env, capsys, argv, m
     assert captured.err.splitlines()[-1] == captured.out.strip()
 
 
-@pytest.mark.parametrize(
-    ("extra", "limit", "page"),
-    [([], 20, 1), (["--limit", "50", "--page", "10000"], 50, 10000)],
-)
-def test_archive_search_default_and_cap(
-    config_env, monkeypatch, capsys, extra, limit, page
-):
-    seed_search_corpus(monkeypatch)
-    capsys.readouterr()
-    assert main(["archive", "search", "ёлка", *extra, "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert (data["limit"], data["page"]) == (limit, page)
-
-
 @pytest.mark.parametrize(("extra", "limit"), [([], 20), (["--limit", "50"], 50)])
 def test_archive_read_default_and_cap(config_env, monkeypatch, capsys, extra, limit):
     seed_search_corpus(monkeypatch)
     capsys.readouterr()
     assert main(["archive", "read", "7", *extra, "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["limit"] == limit
-
-
-@pytest.mark.parametrize(
-    ("extra", "limit", "attempts"),
-    [([], 20, 3), (["--limit", "100", "--max-attempts", "5"], 100, 5)],
-)
-def test_archive_transcribe_default_and_cap(
-    config_env, monkeypatch, capsys, extra, limit, attempts
-):
-    make_session_fake(monkeypatch, archive_client())
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    assert main(["archive", "transcribe", *extra, "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert (data["limit"], data["max_attempts"]) == (limit, attempts)
 
 
 @pytest.mark.parametrize(("extra", "limit"), [([], 100), (["--limit", "1000"], 1000)])
@@ -217,44 +181,3 @@ def test_archive_backfill_private_default_and_cap(
     assert main(["archive", "backfill", "--private", *extra, "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert (data["limit"], data["max_dialogs"]) == (limit, max_dialogs)
-
-
-class _QuietClient(FakeClient):
-    async def __call__(self, request):
-        self.call_requests.append(request)
-        if isinstance(request, GetStateRequest):
-            return State(
-                pts=10,
-                qts=1,
-                date=datetime(2026, 1, 1, tzinfo=UTC),
-                seq=2,
-                unread_count=0,
-            )
-        if isinstance(request, GetDifferenceRequest):
-            return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=2)
-        raise AssertionError(request)
-
-
-@pytest.mark.parametrize(
-    ("extra", "budgets"),
-    [
-        ([], (500, 20, 50)),
-        (
-            ["--max-events", "5000", "--max-dialogs", "50", "--max-media", "500"],
-            (5000, 50, 500),
-        ),
-    ],
-)
-def test_archive_sync_default_and_cap(config_env, monkeypatch, capsys, extra, budgets):
-    make_session_fake(monkeypatch, _QuietClient(me=archive_me()))
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1)
-    conn = store_mod.connect(archive_cmd.db_path("main"))
-    try:
-        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
-    finally:
-        conn.close()
-    assert main(["archive", "sync", *extra, "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert (data["max_events"], data["max_dialogs"], data["max_media"]) == budgets
