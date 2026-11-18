@@ -39,9 +39,8 @@ def _mode_ok(path: Path) -> bool:
 def _loose_previews() -> list[Path]:
     """Preview files whose mode is not 0600 — empty when the scan cannot run.
 
-    A concurrent `store cleanup --confirm` can remove the directory between
-    the probe and the walk, and a health report must not die of the housekeeping
-    it exists to describe (review finding).
+    The directory can vanish between the probe and the walk, and a health
+    report must not die of that.
     """
     directory = safety.previews_dir()
     try:

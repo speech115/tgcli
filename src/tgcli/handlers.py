@@ -7,7 +7,7 @@ taking `(tg, args, account)`. All of them return `(data, rows)`.
 
 from __future__ import annotations
 
-from tgcli import deadline, loop, output, preview_commit, read_ops, safety, state_paths
+from tgcli import deadline, loop, output, preview_commit, read_ops, safety
 from tgcli.clone import sync as sync_clone
 from tgcli.commands import (
     accounts as accounts_cmd,
@@ -18,7 +18,6 @@ from tgcli.commands import (
     media as media_cmd,
     media_bulk,
     run as run_cmd,
-    store as store_cmd,
 )
 from tgcli.errors import PolicyError
 
@@ -35,16 +34,6 @@ def clone_status(args) -> tuple[dict, list[tuple]]:
                 f"{entry['source']['id']}"
             )
     return data, clone_cmd.status_rows(data)
-
-
-def store_cleanup(args) -> tuple[dict, list[tuple]]:
-    data = store_cmd.cleanup(
-        state_paths.state_dir(),
-        older_than=getattr(args, "older_than", None),
-        include_pending=bool(getattr(args, "include_pending", False)),
-        confirm=bool(args.confirm),
-    )
-    return data, store_cmd.cleanup_rows(data)
 
 
 # Local commands that read the config.

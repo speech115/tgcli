@@ -33,7 +33,7 @@ def read_journal():
 
 @pytest.mark.parametrize(
     ("argv", "command"),
-    [(["accounts", "list"], "accounts list"), (["store", "cleanup"], "store cleanup")],
+    [(["accounts", "list"], "accounts list"), (["clone", "status"], "clone status")],
 )
 def test_subcommand_is_journaled_by_its_full_path(tmp_path, monkeypatch, argv, command):
     """`archive sync` and `archive status` must not share one `archive` row."""

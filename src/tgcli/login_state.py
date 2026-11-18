@@ -26,8 +26,7 @@ _LOGIN_ID_RE = re.compile(r"^l_[A-Za-z0-9_-]+$")
 def _write_attempt(path: Path, record: dict) -> None:
     """Atomically replace an attempt json at mode 0600.
 
-    A mid-write truncate would otherwise be classified as expired by a
-    concurrent `store cleanup --confirm` and take the staged session with it.
+    A concurrent reader must never see a half-written attempt.
     """
     if "phone" in record:
         # The attempt json holds alias/phone_code_hash/
@@ -111,8 +110,7 @@ def load_attempt(login_id: str, *, now: datetime | None = None) -> dict:
     if now >= expires_at:
         # A read never deletes. A forward clock step during a multi-step login
         # would otherwise destroy the staged session the user is still creating.
-        # Reaping belongs to the explicit paths:
-        # `discard_attempt` and `store cleanup --confirm`.
+        # Reaping belongs to `discard_attempt`.
         raise NotFoundError(f"login_id {login_id!r} expired at {record['expires_at']}")
     return record
 
@@ -146,8 +144,8 @@ def update_attempt(login_id: str, *, now: datetime | None = None, **fields) -> d
 
 
 def attempt_files(directory: Path, login_id: str) -> tuple[Path, ...]:
-    """Every file one attempt owns, json last: `store cleanup` finds an attempt
-    by its json, so a removal cut short must leave the json behind."""
+    """Every file one attempt owns, json last: an attempt is found by its
+    json, so a removal cut short must leave the json behind."""
     return tuple(
         directory / f"{login_id}{suffix}"
         for suffix in (".session", ".session-journal", ".phone", ".json")

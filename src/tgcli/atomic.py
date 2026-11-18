@@ -2,8 +2,7 @@
 
 Every file under the config or state roots that is read back later must be
 replaced atomically: a plain `write_text` can be observed half-written by a
-concurrent invocation (the `store cleanup` vs live login race, fixed in
-1.2.0, started exactly there). `scripts/check-bans.py` bans
+concurrent invocation. `scripts/check-bans.py` bans
 `write_text` in state-writing modules; this helper is the sanctioned path.
 """
 
