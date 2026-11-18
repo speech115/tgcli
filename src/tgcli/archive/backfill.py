@@ -6,16 +6,49 @@ import sqlite3
 from typing import Any
 
 from tgcli import chatref, pace
-from tgcli.archive import (
-    private_enum as private_enum_mod,
-    scope as scope_mod,
-    store as store_mod,
-)
+from tgcli.archive import scope as scope_mod, store as store_mod
 from tgcli.errors import NotFoundError, PolicyError, RateLimitError
 from tgcli.messages import dialog_name, message_to_dict
 from tgcli.tg_errors import FLOOD_ERRORS
 
-enumerate_private_dialogs = private_enum_mod.enumerate_private_dialogs
+
+async def enumerate_private_dialogs(
+    tg,
+    conn: sqlite3.Connection,
+    *,
+    max_dialogs: int,
+) -> tuple[list[str], int, list[Any]]:
+    """Walk the dialog list for private chats whose backfill is unfinished.
+
+    Returns up to ``max_dialogs`` refs, how many finished chats were skipped,
+    and the entities the walk saw, so backfill never resolves a ref again.
+    """
+    refs: list[str] = []
+    entities: list[Any] = []
+    skipped = 0
+    async for dialog in pace.paged(tg.iter_dialogs(), pace.DIALOGS_PAGE):
+        entity = dialog.entity
+        try:
+            kind = scope_mod.classify_entity(entity)
+        except PolicyError:
+            continue
+        if kind != "user":
+            continue
+        peer = scope_mod.peer_id(entity)
+        state = store_mod.get_sync_state(conn, peer)
+        if (
+            state is not None
+            and state.get("last_backfill_at") is not None
+            and not state.get("more", True)
+        ):
+            skipped += 1
+            continue
+        username = getattr(entity, "username", None)
+        refs.append(f"@{username}" if username else str(peer))
+        entities.append(entity)
+        if len(refs) >= max_dialogs:
+            break
+    return refs, skipped, entities
 
 
 async def resolve_entity(tg, chat: str):
@@ -216,7 +249,7 @@ async def backfill_private(
     max_dialogs: int,
     account_user_id: int,
 ) -> dict[str, Any]:
-    refs, skipped, ref_cursors, entities = await enumerate_private_dialogs(
+    refs, skipped, entities = await enumerate_private_dialogs(
         tg, conn, max_dialogs=max_dialogs
     )
     if not refs:
@@ -236,7 +269,6 @@ async def backfill_private(
         account_user_id=account_user_id,
         entities=entities,
     )
-    private_enum_mod.advance_completed(conn, dialogs, ref_cursors[: len(dialogs)])
     data: dict[str, Any] = {
         "mode": "private",
         "limit": limit,

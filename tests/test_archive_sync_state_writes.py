@@ -99,15 +99,6 @@ def test_write_account_sync_rows(conn, clock):
 
     after_reconcile = _account_row(conn)
 
-    # Private-enum resume is set, then cleared; nothing else moves.
-    write(conn, private_enum={"id": 7, "kind": "user", "offset_date": None})
-    assert _account_row(conn) == {
-        **after_reconcile,
-        "private_enum_json": '{"id":7,"kind":"user","offset_date":null}',
-    }
-    write(conn, clear_private_enum=True)
-    assert _account_row(conn) == after_reconcile
-
     # An empty pending list is stored as NULL; a later gap joins the old one.
     write(conn, pending_catchups=[], gaps=[{"reason": "channel"}])
     assert _account_row(conn) == {
