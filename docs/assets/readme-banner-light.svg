@@ -1,49 +1,56 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="460" viewBox="0 0 1280 460" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="560" viewBox="0 0 1280 560" role="img" aria-labelledby="title desc">
   <title id="title">tgcli</title>
-  <desc id="desc">Stateless Telegram CLI for humans, scripts, and AI agents — light theme banner</desc>
-
+  <desc id="desc">tgcli: a stateless Telegram CLI. A terminal lists unread dialogs, previews a message and commits it.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#f8fbfd"/>
-      <stop offset="100%" stop-color="#e9f1f6"/>
+      <stop offset="0%" stop-color="#f6fafd"/>
+      <stop offset="100%" stop-color="#e8f1f8"/>
     </linearGradient>
     <linearGradient id="tg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#2aabee"/>
-      <stop offset="100%" stop-color="#229ed9"/>
+      <stop offset="0%" stop-color="#37bbfe"/>
+      <stop offset="100%" stop-color="#1d93d2"/>
     </linearGradient>
+    <radialGradient id="glow" cx="0.85" cy="0.05" r="0.7">
+      <stop offset="0%" stop-color="#2aabee" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#2aabee" stop-opacity="0"/>
+    </radialGradient>
     <style>
       .sans { font-family: ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
-      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 19px; }
-      .fg { fill: #0d1c26; }
-      .muted { fill: #55707f; }
-      .dim { fill: #8aa3b1; }
-      .str { fill: #157a49; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 19px; white-space: pre; }
+      .fg { fill: #0d2230; }
+      .muted { fill: #4d6575; }
+      .dim { fill: #8aa0b0; }
+      .str { fill: #1f8a4c; }
+      .key { fill: #1677b8; }
+      .num { fill: #b0621c; }
     </style>
+    <clipPath id="l0"><rect x="0" y="70" height="36" width="430"><animate attributeName="width" values="0;0;51;430" keyTimes="0;0.4624;0.4682;1" dur="1.73s" fill="freeze"/></rect></clipPath><clipPath id="l1"><rect x="0" y="106" height="36" width="865"><animate attributeName="width" values="0;0;865" keyTimes="0;0.9952;1" dur="2.09s" fill="freeze"/></rect></clipPath><clipPath id="l2"><rect x="0" y="142" height="36" width="521"><animate attributeName="width" values="0;0;51;521" keyTimes="0;0.6961;0.6987;1" dur="3.85s" fill="freeze"/></rect></clipPath><clipPath id="l3"><rect x="0" y="178" height="36" width="831"><animate attributeName="width" values="0;0;831" keyTimes="0;0.9976;1" dur="4.21s" fill="freeze"/></rect></clipPath><clipPath id="l4"><rect x="0" y="214" height="36" width="819"><animate attributeName="width" values="0;0;51;819" keyTimes="0;0.7111;0.7126;1" dur="6.75s" fill="freeze"/></rect></clipPath><clipPath id="l5"><rect x="0" y="250" height="36" width="567"><animate attributeName="width" values="0;0;567" keyTimes="0;0.9986;1" dur="7.11s" fill="freeze"/></rect></clipPath>
   </defs>
 
-  <rect width="1280" height="460" fill="url(#bg)"/>
-  <rect x="0" y="0" width="1280" height="3" fill="url(#tg)"/>
+  <rect width="1280" height="560" fill="url(#bg)"/>
+  <rect width="1280" height="560" fill="url(#glow)"/>
+  <rect width="1280" height="3" fill="url(#tg)"/>
 
-  <g transform="translate(72,64)">
-    <rect x="0" y="0" width="56" height="56" rx="14" fill="url(#tg)"/>
-    <path d="M12 28 L44 15 L38 44 L29 35 L23 41 L23 32 Z" fill="#ffffff"/>
-    <text class="sans fg" x="76" y="30" font-size="38" font-weight="700">tgcli</text>
-    <text class="sans muted" x="76" y="56" font-size="17">Telegram CLI: read, search, send &#183; no daemons, JSON everywhere</text>
+  <g transform="translate(72,58)">
+    <rect width="72" height="72" rx="18" fill="url(#tg)"/>
+    <path d="M15 36 L57 19 L49 56 L37 45 L29 53 L29 41 Z" fill="#ffffff"/>
+    <path d="M29 41 L49 26 L37 45 Z" fill="#cfe9f8"/>
+    <text class="sans fg" x="96" y="40" font-size="46" font-weight="750" letter-spacing="-1">tgcli</text>
+    <text class="sans muted" x="98" y="68" font-size="19">Telegram from the command line — for humans, scripts and AI agents</text>
   </g>
 
-  <g transform="translate(72,168)">
-    <rect x="0" y="0" width="1136" height="212" rx="14" fill="#ffffff" stroke="#cfe0ea"/>
-    <circle cx="26" cy="26" r="6" fill="#d6e4ec"/>
-    <circle cx="46" cy="26" r="6" fill="#d6e4ec"/>
-    <circle cx="66" cy="26" r="6" fill="#d6e4ec"/>
-    <line x1="0" y1="52" x2="1136" y2="52" stroke="#e4eef3"/>
+  <g transform="translate(72,176)">
+    <rect width="1136" height="310" rx="14" fill="#ffffff" stroke="#cfdfea"/>
+    <circle cx="26" cy="26" r="6" fill="#ff5f57"/>
+    <circle cx="46" cy="26" r="6" fill="#febc2e"/>
+    <circle cx="66" cy="26" r="6" fill="#28c840"/>
+    <text class="sans dim" x="568" y="31" font-size="14" text-anchor="middle">~ — tg</text>
+    <line x1="0" y1="52" x2="1136" y2="52" stroke="#e1ebf2"/>
     <g class="mono">
-      <text x="28" y="90"><tspan class="dim">$</tspan> <tspan class="fg">tg --json dialogs --unread-only</tspan></text>
-      <text x="28" y="124"><tspan class="dim">$</tspan> <tspan class="fg">tg --json search --all </tspan><tspan class="str">"invoice"</tspan><tspan class="fg"> --limit 20</tspan></text>
-      <text x="28" y="158"><tspan class="dim">$</tspan> <tspan class="fg">tg --json send @user </tspan><tspan class="str">"hello"</tspan><tspan class="fg"> --preview</tspan></text>
-      <text x="28" y="192"><tspan class="dim">$</tspan> <tspan class="fg">tg --json send --commit p_9f3a</tspan><tspan class="dim">   # nothing leaves without this</tspan></text>
+      <text x="28" y="96" xml:space="preserve" clip-path="url(#l0)"><tspan class="dim">$ </tspan><tspan class="fg">tg --json dialogs --unread-only</tspan></text><text x="28" y="132" xml:space="preserve" clip-path="url(#l1)"><tspan class="dim">  </tspan><tspan class="fg">{</tspan><tspan class="key">"dialogs"</tspan><tspan class="fg">: [{</tspan><tspan class="key">"name"</tspan><tspan class="fg">: </tspan><tspan class="str">"Alice Smith"</tspan><tspan class="fg">, </tspan><tspan class="key">"unread"</tspan><tspan class="fg">: </tspan><tspan class="num">1</tspan><tspan class="fg">}, …], </tspan><tspan class="key">"more"</tspan><tspan class="fg">: </tspan><tspan class="num">false</tspan><tspan class="fg">}</tspan></text><text x="28" y="168" xml:space="preserve" clip-path="url(#l2)"><tspan class="dim">$ </tspan><tspan class="fg">tg --json send @alice </tspan><tspan class="str">"hello"</tspan><tspan class="fg"> --preview</tspan></text><text x="28" y="204" xml:space="preserve" clip-path="url(#l3)"><tspan class="dim">  </tspan><tspan class="fg">{</tspan><tspan class="key">"preview_id"</tspan><tspan class="fg">: </tspan><tspan class="str">"p_9f3a"</tspan><tspan class="fg">, </tspan><tspan class="key">"to"</tspan><tspan class="fg">: {</tspan><tspan class="key">"name"</tspan><tspan class="fg">: </tspan><tspan class="str">"Alice"</tspan><tspan class="fg">}, </tspan><tspan class="key">"text"</tspan><tspan class="fg">: </tspan><tspan class="str">"hello"</tspan><tspan class="fg">}</tspan></text><text x="28" y="240" xml:space="preserve" clip-path="url(#l4)"><tspan class="dim">$ </tspan><tspan class="fg">tg --json send --commit p_9f3a</tspan><tspan class="dim">      # nothing leaves without this</tspan></text><text x="28" y="276" xml:space="preserve" clip-path="url(#l5)"><tspan class="dim">  </tspan><tspan class="fg">{</tspan><tspan class="key">"message_id"</tspan><tspan class="fg">: </tspan><tspan class="num">4812</tspan><tspan class="fg">, </tspan><tspan class="key">"already_sent"</tspan><tspan class="fg">: </tspan><tspan class="num">false</tspan><tspan class="fg">}</tspan></text>
+      <g opacity="1"><animate attributeName="opacity" values="0;0;1" keyTimes="0;0.9987;1" dur="7.70s" fill="freeze"/><text x="28" y="312"><tspan class="dim">$ </tspan></text><rect x="51" y="295" width="11" height="21" fill="#2aabee"><animate attributeName="opacity" values="1;1;0;0" keyTimes="0;0.5;0.5;1" dur="1.1s" repeatCount="indefinite"/></rect></g>
     </g>
   </g>
 
-  <text class="sans muted" x="72" y="416" font-size="15">stateless<tspan class="dim">&#160;&#160;&#183;&#160;&#160;</tspan>JSON on stdout<tspan class="dim">&#160;&#160;&#183;&#160;&#160;</tspan>preview &#8594; commit<tspan class="dim">&#160;&#160;&#183;&#160;&#160;</tspan>audited mutations<tspan class="dim">&#160;&#160;&#183;&#160;&#160;</tspan>Python 3.12+</text>
+  <g transform="translate(72,514)"><rect width="103" height="30" rx="15" fill="none" stroke="#cfdfea"/><text class="sans muted" x="51" y="20" font-size="14" text-anchor="middle">stateless</text></g><g transform="translate(185,514)"><rect width="144" height="30" rx="15" fill="none" stroke="#cfdfea"/><text class="sans muted" x="72" y="20" font-size="14" text-anchor="middle">JSON on stdout</text></g><g transform="translate(339,514)"><rect width="161" height="30" rx="15" fill="none" stroke="#cfdfea"/><text class="sans muted" x="80" y="20" font-size="14" text-anchor="middle">preview → commit</text></g><g transform="translate(510,514)"><rect width="144" height="30" rx="15" fill="none" stroke="#cfdfea"/><text class="sans muted" x="72" y="20" font-size="14" text-anchor="middle">audited writes</text></g><g transform="translate(664,514)"><rect width="152" height="30" rx="15" fill="none" stroke="#cfdfea"/><text class="sans muted" x="76" y="20" font-size="14" text-anchor="middle">resumable media</text></g><g transform="translate(826,514)"><rect width="152" height="30" rx="15" fill="none" stroke="#cfdfea"/><text class="sans muted" x="76" y="20" font-size="14" text-anchor="middle">clone &amp; archive</text></g>
 </svg>
