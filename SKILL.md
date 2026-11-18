@@ -71,39 +71,28 @@ selected account session, does one operation, and exits.
 | Search a dialog | `tg --json search @channel "query" --limit 20` (`more: true` means more hits than `--limit`; raise it or narrow the query) |
 | Search a dialog with filters | `tg --json search CHAT "query" --from @user --since ISO` |
 | Search all dialogs | `tg --json search --all "query" --limit 20` (`more: true` means more hits than `--limit`) |
-| Read the latest message | `tg --json latest @channel` |
 | Read an exact message | `tg --json message @channel 42` |
 | Read a message with neighbours | `tg --json message @channel 42 --context 3` |
 | Inspect a dialog | `tg --json info @channel` |
 | Inspect dialog capabilities | `tg --json info @channel --full` |
-| Count messages | `tg --json count @channel` |
 | Resolve a peer | `tg --json resolve @user` / `tg --json resolve +995…` |
-| List / search contacts | `tg --json contacts list` / `tg --json contacts search "query"` |
 | Media inventory (no download) | `tg --json media manifest @channel --type photo --limit 50` |
 | Download media | `tg --json media download https://t.me/channel/42 --parallel 4` (unnamed photos and voice notes save as `media-<id>.jpg`/`.oga`) |
 | Bulk download media | `tg --json media download @chan --message-ids 1,2 --type video --since ISO --limit 50 --output DIR` (filters combine; max 100; files are named `<message_id>-<name>`; use one `--output` per chat) |
 | Download story media | `tg --json media download https://t.me/channel/s/937 [--codec h264|hevc|av1]` (stories are not messages; single download only) |
-| Transcribe a voice message | `tg --json transcribe @user 12345 [--timeout 120]` (Premium; waits for the server result) |
 | Preview a send | `tg --json send @channel "Hello" --preview` |
 | Preview a reply/topic/silent send | `tg --json send CHAT "TEXT" --preview --reply-to ID --topic ID --silent` |
 | Preview a file send | `tg --json send CHAT --file PATH --caption "TEXT" --preview` |
 | Preview a formatted send | `tg --json send CHAT "<b>bold</b> <tg-spoiler>hidden</tg-spoiler>" --format html --preview` |
 | Commit a preview | `tg --json send --commit p_9f3a` |
-| Propose a draft without sending | `tg --json draft set CHAT "TEXT" --preview` then `--commit` |
-| Show / list drafts | `tg --json draft show CHAT` / `tg --json draft list` |
-| Clear a draft | `tg --json draft clear CHAT --preview` then `--commit` |
 | Preview an edit | `tg --json edit @channel 42 "Corrected text" --preview` |
 | Preview a formatted edit | `tg --json edit CHAT 42 "<b>bold</b> <blockquote expandable>quote</blockquote>" --format html --preview` |
 | Commit an edit | `tg --json edit --commit p_9f3a` |
 | Harvest custom-emoji ids from a post | `tg --json message @channel 42` → read `custom_emoji[].id` |
 | Preview a deletion | `tg --json delete @channel 42 --preview` |
 | Commit a deletion | `tg --json delete --commit p_9f3a` |
-| Preview a forward | `tg --json forward @source 42 @destination --preview` |
-| Commit a forward | `tg --json forward --commit p_9f3a` |
 | Check local health | `tg --json doctor` |
 | Export messages | `tg --json export messages @channel --output messages.jsonl [--after-id ID] [--append|--resume]` |
-| Export subscribers | `tg --json export subscribers @channel --output subscribers.csv` |
-| Export subscriber usernames | `tg --json export subscribers @channel --output usernames.csv --usernames-only` |
 | List channel clones | `tg --json clone status` |
 | Preview a chat clone | `tg --json clone init SOURCE` |
 | Preview posts-only clone | `tg --json clone init SOURCE --no-comments` |
@@ -164,7 +153,7 @@ reported `retry_after` has elapsed. Exit 2 with "preview commit already in
 progress" means an earlier `--commit` of that preview is still running: wait
 for it to exit, then re-run the same `--commit`. If that re-run exits 2 with
 "preview is already used", the earlier commit finished: check the audit or the
-chat instead of making a new preview. `forward --commit` works the same way.
+chat instead of making a new preview.
 
 ## `tg run` — anything without a command
 
@@ -184,10 +173,22 @@ for m in await client.get_messages("@channel", limit=5):
 PY
 ```
 
+Things that used to be their own commands are one line here:
+
+| Task | In a script |
+|---|---|
+| Latest message | `tg --json read CHAT --limit 1` (no script needed) |
+| Message count | `(await client.get_messages(CHAT, limit=0)).total` |
+| Contacts | `await client(functions.contacts.GetContactsRequest(hash=0))` |
+| Drafts | `await client.get_drafts()`; set one with `--write` and `client(functions.messages.SaveDraftRequest(...))` |
+| Forward | with `--write`: `await client.forward_messages(DESTINATION, MESSAGE_ID, SOURCE)` |
+| Channel members | `async for user in client.iter_participants(CHAT): ...` |
+| Voice transcription (Premium) | with `--write` (it spends quota): `await client(functions.messages.TranscribeAudioRequest(peer, msg_id))`; local transcription is `tg archive transcribe` |
+
 Scripts may only read. A request that changes Telegram is refused (exit 2)
 unless you pass `tg run --write SCRIPT`, which audits every write first; use
 `--write` only when the owner asked for that change. Prefer a wrapped command
-for sends, edits, deletes, and forwards: it shows a preview first.
+for sends, edits and deletes: it shows a preview first.
 `auth.*`, `account.*`, and root MTProto requests such as
 `DestroyAuthKeyRequest` are refused even with `--write`; use `tg accounts`.
 Under `--readonly` or `TGCLI_READONLY=1`, `tg run` is refused entirely
@@ -225,8 +226,7 @@ A single command is not slowed: `read`, `search` and the other reads of one
 chat leave page spacing to Telethon (no wait up to 3000 messages), so `read
 --limit 300` is quick. Bulk commands space their own requests 3 s apart past
 the first five: dialogs in `archive backfill|sync`, files in bulk `media download`,
-sends in `clone sync` (20 a minute), prefix queries in `export
-subscribers`. Prefer one bulk command over hundreds of separate reads.
+sends in `clone sync` (20 a minute). Prefer one bulk command over hundreds of separate reads.
 
 A `tg run` script spaces only its writes. A script that reads many chats
 waits between them itself: `await asyncio.sleep(3)` per chat, and
@@ -250,7 +250,7 @@ One clone runs one `clone sync` or `clone init --commit` at a time, across
 session roles. Exit 2 with `clone <id> is busy` means another run holds that
 clone: let it finish, then retry; nothing was sent.
 
-`edit`, `delete`, and `forward` follow the same preview → commit rule as
+`edit` and `delete` follow the same preview → commit rule as
 `send`. `doctor` is read-only: it reports configured-account session presence,
 lock availability, local state writability, Telegram authorization, and a
 top-level `ok` result.

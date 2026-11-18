@@ -16,8 +16,6 @@ deleted.
    ```
 
 2. Run the live smoke. `TGCLI_LIVE_ACCOUNT` picks the alias (default `main`).
-   The draft test skips; it writes, and runs only with `TGCLI_LIVE_WRITES=1`
-   when the owner asks.
 
    ```bash
    TGCLI_LIVE_SMOKE=1 uv run pytest tests/live -q

@@ -269,49 +269,6 @@ def scan(root: Path, *, now: datetime | None = None) -> dict:
     return inventory
 
 
-def stats(root: Path, *, now: datetime | None = None) -> dict:
-    return scan(root, now=now)
-
-
-def stats_rows(data: dict) -> list[tuple]:
-    rows: list[tuple] = []
-    for name in _PREVIEW_BUCKETS:
-        bucket = data["previews"][name]
-        rows.append((f"previews.{name}", bucket["count"], bucket["bytes"]))
-    for name in _LOGIN_BUCKETS:
-        bucket = data["logins"][name]
-        rows.append((f"logins.{name}", bucket["count"], bucket["bytes"]))
-    rows.append(("audit_log", None, data["audit_log"]["bytes"]))
-    rows.append(("invocations", None, data["invocations"]["bytes"]))
-    rows.append(("sessions", data["sessions"]["count"], data["sessions"]["bytes"]))
-    rows.append(
-        (
-            "session_backups",
-            data["session_backups"]["count"],
-            data["session_backups"]["bytes"],
-        )
-    )
-    rows.append(("clones", None, data["clones"]["bytes"]))
-    for name in ("db", "wal", "shm", "imported"):
-        bucket = data["clones"][name]
-        rows.append((f"clones.{name}", bucket["count"], bucket["bytes"]))
-    rows.append(
-        (
-            "clone_media_cache",
-            data["clone_media_cache"]["count"],
-            data["clone_media_cache"]["bytes"],
-        )
-    )
-    rows.append(("archive", None, data["archive"]["bytes"]))
-    for name in ("db", "wal", "shm"):
-        bucket = data["archive"][name]
-        rows.append((f"archive.{name}", bucket["count"], bucket["bytes"]))
-    rows.append(("downloads", None, data["downloads"]["bytes"]))
-    for relic in data["relics"]:
-        rows.append((f"relic.{relic['name']}", None, relic["bytes"]))
-    return rows
-
-
 def _pending_far_past_ttl(path: Path, *, now: datetime) -> bool:
     """Pending holds random_id; only reclaim when past expires_at by a full TTL."""
     expires = _record_expires_at(path)

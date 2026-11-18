@@ -18,7 +18,6 @@ from tgcli.commands import (
     media as media_cmd,
     run as run_cmd,
     store as store_cmd,
-    transcribe as transcribe_cmd,
 )
 from tgcli.errors import PolicyError
 
@@ -35,11 +34,6 @@ def clone_status(args) -> tuple[dict, list[tuple]]:
                 f"{entry['source']['id']}"
             )
     return data, clone_cmd.status_rows(data)
-
-
-def store_stats(args) -> tuple[dict, list[tuple]]:
-    data = store_cmd.stats(state_paths.state_dir())
-    return data, store_cmd.stats_rows(data)
 
 
 def store_cleanup(args) -> tuple[dict, list[tuple]]:
@@ -132,13 +126,6 @@ async def handshake(tg, args, account) -> tuple[dict, list[tuple]]:
     return result
 
 
-async def transcribe(tg, args, account) -> tuple[dict, list[tuple]]:
-    data = await transcribe_cmd.transcribe_message(
-        tg, args.chat, args.message_id, timeout=args.timeout
-    )
-    return data, transcribe_cmd.to_rows(data)
-
-
 async def run(tg, args, account) -> tuple[dict, list[tuple]]:
     data = await run_cmd.run(
         tg,
@@ -159,17 +146,6 @@ async def export_messages(tg, args, account) -> tuple[dict, list[tuple]]:
         after_id=getattr(args, "after_id", None),
         append=bool(getattr(args, "append", False)),
         resume=bool(getattr(args, "resume", False)),
-    )
-    return data, export_cmd.to_rows(data)
-
-
-async def export_subscribers(tg, args, account) -> tuple[dict, list[tuple]]:
-    data = await export_cmd.export_subscribers(
-        tg,
-        args.channel,
-        args.output,
-        limit=args.limit,
-        usernames_only=args.usernames_only,
     )
     return data, export_cmd.to_rows(data)
 

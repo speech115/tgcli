@@ -96,7 +96,7 @@ def test_option_like_text_is_not_a_silent_help_exit(config_env, capsys):
 
 
 def test_option_like_text_writes_nothing_to_stdout_under_json(config_env, capsys):
-    assert main(["draft", "set", "@somebody", "-hi", "--preview", "--json"]) == 1
+    assert main(["send", "@somebody", "-hi", "--preview", "--json"]) == 1
 
     captured = capsys.readouterr()
     assert captured.out == ""
@@ -107,8 +107,8 @@ def test_explicit_help_still_prints_and_exits_zero(config_env, capsys):
     assert main(["--help"]) == 0
     assert "usage: tg" in capsys.readouterr().out
 
-    assert main(["draft", "set", "-h"]) == 0
-    assert "usage: tg draft set" in capsys.readouterr().out
+    assert main(["clone", "sync", "-h"]) == 0
+    assert "usage: tg clone sync" in capsys.readouterr().out
 
 
 def test_explicit_version_still_prints_and_exits_zero(config_env, capsys):

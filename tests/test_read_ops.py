@@ -17,16 +17,10 @@ CLI_INVOCATIONS = {
     "dialogs": ["dialogs"],
     "read": ["read", "@chat"],
     "search": ["search", "@chat", "term"],
-    "latest": ["latest", "@chat"],
     "message": ["message", "@chat", "7"],
     "info": ["info", "@chat"],
-    "count": ["count", "@chat"],
     "resolve": ["resolve", "@user"],
-    "contacts.list": ["contacts", "list"],
-    "contacts.search": ["contacts", "search", "term"],
     "media.manifest": ["media", "manifest", "@chat"],
-    "draft.show": ["draft", "show", "@chat"],
-    "draft.list": ["draft", "list"],
 }
 
 OPERATION_NAMES = frozenset(

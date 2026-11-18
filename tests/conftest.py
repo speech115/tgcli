@@ -24,12 +24,7 @@ class FakeClient:
         participant_search=None,
         replies=None,
         resolve_phone_result=None,
-        contacts_result=None,
-        contacts_search_result=None,
         common_chats_result=None,
-        peer_dialogs_result=None,
-        all_drafts_result=None,
-        transcribe_result=None,
     ):
         self._dialogs = list(dialogs)
         self._messages = list(messages)
@@ -42,12 +37,7 @@ class FakeClient:
         self._participant_search = participant_search
         self._replies = dict(replies or {})
         self._resolve_phone_result = resolve_phone_result
-        self._contacts_result = contacts_result
-        self._contacts_search_result = contacts_search_result
         self._common_chats_result = common_chats_result
-        self._peer_dialogs_result = peer_dialogs_result
-        self._all_drafts_result = all_drafts_result
-        self._transcribe_result = transcribe_result
         self.session = ns(takeout_id=None)
         self.iter_messages_calls = []
         self.iter_messages_reverse_calls = []
@@ -225,18 +215,10 @@ class FakeClient:
         return next((message for message in self._messages if message.id == ids), None)
 
     async def __call__(self, request):
-        from datetime import UTC, datetime
 
-        from telethon.tl import functions, types
+        from telethon.tl import functions
 
         self.call_requests.append(request)
-        if isinstance(request, functions.messages.TranscribeAudioRequest):
-            if self._transcribe_result is None:
-                raise AssertionError(
-                    "FakeClient received TranscribeAudioRequest but no "
-                    "transcribe_result was configured"
-                )
-            return self._transcribe_result
         if isinstance(request, functions.contacts.ResolvePhoneRequest):
             if self._resolve_phone_result is None:
                 raise AssertionError(
@@ -244,20 +226,6 @@ class FakeClient:
                     "resolve_phone_result was configured"
                 )
             return self._resolve_phone_result
-        if isinstance(request, functions.contacts.GetContactsRequest):
-            if self._contacts_result is None:
-                raise AssertionError(
-                    "FakeClient received GetContactsRequest but no "
-                    "contacts_result was configured"
-                )
-            return self._contacts_result
-        if isinstance(request, functions.contacts.SearchRequest):
-            if self._contacts_search_result is None:
-                raise AssertionError(
-                    "FakeClient received SearchRequest but no "
-                    "contacts_search_result was configured"
-                )
-            return self._contacts_search_result
         if isinstance(request, functions.channels.GetFullChannelRequest):
             if self._participants_count is None:
                 raise AssertionError(
@@ -281,36 +249,6 @@ class FakeClient:
                     "common_chats_result was configured"
                 )
             return self._common_chats_result
-        if isinstance(request, functions.messages.GetPeerDialogsRequest):
-            if self._peer_dialogs_result is None:
-                raise AssertionError(
-                    "FakeClient received GetPeerDialogsRequest but no "
-                    "peer_dialogs_result was configured"
-                )
-            return self._peer_dialogs_result
-        if isinstance(request, functions.messages.GetAllDraftsRequest):
-            if self._all_drafts_result is None:
-                raise AssertionError(
-                    "FakeClient received GetAllDraftsRequest but no "
-                    "all_drafts_result was configured"
-                )
-            return self._all_drafts_result
-        if isinstance(request, functions.messages.SaveDraftRequest):
-            if (
-                self._peer_dialogs_result is not None
-                and self._peer_dialogs_result.dialogs
-            ):
-                dialog = self._peer_dialogs_result.dialogs[0]
-                if request.message:
-                    dialog.draft = types.DraftMessage(
-                        message=request.message,
-                        date=datetime.now(UTC),
-                        entities=request.entities,
-                        reply_to=request.reply_to,
-                    )
-                else:
-                    dialog.draft = types.DraftMessageEmpty()
-            return True
         if isinstance(
             request,
             (

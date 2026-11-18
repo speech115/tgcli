@@ -187,13 +187,8 @@ COMMANDS: dict[str, Command] = {
         mutation_safe=_always,
         prepare=preflight.limit("clone sync"),
     ),
-    "draft list": _READ,
-    "draft show": _READ,
-    "draft set": _HANDSHAKE,
-    "draft clear": _HANDSHAKE,
     # local housekeeping
     "doctor": Command(kind="local-read", needs="config", run=handlers.doctor),
-    "store stats": Command(kind="local-read", needs="none", run=handlers.store_stats),
     "store cleanup": Command(
         kind="write",
         needs="none",
@@ -202,12 +197,8 @@ COMMANDS: dict[str, Command] = {
         gated=_flag("confirm"),
     ),
     # Telegram reads
-    "contacts list": _READ,
-    "contacts search": _READ,
-    "count": _READ,
     "dialogs": replace(_READ, prepare=preflight.limit("dialogs", allow_zero=True)),
     "info": _READ,
-    "latest": _READ,
     "message": _READ,
     "read": Command(
         kind="read",
@@ -244,28 +235,10 @@ COMMANDS: dict[str, Command] = {
         deadline=None,
         prepare=preflight.limit("export messages"),
     ),
-    "export subscribers": Command(
-        kind="read",
-        needs="network",
-        run=handlers.export_subscribers,
-        deadline=None,
-        prepare=preflight.limit("export subscribers"),
-    ),
     # Telegram writes
     "send": _HANDSHAKE,
     "edit": _HANDSHAKE,
     "delete": _HANDSHAKE,
-    "forward": _HANDSHAKE,
-    "transcribe": Command(
-        kind="write",
-        needs="network",
-        run=handlers.transcribe,
-        # transcribeAudio is a server-side mutation (Premium quota, visible
-        # to other clients): the --readonly gate applies (ADR-0079).
-        gate="telegram",
-        deadline=120.0,
-        audit=lambda args: {"chat": args.chat, "message_id": args.message_id},
-    ),
     "run": Command(
         kind="write",
         needs="network",

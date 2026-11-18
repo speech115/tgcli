@@ -27,14 +27,14 @@ Design lineage: [openclaw/gogcli](https://github.com/openclaw/gogcli) (architect
 
 - **Stateless by design** — one entrypoint, one operation per process. Nothing runs between invocations; state is limited to `~/.config/tgcli/` and `~/.local/state/tgcli/`.
 - **Automation contract** — `--json` / `--plain` on stdout, everything human on stderr, documented exit codes, additive-only JSON changes. See [docs/CONTRACT.md](docs/CONTRACT.md).
-- **Reading and search** — dialogs with unread/kind filters, id- and date-paginated reads, per-dialog and global search, reply threads, message context windows, and contacts.
-- **Safe correspondence** — `send`, `edit`, `delete`, `forward`, and draft writes all go through preview → commit with single-use ids, a 5-minute TTL, operation-specific retry checks, and an append-only audit log.
-- **Retry-safe sends and forwards** — `send` and `forward` commits carry a stored Telegram `random_id`, so retrying the same preview confirms the original dispatch instead of creating a duplicate.
-- **Media and export** — manifest before download, bulk filtered downloads, JSONL message export with `--resume`, and CSV subscriber export for broadcast channels.
+- **Reading and search** — dialogs with unread/kind filters, id- and date-paginated reads, per-dialog and global search, reply threads, and message context windows. Anything else Telethon can do is one `tg run` script away.
+- **Safe correspondence** — `send`, `edit`, and `delete` go through preview → commit with single-use ids, a 5-minute TTL, operation-specific retry checks, and an append-only audit log.
+- **Retry-safe sends** — `send` commits carry a stored Telegram `random_id`, so retrying the same preview confirms the original dispatch instead of creating a duplicate.
+- **Media and export** — manifest before download, bulk filtered downloads, and JSONL message export with `--resume`.
 - **Chat clone** — copy broadcast channels, megagroup supergroups (forum and non-forum), legacy basic groups, and private dialogs into tool-created destinations, with native forwards plus protected-content reupload.
 - **Local archive store** — `tg archive` binds a per-account SQLite store, backfills selected/private dialogs, syncs new updates through a GetDifference cursor, acquires bounded voice/video-note media with terminal retry state, transcribes locally with Parakeet, and provides filtered/ranked offline search plus timeline/history views.
 - **Scripts** — `tg run SCRIPT` runs Python with the authorized Telethon client for anything without a command; read-only unless `--write`, every write is audited first, and readonly mode refuses scripts entirely.
-- **Diagnostics and hygiene** — `tg doctor` reports locally by default (`--connect` for live checks); `tg store stats` / `tg store cleanup` inspect and reclaim local state without ever touching sessions or the audit log.
+- **Diagnostics and hygiene** — `tg doctor` reports locally by default (`--connect` for live checks); `tg store cleanup` reclaims local state without ever touching sessions or the audit log.
 
 ## Install
 
@@ -104,12 +104,11 @@ tg --json send --commit p_9f3a             # nothing leaves without this
 
 # 4. Media and export
 tg --json media download https://t.me/channel/42 --parallel 4
-tg --json transcribe @user 42          # voice message text (Premium)
 tg --json export messages @channel --output messages.jsonl --resume
 
 # 5. Health and local state
 tg --json doctor
-tg --json store stats
+tg --json store cleanup --older-than 7d
 ```
 
 Chat references accept `@username`, a `t.me/` link, or a numeric dialog id; `tg resolve` additionally takes a phone number in E.164 form. Every command takes `--json` (contract data) or `--plain` (TSV); without either, output is human-readable and unstable by design.
@@ -150,7 +149,7 @@ Sessions, locks, previews, the audit log, and cache live under `~/.local/state/t
 | `TGCLI_ACCOUNT` | Account alias to use when `--account` is absent. |
 | `TGCLI_READONLY` | `1` (or `true`/`yes`/`on`) blocks every mutation before any network work; `0`/`false`/`no`/`off` or unset leaves it off; any other value is a config error (exit 3). |
 | `TGCLI_NO_SEND` | Same values; on blocks message-producing mutations specifically. |
-| `TGCLI_LIVE_SMOKE` | `1` enables the live-account smoke tests in the suite (read-only; `TGCLI_LIVE_ACCOUNT` picks the alias, `TGCLI_LIVE_WRITES=1` adds the draft round-trip). |
+| `TGCLI_LIVE_SMOKE` | `1` enables the live-account smoke tests in the suite (read-only; `TGCLI_LIVE_ACCOUNT` picks the alias). |
 
 **Exit codes:**
 
@@ -165,7 +164,7 @@ Sessions, locks, previews, the audit log, and cache live under `~/.local/state/t
 
 ## Preview → commit
 
-Reads are free. Preview-backed mutations — `send`, `edit`, `delete`, `forward`, `draft set|clear`, and `clone init` — use two invocations. The first resolves and renders the exact intent into a single-use preview record; the second commits that record by id, without retyping it. `clone sync` and `tg run --write` do not mint a preview, but remain gated by `--readonly` / `TGCLI_READONLY` and audited.
+Reads are free. Preview-backed mutations — `send`, `edit`, `delete`, and `clone init` — use two invocations. The first resolves and renders the exact intent into a single-use preview record; the second commits that record by id, without retyping it. `clone sync` and `tg run --write` do not mint a preview, but remain gated by `--readonly` / `TGCLI_READONLY` and audited.
 
 ```mermaid
 flowchart LR
@@ -186,7 +185,7 @@ tg --json send --commit p_9f3a
 ```
 
 - Previews expire after 5 minutes and are consumed on commit.
-- `send`, `edit`, `delete`, `forward`, and draft commits use the retryable preview lifecycle: after a network/runtime failure, retry the same preview id; never create a second preview. `send` and `forward` additionally use their stored Telegram `random_id` for network-level deduplication.
+- `send`, `edit`, and `delete` commits use the retryable preview lifecycle: after a network/runtime failure, retry the same preview id; never create a second preview. `send` additionally uses its stored Telegram `random_id` for network-level deduplication.
 - `clone init` commits use the same retryable
   `begin_commit` / `finish_commit` handshake as `send`/`edit`:
   after a mid-commit failure, retry the same preview id within its TTL;
@@ -354,7 +353,7 @@ stderr.
 | `archive status` lists `gaps` | Telegram could not deliver part of the update history (`differenceTooLong`, or `channelUnavailable` when a channel went private) | `tg --json archive rebaseline` restarts the cursor and clears the gap. It does not refetch what the gap lost: compare `tg --json archive read CHAT` with a live `tg --json read CHAT` if it matters |
 | `clone init --commit` stops partway (a flood on the discussion link, say) | the preview is spent only on success | rerun the same `--commit PREVIEW_ID` while it is unexpired (5 minutes); it resumes |
 | exit 2, `BLOCKED` | a safety gate refused (`--readonly`, `TGCLI_READONLY=1`, `TGCLI_NO_SEND=1`), or an argument was refused (a bad `--limit`), or a busy session on `accounts login`/`remove` | for the gates: intended in agent sessions. For an owner-approved write, prefix that one command with `TGCLI_READONLY=0`; `TGCLI_NO_SEND=1` must be unset too |
-| state directory keeps growing | old previews, login attempts, abandoned clone media caches | `tg --json store stats`, then `tg --json store cleanup --older-than 7d` to see what would go, and add `--confirm` to delete. Sessions and their `.bak` are never deleted |
+| state directory keeps growing | old previews, login attempts, abandoned clone media caches | `tg --json store cleanup --older-than 7d` to see what would go, and add `--confirm` to delete. Sessions and their `.bak` are never deleted |
 | `doctor` shows `runtime.aes: "pyaes"` | slow pure-Python crypto | `uv sync --frozen --extra fast` in `tgcli-prod` installs `cryptg` |
 
 If none of these fits, keep the journal line and the stderr output, and open

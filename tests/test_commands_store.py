@@ -85,17 +85,6 @@ def test_scan_file_inventory_is_driven_by_the_registry(tmp_path, monkeypatch):
     assert data.get("fixtures") == {"count": 1, "bytes": 3}
 
 
-def test_store_stats_cli_json(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    _seed_inventory(tmp_path)
-
-    assert main(["store", "stats", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert set(data["previews"]) == {"live", "expired", "spent", "pending"}
-    assert "audit_log" in data
-    assert "relics" in data
-
-
 def test_cleanup_dry_run_reports_without_deleting(tmp_path, monkeypatch):
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
     _seed_inventory(tmp_path)
@@ -437,8 +426,7 @@ def test_naive_expires_at_falls_back_to_mtime(tmp_path, monkeypatch):
     )
     login = _write_naive_login(tmp_path, "l_naive", mtime=NOW - timedelta(minutes=1))
 
-    data = store_cmd.stats(tmp_path, now=NOW)
-    store_cmd.stats_rows(data)
+    data = store_cmd.scan(tmp_path, now=NOW)
 
     assert data["previews"]["live"]["count"] == 1
     assert data["previews"]["expired"]["count"] == 0

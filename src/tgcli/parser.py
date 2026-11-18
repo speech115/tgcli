@@ -172,7 +172,6 @@ def build_parser() -> argparse.ArgumentParser:
         "store", help="Inspect and clean local state", parents=[global_flags]
     )
     store_sub = p_store.add_subparsers(dest="store_command", required=True)
-    store_sub.add_parser("stats", help="Inventory local state", parents=[global_flags])
     p_cleanup = store_sub.add_parser(
         "cleanup", help="Reap spent/expired previews", parents=[global_flags]
     )
@@ -218,11 +217,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_search.add_argument("--from", dest="from_user")
     p_search.add_argument("--since", help="ISO date/datetime lower bound")
 
-    p_latest = sub.add_parser(
-        "latest", help="Read the latest dialog message", parents=[global_flags]
-    )
-    p_latest.add_argument("chat", help="@username, t.me link, or dialog id")
-
     p_message = sub.add_parser(
         "message", help="Read one message by id", parents=[global_flags]
     )
@@ -234,33 +228,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_info.add_argument("chat", help="@username, t.me link, or dialog id")
     p_info.add_argument("--full", action="store_true")
 
-    p_count = sub.add_parser(
-        "count", help="Count dialog messages", parents=[global_flags]
-    )
-    p_count.add_argument("chat", help="@username, t.me link, or dialog id")
-
     p_resolve = sub.add_parser(
         "resolve",
         help="Resolve a phone, @username, link, or id to a peer",
         parents=[global_flags],
     )
     p_resolve.add_argument("ref", help="+phone, @username, t.me link, or dialog id")
-
-    p_contacts = sub.add_parser(
-        "contacts", help="List or search Telegram contacts", parents=[global_flags]
-    )
-    contacts_sub = p_contacts.add_subparsers(dest="contacts_command", required=True)
-    contacts_sub.add_parser("list", parents=[global_flags])
-    p_contacts_search = contacts_sub.add_parser("search", parents=[global_flags])
-    p_contacts_search.add_argument(
-        "query", help="case-insensitive substring over name/username"
-    )
-    p_contacts_search.add_argument(
-        "--global",
-        action="store_true",
-        dest="use_global",
-        help="search Telegram's global directory instead of local contacts",
-    )
 
     p_media = sub.add_parser(
         "media", help="Inspect or download message media", parents=[global_flags]
@@ -363,15 +336,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_delete.add_argument("--preview", action="store_true")
     p_delete.add_argument("--commit", metavar="PREVIEW_ID")
 
-    p_forward = sub.add_parser(
-        "forward", help="Preview and commit a forward", parents=[global_flags]
-    )
-    p_forward.add_argument("source", nargs="?")
-    p_forward.add_argument("message_id", nargs="?", type=int)
-    p_forward.add_argument("destination", nargs="?")
-    p_forward.add_argument("--preview", action="store_true")
-    p_forward.add_argument("--commit", metavar="PREVIEW_ID")
-
     p_run = sub.add_parser(
         "run",
         help="Run a Python script with the authenticated client",
@@ -382,14 +346,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_run.add_argument("script", metavar="SCRIPT", help="script path, or - for stdin")
     p_run.add_argument("script_args", nargs=argparse.REMAINDER, metavar="ARGS")
-
-    p_transcribe = sub.add_parser(
-        "transcribe",
-        help="Transcribe a voice message (Premium; ADR-0075)",
-        parents=[global_flags],
-    )
-    p_transcribe.add_argument("chat", help="@username, t.me link, or dialog id")
-    p_transcribe.add_argument("message_id", type=int)
 
     p_export = sub.add_parser(
         "export", help="Export Telegram data", parents=[global_flags]
@@ -415,18 +371,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="append from last JSONL message id in --output",
     )
-    p_export_subscribers = export_sub.add_parser("subscribers", parents=[global_flags])
-    p_export_subscribers.add_argument(
-        "channel", help="@username, t.me link, or dialog id"
-    )
-    p_export_subscribers.add_argument("--output", required=True, type=Path)
-    p_export_subscribers.add_argument("--limit", type=int)
-    p_export_subscribers.add_argument(
-        "--usernames-only",
-        action="store_true",
-        help="write one username column; skip members without a username",
-    )
-
     p_clone = sub.add_parser(
         "clone", help="Copy a supported chat", parents=[global_flags]
     )
@@ -452,32 +396,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_clone_sync = clone_sub.add_parser("sync", parents=[global_flags])
     p_clone_sync.add_argument("source", help="source channel, supergroup, or dialog")
     p_clone_sync.add_argument("--limit", type=int)
-    p_draft = sub.add_parser(
-        "draft", help="Show, list, set, or clear dialog drafts", parents=[global_flags]
-    )
-    draft_sub = p_draft.add_subparsers(dest="draft_command", required=True)
-    draft_sub.add_parser("list", parents=[global_flags])
-    p_draft_show = draft_sub.add_parser("show", parents=[global_flags])
-    p_draft_show.add_argument("chat")
-    p_draft_set = draft_sub.add_parser("set", parents=[global_flags])
-    p_draft_set.add_argument("chat", nargs="?")
-    p_draft_set.add_argument("text", nargs="?")
-    p_draft_set.add_argument(
-        "--format",
-        choices=FORMATS,
-        default=None,
-        dest="format",
-        help="rich-text format of TEXT (default md, mirrors send)",
-    )
-    p_draft_set.add_argument("--preview", action="store_true")
-    p_draft_set.add_argument("--commit", metavar="PREVIEW_ID")
-    p_draft_set.add_argument("--reply-to", type=int, dest="reply_to")
-    p_draft_set.add_argument("--topic", type=int)
-    p_draft_clear = draft_sub.add_parser("clear", parents=[global_flags])
-    p_draft_clear.add_argument("chat", nargs="?")
-    p_draft_clear.add_argument("--preview", action="store_true")
-    p_draft_clear.add_argument("--commit", metavar="PREVIEW_ID")
-
     return parser
 
 

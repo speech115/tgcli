@@ -1,4 +1,3 @@
-import csv
 import json
 import os
 import shutil
@@ -6,24 +5,11 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
-from tgcli import atomic, chatref, pace
+from tgcli import atomic, chatref
 from tgcli.errors import ExportError, NotFoundError
 from tgcli.messages import dialog_name, message_to_dict
-from tgcli.output import note
-from tgcli.tg_errors import RUN_ABORTING_ERRORS
 
-SUBSCRIBER_COLUMNS = ("id", "username", "first_name", "last_name", "phone", "is_bot")
 TAKEOUT_MESSAGE_KWARGS = {"chats": True, "megagroups": True, "channels": True}
-
-# Telegram caps ``channels.getParticipants`` at 200 rows per query for broadcast
-# channels, so a single pass only ever sees the 200 most recent members. To get
-# everyone we union saturating prefix searches (see _iter_all_channel_members).
-_PARTICIPANTS_PAGE = 200
-_SEARCH_REFINE_ALPHABET = (
-    "abcdefghijklmnopqrstuvwxyz0123456789абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
-)
-# A username is Latin letters, digits, and underscores.
-_USERNAME_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789_"
 
 
 @contextmanager
@@ -168,149 +154,6 @@ async def export_messages(
         after_id=after_id,
         appended=append,
     )
-
-
-def _subscriber_to_row(subscriber) -> dict:
-    return {
-        "id": subscriber.id,
-        "username": _csv_cell(getattr(subscriber, "username", None)),
-        "first_name": _csv_cell(getattr(subscriber, "first_name", None)),
-        "last_name": _csv_cell(getattr(subscriber, "last_name", None)),
-        "phone": getattr(subscriber, "phone", None) or "",
-        "is_bot": str(bool(getattr(subscriber, "bot", False))),
-    }
-
-
-def _csv_cell(value: str | None) -> str:
-    value = value or ""
-    # Spreadsheet importers drop leading whitespace, so a cell led by a tab, a
-    # carriage return, or a space still reaches the parser as a formula (the
-    # documented OWASP DDE bypass). Classify by the first non-blank character.
-    return f"'{value}" if value.lstrip().startswith(("=", "+", "-", "@")) else value
-
-
-async def _channel_member_total(tg, entity) -> int | None:
-    from telethon.tl import functions
-
-    try:
-        full = await tg(functions.channels.GetFullChannelRequest(entity))
-        return full.full_chat.participants_count
-    except RUN_ABORTING_ERRORS:
-        raise
-    except Exception:
-        return None
-
-
-async def _iter_all_channel_members(tg, entity, alphabet):
-    """Return every participant of a broadcast channel.
-
-    Telegram caps ``channels.getParticipants`` at 200 rows per query for
-    broadcast channels, so we union saturating prefix searches: start from the
-    empty query and, whenever a query fills a full page, refine it with an extra
-    character. Requests go through the raw ``GetParticipantsRequest`` (Telethon's
-    ``iter_participants`` fires a second request per query just to compute a
-    total we don't need) and run one at a time, spaced: a burst trips the
-    server's flood-wait, which is far slower than a steady pace. We stop as
-    soon as we have seen the reported member total.
-    """
-    from telethon.tl import functions, types
-
-    input_entity = await tg.get_input_entity(entity)
-    total = await _channel_member_total(tg, entity)
-    seen: dict[int, object] = {}
-
-    async def query(prefix):
-        result = await tg(
-            functions.channels.GetParticipantsRequest(
-                channel=input_entity,
-                filter=types.ChannelParticipantsSearch(prefix),
-                offset=0,
-                limit=_PARTICIPANTS_PAGE,
-                hash=0,
-            )
-        )
-        return result.users
-
-    named = queries = 0
-    pending: list[tuple[str, set[int] | None]] = [("", None)]
-    between_queries = pace.Pace(pace.PAGE_WAIT_S)
-    while pending:
-        prefix, parent_ids = pending.pop()
-        await between_queries.wait()
-        users = await query(prefix)
-        queries += 1
-        for user in users:
-            if user.id not in seen and getattr(user, "username", None):
-                named += 1
-            seen[user.id] = user
-        page_ids = {user.id for user in users}
-        # Telegram ignores some characters (a soft sign, say), so a full page
-        # equal to its parent's is the same search again: refining it would
-        # only repeat it.
-        if len(users) >= _PARTICIPANTS_PAGE and page_ids != parent_ids:
-            pending.extend((prefix + ch, page_ids) for ch in alphabet)
-        note(
-            f"export subscribers: {len(seen)}/{'?' if total is None else total} "
-            f"seen, {named} with username, {queries} queries, prefix {prefix!r}"
-        )
-        if total is not None and len(seen) >= total:
-            break
-    return list(seen.values())
-
-
-async def export_subscribers(
-    tg,
-    channel: str,
-    destination: Path,
-    limit: int | None = None,
-    *,
-    usernames_only: bool = False,
-) -> dict:
-    from tgcli.errors import PolicyError
-
-    entity = await _resolve_entity(tg, channel)
-    count = 0
-    is_broadcast = bool(getattr(entity, "broadcast", False))
-    if is_broadcast and limit is not None and limit > _PARTICIPANTS_PAGE:
-        raise PolicyError(
-            "broadcast export --limit above 200 is unsupported; omit --limit "
-            "for a full prefix-union export, or use --limit <= 200 for a single "
-            "getParticipants page"
-        )
-    # Full walk only when unlimited: a finite limit > 200 would otherwise
-    # enumerate the whole channel then take an arbitrary dict-order slice.
-    aggressive = is_broadcast and limit is None
-    with _atomic_text_destination(destination) as handle:
-        writer: csv.DictWriter[str] = csv.DictWriter(
-            handle,
-            fieldnames=("username",) if usernames_only else SUBSCRIBER_COLUMNS,
-            lineterminator="\n",
-        )
-        writer.writeheader()
-
-        def write(subscriber) -> int:
-            row = _subscriber_to_row(subscriber)
-            if usernames_only:
-                if not row["username"]:
-                    return 0
-                row = {"username": row["username"]}
-            writer.writerow(row)
-            return 1
-
-        if aggressive:
-            members = await _iter_all_channel_members(
-                tg,
-                entity,
-                _USERNAME_ALPHABET if usernames_only else _SEARCH_REFINE_ALPHABET,
-            )
-            for subscriber in members:
-                count += write(subscriber)
-        else:
-            async for subscriber in pace.paged(
-                tg.iter_participants(entity, limit=limit), pace.PARTICIPANTS_PAGE
-            ):
-                count += write(subscriber)
-    return _summary("subscribers", "csv", destination, count, entity, channel)
 
 
 def to_rows(data: dict) -> list[tuple]:

@@ -49,7 +49,7 @@ def test_successful_command_writes_invocation_metadata(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize(
     ("argv", "command"),
-    [(["accounts", "list"], "accounts list"), (["store", "stats"], "store stats")],
+    [(["accounts", "list"], "accounts list"), (["store", "cleanup"], "store cleanup")],
 )
 def test_subcommand_is_journaled_by_its_full_path(tmp_path, monkeypatch, argv, command):
     """`archive sync` and `archive status` must not share one `archive` row."""

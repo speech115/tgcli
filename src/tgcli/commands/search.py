@@ -55,15 +55,3 @@ async def fetch_search_all(tg, query: str, limit: int = 20) -> dict:
         }
         messages.append(entry)
     return {"query": query, "messages": messages, "more": more}
-
-
-async def fetch_latest(tg, chat: str) -> dict:
-    entity = await _entity(tg, chat)
-    async for message in tg.iter_messages(
-        entity, limit=1, wait_time=pace.INTERACTIVE_PAGE_WAIT
-    ):
-        return {
-            "dialog": {"id": entity.id, "name": dialog_name(entity, chat)},
-            "message": message_to_dict(message, entity),
-        }
-    raise NotFoundError(f"no messages found: {chat!r}")

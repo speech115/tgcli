@@ -10,7 +10,6 @@ from typing import Any, ClassVar, Literal, NoReturn, TypeAlias
 from tgcli import messages
 from tgcli.commands import (
     dialogs as dialogs_cmd,
-    draft as draft_cmd,
     identity as identity_cmd,
     info as info_cmd,
     media as media_cmd,
@@ -52,12 +51,6 @@ class Search:
 
 
 @dataclass(frozen=True)
-class Latest:
-    chat: str
-    name: ClassVar[Literal["latest"]] = "latest"
-
-
-@dataclass(frozen=True)
 class Message:
     chat: str
     message_id: int
@@ -73,27 +66,9 @@ class Info:
 
 
 @dataclass(frozen=True)
-class Count:
-    chat: str
-    name: ClassVar[Literal["count"]] = "count"
-
-
-@dataclass(frozen=True)
 class Resolve:
     ref: str
     name: ClassVar[Literal["resolve"]] = "resolve"
-
-
-@dataclass(frozen=True)
-class ContactsList:
-    name: ClassVar[Literal["contacts.list"]] = "contacts.list"
-
-
-@dataclass(frozen=True)
-class ContactsSearch:
-    query: str
-    use_global: bool
-    name: ClassVar[Literal["contacts.search"]] = "contacts.search"
 
 
 @dataclass(frozen=True)
@@ -105,31 +80,8 @@ class MediaManifest:
     name: ClassVar[Literal["media.manifest"]] = "media.manifest"
 
 
-@dataclass(frozen=True)
-class Draft:
-    chat: str
-    name: ClassVar[Literal["draft.show"]] = "draft.show"
-
-
-@dataclass(frozen=True)
-class Drafts:
-    name: ClassVar[Literal["draft.list"]] = "draft.list"
-
-
 ReadOperation: TypeAlias = (
-    Dialogs
-    | Read
-    | Search
-    | Latest
-    | Message
-    | Info
-    | Count
-    | Resolve
-    | ContactsList
-    | ContactsSearch
-    | MediaManifest
-    | Draft
-    | Drafts
+    Dialogs | Read | Search | Message | Info | Resolve | MediaManifest
 )
 
 
@@ -225,11 +177,6 @@ _SPECS: dict[str, _Spec] = {
         fetch=_fetch_search,
         rows=messages.message_rows,
     ),
-    "latest": _Spec(
-        cli=lambda a: Latest(a.chat),
-        fetch=lambda tg, op: search_cmd.fetch_latest(tg, op.chat),
-        rows=messages.message_rows,
-    ),
     "message": _Spec(
         cli=lambda a: Message(a.chat, a.message_id, a.context),
         fetch=lambda tg, op: read_cmd.fetch_message(
@@ -242,27 +189,10 @@ _SPECS: dict[str, _Spec] = {
         fetch=_fetch_info,
         rows=info_cmd.to_rows,
     ),
-    "count": _Spec(
-        cli=lambda a: Count(a.chat),
-        fetch=lambda tg, op: info_cmd.fetch_count(tg, op.chat),
-        rows=info_cmd.to_rows,
-    ),
     "resolve": _Spec(
         cli=lambda a: Resolve(a.ref),
         fetch=lambda tg, op: identity_cmd.resolve(tg, op.ref),
         rows=identity_cmd.to_rows,
-    ),
-    "contacts.list": _Spec(
-        cli=lambda a: ContactsList(),
-        fetch=lambda tg, op: identity_cmd.contacts_list(tg),
-        rows=identity_cmd.contacts_to_rows,
-    ),
-    "contacts.search": _Spec(
-        cli=lambda a: ContactsSearch(a.query, a.use_global),
-        fetch=lambda tg, op: identity_cmd.contacts_search(
-            tg, op.query, use_global=op.use_global
-        ),
-        rows=identity_cmd.contacts_to_rows,
     ),
     "media.manifest": _Spec(
         cli=lambda a: MediaManifest(a.source, a.media_type, a.since, a.limit),
@@ -271,25 +201,11 @@ _SPECS: dict[str, _Spec] = {
         ),
         rows=media_cmd.manifest_to_rows,
     ),
-    "draft.show": _Spec(
-        cli=lambda a: Draft(a.chat),
-        fetch=lambda tg, op: draft_cmd.fetch_show(tg, op.chat),
-        rows=draft_cmd.show_to_rows,
-    ),
-    "draft.list": _Spec(
-        cli=lambda a: Drafts(),
-        fetch=lambda tg, op: draft_cmd.fetch_list(tg),
-        rows=draft_cmd.list_to_rows,
-    ),
 }
 
 
 # Read commands whose op name is not their command path.
 _CLI_OPS = {
-    "contacts list": "contacts.list",
-    "contacts search": "contacts.search",
-    "draft list": "draft.list",
-    "draft show": "draft.show",
     "media manifest": "media.manifest",
 }
 

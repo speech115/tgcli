@@ -7,9 +7,9 @@ test_cli_mutate, the clone init machine):
   check in `safety._lock_pending`).
 - H2. The before-audit is written before the mutation, and an unwritable
   audit blocks it; a preview is spent only after its result audit.
-- H3. Re-committing a pending preview is safe. `send` and `forward` reuse the
+- H3. Re-committing a pending preview is safe. `send` reuses the
   preview's `random_id` (Telegram answers RANDOM_ID_DUPLICATE: `already_sent`),
-  `edit` treats MESSAGE_NOT_MODIFIED as success, `delete` and drafts are
+  `edit` treats MESSAGE_NOT_MODIFIED as success, `delete` is
   idempotent, and `clone init` re-adopts its destination by marker.
 - H4. An expired preview never stays pending. Outside the TTL a new preview
   carries a new `random_id`, so a delivered but unconfirmed send can repeat.
@@ -24,7 +24,6 @@ from dataclasses import dataclass
 from tgcli import safety
 from tgcli.commands import (
     clone as clone_cmd,
-    draft as draft_cmd,
     mutate as mutate_cmd,
     send as send_cmd,
 )
@@ -73,19 +72,7 @@ def _message_audit_after(args: argparse.Namespace, data: dict) -> dict:
     return details
 
 
-def _draft_audit_before(args: argparse.Namespace) -> dict:
-    return {"preview_id": args.commit, "chat": args.preview_payload.get("chat")}
-
-
-def _draft_audit_after(args: argparse.Namespace, data: dict) -> dict:
-    return {
-        "preview_id": args.commit,
-        "chat": data.get("draft", {}).get("chat"),
-    }
-
-
 _MESSAGE_AUDIT = Audit(_message_audit_before, _message_audit_after)
-_DRAFT_AUDIT = Audit(_draft_audit_before, _draft_audit_after)
 
 HANDSHAKES = {
     "send": Handshake(
@@ -154,27 +141,6 @@ HANDSHAKES = {
         ),
         audit=_MESSAGE_AUDIT,
     ),
-    "forward": Handshake(
-        kind="forward",
-        preview_call=lambda tg, args, _account: mutate_cmd.prepare_forward(
-            tg,
-            args.source,
-            args.message_id,
-            args.destination,
-        ),
-        commit_call=lambda tg, args, _account: mutate_cmd.commit_forward(
-            tg,
-            args.commit,
-            args.preview_payload,
-        ),
-        rows=mutate_cmd.to_rows,
-        required=("source", "message_id", "destination"),
-        preview_error=(
-            "forward requires SOURCE MESSAGE_ID DESTINATION --preview "
-            "or --commit PREVIEW_ID"
-        ),
-        audit=_MESSAGE_AUDIT,
-    ),
     "clone init": Handshake(
         kind="clone-init",
         preview_call=lambda tg, args, _account: clone_cmd.preview_init(
@@ -193,42 +159,6 @@ HANDSHAKES = {
         requires_preview_flag=False,
         source_binding="source",
         mutation_safe=True,
-    ),
-    "draft set": Handshake(
-        kind="draft-set",
-        preview_call=lambda tg, args, _account: draft_cmd.prepare_set(
-            tg,
-            args.chat,
-            args.text,
-            fmt=args.format or "md",
-            reply_to=args.reply_to,
-            topic=args.topic,
-        ),
-        commit_call=lambda tg, args, _account: draft_cmd.commit_set(
-            tg,
-            args.commit,
-            args.preview_payload,
-        ),
-        rows=draft_cmd.mutation_to_rows,
-        required=("chat", "text"),
-        preview_error=("draft set requires CHAT TEXT --preview or --commit PREVIEW_ID"),
-        audit=_DRAFT_AUDIT,
-    ),
-    "draft clear": Handshake(
-        kind="draft-clear",
-        preview_call=lambda tg, args, _account: draft_cmd.prepare_clear(
-            tg,
-            args.chat,
-        ),
-        commit_call=lambda tg, args, _account: draft_cmd.commit_clear(
-            tg,
-            args.commit,
-            args.preview_payload,
-        ),
-        rows=draft_cmd.mutation_to_rows,
-        required=("chat",),
-        preview_error=("draft clear requires CHAT --preview or --commit PREVIEW_ID"),
-        audit=_DRAFT_AUDIT,
     ),
 }
 

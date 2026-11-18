@@ -1,8 +1,7 @@
 import json
-from types import SimpleNamespace
 
 import pytest
-from telethon.errors import MessageNotModifiedError, RandomIdDuplicateError
+from telethon.errors import MessageNotModifiedError
 
 from tests.conftest import FakeClient, make_session_fake, ns
 from tgcli import safety, session
@@ -67,22 +66,6 @@ class UnknownPeerClient(MutateClient):
         raise ValueError(f"Cannot find any entity corresponding to {key!r}")
 
 
-class ForwardClient(MutateClient):
-    async def __call__(self, request):
-        from telethon.tl import types
-
-        self.forwarded = request
-        return SimpleNamespace(
-            updates=[types.UpdateMessageID(id=99, random_id=request.random_id[0])]
-        )
-
-
-class AlreadyForwardedClient(ForwardClient):
-    async def __call__(self, request):
-        self.forwarded = request
-        raise RandomIdDuplicateError(request=request)
-
-
 class ConvergedEditClient(MutateClient):
     async def edit_message(
         self, chat, message_id, text, *, formatting_entities=None, parse_mode=()
@@ -94,16 +77,9 @@ class ConvergedEditClient(MutateClient):
         return ns(id=message_id)
 
 
-class FlakyForwardClient(ForwardClient):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.fail_next_forward = True
-
-    async def __call__(self, request):
-        if self.fail_next_forward:
-            self.fail_next_forward = False
-            raise ConnectionError("connection dropped")
-        return await super().__call__(request)
+class FlakyDeleteClient(MutateClient):
+    async def delete_messages(self, chat, ids, revoke=True):
+        raise ConnectionError("connection dropped")
 
 
 def make_client():
@@ -117,23 +93,6 @@ def make_client():
         reply_to_msg_id=None,
     )
     return MutateClient(messages=[message], entities={"@chan": ns(id=5, title="Chan")})
-
-
-def make_forward_client(client_type=ForwardClient):
-    return client_type(
-        messages=[
-            ns(
-                id=2,
-                date=None,
-                sender_id=1,
-                sender=None,
-                text="old",
-                media=None,
-                reply_to_msg_id=None,
-            )
-        ],
-        entities={"@chan": ns(id=5, title="Chan"), "@other": ns(id=6, title="Other")},
-    )
 
 
 def test_edit_preview_shows_old_and_new_text(config_env, monkeypatch, capsys):
@@ -408,144 +367,6 @@ def test_edit_commit_reports_unknown_dialog_as_not_found(
     assert json.loads(capsys.readouterr().out)["error"]["code"] == "NOT_FOUND"
 
 
-def test_forward_commit_reports_unknown_dialog_as_not_found(
-    config_env, monkeypatch, capsys
-):
-    preview = safety.create_preview(
-        {
-            "kind": "forward",
-            "source": "@gone",
-            "message_id": 2,
-            "destination": "@other",
-            "text": "old",
-            "random_id": 556,
-        }
-    )
-    base = make_forward_client()
-    client = UnknownPeerClient(messages=base._messages, entities=base._entities)
-    make_session_fake(monkeypatch, client)
-
-    assert main(["forward", "--commit", preview["preview_id"], "--json"]) == 4
-    assert json.loads(capsys.readouterr().out)["error"]["code"] == "NOT_FOUND"
-
-
-def test_forward_commit_uses_stored_random_id(config_env, monkeypatch, capsys):
-    preview = safety.create_preview(
-        {
-            "kind": "forward",
-            "source": "@chan",
-            "message_id": 2,
-            "destination": "@other",
-            "text": "old",
-            "random_id": 555,
-        }
-    )
-    client = make_forward_client()
-    make_session_fake(monkeypatch, client)
-
-    assert main(["forward", "--commit", preview["preview_id"], "--json"]) == 0
-
-    assert json.loads(capsys.readouterr().out) == {
-        "preview_id": preview["preview_id"],
-        "message_id": 99,
-        "already_sent": False,
-    }
-    assert client.forwarded.from_peer == "@chan"
-    assert client.forwarded.to_peer == "@other"
-    assert client.forwarded.random_id == [555]
-    assert client.forwarded.id == [2]
-    actions = [
-        json.loads(line)["action"]
-        for line in safety.audit_path().read_text().splitlines()
-    ]
-    assert actions == ["forward", "forward-result"]
-
-
-def test_forward_commit_reports_already_sent_on_duplicate_random_id(
-    config_env, monkeypatch, capsys
-):
-    from telethon.tl import functions
-
-    preview = safety.create_preview(
-        {
-            "kind": "forward",
-            "source": "@chan",
-            "message_id": 2,
-            "destination": "@other",
-            "text": "old",
-            "random_id": 556,
-        }
-    )
-    client = make_forward_client(AlreadyForwardedClient)
-    make_session_fake(monkeypatch, client)
-
-    assert main(["forward", "--commit", preview["preview_id"], "--json"]) == 0
-
-    assert json.loads(capsys.readouterr().out) == {
-        "preview_id": preview["preview_id"],
-        "message_id": None,
-        "already_sent": True,
-    }
-    assert isinstance(client.forwarded, functions.messages.ForwardMessagesRequest)
-    assert client.forwarded.random_id == [556]
-    used = safety.previews_dir() / f"{preview['preview_id']}.used"
-    assert used.exists()
-    result = json.loads(safety.audit_path().read_text().splitlines()[-1])
-    assert result["action"] == "forward-result"
-    assert result["already_sent"] is True
-
-
-def test_forward_preview_stores_chat_refs_and_random_id(
-    config_env, monkeypatch, capsys
-):
-    client = make_forward_client()
-    make_session_fake(monkeypatch, client)
-
-    assert main(["forward", "@chan", "2", "@other", "--preview", "--json"]) == 0
-
-    preview = json.loads(capsys.readouterr().out)
-    stored = safety.begin_commit(preview["preview_id"], expected_kind="forward")
-    assert preview == {
-        "preview_id": preview["preview_id"],
-        "source": "@chan",
-        "message_id": 2,
-        "destination": "@other",
-        "text": "old",
-        "expires_at": preview["expires_at"],
-    }
-    assert stored["source"] == "@chan"
-    assert stored["destination"] == "@other"
-    assert isinstance(stored["random_id"], int)
-    assert stored["random_id"] > 0
-
-
-def test_forward_commit_retries_pending_preview_after_network_failure(
-    config_env, monkeypatch, capsys
-):
-    preview = safety.create_preview(
-        {
-            "kind": "forward",
-            "source": "@chan",
-            "message_id": 2,
-            "destination": "@other",
-            "text": "old",
-            "random_id": 555,
-        }
-    )
-    client = make_forward_client(FlakyForwardClient)
-    make_session_fake(monkeypatch, client)
-
-    assert main(["forward", "--commit", preview["preview_id"]]) == 1
-    assert capsys.readouterr().err == "error: connection dropped\n"
-    pending = safety.previews_dir() / f"{preview['preview_id']}.pending"
-    assert pending.exists()
-
-    assert main(["forward", "--commit", preview["preview_id"], "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["message_id"] == 99
-    assert not pending.exists()
-    assert pending.with_suffix(".used").exists()
-
-
 def test_failed_commit_releases_its_lock_when_the_invocation_ends(
     config_env, monkeypatch, capsys
 ):
@@ -558,18 +379,11 @@ def test_failed_commit_releases_its_lock_when_the_invocation_ends(
     import os
 
     preview = safety.create_preview(
-        {
-            "kind": "forward",
-            "source": "@chan",
-            "message_id": 2,
-            "destination": "@other",
-            "text": "old",
-            "random_id": 555,
-        }
+        {"kind": "delete", "chat": "@chan", "message_id": 2, "text": "old"}
     )
-    make_session_fake(monkeypatch, make_forward_client(FlakyForwardClient))
+    make_session_fake(monkeypatch, FlakyDeleteClient())
 
-    assert main(["forward", "--commit", preview["preview_id"]]) == 1
+    assert main(["delete", "--commit", preview["preview_id"]]) == 1
     capsys.readouterr()
 
     pending = safety.previews_dir() / f"{preview['preview_id']}.pending"
