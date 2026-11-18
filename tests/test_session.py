@@ -222,7 +222,7 @@ def test_make_client_sets_stable_telegram_device_identity(tmp_path, monkeypatch)
         captured["kwargs"] = kwargs
         return object()
 
-    monkeypatch.setattr(session, "TelegramClient", fake_client)
+    monkeypatch.setattr(session, "Client", fake_client)
     monkeypatch.setattr(session.platform, "system", lambda: "TestOS")
 
     result = session._make_client(Path(tmp_path / "regular"), ACCOUNT)

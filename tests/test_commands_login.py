@@ -109,7 +109,7 @@ def fake_client(env, monkeypatch):
             staged.write_bytes(b"staged")
         return client
 
-    monkeypatch.setattr(session_mod, "TelegramClient", fake_telegram)
+    monkeypatch.setattr(session_mod, "Client", fake_telegram)
     return client
 
 
@@ -223,7 +223,7 @@ def test_probe_flood_wait_exits_5_without_creating_or_promoting(
     session.write_bytes(b"authorized-session")
     client = FakeAuthClient()
     client._request_error = telethon_errors.FloodWaitError(request=None, capture=30)
-    monkeypatch.setattr(session_mod, "TelegramClient", lambda *args, **kwargs: client)
+    monkeypatch.setattr(session_mod, "Client", lambda *args, **kwargs: client)
 
     code = main(
         [
@@ -742,7 +742,7 @@ def test_post_login_get_me_flood_wait_exits_5_without_promotion(
     staged.write_bytes(b"staged-session")
     client = FakeAuthClient()
     client._get_me_error = telethon_errors.FloodWaitError(request=None, capture=45)
-    monkeypatch.setattr(session_mod, "TelegramClient", lambda *args, **kwargs: client)
+    monkeypatch.setattr(session_mod, "Client", lambda *args, **kwargs: client)
 
     code = main(
         [
