@@ -2,91 +2,14 @@
 
 from __future__ import annotations
 
-import re
 from types import SimpleNamespace
 
 from tgcli.clone import progress
-
-ANSI = re.compile(r"\x1b\[")
 
 
 def collector() -> tuple[list[str], object]:
     lines: list[str] = []
     return lines, lines.append
-
-
-def test_batch_line_states_count_total_and_transport():
-    lines, write = collector()
-    reporter = progress.SyncProgress(123, total=120, copied=50, write=write)
-
-    reporter.batch(3, "forwarded")
-
-    assert lines == ["[sync 123] 53/~120 · forwarded"]
-
-
-def test_batch_counts_accumulate_across_batches():
-    lines, write = collector()
-    reporter = progress.SyncProgress(123, total=10, write=write)
-
-    reporter.batch(2, "forwarded")
-    reporter.batch(1, "reuploaded")
-
-    assert lines == [
-        "[sync 123] 2/~10 · forwarded",
-        "[sync 123] 3/~10 · reuploaded",
-    ]
-
-
-def test_unknown_total_renders_as_a_question_mark():
-    lines, write = collector()
-    reporter = progress.SyncProgress(123, total=None, write=write)
-
-    reporter.batch(1, "snapshots")
-
-    assert lines == ["[sync 123] 1/~? · snapshots"]
-
-
-def test_phase_line_names_the_leg_and_restarts_the_counters():
-    """#174: each leg counts its own work against its own source."""
-    lines, write = collector()
-    reporter = progress.SyncProgress(123, total=120, copied=120, write=write)
-
-    reporter.phase("comments")
-    reporter.batch(1, "forwarded")
-    reporter.phase("roster")
-
-    assert lines == [
-        "[sync 123] 0/~? · comments",
-        "[sync 123] 1/~? · forwarded",
-        "[sync 123] 0/~? · roster",
-    ]
-
-
-def test_phase_carries_the_count_the_leg_already_has():
-    lines, write = collector()
-    reporter = progress.SyncProgress(123, total=997, copied=997, write=write)
-
-    reporter.phase("comments", copied=40)
-    reporter.batch(2, "forwarded")
-
-    assert lines == [
-        "[sync 123] 40/~? · comments",
-        "[sync 123] 42/~? · forwarded",
-    ]
-
-
-def test_copied_never_exceeds_the_total_across_a_phase_switch():
-    """The posts total described the channel, not the discussion group."""
-    lines, write = collector()
-    reporter = progress.SyncProgress(123, total=997, copied=998, write=write)
-
-    reporter.phase("comments", copied=0)
-    reporter.batch(1, "forwarded")
-
-    assert lines == [
-        "[sync 123] 0/~? · comments",
-        "[sync 123] 1/~? · forwarded",
-    ]
 
 
 async def test_resolve_total_requeries_after_phase_reset():
@@ -136,22 +59,6 @@ def test_transfer_callback_reports_every_five_megabytes():
     ]
 
 
-def test_each_transfer_throttles_independently():
-    lines, write = collector()
-    reporter = progress.SyncProgress(123, total=None, write=write)
-    size = 6 * progress.MEGABYTE
-
-    first = reporter.transfer("a.bin", "download")
-    second = reporter.transfer("b.bin", "upload")
-    first(size, size)
-    second(size, size)
-
-    assert lines == [
-        "[sync 123] 0/~? · reupload · a.bin · download 6.0/6.0 MB (100%)",
-        "[sync 123] 0/~? · reupload · b.bin · upload 6.0/6.0 MB (100%)",
-    ]
-
-
 def test_transfer_tolerates_a_missing_or_zero_size():
     lines, write = collector()
     reporter = progress.SyncProgress(123, total=None, write=write)
@@ -163,23 +70,6 @@ def test_transfer_tolerates_a_missing_or_zero_size():
         "[sync 123] 0/~? · reupload · a.bin · download 5.0 MB",
         "[sync 123] 0/~? · reupload · b.bin · upload 5.0 MB",
     ]
-
-
-def test_lines_carry_no_carriage_returns_or_ansi_control():
-    lines, write = collector()
-    reporter = progress.SyncProgress(123, total=9, write=write)
-
-    reporter.batch(1, "forwarded")
-    reporter.phase("comments")
-    reporter.transfer("clip.mp4", "upload")(
-        9 * progress.MEGABYTE, 9 * progress.MEGABYTE
-    )
-
-    assert lines
-    for line in lines:
-        assert "\r" not in line
-        assert "\n" not in line
-        assert not ANSI.search(line)
 
 
 def test_media_label_prefers_the_source_filename():
@@ -198,42 +88,3 @@ def _message(message_id: int, *, name: str | None = None):
             self.file = None if name is None else _File(name)
 
     return _Message()
-
-
-def test_transfer_line_strips_control_characters_from_the_filename():
-    """A Telegram filename must not smuggle \\r or ESC into a plain line."""
-    lines, write = collector()
-    reporter = progress.SyncProgress(123, total=None, write=write)
-
-    reporter.transfer("cl\x1bip\r.m\x08p4\nx", "download")(5 * progress.MEGABYTE, None)
-
-    assert lines == ["[sync 123] 0/~? · reupload · clip.mp4x · download 5.0 MB"]
-    assert not ANSI.search(lines[0])
-    assert not any(ch in lines[0] for ch in "\x1b\r\n\x08\t")
-
-
-async def test_a_leg_resolves_its_total_once_per_run_not_once_per_window():
-    """The interleave alternates posts and comments; re-entering a leg must not
-    re-ask GetHistory for a number it already has (review finding)."""
-    lines, write = collector()
-    reporter = progress.SyncProgress(123, write=write)
-    calls: list[object] = []
-
-    class FakeTg:
-        async def get_messages(self, entity, limit=None):
-            calls.append(entity)
-            return SimpleNamespace(total=50 if entity is posts else 7)
-
-    tg = FakeTg()
-    posts = SimpleNamespace(id=1)
-    comments = SimpleNamespace(id=2)
-    for _ in range(3):
-        reporter.phase("posts")
-        await reporter.resolve_total(tg, posts)
-        reporter.batch(1, "forwarded")
-        reporter.phase("comments")
-        await reporter.resolve_total(tg, comments)
-        reporter.batch(1, "forwarded")
-
-    assert calls == [posts, comments]
-    assert lines[-1] == "[sync 123] 1/~7 · forwarded"

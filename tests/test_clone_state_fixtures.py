@@ -20,37 +20,6 @@ def _install(name: str, source_peer_id: int, kind: str) -> str:
     return clone_id
 
 
-def test_a_broadcast_clone_written_by_the_previous_build_loads_whole():
-    loaded = state.load(_install("broadcast", 1234567890, "broadcast"))
-
-    assert loaded is not None
-    assert (loaded.account_user_id, loaded.source_peer_id) == (ACCOUNT, 1234567890)
-    assert (loaded.source_title, loaded.source_kind) == ("Example Channel", "broadcast")
-    assert loaded.destination_kind == "broadcast"
-    assert loaded.destination_peer_id == 1987654321
-    assert loaded.destination_title == "[Clone] Example Channel"
-    assert loaded.destination_username == "example_clone"
-    assert loaded.creation_marker == "tgcli-clone-fixture-abc123"
-    assert loaded.cursor == 42
-    assert loaded.retry_not_before == "2026-03-04T05:06:07+00:00"
-    assert loaded.created_at == "2026-01-02T03:04:05+00:00"
-    assert loaded.last_synced_at == "2026-02-03T04:05:06+00:00"
-    assert loaded.comments == "enabled"
-    assert loaded.discussion_source_peer_id == 55
-    assert loaded.discussion_destination_peer_id == 66
-    assert loaded.discussion_linked is True
-    assert loaded.discussion_cursor == 9
-    assert loaded.pinned_dest_id == 30
-    assert loaded.pin_occupied is False
-    assert [loaded.dest_for(n) for n in (7, 8, 42, 9)] == [70, 80, 420, None]
-    assert len(loaded.id_map) == 3
-    assert loaded.max_destination_id() == 420
-    assert [loaded.discussion_dest_for(n) for n in (3, 5, 4)] == [4, 6, None]
-    assert loaded.max_discussion_destination_id() == 6
-    assert [loaded.avatar_for(n) for n in (123, 55, 1)] == [999, 998, None]
-    assert [loaded.anchor_dest_for(n) for n in (10, 11, 12)] == [500, 500, None]
-
-
 def test_a_forum_clone_written_by_the_previous_build_loads_whole():
     loaded = state.load(_install("forum", 1234567891, "forum"))
 

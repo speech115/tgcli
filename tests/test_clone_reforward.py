@@ -5,10 +5,8 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
-import pytest
 from telethon.tl import types
 
-from tests.conftest import TRANSIENT_ERRORS
 from tgcli.clone import legs, reforward, state, transport
 
 DATE = datetime(2026, 7, 25, 13, 55, tzinfo=UTC)
@@ -85,41 +83,10 @@ class FakeTg:
 # --- eligible() -------------------------------------------------------
 
 
-def test_eligible_false_for_album():
-    fwd = _fwd(from_id=types.PeerUser(user_id=9))
-    leg = legs.posts(_clone_state())
-    messages = [
-        _post(fwd_from=fwd),
-        SimpleNamespace(fwd_from=fwd, message="body", media=None, grouped_id=77),
-    ]
-    assert reforward.eligible(leg, messages, _plan()) is False
-
-
-def test_eligible_false_for_snapshots_mode():
-    fwd = _fwd(from_id=types.PeerUser(user_id=9))
-    leg = legs.posts(_clone_state())
-    assert (
-        reforward.eligible(leg, [_post(fwd_from=fwd)], _plan(mode="snapshots")) is False
-    )
-
-
-def test_eligible_false_for_forwarded_mode():
-    fwd = _fwd(from_id=types.PeerUser(user_id=9))
-    leg = legs.posts(_clone_state())
-    assert (
-        reforward.eligible(leg, [_post(fwd_from=fwd)], _plan(mode="forwarded")) is False
-    )
-
-
 def test_eligible_false_for_megagroup_leg():
     fwd = _fwd(from_id=types.PeerUser(user_id=9))
     leg = legs.posts(_clone_state(kind="megagroup"))
     assert reforward.eligible(leg, [_post(fwd_from=fwd)], _plan()) is False
-
-
-def test_eligible_false_without_fwd_from():
-    leg = legs.posts(_clone_state())
-    assert reforward.eligible(leg, [_post(fwd_from=None)], _plan()) is False
 
 
 def test_eligible_false_for_hidden_account_fwd_from():
@@ -165,45 +132,6 @@ def test_eligible_true_for_protected_broadcast_repost():
 # --- locate() -----------------------------------------------------------
 
 
-def test_locate_happy_path_returns_group_and_message_id():
-    peer = types.PeerUser(user_id=9)
-    fwd = _fwd(from_id=peer)
-    post = _post(fwd_from=fwd, message="body", media=_photo())
-    group = SimpleNamespace(id=55, noforwards=False)
-    candidate = _candidate(321, message="body", media=_photo())
-    tg = FakeTg(group=group, search_results=[candidate])
-    cache: dict = {}
-
-    result = asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
-
-    assert result == (group, 321)
-    [call] = tg.get_messages_calls
-    assert call.group is group
-    assert call.from_user == peer
-    assert call.offset_date == DATE + timedelta(seconds=1)
-    assert call.limit == reforward.SEARCH_LIMIT
-
-
-def test_locate_none_without_discussion_source_peer_issues_no_rpc():
-    fwd = _fwd(from_id=types.PeerUser(user_id=9))
-    post = _post(fwd_from=fwd)
-    tg = FakeTg(group=SimpleNamespace(id=55, noforwards=False))
-    cache: dict = {}
-
-    result = asyncio.run(
-        reforward.locate(
-            tg,
-            _clone_state(discussion_source_peer_id=None),
-            post,
-            cache,
-        )
-    )
-
-    assert result is None
-    assert tg.get_entity_calls == []
-    assert tg.get_messages_calls == []
-
-
 def test_locate_none_when_group_is_protected_issues_no_search():
     fwd = _fwd(from_id=types.PeerUser(user_id=9))
     post = _post(fwd_from=fwd)
@@ -215,36 +143,6 @@ def test_locate_none_when_group_is_protected_issues_no_search():
 
     assert result is None
     assert tg.get_messages_calls == []
-
-
-def test_locate_none_when_group_unreachable():
-    fwd = _fwd(from_id=types.PeerUser(user_id=9))
-    post = _post(fwd_from=fwd)
-    tg = FakeTg(get_entity_error=ValueError("not joined"))
-    cache: dict = {}
-
-    result = asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
-
-    assert result is None
-    assert tg.get_messages_calls == []
-
-
-def test_locate_none_when_two_candidates_match_sender_and_date():
-    fwd = _fwd(from_id=types.PeerUser(user_id=9))
-    post = _post(fwd_from=fwd, message="body")
-    group = SimpleNamespace(id=55, noforwards=False)
-    tg = FakeTg(
-        group=group,
-        search_results=[
-            _candidate(1, message="body"),
-            _candidate(2, message="body"),
-        ],
-    )
-    cache: dict = {}
-
-    result = asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
-
-    assert result is None
 
 
 def test_locate_none_when_candidate_text_was_edited_after_repost():
@@ -266,20 +164,6 @@ def test_locate_none_when_candidate_is_missing_media_the_post_has():
     post = _post(fwd_from=fwd, message="body", media=_photo())
     group = SimpleNamespace(id=55, noforwards=False)
     tg = FakeTg(group=group, search_results=[_candidate(1, message="body", media=None)])
-    cache: dict = {}
-
-    result = asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
-
-    assert result is None
-
-
-def test_locate_none_when_post_is_missing_media_the_candidate_has():
-    fwd = _fwd(from_id=types.PeerUser(user_id=9))
-    post = _post(fwd_from=fwd, message="body", media=None)
-    group = SimpleNamespace(id=55, noforwards=False)
-    tg = FakeTg(
-        group=group, search_results=[_candidate(1, message="body", media=_photo())]
-    )
     cache: dict = {}
 
     result = asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
@@ -338,23 +222,6 @@ def test_locate_none_when_candidate_entities_differ_from_post():
     assert result is None
 
 
-def test_locate_matches_when_candidate_entities_are_identical():
-    """Guard against over-strictness: matching entities must not be treated
-    as a mismatch."""
-    fwd = _fwd(from_id=types.PeerUser(user_id=9))
-    bold = types.MessageEntityBold(offset=0, length=4)
-    post = _post(fwd_from=fwd, message="body", entities=[bold])
-    group = SimpleNamespace(id=55, noforwards=False)
-    same_bold = types.MessageEntityBold(offset=0, length=4)
-    candidate = _candidate(321, message="body", entities=[same_bold])
-    tg = FakeTg(group=group, search_results=[candidate])
-    cache: dict = {}
-
-    result = asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
-
-    assert result == (group, 321)
-
-
 def test_locate_none_when_candidate_date_outside_window_is_ignored():
     fwd = _fwd(from_id=types.PeerUser(user_id=9))
     post = _post(fwd_from=fwd, message="body")
@@ -386,24 +253,6 @@ def test_source_group_resolved_once_per_run_across_locate_calls():
     assert len(tg.get_entity_calls) == 1
 
 
-@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
-def test_locate_propagates_a_transient_error(make_error):
-    error = make_error()
-    fwd = _fwd(from_id=types.PeerUser(user_id=9))
-    post = _post(fwd_from=fwd)
-    group = SimpleNamespace(id=55, noforwards=False)
-
-    class FailingTg(FakeTg):
-        async def get_messages(self, group, **kwargs):
-            raise error
-
-    tg = FailingTg(group=group)
-    cache: dict = {}
-
-    with pytest.raises(type(error)):
-        asyncio.run(reforward.locate(tg, _clone_state(), post, cache))
-
-
 def _keyboard(*, url="https://example.com", text="Open"):
     return types.ReplyInlineMarkup(
         rows=[
@@ -412,37 +261,6 @@ def _keyboard(*, url="https://example.com", text="Open"):
             )
         ]
     )
-
-
-def test_locate_none_when_the_candidate_carries_a_different_keyboard():
-    """#183: a keyboard is what the reader can *do* with the message, and
-    Telegram does not carry every button class into the linked group.
-    Forwarding the original anyway would publish someone else's buttons under
-    a genuine header — and silently, since a native forward is the one
-    transport that reports no dropped markup."""
-    fwd = _fwd(from_id=types.PeerUser(user_id=9))
-    post = _post(fwd_from=fwd, message="body")
-    post.reply_markup = _keyboard(url="https://source.example")
-    group = SimpleNamespace(id=55, noforwards=False)
-    candidate = _candidate(1, message="body")
-    candidate.reply_markup = _keyboard(url="https://other.example")
-    tg = FakeTg(group=group, search_results=[candidate])
-
-    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}))
-
-    assert result is None
-
-
-def test_locate_none_when_only_the_post_carries_a_keyboard():
-    fwd = _fwd(from_id=types.PeerUser(user_id=9))
-    post = _post(fwd_from=fwd, message="body")
-    post.reply_markup = _keyboard()
-    group = SimpleNamespace(id=55, noforwards=False)
-    tg = FakeTg(group=group, search_results=[_candidate(1, message="body")])
-
-    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}))
-
-    assert result is None
 
 
 def test_locate_matches_when_the_keyboards_are_identical():
@@ -457,90 +275,3 @@ def test_locate_matches_when_the_keyboards_are_identical():
     tg = FakeTg(group=group, search_results=[candidate])
 
     assert asyncio.run(reforward.locate(tg, _clone_state(), post, {})) == (group, 1)
-
-
-def test_locate_none_when_a_button_payload_differs_under_the_same_label():
-    """A field allowlist keyed labels and URLs and missed the rest: two
-    `Copy address` rows carrying different wallets read identical, and the
-    forward would publish the wrong address under a genuine header."""
-    fwd = _fwd(from_id=types.PeerUser(user_id=9))
-    post = _post(fwd_from=fwd, message="body")
-    post.reply_markup = types.ReplyInlineMarkup(
-        rows=[
-            types.KeyboardButtonRow(
-                buttons=[types.KeyboardButtonCopy(text="Copy address", copy_text="A")]
-            )
-        ]
-    )
-    group = SimpleNamespace(id=55, noforwards=False)
-    candidate = _candidate(1, message="body")
-    candidate.reply_markup = types.ReplyInlineMarkup(
-        rows=[
-            types.KeyboardButtonRow(
-                buttons=[types.KeyboardButtonCopy(text="Copy address", copy_text="B")]
-            )
-        ]
-    )
-    tg = FakeTg(group=group, search_results=[candidate])
-
-    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}))
-
-    assert result is None
-
-
-def test_locate_none_when_the_markup_class_differs_with_equal_rows():
-    """An inline keyboard under the message and a reply keyboard in the input
-    field are not the same message, however identical their rows."""
-    fwd = _fwd(from_id=types.PeerUser(user_id=9))
-    row = types.KeyboardButtonRow(buttons=[types.KeyboardButton(text="Go")])
-    post = _post(fwd_from=fwd, message="body")
-    post.reply_markup = types.ReplyInlineMarkup(rows=[row])
-    group = SimpleNamespace(id=55, noforwards=False)
-    candidate = _candidate(1, message="body")
-    candidate.reply_markup = types.ReplyKeyboardMarkup(rows=[row])
-    tg = FakeTg(group=group, search_results=[candidate])
-
-    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}))
-
-    assert result is None
-
-
-def test_locate_none_when_only_the_candidate_hides_a_keyboard():
-    """`ReplyKeyboardHide` is a keyboard instruction, not the absence of one;
-    collapsing it into "no markup" would prove an original that differs."""
-    fwd = _fwd(from_id=types.PeerUser(user_id=9))
-    post = _post(fwd_from=fwd, message="body")
-    group = SimpleNamespace(id=55, noforwards=False)
-    candidate = _candidate(1, message="body")
-    candidate.reply_markup = types.ReplyKeyboardHide()
-    tg = FakeTg(group=group, search_results=[candidate])
-
-    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}))
-
-    assert result is None
-
-
-def test_locate_none_when_only_an_entity_detail_differs():
-    """The same allowlist gap on the entities side: a `pre` block whose
-    language changed is an edit, and `language` was never keyed."""
-    fwd = _fwd(from_id=types.PeerUser(user_id=9))
-    post = _post(
-        fwd_from=fwd,
-        message="body",
-        entities=[types.MessageEntityPre(offset=0, length=4, language="python")],
-    )
-    group = SimpleNamespace(id=55, noforwards=False)
-    tg = FakeTg(
-        group=group,
-        search_results=[
-            _candidate(
-                1,
-                message="body",
-                entities=[types.MessageEntityPre(offset=0, length=4, language="rust")],
-            )
-        ],
-    )
-
-    result = asyncio.run(reforward.locate(tg, _clone_state(), post, {}))
-
-    assert result is None

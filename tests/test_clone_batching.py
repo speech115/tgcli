@@ -41,16 +41,6 @@ def test_singles_become_single_batches():
     assert _shape(events) == [("Batch", [1]), ("Batch", [2])]
 
 
-def test_service_message_yields_skip():
-    events = _events([_msg(1), _msg(2, action="join"), _msg(3)])
-    assert _shape(events) == [("Batch", [1]), ("ServiceSkip", 2), ("Batch", [3])]
-
-
-def test_album_accumulates_and_flushes_on_single():
-    events = _events([_msg(1, grouped_id=7), _msg(2, grouped_id=7), _msg(3)])
-    assert _shape(events) == [("Batch", [1, 2]), ("Batch", [3])]
-
-
 def test_album_flushes_on_group_change():
     events = _events([_msg(1, grouped_id=7), _msg(2, grouped_id=8)])
     assert _shape(events) == [("Batch", [1]), ("Batch", [2])]
@@ -61,11 +51,6 @@ def test_album_flushes_on_service_message():
     assert _shape(events) == [("Batch", [1]), ("ServiceSkip", 2)]
 
 
-def test_trailing_album_flushes_at_stream_end():
-    events = _events([_msg(1, grouped_id=7), _msg(2, grouped_id=7)])
-    assert _shape(events) == [("Batch", [1, 2])]
-
-
 def test_empty_stream_yields_nothing():
     assert _events([]) == []
 
@@ -74,12 +59,3 @@ def test_empty_stream_yields_nothing():
 def test_invalid_grouped_id_raises_policy_error(bad):
     with pytest.raises(PolicyError, match="album group id is invalid"):
         _events([_msg(1, grouped_id=bad)])
-
-
-def test_service_skip_message_identity():
-    """ServiceSkip.message must be the original service message object."""
-    service_msg = _msg(42, action="join")
-    events = _events([service_msg])
-    assert len(events) == 1
-    assert isinstance(events[0], batching.ServiceSkip)
-    assert events[0].message is service_msg

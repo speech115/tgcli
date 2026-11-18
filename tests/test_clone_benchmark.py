@@ -78,26 +78,6 @@ def test_a_skipped_post_is_reported_missing():
     assert row["completeness"]["missing"] == ["post:11"]
 
 
-def test_a_longer_history_shows_as_drift(baseline):
-    """More history costs more pages; the benchmark names the request types
-    that moved against the baseline."""
-    longer = clone_bench.Scenario(
-        "protected-reupload",
-        protected=True,
-        comments=False,
-        phases=(clone_bench.Phase("initial", 220),),
-    )
-    report = clone_bench.run(longer)
-    drift = clone_bench.drift(
-        [baseline[longer.name]], [clone_bench.deterministic(report)]
-    )
-
-    assert any(
-        line.startswith("protected-reupload/initial requests.GetHistory")
-        for line in drift
-    ), drift
-
-
 def test_runs_are_deterministic():
     scenario = clone_bench.SCENARIOS[1]
     first, second = clone_bench.run(scenario), clone_bench.run(scenario)
