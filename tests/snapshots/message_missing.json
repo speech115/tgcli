@@ -1,0 +1,9 @@
+{
+  "exit": 4,
+  "stdout": {
+    "error": {
+      "code": "NOT_FOUND",
+      "message": "message not found: 99"
+    }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "exit": 0,
+  "stdout": {
+    "account": {
+      "alias": "main"
+    },
+    "chat": null,
+    "filters": {
+      "from": null,
+      "kind": null,
+      "since": null,
+      "transcripts_only": false,
+      "until": null
+    },
+    "has_more": false,
+    "hits": [
+      {
+        "chat_ref": "@news",
+        "date": "2026-01-04T00:00:00+00:00",
+        "from_id": 1,
+        "kind": null,
+        "match_fields": [
+          "text"
+        ],
+        "message_id": 10,
+        "peer_id": -1001234,
+        "permalink": null,
+        "rank": "<volatile>",
+        "snippet": "channel [[хакатон]] note",
+        "snippet_source": "text",
+        "text": "channel хакатон note",
+        "tg_link": "tg://resolve?domain=news&post=10",
+        "title": "News",
+        "transcript": null,
+        "transcript_status": null
+      }
+    ],
+    "limit": 20,
+    "match": "хакатон",
+    "match_mode": "exact",
+    "next_page": null,
+    "page": 1,
+    "peer_id": null,
+    "query": "хакатон",
+    "scope": {
+      "archived_peers_only": true,
+      "note": "Results cover archived peers only. At least one dialog still has more history on Telegram (more=true).",
+      "stale": true
+    },
+    "sort": "relevance"
+  }
+}

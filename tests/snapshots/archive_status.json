@@ -1,0 +1,61 @@
+{
+  "exit": 0,
+  "stdout": {
+    "account": {
+      "alias": "main",
+      "user_id": 42
+    },
+    "counts": {
+      "messages": 3,
+      "revisions": 0,
+      "scope": 1,
+      "tombstones": 0,
+      "transcript_queue": 0,
+      "transcripts": 0
+    },
+    "dialogs": [
+      {
+        "chat_ref": null,
+        "kind": null,
+        "last_backfill_at": "<volatile>",
+        "last_error": null,
+        "last_sync_at": null,
+        "more": false,
+        "newest_id": 10,
+        "oldest_id": 10,
+        "peer_id": -1001234,
+        "title": null,
+        "username": null
+      },
+      {
+        "chat_ref": null,
+        "kind": null,
+        "last_backfill_at": "<volatile>",
+        "last_error": null,
+        "last_sync_at": null,
+        "more": true,
+        "newest_id": 2,
+        "oldest_id": 1,
+        "peer_id": 7,
+        "title": null,
+        "username": null
+      }
+    ],
+    "gap": null,
+    "gaps": [],
+    "has_cursor": false,
+    "last_errors": [],
+    "last_sync_at": null,
+    "path": "<volatile>",
+    "reconcile": null,
+    "schema_version": 12,
+    "transcript_errors": [],
+    "transcript_queue": 0,
+    "transcript_status": {
+      "done": 0,
+      "no_transcript": 0,
+      "pending": 0,
+      "retryable": 0
+    }
+  }
+}

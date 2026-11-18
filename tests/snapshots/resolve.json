@@ -1,0 +1,13 @@
+{
+  "exit": 0,
+  "stdout": {
+    "peer": {
+      "display_name": "Alice Smith",
+      "id": 111,
+      "is_bot": false,
+      "is_contact": true,
+      "type": "user",
+      "username": "alice"
+    }
+  }
+}

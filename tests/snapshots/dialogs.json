@@ -1,0 +1,26 @@
+{
+  "exit": 0,
+  "stdout": {
+    "dialogs": [
+      {
+        "id": -1001234,
+        "kind": "channel",
+        "last_message_at": "2026-07-06T10:00:00+00:00",
+        "mentions": 0,
+        "name": "Channel",
+        "unread": 3,
+        "username": "chan"
+      },
+      {
+        "id": 111,
+        "kind": "user",
+        "last_message_at": "2026-07-06T10:00:00+00:00",
+        "mentions": 0,
+        "name": "Alice Smith",
+        "unread": 1,
+        "username": "alice"
+      }
+    ],
+    "more": false
+  }
+}

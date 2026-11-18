@@ -1,0 +1,19 @@
+{
+  "exit": 0,
+  "stdout": {
+    "expires_at": "<volatile>",
+    "file": null,
+    "file_sha256": null,
+    "file_size": null,
+    "format": "md",
+    "preview_id": "<volatile>",
+    "reply_to": null,
+    "silent": false,
+    "text": "hello",
+    "to": {
+      "id": 111,
+      "name": "Alice"
+    },
+    "topic": null
+  }
+}
