@@ -91,7 +91,7 @@ tg --json send @user "hello" --preview     # returns preview_id
 tg --json send --commit p_9f3a             # nothing leaves without this
 
 # 4. Media and export
-tg --json media download https://t.me/channel/42 --parallel 4
+tg --json media download https://t.me/channel/42
 tg --json export messages @channel --output messages.jsonl --resume
 
 # 5. Health

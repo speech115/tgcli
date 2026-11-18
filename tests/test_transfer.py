@@ -78,38 +78,6 @@ async def test_upload_parts_big_file_uses_save_big_file_part(tmp_path):
     )
 
 
-@pytest.mark.asyncio
-async def test_download_striped_reports_progress_on_the_shared_cadence(tmp_path):
-    """the striped download reports through the one shared cadence."""
-
-    class MultiChunkTelegram(FakeStrideTelegram):
-        async def iter_download(
-            self, media, *, offset=0, request_size=None, stride=None
-        ):
-            self.calls.append({"offset": offset, "stride": stride})
-            for _ in range(transfer.PROGRESS_EVERY_CHUNKS + 1):
-                yield b"q" * transfer.CHUNK_SIZE
-
-    tg = MultiChunkTelegram()
-    destination = tmp_path / "out.bin"
-    size = (transfer.PROGRESS_EVERY_CHUNKS + 1) * transfer.CHUNK_SIZE
-    seen: list[tuple[int, int]] = []
-
-    await transfer.download_striped(
-        tg,
-        media=object(),
-        destination=destination,
-        size=size,
-        parallel=1,
-        progress=lambda current, total: seen.append((current, total)),
-    )
-
-    assert seen, "striped download must report progress"
-    assert {total for _, total in seen} == {size}
-    assert seen[0][0] == transfer.PROGRESS_EVERY_CHUNKS * transfer.CHUNK_SIZE
-    assert seen[-1][0] == size
-
-
 def test_media_download_shares_the_resumable_transfer_seam():
     """T31: media delegates progress cadence with the entire serial loop."""
     assert media.download_resumable is transfer.download_resumable
@@ -129,7 +97,7 @@ def _photo_media(*, sizes):
 
 
 @pytest.mark.asyncio
-async def test_download_striped_selects_largest_photo_size_not_list_order(tmp_path):
+async def test_windowed_download_selects_largest_photo_size_not_list_order(tmp_path):
     """Telethon's _get_file_info trusts sizes[-1]; we reorder first."""
     from telethon import utils as telethon_utils
 
@@ -137,14 +105,15 @@ async def test_download_striped_selects_largest_photo_size_not_list_order(tmp_pa
     small = types.PhotoSize(type="m", w=256, h=256, size=5_000)
     media = _photo_media(sizes=[large, small])  # largest first — adversarial
     tg = FakeStrideTelegram()
-    destination = tmp_path / "out.bin"
 
-    await transfer.download_striped(
+    await transfer.download_resumable_windowed(
         tg,
-        media=media,
-        destination=destination,
+        media,
+        tmp_path / "out.part",
+        offset=0,
         size=transfer.CHUNK_SIZE,
         parallel=1,
+        checkpoint=lambda current: None,
     )
 
     passed = tg.calls[0]["media"]
@@ -156,7 +125,7 @@ async def test_download_striped_selects_largest_photo_size_not_list_order(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_download_striped_already_sorted_photo_sizes_unchanged(tmp_path):
+async def test_windowed_download_already_sorted_photo_sizes_unchanged(tmp_path):
     from telethon import utils as telethon_utils
 
     small = types.PhotoSize(type="m", w=256, h=256, size=5_000)
@@ -164,12 +133,14 @@ async def test_download_striped_already_sorted_photo_sizes_unchanged(tmp_path):
     media = _photo_media(sizes=[small, large])
     tg = FakeStrideTelegram()
 
-    await transfer.download_striped(
+    await transfer.download_resumable_windowed(
         tg,
-        media=media,
-        destination=tmp_path / "out.bin",
+        media,
+        tmp_path / "out.part",
+        offset=0,
         size=transfer.CHUNK_SIZE,
         parallel=1,
+        checkpoint=lambda current: None,
     )
 
     passed = tg.calls[0]["media"]
@@ -180,7 +151,7 @@ async def test_download_striped_already_sorted_photo_sizes_unchanged(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_download_striped_document_path_unaffected(tmp_path):
+async def test_windowed_download_document_path_unaffected(tmp_path):
     document = types.Document(
         id=9,
         access_hash=8,
@@ -194,12 +165,14 @@ async def test_download_striped_document_path_unaffected(tmp_path):
     media = types.MessageMediaDocument(document=document)
     tg = FakeStrideTelegram()
 
-    await transfer.download_striped(
+    await transfer.download_resumable_windowed(
         tg,
-        media=media,
-        destination=tmp_path / "out.bin",
+        media,
+        tmp_path / "out.part",
+        offset=0,
         size=transfer.CHUNK_SIZE,
         parallel=1,
+        checkpoint=lambda current: None,
     )
 
     assert tg.calls[0]["media"] is media
