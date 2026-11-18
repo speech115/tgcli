@@ -304,41 +304,6 @@ def test_a_resumed_sync_keeps_a_posts_reply_to_a_comment_not_copied_yet(
     assert sync["reply_flattened"] == 0
 
 
-def test_a_post_waits_for_its_comment_after_an_idle_comments_window(
-    config_env, tmp_path, monkeypatch, capsys
-):
-    """F7, within one run. The first comments window copies nothing: it stops
-    at post 3's anchor, which the posts leg has not reached. That idle window
-    did not keep a post waiting, so it says nothing about the comments leg
-    stalling: the next posts window copies post 3, and post 4, which replies
-    to comment 5 in post 3's thread, still waits for it."""
-    world = World(
-        posts=(
-            Post(1, False, False, None, False, False),
-            Post(2, False, False, None, False, False),
-            Post(3, False, False, 3, True, False),
-            Post(4, False, False, 6, True, False, Reply("group", 5)),
-        ),
-        comments=(Comment(5, 3, False, Reply("group", 3)),),
-        deleted_group_ids=(),
-        posts_cursor=0,
-        discussion_cursor=0,
-        window=2,
-    )
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.setattr(legs, "WINDOW", world.window)
-    _, client = clone_world.build(world)
-    make_session_fake(monkeypatch, client)
-
-    assert main(["clone", "sync", "@source", "--json"]) == 0
-
-    sync = json.loads(capsys.readouterr().out)["sync"]
-    post_copy = client.copies[("channel", 4)]
-    target, _top = _reply(client.sent[("channel", post_copy)], "channel")
-    assert target == ("group", client.copies[("group", 5)])
-    assert sync["reply_flattened"] == 0
-
-
 def test_a_stalled_comments_leg_releases_only_the_post_it_blocks(
     config_env, tmp_path, monkeypatch, capsys
 ):

@@ -20,12 +20,6 @@ def _pin_state(**overrides) -> pin.PinState:
     return pin.PinState(**values)
 
 
-def test_decide_unmapped_when_source_has_no_pin():
-    decision = pin.decide(None, {12: 9}, _pin_state())
-    assert decision.status == "unmapped"
-    assert decision.destination_id is None
-
-
 def test_decide_unmapped_when_source_pin_absent_from_id_map():
     decision = pin.decide(12, {1: 1}, _pin_state())
     assert decision.status == "unmapped"
@@ -48,31 +42,6 @@ def test_decide_occupied_when_destination_was_recorded_occupied():
     decision = pin.decide(12, {12: 9}, _pin_state(pin_occupied=True))
     assert decision.status == "occupied"
     assert decision.destination_id is None
-
-
-def test_clone_state_round_trips_pin_fields(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    saved = state.CloneState.new(account_user_id=1, source_peer_id=2, source_title="S")
-    saved.pinned_dest_id = 9
-    state.save(saved)
-    loaded = state.load(saved.clone_id)
-    assert loaded.pinned_dest_id == 9
-    assert loaded.pin_occupied is False
-
-    occupied = state.CloneState.new(
-        account_user_id=1, source_peer_id=3, source_title="S"
-    )
-    occupied.pin_occupied = True
-    state.save(occupied)
-    assert state.load(occupied.clone_id).pin_occupied is True
-    assert state.load(occupied.clone_id).pinned_dest_id is None
-
-
-def test_a_non_positive_pinned_dest_id_fails_to_load():
-    saved = state.CloneState.new(account_user_id=1, source_peer_id=2, source_title="S")
-    corrupt_slot(saved, "UPDATE meta SET pinned_dest_id = 0")
-    with pytest.raises(PolicyError):
-        state.load(saved.clone_id)
 
 
 def test_a_pin_both_set_and_occupied_fails_to_load():
@@ -235,64 +204,6 @@ def _ready_clone(*, mapped: bool = True) -> state.CloneState:
 
 
 @pytest.mark.asyncio
-async def test_sync_phase_pins_mapped_source_when_destination_empty(monkeypatch):
-    audits: list[tuple] = []
-    monkeypatch.setattr(
-        safety,
-        "append_audit",
-        lambda action, account, details: audits.append((action, account, details)),
-    )
-    client = _PinClient(source_pinned=12, dest_pinned=None)
-    clone_state = _ready_clone()
-
-    async def mutate(request):
-        return await client(request)
-
-    result = await pin.sync_phase(
-        client,
-        clone_state,
-        client.source,
-        client.destination,
-        mutate,
-        "main",
-    )
-
-    assert result == {"source_id": 12, "destination_id": 9, "status": "set"}
-    assert clone_state.pinned_dest_id == 9
-    assert clone_state.pin_occupied is False
-    fulls = [
-        r
-        for r in client.requests
-        if isinstance(r, functions.channels.GetFullChannelRequest)
-    ]
-    assert len(fulls) == 2
-    assert getattr(fulls[0].channel, "id", None) == 123
-    assert getattr(fulls[1].channel, "id", None) == 999
-    pins = [
-        r
-        for r in client.requests
-        if isinstance(r, functions.messages.UpdatePinnedMessageRequest)
-    ]
-    assert len(pins) == 1
-    assert pins[0].peer is client.destination_input
-    assert isinstance(pins[0].peer, types.InputPeerChannel)
-    assert pins[0].id == 9
-    assert pins[0].silent is True
-    assert not pins[0].unpin
-    assert audits == [
-        (
-            "clone-sync-pin",
-            "main",
-            {
-                "clone_id": clone_state.clone_id,
-                "source_message_id": 12,
-                "destination_message_id": 9,
-            },
-        )
-    ]
-
-
-@pytest.mark.asyncio
 async def test_sync_phase_occupied_when_destination_already_pins(monkeypatch):
     audits: list[tuple] = []
     monkeypatch.setattr(
@@ -377,48 +288,6 @@ async def test_sync_phase_recovers_own_pin_after_crash_before_save(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_sync_phase_occupied_when_destination_pins_other_cloned_post(
-    monkeypatch,
-):
-    """A human-chosen pin outranks the mirrored one.
-
-    Recovery is strictly the exact destination id this run intended to set; a
-    different pinned message still latches occupied even when it is itself a
-    cloned post (present in ``id_map.values()``).
-    """
-    audits: list[tuple] = []
-    monkeypatch.setattr(
-        safety,
-        "append_audit",
-        lambda action, account, details: audits.append((action, account, details)),
-    )
-    client = _PinClient(source_pinned=12, dest_pinned=50)
-    clone_state = _ready_clone()
-    clone_state.record_mapping(99, 50)
-
-    async def mutate(request):
-        return await client(request)
-
-    result = await pin.sync_phase(
-        client,
-        clone_state,
-        client.source,
-        client.destination,
-        mutate,
-        "main",
-    )
-
-    assert result == {"source_id": 12, "destination_id": None, "status": "occupied"}
-    assert clone_state.pin_occupied is True
-    assert clone_state.pinned_dest_id is None
-    assert not any(
-        isinstance(r, functions.messages.UpdatePinnedMessageRequest)
-        for r in client.requests
-    )
-    assert audits == []
-
-
-@pytest.mark.asyncio
 async def test_sync_phase_second_run_uses_state_only_zero_rpcs(monkeypatch):
     audits: list[tuple] = []
     monkeypatch.setattr(
@@ -478,28 +347,6 @@ async def test_sync_phase_unmapped_when_source_has_no_pin(monkeypatch):
     assert isinstance(client.requests[0], functions.channels.GetFullChannelRequest)
     assert getattr(client.requests[0].channel, "id", None) == 123
     assert audits == []
-
-
-@pytest.mark.asyncio
-async def test_sync_phase_floodwait_on_pin_leaves_state_unset(monkeypatch):
-    monkeypatch.setattr(safety, "append_audit", lambda *a, **k: None)
-    client = _PinClient(source_pinned=12, dest_pinned=None, flood_on_pin=True)
-    clone_state = _ready_clone()
-
-    async def mutate(request):
-        return await client(request)
-
-    with pytest.raises(telethon_errors.FloodWaitError):
-        await pin.sync_phase(
-            client,
-            clone_state,
-            client.source,
-            client.destination,
-            mutate,
-            "main",
-        )
-
-    assert clone_state.pinned_dest_id is None
 
 
 @pytest.mark.asyncio

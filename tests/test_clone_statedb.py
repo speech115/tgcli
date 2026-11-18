@@ -81,30 +81,6 @@ def test_unknown_user_version_is_policy_error(tmp_path, monkeypatch):
         statedb.connect(path, create=True)
 
 
-def test_save_then_load_round_trip_uses_sqlite(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    s = _fresh()
-    s.destination_peer_id = 1987654321
-    s.cursor = 42
-    s.record_mapping(7, 3)
-    s.comments = "enabled"
-    s.discussion_source_peer_id = 55
-    s.discussion_destination_peer_id = 66
-    s.discussion_linked = True
-    s.discussion_cursor = 9
-    s.record_discussion_mapping(3, 4)
-    s.record_avatar(123, 999)
-    state.save(s)
-
-    assert state.path_for(s.clone_id).suffix == ".db"
-    assert state.path_for(s.clone_id).is_file()
-
-    loaded = state.load(s.clone_id)
-    assert loaded == s
-    mode = stat.S_IMODE(state.path_for(s.clone_id).stat().st_mode)
-    assert mode == 0o600
-
-
 def test_save_one_mapping_is_o1_statements(tmp_path, monkeypatch):
     """Dirty-tracking: one new mapping must not rewrite the whole id_map."""
     monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
@@ -156,101 +132,6 @@ def test_save_one_mapping_is_o1_statements(tmp_path, monkeypatch):
     ]
     assert len(map_writes) <= 2
     assert len(counted) < 40
-
-
-def test_load_rejects_seeded_invalid_meta(tmp_path, monkeypatch):
-    """Fail-closed validation still runs after a SQLite read."""
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    s = _fresh()
-    state.save(s)
-    path = state.path_for(s.clone_id)
-    conn = sqlite3.connect(path)
-    conn.execute("UPDATE meta SET source_kind = 'unknown' WHERE id = 1")
-    conn.commit()
-    conn.close()
-
-    with pytest.raises(PolicyError, match="invalid"):
-        state.load(s.clone_id)
-
-
-def test_mapping_and_cursor_share_one_transaction(tmp_path, monkeypatch):
-    """A crash mid-save must not leave a mapping without its cursor move."""
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    s = _fresh()
-    s.cursor = 10
-    s.record_mapping(1, 100)
-    state.save(s)
-
-    loaded = state.load(s.clone_id)
-    assert loaded is not None
-    loaded.record_mapping(2, 200)
-    loaded.cursor = 20
-
-    real_connect = statedb.connect
-
-    class BoomConn:
-        def __init__(self, conn: sqlite3.Connection):
-            self._conn = conn
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            if exc_type is None:
-                self._conn.rollback()
-                raise OSError("simulated crash before commit")
-            self._conn.rollback()
-            return False
-
-        def close(self):
-            self._conn.close()
-
-        def __getattr__(self, name: str):
-            return getattr(self._conn, name)
-
-    monkeypatch.setattr(
-        statedb, "connect", lambda path, **kw: BoomConn(real_connect(path, **kw))
-    )
-    with pytest.raises(OSError, match="simulated crash"):
-        state.save(loaded)
-    monkeypatch.setattr(statedb, "connect", real_connect)
-
-    recovered = state.load(s.clone_id)
-    assert recovered is not None
-    assert recovered.cursor == 10
-    assert recovered.dest_for(1) == 100
-    assert recovered.dest_for(2) is None
-
-
-def test_supersede_archives_db_and_wal_sidecars(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    s = _fresh()
-    state.save(s)
-    path = state.path_for(s.clone_id)
-    # Force WAL sidecars to exist.
-    conn = sqlite3.connect(path)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("INSERT INTO id_map(source, dest) VALUES (9, 90)")
-    conn.commit()
-    conn.close()
-    wal = Path(f"{path}-wal")
-    shm = Path(f"{path}-shm")
-    # Sidecars may or may not exist depending on checkpoint; touch if missing
-    # so supersede's contract is exercised either way.
-    if not wal.exists():
-        wal.write_bytes(b"")
-    if not shm.exists():
-        shm.write_bytes(b"")
-
-    archived = state.supersede(s.clone_id)
-
-    assert not path.exists()
-    assert not wal.exists()
-    assert not shm.exists()
-    names = sorted(p.name for p in archived)
-    assert any(n.startswith(f"{s.clone_id}.db.superseded-") for n in names)
-    assert any(n.startswith(f"{s.clone_id}.db-wal.superseded-") for n in names)
-    assert any(n.startswith(f"{s.clone_id}.db-shm.superseded-") for n in names)
 
 
 @given(

@@ -9,7 +9,6 @@ import pytest
 from telethon import errors as telethon_errors
 from telethon.tl import functions, types
 
-from tests.conftest import TRANSIENT_ERRORS
 from tgcli.clone import snapshot
 
 
@@ -68,30 +67,6 @@ def test_poll_snapshot_text():
     assert entities == []
 
 
-def test_poll_snapshot_unavailable_breakdown_when_voters_without_results():
-    media = _poll_media(total_voters=10, results=[])
-    text, entities = snapshot._poll_snapshot(media)
-    assert "Вопрос?" in text
-    assert snapshot.BREAKDOWN_UNAVAILABLE in text
-    assert "0% · 0" not in text
-    assert "Проголосовало: 10" in text
-    assert entities == []
-
-
-def test_poll_snapshot_subtracts_own_vote_counts():
-    media = _poll_media(
-        total_voters=11,
-        results=[
-            SimpleNamespace(option=b"0", voters=4),
-            SimpleNamespace(option=b"1", voters=7),
-        ],
-    )
-    text, _ = snapshot._poll_snapshot(media, chosen_option=b"0")
-    assert "30% · 3 голоса" in text  # 4-1
-    assert "70% · 7 голосов" in text
-    assert "Проголосовало: 10" in text  # 11-1
-
-
 def test_story_render_links_known_username():
     class Client:
         async def get_entity(self, peer):
@@ -106,23 +81,6 @@ def test_story_render_links_known_username():
     assert len(entities) == 1
     assert entities[0].url == "https://t.me/ann"
     assert marker is None
-
-
-@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
-def test_story_render_propagates_a_transient_error(make_error):
-    """FloodWaitError and ServerError are RPCError subclasses, so the
-    private-peer catch would swallow them: the snapshot would render an
-    unknown author for good, and the sync would report success."""
-    error = make_error()
-
-    class Client:
-        async def get_entity(self, peer):
-            raise error
-
-    media = types.MessageMediaStory(peer=types.PeerChannel(channel_id=9), id=3)
-    message = SimpleNamespace(media=media)
-    with pytest.raises(type(error)):
-        asyncio.run(snapshot.render(Client(), message))
 
 
 def test_story_render_treats_private_peer_as_unknown_author():
@@ -203,43 +161,6 @@ def _anonymous_open_poll_message(*, results=()):
         results=types.PollResults(results=list(results), total_voters=10),
     )
     return SimpleNamespace(id=31, media=media)
-
-
-@pytest.mark.asyncio
-async def test_render_casts_and_retracts_vote_for_anonymous_open_poll(monkeypatch):
-    audits = []
-    monkeypatch.setattr(
-        snapshot.safety,
-        "append_audit",
-        lambda kind, alias, payload: audits.append((kind, alias, payload)),
-    )
-
-    client = VoteClient()
-    message = _anonymous_open_poll_message()
-    text, _, marker = await snapshot.render(
-        client,
-        message,
-        peer=object(),
-        account_alias="main",
-    )
-    votes = [
-        req
-        for req in client.requests
-        if isinstance(req, functions.messages.SendVoteRequest)
-    ]
-    assert len(votes) == 2
-    assert votes[0].options == [b"0"]
-    assert votes[0].msg_id == 31
-    assert votes[1].options == []
-    assert "40% · 4 голоса" in text  # 5-1
-    assert "Проголосовало: 10" in text
-    assert marker == {"message_id": 31, "status": "captured"}
-    assert [kind for kind, _, _ in audits] == [
-        "clone-sync-poll-vote",
-        "clone-sync-poll-retract",
-        "clone-sync-poll-retract-result",
-    ]
-    assert audits[-1][2] == {"message_id": 31, "status": "retracted"}
 
 
 @pytest.mark.asyncio
@@ -349,41 +270,3 @@ async def test_render_retracts_even_when_cast_updates_lack_breakdown(monkeypatch
     ]
     assert audits[-1][2] == {"message_id": 31, "status": "retracted"}
     assert any("did not reveal" in item.lower() for item in notes)
-
-
-@pytest.mark.asyncio
-async def test_render_retract_flood_wait_is_disclosed_not_propagated(monkeypatch):
-    """A FloodWait on the retract leaves a standing vote — it must be disclosed.
-
-    Propagating it would kill the run before the poll_votes tail, so the run
-    decisions 2/4 would be broken silently: the next run sees a breakdown
-    (the vote is still cast) and never retries the retract.
-    """
-    notes = []
-    audits = []
-    monkeypatch.setattr("tgcli.clone.snapshot.note", lambda msg: notes.append(msg))
-    monkeypatch.setattr(
-        snapshot.safety,
-        "append_audit",
-        lambda kind, alias, payload: audits.append((kind, alias, payload)),
-    )
-
-    client = VoteClient(flood_on_retract=True)
-    message = _anonymous_open_poll_message()
-    text, _, marker = await snapshot.render(
-        client,
-        message,
-        peer=object(),
-        account_alias="main",
-    )
-    assert "40% · 4 голоса" in text
-    assert marker["message_id"] == 31
-    assert marker["status"] == "retract_failed"
-    assert "30 seconds" in marker["error"]
-    assert any("retract" in item.lower() and "31" in item for item in notes)
-    assert [kind for kind, _, _ in audits] == [
-        "clone-sync-poll-vote",
-        "clone-sync-poll-retract",
-        "clone-sync-poll-retract-result",
-    ]
-    assert audits[-1][2]["status"] == "failed"

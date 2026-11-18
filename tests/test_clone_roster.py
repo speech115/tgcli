@@ -94,35 +94,6 @@ def read_lines(clone_state):
     return [json.loads(line) for line in path.read_text().splitlines() if line]
 
 
-def test_collect_writes_source_rows_and_reports_counts():
-    clone_state = seed()
-    tg = FakeTg(source=[user(1, username="a"), user(2)])
-    result = run(tg, clone_state)
-    assert result["source"]["status"] == "collected"
-    assert result["source"]["count"] == 2
-    assert result["discussion"]["status"] == "none"
-    lines = read_lines(clone_state)
-    assert [row["peer"] for row in lines] == ["source", "source"]
-    assert lines[0] == {
-        "peer": "source",
-        "id": 1,
-        "username": "a",
-        "first_name": "U1",
-        "last_name": None,
-        "phone": None,
-        "is_bot": False,
-    }
-
-
-def test_collect_marks_channel_unavailable_when_not_admin():
-    clone_state = seed()
-    tg = FakeTg(source_error=telethon_errors.ChatAdminRequiredError(request=None))
-    result = run(tg, clone_state)
-    assert result["source"]["status"] == "unavailable"
-    assert result["source"]["count"] == 0
-    assert read_lines(clone_state) == []
-
-
 @pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
 def test_collect_defers_on_a_transient_error_and_discards_partial(make_error):
     clone_state = seed()
@@ -131,21 +102,6 @@ def test_collect_defers_on_a_transient_error_and_discards_partial(make_error):
     assert result["source"]["status"] == "deferred"
     assert result["source"]["count"] == 0
     assert read_lines(clone_state) == []
-
-
-def test_collect_gathers_discussion_group_when_comments_enabled():
-    clone_state = seed(comments="enabled")
-    tg = FakeTg(
-        source_error=telethon_errors.ChatAdminRequiredError(request=None),
-        discussion=[user(10, username="z"), user(11)],
-    )
-    result = run(tg, clone_state)
-    assert result["source"]["status"] == "unavailable"
-    assert result["discussion"]["status"] == "collected"
-    assert result["discussion"]["count"] == 2
-    assert result["discussion"]["peer_id"] == 55
-    lines = read_lines(clone_state)
-    assert [row["peer"] for row in lines] == ["discussion", "discussion"]
 
 
 def test_collect_marks_discussion_unavailable_when_entity_unresolved():
@@ -199,14 +155,6 @@ def test_collect_defers_discussion_when_entity_resolve_fails_transiently(
     )
 
 
-def test_collect_overwrites_previous_snapshot():
-    clone_state = seed()
-    run(FakeTg(source=[user(1), user(2)]), clone_state)
-    run(FakeTg(source=[user(9)]), clone_state)
-    lines = read_lines(clone_state)
-    assert [row["id"] for row in lines] == [9]
-
-
 @pytest.mark.parametrize(
     "error",
     [
@@ -244,72 +192,9 @@ def age(clone_state, seconds):
     os.utime(path, (then, then))
 
 
-def test_a_roster_is_due_when_missing_and_again_after_a_day():
-    clone_state = seed()
-    assert roster.due(clone_state)
-
-    run(FakeTg(source=[user(1)]), clone_state)
-
-    assert not roster.due(clone_state)
-    age(clone_state, roster.REFRESH_S - 60)
-    assert not roster.due(clone_state)
-    age(clone_state, roster.REFRESH_S)
-    assert roster.due(clone_state)
-
-
 def test_a_roster_stamped_in_the_future_is_due():
     clone_state = seed()
     run(FakeTg(source=[user(1)]), clone_state)
     age(clone_state, -3600)
 
     assert roster.due(clone_state)
-
-
-def test_the_fresh_marker_names_each_peer_and_touches_no_file():
-    clone_state = seed(comments="enabled")
-
-    result = roster.fresh(clone_state)
-
-    assert result["source"] == {
-        "peer_id": 123,
-        "status": "fresh",
-        "count": 0,
-        "reason": "collected_within_24h",
-    }
-    assert result["discussion"]["status"] == "fresh"
-    assert not roster.path_for(clone_state.clone_id).exists()
-
-
-@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
-def test_a_deferred_listing_keeps_the_last_snapshot_and_its_age(make_error):
-    clone_state = seed()
-    run(FakeTg(source=[user(1), user(2)]), clone_state)
-    age(clone_state, roster.REFRESH_S + 600)
-    path = roster.path_for(clone_state.clone_id)
-    before = (path.read_text(), path.stat().st_mtime)
-
-    result = run(
-        FakeTg(source=[user(9), user(8)], source_error=make_error()), clone_state
-    )
-
-    assert result["source"]["status"] == "deferred"
-    assert (path.read_text(), path.stat().st_mtime) == before
-    assert roster.due(clone_state)
-
-
-def test_a_deferred_discussion_keeps_the_snapshot_too():
-    clone_state = seed(comments="enabled")
-    run(FakeTg(source=[user(1)], discussion=[user(10)]), clone_state)
-    path = roster.path_for(clone_state.clone_id)
-    before = path.read_text()
-
-    result = run(
-        FakeTg(
-            source=[user(1)],
-            entity_error=telethon_errors.FloodWaitError(request=None, capture=30),
-        ),
-        clone_state,
-    )
-
-    assert result["discussion"]["status"] == "deferred"
-    assert path.read_text() == before

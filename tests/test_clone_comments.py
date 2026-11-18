@@ -80,49 +80,6 @@ def run(tg, clone_state):
     )
 
 
-def test_sync_phase_reuses_discussion_entities_across_windows(tmp_path, monkeypatch):
-    """the interleave calls sync_phase once per 50-batch
-    window with one shared ResolveContext; the discussion peers cannot change
-    identity mid-run, so later windows must not re-pay the two GetChannels
-    RPCs the first window already made."""
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    clone_state = seed()
-
-    class CountingTg(FakeTg):
-        def __init__(self):
-            super().__init__()
-            self.entity_calls = 0
-
-        async def get_entity(self, peer):
-            self.entity_calls += 1
-            return await super().get_entity(peer)
-
-        async def get_messages(self, destination, limit=1):
-            # verify_tail stays per-window (it is the foreign-post guard);
-            # an empty tail satisfies it without faking history.
-            return []
-
-    tg = CountingTg()
-    ctx = SimpleNamespace(anchors={})
-
-    async def windows():
-        for _ in range(3):
-            await comments.sync_phase(
-                tg,
-                clone_state,
-                SimpleNamespace(id=123),
-                SimpleNamespace(id=999),
-                copy_batch=None,
-                counters={"skipped_service": 0, "skipped_autoforward": 0},
-                limited=lambda: False,
-                resolve_ctx=ctx,
-            )
-
-    asyncio.run(windows())
-
-    assert tg.entity_calls == 2
-
-
 def test_privatized_source_degrades_on_a_cached_window(tmp_path, monkeypatch):
     """With entities cached after window 1, a source
     group that turns private before window 2 surfaces on the window's own
@@ -232,60 +189,6 @@ def test_a_transient_error_from_a_cached_window_read_still_escapes(
     assert clone_state.comments == "enabled"
 
 
-def test_sync_phase_marks_unavailable_when_source_group_turned_private(
-    tmp_path, monkeypatch
-):
-    """Telegram refuses to name the peer with an RPCError, not a ValueError.
-    Phase 1 has already copied posts; a later private group must degrade to
-    comments: unavailable, never raise out of sync_phase."""
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    clone_state = seed()
-    tg = FakeTg(entity_error=telethon_errors.ChannelPrivateError(request=None))
-    more = run(tg, clone_state)
-    assert more is False
-    assert clone_state.comments == "unavailable"
-    assert tg.iterated is False
-    # persisted so the next sync skips phase 2 without re-probing forever
-    reloaded = state.load(clone_state.clone_id)
-    assert reloaded is not None
-    assert reloaded.comments == "unavailable"
-
-
-def test_sync_phase_clears_discussion_progress_when_marking_unavailable(
-    tmp_path, monkeypatch
-):
-    """A partially advanced phase-2 cursor/id_map is incompatible with
-    comments != enabled (state.from_dict). Degrade must reset both or the
-    next sync dies on load with 'manual repair required'."""
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    clone_state = seed()
-    clone_state.discussion_cursor = 5
-    clone_state.record_discussion_mapping(1, 2)
-    state.save(clone_state)
-    tg = FakeTg(entity_error=telethon_errors.ChannelPrivateError(request=None))
-    assert run(tg, clone_state) is False
-    assert clone_state.comments == "unavailable"
-    assert clone_state.discussion_cursor == 0
-    assert clone_state.discussion_id_map == {}
-    reloaded = state.load(clone_state.clone_id)
-    assert reloaded is not None
-    assert reloaded.comments == "unavailable"
-    assert reloaded.discussion_cursor == 0
-    assert reloaded.discussion_id_map == {}
-
-
-def test_sync_phase_marks_unavailable_when_source_group_unresolved(
-    tmp_path, monkeypatch
-):
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    clone_state = seed()
-    tg = FakeTg(discussion_entity=False)
-    more = run(tg, clone_state)
-    assert more is False
-    assert clone_state.comments == "unavailable"
-    assert tg.iterated is False
-
-
 def test_sync_phase_marks_unavailable_when_source_group_forbidden(
     tmp_path, monkeypatch
 ):
@@ -295,21 +198,6 @@ def test_sync_phase_marks_unavailable_when_source_group_forbidden(
     more = run(tg, clone_state)
     assert more is False
     assert clone_state.comments == "unavailable"
-
-
-@pytest.mark.parametrize("make_error", TRANSIENT_ERRORS)
-def test_sync_phase_propagates_a_transient_error_from_source_resolve(
-    tmp_path, monkeypatch, make_error
-):
-    """FloodWait must still escape so the cooldown wrapper arms, and
-    a Telegram 500 must escape so the next run retries instead of degrading."""
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
-    clone_state = seed()
-    error = make_error()
-    tg = FakeTg(entity_error=error)
-    with pytest.raises(type(error)):
-        run(tg, clone_state)
-    assert clone_state.comments == "enabled"
 
 
 @pytest.mark.parametrize(

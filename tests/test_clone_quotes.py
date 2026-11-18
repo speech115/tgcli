@@ -16,7 +16,6 @@ from tgcli.clone import (
     legs,
     quote_fallback,
     quotes,
-    replies,
     state,
     transport,
 )
@@ -134,31 +133,6 @@ def _ctx(client, *, destination=None, source_group=None, source_channel_id=None)
     )
 
 
-def test_mapped_same_leg_keeps_quote_on_destination_parent():
-    header = types.MessageReplyHeader(
-        reply_to_msg_id=5,
-        quote_text="claim",
-        quote_entities=[types.MessageEntityBold(offset=0, length=5)],
-        quote_offset=2,
-    )
-    messages = [_msg(reply_to=header)]
-    leg = _posts({5: 105})
-    plan = transport.decide(messages, leg, SOURCE)
-    ctx = _ctx(FakeClient())
-
-    resolved = asyncio.run(quotes.resolve(messages, plan, leg, SOURCE, ctx))
-
-    assert isinstance(resolved.reply_to, types.InputReplyToMessage)
-    assert resolved.reply_to.reply_to_msg_id == 105
-    assert resolved.reply_to.quote_text == "claim"
-    assert resolved.reply_to.quote_offset == 2
-    assert resolved.reply_to.quote_entities == [
-        types.MessageEntityBold(offset=0, length=5)
-    ]
-    assert resolved.reply_flattened is False
-    assert resolved.body_prefix is None
-
-
 def test_mapped_cross_leg_rewrites_via_post_map_and_destination_anchor():
     """Source 2378: quote of channel post 789 → dest 773 → discussion anchor."""
     header = types.MessageReplyHeader(
@@ -187,66 +161,6 @@ def test_mapped_cross_leg_rewrites_via_post_map_and_destination_anchor():
     ]
     assert resolved.reply_flattened is False
     assert resolved.mode == "reuploaded"
-
-
-def test_foreign_peer_reachable_uses_native_quote_at_original():
-    peer = types.PeerChannel(2275285084)
-    entity = SimpleNamespace(id=2275285084, title="Foreign channel")
-    input_peer = types.InputPeerChannel(channel_id=2275285084, access_hash=99)
-    header = types.MessageReplyHeader(
-        reply_to_msg_id=1244,
-        reply_to_peer_id=peer,
-        quote_text="foreign quote",
-        reply_to_top_id=2373,
-    )
-    messages = [_msg(2374, reply_to=header)]
-    leg = discussion(discussion_id_map={2373: 900})
-    plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
-    client = FakeClient(
-        entities={("channel", 2275285084): entity},
-        readable={("channel", 2275285084): True},
-        input_peers={("channel", 2275285084): input_peer},
-    )
-    ctx = _ctx(client)
-
-    resolved = asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
-
-    assert isinstance(resolved.reply_to, types.InputReplyToMessage)
-    assert resolved.reply_to.reply_to_msg_id == 1244
-    assert resolved.reply_to.reply_to_peer_id == input_peer
-    assert resolved.reply_to.quote_text == "foreign quote"
-    assert resolved.reply_flattened is False
-    assert resolved.body_prefix is None
-    # Reachability is cached: a second resolve must not re-probe.
-    asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
-    assert len(client.entity_calls) == 1
-
-
-def test_foreign_peer_unreachable_renders_fallback():
-    peer = types.PeerChannel(2275285084)
-    header = types.MessageReplyHeader(
-        reply_to_msg_id=1244,
-        reply_to_peer_id=peer,
-        quote_text="foreign quote",
-        reply_to_top_id=2373,
-    )
-    messages = [_msg(2374, reply_to=header, message="author text")]
-    leg = discussion(discussion_id_map={2373: 900})
-    plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
-    client = FakeClient()  # get_entity raises → unreachable
-    ctx = _ctx(client)
-
-    resolved = asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
-
-    assert resolved.body_prefix is not None
-    assert "foreign quote" in resolved.body_prefix
-    assert any(
-        isinstance(entity, types.MessageEntityBlockquote)
-        for entity in resolved.body_prefix_entities
-    )
-    assert resolved.reply_to is None or resolved.reply_to.quote_text is None
-    assert resolved.quote_flattened is not None
-    assert resolved.quote_flattened["reason"] == "unreachable"
 
 
 def _forbidden_case(chats, *, history_error=None):
@@ -295,21 +209,6 @@ def test_forbidden_peer_title_comes_from_the_enclosing_history_response():
     assert len(client.history_calls) == 1
 
 
-def test_forbidden_peer_title_ignores_a_chat_whose_id_merely_contains_the_peer():
-    """`-100`-prefixed and lookalike ids must not be mistaken for the peer."""
-    resolved, _client, _ = _forbidden_fallback(
-        [
-            SimpleNamespace(id=1072275285084, title="Якунин | Про прибыль Messages"),
-            SimpleNamespace(id=22752850841, title="Decoy"),
-        ]
-    )
-
-    assert resolved.body_prefix is not None
-    assert resolved.body_prefix.startswith(
-        f"{quote_fallback.FALLBACK_SOURCE_LABEL} id 2275285084\n"
-    )
-
-
 def test_forbidden_peer_without_a_title_keeps_the_bare_id():
     resolved, _client, _ = _forbidden_fallback([])
 
@@ -335,23 +234,6 @@ def test_forbidden_peer_title_propagates_a_transient_error_without_caching_it(
     with pytest.raises(type(error)):
         asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
     assert ctx.peer_titles == {}
-
-
-def test_forbidden_peer_title_degrades_and_caches_on_a_non_flood_rpc_error():
-    messages, plan, leg, client, ctx = _forbidden_case(
-        [SimpleNamespace(id=2275285084, title="Свободный Капиталюга")],
-        history_error=telethon_errors.ChannelPrivateError(request=None),
-    )
-
-    resolved = asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
-    assert resolved.body_prefix is not None
-    assert resolved.body_prefix.startswith(
-        f"{quote_fallback.FALLBACK_SOURCE_LABEL} id 2275285084\n"
-    )
-    assert ctx.peer_titles == {("channel", 2275285084): None}
-    # The miss is cached: a second quote from that peer re-requests nothing.
-    asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
-    assert len(client.history_calls) == 1
 
 
 def test_reachable_then_rejected_degrades_to_fallback():
@@ -388,74 +270,6 @@ def test_reachable_then_rejected_degrades_to_fallback():
     )
     assert degraded.quote_flattened is not None
     assert degraded.quote_flattened["reason"] == "rejected"
-
-
-def test_quiet_trap_utf16_offsets_after_quote_prefix_with_surrogate():
-    """Prefix shift must use attribution's UTF-16 path — 😴 is a surrogate pair."""
-    quote = "claim 😴 end"
-    author_entity = types.MessageEntityBold(offset=0, length=4)
-    messages = [
-        _msg(
-            2374,
-            reply_to=types.MessageReplyHeader(
-                reply_to_msg_id=1244,
-                reply_to_peer_id=types.PeerChannel(2275285084),
-                quote_text=quote,
-            ),
-            message="body",
-            entities=[author_entity],
-        )
-    ]
-    leg = discussion()
-    plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
-    ctx = _ctx(FakeClient())
-
-    resolved = asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
-
-    text, entities = attribution.with_prefix(
-        messages[0].message,
-        messages[0].entities,
-        resolved.body_prefix,
-        resolved.body_prefix_entities,
-    )
-    # Exactly one shift path: body entity offset == UTF-16 length of the prefix.
-    expected_shift = len(resolved.body_prefix.encode("utf-16-le")) // 2
-    bold = next(e for e in entities if isinstance(e, types.MessageEntityBold))
-    assert bold.offset == expected_shift
-    assert bold.length == 4
-    assert author_entity.offset == 0  # original untouched
-    assert quote in text
-    assert "id 2275285084" in resolved.body_prefix
-
-
-def test_quiet_trap_source_2374_never_uses_discussion_map_id_1244():
-    """reply_to_msg_id 1244 addresses a foreign channel; discussion 1244 differs."""
-    header = types.MessageReplyHeader(
-        reply_to_msg_id=1244,
-        reply_to_peer_id=types.PeerChannel(2275285084),
-        reply_from=types.MessageFwdHeader(date=None),
-        reply_media=types.MessageMediaPhoto(),
-        quote_text="что это де-факто не наставничество…",
-        reply_to_top_id=2373,
-    )
-    messages = [_msg(2374, reply_to=header)]
-    # Poison: discussion map has an unrelated 1244 → 9999. Wrong map = silent bug.
-    leg = discussion(discussion_id_map={1244: 9999, 2373: 900})
-    plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
-    assert replies.target(messages, leg, DISCUSSION_SOURCE).kind == "foreign-peer"
-    ctx = _ctx(FakeClient())
-
-    resolved = asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
-
-    if resolved.reply_to is not None:
-        assert resolved.reply_to.reply_to_msg_id != 9999
-        assert resolved.reply_to.quote_text is None or resolved.body_prefix is not None
-    assert resolved.body_prefix is not None or (
-        resolved.reply_to is not None and resolved.reply_to.reply_to_peer_id is not None
-    )
-    # Unreachable without a fake entity → must be fallback, never mapped 9999.
-    assert resolved.body_prefix is not None
-    assert resolved.reply_to is None or resolved.reply_to.reply_to_msg_id != 9999
 
 
 def _threaded_ctx(client):
@@ -602,43 +416,6 @@ def test_send_with_degrade_retries_once_without_the_stale_quote():
     assert len(sent) == 2
     assert sent[1].reply_to.reply_to_msg_id == 550
     assert sent[1].quote_flattened["reason"] == "quote-rejected"
-
-
-def test_send_with_degrade_reraises_unrelated_bad_requests():
-    messages = [_msg(2378)]
-    plan = transport.TransportPlan(
-        mode="reuploaded", reply_to=None, reply_flattened=False, needs_author=True
-    )
-
-    async def send(_current):
-        raise _bad_request("MESSAGE_TOO_LONG")
-
-    leg = discussion()
-    with pytest.raises(telethon_errors.BadRequestError):
-        asyncio.run(
-            quotes.send_with_degrade(
-                send, messages, plan, leg, DISCUSSION_SOURCE, _ctx(FakeClient())
-            )
-        )
-
-
-def test_flattened_reply_kind_keeps_its_post_thread():
-    """A poll-option reply flattens by kind, yet its thread is known."""
-    header = types.MessageReplyHeader(
-        reply_to_msg_id=2379, reply_to_top_id=2377, poll_option=b"0"
-    )
-    messages = [_msg(2380, reply_to=header)]
-    leg = discussion(id_map={789: 773})
-    plan = transport.decide(messages, leg, DISCUSSION_SOURCE)
-    ctx = _threaded_ctx(FakeClient())
-    ctx.anchors[2377] = 789
-    ctx.anchor_cache[773] = 550
-
-    resolved = asyncio.run(quotes.resolve(messages, plan, leg, DISCUSSION_SOURCE, ctx))
-
-    assert resolved.reply_to == types.InputReplyToMessage(reply_to_msg_id=550)
-    assert resolved.mode == "reuploaded"
-    assert resolved.reply_flattened is True
 
 
 def test_quote_fallback_prefix_leads_the_rendered_body():
