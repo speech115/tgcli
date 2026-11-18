@@ -68,11 +68,6 @@ def archive_dialog(entity, *, name=None):
     )
 
 
-def init_archive(monkeypatch, client=None):
-    make_session_fake(monkeypatch, client or archive_client())
-    assert main(["archive", "init", "--json"]) == 0
-
-
 def seed_search_corpus(monkeypatch):
     """Init store + insert searchable rows without a live Telegram read path."""
     from tgcli.archive import store as store_mod
