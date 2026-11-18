@@ -97,6 +97,7 @@ selected account session, does one operation, and exits.
 | Preview posts-only clone | `tg --json clone init SOURCE --no-comments` |
 | Commit clone destination creation | `tg --json clone init SOURCE --commit p_9f3a` |
 | Copy or catch up a chat | `tg --max-runtime 3600 --json clone sync SOURCE` |
+| Catch up every clone of the account | `tg --max-runtime 3600 --json clone sync --all` (`clones[]` holds each clone's result or `error`; `deferred` lists the clones a flood left for the next run) |
 
 Send is deliberately two-step: preview first, then commit its single-use ID.
 Previews expire after five minutes. The preview fixes every choice, so
@@ -220,6 +221,8 @@ in a loop: a run started sooner sends the request again and may draw a longer
 wait. `clone sync` is the exception. It writes the end of the wait into the
 clone (`retry_not_before`, shown by `clone status`), and until then each run
 of it exits 5 at once with the remaining `retry_after`, sending nothing.
+`clone sync --all` refuses the same way while any clone of the account
+remembers a flood.
 
 A single command is not slowed: `read`, `search` and the other reads of one
 chat leave page spacing to Telethon (no wait up to 3000 messages), so `read

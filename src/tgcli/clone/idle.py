@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from telethon import errors as telethon_errors, utils as telethon_utils
 from telethon.tl import functions, types
 
 from tgcli import chatref
@@ -71,7 +72,38 @@ def slot_id(peer, account_user_id: int) -> str:
     return state.peer_clone_id(account_user_id, peer_class, getattr(peer, field))
 
 
-async def _newest_id(tg, peer) -> int | None:
+PEER_DIALOGS_BATCH = 100
+
+
+async def newest_ids(tg, peers) -> dict[int, int]:
+    """Each peer's newest message id by marked peer id, from GetPeerDialogs:
+    one request per 100 peers instead of a history read per peer. A peer
+    Telegram leaves out, or a batch it refuses, is simply missing, and the
+    caller reads that peer's history as before."""
+    found: dict[int, int] = {}
+    unique = list({telethon_utils.get_peer_id(peer): peer for peer in peers}.values())
+    for start in range(0, len(unique), PEER_DIALOGS_BATCH):
+        batch = unique[start : start + PEER_DIALOGS_BATCH]
+        try:
+            result = await tg(
+                functions.messages.GetPeerDialogsRequest(
+                    peers=[types.InputDialogPeer(peer=peer) for peer in batch]
+                )
+            )
+        except (*discussion.PEER_UNAVAILABLE, telethon_errors.BadRequestError):
+            continue
+        for dialog in getattr(result, "dialogs", ()):
+            top = getattr(dialog, "top_message", None)
+            if isinstance(top, int):
+                found[telethon_utils.get_peer_id(dialog.peer)] = top
+    return found
+
+
+async def _newest_id(tg, peer, known: dict[int, int] | None = None) -> int | None:
+    if known is not None:
+        marked = telethon_utils.get_peer_id(peer)
+        if marked in known:
+            return known[marked]
     try:
         page = await tg(
             functions.messages.GetHistoryRequest(
@@ -97,11 +129,29 @@ def _runnable(clone_state: CloneState) -> bool:
     )
 
 
-async def up_to_date(tg, clone_state: CloneState, peer) -> bool:
-    """Whether neither the source nor its discussion group is past its cursor."""
+async def discussion_peer(tg, clone_state: CloneState):
+    """The input peer of an enabled clone's discussion group, or None."""
+    if (
+        clone_state.comments != Comments.ENABLED
+        or clone_state.discussion_source_peer_id is None
+    ):
+        return None
+    try:
+        return await tg.get_input_entity(
+            types.PeerChannel(clone_state.discussion_source_peer_id)
+        )
+    except discussion.PEER_UNAVAILABLE:
+        return None
+
+
+async def up_to_date(
+    tg, clone_state: CloneState, peer, known: dict[int, int] | None = None
+) -> bool:
+    """Whether neither the source nor its discussion group is past its cursor.
+    ``known`` holds newest ids already read in a batch (``newest_ids``)."""
     if not _runnable(clone_state) or roster.due(clone_state):
         return False
-    newest = await _newest_id(tg, peer)
+    newest = await _newest_id(tg, peer, known)
     if newest is None or newest > clone_state.cursor:
         return False
     if (
@@ -115,7 +165,7 @@ async def up_to_date(tg, clone_state: CloneState, peer) -> bool:
         )
     except discussion.PEER_UNAVAILABLE:
         return False
-    newest = await _newest_id(tg, group)
+    newest = await _newest_id(tg, group, known)
     return newest is not None and newest <= clone_state.discussion_cursor
 
 

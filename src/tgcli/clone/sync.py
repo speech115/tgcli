@@ -36,6 +36,7 @@ from tgcli.clone import (
     init_peers,
     journal,
     legs,
+    lookup,
     pin,
     progress as clone_progress,
     quotes,
@@ -48,13 +49,18 @@ from tgcli.clone import (
     transport,
 )
 from tgcli.clone.state import Comments
-from tgcli.errors import PartialFailure, PolicyError, RateLimitError
+from tgcli.errors import PartialFailure, PolicyError, RateLimitError, TgcliError
 from tgcli.output import note
 from tgcli.tg_errors import FLOOD_ERRORS
 
 
 async def sync_text(
-    tg, source: str, account_alias: str, *, limit: int | None = None
+    tg,
+    source: str,
+    account_alias: str,
+    *,
+    limit: int | None = None,
+    known: dict[int, int] | None = None,
 ) -> dict:
     me_id = await idle.account_id(tg)
     peer = await idle.source_peer(tg, source, me_id)
@@ -66,7 +72,9 @@ async def sync_text(
         slot = idle.slot_id(peer, me_id)
     with state.slot_lock(slot):
         try:
-            if peer is not None and (done := await _finish_if_idle(tg, slot, peer)):
+            if peer is not None and (
+                done := await _finish_if_idle(tg, slot, peer, known)
+            ):
                 return done
             if resolved is None:
                 resolved = await resolve.resolve_source(
@@ -82,15 +90,108 @@ async def sync_text(
             raise
 
 
-async def _finish_if_idle(tg, slot: str, peer) -> dict | None:
+async def _finish_if_idle(tg, slot: str, peer, known=None) -> dict | None:
     held = state.load(slot)
     if held is None:
         return None
     _refuse_during_flood(held)
-    if not await idle.up_to_date(tg, held, peer):
+    if not await idle.up_to_date(tg, held, peer, known):
         return None
     idle.finish(held)
     return _idle_document(held)
+
+
+async def sync_all(tg, account_alias: str, *, limit: int | None = None) -> dict:
+    """`clone sync --all`: every clone of this account, one after another, in
+    this one session.
+
+    A FloodWait is the account's, not one clone's: while any clone of the
+    account remembers one, the run asks Telegram nothing, and a flood mid-run
+    stops it there, the clones after it left for the next run. A clone that
+    refuses on its own (a tail needing repair, a destination gone) is reported
+    and the run goes on to the next one. Newest ids for the idle check come
+    from one GetPeerDialogs per 100 peers instead of a history read per peer.
+    """
+    me_id = await idle.account_id(tg)
+    clones = sorted(
+        (found for found in lookup.loaded_states() if found.account_user_id == me_id),
+        key=lambda found: found.clone_id,
+    )
+    waits = [left for found in clones if (left := found.flood_left()) is not None]
+    if waits:
+        raise RateLimitError(
+            f"a clone of this account is rate limited for {max(waits)}s; "
+            "no request was sent",
+            retry_after=max(waits),
+        )
+    peers = []
+    for found in clones:
+        if (
+            peer := await idle.source_peer(tg, lookup.source_ref(found), me_id)
+        ) is not None:
+            peers.append(peer)
+        if (group := await idle.discussion_peer(tg, found)) is not None:
+            peers.append(group)
+    known = await idle.newest_ids(tg, peers)
+    results: list[dict] = []
+    failure: TgcliError | None = None
+    for index, found in enumerate(clones):
+        source = lookup.source_ref(found)
+        entry: dict = {
+            "id": found.clone_id,
+            "source": source,
+            "title": found.source_title,
+        }
+        try:
+            entry.update(
+                await sync_text(tg, source, account_alias, limit=limit, known=known)
+            )
+        except (*FLOOD_ERRORS, RateLimitError) as flood:
+            seconds = int(
+                getattr(flood, "seconds", None)
+                or getattr(flood, "details", {}).get("retry_after")
+                or 0
+            )
+            entry["error"] = {"code": "RATE_LIMIT", "retry_after": seconds}
+            results.append(entry)
+            data = {
+                "clones": results,
+                "deferred": [lookup.source_ref(rest) for rest in clones[index + 1 :]],
+            }
+            raise PartialFailure(
+                f"clone sync --all stopped at {source}: rate limited for {seconds}s",
+                data,
+                cause=RateLimitError(
+                    f"clone {source} is rate limited for {seconds}s",
+                    retry_after=seconds,
+                ),
+            ) from flood
+        except TgcliError as refusal:
+            entry["error"] = {"code": refusal.code, "message": str(refusal)}
+            failure = failure or refusal
+        results.append(entry)
+    data = {"clones": results, "deferred": []}
+    if failure is not None:
+        raise PartialFailure(
+            "clone sync --all: a clone refused; see its error", data, cause=failure
+        )
+    return data
+
+
+def sync_all_rows(data: dict) -> list[tuple]:
+    rows = []
+    for entry in data["clones"]:
+        sync = entry.get("sync") or {}
+        rows.append(
+            (
+                entry["source"],
+                entry["title"],
+                sync.get("copied"),
+                sync.get("more"),
+                (entry.get("error") or {}).get("code"),
+            )
+        )
+    return rows
 
 
 def _refuse_during_flood(clone_state: state.CloneState) -> None:
