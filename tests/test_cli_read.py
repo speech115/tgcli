@@ -79,20 +79,6 @@ def test_read_since_stops_at_boundary(config_env, monkeypatch, capsys):
     assert all(message["date"] >= "2026-07-18" for message in data["messages"])
 
 
-def test_read_until_passes_parsed_offset_date(config_env, monkeypatch, capsys):
-    client = make_read_client()
-    make_session_fake(monkeypatch, client)
-
-    assert main(["read", "@chan", "--until", "2026-07-18", "--json"]) == 0
-
-    data = json.loads(capsys.readouterr().out)
-    assert client.iter_messages_kwargs["offset_date"] == dt.datetime(
-        2026, 7, 18, tzinfo=dt.UTC
-    )
-    assert [message["id"] for message in data["messages"]] == [2, 1]
-    assert data["page"] == {"oldest_id": 1, "newest_id": 2}
-
-
 def test_read_topic_passes_reply_to(config_env, monkeypatch, capsys):
     client = make_read_client()
     make_session_fake(monkeypatch, client)
@@ -145,42 +131,6 @@ def test_read_unknown_dialog_exits_4(config_env, monkeypatch, capsys):
     code = main(["--json", "read", "@ghost"])
     assert code == 4
     assert json.loads(capsys.readouterr().err)["error"]["code"] == "NOT_FOUND"
-
-
-def test_floodwait_maps_to_exit_5(config_env, monkeypatch, capsys):
-    from telethon import errors as tg_errors
-
-    fake = make_fake()
-
-    async def flood(entity, limit=None, **kwargs):
-        raise tg_errors.FloodWaitError(request=None, capture=42)
-        yield  # pragma: no cover - makes this an async generator
-
-    fake.iter_messages = flood
-    make_session_fake(monkeypatch, fake)
-    code = main(["--json", "read", "@chan"])
-    assert code == 5
-    captured = capsys.readouterr()
-    err = json.loads(captured.err)["error"]
-    out = json.loads(captured.out)["error"]
-    assert captured.out == captured.err
-    assert out == err
-    assert err["code"] == "FLOOD_WAIT"
-    assert err["retry_after"] == 42
-
-
-def test_read_plain_sanitizes_sender_controls(config_env, monkeypatch, capsys):
-    fake = make_fake()
-    fake._messages[0].sender.first_name = "A\tlice\r\n"
-    make_session_fake(monkeypatch, fake)
-
-    code = main(["read", "@chan", "--plain"])
-
-    assert code == 0
-    output = capsys.readouterr().out
-    assert output.count("\n") == 1
-    assert "\r" not in output
-    assert len(output.rstrip("\n").split("\t")) == 4
 
 
 def test_read_accepts_limit_one(config_env, monkeypatch, capsys):

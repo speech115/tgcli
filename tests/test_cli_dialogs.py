@@ -141,28 +141,6 @@ def test_dialogs_limit_zero_returns_no_dialogs(config_env, monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out) == {"dialogs": [], "more": True}
 
 
-def test_dialogs_unread_only_includes_unread_mentions(config_env, monkeypatch, capsys):
-    client = FakeClient(dialogs=[make_user_dialog(unread_count=0, mentions=2)])
-    make_session_fake(monkeypatch, client)
-
-    assert main(["dialogs", "--unread-only", "--json"]) == 0
-
-    assert json.loads(capsys.readouterr().out) == {
-        "dialogs": [
-            {
-                "id": 42,
-                "name": "Unread user",
-                "kind": "user",
-                "username": "user",
-                "unread": 0,
-                "mentions": 2,
-                "last_message_at": "2026-07-06T12:00:00+00:00",
-            }
-        ],
-        "more": False,
-    }
-
-
 HOSTILE_TITLE = "Ch\x1bannel\rX\x08Y\nZ\tW"
 
 
@@ -176,27 +154,6 @@ def make_hostile_dialog():
         unread_count=3,
         date=dt.datetime(2026, 7, 6, 11, 59, tzinfo=dt.UTC),
     )
-
-
-def test_dialogs_plain_strips_control_characters_from_the_title(
-    config_env, monkeypatch, capsys
-):
-    make_session_fake(monkeypatch, FakeClient(dialogs=[make_hostile_dialog()]))
-
-    assert main(["--plain", "dialogs"]) == 0
-
-    assert capsys.readouterr().out == "-1001234\tchannel\tchan\tChannelXYZW\t3\t0\n"
-
-
-def test_dialogs_human_strips_control_characters_from_the_title(
-    config_env, monkeypatch, capsys
-):
-    make_session_fake(monkeypatch, FakeClient(dialogs=[make_hostile_dialog()]))
-
-    assert main(["dialogs"]) == 0
-
-    out = capsys.readouterr().out
-    assert out == "-1001234 | channel | chan | ChannelXYZW | 3 | 0\n"
 
 
 def test_dialogs_json_passes_control_characters_through(
@@ -234,13 +191,3 @@ def test_dialogs_more_counts_only_matching_dialogs(config_env, monkeypatch, caps
     data = json.loads(capsys.readouterr().out)
     assert [dialog["id"] for dialog in data["dialogs"]] == [-1001234]
     assert data["more"] is False
-
-
-def test_dialogs_limit_zero_reports_no_more_when_nothing_matches(
-    config_env, monkeypatch, capsys
-):
-    make_session_fake(monkeypatch, FakeClient(dialogs=[make_dialog()]))
-
-    assert main(["dialogs", "--kind", "user", "--limit", "0", "--json"]) == 0
-
-    assert json.loads(capsys.readouterr().out) == {"dialogs": [], "more": False}

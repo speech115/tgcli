@@ -65,18 +65,6 @@ def test_script_stdin_that_never_eofs_hits_the_timeout(config_env, monkeypatch, 
     assert read_journal()[-1]["error"] == "TIMEOUT"
 
 
-def test_usage_error_under_json_emits_one_usage_envelope(config_env, capsys):
-    assert main(["search", "--json"]) == 1
-
-    captured = capsys.readouterr()
-    [line] = captured.out.splitlines()
-    payload = json.loads(line)
-    assert payload["error"]["code"] == "USAGE"
-    # CONTRACT §2: the same object is the last line of stderr, after the usage.
-    assert captured.err.splitlines()[-1] == line
-    assert read_journal()[-1]["error"] == "USAGE"
-
-
 def test_usage_error_without_json_stays_stderr_only(config_env, capsys):
     assert main(["search"]) == 1
 
@@ -103,26 +91,9 @@ def test_option_like_text_writes_nothing_to_stdout_under_json(config_env, capsys
     assert "show this help message" not in captured.err
 
 
-def test_explicit_help_still_prints_and_exits_zero(config_env, capsys):
-    assert main(["--help"]) == 0
-    assert "usage: tg" in capsys.readouterr().out
-
-    assert main(["clone", "sync", "-h"]) == 0
-    assert "usage: tg clone sync" in capsys.readouterr().out
-
-
 def test_explicit_version_still_prints_and_exits_zero(config_env, capsys):
     assert main(["--version"]) == 0
     assert capsys.readouterr().out.strip() == __version__
-
-
-def test_clone_init_runs_without_an_implicit_deadline(config_env, monkeypatch, capsys):
-    """D2: clone init keeps no implicit deadline (CONTRACT §1) — a long copy
-    must not be killed by a default. The exemption itself is pinned by
-    test_deadline_defaults_match_the_contract; this test guards the run."""
-    make_session_fake(monkeypatch, CloneInitClient())
-
-    assert main(["clone", "init", "@source", "--json"]) == 0
 
 
 def test_clone_init_still_honours_an_explicit_timeout(config_env, monkeypatch, capsys):

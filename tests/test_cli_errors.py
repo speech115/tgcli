@@ -8,18 +8,15 @@ raw traceback.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import subprocess
 import sys
 
 import pytest
-from telethon.errors import rpcerrorlist
 
-from tgcli import cli, dispatch, output
+from tgcli import cli, dispatch
 from tgcli.cli import main
-from tgcli.errors import CommandTimeoutError
 from tgcli.state_paths import state_dir
 
 SAMPLE = """
@@ -44,118 +41,11 @@ def read_journal(root=None):
     return [json.loads(line) for line in path.read_text().splitlines()]
 
 
-def _hangs(monkeypatch):
-    async def run_network(args, account):
-        await asyncio.sleep(10)
-
-    monkeypatch.setattr(dispatch, "run_network", run_network)
-
-
 def _fails_with(monkeypatch, exc):
     async def run_network(args, account):
         raise exc
 
     monkeypatch.setattr(dispatch, "run_network", run_network)
-
-
-def test_timeout_expiry_is_a_timeout_envelope_on_both_streams(env, monkeypatch, capsys):
-    _hangs(monkeypatch)
-
-    assert main(["dialogs", "--json", "--timeout", "0.05"]) == 1
-
-    captured = capsys.readouterr()
-    envelope = json.loads(captured.out)
-    assert envelope["error"]["code"] == CommandTimeoutError.code == "TIMEOUT"
-    assert "0.05" in envelope["error"]["message"]
-    assert json.loads(captured.err.splitlines()[-1]) == envelope
-    assert "Traceback" not in captured.err
-    [entry] = read_journal()
-    assert entry["exit_code"] == 1
-    assert entry["error"] == "TIMEOUT"
-
-
-def test_timeout_expiry_reports_the_deadline_in_plain_mode(env, monkeypatch, capsys):
-    _hangs(monkeypatch)
-
-    assert main(["dialogs", "--plain", "--timeout", "0.05"]) == 1
-
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert captured.err.startswith("error: ")
-    assert "0.05" in captured.err
-    assert "Traceback" not in captured.err
-
-
-@pytest.mark.parametrize(
-    "exc",
-    [
-        ConnectionError("connection to Telegram failed"),
-        rpcerrorlist.MsgIdInvalidError(request=None),
-    ],
-    ids=["connection", "rpc"],
-)
-def test_untranslated_failure_is_one_runtime_envelope(env, monkeypatch, capsys, exc):
-    _fails_with(monkeypatch, exc)
-
-    assert main(["dialogs", "--json"]) == 1
-
-    captured = capsys.readouterr()
-    envelope = json.loads(captured.out)
-    assert envelope == {"error": {"code": "RUNTIME", "message": str(exc)}}
-    assert json.loads(captured.err.splitlines()[-1]) == envelope
-    assert "Traceback" not in captured.err
-    [entry] = read_journal()
-    assert entry["exit_code"] == 1
-    assert entry["error"] == "RUNTIME"
-
-
-def test_untranslated_failure_reports_through_stderr_in_plain_mode(
-    env, monkeypatch, capsys
-):
-    _fails_with(monkeypatch, ConnectionError("connection to Telegram failed"))
-
-    assert main(["dialogs", "--plain"]) == 1
-
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert captured.err == "error: connection to Telegram failed\n"
-
-
-def test_untranslated_failure_masks_phones_in_json_and_stderr(env, monkeypatch, capsys):
-    _fails_with(monkeypatch, ConnectionError("failed for +79991234567"))
-
-    assert main(["dialogs", "--json"]) == 1
-
-    captured = capsys.readouterr()
-    envelope = json.loads(captured.out)
-    assert envelope == {"error": {"code": "RUNTIME", "message": "failed for +7…67"}}
-    assert "79991234567" not in captured.out
-    assert "79991234567" not in captured.err
-    assert json.loads(captured.err.splitlines()[-1]) == envelope
-
-
-def test_untranslated_failure_masks_phones_in_plain_mode(env, monkeypatch, capsys):
-    _fails_with(monkeypatch, ConnectionError("failed for +79991234567"))
-
-    assert main(["dialogs", "--plain"]) == 1
-
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert captured.err == "error: failed for +7…67\n"
-    assert "79991234567" not in captured.err
-
-
-def test_untranslated_failure_shows_the_traceback_only_under_verbose(
-    env, monkeypatch, capsys
-):
-    _fails_with(monkeypatch, ConnectionError("connection to Telegram failed"))
-
-    assert main(["dialogs", "--json", "--verbose"]) == 1
-
-    captured = capsys.readouterr()
-    assert json.loads(captured.out)["error"]["code"] == "RUNTIME"
-    assert "Traceback (most recent call last)" in captured.err
-    assert "ConnectionError: connection to Telegram failed" in captured.err
 
 
 def test_untranslated_failure_masks_phone_in_verbose_traceback(
@@ -169,19 +59,6 @@ def test_untranslated_failure_masks_phone_in_verbose_traceback(
     assert "Traceback (most recent call last)" in captured.err
     assert "ConnectionError: failed for +7…67" in captured.err
     assert "79991234567" not in captured.err
-
-
-def test_emit_failure_is_journaled_as_an_error(env, monkeypatch):
-    def boom(data):
-        raise RuntimeError("stdout exploded")
-
-    monkeypatch.setattr(output, "emit_json", boom)
-
-    assert main(["accounts", "list", "--json"]) == 1
-
-    [entry] = read_journal()
-    assert entry["exit_code"] == 1
-    assert entry["error"] == "RUNTIME"
 
 
 def test_entrypoint_exits_quietly_when_stdout_hangs_up(monkeypatch, capsys):

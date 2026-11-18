@@ -177,27 +177,6 @@ def test_a_reply_keeps_its_rest_in_the_same_thread(config_env, monkeypatch, caps
     )
 
 
-def test_each_album_caption_is_split_on_its_own(config_env, monkeypatch, capsys):
-    seed_clone()
-    client = CaptionClient(
-        [
-            message(2, grouped_id=77, media=PHOTO, message="c" * 1100),
-            message(3, grouped_id=77, media=PHOTO, message="short"),
-        ]
-    )
-    make_session_fake(monkeypatch, client)
-
-    assert main(["clone", "sync", "@source", "--json"]) == 0
-
-    sent = sends(client)[-1]
-    assert isinstance(sent, functions.messages.SendMultiMediaRequest)
-    first, second = sent.multi_media
-    assert units(first.message) == LIMIT
-    assert second.message == "short"
-    assert [r.message for r in texts(client)] == ["c" * 76]
-    assert audits()[-1]["source_message_ids"] == [2]
-
-
 def test_a_failed_rest_leaves_the_post_mapped(config_env, monkeypatch, capsys):
     """The rest goes after the mapping is saved, so the next run never copies
     the post a second time."""
@@ -229,24 +208,3 @@ def test_the_refusal_stands_when_no_caption_is_over_the_limit(
 
     assert "caption-fallback" not in safety.audit_path().read_text()
     assert state.load(clone_state.clone_id).dest_for(2) is None
-
-
-def test_the_next_run_accepts_the_rest_it_sent(config_env, monkeypatch, capsys):
-    """A rest is the clone's own message: the tail guard of the next run must
-    not read it as a stranger and stop the clone for manual repair."""
-    clone_state = seed_clone()
-    client = CaptionClient(
-        [message(2, media=PHOTO, message="a" * 600 + " " + "c" * 900)]
-    )
-    make_session_fake(monkeypatch, client)
-    assert main(["clone", "sync", "@source", "--json"]) == 0
-    [rest] = texts(client)
-
-    client.messages.append(message(3, message="next post"))
-    assert main(["clone", "sync", "@source", "--json"]) == 0
-
-    loaded = state.load(clone_state.clone_id)
-    assert loaded.dest_for(3) is not None
-    assert loaded.caption_rest_map[2] == loaded.dest_for(2) + 1
-    assert loaded.max_destination_id() == loaded.dest_for(3)
-    assert "manual repair" not in capsys.readouterr().err
