@@ -351,6 +351,34 @@ def test_backfill_private_resumes_unfinished_dialog_before_a_finished_one(
     assert [d["peer_id"] for d in second["dialogs"]] == [7]
 
 
+def test_backfill_private_reuses_walked_dialog_entities(
+    config_env, monkeypatch, capsys
+):
+    """The walk already holds each dialog's entity. Resolving its @username
+    again costs a contacts.ResolveUsername, which Telegram caps at about 200 a
+    day; 2026-11-17 a 100-dialog round drew a 23-hour FLOOD_WAIT that way."""
+
+    class NoResolveClient(FakeClient):
+        async def get_entity(self, key):
+            raise AssertionError(f"re-resolved {key!r}")
+
+    alice = archive_user(user_id=7, username="alice")
+    client = NoResolveClient(
+        me=archive_me(),
+        messages=[archive_msg(mid=1, peer=PeerUser(7))],
+        dialogs=[archive_dialog(alice, name="Alice")],
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+
+    assert main(["archive", "backfill", "--private", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert [(d["chat"], d["peer_id"], d["stored"]) for d in data["dialogs"]] == [
+        ("@alice", 7, 1)
+    ]
+
+
 @pytest.mark.asyncio
 async def test_private_backfill_does_not_skip_delta_only_state(tmp_path):
     alice = archive_user()
@@ -369,7 +397,12 @@ async def test_private_backfill_does_not_skip_delta_only_state(tmp_path):
             chat_ref="@alice",
             touch_sync=True,
         )
-        refs, skipped, _cursors = await backfill_mod.enumerate_private_dialogs(
+        (
+            refs,
+            skipped,
+            _cursors,
+            _entities,
+        ) = await backfill_mod.enumerate_private_dialogs(
             client,
             conn,
             max_dialogs=5,

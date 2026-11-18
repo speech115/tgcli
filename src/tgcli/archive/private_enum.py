@@ -100,14 +100,16 @@ async def enumerate_private_dialogs(
     conn: sqlite3.Connection,
     *,
     max_dialogs: int,
-) -> tuple[list[str], int, list[dict[str, Any]]]:
-    """Return private chat refs under ``max_dialogs`` with resume cursors.
+) -> tuple[list[str], int, list[dict[str, Any]], list[Any]]:
+    """Return private chat refs under ``max_dialogs`` with resume cursors and
+    the entities the walk saw, so backfill never resolves a ref it already holds.
 
     Resumes ``iter_dialogs`` from the durable account_sync private-enum token
     so job quanta do not re-walk a completed head (ADR-0118).
     """
     refs: list[str] = []
     ref_cursors: list[dict[str, Any]] = []
+    entities: list[Any] = []
     skipped = 0
     resume = store_mod.read_account_sync(conn).get("private_enum")
     kwargs: dict[str, Any] = {}
@@ -153,12 +155,13 @@ async def enumerate_private_dialogs(
         username = getattr(entity, "username", None)
         refs.append(f"@{username}" if username else str(peer))
         ref_cursors.append(candidate)
+        entities.append(entity)
         if len(refs) >= max_dialogs:
             break
     else:
         if not refs:
             persist(conn, None)
-            return refs, skipped, ref_cursors
+            return refs, skipped, ref_cursors, entities
     if safe_walked is not None and safe_walked != resume:
         persist(conn, safe_walked)
-    return refs, skipped, ref_cursors
+    return refs, skipped, ref_cursors, entities
