@@ -139,7 +139,7 @@ def _classify_header(
                 and not posts_exhausted
             ):
                 return result("deferred")
-            # Posts leg, the mirror (STATE-MACHINES F7): a comment beyond the
+            # Posts leg, the mirror: a comment beyond the
             # discussion cursor is not copied yet, so the post waits for the
             # comments leg, unless that leg stalled (it will not get there).
             if (

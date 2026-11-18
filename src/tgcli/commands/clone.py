@@ -91,7 +91,7 @@ def list_clones(source: str | None = None) -> dict:
         if loaded is None or not lookup.matches(loaded, source):
             continue
         entries.append(_entry(loaded, clone_id))
-    # An unreadable entry has no created_at at all (CONTRACT §11: every field
+    # An unreadable entry has no created_at at all (the CLI contract: every field
     # but clone_id is null), so it sorts ahead of every dated one.
     entries.sort(key=lambda entry: entry["created_at"] or "")
     return {"clones": entries}

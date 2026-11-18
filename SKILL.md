@@ -200,7 +200,7 @@ start `tg-serve --account ALIAS --session-role NAME` once and send each command
 as a JSON line instead of starting `tg` every time: the session stays
 connected, so a command costs its Telegram time instead of seconds of startup.
 Give it its own role (`tg accounts login ALIAS --role NAME --phone PHONE`),
-since the held session stays locked. Protocol: [docs/SERVE.md](docs/SERVE.md).
+since the held session stays locked. Protocol: [README](README.md#tg-serve-protocol).
 
 ## Safety gates
 
@@ -209,7 +209,7 @@ network work. A block is exit 2; do not retry it until the safety condition is
 intentionally changed. The variables also accept `true`/`yes`/`on` (and
 `0`/`false`/`no`/`off` for off); any other value is exit 3.
 
-### Floods and pacing (ADR-0125)
+### Floods and pacing
 
 A FloodWait of up to 30 s is slept out and the request sent again. A longer
 one exits 5 with `retry_after`. `clone sync` sends and `tg run --write`
@@ -225,7 +225,7 @@ A single command is not slowed: `read`, `search` and the other reads of one
 chat leave page spacing to Telethon (no wait up to 3000 messages), so `read
 --limit 300` is quick. Bulk commands space their own requests 3 s apart past
 the first five: dialogs in `archive backfill|sync`, files in bulk `media download`,
-sends in `clone sync` (20 a minute, ADR-0122), prefix queries in `export
+sends in `clone sync` (20 a minute), prefix queries in `export
 subscribers`. Prefer one bulk command over hundreds of separate reads.
 
 A `tg run` script spaces only its writes. A script that reads many chats
@@ -237,7 +237,7 @@ waits between them itself: `await asyncio.sleep(3)` per chat, and
 as a normal stop with a resume pointer: give long runs (`clone sync`, bulk
 media, `archive sync`) one.
 
-### Clone peer budget (ADR-0045)
+### Clone peer budget
 
 `clone init` creates 1–2 Telegram peers (channel, plus discussion group when
 comments are enabled). Prefer at most ~one peer-creating init per account per
@@ -268,7 +268,7 @@ top-level `ok` result.
 - `clone sync` with `sync.up_to_date: true` found nothing past the clone's
   cursors and did no other work: exit 0, no destination check, no roster, no
   pin read. It is the normal result of a scheduled run (see
-  [docs/OPERATIONS.md](docs/OPERATIONS.md)); a day-old roster makes a run
+  [README](README.md#operations)); a day-old roster makes a run
   full again.
 - `clone sync` `participants.source` / `.discussion` with
   `status: "fresh"` was not listed again because the sidecar is under a day
@@ -279,7 +279,7 @@ top-level `ok` result.
 ## Account selection
 
 Selection order is `--account` > `TGCLI_ACCOUNT` > the config default.
-`--session-role NAME` (ADR-0062) selects a named session beside the primary;
+`--session-role NAME` selects a named session beside the primary;
 omit it for the primary. A missing role is exit 3 with remediation — never a
 silent fallback. A session Telegram no longer accepts (revoked, expired,
 unregistered key, deactivated) is exit 3 `needs reauthentication`: log that

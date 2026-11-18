@@ -332,7 +332,7 @@ async def test_sync_phase_recovers_own_pin_after_crash_before_save(monkeypatch):
     The destination carries exactly the pin this run would set — the pin a
     crashed previous run placed. The phase adopts it: `pinned_dest_id` is
     repaired and saved, no pin mutation is issued, and no `clone-sync-pin`
-    audit row is written (CONTRACT §11 reserves "set" for a mutation this run
+    audit row is written (the CLI contract reserves "set" for a mutation this run
     performed, so the recovery reports "unchanged").
     """
     audits: list[tuple] = []

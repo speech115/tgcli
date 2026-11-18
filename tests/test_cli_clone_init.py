@@ -2395,7 +2395,7 @@ class _FlakyTitles(CloneInitClient):
 
 
 class CloneInitReplaceMachine(RuleBasedStateMachine):
-    """STATE-MACHINES §2/§3 (S3, S4, H3): previews with or without
+    """Previews with or without
     `--replace`, commits Telegram may cut short after the destination
     exists, and retries of any of them. Each preview creates at most one
     destination however often it is re-committed, and the slot always

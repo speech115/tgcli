@@ -1,7 +1,8 @@
 """Fault injection: `tg clone sync` against a Telegram that fails mid-run.
 
-STATE-MACHINES §5 (L1, L2, L3) promises that a sync cut short anywhere
-resumes without losing or duplicating work. ``CloneSyncFaultMachine`` runs
+The clone sync invariants (L1, L2, L3 in `clone/sync.py`) promise that a
+sync cut short anywhere resumes without losing or duplicating work.
+``CloneSyncFaultMachine`` runs
 the real ``tg clone sync`` over a generated channel + discussion group world
 (``tests/fakes/clone_world``) and fails the n-th Telegram operation of a run:
 a FloodWait, a 5xx, a timeout, a dropped connection, a killed process, or,

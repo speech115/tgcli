@@ -64,7 +64,7 @@ def test_store_cleanup_confirm_must_be_spelled_in_full(config_env, capsys):
     ],
 )
 def test_parse_errors_mask_phones_on_stderr(config_env, capsys, argv, diagnostic):
-    """CONTRACT §10 masks phones in every error, but argparse wrote its own
+    """the CLI contract masks phones in every error, but argparse wrote its own
     diagnostics straight to stderr, so `tg dialogs +79991234567` leaked the
     number into agent transcripts."""
     assert main(argv) == 1

@@ -1,4 +1,19 @@
-"""One registry for preview-to-commit preflight, dispatch, audit, and finish."""
+"""One registry for preview-to-commit preflight, dispatch, audit, and finish.
+
+Invariants of the handshake (tests: test_preview_commit, test_safety,
+test_cli_mutate, the clone init machine):
+
+- H1. One process at a time commits a given preview (flock plus the inode
+  check in `safety._lock_pending`).
+- H2. The before-audit is written before the mutation, and an unwritable
+  audit blocks it; a preview is spent only after its result audit.
+- H3. Re-committing a pending preview is safe. `send` and `forward` reuse the
+  preview's `random_id` (Telegram answers RANDOM_ID_DUPLICATE: `already_sent`),
+  `edit` treats MESSAGE_NOT_MODIFIED as success, `delete` and drafts are
+  idempotent, and `clone init` re-adopts its destination by marker.
+- H4. An expired preview never stays pending. Outside the TTL a new preview
+  carries a new `random_id`, so a delivered but unconfirmed send can repeat.
+"""
 
 from __future__ import annotations
 

@@ -73,7 +73,7 @@ def test_emit_error_json_mode_passes_control_characters_through(capsys):
 
 
 def test_emit_error_masks_phones_in_typed_errors(capsys):
-    """CONTRACT §10 promises masked phones. Only the RUNTIME path masked
+    """the CLI contract promises masked phones. Only the RUNTIME path masked
     them, so a typed error such as `phone not found: '+79991234567'` reached
     stdout, stderr and agent transcripts raw."""
     from tgcli.errors import NotFoundError

@@ -1,138 +1,50 @@
-# tgcli — agent contract
+# tgcli — agent rules
 
-tgcli is a stateless Telegram CLI over Telethon, for humans and agents: JSON
-on stdout, fixed exit codes, and preview → commit for every write. It replaced
-a daemon-first stack, so staying small and daemonless is the point.
+tgcli is a stateless Telegram CLI over Telethon for its owner and agents:
+JSON on stdout, fixed exit codes, and preview → commit for every write. No
+daemons; state lives only in `~/.config/tgcli/` and `~/.local/state/tgcli/`.
 
 - Using the CLI: [SKILL.md](SKILL.md) and `tg COMMAND --help`.
-- CLI law (flags, JSON shapes, exit codes): [docs/CONTRACT.md](docs/CONTRACT.md).
-- Vocabulary: [CONTEXT.md](CONTEXT.md).
-- Persistent state machines, their invariants, and known violations:
-  [docs/STATE-MACHINES.md](docs/STATE-MACHINES.md). A change to one updates
-  its section.
-- Why past decisions were made: [docs/decisions/](docs/decisions/README.md).
-  ADRs are dated history, not kept current; CONTRACT and the gate say what
-  holds now.
-- Backlog: GitHub Issues (`gh issue list`).
-
-## Commands
+- What callers rely on (streams, exit codes, journal): [docs/CONTRACT.md](docs/CONTRACT.md).
+  JSON shapes are pinned by `tests/snapshots/`.
+- Running it, shipping `main`, troubleshooting: [README](README.md#operations).
+- Backlog: GitHub Issues. History: `git log` and PR descriptions.
 
 ```bash
 uv sync
-git config core.hooksPath .githooks   # once per clone: static gate on push
-./scripts/gate.sh   # exactly what CI runs, under a minute
-uv run python scripts/bench-clone.py   # clone sync requests/copies vs baseline
-uv run tg --help
+git config core.hooksPath .githooks   # once per clone: static checks on push
+./scripts/gate.sh                     # exactly what CI runs
 ```
 
-The pyright-lsp plugin runs a bare `pyright-langserver`, so put it on PATH:
-`uv tool install pyright` (then `uv tool update-shell` if uv's tool bin is not
-on PATH yet, and restart the shell), or start Claude from an activated `.venv`.
+## Rules
 
-## Where code lives
+1. **The live account is real.** Agent sessions run with `TGCLI_READONLY=1`.
+   Run a Telegram write (send, edit, delete, clone writes, `tg run --write`,
+   login) only when the owner asked for it in this session, prefixed with
+   `TGCLI_READONLY=0`. Never open a `.session` file with bare `python3`.
+2. **stdout is contract data only**; diagnostics go to stderr via
+   `output.note()`. A JSON change regenerates the snapshot
+   (`UPDATE_SNAPSHOTS=1 uv run pytest tests/test_json_snapshots.py`); a
+   removed or renamed field or flag means a `Breaking:` PR title. Keep the
+   fields launchd jobs and gbrain read.
+3. **Test at the CLI seam**: argv in; stdout, exit code and the exact
+   Telegram requests out. Mock only the Telegram client (`FakeClient`), time
+   and the filesystem. A bug fix starts with a test that fails on `main`.
+4. **Ask the owner first** for new behavior, a new dependency or a new
+   subsystem.
 
-- `cli.py` runs one invocation: `parser.py` (grammar), then `preflight.py`
-  (validation and the readonly gate, no network), then `dispatch.py` (one
-  session, one handler). `registry.py` lists every command; `handlers.py`
-  holds their `run` functions.
-- Writes: `preview_commit.py` (the handshake table) and `safety.py` (gates,
-  audit).
-- Features: `commands/` (one module per command group), `clone/`, `archive/`
-  (local store, sync, changes), `pace.py` (request spacing for bulk loops).
-- Tests: `FakeClient` in `tests/conftest.py` is the shared fake Telegram;
-  `tests/fakes/` holds message factories and clone fakes; `tests/live/` is
-  opt-in.
-
-A green gate proves the code matches the fakes. To prove a behavior change
-against real Telegram, read-only, follow
-[.claude/skills/verify/SKILL.md](.claude/skills/verify/SKILL.md).
-
-## Rules a check enforces
-
-Breaking one of these fails the gate. Don't restate them elsewhere. If a check
-is wrong, fix the check.
-
-| Rule | Enforced by |
-|---|---|
-| stdout carries contract data only; diagnostics go to stderr through `output.note()` | ruff `T20` (no `print`), `tests/test_output.py` |
-| State that is read back later is written with `tgcli.atomic.replace_text`, never `write_text` | `scripts/check-architecture.py` |
-| Read commands are reachable only through `read_ops` | `scripts/check-architecture.py` |
-| No module passes 800 lines; split it instead (one listed exception) | `scripts/check-architecture.py` (`MAX_LINES`) |
-| Tests share helpers through `tests/fakes/`, never by importing another `test_*` module | `scripts/check-architecture.py` |
-| Clone code takes `legs.AnyLeg` or a concrete leg, never a bare `Leg` that erases its id spaces | `scripts/check-architecture.py` |
-| Exit codes come from the `errors.py` hierarchy and match CONTRACT §4 | `tests/test_contract_exit_codes.py` |
-| Every mutation goes through preview → commit and the readonly gates; every command is classified | `src/tgcli/preview_commit.py` registry, `tests/test_command_classes.py`, `tests/test_preview_commit.py`, `tests/test_safety.py` |
-| Audit is written before the mutation, and an unwritable audit blocks it | `tests/test_safety.py`, `tests/test_cli_mutate.py` |
-| Every Telethon namespace is classified; `tg run` refuses writes without `--write` and auth/account always | `scripts/check-coverage.py` with `docs/FEATURES.md`, `tests/test_cli_run.py` |
-| Every `iter_messages` call passes `wait_time`, so history pages after the first wait | `scripts/check-architecture.py` |
-| README and SKILL.md name only real flags, commands, and links | `scripts/check-docs.py` |
-| Sessions, `.env`, audit and journal files never enter git | `.gitignore` |
-| Agent sessions here run with `TGCLI_READONLY=1`, and a bare `python3` near a `.session` file is refused (the pinned Telethon writes a schema older versions crash on) | `.claude/settings.json`, `tests/test_agent_guardrails.py` |
-| Merged branches are deleted and history stays linear | GitHub repository settings |
-
-## Rules that need judgment
-
-Nothing fails if you skip these, so they stay few.
-
-- **The live account is real.** Run a Telegram mutation (send, edit, delete,
-  forward, clone writes, `tg run --write`, login) only when the owner asked for it in
-  this session, and then prefix that one command with `TGCLI_READONLY=0`.
-  Read-only checks are fine.
-- **A bug fix starts with a reproducing test** (`scripts/repro.py` shows it
-  fails on `main`), then the smallest fix. Grep for sibling code with the same
-  pattern and fix it in the same PR.
-- **Test behavior at public seams**: CLI arguments in; stdout, stderr, JSON,
-  and exit code out. Mock only the Telegram client, time, and the filesystem.
-  Paced loops run on the `pace_clock` fixture's fake time; assert its
-  `.sleeps`.
-  A test for a new or changed RPC asserts the exact `functions.*Request` and
-  `types.Input*` it sends.
-- **A CLI contract change** (flags, JSON, exit codes) updates
-  `docs/CONTRACT.md` and `SKILL.md` in the same PR. Renaming or removing a
-  command, flag, or field is allowed; start the PR title with `Breaking:`.
-- **Ask the owner first** for new behavior, a new dependency, or a new
-  subsystem. Never add a daemon or state outside `~/.config/tgcli/` and
-  `~/.local/state/tgcli/`. Write an ADR only for a decision that is hard to
-  reverse.
-- **Don't widen scope.** Report adjacent problems instead of fixing them in the
-  same PR.
-
-## When the owner corrects you
-
-Fix the mistake, then make it impossible to repeat. Prefer architecture, then a
-lint or test in the gate, and add a line to the judgment list only as a last
-resort. A rule that gains a check moves to the table above. A rule whose
-mistake can no longer happen is deleted.
+`scripts/check-bans.py` (in the gate) keeps three ban risks out: catch floods
+through `tg_errors.FLOOD_ERRORS`, pass `wait_time` to every `iter_messages`,
+write state through `tgcli.atomic.replace_text`. To prove a change against
+real Telegram, read-only, use [.claude/skills/verify/SKILL.md](.claude/skills/verify/SKILL.md).
+`scripts/repro.py` and `scripts/mutate.py` are optional helpers.
 
 ## Git
 
-- Branch `claude/<topic>` or `codex/<topic>`, one coherent change per PR to
-  `main`. Never push to `main` unless asked in this session.
-- Run the gate before pushing; CI runs the same gate.
-- Before opening a PR, prove the change by running it, not by reading it.
-  Don't launch review agents that only read the diff (`pr-review-toolkit`,
-  `/code-review`, pstack `interrogate`): put those tokens into checks that
-  execute. Quote what each one printed in the PR body:
-  - `uv run python scripts/repro.py`: at least one changed test fails on
-    `origin/main`'s code. A bug fix or a new behavior that exits 1 has no
-    reproducing test yet; a pure refactor exits 1 and the PR says so.
-  - `uv run python scripts/mutate.py`: no `SURVIVED` mutant on the changed
-    lines, or the PR shows why that mutant changes nothing.
-  - Logic over a wide input space (parsing, formatting, entity offsets, id and
-    range math, state migration) gets a Hypothesis property, as in
-    `tests/test_properties.py`. A change to a state machine (the preview →
-    commit handshake, clone resume) gets a Hypothesis
-    `RuleBasedStateMachine` over its public API.
-  - A change to what a command does against Telegram runs the
-    [verify skill](.claude/skills/verify/SKILL.md).
-- Enable squash auto-merge when opening the PR (`gh pr merge N --squash
-  --auto`); the ruleset holds it until the `checks` and `test` jobs pass.
-- `main` is what runs, and git log is the history; there is no changelog.
-  Release only when the owner asks ([docs/OPERATIONS.md](docs/OPERATIONS.md)
-  also covers shipping `main` to the Mac): bump the version in a PR, then tag
-  `vX.Y.Z` on `main` and publish notes with `gh release create`.
+Branch `claude/<topic>`, one change per PR to `main`, never push to `main`.
+Enable squash auto-merge on the PR; CI must pass. Release only when asked.
 
 ## Language
 
-Talk to the owner in Russian. Code, comments, docs, commits, and CLI output are
+Talk to the owner in Russian. Code, comments, docs, commits and CLI output are
 English.

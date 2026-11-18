@@ -1095,7 +1095,7 @@ class _ChunkedSource:
 
 
 async def test_two_runs_resuming_one_source_never_wedge_it(tmp_path):
-    """STATE-MACHINES F3: both runs appended into one `.part`, recorded an
+    """both runs appended into one `.part`, recorded an
     offset past the media size, and every later run stopped there for good.
     The second run now refuses (exit 3) and the first one publishes."""
     import asyncio

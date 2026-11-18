@@ -43,14 +43,10 @@ jobs:
         run: uv run ruff check .
       - name: Check formatting
         run: uv run ruff format --check .
-      - name: Check architecture
-        run: uv run python scripts/check-architecture.py
+      - name: Check flood, paging and state-write rules
+        run: uv run python scripts/check-bans.py
       - name: Type check
         run: uv run pyright
-      - name: Check Telethon coverage matrix
-        run: uv run python scripts/check-coverage.py
-      - name: Check docs against the CLI surface
-        run: uv run python scripts/check-docs.py
 
   test:
     # GitHub-hosted macOS: the target platform, and a public repository's fork

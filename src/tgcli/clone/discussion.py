@@ -11,7 +11,7 @@ from tgcli.errors import PolicyError
 # missing access hash: the account may have been removed from the channel, the
 # channel deleted, or the account banned. Every recorded-destination lookup
 # maps the whole set to a PolicyError, so none of them reaches the user as a
-# raw Telethon traceback (CONTRACT §11).
+# raw Telethon traceback (the CLI contract).
 PEER_UNAVAILABLE = (
     ValueError,
     telethon_errors.ChannelPrivateError,

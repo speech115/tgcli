@@ -2,7 +2,7 @@
 
 `tg-mcp` lets an MCP client (Claude Desktop, Claude Code, Cursor) read
 Telegram through tgcli without a shell. It is read-only and starts only with a
-chat allowlist. Why it exists and what it may never do: [ADR-0123](decisions/ADR-0123-readonly-mcp-adapter.md).
+chat allowlist.
 
 ## Run it
 

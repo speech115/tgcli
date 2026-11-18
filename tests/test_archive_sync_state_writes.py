@@ -304,7 +304,7 @@ def test_write_account_sync_joins_an_open_transaction(conn, clock):
 
 
 async def test_a_catchup_flood_keeps_a_finished_backfill_finished(conn):
-    """STATE-MACHINES F4: `more` says older history remains, and only
+    """`more` says older history remains, and only
     backfill decides it. A catch-up that flooded mid-page wrote `more: true`
     onto a channel whose backfill had reached the start, so `status` reported
     history that is not there and `--private` style skipping stopped."""

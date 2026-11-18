@@ -122,8 +122,8 @@ def exhaust_transcripts(conn: sqlite3.Connection, *, max_attempts: int) -> int:
     """Make rows that already spent this run's attempt cap terminal.
 
     A row a run with a higher `--max-attempts` left `retryable` is never
-    queued at a lower cap; without this it stays `retryable` for good
-    (STATE-MACHINES F4). Returns how many rows became `no_transcript`.
+    queued at a lower cap; without this it stays `retryable` for good.
+    Returns how many rows became `no_transcript`.
     """
     rows = conn.execute(
         "SELECT peer_id, message_id FROM transcripts "

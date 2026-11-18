@@ -3,6 +3,18 @@
 Public seam: ``CloneState``, ``load``, ``save``, ``supersede``, ``clone_id``,
 ``path_for``, ``slot_lock``. Storage is SQLite/WAL via ``clone.statedb``
 (ADR-0060).
+
+Slot invariants:
+
+- S1. One writer per slot across session roles (``slot_lock``).
+- S2. Every saved state loads: ``load`` rejects impossible combinations
+  (comments on a non-broadcast source, phase-2 progress without comments, a
+  pin both set and occupied). ``save`` does not validate, so writers keep
+  these by construction.
+- S3. A destination is created at most once: the creation marker is saved
+  before ``CreateChannel``, so a crash after it adopts the channel.
+- S4. ``--replace`` supersedes only the state its preview showed; a retried
+  commit that finds another state resumes it.
 """
 
 from __future__ import annotations

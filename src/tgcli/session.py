@@ -121,7 +121,7 @@ def lock_file_held(lock_path: Path) -> bool | None:
 def lock_held(session_file: Path) -> bool | None:
     """Probe whether another process holds this session's lock. Side-effect
     aware: a missing session is never locked and creates no lock file
-    (CONTRACT §5.1), because opening the lock path would create it.
+    (the CLI contract), because opening the lock path would create it.
 
     A held flock with no session file at all (a login in flight — see
     `_attempt_lock_held` in `commands/store.py`) is a different question with

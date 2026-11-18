@@ -132,7 +132,7 @@ async def sync_phase(
         # Crash-window recovery: a previous run died between the pin RPC and
         # the state save, so the destination already carries exactly the pin
         # this run intended to set. Adopt it as tgcli's own work — repair
-        # state, no mutation, no audit row (CONTRACT §11 reserves "set" for a
+        # state, no mutation, no audit row (the CLI contract reserves "set" for a
         # mutation this run performed). Strictly the exact intended id: any
         # other pinned message — even a cloned post from ``id_map`` — is the
         # owner's choice and still latches occupied (ADR-0055 decision 2).

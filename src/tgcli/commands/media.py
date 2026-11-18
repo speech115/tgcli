@@ -261,7 +261,7 @@ def _state_paths(source: MediaSource) -> tuple[Path, Path]:
 
 @contextmanager
 def download_lock(source: MediaSource) -> Iterator[None]:
-    """One writer per source checkpoint (STATE-MACHINES §11, F3)."""
+    """One writer per source checkpoint."""
     state_path, _ = _state_paths(source)
     with checkpoint_lock(state_path, _source_label(source)):
         yield
@@ -824,7 +824,7 @@ async def _iter_bulk_candidates(
 
 
 def bulk_to_rows(data: dict) -> list[tuple]:
-    """One frozen `media download` row per downloaded item (CONTRACT §5 TSV)."""
+    """One frozen `media download` row per downloaded item (the CLI contract)."""
     return [(item["path"], item["bytes"], item["resumed"], 1) for item in data["items"]]
 
 

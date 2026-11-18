@@ -326,7 +326,7 @@ def _lock_busy(target: Path) -> bool:
 
     Probed against the `.lock` file directly via `session.lock_file_held`,
     not `session.lock_held`: that helper treats a missing `target` as never
-    locked (CONTRACT §5.1, right for `accounts show`), but
+    locked (the CLI contract, right for `accounts show`), but
     `authclient.unauthorized_client` takes the flock before Telethon creates
     the staged `.session` — during that window `target` does not exist yet
     even though the lock is real. Only probed when the lock file already
