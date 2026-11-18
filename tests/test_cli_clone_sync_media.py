@@ -737,6 +737,46 @@ def test_clone_sync_reupload_streams_large_media_in_one_pass(
     assert client.part_requests
 
 
+def test_clone_sync_max_runtime_stops_a_large_download_between_chunks(
+    config_env, monkeypatch, capsys
+):
+    """--max-runtime is checked between download chunks, not only between
+    batches: a big video stops mid-file and the next run resumes it."""
+    from tgcli import pace
+    from tgcli.transfer import CHUNK_SIZE
+
+    clone_state = seed_clone()
+    document = types.MessageMediaDocument(
+        document=messages.document(size=4 * CHUNK_SIZE)
+    )
+    msg = message(2, message="big", media=document)
+    served = []
+    monkeypatch.setattr(pace, "remaining", lambda: 1.0 if len(served) < 2 else 0.0)
+
+    class SlowClient(CloneReuploadClient):
+        async def iter_download(self, media, *, offset=0, request_size=None, **kw):
+            position = offset
+            while position < 4 * CHUNK_SIZE:
+                served.append(position)
+                yield b"N" * CHUNK_SIZE
+                position += CHUNK_SIZE
+
+        async def download_media(self, message, file=None):
+            raise AssertionError("large media must not use sequential download_media")
+
+    client = SlowClient([msg], protected=True)
+    make_session_fake(monkeypatch, client)
+
+    assert main(["clone", "sync", "@source", "--max-runtime", "100", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["stop_reason"] == "wall_clock_cap"
+    assert len(served) == 2
+    assert client.part_requests == []
+    assert state.load(clone_state.clone_id).cursor == 0
+    [part] = (state.clones_dir() / f"{clone_state.clone_id}-media").glob("*.part")
+    assert part.stat().st_size == 2 * CHUNK_SIZE
+
+
 def test_clone_sync_reupload_download_flood_wait_exits_5(
     config_env, monkeypatch, capsys
 ):

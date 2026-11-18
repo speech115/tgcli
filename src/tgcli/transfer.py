@@ -220,6 +220,7 @@ async def download_resumable(
     size: int | None,
     checkpoint: Callable[[int], None],
     progress: Callable[[int, int | None], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> int:
     """Append ``media`` into ``part`` from ``offset``; return the bytes on disk.
 
@@ -233,6 +234,8 @@ async def download_resumable(
     ``CHECKPOINT_EVERY_CHUNKS`` chunks and once more on the way out, whether
     the transfer finished or raised. The caller owns what that record looks
     like and what makes it valid to resume from; this owns only the loop.
+    ``should_stop``, checked after every chunk, ends the loop early; the
+    bytes so far are checkpointed like any other exit.
     """
     ensure_parent_dir(part)
     # 0600 from the first byte: the partial file is the user's media.
@@ -259,6 +262,8 @@ async def download_resumable(
                 ):
                     progress(current, size)
                     chunks_since_progress = 0
+                if should_stop is not None and should_stop():
+                    break
         except BaseException:
             # Bookkeeping must never replace the exception being unwound: a
             # FloodWait that leaves as an OSError loses its `retry_after`,
