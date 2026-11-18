@@ -155,7 +155,7 @@ when something breaks. The exit codes and journal are defined in
 | `~/.local/bin/tg` | symlink to `tgcli-prod/.venv/bin/tg` (made by `scripts/install-link.sh`) |
 | `~/.config/tgcli/` | config: accounts, `api_id` |
 | `~/.local/state/tgcli/` | sessions, previews, audit, journal, clone and archive state |
-| phone `~/apps/tgcli-next` | a separate checkout on the OnePlus that the remote tg-mcp connector runs through `tg-serve`; updated by hand |
+| phone `~/apps/tgcli-next` | a separate install on the OnePlus that the remote tg-mcp connector runs through `tg-serve`; updated hourly from the Mac |
 
 Scheduled work (archive sync, transcription, clone sync) is launchd calling
 the same `tg` on PATH; see the archive row in [SKILL.md](SKILL.md) and
@@ -194,9 +194,24 @@ With `--session-role job` (authorize once: `tg accounts login A --role job
 
 ### Shipping a merged change
 
-`main` is what runs, but a merge does nothing on the Mac until `tgcli-prod`
-moves. Ship only when CI on `main` is green and no `clone sync` or `archive
-sync` is running (`pgrep -fl 'bin/tg '`):
+`main` is what runs, and it ships itself. Two launchd agents on the Mac
+(scripts in `~/Projects/tools/tg-mcp/deploy/`) follow `origin/main`:
+
+| Agent | Every | Updates | Log |
+|---|---|---|---|
+| `com.tgcli.mac-update` | 15 min | `tgcli-prod` (`auto-update-tgcli-mac.sh`) | `~/Library/Logs/tgcli-mac-update.log` |
+| `com.tgcli.phone-update` | 1 h | the phone over ssh (`auto-update-tgcli.sh`) | `~/Library/Logs/tgcli-phone-update.log` |
+
+Each takes a commit only when its `checks` and `test` runs are green and no
+`tg` run (on the phone: no clone sync) is in progress, then smoke-tests
+(`tg --version`, `tg --json doctor`, `clone status`; on the phone the tg-mcp
+and clone-watch services). A failed smoke test puts the previous commit back
+and that commit is not tried again. The Mac agent refuses to touch
+`tgcli-prod` when it has local commits or edits, and says so in its log.
+
+So a merged change reaches agents on the Mac within about 15 minutes. If it
+has not, read the log first. To ship by hand, when no `clone sync` or
+`archive sync` is running (`pgrep -fl 'bin/tg '`):
 
 ```bash
 cd ~/Projects/tools/tgcli-prod
@@ -204,12 +219,6 @@ git rev-parse --short HEAD          # note it for a rollback
 git fetch origin main && git merge --ff-only origin/main
 uv sync --frozen --extra fast       # frozen lockfile; the extra keeps cryptg
 ```
-
-If the merge refuses, someone committed in `tgcli-prod` by hand: read
-`git log origin/main..HEAD` first. Then verify: `tg --version` matches
-`pyproject.toml`, `tg --json doctor --connect` is `"ok": true` for every account
-(with `runtime.aes` `cryptg`), `tg --json dialogs --limit 3` exits 0, and after
-a clone or archive change the next scheduled run exits 0 in the journal.
 
 To roll back: `git reset --keep <noted commit>` and `uv sync --frozen --extra
 fast` in `tgcli-prod`, then fix forward on `main`. A change that migrated a
