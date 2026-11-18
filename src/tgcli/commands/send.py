@@ -1,4 +1,5 @@
-"""Preview and replay the intentional Telegram send surface."""
+"""Preview and replay the intentional Telegram send surface: new messages and
+forwards of existing ones."""
 
 import hashlib
 import mimetypes
@@ -9,6 +10,7 @@ from telethon.tl import functions, types
 
 from tgcli import chatref, confirm, formatting, safety
 from tgcli.errors import NotFoundError, PolicyError
+from tgcli.messages import message_to_dict, sanitize_plain_text
 
 
 def _target_to_dict(entity) -> dict:
@@ -261,6 +263,83 @@ def to_rows(data: dict) -> list[tuple]:
                 data["file"],
                 data["reply_to"],
                 data.get("format", "md"),
+            )
+        ]
+    return [(data["preview_id"], data["message_id"])]
+
+
+async def prepare_forward(
+    tg, from_chat: str, message_id: int, chat: str, *, copy: bool, silent: bool
+) -> dict:
+    source = await _entity(tg, from_chat)
+    message = await tg.get_messages(source, ids=message_id)
+    if message is None:
+        raise NotFoundError(f"message not found: {message_id}")
+    if getattr(source, "noforwards", False) or getattr(message, "noforwards", False):
+        raise PolicyError(
+            f"{from_chat!r} is protected: Telegram refuses to forward its messages"
+        )
+    destination = await _entity(tg, chat)
+    shown = message_to_dict(message, source)
+    stored = safety.create_preview(
+        {
+            "kind": "forward",
+            "from_chat": from_chat,
+            "message_id": message_id,
+            "chat": chat,
+            "copy": copy,
+            "silent": silent,
+            "random_id": confirm.random_id(),
+            "from": _target_to_dict(source),
+            "to": _target_to_dict(destination),
+            "text": shown["text"],
+            "media_kind": shown["media_kind"],
+            "media_info": shown["media_info"],
+        }
+    )
+    keys = (
+        "preview_id",
+        "from",
+        "to",
+        "message_id",
+        "text",
+        "media_kind",
+        "media_info",
+        "copy",
+        "silent",
+        "expires_at",
+    )
+    return {key: stored[key] for key in keys}
+
+
+async def commit_forward(tg, preview_id: str, payload: dict) -> dict:
+    random_id = payload["random_id"]
+    request = functions.messages.ForwardMessagesRequest(
+        from_peer=await _input_peer(tg, payload["from_chat"]),
+        id=[payload["message_id"]],
+        to_peer=await _input_peer(tg, payload["chat"]),
+        random_id=[random_id],
+        silent=payload["silent"] or None,
+        drop_author=payload["copy"] or None,
+    )
+    sent = await confirm.send_confirmed(tg, request, random_id)
+    return {"preview_id": preview_id, **sent}
+
+
+def forward_rows(data: dict) -> list[tuple]:
+    if "to" in data:
+        return [
+            (
+                data["preview_id"],
+                data["from"]["id"],
+                sanitize_plain_text(data["from"]["name"]),
+                data["message_id"],
+                data["to"]["id"],
+                sanitize_plain_text(data["to"]["name"]),
+                sanitize_plain_text(data["text"]),
+                data["media_kind"],
+                data["copy"],
+                data["expires_at"],
             )
         ]
     return [(data["preview_id"], data["message_id"])]

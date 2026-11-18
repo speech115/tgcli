@@ -7,12 +7,13 @@ test_cli_mutate, the clone init machine):
   check in `safety._lock_pending`).
 - H2. The before-audit is written before the mutation, and an unwritable
   audit blocks it; a preview is spent only after its result audit.
-- H3. Re-committing a pending preview is safe. `send` reuses the
+- H3. Re-committing a pending preview is safe. `send` and `forward` reuse the
   preview's `random_id` (Telegram answers RANDOM_ID_DUPLICATE: `already_sent`),
   `edit` treats MESSAGE_NOT_MODIFIED as success, `delete` is
   idempotent, and `clone init` re-adopts its destination by marker.
 - H4. An expired preview never stays pending. Outside the TTL a new preview
-  carries a new `random_id`, so a delivered but unconfirmed send can repeat.
+  carries a new `random_id`, so a delivered but unconfirmed send or forward
+  can repeat.
 """
 
 from __future__ import annotations
@@ -138,6 +139,29 @@ HANDSHAKES = {
         required=("chat", "message_id"),
         preview_error=(
             "delete requires CHAT MESSAGE_ID --preview or --commit PREVIEW_ID"
+        ),
+        audit=_MESSAGE_AUDIT,
+    ),
+    "forward": Handshake(
+        kind="forward",
+        preview_call=lambda tg, args, _account: send_cmd.prepare_forward(
+            tg,
+            args.from_chat,
+            args.message_id,
+            args.chat,
+            copy=args.copy,
+            silent=args.silent,
+        ),
+        commit_call=lambda tg, args, _account: send_cmd.commit_forward(
+            tg,
+            args.commit,
+            args.preview_payload,
+        ),
+        rows=send_cmd.forward_rows,
+        required=("from_chat", "message_id", "chat"),
+        preview_error=(
+            "forward requires FROM_CHAT MESSAGE_ID TO_CHAT --preview"
+            " or --commit PREVIEW_ID"
         ),
         audit=_MESSAGE_AUDIT,
     ),

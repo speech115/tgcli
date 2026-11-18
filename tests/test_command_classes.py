@@ -55,6 +55,7 @@ HANDSHAKE_COMMITS = {
     "clone init": ["clone", "init", "@chat", "--commit", "p"],
     "delete": ["delete", "--commit", "p"],
     "edit": ["edit", "--commit", "p"],
+    "forward": ["forward", "--commit", "p"],
     "send": ["send", "--commit", "p"],
 }
 

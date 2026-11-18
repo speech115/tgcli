@@ -48,7 +48,7 @@ directories, and every write leaves an audit line.
 
 - **Automation contract**: JSON on stdout, diagnostics on stderr, fixed exit codes ([docs/CONTRACT.md](docs/CONTRACT.md)). State lives only in `~/.config/tgcli/` and `~/.local/state/tgcli/`.
 - **Read and search**: dialogs, reads by id or date, per-chat and global search, forum topics.
-- **Safe writes**: `send`, `edit`, `delete` and `clone init` go through preview → commit with single-use ids and an audit log; a retried `send` commit never duplicates.
+- **Safe writes**: `send`, `edit`, `delete`, `forward` and `clone init` go through preview → commit with single-use ids and an audit log; a retried `send` or `forward` commit never duplicates.
 - **Media and export**: manifest, single and bulk downloads (resumable, striped), JSONL export with `--resume`.
 - **Clone**: copy channels, groups, forums and private dialogs into owned destinations, with comments, pins and protected-content reupload.
 - **Archive**: a per-account SQLite store kept current by `archive sync`, with local voice transcription and offline search.
@@ -174,7 +174,7 @@ Global flags, environment variables (`TGCLI_READONLY`, `TGCLI_NO_SEND`, `TGCLI_C
 
 ## Preview → commit
 
-Reads are free. `send`, `edit`, `delete` and `clone init` take two invocations: `--preview` renders the exact intent into a single-use record (5-minute TTL), and `--commit ID` sends that record without retyping it.
+Reads are free. `send`, `edit`, `delete`, `forward` and `clone init` take two invocations: `--preview` renders the exact intent into a single-use record (5-minute TTL), and `--commit ID` sends that record without retyping it.
 
 ```bash
 tg --json send @channel "<b>bold</b>" --format html --preview
@@ -182,7 +182,7 @@ tg --json send @channel "<b>bold</b>" --format html --preview
 tg --json send --commit p_9f3a
 ```
 
-- After a failed commit, retry the same preview id; never make a second preview. A `send` carries its stored `random_id`, so the retry confirms the first dispatch instead of duplicating it.
+- After a failed commit, retry the same preview id; never make a second preview. A `send` or `forward` carries its stored `random_id`, so the retry confirms the first dispatch instead of duplicating it.
 - `--readonly`, `TGCLI_READONLY=1` and `TGCLI_NO_SEND=1` block mutations with exit 2 before any request. `clone sync` and `tg run --write` mint no preview but are gated the same way.
 - Every committed mutation is in the audit log.
 

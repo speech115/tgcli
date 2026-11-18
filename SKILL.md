@@ -47,6 +47,7 @@ command is in `tg COMMAND --help`; this page is what the help does not say.
 | Export a whole chat | `tg --json export messages CHAT --output FILE.jsonl [--resume]` |
 | Send | `tg --json send CHAT "TEXT" --preview [--reply-to ID] [--topic ID] [--silent] [--file PATH --caption TEXT] [--format html]`, then `tg --json send --commit PREVIEW_ID` |
 | Edit / delete | `tg --json edit CHAT ID "TEXT" --preview` · `tg --json delete CHAT ID --preview`, then `--commit PREVIEW_ID` |
+| Forward (a file, any message) | `tg --json forward FROM_CHAT ID TO_CHAT --preview [--copy] [--silent]`, then `tg --json forward --commit PREVIEW_ID`; `--copy` drops the "Forwarded from" header |
 | Offline archive | `tg --json archive search QUERY [--chat CHAT] [--from SENDER] [--since ISO]` · `archive read CHAT [--around-id ID]` · `archive status` |
 | Archive upkeep | `archive init` · `archive add/remove/list CHAT` · `archive backfill CHAT… \| --private` · `archive sync` · `archive transcribe` |
 | Clone a chat | `tg --json clone init SOURCE [--no-comments]`, then `clone init SOURCE --commit PREVIEW_ID`; copy with `tg --max-runtime 3600 --json clone sync SOURCE` or `--all`; `clone status` |
@@ -60,13 +61,13 @@ is `null`; for a whole chat use `export messages` instead.
 
 ## Writing
 
-Send, edit, delete and `clone init` are two steps: `--preview` returns a
-single-use `preview_id` valid for five minutes, and `--commit ID` sends
-exactly that; any other flag beside `--commit` is a usage error.
+Send, edit, delete, forward and `clone init` are two steps: `--preview`
+returns a single-use `preview_id` valid for five minutes, and `--commit ID`
+sends exactly that; any other flag beside `--commit` is a usage error.
 
 - Make one preview. If the commit exits 1, rerun the same `--commit ID`;
-  never make a second preview. The retry carries the same `random_id`, so it
-  cannot duplicate.
+  never make a second preview. A send or forward retry carries the same
+  `random_id`, so it cannot duplicate.
 - Exit 0 with `"already_sent": true` means the earlier attempt was delivered:
   stop.
 - Exit 2 "preview commit already in progress": an earlier commit is still
@@ -100,14 +101,13 @@ PY
 | Message count | `(await client.get_messages(CHAT, limit=0)).total` |
 | Contacts | `await client(functions.contacts.GetContactsRequest(hash=0))` |
 | Drafts | `await client.get_drafts()` |
-| Forward (`--write`) | `await client.forward_messages(DESTINATION, MESSAGE_ID, SOURCE)` |
 | Channel members | `async for user in client.iter_participants(CHAT): ...` |
 
 Scripts only read. A request that changes Telegram exits 2 unless you pass
 `tg run --write SCRIPT`, and only when the owner asked for that change;
-prefer `send`/`edit`/`delete`, which preview first. `auth.*` and `account.*`
-requests are refused even with `--write`. In readonly mode `tg run` is
-refused entirely.
+prefer `send`, `edit`, `delete` and `forward`, which preview first. `auth.*`
+and `account.*` requests are refused even with `--write`. In readonly mode
+`tg run` is refused entirely.
 
 A script that reads many chats paces itself: `await asyncio.sleep(3)` per
 chat and `wait_time=3` on `client.iter_messages`.

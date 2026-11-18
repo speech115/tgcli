@@ -1,0 +1,21 @@
+{
+  "exit": 0,
+  "stdout": {
+    "copy": false,
+    "expires_at": "<volatile>",
+    "from": {
+      "id": -1001234,
+      "name": "Channel"
+    },
+    "media_info": null,
+    "media_kind": null,
+    "message_id": 42,
+    "preview_id": "<volatile>",
+    "silent": false,
+    "text": "hello again",
+    "to": {
+      "id": 111,
+      "name": "Alice"
+    }
+  }
+}
