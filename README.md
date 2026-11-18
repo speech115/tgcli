@@ -12,29 +12,18 @@
 
 A stateless Telegram client built on [`telethon`](https://github.com/LonamiWebs/Telethon). Signs in as your own user account over MTProto, does exactly one operation per invocation, and gives you JSON-first reading, search, media, export, and preview → commit correspondence from the command line — for humans, scripts, and AI agents alike.
 
-> Third-party tool. Uses the MTProto user API via `telethon`. Not affiliated with Telegram. No daemons, no ports, no LaunchAgents — every command is a foreground process that exits.
-
-Design lineage: [openclaw/gogcli](https://github.com/openclaw/gogcli) (architecture), `tools/telegram` (domain knowledge, sessions, TDLib media experience).
-
-## Contents
-
-[Features](#features) · [Install](#install) · [Quick start](#quick-start) ·
-[Documentation](#documentation) · [Configuration](#configuration) ·
-[Preview → commit](#preview--commit) · [Operations](#operations) ·
-[Status](#status-and-contributing) · [License](#license)
+> Third-party tool. Uses the MTProto user API via `telethon`. Not affiliated with Telegram. No background daemon: every `tg` command is a foreground process that exits, and `tg-serve` / `tg-mcp` hold a session only while their caller runs.
 
 ## Features
 
-- **Stateless by design** — one entrypoint, one operation per process. Nothing runs between invocations; state is limited to `~/.config/tgcli/` and `~/.local/state/tgcli/`.
-- **Automation contract** — `--json` / `--plain` on stdout, everything human on stderr, documented exit codes, additive-only JSON changes. See [docs/CONTRACT.md](docs/CONTRACT.md).
-- **Reading and search** — dialogs with unread/kind filters, id- and date-paginated reads, per-dialog and global search, reply threads, and message context windows. Anything else Telethon can do is one `tg run` script away.
-- **Safe correspondence** — `send`, `edit`, and `delete` go through preview → commit with single-use ids, a 5-minute TTL, operation-specific retry checks, and an append-only audit log.
-- **Retry-safe sends** — `send` commits carry a stored Telegram `random_id`, so retrying the same preview confirms the original dispatch instead of creating a duplicate.
-- **Media and export** — manifest before download, bulk filtered downloads, and JSONL message export with `--resume`.
-- **Chat clone** — copy broadcast channels, megagroup supergroups (forum and non-forum), legacy basic groups, and private dialogs into tool-created destinations, with native forwards plus protected-content reupload.
-- **Local archive store** — `tg archive` binds a per-account SQLite store, backfills selected/private dialogs, syncs new updates through a GetDifference cursor, acquires bounded voice/video-note media with terminal retry state, transcribes locally with Parakeet, and provides filtered/ranked offline search plus timeline/history views.
-- **Scripts** — `tg run SCRIPT` runs Python with the authorized Telethon client for anything without a command; read-only unless `--write`, every write is audited first, and readonly mode refuses scripts entirely.
-- **Diagnostics and hygiene** — `tg doctor` reports locally by default (`--connect` for live checks); `tg store cleanup` reclaims local state without ever touching sessions or the audit log.
+- **Automation contract**: JSON on stdout, diagnostics on stderr, fixed exit codes ([docs/CONTRACT.md](docs/CONTRACT.md)). State lives only in `~/.config/tgcli/` and `~/.local/state/tgcli/`.
+- **Read and search**: dialogs, reads by id or date, per-chat and global search, threads, context windows.
+- **Safe writes**: `send`, `edit`, `delete` and `clone init` go through preview → commit with single-use ids and an audit log; a retried `send` commit never duplicates.
+- **Media and export**: manifest, single and bulk downloads (resumable, striped), JSONL export with `--resume`.
+- **Clone**: copy channels, groups, forums and private dialogs into owned destinations, with comments, pins and protected-content reupload.
+- **Archive**: a per-account SQLite store kept current by `archive sync`, with local voice transcription and offline search.
+- **Scripts**: `tg run SCRIPT` for anything without a command; read-only unless `--write`, refused entirely in readonly mode.
+- **MCP**: `tg-mcp` serves read-only tools to agents without a shell ([docs/MCP.md](docs/MCP.md)).
 
 ## Install
 
@@ -111,7 +100,7 @@ tg --json doctor
 tg --json store cleanup --older-than 7d
 ```
 
-Chat references accept `@username`, a `t.me/` link, or a numeric dialog id; `tg resolve` additionally takes a phone number in E.164 form. Every command takes `--json` (contract data) or `--plain` (TSV); without either, output is human-readable and unstable by design.
+Chat references accept `@username`, a `t.me/` link, or a numeric dialog id. `--json` is contract data, `--plain` is TSV; anything else is for humans and may change.
 
 ## Documentation
 
@@ -138,62 +127,21 @@ Config lives at `~/.config/tgcli/config.toml`:
 
 Sessions, locks, previews, the audit log, and cache live under `~/.local/state/tgcli/` (mode `0700`). Account selection order is `--account` > `TGCLI_ACCOUNT` > `default_account`.
 
-**Global flags:** `--account NAME`, `--session-role NAME`, `--json`, `--plain`, `--readonly`, `--timeout SEC` (wall-time deadline — see [CONTRACT §1](docs/CONTRACT.md#1-invocation)), `--max-runtime SEC` (wall-clock cap for long runs: normal stop with a resume pointer), `-v/--verbose`, `--version`.
-
-**Environment overrides:**
-
-| Variable | Effect |
-| --- | --- |
-| `TGCLI_CONFIG` | Config file path. Defaults to `~/.config/tgcli/config.toml`. |
-| `TGCLI_STATE_DIR` | State root for sessions, locks, previews, audit log, cache. |
-| `TGCLI_ACCOUNT` | Account alias to use when `--account` is absent. |
-| `TGCLI_READONLY` | `1` (or `true`/`yes`/`on`) blocks every mutation before any network work; `0`/`false`/`no`/`off` or unset leaves it off; any other value is a config error (exit 3). |
-| `TGCLI_NO_SEND` | Same values; on blocks message-producing mutations specifically. |
-| `TGCLI_LIVE_SMOKE` | `1` enables the live-account smoke tests in the suite (read-only; `TGCLI_LIVE_ACCOUNT` picks the alias). |
-
-**Exit codes:**
-
-| Code | Meaning |
-| --- | --- |
-| 0 | success |
-| 1 | runtime error |
-| 2 | blocked by safety policy |
-| 3 | config or authentication error |
-| 4 | not found |
-| 5 | rate limited; JSON error carries `retry_after` |
+Global flags, environment variables (`TGCLI_READONLY`, `TGCLI_NO_SEND`, `TGCLI_CONFIG`, `TGCLI_STATE_DIR`, `TGCLI_ACCOUNT`) and exit codes are in [docs/CONTRACT.md](docs/CONTRACT.md).
 
 ## Preview → commit
 
-Reads are free. Preview-backed mutations — `send`, `edit`, `delete`, and `clone init` — use two invocations. The first resolves and renders the exact intent into a single-use preview record; the second commits that record by id, without retyping it. `clone sync` and `tg run --write` do not mint a preview, but remain gated by `--readonly` / `TGCLI_READONLY` and audited.
-
-```mermaid
-flowchart LR
-    A["tg send … --preview"] --> B["preview record<br/>single-use · 5-min TTL"]
-    B --> C["tg send --commit ID"]
-    C --> D["audit: intent"]
-    D --> E["Telegram"]
-    E --> F["audit: result"]
-    F --> G["preview consumed"]
-```
+Reads are free. `send`, `edit`, `delete` and `clone init` take two invocations: `--preview` renders the exact intent into a single-use record (5-minute TTL), and `--commit ID` sends that record without retyping it.
 
 ```bash
-tg --json send @channel "<b>bold</b> and a <tg-spoiler>secret</tg-spoiler>" \
-  --format html --preview
+tg --json send @channel "<b>bold</b>" --format html --preview
 # → {"preview_id": "p_9f3a", "to": {…}, "text": "…", "expires_at": "…"}
-
 tg --json send --commit p_9f3a
 ```
 
-- Previews expire after 5 minutes and are consumed on commit.
-- `send`, `edit`, and `delete` commits use the retryable preview lifecycle: after a network/runtime failure, retry the same preview id; never create a second preview. `send` additionally uses its stored Telegram `random_id` for network-level deduplication.
-- `clone init` commits use the same retryable
-  `begin_commit` / `finish_commit` handshake as `send`/`edit`:
-  after a mid-commit failure, retry the same preview id within its TTL;
-  never create a second preview for that attempt. Already-applied work is
-  recovered or rechecked by the command. A FloodWait during the preview
-  scan itself still needs a new preview after the wait.
-- `--readonly`, `TGCLI_READONLY=1`, and `TGCLI_NO_SEND=1` hard-block mutations with exit 2, before any network call.
-- Every committed mutation is appended to the audit log; `tg store cleanup` can never delete it.
+- After a failed commit, retry the same preview id; never make a second preview. A `send` carries its stored `random_id`, so the retry confirms the first dispatch instead of duplicating it.
+- `--readonly`, `TGCLI_READONLY=1` and `TGCLI_NO_SEND=1` block mutations with exit 2 before any request. `clone sync` and `tg run --write` mint no preview but are gated the same way.
+- Every committed mutation is in the audit log, which `tg store cleanup` never deletes.
 
 ## Operations
 
@@ -210,6 +158,7 @@ when something breaks. The exit codes and journal are defined in
 | `~/.local/bin/tg` | symlink to `tgcli-prod/.venv/bin/tg` (made by `scripts/install-link.sh`) |
 | `~/.config/tgcli/` | config: accounts, `api_id` |
 | `~/.local/state/tgcli/` | sessions, previews, audit, journal, clone and archive state |
+| phone `~/apps/tgcli-next` | a separate checkout on the OnePlus that the remote tg-mcp connector runs through `tg-serve`; updated by hand |
 
 Scheduled work (archive sync, transcription, clone sync) is launchd calling
 the same `tg` on PATH; see the archive row in [SKILL.md](SKILL.md) and
@@ -217,12 +166,9 @@ the same `tg` on PATH; see the archive row in [SKILL.md](SKILL.md) and
 
 ### Keeping clones current
 
-One launchd job per account runs `clone sync --all` on a short interval (or
-one job per clone runs `clone sync SOURCE`). tgcli keeps no daemon: the job
-starts, finds out whether any source has anything new, and exits. `--all`
-answers that for every clone with one `GetPeerDialogs` per 100 peers, treats
-a FloodWait as the account's (no clone runs until it is over), and goes on to
-the next clone when one refuses.
+One launchd job per account runs `clone sync --all` on a short interval. It
+checks every clone with one `GetPeerDialogs` per 100 peers, copies what is
+new, treats a FloodWait as the account's, and exits.
 
 ```xml
 <key>Label</key>
@@ -240,95 +186,43 @@ the next clone when one refuses.
 <integer>120</integer>
 ```
 
-The command is `tg --account A [--session-role job] --max-runtime 240 --json
-clone sync --all`. Leave out `--session-role job` if no one else uses the
-account's primary session. With a role, authorize it once (`tg accounts login A
---role job --phone PHONE`), so a sync never holds the session your own
-commands need.
+With `--session-role job` (authorize once: `tg accounts login A --role job
+--phone PHONE`) a sync never holds the session your own commands need.
 
-Why it is safe and cheap to run this often:
-
-- An idle run costs the session check plus one one-message history read of the
-  source, and of its discussion group when comments are copied. It copies
-  nothing, opens no destination and lists no roster, and says
-  `"up_to_date":true`. A full run happens when something is new, and once a
-  day for the roster (`participants`).
-- A FloodWait that ends a sync (exit 5) is written into the clone as
-  `retry_not_before`. Every run before that time exits 5 with the remaining
-  `retry_after` and sends no request, so a short interval never sends into a
-  live ban. `tg clone status` shows the field.
-- `--max-runtime 240` ends a long copy as a normal stop (exit 0, `remaining`
-  true); the next run resumes at the saved cursor. launchd starts no second
-  instance while one runs, and the clone's own lock refuses an overlap with a
-  manual run (exit 2).
+- An idle run costs one `GetPeerDialogs` and reports `"up_to_date":true`.
+- A FloodWait that ends a sync is stored as `retry_not_before`; until then
+  every run exits 5 without sending a request.
+- `--max-runtime 240` ends a long copy as a normal stop (`remaining: true`);
+  the next run resumes. The clone's lock refuses an overlapping manual run.
 
 ### Shipping a merged change
 
-`main` is what runs. A merge does nothing on the Mac until `tgcli-prod` moves.
-
-#### Before
-
-- [ ] The PR's `checks` and `test` jobs are green, and so is the `main` run
-      after the merge. A red `main` run means two green PRs conflict in
-      meaning: fix forward before you move `tgcli-prod`.
-- [ ] No one-shot long run is in flight: no `clone sync` or `archive sync`
-      started by hand or by launchd is running right now
-      (`pgrep -fl 'bin/tg '`). A run picks up the new code only on its next
-      start, but swapping files under a running process is not worth it.
-- [ ] Note the current commit, so a rollback is one command:
-      `git -C ~/Projects/tools/tgcli-prod rev-parse --short HEAD`.
-
-#### Ship
+`main` is what runs, but a merge does nothing on the Mac until `tgcli-prod`
+moves. Ship only when CI on `main` is green and no `clone sync` or `archive
+sync` is running (`pgrep -fl 'bin/tg '`):
 
 ```bash
 cd ~/Projects/tools/tgcli-prod
-git fetch origin main
-git merge --ff-only origin/main
-uv sync --frozen --extra fast   # frozen: never rewrite uv.lock; the extra keeps cryptg
+git rev-parse --short HEAD          # note it for a rollback
+git fetch origin main && git merge --ff-only origin/main
+uv sync --frozen --extra fast       # frozen lockfile; the extra keeps cryptg
 ```
 
-The merge refuses anything but a fast-forward. If it refuses, someone
-committed in `tgcli-prod` by hand: look at `git log origin/main..HEAD` before
-doing anything else.
+If the merge refuses, someone committed in `tgcli-prod` by hand: read
+`git log origin/main..HEAD` first. Then verify: `tg --version` matches
+`pyproject.toml`, `tg --json doctor --connect` is `"ok": true` for every account
+(with `runtime.aes` `cryptg`), `tg --json dialogs --limit 3` exits 0, and after
+a clone or archive change the next scheduled run exits 0 in the journal.
 
-#### Verify
-
-- [ ] `tg --version` matches `pyproject.toml`.
-- [ ] `tg --json doctor --connect` reports `"ok": true` for every account, and
-      `runtime.python` points into `tgcli-prod/.venv` and `runtime.aes` is
-      `cryptg`.
-- [ ] One read: `tg --json dialogs --limit 3` exits 0.
-- [ ] If the change touched clone or archive: the next scheduled run exits 0
-      (the invocation journal shows its `exit_code`, see below).
-
-#### Roll back
-
-Roll back when the verify step fails, or a scheduled run starts exiting 1
-right after the ship:
-
-```bash
-cd ~/Projects/tools/tgcli-prod
-git reset --keep <commit noted before>
-uv sync --frozen --extra fast
-```
-
-Then open an issue or a fix PR. The next ship fast-forwards past the bad
-commit once the fix is on `main`. Local state needs no rollback unless the
-change migrated a SQLite schema: then the older code may refuse the newer
-database, and the fix goes forward, not back.
+To roll back: `git reset --keep <noted commit>` and `uv sync --frozen --extra
+fast` in `tgcli-prod`, then fix forward on `main`. A change that migrated a
+SQLite schema cannot be rolled back this way; the fix goes forward.
 
 ### Release (only when the owner asks)
 
-Releases are rare: one user runs `main`. When asked:
-
-- [ ] A PR bumps `version` in `pyproject.toml` and `__version__` in
-      `src/tgcli/__init__.py` to the same `X.Y.Z`. A `Breaking:` PR title
-      replaces a major bump, so the number is the owner's call.
-- [ ] After it merges, tag that merge commit: `git tag vX.Y.Z <sha>` and
-      `git push origin vX.Y.Z`.
-- [ ] `gh release create vX.Y.Z --generate-notes`, then trim the notes to what
-      a user would notice.
-- [ ] Ship to the Mac as above.
+Bump `version` in `pyproject.toml` and `__version__` in `src/tgcli/__init__.py`
+in one PR, tag the merge commit `vX.Y.Z`, run `gh release create vX.Y.Z
+--generate-notes`, then ship as above.
 
 ### When something breaks
 
@@ -365,51 +259,24 @@ pinned Telethon writes a schema that older versions crash on.
 
 ### tg-serve protocol
 
-`tg-serve` keeps one session connected for programs that run many `tg`
-commands in a row, so each command skips the import and connect a `tg`
-process pays.
+`tg-serve [--account main] [--session-role NAME]` keeps one session connected
+for a program that runs many `tg` commands (the phone's tg-mcp uses it). Give
+it its own session role: the held session stays locked while it runs.
 
-#### Run it
+It speaks one JSON object per line. After connecting it writes
+`{"ready": true, "account": "main", "role": "mcp"}`. Each request is
+`{"argv": ["read", "--limit", "5", "--", "@channel"], "stdin": ""}`: a `tg`
+command without global flags (the server adds `--account`, `--session-role`
+and `--json`; put positionals after `--`). Each reply is
+`{"exit_code": 0, "stdout": "…", "stderr": ""}`, exactly what that `tg`
+invocation would print.
 
-```bash
-tg-serve [--account main] [--session-role NAME]
-```
-
-Give it its own session role (`tg accounts login main --role NAME --phone …`):
-the held session file stays locked while the server runs.
-
-#### Protocol
-
-One JSON object per line. After connecting, the server writes:
-
-```json
-{"ready": true, "account": "main", "role": "mcp"}
-```
-
-Each request names a `tg` command without global flags; the server adds
-`--account`, `--session-role` and `--json`. Put positional values after `--`
-so text that starts with `-` is never read as a flag:
-
-```json
-{"argv": ["read", "--limit", "5", "--", "@channel"], "stdin": ""}
-```
-
-The reply carries what that `tg` invocation would have printed and its exit
-code ([CONTRACT](docs/CONTRACT.md) §4):
-
-```json
-{"exit_code": 0, "stdout": "{\"dialog\": …}\n", "stderr": ""}
-```
-
-- `stdin` (optional) is what the command reads from stdin, for `run -`,
-  `--code -` or `--password-stdin`.
-- A request that sets `--account` or `--session-role`, or is not a JSON object
-  with a non-empty `argv` list, gets exit code 1 and a `USAGE` error.
-- If the session cannot be opened, the server writes the error envelope to
-  stdout instead of the ready line and exits with its code (3 for an
-  unauthorized or busy session).
-- Requests run one at a time, in order. Closing stdin ends the server and
-  releases the session.
+- `stdin` is optional, for `run -`, `--code -` or `--password-stdin`.
+- A request that sets `--account` or `--session-role`, or has no non-empty
+  `argv` list, gets exit code 1 and a `USAGE` error.
+- If the session cannot be opened, the server writes the error envelope
+  instead of the ready line and exits with its code.
+- Requests run one at a time; closing stdin ends the server.
 
 ## Status and contributing
 
@@ -417,13 +284,7 @@ In production use by its owner. New behavior starts from an owner request, and a
 
 ## Credits
 
-- Architecture and CLI posture modelled on [`gogcli`](https://github.com/openclaw/gogcli).
-- Local-state hygiene and offline diagnostics adopted from a review of [`wacli`](https://wacli.sh).
-- Built on [`telethon`](https://github.com/LonamiWebs/Telethon) by LonamiWebs.
-
-## Maintainers
-
-- [@speech115](https://github.com/speech115)
+CLI posture from [`gogcli`](https://github.com/openclaw/gogcli); built on [`telethon`](https://github.com/LonamiWebs/Telethon).
 
 ## License
 
