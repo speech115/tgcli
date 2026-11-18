@@ -229,3 +229,24 @@ def test_the_refusal_stands_when_no_caption_is_over_the_limit(
 
     assert "caption-fallback" not in safety.audit_path().read_text()
     assert state.load(clone_state.clone_id).dest_for(2) is None
+
+
+def test_the_next_run_accepts_the_rest_it_sent(config_env, monkeypatch, capsys):
+    """A rest is the clone's own message: the tail guard of the next run must
+    not read it as a stranger and stop the clone for manual repair."""
+    clone_state = seed_clone()
+    client = CaptionClient(
+        [message(2, media=PHOTO, message="a" * 600 + " " + "c" * 900)]
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+    [rest] = texts(client)
+
+    client.messages.append(message(3, message="next post"))
+    assert main(["clone", "sync", "@source", "--json"]) == 0
+
+    loaded = state.load(clone_state.clone_id)
+    assert loaded.dest_for(3) is not None
+    assert loaded.caption_rest_map[2] == loaded.dest_for(2) + 1
+    assert loaded.max_destination_id() == loaded.dest_for(3)
+    assert "manual repair" not in capsys.readouterr().err
