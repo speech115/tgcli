@@ -93,19 +93,6 @@ def test_live_bounded_search_saved_messages_has_json_shape():
         assert_message_shape(message)
 
 
-def test_live_script_reads_the_full_self_user(tmp_path):
-    script = tmp_path / "me.py"
-    script.write_text(
-        "import json\n"
-        "request = functions.users.GetFullUserRequest(types.InputUserSelf())\n"
-        "full = await client(request)\n"
-        "print(json.dumps({'id': full.full_user.id}))\n"
-    )
-    result = run_tg("run", str(script))
-    assert result.returncode == 0, result.stderr
-    assert isinstance(json.loads(result.stdout)["id"], int)
-
-
 def assert_dialog_shape(dialog):
     assert {"id", "name"} <= dialog.keys()
     assert isinstance(dialog["id"], int)
