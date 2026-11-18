@@ -499,50 +499,6 @@ def test_archive_search_plain_tsv_and_readonly(config_env, monkeypatch, capsys):
     assert cols[1] == "1"
 
 
-def test_archive_v1_store_migrates_fts_tokenizer(config_env, monkeypatch):
-    import sqlite3
-
-    from tgcli.archive import store as store_mod
-
-    make_session_fake(monkeypatch, archive_client())
-    assert main(["archive", "init", "--json"]) == 0
-    path = archive_cmd.db_path("main")
-    conn = sqlite3.connect(path)
-    conn.executescript(
-        """
-        DROP TABLE IF EXISTS messages_fts;
-        CREATE VIRTUAL TABLE messages_fts USING fts5(
-            text, transcript, peer_id UNINDEXED, message_id UNINDEXED
-        );
-        DELETE FROM messages;
-        INSERT INTO messages(
-            peer_id, message_id, date, from_id, text, edited_at, payload
-        )
-        VALUES (7, 1, '2026-01-02T00:00:00+00:00', 7, 'про ёлка', NULL, '{}');
-        INSERT INTO messages_fts(text, transcript, peer_id, message_id)
-        VALUES ('про ёлка', '', 7, 1);
-        PRAGMA user_version=1;
-        """
-    )
-    conn.commit()
-    conn.close()
-    conn = store_mod.connect(path)
-    try:
-        assert store_mod.schema_version(conn) == 12
-        rows = conn.execute(
-            "SELECT peer_id, message_id FROM messages_fts WHERE messages_fts MATCH ?",
-            (store_mod.fold_yo("елка"),),
-        ).fetchall()
-        assert len(rows) == 1
-        sql = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE name='messages_fts'"
-        ).fetchone()[0]
-        assert "unicode61" in sql
-        assert "remove_diacritics" in sql
-    finally:
-        conn.close()
-
-
 def test_backfill_spaces_dialogs_and_history_pages(
     config_env, monkeypatch, capsys, pace_clock
 ):

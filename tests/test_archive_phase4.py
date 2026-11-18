@@ -12,11 +12,11 @@ import pytest
 from tgcli.archive import (
     explore as explore_module,
     media as media_module,
-    schema as schema_mod,
     store,
     sync as sync_module,
     transcribe as transcribe_module,
 )
+from tgcli.errors import PolicyError
 
 
 def _payload(message_id: int, text: str, *, media_kind: str = "voice") -> dict:
@@ -117,301 +117,6 @@ def test_schema_v7_keeps_media_failure_state_without_refresh_state(tmp_path):
             }
         )
         assert store.schema_version(conn) == 12
-    finally:
-        conn.close()
-
-
-def test_schema_v5_migrates_media_retry_state(tmp_path):
-    path = tmp_path / "archive.db"
-    old_sql = schema_mod._SCHEMA_SQL.replace(
-        "    media_attempts INTEGER NOT NULL DEFAULT 0,\n"
-        "    media_status TEXT NOT NULL DEFAULT 'pending',\n",
-        "",
-    )
-    raw = sqlite3.connect(path)
-    raw.executescript(old_sql)
-    raw.execute("PRAGMA user_version=5")
-    raw.execute(
-        "INSERT INTO transcripts(peer_id, message_id, status, attempts, updated_at, "
-        "media_path, media_kind, last_error) VALUES (7, 1, 'pending', 0, ?, ?, ?, ?)",
-        ("2026-01-01T00:00:00+00:00", "media/7/1.ogg", "voice", "old error"),
-    )
-    raw.commit()
-    raw.close()
-
-    conn = store.connect(path)
-    try:
-        row = store.transcript_row(conn, 7, 1)
-        assert store.schema_version(conn) == 12
-        assert row["media_attempts"] == 0
-        assert row["media_status"] == "done"
-    finally:
-        conn.close()
-
-
-def test_schema_v6_migrates_refresh_state_out_and_preserves_sync_data(tmp_path):
-    path = tmp_path / "archive.db"
-    prior_v6_sql = schema_mod._SCHEMA_SQL.replace(
-        "    reconcile_json TEXT,\n"
-        "    private_enum_json TEXT,\n"
-        "    pending_catchups_json TEXT\n);",
-        "    reconcile_json TEXT,\n"
-        "    refresh_failure_streak INTEGER NOT NULL DEFAULT 0,\n"
-        "    refresh_last_error TEXT,\n"
-        "    refresh_notification_sent INTEGER NOT NULL DEFAULT 0\n"
-        ");",
-        1,
-    )
-    raw = sqlite3.connect(path)
-    raw.executescript(prior_v6_sql)
-    raw.execute("PRAGMA user_version=6")
-    raw.execute(
-        "INSERT INTO account_sync("
-        "id, changes_cursor, gap_json, last_sync_at, last_reconcile_at, "
-        "reconcile_json, refresh_failure_streak, refresh_last_error, "
-        "refresh_notification_sent"
-        ") VALUES (1, ?, ?, ?, ?, ?, 3, 'obsolete detail', 1)",
-        (
-            "cursor-v1",
-            '{"kind":"difference-too-long"}',
-            "2026-08-01T00:00:00+00:00",
-            "2026-08-01T00:01:00+00:00",
-            '{"sampled":1}',
-        ),
-    )
-    raw.commit()
-    raw.close()
-
-    conn = store.connect(path)
-    try:
-        assert store.schema_version(conn) == 12
-        columns = {
-            row[1] for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
-        }
-        assert {
-            "refresh_failure_streak",
-            "refresh_last_error",
-            "refresh_notification_sent",
-        }.isdisjoint(columns)
-        row = conn.execute("SELECT * FROM account_sync WHERE id = 1").fetchone()
-        assert dict(row) == {
-            "id": 1,
-            "changes_cursor": "cursor-v1",
-            "gap_json": '[{"kind":"difference-too-long"}]',
-            "last_sync_at": "2026-08-01T00:00:00+00:00",
-            "last_reconcile_at": "2026-08-01T00:01:00+00:00",
-            "reconcile_json": '{"sampled":1}',
-            "private_enum_json": None,
-            "pending_catchups_json": None,
-        }
-    finally:
-        conn.close()
-
-
-def test_schema_v7_migrates_private_enum_column(tmp_path):
-    path = tmp_path / "archive.db"
-    prior_v7_sql = schema_mod._SCHEMA_SQL.replace(
-        "    reconcile_json TEXT,\n"
-        "    private_enum_json TEXT,\n"
-        "    pending_catchups_json TEXT\n);",
-        "    reconcile_json TEXT\n);",
-        1,
-    )
-    raw = sqlite3.connect(path)
-    raw.executescript(prior_v7_sql)
-    raw.execute("PRAGMA user_version=7")
-    raw.execute(
-        "INSERT INTO account_sync("
-        "id, changes_cursor, gap_json, last_sync_at, last_reconcile_at, "
-        "reconcile_json"
-        ") VALUES (1, ?, NULL, NULL, NULL, NULL)",
-        ("cursor-v1",),
-    )
-    raw.commit()
-    raw.close()
-
-    conn = store.connect(path)
-    try:
-        assert store.schema_version(conn) == 12
-        columns = {
-            row[1] for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
-        }
-        assert "private_enum_json" in columns
-        account = store.read_account_sync(conn)
-        assert account["changes_cursor"] == "cursor-v1"
-        assert account["private_enum"] is None
-    finally:
-        conn.close()
-
-
-def test_schema_v8_migrates_pending_catchups_column(tmp_path):
-    path = tmp_path / "archive.db"
-    prior_v8_sql = schema_mod._SCHEMA_SQL.replace(
-        "    private_enum_json TEXT,\n    pending_catchups_json TEXT\n);",
-        "    private_enum_json TEXT\n);",
-        1,
-    )
-    raw = sqlite3.connect(path)
-    raw.executescript(prior_v8_sql)
-    raw.execute("PRAGMA user_version=8")
-    raw.execute(
-        "INSERT INTO account_sync(id, changes_cursor, private_enum_json) "
-        "VALUES (1, ?, ?)",
-        ("cursor-v1", '{"offset_id":3}'),
-    )
-    raw.commit()
-    raw.close()
-
-    conn = store.connect(path)
-    try:
-        assert store.schema_version(conn) == 12
-        account = store.read_account_sync(conn)
-        assert account["changes_cursor"] == "cursor-v1"
-        assert account["private_enum"] == {"offset_id": 3}
-        assert account["pending_catchups"] == []
-    finally:
-        conn.close()
-
-
-def test_schema_v9_keeps_its_stored_gap_as_the_first_of_a_list(tmp_path):
-    path = tmp_path / "archive.db"
-    raw = sqlite3.connect(path)
-    raw.executescript(schema_mod._SCHEMA_SQL)
-    raw.execute("PRAGMA user_version=9")
-    raw.execute(
-        "INSERT INTO account_sync(id, changes_cursor, gap_json) VALUES (1, ?, ?)",
-        ("cursor-v1", '{"scope":"common","reason":"differenceTooLong"}'),
-    )
-    raw.commit()
-    raw.close()
-
-    conn = store.connect(path)
-    try:
-        assert store.schema_version(conn) == 12
-        account = store.read_account_sync(conn)
-        assert account["gaps"] == [{"scope": "common", "reason": "differenceTooLong"}]
-        assert account["gap"] == account["gaps"][0]
-        assert account["changes_cursor"] == "cursor-v1"
-    finally:
-        conn.close()
-
-
-def test_schema_v10_ends_transcripts_whose_media_gave_up(tmp_path):
-    path = tmp_path / "archive.db"
-    raw = sqlite3.connect(path)
-    raw.executescript(schema_mod._SCHEMA_SQL)
-    raw.execute("PRAGMA user_version=10")
-    rows = [
-        (1, "pending", 0, None, "no_media"),
-        (2, "retryable", 1, None, "no_media"),
-        (3, "done", 1, "heard", "no_media"),
-        (4, "pending", 0, None, "retryable"),
-    ]
-    for message_id, status, attempts, text, media_status in rows:
-        raw.execute(
-            "INSERT INTO messages(peer_id, message_id, date, text, payload) "
-            "VALUES (7, ?, ?, 'caption', ?)",
-            (
-                message_id,
-                f"2026-01-0{message_id}",
-                json.dumps(_payload(message_id, "caption")),
-            ),
-        )
-        raw.execute(
-            "INSERT INTO messages_fts(text, transcript, peer_id, message_id) "
-            "VALUES ('caption', ?, 7, ?)",
-            (text or "", message_id),
-        )
-        raw.execute(
-            "INSERT INTO transcripts(peer_id, message_id, text, status, attempts, "
-            "updated_at, media_kind, media_attempts, media_status, last_error) "
-            "VALUES (7, ?, ?, ?, ?, '2026-01-01', 'voice', 3, ?, 'gone')",
-            (message_id, text, status, attempts, media_status),
-        )
-    raw.commit()
-    raw.close()
-
-    conn = store.connect(path)
-    try:
-        assert store.schema_version(conn) == 12
-        assert [
-            (row["status"], row["attempts"])
-            for row in (store.transcript_row(conn, 7, mid) for mid in (1, 2, 3, 4))
-        ] == [("no_transcript", 0), ("no_transcript", 1), ("done", 1), ("pending", 0)]
-        hits = explore_module.search(conn, "no_transcript")["hits"]
-        assert sorted(hit["message_id"] for hit in hits) == [1, 2]
-    finally:
-        conn.close()
-
-
-def test_schema_v11_ends_transcripts_a_redownload_reopened(tmp_path):
-    """A re-download used to move an ended row back to pending with its
-    attempts kept, and the queue never took it again."""
-    path = tmp_path / "archive.db"
-    raw = sqlite3.connect(path)
-    raw.executescript(schema_mod._SCHEMA_SQL)
-    raw.execute("PRAGMA user_version=11")
-    rows = [
-        (1, "pending", 3, None),
-        (2, "pending", 0, None),
-        (3, "retryable", 1, None),
-        (4, "done", 1, "heard"),
-        (5, "pending", 1, None),
-    ]
-    for message_id, status, attempts, text in rows:
-        raw.execute(
-            "INSERT INTO messages(peer_id, message_id, date, text, payload) "
-            "VALUES (7, ?, ?, 'caption', ?)",
-            (
-                message_id,
-                f"2026-01-0{message_id}",
-                json.dumps(_payload(message_id, "caption")),
-            ),
-        )
-        raw.execute(
-            "INSERT INTO messages_fts(text, transcript, peer_id, message_id) "
-            "VALUES ('caption', ?, 7, ?)",
-            (text or "", message_id),
-        )
-        raw.execute(
-            "INSERT INTO transcripts(peer_id, message_id, text, status, attempts, "
-            "updated_at, media_kind, media_attempts, media_status) "
-            "VALUES (7, ?, ?, ?, ?, '2026-01-01', 'voice', 0, 'done')",
-            (message_id, text, status, attempts),
-        )
-    raw.commit()
-    raw.close()
-
-    conn = store.connect(path)
-    try:
-        assert store.schema_version(conn) == schema_mod.SCHEMA_VERSION
-        assert [
-            store.transcript_row(conn, 7, mid)["status"] for mid in (1, 2, 3, 4, 5)
-        ] == ["no_transcript", "pending", "retryable", "done", "no_transcript"]
-        hits = explore_module.search(conn, "no_transcript")["hits"]
-        assert sorted(hit["message_id"] for hit in hits) == [1, 5]
-    finally:
-        conn.close()
-
-
-def test_schema_v9_without_a_gap_migrates_to_no_gaps(tmp_path):
-    path = tmp_path / "archive.db"
-    raw = sqlite3.connect(path)
-    raw.executescript(schema_mod._SCHEMA_SQL)
-    raw.execute("PRAGMA user_version=9")
-    raw.execute(
-        "INSERT INTO account_sync(id, changes_cursor, gap_json) VALUES (1, ?, NULL)",
-        ("cursor-v1",),
-    )
-    raw.commit()
-    raw.close()
-
-    conn = store.connect(path)
-    try:
-        assert store.schema_version(conn) == 12
-        account = store.read_account_sync(conn)
-        assert account["gaps"] == []
-        assert account["gap"] is None
     finally:
         conn.close()
 
@@ -905,3 +610,17 @@ async def test_catch_up_fills_a_backlog_larger_than_one_page_without_holes(tmp_p
         assert first["more"] is True
     finally:
         conn.close()
+
+
+@pytest.mark.parametrize("version", [1, 11, store.SCHEMA_VERSION + 1])
+def test_a_store_at_another_schema_version_is_refused(tmp_path, version):
+    """Only the current schema opens; the migrations to it are gone."""
+    path = tmp_path / "archive.db"
+    store.connect(path).close()
+    raw = sqlite3.connect(path)
+    raw.execute(f"PRAGMA user_version={version}")
+    raw.commit()
+    raw.close()
+
+    with pytest.raises(PolicyError, match="unsupported schema version"):
+        store.connect(path)
