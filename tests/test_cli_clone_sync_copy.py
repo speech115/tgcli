@@ -91,7 +91,7 @@ def test_clone_sync_forwards_private_dialog_nonreply_with_author_header(
     assert sync["forwarded"] == 1
 
 
-def test_clone_sync_reuploads_private_dialog_reply_with_explicit_source_peer(
+def test_clone_sync_forwards_private_dialog_reply_with_explicit_source_peer(
     config_env, monkeypatch, capsys
 ):
     clone_state = seed_clone(kind="dialog", title="Alex Smith")
@@ -126,12 +126,12 @@ def test_clone_sync_reuploads_private_dialog_reply_with_explicit_source_peer(
 
     capsys.readouterr()
     [request] = client.requests
-    assert isinstance(request, functions.messages.SendMessageRequest)
-    assert request.message == "Alex Smith: \n\nanswer"
+    assert isinstance(request, functions.messages.ForwardMessagesRequest)
+    assert request.id == [2] and request.drop_author is False
     assert request.reply_to.reply_to_msg_id == 1001
 
 
-def test_clone_sync_reuploads_basic_group_reply_with_explicit_source_peer(
+def test_clone_sync_forwards_basic_group_reply_with_explicit_source_peer(
     config_env, monkeypatch, capsys
 ):
     clone_state = seed_clone(kind="basic", title="Legacy group")
@@ -150,7 +150,7 @@ def test_clone_sync_reuploads_basic_group_reply_with_explicit_source_peer(
 
     assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 1
     [request] = client.requests
-    assert isinstance(request, functions.messages.SendMessageRequest)
+    assert isinstance(request, functions.messages.ForwardMessagesRequest)
     assert request.reply_to.reply_to_msg_id == 1001
 
 
@@ -197,7 +197,7 @@ def test_clone_sync_clean_run_has_empty_quote_flattened(
     assert sync["copied"] == 1
 
 
-def test_clone_sync_reuploads_reply_to_mapped_parent_with_quote(
+def test_clone_sync_forwards_reply_to_mapped_parent_with_quote(
     config_env, monkeypatch, capsys
 ):
     clone_state = seed_clone()
@@ -219,7 +219,8 @@ def test_clone_sync_reuploads_reply_to_mapped_parent_with_quote(
 
     assert json.loads(capsys.readouterr().out)["sync"]["copied"] == 1
     [request] = client.requests
-    assert isinstance(request, functions.messages.SendMessageRequest)
+    assert isinstance(request, functions.messages.ForwardMessagesRequest)
+    assert request.drop_author is True
     assert request.reply_to.reply_to_msg_id == 1001
     assert request.reply_to.quote_text == "quote"
     assert request.reply_to.quote_entities == quote_entities

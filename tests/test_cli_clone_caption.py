@@ -143,8 +143,9 @@ def test_a_caption_without_spaces_splits_at_the_limit_whole_characters(
 
 
 def test_a_reply_keeps_its_rest_in_the_same_thread(config_env, monkeypatch, capsys):
-    """An open reply goes by file reference; its split must not fall back to a
-    byte copy, and the rest answers the post so a thread keeps both."""
+    """An open reply whose forward is refused goes by file reference; its split
+    must not fall back to a byte copy, and the rest answers the post so a
+    thread keeps both."""
     clone_state = seed_clone()
     clone_state.record_mapping(1, 1001)
     clone_state.cursor = 1
@@ -159,6 +160,7 @@ def test_a_reply_keeps_its_rest_in_the_same_thread(config_env, monkeypatch, caps
         [message(2, media=photo, reply_to=reply, message="b" * 2000)],
         protected=False,
     )
+    client.refuse_reply_forward = True
     client.destination_last_id = 1001
     make_session_fake(monkeypatch, client)
 

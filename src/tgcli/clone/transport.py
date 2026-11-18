@@ -71,10 +71,8 @@ def decide(
         reply_flattened = True
     if len(messages) == 1 and fidelity.supports(messages[0]):
         mode = "snapshots"
-    elif (
-        getattr(source, "noforwards", False)
-        or reply_to is not None
-        or any(getattr(message, "noforwards", False) for message in messages)
+    elif getattr(source, "noforwards", False) or any(
+        getattr(message, "noforwards", False) for message in messages
     ):
         mode = "reuploaded"
     else:

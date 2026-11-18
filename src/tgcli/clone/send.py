@@ -24,6 +24,7 @@ from tgcli.clone import (
     snapshot,
     state,
     topics,
+    transport,
 )
 from tgcli.clone.legs import AnyLeg
 from tgcli.errors import PolicyError
@@ -429,6 +430,19 @@ def _settle(run: SendRun, leg: AnyLeg, response, random_ids, what, record):
     return destination_ids
 
 
+async def _reupload_author(run: SendRun, source, leg: AnyLeg, messages):
+    """The attribution a reupload needs when a forward could not carry it."""
+    if leg.source_kind == "broadcast":
+        if getattr(messages[0], "fwd_from", None) is None:
+            return None
+        return await attribution.forwarded_author_of(
+            run.tg, messages[0], run.author_cache
+        )
+    return await attribution.author_of(
+        run.tg, source, messages[0], run.me, run.author_cache
+    )
+
+
 async def forward_batch(
     run: SendRun,
     source,
@@ -458,17 +472,7 @@ async def forward_batch(
         )
     author = None
     if plan.needs_author and proven is None:
-        if (
-            leg.source_kind == "broadcast"
-            and getattr(messages[0], "fwd_from", None) is not None
-        ):
-            author = await attribution.forwarded_author_of(
-                tg, messages[0], run.author_cache
-            )
-        else:
-            author = await attribution.author_of(
-                tg, source, messages[0], run.me, run.author_cache
-            )
+        author = await _reupload_author(run, source, leg, messages)
     mode = plan.mode
     overflow = []
     journal.begin(clone_state, leg, "batch", source_ids)
@@ -517,6 +521,8 @@ async def forward_batch(
         )
     elif plan.mode == "forwarded":
         run.audit("clone-sync-forward", source_ids)
+        # A reply rides the forward itself (`reply_to`, carrying its own
+        # topic), so an open source's replies are server-side copies too.
         request = functions.messages.ForwardMessagesRequest(
             from_peer=source,
             id=source_ids,
@@ -524,8 +530,33 @@ async def forward_batch(
             to_peer=destination,
             drop_author=_drops_author(leg, messages),
             top_msg_id=top_msg_id,
+            reply_to=reply_to if plan.reply_to is not None else None,
         )
-        response = await run.paces.send.call(lambda: tg(request))
+        try:
+            response = await run.paces.send.call(lambda: tg(request))
+        except TRANSIENT_ERRORS:
+            # The forward may have landed: a reupload could post it twice.
+            raise
+        except telethon_errors.RPCError as exc:
+            if plan.reply_to is None:
+                raise
+            note(
+                f"warning: clone forward as a reply refused ({exc}); reuploading "
+                f"source message(s) {source_ids}"
+            )
+            mode = "reuploaded"
+            author = await _reupload_author(run, source, leg, messages)
+            response = await reupload_batch(
+                run,
+                destination,
+                messages,
+                random_ids,
+                reply_to,
+                author,
+                transport.as_reuploaded(plan),
+                by_reference=True,
+                overflow=overflow,
+            )
     else:
         response = await reupload_batch(
             run,

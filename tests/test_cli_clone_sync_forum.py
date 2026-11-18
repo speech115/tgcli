@@ -91,9 +91,7 @@ def test_clone_sync_creates_destination_topic_from_topic_create_service(
     assert len(client.requests) == 1
 
 
-def test_clone_sync_reuploads_topic_reply_with_prefix_into_topic(
-    config_env, monkeypatch, capsys
-):
+def test_clone_sync_forwards_topic_reply_into_topic(config_env, monkeypatch, capsys):
     clone_state = seed_clone(kind="forum", title="Forum chat")
     clone_state.record_topic(2, 1002)
     clone_state.record_mapping(3, 1003)
@@ -127,12 +125,12 @@ def test_clone_sync_reuploads_topic_reply_with_prefix_into_topic(
     [request] = [
         item
         for item in client.requests
-        if isinstance(item, functions.messages.SendMessageRequest)
+        if isinstance(item, functions.messages.ForwardMessagesRequest)
     ]
-    assert request.message == "Alex: \n\npong"
+    assert request.id == [4] and request.top_msg_id == 1002
     assert request.reply_to.reply_to_msg_id == 1003
     assert request.reply_to.top_msg_id == 1002
-    assert sync["reuploaded"] == 1
+    assert sync["forwarded"] == 1
 
 
 def test_clone_sync_recovers_unmapped_topic_from_source_lookup(

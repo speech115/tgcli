@@ -288,12 +288,14 @@ def test_clone_sync_falls_back_to_reupload_when_reference_is_refused(
 
     reply = types.MessageReplyHeader(reply_to_msg_id=1)
     client = RefusingReferenceClient([message(2, media=real_photo(70), reply_to=reply)])
+    client.refuse_reply_forward = True
     client.destination_last_id = 1001
     make_session_fake(monkeypatch, client)
 
     assert main(["clone", "sync", "@source", "--json"]) == 0
 
     captured = capsys.readouterr()
+    assert "forward as a reply refused" in captured.err
     assert "media by reference refused" in captured.err
     [request] = client.requests
     assert isinstance(request.media, types.InputMediaUploadedPhoto)
@@ -324,6 +326,7 @@ def test_clone_sync_never_reuploads_after_a_transient_reference_send_failure(
 
     reply = types.MessageReplyHeader(reply_to_msg_id=1)
     client = FailingReferenceClient([message(2, media=real_photo(70), reply_to=reply)])
+    client.refuse_reply_forward = True
     client.destination_last_id = 1001
     make_session_fake(monkeypatch, client)
 

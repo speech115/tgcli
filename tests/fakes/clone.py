@@ -323,6 +323,10 @@ def refuse_unnamed_photo(media) -> None:
 
 
 class CloneReuploadClient(CloneSyncClient):
+    # Telegram refusing a forward that carries a reply, so the copy falls
+    # back to a send by file reference.
+    refuse_reply_forward = False
+
     def __init__(self, messages, *, protected=False):
         super().__init__(messages)
         self.source.noforwards = protected
@@ -343,6 +347,12 @@ class CloneReuploadClient(CloneSyncClient):
         )
 
     async def __call__(self, request):
+        if (
+            self.refuse_reply_forward
+            and isinstance(request, functions.messages.ForwardMessagesRequest)
+            and request.reply_to is not None
+        ):
+            raise telethon_errors.BadRequestError(request, "REPLY_TO_INVALID")
         if isinstance(
             request,
             (
