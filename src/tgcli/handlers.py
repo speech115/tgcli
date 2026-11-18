@@ -16,6 +16,7 @@ from tgcli.commands import (
     export as export_cmd,
     login as login_cmd,
     media as media_cmd,
+    media_bulk,
     run as run_cmd,
     store as store_cmd,
 )
@@ -192,8 +193,8 @@ async def media_download(tg, args, account) -> tuple[dict, list[tuple]]:
         return data, media_cmd.to_rows(data)
 
     if bulk:
-        ids = media_cmd.parse_message_ids(message_ids_raw) if message_ids_raw else None
-        data = await media_cmd.download_media_bulk(
+        ids = media_bulk.parse_message_ids(message_ids_raw) if message_ids_raw else None
+        data = await media_bulk.download_media_bulk(
             tg,
             args.source,
             account.alias,
@@ -204,7 +205,7 @@ async def media_download(tg, args, account) -> tuple[dict, list[tuple]]:
             output=args.output,
             progress=progress,
         )
-        return data, media_cmd.bulk_to_rows(data)
+        return data, media_bulk.bulk_to_rows(data)
 
     source = media_cmd.parse_source(args.source, args.message_id)
     data = await media_cmd.download_media(

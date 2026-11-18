@@ -10,7 +10,7 @@ from telethon.tl import types
 
 from tests.conftest import ns
 from tests.fakes.media import media_message
-from tgcli.commands import media
+from tgcli.commands import media, media_bulk
 from tgcli.commands.media import (
     MediaSource,
     _resume_offset,
@@ -707,7 +707,7 @@ async def test_bulk_download_skips_existing_destinations_and_continues(
 
     monkeypatch.setattr(media, "download_media", fake_download_media)
 
-    data = await media.download_media_bulk(
+    data = await media_bulk.download_media_bulk(
         FakeTelegram(),
         "@channel",
         "main",
@@ -780,7 +780,7 @@ async def test_bulk_download_filter_limit_counts_successes_not_skipped_attempts(
         ),
     )
 
-    data = await media.download_media_bulk(
+    data = await media_bulk.download_media_bulk(
         client,
         "@channel",
         "main",

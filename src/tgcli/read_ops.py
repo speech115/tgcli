@@ -12,7 +12,7 @@ from tgcli.commands import (
     dialogs as dialogs_cmd,
     identity as identity_cmd,
     info as info_cmd,
-    media as media_cmd,
+    media_bulk,
     read as read_cmd,
     search as search_cmd,
 )
@@ -196,10 +196,10 @@ _SPECS: dict[str, _Spec] = {
     ),
     "media.manifest": _Spec(
         cli=lambda a: MediaManifest(a.source, a.media_type, a.since, a.limit),
-        fetch=lambda tg, op: media_cmd.manifest(
+        fetch=lambda tg, op: media_bulk.manifest(
             tg, op.source, kind=op.kind, since=op.since, limit=op.limit
         ),
-        rows=media_cmd.manifest_to_rows,
+        rows=media_bulk.manifest_to_rows,
     ),
 }
 
