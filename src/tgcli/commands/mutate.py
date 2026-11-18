@@ -1,9 +1,8 @@
 """Preview-to-commit mutations on existing messages (ADR-0028)."""
 
 from telethon.errors import MessageNotModifiedError
-from telethon.tl import functions
 
-from tgcli import chatref, confirm, formatting, safety
+from tgcli import chatref, formatting, safety
 from tgcli.errors import NotFoundError
 from tgcli.messages import sanitize_plain_text
 
@@ -11,13 +10,6 @@ from tgcli.messages import sanitize_plain_text
 async def _entity(tg, chat: str):
     try:
         return await tg.get_entity(chatref.parse(chat))
-    except ValueError:
-        raise NotFoundError(f"dialog not found: {chat!r}") from None
-
-
-async def _input_peer(tg, chat: str):
-    try:
-        return await tg.get_input_entity(chatref.parse(chat))
     except ValueError:
         raise NotFoundError(f"dialog not found: {chat!r}") from None
 
@@ -94,52 +86,7 @@ async def commit_delete(tg, preview_id: str, payload: dict) -> dict:
     return {"preview_id": preview_id, "message_id": payload["message_id"]}
 
 
-async def prepare_forward(tg, source: str, message_id: int, destination: str) -> dict:
-    source_entity = await _entity(tg, source)
-    message = await _message(tg, source_entity, message_id)
-    await _entity(tg, destination)
-    stored = safety.create_preview(
-        {
-            "kind": "forward",
-            "source": source,
-            "message_id": message_id,
-            "destination": destination,
-            "text": message.text or "",
-            "random_id": confirm.random_id(),
-        }
-    )
-    keys = (
-        "preview_id",
-        "source",
-        "message_id",
-        "destination",
-        "text",
-        "expires_at",
-    )
-    return {key: stored[key] for key in keys}
-
-
-async def commit_forward(tg, preview_id: str, payload: dict) -> dict:
-    request = functions.messages.ForwardMessagesRequest(
-        from_peer=await _input_peer(tg, payload["source"]),
-        id=[payload["message_id"]],
-        random_id=[payload["random_id"]],
-        to_peer=await _input_peer(tg, payload["destination"]),
-    )
-    sent = await confirm.send_confirmed(tg, request, payload["random_id"])
-    return {"preview_id": preview_id, **sent}
-
-
 def to_rows(data: dict) -> list[tuple]:
-    if "destination" in data:
-        return [
-            (
-                data["preview_id"],
-                data["source"],
-                data["message_id"],
-                data["destination"],
-            )
-        ]
     if "old_text" in data:
         return [
             (

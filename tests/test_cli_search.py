@@ -165,44 +165,6 @@ def test_search_json_passes_query_and_returns_search_results(
     }
 
 
-def test_latest_json_returns_first_message(config_env, monkeypatch, capsys):
-    entity = ns(id=-1001234, title="Channel")
-    fake = FakeClient(
-        messages=[make_message(42, "latest"), make_message(41, "older")],
-        entities={"@chan": entity},
-    )
-    make_session_fake(monkeypatch, fake)
-
-    code = main(["latest", "@chan", "--json"])
-
-    assert code == 0
-    assert fake.iter_messages_calls == [(entity, None, 1)]
-    assert json.loads(capsys.readouterr().out) == {
-        "dialog": {"id": -1001234, "name": "Channel"},
-        "message": {
-            "id": 42,
-            "date": "2026-07-06T10:00:00+00:00",
-            "from": {"id": 111, "name": "Alice", "username": None},
-            "text": "latest",
-            "media": None,
-            "media_info": None,
-            "media_kind": None,
-            "voice_played": None,
-            "reply_to": None,
-            "quote_text": None,
-            "permalink": None,
-            "edited_at": None,
-            "outgoing": False,
-            "forwarded_from": None,
-            "reactions": [],
-            "custom_emoji": [],
-            "topic_id": None,
-            "grouped_id": None,
-            "is_service": False,
-        },
-    }
-
-
 @pytest.mark.parametrize(
     ("command", "fake"),
     [
@@ -213,16 +175,9 @@ def test_latest_json_returns_first_message(config_env, monkeypatch, capsys):
                 entities={"@chan": entity},
             ),
         ),
-        (
-            ["latest", "@chan", "--plain"],
-            lambda entity: FakeClient(
-                messages=[make_message(42, "a\tb\r\nc")],
-                entities={"@chan": entity},
-            ),
-        ),
     ],
 )
-def test_search_and_latest_plain_sanitize_message_controls(
+def test_search_plain_sanitize_message_controls(
     config_env, monkeypatch, capsys, command, fake
 ):
     entity = ns(id=-1001234, title="Channel")
@@ -243,15 +198,9 @@ def test_search_and_latest_plain_sanitize_message_controls(
                 search_messages={"needle": [message]}, entities={"@chan": entity}
             ),
         ),
-        (
-            ["latest", "@chan", "--plain"],
-            lambda entity, message: FakeClient(
-                messages=[message], entities={"@chan": entity}
-            ),
-        ),
     ],
 )
-def test_search_and_latest_plain_sanitize_sender_controls(
+def test_search_plain_sanitize_sender_controls(
     config_env, monkeypatch, capsys, command, fake
 ):
     entity = ns(id=-1001234, title="Channel")

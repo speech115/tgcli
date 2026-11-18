@@ -74,7 +74,6 @@ ENTITIES = st.builds(
 ENTITY_SCOPED = [
     (["read", "@peer"], ("dialog", "id")),
     (["message", "@peer", "1"], ("dialog", "id")),
-    (["count", "@peer"], ("dialog", "id")),
     (["search", "@peer", "hello"], ("dialog", "id")),
     (["info", "@peer"], ("id",)),
     (["export", "messages", "@peer", "--output", "OUT"], ("export", "dialog", "id")),

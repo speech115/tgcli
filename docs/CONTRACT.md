@@ -29,7 +29,7 @@ Global flags (available on every command):
 | `--json` | machine output: one JSON document to stdout |
 | `--plain` | stable TSV to stdout (no colors, no alignment) |
 | `--readonly` | hard-block any mutating call in this invocation |
-| `--timeout <sec>` | overall invocation deadline covering preflight and execution, in wall time (default 60; no default deadline for media, exports, `clone init\|sync`, or `archive backfill\|sync\|transcribe`, which own bounded work; `accounts login --continue` takes none; `tg transcribe` defaults to 120, the transcription wait) |
+| `--timeout <sec>` | overall invocation deadline covering preflight and execution, in wall time (default 60; no default deadline for media, exports, `clone init\|sync`, or `archive backfill\|sync\|transcribe`, which own bounded work; `accounts login --continue` takes none) |
 | `--max-runtime <sec>` | explicit wall-clock cap for long runs: exhausting it is a normal stop (exit 0), with `stop_reason` and a resume pointer where the command keeps a cursor |
 | `-v/--verbose` | Python and Telethon debug diagnostics on stderr for this invocation |
 
@@ -91,7 +91,7 @@ flag.
   rejected as unrecognized arguments.
 - A value that begins with `-` is read as options, not as a positional: pass
   the flags first and such values after `--`
-  (`tg draft set --preview --json -- @chat -hi`).
+  (`tg send --preview --json -- @chat -hi`).
 
 ## 4. Exit Codes
 
@@ -132,7 +132,7 @@ the request again and may draw a longer wait.
 
 **Pacing.** A command that sends a handful of requests never
 waits; a loop spaces its own. A read of one chat at the owner's request
-(`read`, `search`, `latest`, `media manifest`) leaves page spacing to
+(`read`, `search`, `media manifest`) leaves page spacing to
 Telethon: no wait up to 3000 messages, 1 s a page beyond, so `read --limit
 300` is three requests back to back. A history walk inside a loop waits 3 s
 before each page after the first (100 messages a page): `archive backfill`
@@ -144,8 +144,7 @@ before it started:
 - the dialogs of `archive backfill`, and the channels and catch-ups of
   `archive sync`;
 - the pages of a dialog or participant listing in `archive backfill
-  --private`, `clone init`, the `clone sync` roster and `export subscribers`;
-- the prefix queries of a broadcast `export subscribers`;
+  --private`, `clone init` and the `clone sync` roster;
 - the files of a bulk `media download`, of the `archive sync` media pass and
   of a clone reupload;
 - the sends of one `clone sync` run: `messages.sendMessage`, `sendMedia`,

@@ -40,10 +40,6 @@ REFUSALS = [
         ["export", "messages", "@chan", "--output", "out.jsonl", "--limit", "0"],
         "export messages --limit must be positive",
     ),
-    (
-        ["export", "subscribers", "@chan", "--output", "out.csv", "--limit", "-1"],
-        "export subscribers --limit must be positive",
-    ),
 ]
 
 

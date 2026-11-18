@@ -117,18 +117,7 @@ async def fetch_info_full(tg, chat: str) -> dict:
     }
 
 
-async def fetch_count(tg, chat: str) -> dict:
-    entity = await _entity(tg, chat)
-    messages = await tg.get_messages(entity, limit=0)
-    return {
-        "dialog": {"id": entity.id, "name": _name(entity, chat)},
-        "count": messages.total,
-    }
-
-
 def to_rows(data: dict) -> list[tuple]:
-    if "count" in data:
-        return [(data["count"],)]
     return [
         (
             data["id"],

@@ -99,9 +99,7 @@ async def test_search_all_emits_the_marked_id_and_marked_sender():
     "operation, path",
     [
         (read_ops.Info("@chan", False), ("id",)),
-        (read_ops.Count("@chan"), ("dialog", "id")),
         (read_ops.Search("@chan", "needle", 20, False, None, None), ("dialog", "id")),
-        (read_ops.Latest("@chan"), ("dialog", "id")),
         (read_ops.Message("@chan", 7, 0), ("dialog", "id")),
         (read_ops.MediaManifest("@chan", None, None, 100), ("dialog", "id")),
         (

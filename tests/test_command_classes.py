@@ -18,16 +18,9 @@ from tgcli.registry import COMMANDS
 # Network reads: Telegram is only asked, never changed. Output files a read
 # writes (`media download`, `export`) are the caller's own.
 READS = {
-    "contacts list",
-    "contacts search",
-    "count",
     "dialogs",
-    "draft list",
-    "draft show",
     "export messages",
-    "export subscribers",
     "info",
-    "latest",
     "media download",
     "media manifest",
     "message",
@@ -46,7 +39,6 @@ LOCAL_READS = {
     "archive status",
     "clone status",
     "doctor",
-    "store stats",
 }
 # Writes without a preview/commit handshake, each with an argv that would
 # write: under TGCLI_READONLY=1 every one must exit 2 before it does.
@@ -63,16 +55,12 @@ GATED_WRITES = {
     "clone sync": ["clone", "sync", "@chat"],
     "run": ["run", "--write", "-"],
     "store cleanup": ["store", "cleanup", "--confirm"],
-    "transcribe": ["transcribe", "@chat", "1"],
 }
 # Preview → commit writes: the commit leg must exit 2 when read-only.
 HANDSHAKE_COMMITS = {
     "clone init": ["clone", "init", "@chat", "--commit", "p"],
     "delete": ["delete", "--commit", "p"],
-    "draft clear": ["draft", "clear", "--commit", "p"],
-    "draft set": ["draft", "set", "--commit", "p"],
     "edit": ["edit", "--commit", "p"],
-    "forward": ["forward", "--commit", "p"],
     "send": ["send", "--commit", "p"],
 }
 

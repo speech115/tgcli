@@ -395,26 +395,6 @@ def test_network_command_verifies_live_account_id(config_env, monkeypatch, capsy
     assert "account" in capsys.readouterr().err.lower()
 
 
-def test_store_stats_reports_archive_and_cleanup_keeps_it(
-    config_env, monkeypatch, capsys
-):
-    make_session_fake(monkeypatch, archive_client())
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    root = archive_cmd.account_dir("main")
-    marker = root / "keep-me.txt"
-    marker.write_text("secret-archive-bytes")
-    assert main(["store", "stats", "--json"]) == 0
-    stats = json.loads(capsys.readouterr().out)
-    assert stats["archive"]["bytes"] >= len("secret-archive-bytes")
-    assert stats["archive"]["db"]["count"] >= 1
-    assert main(["store", "cleanup", "--confirm", "--json"]) == 0
-    cleanup = json.loads(capsys.readouterr().out)
-    assert cleanup["kept"]["archive"] is True
-    assert marker.exists()
-    assert (root / "archive.db").exists()
-
-
 def test_config_archive_root_override(tmp_path, monkeypatch, capsys):
     custom = tmp_path / "custom-archive"
     config = tmp_path / "config.toml"
