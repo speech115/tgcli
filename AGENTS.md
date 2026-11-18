@@ -25,8 +25,11 @@ git config core.hooksPath .githooks   # once per clone: static checks on push
 2. **stdout is contract data only**; diagnostics go to stderr via
    `output.note()`. A JSON change regenerates the snapshot
    (`UPDATE_SNAPSHOTS=1 uv run pytest tests/test_json_snapshots.py`); a
-   removed or renamed field or flag means a `Breaking:` PR title. Keep the
-   fields launchd jobs and gbrain read.
+   removed or renamed field or flag means a `Breaking:` PR title. Keep what
+   other programs rely on: the fields launchd jobs and gbrain read, and
+   everything the phone's tg-mcp connector calls through `tg-serve`
+   (`dialogs`, `read`, `search`, `message`, `info`, `resolve`, `send`,
+   `run`, and `tgcli.mcp.untrusted`).
 3. **Test at the CLI seam**: argv in; stdout, exit code and the exact
    Telegram requests out. Mock only the Telegram client (`FakeClient`), time
    and the filesystem. A bug fix starts with a test that fails on `main`.
