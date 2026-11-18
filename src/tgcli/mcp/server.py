@@ -1,10 +1,10 @@
 """`tg-mcp`: a stdio MCP server that exposes read-only tgcli commands.
 
 The MCP client starts this process and owns its lifetime; it opens no socket
-and keeps no Telegram session (ADR-0123). Each ``tools/call`` runs one
-``tg --json --readonly`` process with ``TGCLI_READONLY=1`` and
-``TGCLI_NO_SEND=1`` forced, waits for it to exit, marks Telegram-authored
-strings as untrusted, and returns the document.
+(ADR-0123). Each ``tools/call`` runs one ``tg --json --readonly`` invocation
+in-process with ``TGCLI_READONLY=1`` and ``TGCLI_NO_SEND=1`` forced, over a
+session held between calls and released when idle (`tgcli.mcp.held`), marks
+Telegram-authored strings as untrusted, and returns the document.
 
 Only stdout carries JSON-RPC; diagnostics go to stderr.
 """
@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -22,6 +20,7 @@ from importlib import metadata
 from typing import IO, Any
 
 from tgcli.mcp import untrusted
+from tgcli.mcp.held import DEFAULT_IDLE, DEFAULT_ROLE, HeldRunner
 from tgcli.mcp.tools import DIALOGS, TOOLS, Allowlist, ToolError
 
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -42,44 +41,6 @@ def _version() -> str:
         return metadata.version("tgcli")
     except metadata.PackageNotFoundError:
         return "0"
-
-
-def tg_command() -> list[str]:
-    """Run `tg` under this interpreter, so the adapter and CLI never diverge."""
-    return [sys.executable, "-c", "from tgcli.cli import entrypoint; entrypoint()"]
-
-
-def subprocess_runner(
-    account: str | None = None,
-    timeout: float = DEFAULT_TIMEOUT,
-    command: list[str] | None = None,
-) -> Runner:
-    base = [*(command or tg_command()), "--json", "--readonly"]
-    if account:
-        base += ["--account", account]
-    env = {**os.environ, "TGCLI_READONLY": "1", "TGCLI_NO_SEND": "1"}
-
-    def run(argv: list[str]) -> tuple[int, str]:
-        try:
-            done = subprocess.run(
-                [*base, *argv],
-                env=env,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            envelope = {
-                "error": {"code": "TIMEOUT", "message": f"tg ran past {timeout}s"}
-            }
-            return 1, json.dumps(envelope)
-        if done.stderr:
-            sys.stderr.write(done.stderr)
-        return done.returncode, done.stdout
-
-    return run
 
 
 @dataclass
@@ -218,6 +179,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--account", help="tgcli account alias.")
     parser.add_argument(
+        "--session-role",
+        dest="session_role",
+        metavar="NAME",
+        help=f"Session role to hold (its own login), so tg on the main session "
+        f"never waits for the agent (default {DEFAULT_ROLE!r}; the main session "
+        f"while that role is not logged in).",
+    )
+    parser.add_argument(
+        "--main-session",
+        action="store_true",
+        help="Hold the account's main session instead of a role.",
+    )
+    parser.add_argument(
+        "--idle",
+        type=float,
+        default=DEFAULT_IDLE,
+        help=f"Seconds without a call before the session is released "
+        f"(default {DEFAULT_IDLE:g}).",
+    )
+    parser.add_argument(
         "--timeout",
         type=float,
         default=DEFAULT_TIMEOUT,
@@ -235,8 +216,20 @@ def main(argv: list[str] | None = None) -> int:
         allowlist = Allowlist.build(args.allow_chat, args.allow_all_chats)
     except ValueError as err:
         parser.error(str(err))
-    runner = subprocess_runner(args.account, args.timeout)
-    serve(Server(allowlist, runner), sys.stdin, sys.stdout)
+    if args.main_session and args.session_role:
+        parser.error("--main-session and --session-role are exclusive")
+    role = None if args.main_session else args.session_role or DEFAULT_ROLE
+    runner = HeldRunner(
+        args.account,
+        role=role,
+        timeout=args.timeout,
+        idle=args.idle,
+        fallback_to_main=not args.main_session and args.session_role is None,
+    )
+    try:
+        serve(Server(allowlist, runner), sys.stdin, sys.stdout)
+    finally:
+        runner.close()
     return 0
 
 

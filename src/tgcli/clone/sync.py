@@ -14,7 +14,7 @@ Invariants (tests: test_clone_sync_faults' CloneSyncFaultMachine):
 - L2. A copy Telegram made but tgcli did not record (a crash between send and
   save) is caught before the next copy: ``discussion.verify_tail`` refuses
   any destination message above the highest mapped id (exit 2, manual
-  repair).
+  repair). A split caption's rest is recorded, so it counts as mapped.
 - L3. The reupload cache is cleared only after the batch's mapping is saved,
   so a crash resumes the download.
 """

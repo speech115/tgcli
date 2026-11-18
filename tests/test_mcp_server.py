@@ -1,15 +1,13 @@
 """The read-only MCP adapter at its public seams (ADR-0123).
 
-JSON-RPC lines in, JSON-RPC lines out. The fake runner stands in for the `tg`
-process and records every argv; one test drives the real subprocess runner
-against an empty config so the readonly environment is proven end to end.
+JSON-RPC lines in, JSON-RPC lines out. The fake runner stands in for `tg` and
+records every argv; `test_mcp_held.py` drives the real in-process runner.
 """
 
 from __future__ import annotations
 
 import io
 import json
-import subprocess
 
 import pytest
 from hypothesis import given, strategies as st
@@ -298,57 +296,9 @@ def test_main_refuses_to_start_without_an_allowlist(capsys):
     assert "--allow-chat" in capsys.readouterr().err
 
 
-def test_real_runner_forces_readonly(monkeypatch):
-    seen: dict = {}
-
-    def fake_run(cmd, **kwargs):
-        seen["cmd"] = cmd
-        seen["env"] = kwargs["env"]
-        return subprocess.CompletedProcess(cmd, 0, stdout="{}", stderr="")
-
-    monkeypatch.setenv("TGCLI_READONLY", "0")
-    monkeypatch.setattr(mcp_server.subprocess, "run", fake_run)
-    run = mcp_server.subprocess_runner(account="main", command=["tg"])
-
-    assert run(["read", "--", "@news"]) == (0, "{}")
-    assert seen["cmd"] == [
-        "tg",
-        "--json",
-        "--readonly",
-        "--account",
-        "main",
-        "read",
-        "--",
-        "@news",
-    ]
-    assert seen["env"]["TGCLI_READONLY"] == "1"
-    assert seen["env"]["TGCLI_NO_SEND"] == "1"
-
-
-def test_real_runner_times_out_into_an_envelope(monkeypatch):
-    def slow(cmd, **kwargs):
-        raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
-
-    monkeypatch.setattr(mcp_server.subprocess, "run", slow)
-    code, stdout = mcp_server.subprocess_runner(timeout=1, command=["tg"])(["info"])
-    assert code == 1
-    assert json.loads(stdout)["error"]["code"] == "TIMEOUT"
-
-
-def test_real_tg_process_end_to_end(tmp_path, monkeypatch):
-    monkeypatch.setenv("TGCLI_CONFIG", str(tmp_path / "missing.toml"))
-    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path / "state"))
-    server = Server(Allowlist.build(["@news"]), mcp_server.subprocess_runner())
-
-    [reply] = _session(server, _call("telegram_read", {"chat": "@news"}))
-
-    assert reply["result"]["isError"] is True
-    payload = _payload(reply)
-    assert payload["error"]["code"] == "CONFIG"
-    assert payload["exit_code"] == 3
-
-
 def test_main_serves_with_an_allowlist(monkeypatch):
+    monkeypatch.setenv("TGCLI_READONLY", "1")
+    monkeypatch.setenv("TGCLI_NO_SEND", "1")
     monkeypatch.setattr(
         mcp_server.sys,
         "stdin",
@@ -410,3 +360,36 @@ def test_numeric_ids_of_different_peer_kinds_never_share_a_key(n):
     )
     assert not user & group and not user & channel and not group & channel
     assert chat_keys(f"https://t.me/c/{n}/1") == channel
+
+
+@pytest.mark.parametrize(
+    ("argv", "role", "fallback"),
+    [
+        ([], "mcp", True),
+        (["--session-role", "agent"], "agent", False),
+        (["--main-session"], None, False),
+    ],
+)
+def test_main_holds_the_mcp_role_by_default(monkeypatch, argv, role, fallback):
+    seen = {}
+
+    class Runner:
+        def __init__(self, account, **kwargs):
+            seen.update(kwargs)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(mcp_server, "HeldRunner", Runner)
+    monkeypatch.setattr(mcp_server, "serve", lambda *args: None)
+
+    assert mcp_server.main(["--allow-chat", "@news", *argv]) == 0
+    assert (seen["role"], seen["fallback_to_main"]) == (role, fallback)
+
+
+def test_main_refuses_main_session_with_a_role(capsys):
+    with pytest.raises(SystemExit):
+        mcp_server.main(
+            ["--allow-chat", "@news", "--main-session", "--session-role", "x"]
+        )
+    assert "exclusive" in capsys.readouterr().err

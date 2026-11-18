@@ -59,6 +59,15 @@ class Leg[S: (SourcePostId, SourceCommentId), D: (DestPostId, DestCommentId)](AB
     def destination_id(self, raw: int) -> D:
         """Brand a raw id Telegram returned for this leg's destination."""
 
+    @abstractmethod
+    def record_caption_rest(self, source_id: S, destination_id: D) -> None:
+        """Record the message that carries the rest of a split caption."""
+
+    def record_raw_caption_rest(self, source_raw: int, destination_raw: int) -> None:
+        self.record_caption_rest(
+            self.source_id(source_raw), self.destination_id(destination_raw)
+        )
+
     def record_raw_mapping(self, source_raw: int, destination_raw: int) -> None:
         """Record a send whose ids came back from Telegram as plain ints."""
         self.record_mapping(
@@ -112,6 +121,11 @@ class PostsLeg(Leg[SourcePostId, DestPostId]):
     ) -> None:
         self.clone_state.record_mapping(source_id, destination_id)
 
+    def record_caption_rest(
+        self, source_id: SourcePostId, destination_id: DestPostId
+    ) -> None:
+        self.clone_state.record_caption_rest(source_id, destination_id)
+
     @property
     def cursor(self) -> int:
         return self.clone_state.cursor
@@ -154,6 +168,11 @@ class DiscussionLeg(Leg[SourceCommentId, DestCommentId]):
         self, source_id: SourceCommentId, destination_id: DestCommentId
     ) -> None:
         self.clone_state.record_discussion_mapping(source_id, destination_id)
+
+    def record_caption_rest(
+        self, source_id: SourceCommentId, destination_id: DestCommentId
+    ) -> None:
+        self.clone_state.record_discussion_caption_rest(source_id, destination_id)
 
     @property
     def cursor(self) -> int:

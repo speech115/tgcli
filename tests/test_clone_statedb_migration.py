@@ -94,7 +94,36 @@ def test_schema_2_database_gains_an_anchor_map_that_round_trips(tmp_path, monkey
     reloaded = state.load(s.clone_id)
     assert reloaded is not None
     assert [reloaded.anchor_dest_for(10), reloaded.anchor_dest_for(11)] == [500, 500]
-    assert state.probe(s.clone_id)["schema_version"] == statedb.SCHEMA_VERSION == 3
+    assert state.probe(s.clone_id)["schema_version"] == statedb.SCHEMA_VERSION
+
+
+def test_schema_3_database_gains_caption_rest_maps_that_count_in_the_tail(
+    tmp_path, monkeypatch
+):
+    """v4 remembers the messages that carry a split caption's rest; a v3 clone
+    migrates in place, and a recorded rest raises the tail the guard expects."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    s = _fresh()
+    s.destination_peer_id = 99
+    s.record_mapping(2, 20)
+    state.save(s)
+    conn = sqlite3.connect(state.path_for(s.clone_id))
+    conn.execute("DROP TABLE caption_rest_map")
+    conn.execute("DROP TABLE discussion_caption_rest_map")
+    conn.execute("PRAGMA user_version=3")
+    conn.commit()
+    conn.close()
+
+    migrated = state.load(s.clone_id)
+    assert migrated is not None and migrated.dest_for(2) == 20
+    migrated.record_caption_rest(2, 21)
+    state.save(migrated)
+
+    reloaded = state.load(s.clone_id)
+    assert reloaded is not None
+    assert reloaded.caption_rest_map == {2: 21}
+    assert reloaded.max_destination_id() == 21
+    assert state.probe(s.clone_id)["schema_version"] == statedb.SCHEMA_VERSION == 4
 
 
 def test_newer_schema_version_is_refused(tmp_path, monkeypatch):

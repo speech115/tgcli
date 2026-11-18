@@ -315,6 +315,7 @@ async def send_caption_rests(
     tg,
     destination,
     clone_state,
+    leg: AnyLeg,
     account_alias,
     overflow,
     destination_of,
@@ -322,7 +323,8 @@ async def send_caption_rests(
     paces: RunPace,
 ):
     """Send each caption's rest right after its post, as a reply to it when
-    the batch sits in a thread or topic so the rest stays there too."""
+    the batch sits in a thread or topic so the rest stays there too. Each rest
+    is saved as the clone's own message, so the next run's tail guard knows it."""
     if not overflow:
         return
     safety.append_audit(
@@ -360,6 +362,8 @@ async def send_caption_rests(
         [rest_id] = confirm.confirmed_ids(
             response, [random_id], what="the caption rest"
         )
+        leg.record_raw_caption_rest(message.id, rest_id)
+        state.save(clone_state)
         note(
             f"warning: clone source message {message.id}: caption past "
             f"{CAPTION_LIMIT} characters (longer needs Premium) continues in "
@@ -590,6 +594,7 @@ async def forward_batch(
         tg,
         destination,
         clone_state,
+        leg,
         account_alias,
         overflow,
         dict(zip(source_ids, destination_ids, strict=True)),
