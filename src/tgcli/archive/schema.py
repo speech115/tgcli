@@ -1,4 +1,4 @@
-"""Archive SQLite schema, connect, migrations, and meta (ADR-0068/0116)."""
+"""Archive SQLite schema, connect, and meta. Only the current schema opens."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from tgcli.archive import gaps as gaps_mod
 from tgcli.errors import NotFoundError, PolicyError
 from tgcli.state_paths import create_private, ensure_state_dir, restrict_file
 
@@ -148,32 +147,13 @@ def connect(path: Path) -> sqlite3.Connection:
             conn.executescript(_SCHEMA_SQL)
             conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             conn.commit()
-        elif 1 <= version < SCHEMA_VERSION:
-            if version <= 1:
-                _migrate_v1_to_v2(conn)
-            if version <= 2:
-                _migrate_v2_to_v3(conn)
-            if version <= 3:
-                _migrate_v3_to_v4(conn)
-            if version <= 5:
-                _migrate_v5_to_v6(conn)
-            if version <= 6:
-                _migrate_v6_to_v7(conn)
-            if version <= 7:
-                _migrate_v7_to_v8(conn)
-            if version <= 8:
-                _migrate_v8_to_v9(conn)
-            if version <= 9:
-                _migrate_v9_to_v10(conn)
-            if version <= 10:
-                _migrate_v10_to_v11(conn)
-            if version <= 11:
-                _migrate_v11_to_v12(conn)
         elif version != SCHEMA_VERSION:
             conn.close()
             raise PolicyError(
                 f"archive store {path.name} has unsupported schema version "
-                f"{version}; expected {SCHEMA_VERSION}"
+                f"{version}; expected {SCHEMA_VERSION}. A store older than "
+                "that needs a tgcli release from before November 2026 to "
+                "upgrade it first"
             )
         _require_integrity(conn, path)
     except PolicyError:
@@ -185,206 +165,6 @@ def connect(path: Path) -> sqlite3.Connection:
         ) from exc
     _restrict_sidecars(path)
     return conn
-
-
-def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
-    """Rebuild messages_fts with unicode61 remove_diacritics 2; keep tables."""
-    with conn:
-        conn.execute("DROP TABLE IF EXISTS messages_fts")
-        conn.execute(
-            f"""
-            CREATE VIRTUAL TABLE messages_fts USING fts5(
-                text,
-                transcript,
-                peer_id UNINDEXED,
-                message_id UNINDEXED,
-                {_FTS_TOKENIZER}
-            )
-            """
-        )
-        rows = conn.execute(
-            """
-            SELECT m.peer_id, m.message_id, m.text, t.text AS transcript
-            FROM messages AS m
-            LEFT JOIN transcripts AS t
-              ON t.peer_id = m.peer_id AND t.message_id = m.message_id
-            """
-        ).fetchall()
-        conn.executemany(
-            "INSERT INTO messages_fts(text, transcript, peer_id, message_id) "
-            "VALUES (?, ?, ?, ?)",
-            [
-                (
-                    fold_yo(row["text"] or ""),
-                    fold_yo(row["transcript"] or ""),
-                    int(row["peer_id"]),
-                    int(row["message_id"]),
-                )
-                for row in rows
-            ],
-        )
-        conn.execute("PRAGMA user_version=2")
-
-
-def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
-    """Add account_sync + sync_state identity columns (Phase 3)."""
-    with conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS account_sync (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                changes_cursor TEXT,
-                gap_json TEXT,
-                last_sync_at TEXT,
-                last_reconcile_at TEXT,
-                reconcile_json TEXT
-            )
-            """
-        )
-        cols = {
-            row[1] for row in conn.execute("PRAGMA table_info(sync_state)").fetchall()
-        }
-        for name in ("kind", "title", "username", "chat_ref"):
-            if name not in cols:
-                conn.execute(f"ALTER TABLE sync_state ADD COLUMN {name} TEXT")
-        conn.execute("PRAGMA user_version=3")
-
-
-def _migrate_v3_to_v4(conn: sqlite3.Connection) -> None:
-    """Add media acquisition metadata to the transcript queue."""
-    with conn:
-        cols = {
-            row[1] for row in conn.execute("PRAGMA table_info(transcripts)").fetchall()
-        }
-        for name, declaration in (
-            ("media_path", "TEXT"),
-            ("media_kind", "TEXT"),
-            ("last_error", "TEXT"),
-        ):
-            if name not in cols:
-                conn.execute(f"ALTER TABLE transcripts ADD COLUMN {name} {declaration}")
-        conn.execute("PRAGMA user_version=4")
-
-
-def _migrate_v5_to_v6(conn: sqlite3.Connection) -> None:
-    """Add independent media retry state without changing transcript attempts."""
-    with conn:
-        cols = {
-            row[1] for row in conn.execute("PRAGMA table_info(transcripts)").fetchall()
-        }
-        for name, declaration in (
-            ("media_attempts", "INTEGER NOT NULL DEFAULT 0"),
-            ("media_status", "TEXT NOT NULL DEFAULT 'pending'"),
-        ):
-            if name not in cols:
-                conn.execute(f"ALTER TABLE transcripts ADD COLUMN {name} {declaration}")
-        conn.execute(
-            "UPDATE transcripts SET media_status = 'done' "
-            "WHERE media_path IS NOT NULL AND media_path <> ''"
-        )
-        conn.execute("PRAGMA user_version=6")
-
-
-def _migrate_v6_to_v7(conn: sqlite3.Connection) -> None:
-    """Remove the superseded archive-refresh failure state."""
-    with conn:
-        conn.execute("ALTER TABLE account_sync RENAME TO account_sync_v6")
-        conn.execute(
-            """
-            CREATE TABLE account_sync (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                changes_cursor TEXT,
-                gap_json TEXT,
-                last_sync_at TEXT,
-                last_reconcile_at TEXT,
-                reconcile_json TEXT
-            )
-            """
-        )
-        conn.execute(
-            "INSERT INTO account_sync("
-            "id, changes_cursor, gap_json, last_sync_at, last_reconcile_at, "
-            "reconcile_json"
-            ") SELECT id, changes_cursor, gap_json, last_sync_at, "
-            "last_reconcile_at, reconcile_json FROM account_sync_v6"
-        )
-        conn.execute("DROP TABLE account_sync_v6")
-        conn.execute("PRAGMA user_version=7")
-
-
-def _migrate_v7_to_v8(conn: sqlite3.Connection) -> None:
-    """Persist private-dialog enumeration resume token (ADR-0118)."""
-    with conn:
-        cols = {
-            row[1] for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
-        }
-        if "private_enum_json" not in cols:
-            conn.execute("ALTER TABLE account_sync ADD COLUMN private_enum_json TEXT")
-        conn.execute("PRAGMA user_version=8")
-
-
-def _migrate_v8_to_v9(conn: sqlite3.Connection) -> None:
-    """Persist channel catch-ups that a sync left unfinished."""
-    with conn:
-        cols = {
-            row[1] for row in conn.execute("PRAGMA table_info(account_sync)").fetchall()
-        }
-        if "pending_catchups_json" not in cols:
-            conn.execute(
-                "ALTER TABLE account_sync ADD COLUMN pending_catchups_json TEXT"
-            )
-        conn.execute("PRAGMA user_version=9")
-
-
-def _migrate_v9_to_v10(conn: sqlite3.Connection) -> None:
-    """Store every un-cleared gap: ``gap_json`` becomes a JSON array."""
-    with conn:
-        row = conn.execute("SELECT gap_json FROM account_sync WHERE id = 1").fetchone()
-        if row is not None and row[0]:
-            # A gap that does not parse still records a loss: it becomes an
-            # unreadableGap, never a crash or nothing.
-            conn.execute(
-                "UPDATE account_sync SET gap_json = ? WHERE id = 1",
-                (gaps_mod.encode(gaps_mod.parse(row[0])),),
-            )
-        conn.execute("PRAGMA user_version=10")
-
-
-def _migrate_v10_to_v11(conn: sqlite3.Connection) -> None:
-    """End the transcript of a row whose media acquisition already gave up."""
-    with conn:
-        conn.execute(
-            "UPDATE transcripts SET status = 'no_transcript' "
-            "WHERE media_status = 'no_media' AND status IN ('pending', 'retryable')"
-        )
-        conn.execute(
-            "UPDATE messages_fts SET transcript = ? "
-            "WHERE (peer_id, message_id) IN ("
-            "SELECT peer_id, message_id FROM transcripts "
-            "WHERE status = 'no_transcript' AND media_status = 'no_media' "
-            "AND COALESCE(text, '') = '')",
-            (NO_TRANSCRIPT_MARKER,),
-        )
-        conn.execute("PRAGMA user_version=11")
-
-
-def _migrate_v11_to_v12(conn: sqlite3.Connection) -> None:
-    """End a transcript a re-download reopened: only that path left a row
-    pending after a transcription attempt, and the queue never took it."""
-    with conn:
-        conn.execute(
-            "UPDATE transcripts SET status = 'no_transcript' "
-            "WHERE status = 'pending' AND attempts > 0"
-        )
-        conn.execute(
-            "UPDATE messages_fts SET transcript = ? "
-            "WHERE (peer_id, message_id) IN ("
-            "SELECT peer_id, message_id FROM transcripts "
-            "WHERE status = 'no_transcript' AND attempts > 0 "
-            "AND COALESCE(text, '') = '')",
-            (NO_TRANSCRIPT_MARKER,),
-        )
-        conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
 
 def integrity_report(conn: sqlite3.Connection) -> str:

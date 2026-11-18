@@ -696,12 +696,11 @@ def _saved_cursor() -> ChangesCursor:
 @pytest.mark.parametrize(
     "stored", ["{not json", '"a string"', "[1, 2]", '[{"reason":"x"}, 3]']
 )
-def test_an_unreadable_v9_gap_migrates_to_a_gap_that_sync_clears(
+def test_an_unreadable_gap_reads_as_a_loss_until_sync_clears_it(
     config_env, monkeypatch, capsys, stored
 ):
-    """The v10 migration parsed the stored gap unguarded: a malformed value
-    crashed every archive command, so the store could never be opened again.
-    An unreadable gap must still read as a loss until a sync recovers it."""
+    """A malformed stored gap must not crash the store, and must still read
+    as a loss until a sync recovers it."""
 
     class StateClient(FakeClient):
         async def __call__(self, request):
@@ -719,7 +718,6 @@ def test_an_unreadable_v9_gap_migrates_to_a_gap_that_sync_clears(
     try:
         store_mod.write_account_sync(conn, changes_cursor="v1:stale")
         conn.execute("UPDATE account_sync SET gap_json = ? WHERE id = 1", (stored,))
-        conn.execute("PRAGMA user_version=9")
         conn.commit()
     finally:
         conn.close()
