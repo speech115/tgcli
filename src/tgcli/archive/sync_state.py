@@ -7,7 +7,7 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
-from tgcli.archive import changes_cursor as cursor_codec, gaps as gaps_mod
+from tgcli.archive import gaps as gaps_mod
 
 
 def list_scope(conn: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -62,7 +62,7 @@ def add_scope(
 
 
 def remove_scope(conn: sqlite3.Connection, peer_id: int) -> dict[str, Any] | None:
-    """Atomically remove explicit scope and its cursor subscription."""
+    """Remove a peer from explicit scope; its sync_state row stays."""
     conn.execute("BEGIN IMMEDIATE")
     try:
         row = conn.execute(
@@ -73,15 +73,6 @@ def remove_scope(conn: sqlite3.Connection, peer_id: int) -> dict[str, Any] | Non
         if row is None:
             conn.commit()
             return None
-        encoded = read_account_sync(conn)["changes_cursor"]
-        if encoded:
-            cursor = cursor_codec.decode(encoded)
-            if peer_id in cursor.channels:
-                cursor = cursor_codec.without_channel(cursor, peer_id)
-                conn.execute(
-                    "UPDATE account_sync SET changes_cursor = ? WHERE id = 1",
-                    (cursor_codec.encode(cursor),),
-                )
         conn.execute("DELETE FROM scope WHERE peer_id = ?", (peer_id,))
         conn.commit()
     except Exception:
@@ -208,15 +199,10 @@ def read_account_sync(conn: sqlite3.Connection) -> dict[str, Any]:
             "gap": None,
             "gaps": [],
             "last_sync_at": None,
-            "last_reconcile_at": None,
-            "reconcile": None,
             "private_enum": None,
             "pending_catchups": [],
         }
     gaps = gaps_mod.parse(row["gap_json"])
-    reconcile = None
-    if row["reconcile_json"]:
-        reconcile = json.loads(row["reconcile_json"])
     private_enum = None
     if row["private_enum_json"]:
         private_enum = json.loads(row["private_enum_json"])
@@ -225,8 +211,6 @@ def read_account_sync(conn: sqlite3.Connection) -> dict[str, Any]:
         "gap": gaps[-1] if gaps else None,
         "gaps": gaps,
         "last_sync_at": row["last_sync_at"],
-        "last_reconcile_at": row["last_reconcile_at"],
-        "reconcile": reconcile,
         "private_enum": private_enum,
         "pending_catchups": [
             int(peer) for peer in json.loads(row["pending_catchups_json"] or "[]")
@@ -238,37 +222,13 @@ def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
-def _scoped_cursor(conn: sqlite3.Connection, encoded: str) -> str:
-    """Drop channels that left archive scope from an encoded cursor."""
-    decoded = cursor_codec.decode(encoded)
-    scoped_peers = {
-        int(row["peer_id"])
-        for row in conn.execute("SELECT peer_id FROM scope").fetchall()
-    }
-    return cursor_codec.encode(
-        cursor_codec.ChangesCursor(
-            pts=decoded.pts,
-            qts=decoded.qts,
-            date=decoded.date,
-            seq=decoded.seq,
-            channels={
-                peer: pts
-                for peer, pts in decoded.channels.items()
-                if peer in scoped_peers
-            },
-        )
-    )
-
-
 def write_account_sync(
     conn: sqlite3.Connection,
     *,
     changes_cursor: str | None = None,
     gaps: list[dict[str, Any]] | None = None,
     touch_sync: bool = False,
-    reconcile: dict[str, Any] | None = None,
     clear_gap: bool = False,
-    scope_channels: bool = False,
     private_enum: dict[str, Any] | None = None,
     clear_private_enum: bool = False,
     pending_catchups: list[int] | None = None,
@@ -286,18 +246,12 @@ def write_account_sync(
         now = datetime.now(UTC).isoformat()
         conn.execute("INSERT OR IGNORE INTO account_sync(id) VALUES (1)")
         columns: dict[str, Any] = {}
-        cursor = changes_cursor
-        if scope_channels:
-            if cursor is None:
-                cursor = _stored_cursor(conn)
-            if cursor is not None:
-                cursor = _scoped_cursor(conn, cursor)
-        if cursor is not None:
-            columns["changes_cursor"] = cursor
+        if changes_cursor is not None:
+            columns["changes_cursor"] = changes_cursor
         if clear_gap:
             columns["gap_json"] = None
         elif gaps:
-            # Add to, never replace, the gaps a rebaseline has not cleared;
+            # Add to, never replace, the gaps a recovery has not closed yet;
             # a repeat of a stored gap moves it to the end instead.
             row = conn.execute(
                 "SELECT gap_json FROM account_sync WHERE id = 1"
@@ -308,9 +262,6 @@ def write_account_sync(
             columns["gap_json"] = _json(stored)
         if touch_sync:
             columns["last_sync_at"] = now
-        if reconcile is not None:
-            columns["reconcile_json"] = _json(reconcile)
-            columns["last_reconcile_at"] = now
         if clear_private_enum:
             columns["private_enum_json"] = None
         elif private_enum is not None:

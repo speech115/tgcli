@@ -162,7 +162,7 @@ def _start(tmp_path, monkeypatch, capsys, channels, per_channel):
                 username=channel.username,
                 chat_ref=f"@{channel.username}",
             )
-        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
+        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1)
         store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
     finally:
         conn.close()

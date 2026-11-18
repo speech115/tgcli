@@ -175,7 +175,6 @@ def status(alias: str, config: Config | None = None) -> dict:
         "gap": account_sync["gap"],
         "gaps": account_sync["gaps"],
         "last_sync_at": account_sync["last_sync_at"],
-        "reconcile": account_sync["reconcile"],
         "has_cursor": account_sync["changes_cursor"] is not None,
     }
 
@@ -260,7 +259,7 @@ async def sync(
     try:
         store_mod.require_bound_user(conn, int(me.id), alias)
         directory = account_dir(alias, config)
-        with _one_run_per_account(directory, "sync", "archive sync or rebaseline"):
+        with _one_run_per_account(directory, "sync", "archive sync"):
             data = await sync_mod.sync_archive(
                 tg,
                 conn,
@@ -278,21 +277,6 @@ async def sync(
     data["max_events"] = max_events
     data["max_dialogs"] = max_dialogs
     data["max_media"] = max_media
-    return data
-
-
-async def rebaseline(tg, alias: str, *, config: Config | None = None) -> dict:
-    me = await tg.get_me()
-    conn = _open_existing(alias, config)
-    try:
-        store_mod.require_bound_user(conn, int(me.id), alias)
-        with _one_run_per_account(
-            account_dir(alias, config), "sync", "archive sync or rebaseline"
-        ):
-            data = await sync_mod.rebaseline(tg, conn)
-    finally:
-        conn.close()
-    data["account"] = {"alias": alias, "user_id": int(me.id)}
     return data
 
 
@@ -444,14 +428,6 @@ def sync_rows(data: dict) -> list[tuple]:
         ("media_downloaded", media.get("downloaded", 0)),
         ("media_failed", len(media.get("failed") or [])),
         ("gap", None if gap is None else gap.get("reason")),
-    ]
-
-
-def rebaseline_rows(data: dict) -> list[tuple]:
-    return [
-        ("rebaselined", data["rebaselined"]),
-        ("peers", len(data.get("peers") or [])),
-        ("gap", data.get("gap")),
     ]
 
 

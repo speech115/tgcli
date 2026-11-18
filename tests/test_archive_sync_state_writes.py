@@ -61,16 +61,8 @@ def _account_row(conn: sqlite3.Connection) -> dict | None:
     return None if row is None else dict(row)
 
 
-def _cursor(**channels: int) -> str:
-    return cursor_codec.encode(
-        ChangesCursor(
-            pts=5,
-            qts=1,
-            date=1_735_689_600,
-            seq=1,
-            channels={int(peer): pts for peer, pts in channels.items()},
-        )
-    )
+def _cursor() -> str:
+    return cursor_codec.encode(ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1))
 
 
 def test_upsert_sync_state_rows(conn, clock):
@@ -224,19 +216,7 @@ def test_write_account_sync_rows(conn, clock):
         "pending_catchups_json": "[-1003, -1001]",
     }
 
-    # Reconcile stamps its own time and leaves everything else alone.
-    assert write(conn, reconcile={"next_offset": 3, "checked": []}) == first
-    after_reconcile = {
-        "id": 1,
-        "changes_cursor": first,
-        "gap_json": '[{"reason":"différenceTooLong","pts":50}]',
-        "last_sync_at": _ts(2),
-        "last_reconcile_at": _ts(3),
-        "reconcile_json": '{"next_offset":3,"checked":[]}',
-        "private_enum_json": None,
-        "pending_catchups_json": "[-1003, -1001]",
-    }
-    assert _account_row(conn) == after_reconcile
+    after_reconcile = _account_row(conn)
 
     # Private-enum resume is set, then cleared; nothing else moves.
     write(conn, private_enum={"id": 7, "kind": "user", "offset_date": None})
@@ -260,39 +240,9 @@ def test_write_account_sync_rows(conn, clock):
     assert _account_row(conn) == {
         **after_reconcile,
         "gap_json": None,
-        "last_sync_at": _ts(7),
+        "last_sync_at": _ts(6),
         "pending_catchups_json": None,
     }
-
-
-def test_write_account_sync_scopes_cursor_channels(conn, clock):
-    write = store_mod.write_account_sync
-    store_mod.add_scope(
-        conn,
-        peer_id=-1001,
-        kind="channel",
-        title="News",
-        username="news",
-        chat_ref="@news",
-    )
-
-    # scope_channels with no cursor stored and none given leaves it NULL.
-    assert write(conn, scope_channels=True) is None
-    assert _account_row(conn)["changes_cursor"] is None
-
-    # A given cursor is filtered to scoped channels before it is stored.
-    given = _cursor(**{"-1001": 11, "-1002": 22})
-    kept = _cursor(**{"-1001": 11})
-    assert write(conn, changes_cursor=given, scope_channels=True) == kept
-    assert _account_row(conn)["changes_cursor"] == kept
-
-    # Without scope_channels the cursor is stored as given.
-    assert write(conn, changes_cursor=given) == given
-    assert _account_row(conn)["changes_cursor"] == given
-
-    # scope_channels alone filters the stored cursor.
-    assert write(conn, scope_channels=True) == kept
-    assert _account_row(conn)["changes_cursor"] == kept
 
 
 def test_write_account_sync_joins_an_open_transaction(conn, clock):

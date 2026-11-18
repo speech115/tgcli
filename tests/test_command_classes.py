@@ -48,7 +48,6 @@ GATED_WRITES = {
     "archive add": ["archive", "add", "@chat"],
     "archive backfill": ["archive", "backfill", "@chat"],
     "archive init": ["archive", "init"],
-    "archive rebaseline": ["archive", "rebaseline"],
     "archive remove": ["archive", "remove", "@chat"],
     "archive sync": ["archive", "sync"],
     "archive transcribe": ["archive", "transcribe"],

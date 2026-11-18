@@ -12,13 +12,11 @@ import pytest
 from telethon import errors as telethon_errors, utils
 from telethon.tl.functions.channels import GetFullChannelRequest
 from telethon.tl.functions.updates import (
-    GetChannelDifferenceRequest,
     GetDifferenceRequest,
     GetStateRequest,
 )
 from telethon.tl.types import (
     Channel,
-    Chat,
     Message,
     PeerChannel,
     PeerUser,
@@ -28,9 +26,6 @@ from telethon.tl.types import (
     UpdateEditMessage,
 )
 from telethon.tl.types.updates import (
-    ChannelDifference,
-    ChannelDifferenceEmpty,
-    ChannelDifferenceTooLong,
     Difference,
     DifferenceEmpty,
     DifferenceTooLong,
@@ -481,7 +476,7 @@ def test_sync_applies_edit_revision_and_private_delete_tombstone(
             chat_ref="@alice",
         )
         # Seed an account cursor so sync does not only init.
-        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
+        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1)
         store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
         conn.commit()
     finally:
@@ -502,144 +497,179 @@ def test_sync_applies_edit_revision_and_private_delete_tombstone(
         conn.close()
 
 
-def test_sync_records_gap_and_rebaseline_clears_it(config_env, monkeypatch, capsys):
-    class GapClient(FakeClient):
+class TooLongClient(FakeClient):
+    """The first difference is too long; later ones bring ``later``."""
+
+    def __init__(self, *args, later=(), **kwargs):
+        super().__init__(*args, **kwargs)
+        self.too_long = True
+        self.later = list(later)
+
+    async def __call__(self, request):
+        self.call_requests.append(request)
+        if isinstance(request, GetStateRequest):
+            return _state(pts=50, qts=2, seq=9)
+        if isinstance(request, GetDifferenceRequest):
+            if self.too_long:
+                self.too_long = False
+                return DifferenceTooLong(pts=50)
+            if self.later:
+                return Difference(
+                    new_messages=self.later,
+                    new_encrypted_messages=[],
+                    other_updates=[],
+                    chats=[],
+                    users=[],
+                    state=_state(pts=51, qts=2, seq=10),
+                )
+            return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=9)
+        raise AssertionError(request)
+
+
+def _seed_private_chat(newest_id: int) -> None:
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        store_mod.upsert_sync_state(
+            conn,
+            7,
+            oldest_id=1,
+            newest_id=newest_id,
+            more=False,
+            kind="user",
+            title="Alice",
+            chat_ref="@alice",
+        )
+        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1)
+        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _stored_ids(peer: int) -> list[int]:
+    conn = store_mod.connect(archive_cmd.db_path("main"))
+    try:
+        return [
+            int(row[0])
+            for row in conn.execute(
+                "SELECT message_id FROM messages WHERE peer_id = ? ORDER BY message_id",
+                (peer,),
+            )
+        ]
+    finally:
+        conn.close()
+
+
+def test_sync_recovers_a_too_long_difference_through_the_dialog_list(
+    config_env, monkeypatch, capsys
+):
+    """differenceTooLong drops the updates in between. The sync jumps the
+    cursor, polls the dialog list, reads each chat that moved by `min_id`,
+    and clears the gap once nothing is left to read."""
+    user = archive_user()
+    messages = [archive_msg(mid=mid, text=f"m{mid}") for mid in range(2, 6)]
+    client = TooLongClient(
+        me=archive_me(),
+        entities={7: user},
+        messages=messages,
+        dialogs=[SimpleNamespace(**vars(archive_dialog(user)), message=messages[-1])],
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    _seed_private_chat(newest_id=1)
+
+    assert main(["archive", "sync", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["recovered"] == 1
+    assert data["gaps"] == [] and data["remaining"] is False
+    assert _stored_ids(7) == [2, 3, 4, 5]
+    assert client.iter_messages_kwargs["min_id"] == 1
+    assert main(["archive", "status", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["gaps"] == []
+
+
+def test_a_gap_stays_until_its_recovery_reads_the_chat_that_moved(
+    config_env, monkeypatch, capsys
+):
+    """A recovery cut short by the budget keeps the gap and the chat's
+    `newest_id`: a message the next pass delivers is stored but does not
+    move the watermark past the stretch still to read."""
+    user = archive_user()
+    messages = [archive_msg(mid=mid, text=f"m{mid}") for mid in range(2, 6)]
+    newer = archive_msg(mid=9, text="after the gap")
+    client = TooLongClient(
+        me=archive_me(),
+        entities={7: user},
+        messages=[newer, *reversed(messages)],  # newest first, as Telegram
+        dialogs=[SimpleNamespace(**vars(archive_dialog(user)), message=messages[-1])],
+        later=[newer],
+    )
+    make_session_fake(monkeypatch, client)
+    assert main(["archive", "init", "--json"]) == 0
+    capsys.readouterr()
+    _seed_private_chat(newest_id=1)
+    monkeypatch.setattr(sync_mod, "CATCHUP_LIMIT", 2)
+
+    assert main(["archive", "sync", "--json"]) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert [g["reason"] for g in first["gaps"]] == ["differenceTooLong"]
+    assert first["remaining"] is True
+    assert _stored_ids(7) == [2, 3]
+
+    assert main(["archive", "sync", "--json"]) == 0
+    second = json.loads(capsys.readouterr().out)
+    assert second["applied"]["inserted"] == 1
+    assert client.iter_messages_kwargs["min_id"] == 3
+    assert _stored_ids(7) == [2, 3, 4, 5, 9]
+    assert second["remaining"] is True  # the page was full again
+
+    assert main(["archive", "sync", "--json"]) == 0
+    third = json.loads(capsys.readouterr().out)
+    assert third["gaps"] == [] and third["remaining"] is False
+    assert main(["archive", "status", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["gaps"] == []
+
+
+def test_a_cursor_that_no_longer_decodes_is_recovered_like_a_gap(
+    config_env, monkeypatch, capsys
+):
+    user = archive_user()
+    messages = [archive_msg(mid=mid) for mid in (2, 3)]
+
+    class StateClient(FakeClient):
         async def __call__(self, request):
             self.call_requests.append(request)
             if isinstance(request, GetStateRequest):
                 return _state(pts=50, qts=2, seq=9)
             if isinstance(request, GetDifferenceRequest):
-                return DifferenceTooLong(pts=50)
+                assert request.pts == 50
+                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=9)
             raise AssertionError(request)
 
-    client = GapClient(me=archive_me())
-    make_session_fake(monkeypatch, client)
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
-    conn = store_mod.connect(archive_cmd.db_path("main"))
-    try:
-        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
-        conn.commit()
-    finally:
-        conn.close()
-
-    assert main(["archive", "sync", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert data["gap"] is not None
-    assert data["gap"]["reason"] == "differenceTooLong"
-    assert main(["archive", "status", "--json"]) == 0
-    status = json.loads(capsys.readouterr().out)
-    assert status["gap"] is not None
-
-    assert main(["archive", "rebaseline", "--json"]) == 0
-    rebased = json.loads(capsys.readouterr().out)
-    assert rebased["rebaselined"] is True
-    assert rebased["gap"] is None
-    assert main(["archive", "status", "--json"]) == 0
-    status = json.loads(capsys.readouterr().out)
-    assert status["gap"] is None
-
-
-@pytest.mark.parametrize(
-    "refusal",
-    [
-        telethon_errors.ChannelPrivateError,
-        telethon_errors.ChannelInvalidError,
-        telethon_errors.ChannelBannedError,
-    ],
-)
-def test_sync_survives_a_subscribed_channel_the_account_lost(
-    config_env, monkeypatch, capsys, refusal
-):
-    """One channel that turned private, was deleted, or banned the account
-    used to abort every `archive sync` before the cursor was saved, so the
-    private chats and every other channel stopped advancing for good."""
-
-    def broadcast(channel_id):
-        return Channel(
-            id=channel_id,
-            title=f"C{channel_id}",
-            photo=None,
-            date=datetime(2026, 1, 1, tzinfo=UTC),
-            access_hash=99,
-            megagroup=False,
-        )
-
-    lost, live = broadcast(1234), broadcast(5678)
-    lost_peer, live_peer = utils.get_peer_id(lost), utils.get_peer_id(live)
-
-    class LostChannelClient(FakeClient):
-        async def __call__(self, request):
-            self.call_requests.append(request)
-            if isinstance(request, GetStateRequest):
-                return _state(pts=5, qts=1, seq=1)
-            if isinstance(request, GetDifferenceRequest):
-                return Difference(
-                    new_messages=[],
-                    new_encrypted_messages=[],
-                    other_updates=[],
-                    chats=[],
-                    users=[],
-                    state=_state(pts=9, qts=1, seq=2),
-                )
-            if isinstance(request, GetChannelDifferenceRequest):
-                if request.channel.channel_id == lost.id:
-                    raise refusal(request=request)
-                return ChannelDifferenceEmpty(pts=20, final=True)
-            if isinstance(request, GetFullChannelRequest):
-                raise refusal(request=request)
-            raise AssertionError(request)
-
-    client = LostChannelClient(
-        me=archive_me(), entities={lost_peer: lost, live_peer: live}
+    client = StateClient(
+        me=archive_me(),
+        entities={7: user},
+        messages=messages,
+        dialogs=[SimpleNamespace(**vars(archive_dialog(user)), message=messages[-1])],
     )
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
-    path = archive_cmd.db_path("main")
-    conn = store_mod.connect(path)
+    _seed_private_chat(newest_id=1)
+    conn = store_mod.connect(archive_cmd.db_path("main"))
     try:
-        for channel, peer in ((lost, lost_peer), (live, live_peer)):
-            store_mod.add_scope(
-                conn,
-                peer_id=peer,
-                kind="channel",
-                title=channel.title,
-                username=None,
-                chat_ref=str(peer),
-            )
-        cursor = ChangesCursor(
-            pts=5,
-            qts=1,
-            date=1_735_689_600,
-            seq=1,
-            channels={lost_peer: 3, live_peer: 4},
-        )
-        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
-        conn.commit()
+        store_mod.write_account_sync(conn, changes_cursor="v1:not-valid")
     finally:
         conn.close()
 
     assert main(["archive", "sync", "--json"]) == 0
-    captured = capsys.readouterr()
-    data = json.loads(captured.out)
-    assert data["gap"]["scope"] == lost_peer
-    assert data["gap"]["reason"] == "channelUnavailable"
-    assert f"{lost_peer}" in captured.err
-    conn = store_mod.connect(path)
-    try:
-        saved = changes_cursor.decode(
-            store_mod.read_account_sync(conn)["changes_cursor"]
-        )
-    finally:
-        conn.close()
-    assert saved.pts == 9
-    assert saved.channels == {live_peer: 20}
 
-    # The next run neither aborts nor reports the same loss again.
-    assert main(["archive", "sync", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["gap"] is None
+    data = json.loads(capsys.readouterr().out)
+    assert data["initialized"] is False and data["recovered"] == 1
+    assert _stored_ids(7) == [2, 3]
+    assert changes_cursor.decode(data["next_cursor"]).pts == 50
 
 
 def _broadcast(channel_id: int) -> Channel:
@@ -653,32 +683,6 @@ def _broadcast(channel_id: int) -> Channel:
     )
 
 
-def _seed_channel_cursor(channels: list[tuple[Channel, int]]) -> None:
-    """Scope each channel and store a cursor subscribed at the given pts."""
-    conn = store_mod.connect(archive_cmd.db_path("main"))
-    try:
-        for channel, _pts in channels:
-            store_mod.add_scope(
-                conn,
-                peer_id=utils.get_peer_id(channel),
-                kind="channel",
-                title=channel.title,
-                username=None,
-                chat_ref=str(utils.get_peer_id(channel)),
-            )
-        cursor = ChangesCursor(
-            pts=5,
-            qts=1,
-            date=1_735_689_600,
-            seq=1,
-            channels={utils.get_peer_id(ch): pts for ch, pts in channels},
-        )
-        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
-        conn.commit()
-    finally:
-        conn.close()
-
-
 def _saved_cursor() -> ChangesCursor:
     conn = store_mod.connect(archive_cmd.db_path("main"))
     try:
@@ -689,336 +693,23 @@ def _saved_cursor() -> ChangesCursor:
         conn.close()
 
 
-def test_sync_keeps_the_pages_read_before_a_channel_was_lost(
-    config_env, monkeypatch, capsys
-):
-    """Access lost on a later page of a paginated channel difference used to
-    throw away the pages already read; the peer left the cursor, so those
-    messages were never stored and no later sync could fetch them again."""
-    lost = _broadcast(1234)
-    lost_peer = utils.get_peer_id(lost)
-
-    class MidPollLossClient(FakeClient):
-        async def __call__(self, request):
-            self.call_requests.append(request)
-            if isinstance(request, GetStateRequest):
-                return _state(pts=5, qts=1, seq=1)
-            if isinstance(request, GetDifferenceRequest):
-                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=1)
-            if isinstance(request, GetChannelDifferenceRequest) and request.pts == 3:
-                return ChannelDifference(
-                    pts=6,
-                    new_messages=[
-                        archive_msg(mid=10, text="before loss", peer=PeerChannel(1234))
-                    ],
-                    other_updates=[],
-                    chats=[lost],
-                    users=[],
-                    final=False,
-                )
-            # The next page, and any catch-up, finds the channel gone.
-            raise telethon_errors.ChannelPrivateError(request=request)
-
-    client = MidPollLossClient(me=archive_me(), entities={lost_peer: lost})
-    make_session_fake(monkeypatch, client)
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    _seed_channel_cursor([(lost, 3)])
-
-    assert main(["archive", "sync", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert data["gap"]["scope"] == lost_peer
-    assert data["gap"]["reason"] == "channelUnavailable"
-    conn = store_mod.connect(archive_cmd.db_path("main"))
-    try:
-        row = conn.execute(
-            "SELECT text FROM messages WHERE peer_id = ? AND message_id = ?",
-            (lost_peer, 10),
-        ).fetchone()
-    finally:
-        conn.close()
-    assert row is not None
-    assert row["text"] == "before loss"
-    assert _saved_cursor().channels == {}
-
-
-@pytest.mark.parametrize("second_failure", ["lost", "too_long"])
-def test_sync_reports_every_channel_gap_of_one_pass(
-    config_env, monkeypatch, capsys, second_failure
-):
-    """Two channels losing updates in one pass are both reported and both
-    stored, and each moves on as its own gap says."""
-    first, second, live = _broadcast(1111), _broadcast(2222), _broadcast(3333)
-    first_peer, second_peer, live_peer = (
-        utils.get_peer_id(first),
-        utils.get_peer_id(second),
-        utils.get_peer_id(live),
-    )
-    reason = {"lost": "channelUnavailable", "too_long": "channelDifferenceTooLong"}[
-        second_failure
-    ]
-
-    class TwoGapsClient(FakeClient):
-        async def __call__(self, request):
-            self.call_requests.append(request)
-            if isinstance(request, GetStateRequest):
-                return _state(pts=5, qts=1, seq=1)
-            if isinstance(request, GetDifferenceRequest):
-                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=1)
-            if isinstance(request, GetChannelDifferenceRequest):
-                channel_id = request.channel.channel_id
-                if channel_id == second.id:
-                    raise telethon_errors.ChannelPrivateError(request=request)
-                if channel_id == first.id:
-                    if second_failure == "lost":
-                        raise telethon_errors.ChannelPrivateError(request=request)
-                    return ChannelDifferenceTooLong(
-                        dialog=SimpleNamespace(pts=90),
-                        messages=[],
-                        chats=[],
-                        users=[],
-                        final=True,
-                    )
-                return ChannelDifferenceEmpty(pts=20, final=True)
-            if isinstance(request, GetFullChannelRequest):
-                raise telethon_errors.ChannelPrivateError(request=request)
-            raise AssertionError(request)
-
-    client = TwoGapsClient(
-        me=archive_me(),
-        entities={first_peer: first, second_peer: second, live_peer: live},
-    )
-    make_session_fake(monkeypatch, client)
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    # Peers are polled in sorted order: -1002222… comes before -1001111….
-    assert sorted([first_peer, second_peer]) == [second_peer, first_peer]
-    _seed_channel_cursor([(first, 3), (second, 4), (live, 7)])
-
-    assert main(["archive", "sync", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert [(g["scope"], g["reason"]) for g in data["gaps"]] == [
-        (second_peer, "channelUnavailable"),
-        (first_peer, reason),
-    ]
-    assert data["gap"] == data["gaps"][-1]
-    saved = _saved_cursor()
-    assert second_peer not in saved.channels
-    if second_failure == "lost":
-        assert first_peer not in saved.channels
-    else:
-        assert saved.channels[first_peer] == 90
-    assert saved.channels[live_peer] == 20
-
-    assert main(["archive", "status", "--json"]) == 0
-    status = json.loads(capsys.readouterr().out)
-    assert status["gaps"] == data["gaps"]
-
-
-def test_rebaseline_and_sync_leave_a_scoped_basic_group_to_the_common_tier(
-    config_env, monkeypatch, capsys
-):
-    """A basic group is a `group` in scope, but only channels have their own
-    update stream. Rebaseline, the recovery every cursor error points to,
-    failed with "not a channel/supergroup" for any account that scoped one,
-    and every sync retried the subscription and failed again."""
-    group = Chat(
-        id=55,
-        title="Family",
-        photo=None,
-        participants_count=3,
-        date=datetime(2026, 1, 1, tzinfo=UTC),
-        version=1,
-    )
-    channel = Channel(
-        id=1234,
-        title="News",
-        photo=None,
-        date=datetime(2026, 1, 1, tzinfo=UTC),
-        access_hash=99,
-        megagroup=False,
-        username="news",
-    )
-    group_peer, channel_peer = utils.get_peer_id(group), utils.get_peer_id(channel)
-
-    class ScopeClient(FakeClient):
-        async def __call__(self, request):
-            self.call_requests.append(request)
-            if isinstance(request, GetStateRequest):
-                return _state(pts=50, qts=2, seq=9)
-            if isinstance(request, GetFullChannelRequest):
-                assert request.channel is channel
-                return SimpleNamespace(full_chat=SimpleNamespace(pts=7))
-            if isinstance(request, GetDifferenceRequest):
-                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=9)
-            if isinstance(request, GetChannelDifferenceRequest):
-                return ChannelDifferenceEmpty(pts=7, final=True)
-            raise AssertionError(request)
-
-    client = ScopeClient(
-        me=archive_me(),
-        entities={
-            group_peer: group,
-            str(group_peer): group,
-            channel_peer: channel,
-            "@news": channel,
-        },
-    )
-    make_session_fake(monkeypatch, client)
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    conn = store_mod.connect(archive_cmd.db_path("main"))
-    try:
-        store_mod.add_scope(
-            conn,
-            peer_id=group_peer,
-            kind="group",
-            title="Family",
-            username=None,
-            chat_ref=str(group_peer),
-        )
-        store_mod.add_scope(
-            conn,
-            peer_id=channel_peer,
-            kind="channel",
-            title="News",
-            username="news",
-            chat_ref="@news",
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-    assert main(["archive", "rebaseline", "--json"]) == 0
-    rebased = json.loads(capsys.readouterr().out)
-    assert rebased["peers"] == ["@news"]
-    assert changes_cursor.decode(rebased["next_cursor"]).channels == {channel_peer: 7}
-
-    assert main(["archive", "sync", "--json"]) == 0
-    assert "skip channel subscribe" not in capsys.readouterr().err
-
-
-def test_a_recorded_gap_survives_later_clean_syncs_until_rebaseline(
-    config_env, monkeypatch, capsys
-):
-    """CONTRACT: the gap is stored loudly and rebaseline is what clears it.
-    The next clean sync used to erase it, so a scheduled run that missed the
-    one gapped JSON never learned edits and deletes were lost."""
-
-    class OnceTooLongClient(FakeClient):
-        too_long = True
-
-        async def __call__(self, request):
-            self.call_requests.append(request)
-            if isinstance(request, GetStateRequest):
-                return _state(pts=50, qts=2, seq=9)
-            if isinstance(request, GetDifferenceRequest):
-                if self.too_long:
-                    self.too_long = False
-                    return DifferenceTooLong(pts=50)
-                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=9)
-            raise AssertionError(request)
-
-    client = OnceTooLongClient(me=archive_me())
-    make_session_fake(monkeypatch, client)
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
-    conn = store_mod.connect(archive_cmd.db_path("main"))
-    try:
-        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
-        conn.commit()
-    finally:
-        conn.close()
-
-    assert main(["archive", "sync", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["gap"]["reason"] == "differenceTooLong"
-    assert main(["archive", "sync", "--json"]) == 0
-    capsys.readouterr()
-    assert main(["archive", "status", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["gap"]["reason"] == "differenceTooLong"
-
-    assert main(["archive", "rebaseline", "--json"]) == 0
-    capsys.readouterr()
-    assert main(["archive", "status", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["gap"] is None
-
-
-def test_every_uncleared_gap_stays_visible_until_rebaseline(
-    config_env, monkeypatch, capsys
-):
-    """A clean pass after a gapped one leaves every stored gap in place
-    until `rebaseline`."""
-    lost = _broadcast(1111)
-    lost_peer = utils.get_peer_id(lost)
-
-    class TooLongThenLostClient(FakeClient):
-        too_long = True
-
-        async def __call__(self, request):
-            self.call_requests.append(request)
-            if isinstance(request, GetStateRequest):
-                return _state(pts=50, qts=2, seq=9)
-            if isinstance(request, GetDifferenceRequest):
-                if self.too_long:
-                    self.too_long = False
-                    return DifferenceTooLong(pts=50)
-                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=9)
-            if isinstance(request, GetChannelDifferenceRequest | GetFullChannelRequest):
-                if self.lost:
-                    raise telethon_errors.ChannelPrivateError(request=request)
-                return SimpleNamespace(full_chat=SimpleNamespace(pts=7))
-            raise AssertionError(request)
-
-    client = TooLongThenLostClient(me=archive_me(), entities={lost_peer: lost})
-    client.lost = True
-    make_session_fake(monkeypatch, client)
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    _seed_channel_cursor([(lost, 3)])
-
-    assert main(["archive", "sync", "--json"]) == 0
-    first = json.loads(capsys.readouterr().out)
-    assert [g["scope"] for g in first["gaps"]] == ["common", lost_peer]
-    assert main(["archive", "sync", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["gaps"] == []
-
-    assert main(["archive", "status", "--json"]) == 0
-    status = json.loads(capsys.readouterr().out)
-    assert [(g["scope"], g["reason"]) for g in status["gaps"]] == [
-        ("common", "differenceTooLong"),
-        (lost_peer, "channelUnavailable"),
-    ]
-    assert status["gap"] == status["gaps"][-1]
-    assert main(["--plain", "archive", "status"]) == 0
-    plain = capsys.readouterr().out
-    assert "gap\tchannelUnavailable" in plain
-    assert "gaps\t2" in plain
-
-    client.lost = False  # access is back, so rebaseline can resubscribe
-    assert main(["archive", "rebaseline", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["gaps"] == []
-    assert main(["archive", "status", "--json"]) == 0
-    status = json.loads(capsys.readouterr().out)
-    assert status["gap"] is None
-    assert status["gaps"] == []
-
-
 @pytest.mark.parametrize(
     "stored", ["{not json", '"a string"', "[1, 2]", '[{"reason":"x"}, 3]']
 )
-def test_an_unreadable_v9_gap_migrates_to_a_gap_that_rebaseline_clears(
+def test_an_unreadable_v9_gap_migrates_to_a_gap_that_sync_clears(
     config_env, monkeypatch, capsys, stored
 ):
     """The v10 migration parsed the stored gap unguarded: a malformed value
-    crashed every archive command, rebaseline included, so the store could
-    never be opened again. An unreadable gap must still read as a loss."""
+    crashed every archive command, so the store could never be opened again.
+    An unreadable gap must still read as a loss until a sync recovers it."""
 
     class StateClient(FakeClient):
         async def __call__(self, request):
             self.call_requests.append(request)
             if isinstance(request, GetStateRequest):
                 return _state(pts=50, qts=2, seq=9)
+            if isinstance(request, GetDifferenceRequest):
+                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=9)
             raise AssertionError(request)
 
     make_session_fake(monkeypatch, StateClient(me=archive_me()))
@@ -1040,23 +731,21 @@ def test_an_unreadable_v9_gap_migrates_to_a_gap_that_rebaseline_clears(
     assert status["gap"]["scope"] == "common"
     assert status["gap"]["recover"]["edits_deletes"] == "lost"
 
-    assert main(["archive", "rebaseline", "--json"]) == 0
+    assert main(["archive", "sync", "--json"]) == 0
     capsys.readouterr()
     assert main(["archive", "status", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["gaps"] == []
 
 
-def test_sync_and_rebaseline_readonly_blocked(config_env, monkeypatch, capsys):
+def test_sync_readonly_blocked(config_env, monkeypatch, capsys):
     make_session_fake(monkeypatch, archive_client())
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
     assert main(["--readonly", "archive", "sync", "--json"]) == 2
     assert "readonly" in capsys.readouterr().err.lower()
-    assert main(["--readonly", "archive", "rebaseline", "--json"]) == 2
-    assert "readonly" in capsys.readouterr().err.lower()
 
 
-def test_sync_and_rebaseline_refuse_while_another_run_holds_the_account(
+def test_sync_refuses_while_another_run_holds_the_account(
     config_env, monkeypatch, capsys
 ):
     import fcntl
@@ -1075,7 +764,7 @@ def test_sync_and_rebaseline_refuse_while_another_run_holds_the_account(
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
     stored = changes_cursor.encode(
-        ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
+        ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1)
     )
     conn = store_mod.connect(archive_cmd.db_path("main"))
     try:
@@ -1096,16 +785,15 @@ def test_sync_and_rebaseline_refuse_while_another_run_holds_the_account(
     lock = archive_cmd.account_dir("main") / "sync.lock"
     with lock.open("w") as held:
         fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        for command in ("sync", "rebaseline"):
-            assert main(["archive", command, "--json"]) == 3
-            error = json.loads(capsys.readouterr().out)["error"]
-            assert "already running" in error["message"]
+        assert main(["archive", "sync", "--json"]) == 3
+        error = json.loads(capsys.readouterr().out)["error"]
+        assert "already running" in error["message"]
     assert account_sync() == before
     assert not any(
         isinstance(request, (GetStateRequest, GetDifferenceRequest))
         for request in client.call_requests
     )
-    assert main(["archive", "rebaseline", "--json"]) == 0
+    assert main(["archive", "sync", "--json"]) == 0
     assert account_sync()["changes_cursor"] != stored
 
 
@@ -1142,14 +830,12 @@ def test_sync_rejects_invalid_media_budget(config_env, monkeypatch, capsys):
     assert "max-dialogs" in capsys.readouterr().err.lower()
 
 
-def test_sync_and_rebaseline_verify_live_account_id(config_env, monkeypatch, capsys):
+def test_sync_verifies_live_account_id(config_env, monkeypatch, capsys):
     make_session_fake(monkeypatch, archive_client(me=archive_me(user_id=42)))
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
     make_session_fake(monkeypatch, archive_client(me=archive_me(user_id=99)))
     assert main(["archive", "sync", "--json"]) == 2
-    assert "account" in capsys.readouterr().err.lower()
-    assert main(["archive", "rebaseline", "--json"]) == 2
     assert "account" in capsys.readouterr().err.lower()
 
 
@@ -1220,11 +906,9 @@ def test_sync_channel_delete_outside_archive_scope_does_not_tombstone(
         async def __call__(self, request):
             self.call_requests.append(request)
             if isinstance(request, GetDifferenceRequest):
-                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=1)
-            if isinstance(request, GetChannelDifferenceRequest):
-                return ChannelDifference(
-                    pts=4,
+                return Difference(
                     new_messages=[],
+                    new_encrypted_messages=[],
                     other_updates=[
                         UpdateDeleteChannelMessages(
                             channel_id=1234,
@@ -1235,7 +919,7 @@ def test_sync_channel_delete_outside_archive_scope_does_not_tombstone(
                     ],
                     chats=[channel],
                     users=[],
-                    final=True,
+                    state=_state(pts=6, qts=1, seq=2),
                 )
             raise AssertionError(request)
 
@@ -1268,9 +952,7 @@ def test_sync_channel_delete_outside_archive_scope_does_not_tombstone(
             title="Removed channel",
             chat_ref=str(peer),
         )
-        cursor = ChangesCursor(
-            pts=5, qts=1, date=1_735_689_600, seq=1, channels={peer: 3}
-        )
+        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1)
         store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
         conn.commit()
     finally:
@@ -1401,7 +1083,7 @@ def test_sync_channel_activity_catchup_for_scoped_channel(
             username="news",
             chat_ref="@news",
         )
-        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
+        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1)
         store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
         conn.commit()
     finally:
@@ -1426,82 +1108,6 @@ def test_sync_channel_activity_catchup_for_scoped_channel(
         assert row["text"] == "caught up"
     finally:
         conn.close()
-
-
-def test_remove_drops_channel_from_changes_cursor(config_env, monkeypatch, capsys):
-    """T09: remove must unsubscribe the channel from the persisted cursor.
-
-    Otherwise a later `archive sync` keeps polling `GetChannelDifference`
-    for a channel that already left explicit scope.
-    """
-    channel = Channel(
-        id=1234,
-        title="News",
-        photo=None,
-        date=datetime(2026, 1, 1, tzinfo=UTC),
-        access_hash=99,
-        megagroup=False,
-        username="news",
-    )
-    peer = utils.get_peer_id(channel)
-
-    class NoChannelPollClient(FakeClient):
-        async def __call__(self, request):
-            self.call_requests.append(request)
-            if isinstance(request, GetStateRequest):
-                return _state(pts=5, qts=1, seq=1)
-            if isinstance(request, GetDifferenceRequest):
-                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=1)
-            if isinstance(request, GetChannelDifferenceRequest):
-                raise AssertionError(
-                    "archive sync must not poll a channel dropped by remove"
-                )
-            raise AssertionError(request)
-
-    client = NoChannelPollClient(
-        me=archive_me(), entities={peer: channel, 1234: channel, "@news": channel}
-    )
-    make_session_fake(monkeypatch, client)
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    path = archive_cmd.db_path("main")
-    conn = store_mod.connect(path)
-    try:
-        store_mod.add_scope(
-            conn,
-            peer_id=peer,
-            kind="channel",
-            title="News",
-            username="news",
-            chat_ref="@news",
-        )
-        # Simulate an earlier sync that already subscribed this channel.
-        cursor = ChangesCursor(
-            pts=5, qts=1, date=1_735_689_600, seq=1, channels={peer: 3}
-        )
-        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
-        conn.commit()
-    finally:
-        conn.close()
-
-    assert main(["archive", "remove", "@news", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert data["removed"]["kind"] == "channel"
-
-    conn = store_mod.connect(path)
-    try:
-        encoded = store_mod.read_account_sync(conn)["changes_cursor"]
-        assert encoded is not None
-        decoded = changes_cursor.decode(encoded)
-        assert peer not in decoded.channels
-    finally:
-        conn.close()
-
-    assert main(["archive", "sync", "--json"]) == 0
-    assert not any(
-        isinstance(request, GetChannelDifferenceRequest)
-        for request in client.call_requests
-    )
 
 
 def test_sync_max_runtime_stops_before_catchup_and_media(
@@ -1533,7 +1139,7 @@ def test_sync_max_runtime_stops_before_catchup_and_media(
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
 
-    cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
+    cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1)
     conn = store_mod.connect(archive_cmd.db_path("main"))
     try:
         store_mod.add_scope(
@@ -1573,14 +1179,11 @@ def test_sync_max_runtime_stops_before_catchup_and_media(
     finally:
         conn.close()
 
-    async def keep_subscriptions(_tg, _conn, current):
-        return current
-
     async def one_activity(_tg, current, **_kwargs):
         return (
             {
                 "events": [{"type": "channel_activity", "peer": peer}],
-                "gaps": [],
+                "too_long": False,
                 "skipped": {},
             },
             current,
@@ -1593,7 +1196,6 @@ def test_sync_max_runtime_stops_before_catchup_and_media(
         downloads.append(source.message_id)
         raise AssertionError("expired sync must not start media")
 
-    monkeypatch.setattr(sync_mod, "_ensure_channel_subscriptions", keep_subscriptions)
     monkeypatch.setattr(sync_mod.changes_engine, "once", one_activity)
     monkeypatch.setattr(sync_mod.media_cmd, "download_media", unexpected_download)
     monkeypatch.setattr(pace, "remaining", lambda: 0.0)
@@ -1608,110 +1210,6 @@ def test_sync_max_runtime_stops_before_catchup_and_media(
     assert data["remaining"] is True
     assert client.iter_messages_calls == []
     assert downloads == []
-
-
-def test_remove_keeps_scope_when_changes_cursor_is_corrupt(
-    config_env, monkeypatch, capsys
-):
-    channel = Channel(
-        id=1234,
-        title="News",
-        photo=None,
-        date=datetime(2026, 1, 1, tzinfo=UTC),
-        access_hash=99,
-        megagroup=False,
-        username="news",
-    )
-    peer = utils.get_peer_id(channel)
-    client = archive_client(entities={peer: channel, 1234: channel, "@news": channel})
-    make_session_fake(monkeypatch, client)
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    assert main(["archive", "add", "@news", "--json"]) == 0
-    capsys.readouterr()
-    path = archive_cmd.db_path("main")
-    conn = store_mod.connect(path)
-    try:
-        store_mod.write_account_sync(conn, changes_cursor="v1:not-valid")
-    finally:
-        conn.close()
-
-    assert main(["archive", "remove", "@news", "--json"]) == 2
-    assert "cursor is corrupt" in capsys.readouterr().err
-
-    conn = store_mod.connect(path)
-    try:
-        assert store_mod.in_explicit_scope(conn, peer)
-        assert store_mod.read_account_sync(conn)["changes_cursor"] == "v1:not-valid"
-    finally:
-        conn.close()
-
-
-def test_inflight_sync_cannot_restore_removed_channel_subscription(
-    config_env, monkeypatch, capsys
-):
-    channel = Channel(
-        id=1234,
-        title="News",
-        photo=None,
-        date=datetime(2026, 1, 1, tzinfo=UTC),
-        access_hash=99,
-        megagroup=False,
-        username="news",
-    )
-    peer = utils.get_peer_id(channel)
-
-    class ConcurrentRemoveClient(FakeClient):
-        removed = False
-
-        async def __call__(self, request):
-            self.call_requests.append(request)
-            if isinstance(request, GetDifferenceRequest):
-                assert not self.removed
-                await archive_cmd.remove_chat(self, "main", "@news")
-                self.removed = True
-                return DifferenceEmpty(date=datetime(2026, 1, 5, tzinfo=UTC), seq=1)
-            if isinstance(request, GetChannelDifferenceRequest):
-                return ChannelDifferenceEmpty(pts=4, final=True)
-            raise AssertionError(request)
-
-    client = ConcurrentRemoveClient(
-        me=archive_me(), entities={peer: channel, 1234: channel, "@news": channel}
-    )
-    make_session_fake(monkeypatch, client)
-    assert main(["archive", "init", "--json"]) == 0
-    capsys.readouterr()
-    path = archive_cmd.db_path("main")
-    conn = store_mod.connect(path)
-    try:
-        store_mod.add_scope(
-            conn,
-            peer_id=peer,
-            kind="channel",
-            title="News",
-            username="news",
-            chat_ref="@news",
-        )
-        cursor = ChangesCursor(
-            pts=5, qts=1, date=1_735_689_600, seq=1, channels={peer: 3}
-        )
-        store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
-    finally:
-        conn.close()
-
-    assert main(["archive", "sync", "--json"]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert client.removed is True
-    assert peer not in changes_cursor.decode(data["next_cursor"]).channels
-
-    conn = store_mod.connect(path)
-    try:
-        assert not store_mod.in_explicit_scope(conn, peer)
-        encoded = store_mod.read_account_sync(conn)["changes_cursor"]
-        assert encoded is not None
-        assert peer not in changes_cursor.decode(encoded).channels
-    finally:
-        conn.close()
 
 
 def test_sync_new_private_dialog_enters_sync_state(config_env, monkeypatch, capsys):
@@ -1746,7 +1244,7 @@ def test_sync_new_private_dialog_enters_sync_state(config_env, monkeypatch, caps
     make_session_fake(monkeypatch, client)
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
-    cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
+    cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1)
     conn = store_mod.connect(archive_cmd.db_path("main"))
     try:
         store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
@@ -1884,7 +1382,7 @@ def test_sync_media_rate_limit_still_advances_the_changes_cursor(
                 "media_kind": "voice",
             },
         )
-        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
+        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1)
         store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
         conn.commit()
     finally:
@@ -1963,7 +1461,7 @@ def test_voice_whose_media_never_downloads_leaves_the_transcript_queue(
                 "media_kind": "voice",
             },
         )
-        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
+        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1)
         store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
         conn.commit()
     finally:
@@ -2037,7 +1535,7 @@ def test_redownloaded_voice_that_used_up_its_transcription_attempts_stays_ended(
                 "media_kind": "voice",
             },
         )
-        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
+        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1)
         store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
         conn.commit()
     finally:
@@ -2156,7 +1654,7 @@ def test_sync_catch_up_of_a_channel_without_history_keeps_its_newest_page(
             username="news",
             chat_ref="@news",
         )
-        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
+        cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1)
         store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))
         conn.commit()
     finally:

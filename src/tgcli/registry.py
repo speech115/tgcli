@@ -175,7 +175,6 @@ COMMANDS: dict[str, Command] = {
         deadline=None,
         prepare=_args_only(archive_preflight.apply_sync),
     ),
-    "archive rebaseline": _archive_write(archive.rebaseline),
     "clone status": Command(kind="local-read", needs="none", run=handlers.clone_status),
     "clone init": replace(_HANDSHAKE, deadline=None),
     "clone sync": Command(

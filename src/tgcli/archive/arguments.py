@@ -127,8 +127,3 @@ def add_to(sub, global_flags) -> None:
         type=int,
         help="retryable attempts before no transcript (default 3, hard cap 5)",
     )
-    commands.add_parser(
-        "rebaseline",
-        help="Explicitly re-init the archive changes cursor (gap recovery)",
-        parents=[global_flags],
-    )

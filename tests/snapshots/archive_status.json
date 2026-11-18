@@ -47,7 +47,6 @@
     "last_errors": [],
     "last_sync_at": null,
     "path": "<volatile>",
-    "reconcile": null,
     "schema_version": 12,
     "transcript_errors": [],
     "transcript_queue": 0,

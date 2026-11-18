@@ -249,7 +249,7 @@ def test_archive_sync_default_and_cap(config_env, monkeypatch, capsys, extra, bu
     make_session_fake(monkeypatch, _QuietClient(me=archive_me()))
     assert main(["archive", "init", "--json"]) == 0
     capsys.readouterr()
-    cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1, channels={})
+    cursor = ChangesCursor(pts=5, qts=1, date=1_735_689_600, seq=1)
     conn = store_mod.connect(archive_cmd.db_path("main"))
     try:
         store_mod.write_account_sync(conn, changes_cursor=changes_cursor.encode(cursor))

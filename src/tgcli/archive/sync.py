@@ -1,4 +1,12 @@
-"""Archive delta sync through the update cursor engine (ADR-0068 Phase 3)."""
+"""Archive sync: the common update cursor plus catch-ups by ``min_id``.
+
+Each run takes one ``getDifference`` pass and applies every event it brings.
+A chat the pass cannot follow (``channel_activity``, or every chat after a
+``differenceTooLong``) is read forward from its ``newest_id`` instead. Until
+that catch-up finishes the chat's ``newest_id`` is its "complete up to"
+watermark: events of later passes are stored but do not move it, or a
+catch-up from it would skip the stretch it was meant to fill.
+"""
 
 from __future__ import annotations
 
@@ -14,11 +22,11 @@ from tgcli import pace
 from tgcli.archive import (
     changes as changes_engine,
     changes_cursor,
+    gaps as gaps_mod,
     media as media_mod,
     scope as scope_mod,
     store as store_mod,
 )
-from tgcli.archive.changes_cursor import ChangesCursor
 from tgcli.commands import media as media_cmd
 from tgcli.errors import PolicyError, RateLimitError
 from tgcli.messages import message_to_dict
@@ -27,18 +35,6 @@ from tgcli.tg_errors import FLOOD_ERRORS, RUN_ABORTING_ERRORS
 from tgcli.transfer import DownloadBusyError
 
 CATCHUP_LIMIT = 50
-RECONCILE_SAMPLE = 5
-# Marked channel/supergroup peer ids are at or below this bound.
-CHANNEL_PEER_CEILING = -(10**12)
-
-
-def has_own_updates(entry: dict[str, Any]) -> bool:
-    """A scoped channel or supergroup: the peers with their own update stream.
-
-    A basic group is a `group` in scope too, but its updates arrive through
-    the common difference; subscribing it fails.
-    """
-    return int(entry["peer_id"]) <= CHANNEL_PEER_CEILING
 
 
 def _in_archive_scope(conn: sqlite3.Connection, peer_id: int, kind: str | None) -> bool:
@@ -53,12 +49,16 @@ def _in_archive_scope(conn: sqlite3.Connection, peer_id: int, kind: str | None) 
 def apply_events(
     conn: sqlite3.Connection,
     events: list[dict[str, Any]],
+    *,
+    behind: frozenset[int] = frozenset(),
 ) -> dict[str, Any]:
     """Apply every event from a difference pass (never truncate).
 
     Difference events are already paid for on the wire; dropping a tail while
     advancing the changes cursor would silently lose archive history. Caps
-    belong on catch-up RPCs, not on local SQLite applies.
+    belong on catch-up RPCs, not on local SQLite applies. A message in a chat
+    that is ``behind`` (waiting for a catch-up) is stored without moving the
+    chat's ``newest_id``.
     """
     applied: dict[str, Any] = {
         "events": 0,
@@ -93,8 +93,8 @@ def apply_events(
                 store_mod.upsert_sync_state(
                     conn,
                     peer_id,
-                    oldest_id=int(message["id"]),
-                    newest_id=int(message["id"]),
+                    oldest_id=None if peer_id in behind else int(message["id"]),
+                    newest_id=None if peer_id in behind else int(message["id"]),
                     more=True if state is None else bool(state["more"]),
                     last_error=None,
                     touch_sync=True,
@@ -397,80 +397,26 @@ async def fetch_media(
     }
 
 
-async def _ensure_channel_subscriptions(
-    tg, conn: sqlite3.Connection, cursor: ChangesCursor
-) -> ChangesCursor:
-    for entry in store_mod.list_scope(conn):
-        if not has_own_updates(entry):
-            continue
-        peer = int(entry["peer_id"])
-        if peer in cursor.channels:
-            continue
-        try:
-            entity = await tg.get_entity(peer)
-            pts = await changes_engine._channel_pts(tg, entity)
-        except RUN_ABORTING_ERRORS:
-            raise
-        except Exception as exc:
-            note(f"archive sync: skip channel subscribe {peer}: {exc}")
-            continue
-        cursor = changes_cursor.with_channel(cursor, peer, pts)
-        note(f"archive sync: subscribed {peer} at pts {pts}")
-    return cursor
+def _scoped(conn: sqlite3.Connection, peer_id: int) -> bool:
+    return peer_id > 0 or store_mod.in_explicit_scope(conn, peer_id)
 
 
-async def light_reconcile(
-    tg, conn: sqlite3.Connection, *, sample: int = RECONCILE_SAMPLE
-) -> dict[str, Any]:
-    """Cheap local-vs-Telegram count sample; rotates across in-scope dialogs."""
-    dialogs = store_mod.list_scoped_sync_state(conn)
-    comparisons: list[dict[str, Any]] = []
-    if not dialogs:
-        summary = {"sampled": 0, "mismatched": 0, "comparisons": [], "next_offset": 0}
-        store_mod.write_account_sync(conn, reconcile=summary)
-        return summary
-    previous = store_mod.read_account_sync(conn).get("reconcile") or {}
-    offset = int(previous.get("next_offset") or 0) % len(dialogs)
-    take = min(sample, len(dialogs))
-    chosen = [dialogs[(offset + i) % len(dialogs)] for i in range(take)]
-    for row in chosen:
-        peer = int(row["peer_id"])
-        local = int(
-            conn.execute(
-                "SELECT COUNT(*) FROM messages WHERE peer_id = ?", (peer,)
-            ).fetchone()[0]
-        )
-        telegram_total = None
-        error = None
-        try:
-            entity = await tg.get_entity(peer)
-            result = await tg.get_messages(entity, limit=0)
-            telegram_total = int(getattr(result, "total", 0) or 0)
-        except RUN_ABORTING_ERRORS:
-            raise
-        except Exception as exc:
-            error = f"{type(exc).__name__}:{exc}"
-        comparisons.append(
-            {
-                "peer_id": peer,
-                "local": local,
-                "telegram": telegram_total,
-                "error": error,
-            }
-        )
-    next_offset = (offset + sample) % len(dialogs)
-    summary = {
-        "sampled": len(comparisons),
-        "mismatched": sum(
-            1
-            for item in comparisons
-            if item["telegram"] is not None and item["telegram"] != item["local"]
-        ),
-        "comparisons": comparisons,
-        "next_offset": next_offset,
-    }
-    store_mod.write_account_sync(conn, reconcile=summary)
-    return summary
+async def _dialogs_behind(tg, conn: sqlite3.Connection) -> list[int]:
+    """Chats in scope whose newest message is past the stored ``newest_id``.
+
+    The recovery for a lost stretch of updates: one GetDialogs page per 100
+    chats, then a catch-up for each chat that moved.
+    """
+    moved: list[int] = []
+    async for dialog in pace.paged(tg.iter_dialogs(), pace.DIALOGS_PAGE):
+        peer_id = int(dialog.id)
+        top = int(getattr(getattr(dialog, "message", None), "id", 0) or 0)
+        if not top or not _scoped(conn, peer_id):
+            continue
+        state = store_mod.get_sync_state(conn, peer_id)
+        if top > int((state or {}).get("newest_id") or 0):
+            moved.append(peer_id)
+    return moved
 
 
 async def sync_archive(
@@ -483,37 +429,50 @@ async def sync_archive(
     max_media: int,
     account_alias: str,
     account_dir: Path,
-    reconcile: bool = True,
     should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
-    """Apply a full difference pass, then budgeted channel catch-ups.
+    """Apply a full difference pass, then budgeted catch-ups.
 
     ``max_events`` caps catch-up *message fetches* (network), not how many
-    difference events are applied locally — those are always applied in full
+    difference events are applied locally: those are always applied in full
     before the changes cursor advances.
     """
     account = store_mod.read_account_sync(conn)
+    initialized = False
+    new_gaps: list[dict[str, Any]] = []
+    cursor = None
     if account["changes_cursor"]:
-        cursor = changes_cursor.decode(account["changes_cursor"])
-        initialized = False
-    else:
-        cursor = await changes_engine.init_changes(tg, peers=[])
-        initialized = True
-        store_mod.write_account_sync(
-            conn, changes_cursor=changes_cursor.encode(cursor), clear_gap=True
-        )
-
-    cursor = await _ensure_channel_subscriptions(tg, conn, cursor)
+        try:
+            cursor = changes_cursor.decode(account["changes_cursor"])
+        except PolicyError as exc:
+            note(f"archive sync: {exc}; starting a new cursor")
+            new_gaps.append(gaps_mod.gap("common", reason="cursorUnreadable"))
+    if cursor is None:
+        cursor = await changes_engine.init_changes(tg)
+        initialized = not new_gaps
     doc, cursor, requests = await changes_engine.once(tg, cursor, private_deletes=True)
+    if doc["too_long"]:
+        new_gaps.append(gaps_mod.gap("common", reason="differenceTooLong"))
     events = list(doc.get("events") or [])
-    applied = apply_events(conn, events)
+    activity = [
+        int(event["peer"])
+        for event in events
+        if event.get("type") == "channel_activity"
+        and event.get("peer") is not None
+        and store_mod.in_explicit_scope(conn, int(event["peer"]))
+    ]
+    behind = frozenset([*account["pending_catchups"], *activity])
+    applied = apply_events(conn, events, behind=behind)
     await _enrich_private_identity(tg, conn, events)
+    recovered: list[int] = []
+    if new_gaps:
+        recovered = await _dialogs_behind(tg, conn)
     # Catch-ups an earlier run left unfinished go first, then this pass's
-    # activity; whatever does not finish is persisted for the next run, so
-    # `remaining: true` stays true until every scoped channel is caught up.
+    # activity and recovery; whatever does not finish is persisted for the
+    # next run, so `remaining: true` stays true until every chat is caught up.
     queue: list[int] = []
-    for peer in [*account["pending_catchups"], *applied["activity_peers"]]:
-        if peer not in queue and store_mod.in_explicit_scope(conn, peer):
+    for peer in [*account["pending_catchups"], *activity, *recovered]:
+        if peer not in queue and _scoped(conn, peer):
             queue.append(int(peer))
     catchups: list[dict[str, Any]] = []
     unfinished: list[int] = []
@@ -545,21 +504,17 @@ async def sync_archive(
         stopped = True
     # Checkpoint before the media tail: its queue lives in the database, so
     # a media rate limit (exit 5) must not make the next run re-apply this
-    # difference.
-    gaps = doc["gaps"]
-    encoded = changes_cursor.encode(cursor)
-    # A clean pass does not bring lost edits back, and new gaps join the
-    # stored ones: every recorded gap stays until `rebaseline` clears them.
+    # difference. A gap stays recorded until no catch-up is left.
     persisted = store_mod.write_account_sync(
         conn,
-        changes_cursor=encoded,
-        gaps=gaps,
+        changes_cursor=changes_cursor.encode(cursor),
+        gaps=new_gaps,
+        clear_gap=not unfinished,
         touch_sync=True,
-        scope_channels=True,
         pending_catchups=unfinished,
     )
     assert persisted is not None
-    encoded = persisted
+    gaps = store_mod.read_account_sync(conn)["gaps"]
     media = await fetch_media(
         tg,
         conn,
@@ -571,9 +526,6 @@ async def sync_archive(
     )
     if should_stop is not None and should_stop():
         stopped = True
-    reconcile_data = None
-    if reconcile and not stopped:
-        reconcile_data = await light_reconcile(tg, conn)
 
     return {
         "initialized": initialized,
@@ -588,12 +540,12 @@ async def sync_archive(
             "received": len(events),
         },
         "catchups": catchups,
+        "recovered": len(recovered),
         "media": media,
         "gap": gaps[-1] if gaps else None,
         "gaps": gaps,
         "skipped": doc.get("skipped") or {},
-        "next_cursor": encoded,
-        "reconcile": reconcile_data,
+        "next_cursor": persisted,
         "requests": len(requests),
         "remaining": bool(stopped or unfinished or media["remaining"]),
     }
@@ -636,28 +588,3 @@ async def _enrich_private_identity(
                 username=username,
                 chat_ref=f"@{username}" if username else str(peer_id),
             )
-
-
-async def rebaseline(tg, conn: sqlite3.Connection) -> dict[str, Any]:
-    """Explicitly re-init the account changes cursor and clear a recorded gap."""
-    peers = [
-        entry.get("chat_ref") or str(entry["peer_id"])
-        for entry in store_mod.list_scope(conn)
-        if has_own_updates(entry)
-    ]
-    cursor = await changes_engine.init_changes(tg, peers=peers)
-    encoded = store_mod.write_account_sync(
-        conn,
-        changes_cursor=changes_cursor.encode(cursor),
-        clear_gap=True,
-        touch_sync=True,
-        scope_channels=True,
-    )
-    assert encoded is not None
-    return {
-        "rebaselined": True,
-        "next_cursor": encoded,
-        "gap": None,
-        "gaps": [],
-        "peers": peers,
-    }
