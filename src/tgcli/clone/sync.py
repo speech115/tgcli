@@ -12,9 +12,11 @@ Invariants (tests: test_clone_sync_faults' CloneSyncFaultMachine):
 - L1. A batch's cursor and map rows land in one SQLite transaction after
   Telegram confirmed every message; the cursor never passes an unmapped copy.
 - L2. A copy Telegram made but tgcli did not record (a crash between send and
-  save) is caught before the next copy: ``discussion.verify_tail`` refuses
-  any destination message above the highest mapped id (exit 2, manual
-  repair). A split caption's rest is recorded, so it counts as mapped.
+  save) is caught before the next copy. Each send first saves its leg's send
+  intent; ``journal.guard_tail`` maps a tail that is exactly the copies the
+  intent names, and refuses any other destination message above the highest
+  mapped id (exit 2, manual repair). A split caption's rest is recorded, so it
+  counts as mapped.
 - L3. The reupload cache is cleared only after the batch's mapping is saved,
   so a crash resumes the download.
 """
@@ -29,10 +31,10 @@ from tgcli import pace
 from tgcli.clone import (
     batching,
     comments,
-    discussion,
     fidelity,
     idle,
     init_peers,
+    journal,
     legs,
     pin,
     progress as clone_progress,
@@ -140,9 +142,10 @@ async def _sync_slot(
     if not valid_destination:
         kind_name = "forum megagroup" if forum else "broadcast channel"
         raise PolicyError(f"clone destination is not a private owned {kind_name}")
-    await discussion.verify_tail(
+    await journal.guard_tail(
         tg,
         destination,
+        legs.posts(clone_state),
         clone_state.max_destination_id(),
         "destination",
         lambda item: (

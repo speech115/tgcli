@@ -27,6 +27,7 @@ def _downgrade_to_schema_1(db_path) -> None:
     conn = sqlite3.connect(db_path)
     conn.execute("ALTER TABLE meta DROP COLUMN destination_title")
     conn.execute("ALTER TABLE meta DROP COLUMN destination_username")
+    conn.execute("ALTER TABLE meta DROP COLUMN send_intents")
     conn.execute("PRAGMA user_version=1")
     conn.commit()
     conn.close()
@@ -81,6 +82,7 @@ def test_schema_2_database_gains_an_anchor_map_that_round_trips(tmp_path, monkey
     state.save(s)
     conn = sqlite3.connect(state.path_for(s.clone_id))
     conn.execute("DROP TABLE anchor_map")
+    conn.execute("ALTER TABLE meta DROP COLUMN send_intents")
     conn.execute("PRAGMA user_version=2")
     conn.commit()
     conn.close()
@@ -110,6 +112,7 @@ def test_schema_3_database_gains_caption_rest_maps_that_count_in_the_tail(
     conn = sqlite3.connect(state.path_for(s.clone_id))
     conn.execute("DROP TABLE caption_rest_map")
     conn.execute("DROP TABLE discussion_caption_rest_map")
+    conn.execute("ALTER TABLE meta DROP COLUMN send_intents")
     conn.execute("PRAGMA user_version=3")
     conn.commit()
     conn.close()
@@ -123,7 +126,56 @@ def test_schema_3_database_gains_caption_rest_maps_that_count_in_the_tail(
     assert reloaded is not None
     assert reloaded.caption_rest_map == {2: 21}
     assert reloaded.max_destination_id() == 21
-    assert state.probe(s.clone_id)["schema_version"] == statedb.SCHEMA_VERSION == 4
+    assert state.probe(s.clone_id)["schema_version"] == statedb.SCHEMA_VERSION
+
+
+def test_schema_4_database_gains_send_intents_that_round_trip(tmp_path, monkeypatch):
+    """v5 remembers the send each leg is about to make; a v4 clone migrates in
+    place with no intent, and a saved intent loads back."""
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    s = _fresh()
+    s.destination_peer_id = 99
+    s.record_mapping(2, 20)
+    state.save(s)
+    conn = sqlite3.connect(state.path_for(s.clone_id))
+    conn.execute("ALTER TABLE meta DROP COLUMN send_intents")
+    conn.execute("PRAGMA user_version=4")
+    conn.commit()
+    conn.close()
+
+    migrated = state.load(s.clone_id)
+    assert migrated is not None and migrated.send_intents == {}
+    migrated.send_intents["posts"] = {"kind": "batch", "sources": [3, 4]}
+    state.save(migrated)
+
+    reloaded = state.load(s.clone_id)
+    assert reloaded is not None
+    assert reloaded.send_intents == {"posts": {"kind": "batch", "sources": [3, 4]}}
+    assert state.probe(s.clone_id)["schema_version"] == statedb.SCHEMA_VERSION == 5
+
+
+@pytest.mark.parametrize(
+    "intents",
+    [
+        '{"posts": {"kind": "batch", "sources": []}}',
+        '{"posts": {"kind": "rest", "sources": [1, 2]}}',
+        '{"elsewhere": {"kind": "batch", "sources": [1]}}',
+        '{"posts": {"kind": "batch", "sources": ["1"]}}',
+        '["posts"]',
+        "not json",
+    ],
+)
+def test_impossible_send_intent_is_refused(tmp_path, monkeypatch, intents):
+    monkeypatch.setenv("TGCLI_STATE_DIR", str(tmp_path))
+    s = _fresh()
+    state.save(s)
+    conn = sqlite3.connect(state.path_for(s.clone_id))
+    conn.execute("UPDATE meta SET send_intents = ?", (intents,))
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(PolicyError, match="manual repair"):
+        state.load(s.clone_id)
 
 
 def test_newer_schema_version_is_refused(tmp_path, monkeypatch):

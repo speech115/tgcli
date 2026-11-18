@@ -19,7 +19,7 @@ from typing import Any
 from tgcli.errors import PolicyError
 from tgcli.state_paths import create_private, ensure_parent_dir, restrict_file
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 META_FIELDS = (
     "version",
@@ -43,6 +43,7 @@ META_FIELDS = (
     "comments",
     "pinned_dest_id",
     "pin_occupied",
+    "send_intents",
 )
 
 
@@ -85,7 +86,8 @@ CREATE TABLE IF NOT EXISTS meta (
     discussion_cursor INTEGER NOT NULL,
     comments TEXT NOT NULL,
     pinned_dest_id INTEGER,
-    pin_occupied INTEGER NOT NULL
+    pin_occupied INTEGER NOT NULL,
+    send_intents TEXT
 );
 CREATE TABLE IF NOT EXISTS id_map (
     source INTEGER PRIMARY KEY,
@@ -140,6 +142,9 @@ _MIGRATIONS: dict[int, tuple[str, ...]] = {
         "CREATE TABLE IF NOT EXISTS discussion_caption_rest_map "
         "(source INTEGER PRIMARY KEY, dest INTEGER NOT NULL UNIQUE)",
     ),
+    # Per leg, the batch or caption rest about to be sent, so a run that
+    # crashed between Telegram's send and the mapping save is adopted.
+    5: ("ALTER TABLE meta ADD COLUMN send_intents TEXT",),
 }
 
 

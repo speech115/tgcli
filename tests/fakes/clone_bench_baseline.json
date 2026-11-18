@@ -19,7 +19,7 @@
           "get_messages": 11
         },
         "total_requests": 342,
-        "state_saves": 506,
+        "state_saves": 770,
         "completeness": {
           "expected": 312,
           "copied": 312,
@@ -86,7 +86,7 @@
           "get_messages": 5
         },
         "total_requests": 34,
-        "state_saves": 29,
+        "state_saves": 44,
         "completeness": {
           "expected": 329,
           "copied": 329,
@@ -131,7 +131,7 @@
           "get_messages": 2
         },
         "total_requests": 225,
-        "state_saves": 98,
+        "state_saves": 182,
         "completeness": {
           "expected": 108,
           "copied": 108,

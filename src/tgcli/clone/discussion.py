@@ -52,10 +52,9 @@ def autoforward_post_id(message, source_channel_id: int) -> int | None:
     return post_id
 
 
-async def verify_tail(tg, destination, recorded_last_id, label, expected) -> None:
-    """Tail guard shared by both clone legs: nothing may sit past the recorded
-    tail unless `expected` vouches for it (service messages on the channel,
-    Telegram's own auto-forwards in the discussion group)."""
+async def unexpected_tail(tg, destination, recorded_last_id, label, expected) -> list:
+    """Messages past the recorded tail that `expected` does not vouch for,
+    oldest first. A recorded tail Telegram no longer has refuses outright."""
     latest = await tg.get_messages(destination, limit=1)
     destination_last_id = latest[0].id if latest else 0
     if recorded_last_id is not None and recorded_last_id > destination_last_id:
@@ -64,9 +63,21 @@ async def verify_tail(tg, destination, recorded_last_id, label, expected) -> Non
         )
     baseline = recorded_last_id or 1
     if destination_last_id <= baseline:
-        return
+        return []
     tail = await tg.get_messages(destination, limit=destination_last_id - baseline)
-    unexpected = [item for item in tail if item.id > baseline and not expected(item)]
+    return sorted(
+        (item for item in tail if item.id > baseline and not expected(item)),
+        key=lambda item: item.id,
+    )
+
+
+async def verify_tail(tg, destination, recorded_last_id, label, expected) -> None:
+    """Tail guard shared by both clone legs: nothing may sit past the recorded
+    tail unless `expected` vouches for it (service messages on the channel,
+    Telegram's own auto-forwards in the discussion group)."""
+    unexpected = await unexpected_tail(
+        tg, destination, recorded_last_id, label, expected
+    )
     if unexpected:
         raise PolicyError(
             f"clone {label} has unexpected tail messages; manual repair is required",

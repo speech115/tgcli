@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import fcntl
 import hashlib
+import json
 import math
 import os
 from collections.abc import Iterable, Iterator
@@ -181,6 +182,11 @@ class CloneState:
     )
     pinned_dest_id: int | None = None
     pin_occupied: bool = False
+    # Per leg kind, the send about to happen: ``{"kind": "batch" | "rest",
+    # "sources": [source ids]}``. Saved before the send and cleared by the
+    # save that maps it, so one left behind names what a crashed run sent
+    # (``clone.journal``).
+    send_intents: dict[str, dict] = field(default_factory=dict)
     # Map writes since the last save; ``save`` applies them in order. A state
     # that was never saved starts empty, so its pending list is its whole map.
     _pending: list[Pending] = field(
@@ -379,6 +385,22 @@ def _check(state: CloneState) -> None:
         and datetime.fromisoformat(state.retry_not_before).utcoffset() is None
     ):
         raise ValueError("invalid cooldown deadline")
+    if not isinstance(state.send_intents, dict):
+        raise ValueError("invalid send intents")
+    for leg, intent in state.send_intents.items():
+        if not isinstance(intent, dict):
+            raise ValueError("invalid send intent")
+        sources = intent.get("sources")
+        if (
+            leg not in ("posts", "discussion")
+            or set(intent) != {"kind", "sources"}
+            or intent["kind"] not in ("batch", "rest")
+            or not isinstance(sources, list)
+            or not sources
+            or not all(type(item) is int and item > 0 for item in sources)
+            or (intent["kind"] == "rest" and len(sources) != 1)
+        ):
+            raise ValueError("invalid send intent")
 
 
 def _from_rows(
@@ -390,6 +412,7 @@ def _from_rows(
             "comments": Comments(meta["comments"]),
             "discussion_linked": bool(meta["discussion_linked"]),
             "pin_occupied": bool(meta["pin_occupied"]),
+            "send_intents": json.loads(meta["send_intents"] or "{}"),
         },
         topic_map=maps[MapTable.TOPIC_MAP],
         id_map=cast("dict[SourcePostId, DestPostId]", maps[MapTable.ID_MAP]),
@@ -472,5 +495,8 @@ def save(state: CloneState) -> None:
     """Persist the meta row and every pending map write in one transaction."""
     ensure_clones_dir()
     meta = {name: getattr(state, name) for name in statedb.META_FIELDS}
+    meta["send_intents"] = (
+        json.dumps(state.send_intents, sort_keys=True) if state.send_intents else None
+    )
     statedb.persist(path_for(state.clone_id), meta, state._pending)
     state._pending.clear()
